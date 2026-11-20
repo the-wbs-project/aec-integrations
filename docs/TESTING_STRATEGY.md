@@ -983,12 +983,15 @@ only on the client, so keep the remedy below.
 
 Signal Forms is the main listener added in code: `[formField]` adds its `input`
 listener with `addEventListener`, and hydration writes the model's starting value
-over the control. So a `fill` or `check` on a `[formField]` control before
-hydration was wiped (AECI-1720). The claim form's submit then stayed disabled after
-the test ticked the box, on cold first loads only. `AecEarlyInput` now restores the
-value from the inline recorder in `src/index.html`, so filling before hydration is
-what a visitor does and the form keeps it. `e2e/forms-early-input.spec.ts` pins it.
-A test that clicks a toggle and asserts in-app handling still gates on `untilHydrated`.
+over the control. So a `fill` on a `[formField]` control before hydration was wiped
+(AECI-1720). `AecEarlyInput` now restores typed values from the inline recorder in
+`src/index.html`, so filling before hydration is what a visitor does and the form
+keeps it. A consent box is different: it is `disabled` until the app is live
+(`aecConsent`), and no tick crosses hydration. Playwright's `check()` waits for the
+box to be enabled, which is the right signal: do not wait on time. The claim form's
+earlier cold-run failure (the test ticked before hydration, and hydration unticked
+the box) cannot recur. `e2e/forms-early-input.spec.ts` pins both halves. A test that
+clicks a toggle and asserts in-app handling still gates on `untilHydrated`.
 
 There is now one clean DOM signal. Angular removes an element's `jsaction`
 attribute once the app is stable after hydration, and its listener is live from

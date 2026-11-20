@@ -24,7 +24,7 @@ import { safeReturnPath } from './return-path';
 import { isReplayedEvent } from '../core/event-replay';
 import { AecButton } from '../shared/button/button';
 import { AecCard } from '../shared/card/card';
-import { AecEarlyInput } from '../shared/form-field/early-input';
+import { AecConsentBox } from '../shared/form-field/consent-box';
 
 /** A Terms version as `/auth/callback` writes it: dotted digits only. */
 const VERSION_RE = /^\d{1,4}(?:\.\d{1,4}){0,3}$/;
@@ -65,9 +65,10 @@ const LINK_CLASS =
  * the page usable without the summary.
  *
  * The box starts unticked, and its label is `TERMS_CHANGE_BOX_LABEL` word for word
- * (`terms-accept.component.spec.ts` pins it). A tick the reader made before hydration
- * is kept: `aecEarlyInput` puts it back after hydration writes `ticked()` over the box, and
- * only the reader's own (trusted) click or key can make one (AECI-1720).
+ * (`terms-accept.component.spec.ts` pins it). The box is disabled until the app is live
+ * (`aecConsent`, AECI-1720), so it cannot be ticked before the page can show what it
+ * accepts. If the server's pending version differs from the one the page showed from
+ * `?version=`, the box is unticked again, so a tick always follows the version on screen.
  * "Accept and continue" stays disabled until
  * hydration, as on the login form, so an early click cannot submit the form natively and
  * lose the version and `next`. After that it is never disabled except while sending.
@@ -88,7 +89,7 @@ const LINK_CLASS =
  */
 @Component({
   selector: 'aec-terms-accept-page',
-  imports: [AecButton, AecCard, AecEarlyInput, DatePipe],
+  imports: [AecButton, AecCard, AecConsentBox, DatePipe],
   template: `
     <section
       class="mx-auto w-full max-w-md px-6 py-16 text-(--text-primary) md:py-24"
@@ -179,7 +180,7 @@ const LINK_CLASS =
                   id="terms-accept-box"
                   type="checkbox"
                   data-testid="terms-accept-box"
-                  aecEarlyInput
+                  aecConsent
                   [checked]="ticked()"
                   (change)="onTick($event)"
                   [attr.aria-invalid]="showError() ? 'true' : null"
@@ -317,6 +318,9 @@ export class TermsAcceptPage {
       await this.leave();
       return;
     }
+    // AECI-1720: a tick given while the page showed another version is not a tick for
+    // this one. Untick, so the reader ticks again for the version and summary now shown.
+    if (res.pending.version !== this.version()) this.ticked.set(false);
     this.version.set(res.pending.version);
     this.pending.set(res.pending);
   }

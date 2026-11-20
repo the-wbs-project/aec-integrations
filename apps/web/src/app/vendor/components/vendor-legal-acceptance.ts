@@ -45,6 +45,7 @@ import { VendorApi } from '../vendor-api';
 import { VendorLegalAcceptanceState } from '../vendor-legal-acceptance-state';
 import { isReplayedEvent } from '../../core/event-replay';
 import { AecEarlyInput } from '../../shared/form-field/early-input';
+import { AecConsentBox } from '../../shared/form-field/consent-box';
 
 const SUPPORT_EMAIL = 'support@aecintegrations.com';
 
@@ -155,7 +156,7 @@ export function legalDocumentTitle(document: VendorLegalPending['document']): st
  */
 @Component({
   selector: 'aec-vendor-legal-acceptance',
-  imports: [FormField, AecEarlyInput],
+  imports: [FormField, AecEarlyInput, AecConsentBox],
   host: { class: 'block' },
   template: `
     @let it = item();
@@ -382,6 +383,7 @@ export function legalDocumentTitle(document: VendorLegalPending['document']): st
                   <input
                     [id]="id('accept')"
                     type="checkbox"
+                    aecConsent
                     [formField]="form.accepted"
                     [attr.aria-invalid]="acceptError() ? 'true' : null"
                     [attr.aria-describedby]="acceptError() ? id('accept-error') : null"

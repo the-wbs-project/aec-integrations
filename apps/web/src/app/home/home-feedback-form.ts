@@ -20,6 +20,7 @@ import { FoundViaField } from '../shared/found-via/found-via-field';
 import { LandingApi, buildAttribution } from '../shared/landing/landing-api';
 import { isReplayedEvent } from '../core/event-replay';
 import { AecEarlyInput } from '../shared/form-field/early-input';
+import { AecConsentBox } from '../shared/form-field/consent-box';
 
 /** Standard-schema-validated subset of the feedback form. Only `features` /
  *  `tools` live in the Signal Forms model so `FeedbackSubmitSchema`'s `.refine`
@@ -59,7 +60,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   selector: 'aec-home-feedback-form',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
-  imports: [AecButton, FormField, AecEarlyInput, FoundViaField],
+  imports: [AecButton, FormField, AecEarlyInput, AecConsentBox, FoundViaField],
   template: `
     @if (submitted()) {
       <p
@@ -168,6 +169,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         <label class="flex items-center gap-2.5 text-sm text-(--text-secondary)">
           <input
             type="checkbox"
+            aecConsent
             [checked]="subscribed()"
             (change)="onSubscribedChange($event)"
             class="size-4 rounded-(--radius-sm) border-(--border-strong) text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"

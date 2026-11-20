@@ -21,6 +21,7 @@ import {
 import { LegalInForceClient } from '../../legal/legal-in-force-client';
 import { AdminLicensesApi } from './admin-licenses-api';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import { AecConsentBox } from '../../shared/form-field/consent-box';
 
 /** The operator's local today as `YYYY-MM-DD`, the form a date input holds. Local, not
  *  UTC, so an evening grant in the Americas does not prefill tomorrow. */
@@ -65,7 +66,7 @@ function todayLocal(): string {
  */
 @Component({
   selector: 'aec-grant-licenses-control',
-  imports: [AecFormSubmit],
+  imports: [AecFormSubmit, AecConsentBox],
   templateUrl: './grant-licenses-control.html',
 })
 export class GrantLicensesControl {

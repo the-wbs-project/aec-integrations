@@ -1,4 +1,5 @@
-import { Component, inject } from '@angular/core';
+import { DOCUMENT } from '@angular/common';
+import { ApplicationRef, Component, afterNextRender, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 
 import { ConsentBanner } from './analytics/consent-banner';
@@ -14,6 +15,7 @@ import { LegalNoticeBand } from './legal/legal-notice-band';
 import { SiteFooter } from './layout/site-footer';
 import { SiteHeader } from './layout/site-header';
 import { SkipLink } from './layout/skip-link';
+import { stopEarlyInput } from './shared/form-field/early-input';
 import { WaitlistWelcome } from './waitlist/waitlist-welcome';
 
 @Component({
@@ -52,6 +54,8 @@ export class App {
   private readonly preStableScrollReset = inject(PreStableScrollReset);
   private readonly arrivalCapture = inject(ArrivalCaptureService);
   private readonly appUpdate = inject(AppUpdateService);
+  private readonly appRef = inject(ApplicationRef);
+  private readonly document = inject(DOCUMENT);
 
   constructor() {
     // AECI-151 — count in-app (client-side) navigations as page-views. The SSR
@@ -89,5 +93,13 @@ export class App {
     // AECI-1493 — notice when a deploy has replaced this tab's build, so a
     // stale chunk never leaves the visitor stuck. No-op on the server.
     this.appUpdate.start();
+
+    // AECI-1720 — the inline recorder in index.html keeps what a visitor typed before
+    // hydration, for `AecEarlyInput` to put back. Every server-rendered field has
+    // taken its value by the time the app is first stable, so the recorder stops
+    // then: its listeners and values go and its global is deleted. Browser only.
+    afterNextRender(() => {
+      void this.appRef.whenStable().then(() => stopEarlyInput(this.document.defaultView));
+    });
   }
 }

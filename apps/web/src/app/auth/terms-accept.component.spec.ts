@@ -13,7 +13,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { TERMS_CHANGE_BOX_LABEL } from '@aeci/shared';
 
 import { AccountApi } from '../account/account-api';
-import { EARLY_INPUT_KEY, type EarlyInputValue } from '../shared/form-field/early-input';
+import { EARLY_INPUT_KEY } from '../shared/form-field/early-input';
 import { TermsAcceptPage, termsAcceptNextPath, termsAcceptVersion } from './terms-accept';
 
 const PENDING = {
@@ -254,50 +254,78 @@ describe('termsAcceptVersion / termsAcceptNextPath', () => {
 });
 
 /**
- * AECI-1720: a tick made before hydration. Hydration writes `[checked]="ticked()"`
- * (false) over the box, so the tick was lost and the box unticked itself. The inline
- * recorder in `src/index.html` keeps the visitor's own (trusted) value, and
- * `aecEarlyInput` puts it back. Here a stand-in recorder answers by element id.
+ * AECI-1720. Before hydration the page shows the version from `?version=` and no summary,
+ * and the server's pending version can differ. So the box is disabled until the app is
+ * live (`aecConsent`), no tick made before hydration is ever carried, and a tick given
+ * while another version was shown is taken away when the server's version arrives.
  */
-describe('TermsAcceptPage: a tick before hydration (AECI-1720)', () => {
-  class KeptById extends WeakMap<object, EarlyInputValue> {
-    constructor(private readonly byId: Record<string, EarlyInputValue>) {
-      super();
-    }
-    override get(el: object): EarlyInputValue | undefined {
-      return this.byId[(el as Element).id];
-    }
-    override delete(el: object): boolean {
-      return delete this.byId[(el as Element).id];
-    }
-  }
+describe('TermsAcceptPage: ticks and the version shown (AECI-1720)', () => {
   const win = window as unknown as Record<string, unknown>;
 
-  it("keeps the visitor's early tick, and Continue posts the version", async () => {
-    win[EARLY_INPUT_KEY] = new KeptById({ 'terms-accept-box': { value: 'on', checked: true } });
-    try {
-      const { fixture, el, api, navigate } = await setup();
-      const box = el.querySelector<HTMLInputElement>('[data-testid="terms-accept-box"]')!;
-      expect(box.checked).toBe(true);
-      await submit(fixture, el);
-      expect(api.acceptTerms).toHaveBeenCalledWith('1.2');
-      expect(navigate).toHaveBeenCalledWith('/account');
-    } finally {
-      delete win[EARLY_INPUT_KEY];
-    }
-  });
-
-  it('with no early tick recorded, the box starts unticked and Continue sends nothing', async () => {
-    win[EARLY_INPUT_KEY] = new KeptById({});
+  it('never carries a tick the recorder kept from before hydration', async () => {
+    win[EARLY_INPUT_KEY] = {
+      take: () => ({ value: 'on', checked: true }),
+      stop() {},
+    };
     try {
       const { fixture, el, api } = await setup();
-      expect(el.querySelector<HTMLInputElement>('[data-testid="terms-accept-box"]')!.checked).toBe(
-        false,
-      );
+      const box = el.querySelector<HTMLInputElement>('[data-testid="terms-accept-box"]')!;
+      expect(box.checked).toBe(false);
+      expect(box.hasAttribute('aecConsent')).toBe(true);
+      expect(box.disabled).toBe(false);
       await submit(fixture, el);
       expect(api.acceptTerms).not.toHaveBeenCalled();
     } finally {
       delete win[EARLY_INPUT_KEY];
     }
+  });
+
+  function deferredPending(version: string) {
+    let resolve!: () => void;
+    const gate = new Promise<void>((r) => (resolve = r));
+    return {
+      release: () => resolve(),
+      read: async () => {
+        await gate;
+        return { pending: { ...PENDING, version } };
+      },
+    };
+  }
+
+  it("unticks when the server's pending version differs from the one shown", async () => {
+    const pending = deferredPending('1.3');
+    const { fixture, el, api } = await setup(undefined, undefined, pending.read);
+    tick(el);
+    fixture.detectChanges();
+    pending.release();
+    await settle();
+    await settle();
+    fixture.detectChanges();
+
+    const box = el.querySelector<HTMLInputElement>('[data-testid="terms-accept-box"]')!;
+    expect(box.checked).toBe(false);
+    await submit(fixture, el);
+    expect(api.acceptTerms).not.toHaveBeenCalled();
+
+    tick(el);
+    fixture.detectChanges();
+    await submit(fixture, el);
+    expect(api.acceptTerms).toHaveBeenCalledWith('1.3');
+  });
+
+  it("keeps the tick when the server's version is the one shown", async () => {
+    const pending = deferredPending('1.2');
+    const { fixture, el, api } = await setup(undefined, undefined, pending.read);
+    tick(el);
+    fixture.detectChanges();
+    pending.release();
+    await settle();
+    await settle();
+    fixture.detectChanges();
+    expect(el.querySelector<HTMLInputElement>('[data-testid="terms-accept-box"]')!.checked).toBe(
+      true,
+    );
+    await submit(fixture, el);
+    expect(api.acceptTerms).toHaveBeenCalledWith('1.2');
   });
 });

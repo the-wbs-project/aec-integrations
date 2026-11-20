@@ -1,18 +1,26 @@
 /**
- * AECI-1720: what a visitor types or ticks before hydration survives into the form.
+ * AECI-1720: what a visitor types before hydration survives into the form, and no
+ * consent box can be ticked before the app can take the tick.
  *
  * The claim pages are server-rendered and cached, so a visitor on a slow phone can
- * fill the form and tick the Vendor Terms box before the scripts load. Hydration
- * wrote the model's empty starting values over every `[formField]` control: the box
- * unticked itself, the answers emptied, and the submit stayed disabled. The inline
- * recorder in `src/index.html` keeps the visitor's own values and `AecEarlyInput`
+ * fill the form before the scripts load. Hydration wrote the model's empty starting
+ * values over every `[formField]` control, so the answers emptied. The inline recorder
+ * in `src/index.html` keeps typed values and `AecEarlyInput`
  * (`shared/form-field/early-input.ts`) puts them back once the field is live.
+ *
+ * Consent is the other half. No checkbox is ever carried, whatever ticked it: the
+ * visitor, an extension or a script's `click()` (Chromium fires trusted `input` and
+ * `change` for all three). A consent box is disabled in the server HTML until the app
+ * is live (`AecConsentBox`), so it cannot be ticked early and untick itself.
  *
  * Each test holds the app's entry bundle, acts on the server-rendered HTML, then
  * releases the bundle and checks the form once it is hydrated. Every request is
  * routed: the page's own same-origin GETs pass, other origins are aborted, the one
  * write each test makes is answered here, and any other write fails the test.
+ *
+ * `AECI_CPU_THROTTLE=4` runs every test with the CPU slowed four times (CDP).
  */
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
 import { untilHydrated } from './hydration';
@@ -24,6 +32,15 @@ const CLAIM_PAGES = [
 
 const CLAIM_FORM = '[data-testid="page-canvas"] form';
 const CLAIM_SUBMIT = `${CLAIM_FORM} button[type="submit"]`;
+const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
+const THROTTLE = Number(process.env['AECI_CPU_THROTTLE'] ?? '1');
+
+test.beforeEach(async ({ page }) => {
+  if (THROTTLE > 1) {
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: THROTTLE });
+  }
+});
 
 interface Guard {
   /** Bodies of the writes this test allows, answered with a stub. */
@@ -81,6 +98,18 @@ async function hydrate(page: Page, guard: Guard, form: string): Promise<void> {
   await untilHydrated(page.locator(form));
 }
 
+/** Wait until the app is stable: the recorder has stopped and removed its global. */
+async function untilRecorderStopped(page: Page): Promise<void> {
+  await page.waitForFunction(() => !('__aeciEarlyInput' in window));
+}
+
+async function seriousViolations(page: Page) {
+  const { violations } = await new AxeBuilder({ page }).withTags(AXE_TAGS).analyze();
+  return violations
+    .filter((v) => v.impact === 'serious' || v.impact === 'critical')
+    .map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`);
+}
+
 const ANSWERS = {
   '#claim-name': 'Jane Example',
   '#claim-title': 'Product manager',
@@ -90,7 +119,7 @@ const ANSWERS = {
 
 test.describe('early input survives hydration (AECI-1720)', () => {
   for (const r of CLAIM_PAGES) {
-    test(`${r.name}: an early tick and early answers reach the form and the claim`, async ({
+    test(`${r.name}: early answers survive; the box waits for the app, then the claim sends`, async ({
       page,
       baseURL,
     }) => {
@@ -98,19 +127,28 @@ test.describe('early input survives hydration (AECI-1720)', () => {
       await openHeld(page, r.path, CLAIM_FORM);
 
       for (const [id, value] of Object.entries(ANSWERS)) await page.locator(id).fill(value);
-      await page.locator('#claim-terms').check();
+      const box = page.locator('#claim-terms');
+      await expect(box, 'the consent box is inert before hydration').toBeDisabled();
+      await expect(box).not.toBeChecked();
       await expect(page.locator(CLAIM_SUBMIT), 'the SSR submit waits for the app').toBeDisabled();
+      // The label's links stay live: the terms open in a new tab without the app.
+      await expect(page.locator('label[for="claim-terms"] a')).toHaveAttribute(
+        'href',
+        '/legal/vendor-terms',
+      );
 
       await hydrate(page, guard, CLAIM_FORM);
 
-      await expect(page.locator('#claim-terms')).toBeChecked();
       for (const [id, value] of Object.entries(ANSWERS)) {
         await expect(page.locator(id)).toHaveValue(value);
         await expect(page.locator(id)).not.toHaveAttribute('aria-invalid', 'true');
       }
-      await expect(page.locator('#claim-terms')).not.toHaveAttribute('aria-invalid', 'true');
-      await expect(page.locator(CLAIM_SUBMIT), 'the tick reached the form').toBeEnabled();
+      await expect(box, 'the box is live once the app is').toBeEnabled();
+      await expect(box).not.toBeChecked();
+      await expect(page.locator(CLAIM_SUBMIT), 'no tick, no submit').toBeDisabled();
 
+      await box.check();
+      await expect(page.locator(CLAIM_SUBMIT)).toBeEnabled();
       await page.locator(CLAIM_SUBMIT).click();
       await expect(page.locator('h1')).toContainText(/sent/i);
       expect(guard.sent).toHaveLength(1);
@@ -124,18 +162,35 @@ test.describe('early input survives hydration (AECI-1720)', () => {
       expect(guard.unexpected).toEqual([]);
     });
 
-    test(`${r.name}: a tick a script made is not carried, and a cleared answer stays clear`, async ({
+    test(`${r.name}: a consent box is never carried, whatever ticks it before hydration`, async ({
       page,
       baseURL,
     }) => {
       const guard = await holdScripts(page, new URL(baseURL!).origin, '/api/requests/claim');
       await openHeld(page, r.path, CLAIM_FORM);
 
-      // A script ticks the box and fires the events a click would. They are not trusted.
-      await page.locator('#claim-terms').evaluate((box: HTMLInputElement) => {
-        box.checked = true;
-        box.dispatchEvent(new Event('input', { bubbles: true }));
-        box.dispatchEvent(new Event('change', { bubbles: true }));
+      // A script ticks the box: a box.click(), a label.click() and a dispatched click.
+      // In Chromium each fires input and change with isTrusted true, disabled box or not,
+      // so the recorder cannot tell them from the visitor. It keeps no checkbox at all.
+      const before = await page.locator('#claim-terms').evaluate((box: HTMLInputElement) => {
+        const label = document.querySelector<HTMLLabelElement>('label[for="claim-terms"]')!;
+        const trusted: boolean[] = [];
+        box.addEventListener('change', (e) => trusted.push(e.isTrusted));
+        const clicks = [
+          () => box.click(),
+          () => label.click(),
+          () => box.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })),
+        ];
+        for (const click of clicks) if (!box.checked) click();
+        if (!box.checked) {
+          box.removeAttribute('disabled');
+          box.click();
+        }
+        return { ticked: box.checked, trustedChange: trusted.includes(true) };
+      });
+      expect(before, 'the script ticked the box with a trusted change').toEqual({
+        ticked: true,
+        trustedChange: true,
       });
       // The visitor types an answer and clears it again: the empty value is theirs.
       await page.locator('#claim-name').fill('Jane');
@@ -143,29 +198,13 @@ test.describe('early input survives hydration (AECI-1720)', () => {
 
       await hydrate(page, guard, CLAIM_FORM);
 
-      await expect(page.locator('#claim-terms'), 'no tick without the visitor').not.toBeChecked();
+      await expect(page.locator('#claim-terms'), 'no tick crosses hydration').not.toBeChecked();
       await expect(page.locator(CLAIM_SUBMIT), 'the box still gates the submit').toBeDisabled();
       await expect(page.locator('#claim-name')).toHaveValue('');
-
       expect(guard.sent).toEqual([]);
       expect(guard.unexpected).toEqual([]);
     });
   }
-
-  test('product claim: ticked and unticked before hydration stays unticked', async ({
-    page,
-    baseURL,
-  }) => {
-    const guard = await holdScripts(page, new URL(baseURL!).origin, '/api/requests/claim');
-    await openHeld(page, CLAIM_PAGES[0].path, CLAIM_FORM);
-    await page.locator('#claim-terms').check();
-    await page.locator('#claim-terms').uncheck();
-    await hydrate(page, guard, CLAIM_FORM);
-    await expect(page.locator('#claim-terms')).not.toBeChecked();
-    await expect(page.locator(CLAIM_SUBMIT)).toBeDisabled();
-    expect(guard.sent).toEqual([]);
-    expect(guard.unexpected).toEqual([]);
-  });
 
   test('/vendor-program/list-your-product: early answers survive and focus stays put', async ({
     page,
@@ -229,4 +268,81 @@ test.describe('early input survives hydration (AECI-1720)', () => {
     await expect(page.locator('#claim-dialog-form, #claim-dialog-terms')).toHaveCount(0);
     expect(guard.unexpected).toEqual([]);
   });
+
+  test('the recorder stops once the app is stable: no global, nothing kept after', async ({
+    page,
+    baseURL,
+  }) => {
+    const guard = await holdScripts(page, new URL(baseURL!).origin, '/api/requests/claim');
+    await openHeld(page, CLAIM_PAGES[0].path, CLAIM_FORM);
+
+    const before = await page.evaluate(() => {
+      const w = window as unknown as Record<string, unknown>;
+      const d = Object.getOwnPropertyDescriptor(window, '__aeciEarlyInput');
+      // Keep a handle, to ask the recorder about a later value once it has stopped.
+      w['__probe'] = w['__aeciEarlyInput'];
+      w['__aeciEarlyInput'] = 'replaced';
+      return { writable: d?.writable, kept: w['__aeciEarlyInput'] === w['__probe'] };
+    });
+    expect(before).toEqual({ writable: false, kept: true });
+
+    await hydrate(page, guard, CLAIM_FORM);
+    await untilRecorderStopped(page);
+
+    await page.locator('#claim-title').fill('Typed after the app took over');
+    const after = await page.evaluate(() => {
+      const probe = (window as unknown as Record<string, { take(el: Element): unknown }>)[
+        '__probe'
+      ];
+      return {
+        global: '__aeciEarlyInput' in window,
+        kept: probe.take(document.getElementById('claim-title')!) ?? null,
+      };
+    });
+    expect(after).toEqual({ global: false, kept: null });
+    expect(guard.unexpected).toEqual([]);
+  });
+
+  test('the server HTML of a claim page is the same for every visitor, the box disabled', async ({
+    request,
+  }) => {
+    const path = CLAIM_PAGES[0].path;
+    // The form counter in Signal Forms' generated `name` differs per render, not per visitor.
+    const box = (html: string) =>
+      (html.match(/<input[^>]*id="claim-terms"[^>]*>/)?.[0] ?? '').replace(
+        /ng\.form\d+\./,
+        'ng.form.',
+      );
+    const plain = await (await request.get(path)).text();
+    const withCookies = await (
+      await request.get(path, { headers: { cookie: 'aeci_consent=granted; ph_test=1' } })
+    ).text();
+    expect(box(plain)).toMatch(/\bdisabled=""/);
+    expect(box(withCookies)).toBe(box(plain));
+  });
+});
+
+test.describe('a disabled consent box passes axe (AECI-1720)', () => {
+  const SURFACES = [
+    { path: CLAIM_PAGES[0].path, form: CLAIM_FORM, write: '/api/requests/claim' },
+    {
+      path: '/vendor-program/list-your-product',
+      form: 'form#claim-dialog-form',
+      write: '/api/requests/listing',
+    },
+  ] as const;
+  for (const s of SURFACES) {
+    for (const width of [1440, 390]) {
+      test(`${s.path} at ${width}px: axe before and after hydration`, async ({ page, baseURL }) => {
+        await page.setViewportSize({ width, height: 900 });
+        const guard = await holdScripts(page, new URL(baseURL!).origin, s.write);
+        await openHeld(page, s.path, s.form);
+        expect(await seriousViolations(page), 'before hydration').toEqual([]);
+        await hydrate(page, guard, s.form);
+        await untilRecorderStopped(page);
+        expect(await seriousViolations(page), 'after hydration').toEqual([]);
+        expect(guard.unexpected).toEqual([]);
+      });
+    }
+  }
 });

@@ -29,23 +29,28 @@
     -->
     <link rel="manifest" href="manifest.webmanifest" crossorigin="use-credentials" />
     <!--
-      Early input (AECI-1720). A visitor can type in a server-rendered form field or tick
-      its box before the app's scripts load. Hydration then writes each field's starting
-      value over the control, so the answer and the tick were lost. This records the last
-      value of each field the visitor changed, from the browser's own input and change
-      events only (isTrusted): a script cannot fake one, and a value the browser restored
-      on Back fires no event. AecEarlyInput (app/shared/form-field/early-input.ts) puts the
-      value back once the field is live. It holds element keys weakly, so it keeps nothing
-      alive. Static, so the cached HTML stays the same for every visitor.
+      Early input (AECI-1720). A visitor can type in a server-rendered form field before the
+      app's scripts load. Hydration then writes each field's starting value over the control,
+      so the answer was lost. This keeps the last value of each text field, select and radio
+      group, from input and change events the browser dispatched, whether the visitor, an
+      extension or a script's click() caused them (a script's dispatchEvent is not kept). So
+      it holds nothing the same action after hydration would not have put in the form. A
+      value the browser restored on Back fires no event and is not kept. No checkbox is ever
+      kept: consent boxes are disabled until the app is live and are never carried.
+      AecEarlyInput (app/shared/form-field/early-input.ts) reads each value once. Once the
+      app is stable, App calls stop(): the listeners go, the values go, and the global is
+      deleted. The global is a non-writable property, so another script cannot replace it.
+      It stays configurable because stop() must be able to delete it. Element keys are held
+      weakly. Static, so the cached HTML stays the same for every visitor.
     -->
     <script>
       (function (d, w) {
         var kept = new WeakMap();
-        w.__aeciEarlyInput = kept;
+        var live = true;
         function keep(e) {
           var t = e.target;
-          if (!e.isTrusted || !t || !/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
-          if (t.type === 'file' || t.type === 'password') return;
+          if (!live || !e.isTrusted || !t || !/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+          if (/^(checkbox|file|password)$/.test(t.type) || t.hasAttribute('aecconsent')) return;
           if (t.type === 'radio' && t.name) {
             var group = (t.form || d).querySelectorAll('input[type="radio"]');
             for (var i = 0; i < group.length; i++)
@@ -53,6 +58,25 @@
           }
           kept.set(t, { value: t.value, checked: t.checked });
         }
+        function take(el) {
+          if (!live) return undefined;
+          var value = kept.get(el);
+          kept.delete(el);
+          return value;
+        }
+        function stop() {
+          live = false;
+          kept = new WeakMap();
+          d.removeEventListener('input', keep, true);
+          d.removeEventListener('change', keep, true);
+          delete w.__aeciEarlyInput;
+        }
+        Object.defineProperty(w, '__aeciEarlyInput', {
+          value: Object.freeze({ take: take, stop: stop }),
+          writable: false,
+          enumerable: false,
+          configurable: true,
+        });
         d.addEventListener('input', keep, true);
         d.addEventListener('change', keep, true);
       })(document, window);

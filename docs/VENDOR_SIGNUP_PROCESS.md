@@ -443,14 +443,15 @@ the terms when they claim the listing we add. The rows written by listing reques
 change stay, because `agreement_acceptances` is append-only. The listing request form asks for a
 required "Company country" (ISO 3166-1 alpha-2) instead, to help us check the company is real.
 
-*As built, AECI-1720 (2026-11-20).* A tick made before the page's scripts load counts. The routed
-claim pages are server-rendered, so a vendor on a slow phone can tick the box before hydration.
-Hydration used to untick it and empty the answers, and the submit stayed disabled. Now the inline
-recorder in `apps/web/src/index.html` keeps the vendor's own value and `AecEarlyInput`
-(`shared/form-field/early-input.ts`) puts it back. Only the browser's own (trusted) input and
-change events are recorded. A script's tick, or a box the browser restored on Back, is not carried,
-so the box comes back unticked and the submit stays disabled. A box ticked and unticked again
-carries false. `e2e/forms-early-input.spec.ts` pins both halves.
+*As built, AECI-1720 (2026-11-20).* The box cannot be ticked before the page can take the
+tick. The routed claim pages are server-rendered, so a vendor on a slow phone can reach the form
+before the scripts load. The box is `disabled` in the server HTML until the app is live
+(`AecConsentBox`, `shared/form-field/consent-box.ts`), so it looks inert and cannot untick itself.
+No tick is ever carried across hydration: no checkbox is restored, whoever or whatever ticked it.
+Typed answers are carried (`AecEarlyInput`). The box also unticks, and asks for a fresh tick, if
+the policy version line beside it changes after it was ticked (`LegalInForceClient.refresh()`), so
+a tick always sits beside the versions on screen. `e2e/forms-early-input.spec.ts` and
+`early-input.component.spec.ts` pin this.
 
 *As built, AECI-1435 (2026-10-21).* For an anonymous claim the acceptance row is written when the
 emailed link is confirmed, not at submit. It carries the version shown, the IP and the user agent of
