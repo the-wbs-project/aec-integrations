@@ -77,6 +77,11 @@
  * so the two meet in one task. The mark clears on the next macrotask. A redirect,
  * a timer or a programmatic navigation runs in a later task and is never marked.
  * Back and Forward (`popstate`) are never marked: the page sees no input for them.
+ *
+ * AECI-1988 covers a link opened in a new tab (ruling 2026-11-20). The new tab's
+ * landing view asks the site's other tabs whether one of them just opened its address
+ * with a trusted input, and marks itself touched on a yes (`new-tab-evidence.ts`). The
+ * referrer is never read: it is not proof.
  */
 import { DOCUMENT, isPlatformBrowser } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
@@ -92,6 +97,7 @@ import {
   postSpaBeaconRequest,
   readLandingCfRay,
 } from './browser-evidence-config';
+import { NewTabEvidence } from './new-tab-evidence';
 import { turnstileSiteKey } from './turnstile-config';
 
 /**
@@ -162,6 +168,8 @@ export class PageViewTracker {
   private inputInTask = false;
   /** The id of the navigation a visitor input started, or `null` (AECI-1987). */
   private carriedNavigationId: number | null = null;
+  /** AECI-1988. The new-tab ask and answer, only when the report is wanted. */
+  private newTab: NewTabEvidence | null = null;
   private readonly onNavigationInput = (event: Event): void => {
     if (!event.isTrusted || this.inputInTask) return;
     this.inputInTask = true;
@@ -171,6 +179,8 @@ export class PageViewTracker {
   private readonly unregisterDestroy = inject(DestroyRef).onDestroy(() => {
     this.disarmView();
     this.listenForNavigationInput(false);
+    this.newTab?.stop();
+    this.newTab = null;
   });
 
   /**
@@ -188,8 +198,14 @@ export class PageViewTracker {
   start(): void {
     if (this.started || !this.isBrowser) return;
     this.started = true;
-    // AECI-1987. Only a tier and visitor that send the report watch for the input.
-    if (this.evidenceWanted) this.listenForNavigationInput(true);
+    // AECI-1987, AECI-1988. Only a tier and visitor that send the report watch for
+    // the input, and only they ask or answer about a new tab.
+    const win = this.document.defaultView;
+    if (this.evidenceWanted && win) {
+      this.newTab = new NewTabEvidence(win);
+      this.newTab.start();
+      this.listenForNavigationInput(true);
+    }
 
     // The first NavigationEnd after hydration corresponds to the landing URL
     // the SSR Worker already counted; skip it so we never double-count it.
@@ -225,7 +241,12 @@ export class PageViewTracker {
             const ray = readLandingCfRay();
             if (ray) {
               postBrowserEvidence(ray, 'ran');
-              this.armView(ray);
+              const view = this.armView(ray);
+              // AECI-1988. A link the visitor opened in a new tab counts for this view.
+              this.newTab?.ask(() => {
+                view.touched = true;
+                this.flushInteraction(view);
+              });
             }
           }
           return;

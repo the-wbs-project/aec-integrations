@@ -166,10 +166,19 @@
                 // is all zod. Recovering it (pinning `sideEffects` back, or a
                 // narrower zod import) is follow-up work; lower this line when
                 // that lands.
+                //
+                // AECI-1988 (2026-11-20): raised 1.20MB -> 1.22MB, ruled by Chris.
+                // Measured locally with `ng build`: 1,191,130 B before this change,
+                // 1,194,480 B after, against 1,200,000 B. The +3.3 kB is the
+                // new-tab half of the browser report (`new-tab-evidence.ts`). It
+                // must be eager: the opening tab has to see the click on the first
+                // page it renders. 5.5 kB of headroom was left and CI measures
+                // ~1 kB more than local (the AECI-955 note). The zod recovery
+                // named above still applies; lower this line when it lands.
                 {
                   "type": "initial",
                   "maximumWarning": "500kB",
-                  "maximumError": "1.20MB"
+                  "maximumError": "1.22MB"
                 },
                 {
                   "type": "anyComponentStyle",
