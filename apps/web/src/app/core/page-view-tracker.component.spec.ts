@@ -13,11 +13,11 @@ import {
 } from '@angular/common/http/testing';
 import { PLATFORM_ID } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { type Event, NavigationEnd, Router } from '@angular/router';
+import { type Event, NavigationEnd, NavigationStart, Router } from '@angular/router';
 import { Subject } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { PageViewTracker } from './page-view-tracker';
+import { NAVIGATION_INPUT_EVENTS, PageViewTracker } from './page-view-tracker';
 import { TURNSTILE_VERDICT_URL, TurnstileService } from './turnstile.service';
 
 /** A stand-in for `TurnstileService`, which the tracker resolves from the
@@ -888,6 +888,280 @@ describe('PageViewTracker', () => {
       } finally {
         setTurnstileConfig(false);
       }
+    });
+
+    // AECI-1987, ruling 2026-11-20: carry the click forward. The click, tap or key
+    // press that starts an in-app navigation counts for the view it opens.
+    describe('the input that opens an in-app view (AECI-1987)', () => {
+      let addSpy: ReturnType<typeof vi.spyOn>;
+
+      beforeEach(() => {
+        addSpy = vi.spyOn(window, 'addEventListener');
+      });
+
+      /** The tracker's navigation-input listener for `type`, if it registered one. */
+      function inputListener(type: string): ((e: globalThis.Event) => void) | undefined {
+        const call = addSpy.mock.calls
+          .filter(
+            ([t, , options]: unknown[]) =>
+              t === type && (options as AddEventListenerOptions | undefined)?.capture === true,
+          )
+          .at(-1);
+        return call?.[1] as ((e: globalThis.Event) => void) | undefined;
+      }
+
+      /**
+       * A trusted visitor input. jsdom cannot dispatch a trusted event (`isTrusted` is
+       * unforgeable), so the listener is called with one directly, as the browser would.
+       */
+      function visitorInput(type: (typeof NAVIGATION_INPUT_EVENTS)[number] = 'click'): void {
+        const listener = inputListener(type);
+        expect(listener).toBeDefined();
+        listener!({ type, isTrusted: true } as unknown as globalThis.Event);
+      }
+
+      /** One router navigation: its start, then its end. */
+      function navigate(
+        events: Subject<Event>,
+        id: number,
+        url: string,
+        trigger: 'imperative' | 'popstate' = 'imperative',
+      ): void {
+        events.next(new NavigationStart(id, url, trigger));
+        events.next(nav(id, url));
+      }
+
+      /** Answer one pending SPA beacon with `ray` in `Server-Timing`. */
+      function answer(req: TestRequest, ray: string): void {
+        req.flush(null, {
+          status: 204,
+          statusText: 'No Content',
+          headers: { 'Server-Timing': `cfray;desc="${ray}"` },
+        });
+      }
+
+      it.each(NAVIGATION_INPUT_EVENTS)(
+        'a %s that opens the view posts `interacted` with no second touch',
+        async (type) => {
+          const { events, tracker, httpMock } = configure('browser');
+          tracker.start();
+          navigate(events, 1, '/');
+
+          visitorInput(type);
+          navigate(events, 2, '/products/procore');
+          // The ray is not known yet, so nothing is posted for the new view.
+          expect(reports()).toEqual([{ cf_ray: LANDING_RAY, evidence: 'ran' }]);
+          flushBeacon(httpMock, SPA_RAY);
+          await settle();
+
+          expect(reports()).toEqual([
+            { cf_ray: LANDING_RAY, evidence: 'ran' },
+            { cf_ray: SPA_RAY, evidence: 'interacted' },
+          ]);
+          // One word per view: a later touch posts nothing more.
+          interact();
+          expect(reports()).toHaveLength(2);
+          httpMock.verify();
+        },
+      );
+
+      it('marks a key-opened view (Enter in a search box)', async () => {
+        const { events, tracker, httpMock } = configure('browser');
+        tracker.start();
+        navigate(events, 1, '/');
+        visitorInput('keydown');
+        navigate(events, 2, '/search?q=revit');
+        flushBeacon(httpMock, SPA_RAY);
+        await settle();
+        expect(reports().slice(1)).toEqual([{ cf_ray: SPA_RAY, evidence: 'interacted' }]);
+      });
+
+      it('does not mark a navigation with no visitor input', async () => {
+        const { events, tracker, httpMock } = configure('browser');
+        tracker.start();
+        navigate(events, 1, '/');
+        navigate(events, 2, '/products/procore');
+        flushBeacon(httpMock, SPA_RAY);
+        await settle();
+        expect(reports()).toEqual([{ cf_ray: LANDING_RAY, evidence: 'ran' }]);
+      });
+
+      it('does not mark a navigation that starts in a later task, such as a timer', async () => {
+        const { events, tracker, httpMock } = configure('browser');
+        tracker.start();
+        navigate(events, 1, '/');
+        visitorInput('click');
+        await settle();
+        navigate(events, 2, '/products/procore');
+        flushBeacon(httpMock, SPA_RAY);
+        await settle();
+        expect(reports()).toEqual([{ cf_ray: LANDING_RAY, evidence: 'ran' }]);
+      });
+
+      it('does not mark the view a later navigation opens in place of the clicked one', async () => {
+        const { events, tracker, httpMock } = configure('browser');
+        tracker.start();
+        navigate(events, 1, '/');
+        visitorInput('click');
+        events.next(new NavigationStart(2, '/products/procore'));
+        await settle();
+        // An async redirect: a new navigation id, started in a later task.
+        navigate(events, 3, '/vendors/autodesk');
+        flushBeacon(httpMock, SPA_RAY);
+        await settle();
+        expect(reports()).toEqual([{ cf_ray: LANDING_RAY, evidence: 'ran' }]);
+      });
+
+      it('does not mark a Back or Forward navigation', async () => {
+        const { events, tracker, httpMock } = configure('browser');
+        tracker.start();
+        navigate(events, 1, '/');
+        visitorInput('keydown');
+        navigate(events, 2, '/products/procore', 'popstate');
+        flushBeacon(httpMock, SPA_RAY);
+        await settle();
+        expect(reports()).toEqual([{ cf_ray: LANDING_RAY, evidence: 'ran' }]);
+      });
+
+      it('does not count an untrusted click, such as a script calling element.click()', async () => {
+        const { events, tracker, httpMock } = configure('browser');
+        tracker.start();
+        navigate(events, 1, '/');
+        document.dispatchEvent(new MouseEvent('click'));
+        navigate(events, 2, '/products/procore');
+        flushBeacon(httpMock, SPA_RAY);
+        await settle();
+        expect(reports()).toEqual([{ cf_ray: LANDING_RAY, evidence: 'ran' }]);
+      });
+
+      it('never marks the landing view', () => {
+        const { events, tracker } = configure('browser');
+        tracker.start();
+        visitorInput('click');
+        navigate(events, 1, '/products/procore');
+        expect(reports()).toEqual([{ cf_ray: LANDING_RAY, evidence: 'ran' }]);
+      });
+
+      it('posts nothing for a carried click when the beacon carries no ray', async () => {
+        const { events, tracker, httpMock } = configure('browser');
+        tracker.start();
+        navigate(events, 1, '/');
+        visitorInput('click');
+        navigate(events, 2, '/products/procore');
+        flushBeacon(httpMock, null);
+        await settle();
+        expect(reports()).toEqual([{ cf_ray: LANDING_RAY, evidence: 'ran' }]);
+      });
+
+      it('posts nothing for a carried click into an untracked route', async () => {
+        const { events, tracker, httpMock } = configure('browser');
+        tracker.start();
+        navigate(events, 1, '/');
+        visitorInput('click');
+        navigate(events, 2, '/account');
+        await settle();
+        httpMock.expectNone('/api/page-views');
+        expect(reports()).toEqual([{ cf_ray: LANDING_RAY, evidence: 'ran' }]);
+      });
+
+      it("keeps a carried click when the view's beacon answers after the next navigation", async () => {
+        const { events, tracker, httpMock } = configure('browser');
+        tracker.start();
+        navigate(events, 1, '/');
+        visitorInput('click');
+        navigate(events, 2, '/products/procore');
+        await settle();
+        // B opens with no input before A's beacon answers.
+        navigate(events, 3, '/vendors/autodesk');
+        const [a, b] = httpMock.match('/api/page-views');
+        answer(a!, SPA_RAY);
+        await settle();
+        expect(reports().slice(1)).toEqual([{ cf_ray: SPA_RAY, evidence: 'interacted' }]);
+
+        // B was not opened by an input, and its own listeners still work.
+        answer(b!, SPA_RAY_2);
+        await settle();
+        expect(reports()).toHaveLength(2);
+        interact();
+        expect(reports().slice(1)).toEqual([
+          { cf_ray: SPA_RAY, evidence: 'interacted' },
+          { cf_ray: SPA_RAY_2, evidence: 'interacted' },
+        ]);
+        httpMock.verify();
+      });
+
+      it.each([
+        ['no tier flag', () => setFlag(false)],
+        [
+          'Do-Not-Track',
+          () =>
+            Object.defineProperty(window.navigator, 'doNotTrack', {
+              value: '1',
+              configurable: true,
+            }),
+        ],
+        [
+          'Global Privacy Control',
+          () =>
+            Object.defineProperty(window.navigator, 'globalPrivacyControl', {
+              value: true,
+              configurable: true,
+            }),
+        ],
+        [
+          'a geo=eu stamp',
+          () =>
+            stubTiming([
+              { name: 'cfray', description: LANDING_RAY },
+              { name: 'geo', description: 'eu' },
+            ]),
+        ],
+        ['no serverTiming', () => stubTiming(undefined)],
+      ])('a carried click sends nothing with %s', async (_label, arrange) => {
+        arrange();
+        try {
+          const { events, tracker, httpMock } = configure('browser');
+          tracker.start();
+          navigate(events, 1, '/');
+          // The gates are read once: no input listener is ever registered.
+          for (const type of NAVIGATION_INPUT_EVENTS) expect(inputListener(type)).toBeUndefined();
+          document.dispatchEvent(new MouseEvent('click'));
+          navigate(events, 2, '/products/procore');
+          flushBeacon(httpMock, SPA_RAY);
+          await settle();
+          interact();
+          expect(fetchMock).not.toHaveBeenCalled();
+          httpMock.verify();
+        } finally {
+          Object.defineProperty(window.navigator, 'doNotTrack', {
+            value: null,
+            configurable: true,
+          });
+          Object.defineProperty(window.navigator, 'globalPrivacyControl', {
+            value: undefined,
+            configurable: true,
+          });
+        }
+      });
+
+      it('registers no input listener on the server', () => {
+        const { events, tracker } = configure('server');
+        tracker.start();
+        navigate(events, 1, '/');
+        for (const type of NAVIGATION_INPUT_EVENTS) expect(inputListener(type)).toBeUndefined();
+        expect(fetchMock).not.toHaveBeenCalled();
+      });
+
+      it('removes its input listeners when the injector is destroyed', () => {
+        const removeSpy = vi.spyOn(window, 'removeEventListener');
+        const { events, tracker } = configure('browser');
+        tracker.start();
+        navigate(events, 1, '/');
+        const listener = inputListener('click');
+        expect(listener).toBeDefined();
+        TestBed.resetTestingModule();
+        expect(removeSpy).toHaveBeenCalledWith('click', listener, { capture: true });
+      });
     });
   });
 });

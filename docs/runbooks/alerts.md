@@ -1375,6 +1375,14 @@ switched on (`docs/environments.md` "Browser report check per tier").
 **What a firing means.** Pages loaded and Turnstile passed, but the report did not land on the row.
 Something on the report path is broken. Look at these first, in this order:
 
+0. **A datatool copy into this tier.** Rule this out before anything else on staging or demo. A
+   copy replaces the tier's `page_views` with the source tier's rows and keeps their
+   `browser_evidence` values. Rows copied from a tier with capture off are all NULL, so the day
+   reads as a broken path when the path is fine. Search Workers Logs for `aeci-datatool` and the
+   `datatool.operation` event with `op: "copy"` and this tier as `dest`. Any day at or before the
+   copy is the source tier's data and says nothing about this tier. The id sequence shows the
+   boundary: a gap in `created_at` with consecutive ids is where the tier's own rows resume
+   (AECI-1986).
 1. **The flag.** The SSR Worker's `BROWSER_EVIDENCE_ENABLED` must match the API's on that tier. If
    the web var is off, the browser never sends a report. Check `GET /_version` and
    `GET /api/version` for the live builds.
