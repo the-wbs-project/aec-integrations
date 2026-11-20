@@ -17,8 +17,11 @@
  * A click is left alone when it lands on another interactive element in the row
  * (that element's own action wins), when it is not a primary-button click, or
  * when the user has just selected text in the row. A Cmd/Ctrl/Shift click opens
- * the link in a new tab, as it would on the link itself.
+ * the link in a new tab, as it would on the link itself. That open is recorded for
+ * the browser report (AECI-1988), as a modified click on the link itself would be.
  */
+import { recordNewTabOpen } from '../../core/new-tab-evidence';
+
 export function forwardRowClick(event: MouseEvent, link: HTMLAnchorElement | undefined): void {
   if (!link || event.defaultPrevented || event.button !== 0) return;
 
@@ -34,6 +37,7 @@ export function forwardRowClick(event: MouseEvent, link: HTMLAnchorElement | und
   if (selection && !selection.isCollapsed && selection.toString().trim() !== '') return;
 
   if (event.metaKey || event.ctrlKey || event.shiftKey) {
+    recordNewTabOpen(event, link.href);
     window.open(link.href, '_blank', 'noopener');
     return;
   }
