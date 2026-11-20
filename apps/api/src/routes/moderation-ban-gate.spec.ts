@@ -14,7 +14,7 @@
  * vendor token:
  *   1. GET /api/vendor/me            → 200 (active granted seat)
  *   2. admin bans the seat           → 200
- *   3. GET /api/vendor/me (same tok) → 403 'Portal abuse'   ← immediate effect
+ *   3. GET /api/vendor/me (same tok) → 403 'Account suspended' ← immediate effect
  *   4. admin unbans the seat         → 200
  *   5. GET /api/vendor/me (same tok) → 200                  ← unban restores access
  */
@@ -120,10 +120,10 @@ describe('moderation ban gate — immediate effect on /api/vendor/* (AECI-524)',
     expect(ban.status).toBe(200);
 
     // 3. The SAME vendor token now 403s on the very next request — no cached
-    //    token bypasses the fresh D1 ban read. The ban reason surfaces.
+    //    token bypasses the fresh D1 ban read. The fixed ban message surfaces; the admin's reason stays internal (AECI-1973).
     const blocked = await request(vendorToken, '/api/vendor/me', 'GET');
     expect(blocked.status).toBe(403);
-    expect((blocked.body.error as { message?: string })?.message).toBe('Portal abuse');
+    expect((blocked.body.error as { message?: string })?.message).toBe('Account suspended');
 
     // 4. Admin unbans the seat.
     expect(
