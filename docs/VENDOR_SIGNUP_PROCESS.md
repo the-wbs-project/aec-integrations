@@ -307,9 +307,15 @@ Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344,
     publishes the version on `/admin/legal` (`ADMIN_PANEL_SPEC.md` §5.22) at least 30 days before it
     takes effect. When it is a material change, the publish queues the change notice
     `legal-terms-change`, one message per affected company on `aeci-legal-notice-{env}`
-    (`apps/api/src/lib/legal-notice.ts`). A non-material version sends nothing.
+    (`apps/api/src/lib/legal-notice.ts`). Since AECI-1977 (ruling 62, 2026-11-20) every version of
+    either agreement is material: both "Changes" sections promise the email for every new version,
+    so the publish refuses "not material" and every version emails. An expedited Vendor Terms
+    version still gets the email first, and only takes effect sooner.
     - **Who.** Vendor Terms: every company with an unbanned seat, to every unbanned seat and the
-      billing email. Managed plan agreement: every company with a live subscription of any source
+      billing email. Since AECI-1969 (counsel Q68, ruling 54) a Listing Accuracy Policy or Review
+      Guidelines version goes to the same companies and addresses, because the Vendor Terms
+      incorporate both; every policy version is material, and a company the email did not reach
+      stays on the policy version it accepted. Managed plan agreement: every company with a live subscription of any source
       (card, invoice, complimentary, an activated grant), to the owner seats and the billing email.
       A grant or complimentary company gets it as information (ruled by Chris).
     - **What.** The version and its effective date, the summary bullets, a link to

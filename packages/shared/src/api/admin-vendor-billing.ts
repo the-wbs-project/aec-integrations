@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { AdminAgreementAcceptanceSchema } from './agreements';
 import { AdminLicenseGrantSchema } from './license-grants';
 import { AdminLicenseReleaseRequestSchema } from './license-release-requests';
+import { CompanyPolicyVersionSchema } from './policy-binding';
 import {
   UpdateBillingEmailRequestSchema,
   UpdateVendorLegalNameRequestSchema,
@@ -139,6 +140,12 @@ export const AdminVendorBillingResponseSchema = z.object({
    *  the vendor directly. */
   acceptances: z.array(AdminAgreementAcceptanceSchema),
   acceptances_truncated: z.boolean(),
+  /**
+   * AECI-1969 (ruling 54): which version of the Listing Accuracy Policy and the Review
+   * Guidelines the company is on, from its latest claim acceptance and the policy change
+   * notices that reached it (`companyPolicyVersion`). One entry per policy.
+   */
+  policy_versions: z.array(CompanyPolicyVersionSchema),
   /** The vendor's early-unassign requests (AECI-1373): open first, then decided, newest
    *  first within each, capped at {@link ADMIN_BILLING_RELEASE_REQUESTS_MAX}. */
   release_requests: z.array(AdminLicenseReleaseRequestSchema),

@@ -14,16 +14,18 @@
  *
  *   0. `LEGAL_PUBLISH_ENABLED` is "true" on this tier, else 409 `LEGAL_PUBLISH_DISABLED`.
  *      Then the body (400 on a non-JSON body or a schema miss).
- *   1. The version is the document's entry in `LEGAL_AGREEMENT_UPCOMING_VERSIONS` or, for
- *      the Terms of Service and the Privacy Policy (AECI-1637), in
- *      `LEGAL_READER_UPCOMING_VERSIONS`, else 422 `LEGAL_VERSION_NOT_UPCOMING`. The
- *      effective moment comes from that entry. The body schema already refused
- *      `requires_acceptance` on a Privacy version and an expedited reason on anything but
- *      the Vendor Terms (400).
+ *   1. The version is the document's entry in `LEGAL_AGREEMENT_UPCOMING_VERSIONS`, for
+ *      the Terms of Service and the Privacy Policy (AECI-1637) in
+ *      `LEGAL_READER_UPCOMING_VERSIONS`, or for the Listing Accuracy Policy and the Review
+ *      Guidelines (AECI-1969, ruling 54) in `LEGAL_POLICY_UPCOMING_VERSIONS`, else 422
+ *      `LEGAL_VERSION_NOT_UPCOMING`. The effective moment comes from that entry. The body
+ *      schema already refused `requires_acceptance` on a Privacy or policy version, a
+ *      non-material policy version, and an expedited reason on anything but the Vendor
+ *      Terms and the two policies (400).
  *   2. No `legal_versions` row exists for it yet, else 409 `LEGAL_VERSION_EXISTS`.
  *   3. It takes effect at least 30 days from now, else 422 `LEGAL_NOTICE_WINDOW`. A
- *      Vendor Terms version with an expedited reason (`law` or `error`) only has to be
- *      in the future. The reason is recorded only when the window needed it.
+ *      Vendor Terms or policy version with an expedited reason (`law` or `error`) only has
+ *      to be in the future. The reason is recorded only when the window needed it.
  *      `details.reason` is `passed` (the moment is not in the future: move the date)
  *      or `too_soon` (inside 30 days: move it, or expedite a Vendor Terms change).
  *   4. The CI-built PDF is in `UPLOADS` at `legal/<slug>/v<version>.pdf`, starts with
@@ -33,7 +35,8 @@
  *      row (§26.1). A lost race on the unique `(document, version)` index is the same 409.
  *   6. Post-commit: the audit forward. Then, for a MATERIAL version only, in `waitUntil`:
  *      the change-notice fan-out (`fanOutLegalNotice`, AECI-1620), one queue message per
- *      affected company, or for a Terms or Privacy version `fanOutReaderLegalNotice`
+ *      affected company (for a policy, every company the Vendor Terms notice reaches), or
+ *      for a Terms or Privacy version `fanOutReaderLegalNotice`
  *      (AECI-1637), one message per 25 accounts, and ONE `db.batch` that records its
  *      outcome on the row
  *      (`notice_enqueued_at`, `notice_vendor_count`) with a `legal_version.notice_queued`
@@ -64,10 +67,14 @@ import {
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
   LEGAL_AGREEMENT_UPCOMING_VERSIONS,
   LEGAL_NOTICE_WINDOW_DAYS,
+  LEGAL_POLICY_CURRENT_VERSIONS,
+  LEGAL_POLICY_UPCOMING_VERSIONS,
   LEGAL_PUBLISHABLE_DOCUMENTS,
   LEGAL_READER_CURRENT_VERSIONS,
   LEGAL_READER_UPCOMING_VERSIONS,
+  isLegalPolicyDocument,
   isLegalReaderDocument,
+  legalDocumentMayBeExpedited,
   PublishLegalVersionRequestSchema,
   PublishLegalVersionResponseSchema,
   ResendLegalNoticeResponseSchema,
@@ -131,17 +138,19 @@ type UpcomingMap = Readonly<
   Partial<Record<LegalPublishableDocument, LegalAgreementUpcomingVersion>>
 >;
 
-/** The shared upcoming maps, agreements and (AECI-1637) the two reader documents. */
+/** The shared upcoming maps: agreements, (AECI-1637) the two reader documents and
+ *  (AECI-1969) the two policies. */
 const SHARED_UPCOMING: UpcomingMap = {
   ...LEGAL_AGREEMENT_UPCOMING_VERSIONS,
   ...LEGAL_READER_UPCOMING_VERSIONS,
+  ...LEGAL_POLICY_UPCOMING_VERSIONS,
 };
 
 /** The build version an upcoming entry replaces. */
 function currentVersionOf(document: LegalPublishableDocument): string {
-  return isLegalReaderDocument(document)
-    ? LEGAL_READER_CURRENT_VERSIONS[document]
-    : LEGAL_AGREEMENT_CURRENT_VERSIONS[document];
+  if (isLegalReaderDocument(document)) return LEGAL_READER_CURRENT_VERSIONS[document];
+  if (isLegalPolicyDocument(document)) return LEGAL_POLICY_CURRENT_VERSIONS[document];
+  return LEGAL_AGREEMENT_CURRENT_VERSIONS[document];
 }
 
 /** "companies" for an agreement notice, "accounts" for a reader one (AECI-1637). */
@@ -312,7 +321,11 @@ export function createPublishLegalVersionHandler(
     // ── 3. The notice window ─────────────────────────────────────────────────
     const nowMs = now.getTime();
     const windowMet = effectiveAt - nowMs >= LEGAL_NOTICE_WINDOW_DAYS * DAY_MS;
-    const expedited = document === 'vendor_terms' ? (payload.expedited_reason ?? null) : null;
+    // The Vendor Terms clause, which since AECI-1969 also governs the two policies it
+    // incorporates.
+    const expedited = legalDocumentMayBeExpedited(document)
+      ? (payload.expedited_reason ?? null)
+      : null;
     if (!windowMet && !(expedited && effectiveAt > nowMs)) {
       // `details.reason` tells the page which advice to give: a date already passed is
       // only fixed by moving it, while a date inside the window may also be expedited.
@@ -322,7 +335,7 @@ export function createPublishLegalVersionHandler(
         ApiErrorCode.LEGAL_NOTICE_WINDOW,
         reason === 'passed'
           ? `Version ${version} takes effect on ${upcoming.effectiveOn} at 12:00 UTC, which has already passed. Move the effective date; an expedited reason does not help.`
-          : `Version ${version} takes effect on ${upcoming.effectiveOn} at 12:00 UTC, less than ${LEGAL_NOTICE_WINDOW_DAYS} days away. Move the effective date, or for the Vendor Terms give an expedited reason.`,
+          : `Version ${version} takes effect on ${upcoming.effectiveOn} at 12:00 UTC, less than ${LEGAL_NOTICE_WINDOW_DAYS} days away. Move the effective date, or for the Vendor Terms or a policy they incorporate give an expedited reason.`,
         { field: 'version', details: { reason } },
       );
     }

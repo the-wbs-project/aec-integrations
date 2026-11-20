@@ -166,8 +166,12 @@ const VERSIONS: Record<string, (string | undefined)[]> = {
 const announced = lookupOf(ANNOUNCED);
 const bumped = lookupOf(BUMPED);
 
-// The Vendor Terms 1.4 row a publish wrote: it takes effect at the manifest moment.
-const PUBLISHED = [{ document: 'vendor_terms', version: '1.4', effectiveAt: MOMENT }];
+// The Vendor Terms 1.4 and Listing Accuracy Policy 1.1 rows a publish wrote: each takes
+// effect at the manifest moment. Since AECI-1969 (ruling 54) a policy needs its row too.
+const PUBLISHED = [
+  { document: 'vendor_terms', version: '1.4', effectiveAt: MOMENT },
+  { document: 'listing_accuracy', version: '1.1', effectiveAt: MOMENT },
+];
 
 const MAPS_ANNOUNCED: LegalInForceMaps = {
   agreementCurrent: { vendor_terms: '1.3', managed_plan: '1.1' },
@@ -300,11 +304,14 @@ describe('before the moment, or with no publish, nothing changes', () => {
     }
   });
 
-  it('an unpublished agreement never switches; the policy switches on its date', () => {
+  it('an unpublished agreement or policy never switches (ruling 54 for the policy)', () => {
     const vt = UPCOMING[0]!;
     const la = UPCOMING[1]!;
     expect(legalEntrySwitched(vt, [], MOMENT + 365 * 86_400_000)).toBe(false);
-    expect(legalEntrySwitched(la, [], MOMENT)).toBe(true);
-    expect(legalVersionsInForce([], MOMENT, MAPS_ANNOUNCED).agreements.vendor_terms).toBe('1.3');
+    expect(legalEntrySwitched(la, [], MOMENT + 365 * 86_400_000)).toBe(false);
+    expect(legalVersionsInForce([], MOMENT, MAPS_ANNOUNCED)).toEqual({
+      agreements: { vendor_terms: '1.3', managed_plan: '1.1' },
+      policies: { listing_accuracy: '1.0', review_guidelines: '1.0' },
+    });
   });
 });

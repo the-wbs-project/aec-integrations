@@ -1,6 +1,11 @@
 import { z } from 'zod';
 
-import { LegalPublishableDocumentSchema, type LegalPublishableDocument } from './agreements';
+import {
+  isLegalCompanyNoticeDocument,
+  isLegalPolicyDocument,
+  LegalPublishableDocumentSchema,
+  type LegalPublishableDocument,
+} from './agreements';
 
 /**
  * Published legal versions (AECI-1688). Source of truth: `STAGE_1_SPEC.md` §27.5,
@@ -39,6 +44,8 @@ export const LEGAL_DOCUMENT_SLUGS = {
   managed_plan: 'managed-plan-agreement',
   terms: 'terms',
   privacy: 'privacy',
+  listing_accuracy: 'listing-accuracy',
+  review_guidelines: 'review-guidelines',
 } as const satisfies Record<LegalPublishableDocument, string>;
 
 /**
@@ -56,6 +63,8 @@ export const LEGAL_DOCUMENT_TITLES = {
   managed_plan: 'Managed plan agreement',
   terms: 'Terms of Service',
   privacy: 'Privacy Policy',
+  listing_accuracy: 'Listing Accuracy Policy',
+  review_guidelines: 'Review Guidelines',
 } as const satisfies Record<LegalPublishableDocument, string>;
 
 /** `/legal/<slug>/v<version>`, site-relative: the version's own page. */
@@ -114,8 +123,26 @@ export type LegalNoticeWindowReason = (typeof LEGAL_NOTICE_WINDOW_REASONS)[numbe
 /**
  * Why a Vendor Terms version may take effect inside the notice window
  * (`vendor-terms.md` "Changes"): a change the law requires, or a correction of an error.
+ * Since AECI-1969 a Listing Accuracy Policy or Review Guidelines version may carry one
+ * too: the Vendor Terms make both "part of these terms", so the same clause governs them.
  */
 export const LEGAL_EXPEDITED_REASONS = ['law', 'error'] as const;
+/**
+ * Whether every version of `document` is material, so its publish always emails (AECI-1977,
+ * ruling 62). The Vendor Terms and the Managed plan agreement promise the change email for
+ * every new version, with no material threshold, and the two policies are part of the Vendor
+ * Terms (AECI-1969). Only the Terms of Service and the Privacy Policy, which promise the
+ * email for a material change only, ask the question.
+ */
+export function legalDocumentAlwaysMaterial(document: string): boolean {
+  return isLegalCompanyNoticeDocument(document);
+}
+
+/** Whether `document` may take effect inside the window for a `law` or `error` reason. */
+export function legalDocumentMayBeExpedited(document: string): boolean {
+  return document === 'vendor_terms' || isLegalPolicyDocument(document);
+}
+
 export const LegalExpeditedReasonSchema = z.enum(LEGAL_EXPEDITED_REASONS);
 export type LegalExpeditedReason = z.infer<typeof LegalExpeditedReasonSchema>;
 
@@ -164,7 +191,11 @@ export const LegalSummarySchema = z
  * use (a change that reduces a reader's rights, AECI-1637; signing in is the acceptance). Both are the operator's call at publish,
  * and `requires_acceptance` needs `material`. A Privacy Policy version never takes
  * `requires_acceptance` (ruling 4 of 2026-11-13), and only a Vendor Terms version may
- * be expedited.
+ * be expedited. Since AECI-1969 (ruling 54) a Listing Accuracy Policy or Review Guidelines
+ * version publishes too: always `material`, never `requires_acceptance`, and it may be
+ * expedited as a Vendor Terms version may, because the Vendor Terms incorporate it. Since
+ * AECI-1977 (ruling 62) a Vendor Terms or Managed plan agreement version is always
+ * `material` as well: both change clauses promise the email for every version.
  */
 export const PublishLegalVersionRequestSchema = z
   .object({
@@ -173,7 +204,7 @@ export const PublishLegalVersionRequestSchema = z
     material: z.boolean(),
     requires_acceptance: z.boolean(),
     summary: LegalSummarySchema,
-    /** Vendor Terms only. Absent or null on a Managed plan version. */
+    /** Vendor Terms and the two policies only (AECI-1969). Absent or null otherwise. */
     expedited_reason: LegalExpeditedReasonSchema.nullable().optional(),
   })
   .strict()
@@ -185,9 +216,21 @@ export const PublishLegalVersionRequestSchema = z
     message: 'A Privacy Policy version never needs acceptance',
     path: ['requires_acceptance'],
   })
-  .refine((v) => v.document === 'vendor_terms' || !v.expedited_reason, {
-    message: 'Only a Vendor Terms version may be expedited',
+  .refine((v) => legalDocumentMayBeExpedited(v.document) || !v.expedited_reason, {
+    message:
+      'Only a Vendor Terms, Listing Accuracy Policy or Review Guidelines version may be expedited',
     path: ['expedited_reason'],
+  })
+  // AECI-1969 (ruling 54) and AECI-1977 (ruling 62): every version of a document whose
+  // change clause promises the email for every change is material, so it is always emailed.
+  .refine((v) => !legalDocumentAlwaysMaterial(v.document) || v.material, {
+    message:
+      'Every version of this document is emailed to the affected companies, so it is always a material change',
+    path: ['material'],
+  })
+  .refine((v) => !isLegalPolicyDocument(v.document) || !v.requires_acceptance, {
+    message: 'A policy version never needs acceptance',
+    path: ['requires_acceptance'],
   });
 export type PublishLegalVersionRequest = z.infer<typeof PublishLegalVersionRequestSchema>;
 

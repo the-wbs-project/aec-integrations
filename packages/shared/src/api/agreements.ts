@@ -216,9 +216,10 @@ export const LEGAL_POLICY_CURRENT_VERSIONS = {
 /**
  * The version of each policy that is published but not yet in force, if any
  * (AECI-1689). Mirrors the `listing-accuracy` and `review-guidelines` entries of the web
- * manifest `LEGAL_UPCOMING`, and `legal-page.component.spec.ts` pins the two equal. A
- * policy has no publish record, so the entry switches on its date alone: the version is
- * in force from 12:00 UTC of `effectiveOn` (`legalPolicyVersionInForce`). Empty today.
+ * manifest `LEGAL_UPCOMING`, and `legal-page.component.spec.ts` pins the two equal. Since
+ * AECI-1969 (ruling 54) only the version listed here can be published on `/admin/legal`,
+ * and it switches in at 12:00 UTC of `effectiveOn` only once it has a `legal_versions` row
+ * (`legalPolicyVersionInForce`). Publishing emails every claimed company. Empty today.
  */
 export const LEGAL_POLICY_UPCOMING_VERSIONS: Readonly<
   Partial<Record<LegalPolicyDocument, LegalAgreementUpcomingVersion>>
@@ -231,9 +232,24 @@ export const LEGAL_POLICY_KNOWN_VERSIONS = {
   review_guidelines: ['1.0'],
 } as const satisfies Record<LegalPolicyDocument, readonly string[]>;
 
-/** Whether `version` was ever a published version of `policy`. */
-export function isKnownLegalPolicyVersion(policy: LegalPolicyDocument, version: string): boolean {
-  return (LEGAL_POLICY_KNOWN_VERSIONS[policy] as readonly string[]).includes(version);
+/**
+ * Whether an acceptance may record `version` of `policy`: it was ever current, or it is the
+ * upcoming version, which a publish may have put in force before bump day appends it to
+ * `LEGAL_POLICY_KNOWN_VERSIONS` (AECI-1969; the agreements' `isRecordableLegalAgreementVersion`).
+ * Without the second arm every claim would be refused from the moment a published policy
+ * version switched in until its bump day.
+ */
+export function isKnownLegalPolicyVersion(
+  policy: LegalPolicyDocument,
+  version: string,
+  upcoming: Readonly<
+    Partial<Record<LegalPolicyDocument, LegalAgreementUpcomingVersion>>
+  > = LEGAL_POLICY_UPCOMING_VERSIONS,
+): boolean {
+  return (
+    (LEGAL_POLICY_KNOWN_VERSIONS[policy] as readonly string[]).includes(version) ||
+    upcoming[policy]?.version === version
+  );
 }
 
 /**
@@ -253,13 +269,42 @@ export const LEGAL_READER_DOCUMENTS = ['terms', 'privacy'] as const;
 export const LegalReaderDocumentSchema = z.enum(LEGAL_READER_DOCUMENTS);
 export type LegalReaderDocument = z.infer<typeof LegalReaderDocumentSchema>;
 
-/** Every document `/admin/legal` can publish: the two agreements and the two reader documents. */
+/**
+ * Every document `/admin/legal` can publish: the two agreements, the two reader documents
+ * and, since AECI-1969 (counsel Q68, ruling 54), the two policies the Vendor Terms
+ * incorporate. A policy version is emailed to every claimed company by the Vendor Terms
+ * change notice, and switches in only once published, like an agreement.
+ */
 export const LEGAL_PUBLISHABLE_DOCUMENTS = [
   ...LEGAL_AGREEMENT_DOCUMENTS,
   ...LEGAL_READER_DOCUMENTS,
+  ...LEGAL_POLICY_DOCUMENTS,
 ] as const;
 export const LegalPublishableDocumentSchema = z.enum(LEGAL_PUBLISHABLE_DOCUMENTS);
 export type LegalPublishableDocument = z.infer<typeof LegalPublishableDocumentSchema>;
+
+/** Whether a document is one of the two policies the Vendor Terms incorporate (AECI-1969). */
+export function isLegalPolicyDocument(document: string): document is LegalPolicyDocument {
+  return (LEGAL_POLICY_DOCUMENTS as readonly string[]).includes(document);
+}
+
+/**
+ * The documents whose change notice goes to COMPANIES (`legal-terms-change`): the two
+ * agreements and the two policies (AECI-1969). The reader documents go to accounts.
+ */
+export const LEGAL_COMPANY_NOTICE_DOCUMENTS = [
+  ...LEGAL_AGREEMENT_DOCUMENTS,
+  ...LEGAL_POLICY_DOCUMENTS,
+] as const;
+export const LegalCompanyNoticeDocumentSchema = z.enum(LEGAL_COMPANY_NOTICE_DOCUMENTS);
+export type LegalCompanyNoticeDocument = z.infer<typeof LegalCompanyNoticeDocumentSchema>;
+
+/** Whether a document's notice goes to companies, not accounts. */
+export function isLegalCompanyNoticeDocument(
+  document: string,
+): document is LegalCompanyNoticeDocument {
+  return (LEGAL_COMPANY_NOTICE_DOCUMENTS as readonly string[]).includes(document);
+}
 
 /** Whether a document is one of the two reader documents. */
 export function isLegalReaderDocument(document: string): document is LegalReaderDocument {

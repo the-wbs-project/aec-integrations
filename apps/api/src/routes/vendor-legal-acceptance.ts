@@ -41,10 +41,12 @@ import {
   AcceptLegalVersionRequestSchema,
   AcceptLegalVersionResponseSchema,
   ApiErrorCode,
+  LEGAL_IN_FORCE_MAPS,
   PLANS_PAGE_CURRENT_VERSION,
   portalAcceptanceLabel,
   VendorLegalAcceptanceResponseSchema,
   type AcceptLegalVersionResponse,
+  type LegalInForceMaps,
   type VendorLegalAcceptanceResponse,
 } from '@aeci/shared';
 import { compareText } from '@aeci/shared/text-sort';
@@ -62,6 +64,7 @@ import { auditActorType } from '../lib/authz';
 import { sha256Hex } from '../lib/hash';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { loadLegalAcceptanceInputs, pendingAcceptances } from '../lib/legal-acceptance';
+import { loadLegalInForce } from '../lib/legal-in-force';
 import { ApiError } from '../errors';
 import { json } from '../http';
 import {
@@ -170,6 +173,8 @@ function notPending(document: string, version: string): ApiError {
 export function createAcceptLegalVersionHandler(
   dbFor: DbFactory = getDb,
   clock: Clock = systemClock,
+  /** The in-force maps. Injected by specs only. */
+  maps: LegalInForceMaps = LEGAL_IN_FORCE_MAPS,
 ): (c: VendorContext) => Promise<Response> {
   return async (c) => {
     const session = c.get('auth');
@@ -233,7 +238,14 @@ export function createAcceptLegalVersionHandler(
         labelSha256: await sha256Hex(labelText),
         defaultUnticked: true,
       },
-      policyVersions: pending.document === 'vendor_terms' ? currentPolicyVersions() : null,
+      // AECI-1969: the policy versions in force now. A policy switches only once published,
+      // so the published rows must be read: the build constants alone would record the old
+      // version from the effective moment until bump day.
+      policyVersions:
+        pending.document === 'vendor_terms'
+          ? currentPolicyVersions(await loadLegalInForce(db, now, maps))
+          : null,
+      policyUpcoming: maps.policyUpcoming,
       plansVersion: pending.document === 'managed_plan' ? PLANS_PAGE_CURRENT_VERSION : null,
       actorId: session.userId,
       actorType: auditActorType(session),

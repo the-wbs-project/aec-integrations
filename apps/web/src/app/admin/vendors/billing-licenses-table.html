@@ -769,6 +769,43 @@
   }
 </section>
 
+<!-- ── Policy versions (AECI-1969, counsel Q68, ruling 54) ────────────────── -->
+@if (policyVersions().length > 0) {
+<section class="mt-6" aria-labelledby="admin-vendor-billing-policies">
+  <h3
+    id="admin-vendor-billing-policies"
+    class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+    i18n="@@admin.vendors.billing.policies.heading"
+  >
+    Policy versions this company is on
+  </h3>
+  <p
+    class="mt-2 max-w-[72ch] text-sm text-(--text-secondary)"
+    i18n="@@admin.vendors.billing.policies.intro"
+  >
+    The version its latest Vendor Terms acceptance recorded, or a later one whose change email
+    reached the company and whose effective date has passed.
+  </p>
+  <ul class="mt-2 space-y-2 text-sm">
+    @for (p of policyVersions(); track p.policy) {
+    <li data-testid="billing-policy-version">
+      <span class="font-bold text-(--text-primary)">{{ policyTitle(p.policy) }}</span>
+      <span class="block text-(--text-secondary)">{{ policyLine(p) }}</span>
+      @if (p.missed_versions.length > 0) {
+      <span class="block text-(--text-secondary)" data-testid="billing-policy-missed"
+        >{{ policyMissedLine(p) }}</span
+      >
+      } @if (p.upcoming; as next) {
+      <span class="block text-(--text-secondary)" data-testid="billing-policy-upcoming"
+        >{{ policyUpcomingLine(next) }}</span
+      >
+      }
+    </li>
+    }
+  </ul>
+</section>
+}
+
 <!-- ── Early-unassign requests (decision 11; AECI-1373) ───────────────────── -->
 <section class="mt-6" aria-labelledby="admin-vendor-billing-releases">
   <h3

@@ -108,3 +108,12 @@ and only while a Terms version can be in force. Whether the line is enough for a
 rights-reducing change is an open counsel question (`LEGAL_COUNSEL_RECORD.md`, Q34). Its
 fallback is one unticked box on the sign-in page, shown only after a rights-reducing change;
 `terms_acceptances.checkbox_default_unticked` is kept for it.
+
+## Amendment 2026-11-19 — the policies are row-gated too (AECI-1969, ruling 54)
+
+The Listing Accuracy Policy and the Review Guidelines no longer switch on their date alone. Like
+the agreements and the reader documents, an upcoming policy version is in force only once a
+`legal_versions` row published it with the same moment, because the publish is what sends the
+Vendor Terms change email to claimed companies (counsel Q68). The block in the vendor guard is
+not extended to them: no one accepts a policy. ADR 0054's 2026-11-19 amendment has the rest.
+

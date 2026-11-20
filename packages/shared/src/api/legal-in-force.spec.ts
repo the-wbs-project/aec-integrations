@@ -115,11 +115,39 @@ describe('an agreement switches only when published', () => {
   });
 });
 
-describe('a policy switches by its date alone', () => {
-  it('takes over exactly at its moment, with no row', () => {
-    expect(legalPolicyVersionInForce('listing_accuracy', MOMENT - 1, MAPS)).toBe('1.0');
-    expect(legalPolicyVersionInForce('listing_accuracy', MOMENT, MAPS)).toBe('1.1');
-    expect(legalPolicyVersionInForce('review_guidelines', MOMENT, MAPS)).toBe('1.0');
+// AECI-1969, ruling 54 (counsel Q68): a policy switches like an agreement, only once a
+// `legal_versions` row published it, which emailed every claimed company.
+describe('a policy switches only when published', () => {
+  const POLICY_ROW = [{ document: 'listing_accuracy', version: '1.1', effectiveAt: MOMENT }];
+
+  it('a published version takes over exactly at its moment', () => {
+    expect(legalPolicyVersionInForce('listing_accuracy', POLICY_ROW, MOMENT - 1, MAPS)).toBe('1.0');
+    expect(legalPolicyVersionInForce('listing_accuracy', POLICY_ROW, MOMENT, MAPS)).toBe('1.1');
+    expect(legalPolicyVersionInForce('review_guidelines', POLICY_ROW, MOMENT, MAPS)).toBe('1.0');
+  });
+
+  it('with no row it never switches, whatever the date', () => {
+    for (const now of [MOMENT, MOMENT + 365 * 86_400_000]) {
+      expect(legalPolicyVersionInForce('listing_accuracy', [], now, MAPS)).toBe('1.0');
+    }
+  });
+
+  it('a row for the other policy, or a moved date, does not count', () => {
+    const other = [{ document: 'review_guidelines', version: '1.1', effectiveAt: MOMENT }];
+    expect(legalPolicyVersionInForce('listing_accuracy', other, MOMENT, MAPS)).toBe('1.0');
+    const moved = [
+      { document: 'listing_accuracy', version: '1.1', effectiveAt: MOMENT + 86_400_000 },
+    ];
+    expect(legalPolicyVersionInForce('listing_accuracy', moved, MOMENT + 86_400_000, MAPS)).toBe(
+      '1.0',
+    );
+    expect(legalPublishedRowMismatched(moved[0]!, MAPS)).toBe(true);
+  });
+
+  it('a policy moment makes the published read needed', () => {
+    const only: LegalInForceMaps = { ...MAPS, agreementUpcoming: {} };
+    expect(legalInForceNeedsPublished(MOMENT - 1, only)).toBe(false);
+    expect(legalInForceNeedsPublished(MOMENT, only)).toBe(true);
   });
 });
 
@@ -169,10 +197,11 @@ describe('a reader document switches only when published', () => {
     expect(legalNextEffectiveMomentMs(MOMENT - 1, only)).toBe(MOMENT);
   });
 
-  it('lists the publishable upcoming entries, agreements first', () => {
+  it('lists the publishable upcoming entries, agreements first, policies last', () => {
     expect(legalPublishableUpcoming(READER_MAPS).map((e) => e.document)).toEqual([
       'vendor_terms',
       'terms',
+      'listing_accuracy',
     ]);
   });
 });
@@ -181,7 +210,15 @@ describe('legalVersionsInForce', () => {
   it('answers every document at one moment', () => {
     expect(legalVersionsInForce(PUBLISHED, MOMENT, MAPS)).toEqual({
       agreements: { vendor_terms: '1.4', managed_plan: '1.1' },
-      policies: { listing_accuracy: '1.1', review_guidelines: '1.0' },
+      policies: { listing_accuracy: '1.0', review_guidelines: '1.0' },
+    });
+    const withPolicy = [
+      ...PUBLISHED,
+      { document: 'listing_accuracy', version: '1.1', effectiveAt: MOMENT },
+    ];
+    expect(legalVersionsInForce(withPolicy, MOMENT, MAPS).policies).toEqual({
+      listing_accuracy: '1.1',
+      review_guidelines: '1.0',
     });
   });
 });
