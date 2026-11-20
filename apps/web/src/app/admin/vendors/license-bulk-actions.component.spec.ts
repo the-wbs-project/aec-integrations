@@ -95,6 +95,7 @@ function makeBilling(licenses = LICENSES): AdminVendorBillingResponse {
     release_requests: [],
     grants: [],
     grants_truncated: false,
+    policy_versions: [],
   };
 }
 

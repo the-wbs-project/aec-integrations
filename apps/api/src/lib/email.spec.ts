@@ -4867,7 +4867,7 @@ describe('sendLegalTermsChangeEmail (AECI-1620)', () => {
     [
       'terms',
       'reader-terms-accept',
-      'Because this change reduces your rights, it applies to your account only from the next time you sign in. Until then the earlier version applies. It never applies to a claim that arose before January 15, 2027.',
+      'Because this change reduces your rights, it applies to your account only after you accept it. The next time you sign in, we will ask you to tick a box to accept it. Until you do, the earlier version applies. It never applies to a claim that arose before January 15, 2027.',
     ],
     ['privacy', 'reader-privacy', 'The new version applies from January 15, 2027.'],
   ] as const)(

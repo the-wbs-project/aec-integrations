@@ -8,9 +8,8 @@
  *     today's empty manifest every legal page takes this branch, so it renders as before.
  *   - The entry's moment has not come (the SSR clock): `false`. Nothing is read: a
  *     publish before the moment changes nothing before it.
- *   - It has come, and the document is a policy: `true`. Its date alone decides.
- *   - It has come, and it is publishable (an agreement, or since AECI-1637 the Terms of
- *     Service or the Privacy Policy): ask `GET /api/legal/published` over the
+ *   - It has come, and it is publishable (an agreement, since AECI-1637 the Terms of
+ *     Service or the Privacy Policy, and since AECI-1969 the two policies): ask `GET /api/legal/published` over the
  *     service binding. Its row decides. If the read FAILS, fail safe: `false` (the old
  *     version stays current) and mark the request context, so the SSR Worker caches the
  *     page briefly instead of for a day (`server-runtime.ts`, `CACHE_STRATEGY.md` §4).

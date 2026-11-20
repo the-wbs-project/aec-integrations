@@ -126,6 +126,8 @@ interface ClaimDialogModel {
  * title and description say so (`ClaimDialogService.typed`). A found listing also looks up whether the company
  * already has an owner seat (`RequestsApi.getClaimTarget`) and, if so, shows the routed
  * notice and the routed receipt. The lookup fails quiet and never blocks the submit.
+ * The claim carries `routed_notice_shown`, true only when that notice was on screen
+ * (AECI-1972, ruling 61): the API routes to the company's owners only then.
  *
  * Signed-in visitors get the email prefill `RequestFormBody` gives them, one-shot and
  * browser-only. Every string is `i18n` / `$localize`. Light only.
@@ -306,7 +308,7 @@ interface ClaimDialogModel {
             >
               Claim sent
             </h3>
-            @if (routed()) {
+            @if (sentAsRouted()) {
               <p
                 class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
                 i18n="@@requests.sent.claim.subtitle.routed"
@@ -337,7 +339,7 @@ interface ClaimDialogModel {
               <ol
                 class="mt-2 list-decimal space-y-1 ps-5 text-sm leading-relaxed text-(--text-secondary)"
               >
-                @if (routed()) {
+                @if (sentAsRouted()) {
                   <!-- AECI-1366: the company's team decides first (AECI-1368). -->
                   <li data-testid="claim-dialog-sent-routed">
                     @if (routedCompany(); as name) {
@@ -695,6 +697,16 @@ export class ClaimDialogFlow implements OnInit {
 
   /** AECI-1366: the chosen company has an owner seat, so its team confirms first. */
   protected readonly routed = signal(false);
+  /**
+   * AECI-1972 (ruling 61): the routed notice was on screen for the chosen listing. The
+   * notice sits on the You step, so a lookup that lands after the visitor moved on to
+   * Comments does not count until they come back to it. Sent as `routed_notice_shown`.
+   * The API routes the claim to the company's owners only when it is true.
+   */
+  private readonly noticeShown = signal(false);
+  /** AECI-1972: the claim was sent with `routed_notice_shown: true`. Drives the routed
+   *  receipt, so the receipt matches what the API was told, not the live lookup. */
+  protected readonly sentAsRouted = signal(false);
   /** AECI-1366: the server refused the submit on `accepted_terms` (a stale bundle). */
   protected readonly termsRejected = signal(false);
   protected readonly reviewDays = CLAIM_OWNER_REVIEW_DAYS;
@@ -859,6 +871,7 @@ export class ClaimDialogFlow implements OnInit {
     this.path.set('found');
     this.submitError.set(null);
     this.routed.set(false);
+    this.noticeShown.set(false);
     void this.loadClaimTarget(listing);
     this.show('you');
   }
@@ -874,9 +887,19 @@ export class ClaimDialogFlow implements OnInit {
         targetType: listing.targetType,
         slug: listing.slug,
       });
-      if (this.listing() === listing) this.routed.set(target.has_seats);
+      if (this.listing() !== listing) return;
+      this.routed.set(target.has_seats);
+      this.markNoticeShown();
     } catch {
-      // No disclosure. Never block the submit.
+      // No disclosure. Never block the submit. The claim goes to AECi, not the owners.
+    }
+  }
+
+  /** AECI-1972: record that the routed notice is on screen. It renders on the You step
+   *  of a found listing whenever `routed()` is true. */
+  private markNoticeShown(): void {
+    if (this.step() === 'you' && this.path() === 'found' && this.routed()) {
+      this.noticeShown.set(true);
     }
   }
 
@@ -884,6 +907,7 @@ export class ClaimDialogFlow implements OnInit {
     this.path.set('typed');
     this.submitError.set(null);
     this.routed.set(false);
+    this.noticeShown.set(false);
     this.seedLegalName('');
     this.show('you');
   }
@@ -988,10 +1012,13 @@ export class ClaimDialogFlow implements OnInit {
         if (this.path() === 'found' && listing) {
           // The schema already refused an unchecked box; this narrows the type.
           if (!v.accepted_terms) return undefined;
+          // AECI-1972: read once, before the request, so the receipt matches it.
+          const noticeShown = this.noticeShown();
           const res = await this.api.submitClaim(
             { targetType: listing.targetType, slug: listing.slug },
-            { ...identity, accepted_terms: true },
+            { ...identity, accepted_terms: true, routed_notice_shown: noticeShown },
           );
+          this.sentAsRouted.set(noticeShown);
           this.confirmationRequired.set(res.confirmation_required);
           this.analytics.claimRequested({
             target_type: listing.targetType,
@@ -1043,6 +1070,7 @@ export class ClaimDialogFlow implements OnInit {
   /** Show a step, report it, and move focus to its heading. */
   private show(step: ClaimDialogStep, focus = true): void {
     this.step.set(step);
+    this.markNoticeShown();
     const opening = this.opening();
     const path = this.path();
     // AECI-1364: "Claim <Company>" once a found listing names it. The Find step reads

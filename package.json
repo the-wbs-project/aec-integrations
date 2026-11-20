@@ -39,6 +39,7 @@
     "test:scripts": "node --test 'scripts/*.test.mjs'",
     "test:integration": "pnpm --filter @aeci/web run test:integration",
     "test:e2e": "pnpm --filter @aeci/web run test:e2e",
+    "test:a11y:nightly": "pnpm --filter @aeci/web run test:a11y:nightly",
     "test:extras": "pnpm --filter @aeci/web run test:extras",
     "lighthouse": "pnpm --filter @aeci/web run lighthouse",
     "deploy:web": "pnpm --filter @aeci/web deploy",

@@ -179,7 +179,7 @@ The Terms promise four things here. We promptly notify the person who posted the
    | Anything else | No tool. Tell Chris the same day. | |
 
    Set `action` to `removed` or `disabled`, with `action_at`. Set `account_id` to the account that posted the material, and `vendor_id` when it is a vendor's logo, screenshot or text. An incomplete notice, or one about material that is not on our service, is `no_action`. A `no_action` notice never counts against an account.
-3. **Promptly notify the person who posted it.** Email them from the copyright mailbox. Say what was removed and why. Say they may send a counter-notice to the address in the Terms, and what it must contain. Stamp `forwarded_at` on the notice when you send it.
+3. **Promptly notify the person who posted it.** Email them from the copyright mailbox. Say what was removed and why. Do not name the person who sent the notice, give their contact details or attach the notice. The Privacy Policy says we tell the poster only that the material was removed because of a copyright notice. Say they may send a counter-notice to the address in the Terms, and what it must contain. Stamp `forwarded_at` on the notice when you send it.
 
 **A counter-notice**
 
@@ -358,18 +358,28 @@ and the acceptances of a deleted company six years after the deletion. A litigat
 off switch, and the only one any job has.
 
 1. Open `/admin/legal` and scroll to **Litigation holds**. Choose **Place a hold**.
-2. Pick the scope. **One vendor** when the matter is about one company: enter its vendor id from
+2. Pick the scope. For any real legal process, start with **Everything (global)**. Narrow it to
+   one vendor only once the attorney confirms the scope, as "Unsure of the scope"
+   below describes. **One vendor** when the matter is about one company: enter its vendor id from
    `/admin/vendors`. **Everything (global)** when the matter is wider, or you do not yet know its
-   scope.
+   scope. Also choose global when the matter needs a record a vendor hold does not reach (see
+   step 4): a row whose only link to the company is a product, integration or claim already
+   deleted, or something a former team member did before October 2026.
 3. Write the reason and the Linear issue id as the matter reference. Choose **Place the hold**.
-4. What it stops. Any open hold pauses the whole audit record prune, and the deletion of holds
-   released four years ago. A vendor hold also keeps that
-   vendor's agreement acceptances and subscription grants, including the acceptances of a
+4. What it stops. A vendor hold keeps that company's audit records and lets every other audit
+   record be deleted on schedule, as the Privacy Policy says (ruling 55, AECI-1970). An audit
+   record is the company's when it names the company, is about one of its products or their
+   reviews, is about an integration or connector link it built or its products take part in,
+   or a claim or attestation on one, is about a claim on the company, or was written
+   by one of its current team members. The full list is `docs/DATABASE_SCHEMA.md` §8.4 "Whose row
+   it is, for a hold". It also keeps old released holds on the same company. A vendor hold also
+   keeps that vendor's agreement acceptances and subscription grants, including the acceptances of a
    rejected claim on that company and of a deleted company with that id. An acceptance with no
    company or claim, such as a listing request's, has no vendor to hold: only a global hold keeps
    it. A global hold keeps everything: the
    nightly run records `skipped`. Check the next morning: `/admin/system` shows the
-   `legal-retention-prune` row as `ok` with no audit rows deleted, or as `skipped`.
+   `legal-retention-prune` row as `ok` for a vendor hold, with other records still deleted and the
+   run metric tagged `audit:scoped`, or as `skipped` for a global hold.
 5. Release it only when the attorney says the matter is closed (see "Ending a hold" below). Choose
    **Release hold**, give the reason, and the prune resumes on its next run.
 
@@ -564,7 +574,7 @@ the queue line says the notice did not finish, or when a company says it never g
 | Not reached: "The site address is not set, so the link could not be built." | `PUBLIC_SITE_URL` is unset | Set the var, deploy, send again |
 | Not reached: "A database or service read failed." | A D1 or R2 read threw on every attempt | Check D1 and R2 health, then send again |
 | Not reached: "No seat or billing email to send to." | The company has no unbanned seat (Vendor Terms) or owner seat (Managed plan) with an address, and no billing email | Ask the company for a billing email, or add a seat, then send again |
-| Not reached: "Still waiting when the version took effect, so it was not sent." | The message was still queued at the effective moment. The card also says the notice was not completed | A legal question for Chris: that company had no notice from us. Re-send is refused once the version is in effect |
+| Not reached: "Still waiting when the version took effect, so it was not sent." | The message was still queued at the effective moment. The card also says the notice was not completed | A legal question for Chris: that company had no notice from us. Re-send is refused once the version is in effect. For a Listing Accuracy Policy or Review Guidelines version (AECI-1969) the company stays on its earlier policy version, and its admin Billing tab says so |
 
 **Read the logs** for detail. In PostHog Logs, search `aeci.legal_notice`. Each error names the
 `legal_version_id`, the `vendor_id` and the version, and carries `reason_code`. The last attempt

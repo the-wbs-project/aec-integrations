@@ -630,7 +630,7 @@ Stored in GitHub Settings → Secrets and Variables → Actions. Scoped per envi
 | ~~`DATADOG_API_KEY`~~ | **Retired at AECI-651** — no longer read by any workflow. Delete from GH secrets (manual, WC-10 precedent). | — |
 | ~~`DATADOG_APP_KEY`~~ | **Retired at AECI-651.** Same. | — |
 | `RESEND_API_KEY` | Resend key for transactional email (AECI-240, §11.1). **Single shared, un-suffixed key** — one Resend account/key spans every env (like `SUPABASE_ANON_KEY`); pushed to the API Worker as `RESEND_API_KEY` by `deploy.yml` (staging), `promote-to-demo.yml` (demo), and `promote-to-prod.yml` (production). **Optional + fail-open on every env** (warn-and-skip): a missing key makes every send a silent `'skipped'` and the triggering action still succeeds. Pairs with the `EMAIL_FROM` var (sender). See `docs/email.md`. Also read directly by the nightly Lighthouse alert job in `lighthouse.yml` (§11c), which emails support@ when it files a new regression issue. | staging, demo, production |
-| `LINEAR_API_KEY` | Linear personal API key for the form→Linear pipeline (AECI-211, §6.4); pushed to the API Worker as `LINEAR_API_KEY` by `promote-to-prod.yml` **only** (AECI-851). **Single shared, un-suffixed key.** **REQUIRED + fail-closed on production** — the one runtime-fail-open key that still blocks a promote, because the absent-key path emits **no metric and no log**: `createLinearIssueForRequest()` returns before its first emission, so a vendor claim routes to nobody and the only signal is the 60-minute reconciliation-sweep email. Preflighted in `REQUIRED_SECRETS`, then re-asserted on the live Worker in `REQUIRED_WORKER_SECRETS`. **Production only, deliberately** — the board constants in `apps/api/src/lib/linear.ts` are hardcoded to the one live "Vendor Requests" project, so a staging/demo/preview Worker files fixture claims as real issues (`AECI-638` "Claim: Fixture Procore" is what that looks like). `apps/api/src/linear-secrets-ci.spec.ts` asserts both halves. The nightly Lighthouse alert job in `lighthouse.yml` (§11c) also reads the GH secret directly to file and comment on `lighthouse-regression` issues. It never pushes it to a Worker. ⚠️ **This row previously read `LINEAR_API_TOKEN` / "All", a name that exists nowhere in the code** — which is part of why prod ran with no key from the 2026-07 apex cutover to 2026-09-10. | production |
+| `LINEAR_API_KEY` | Linear personal API key for the form→Linear pipeline (AECI-211, §6.4); pushed to the API Worker as `LINEAR_API_KEY` by `promote-to-prod.yml` **only** (AECI-851). **Single shared, un-suffixed key.** **REQUIRED + fail-closed on production** — the one runtime-fail-open key that still blocks a promote, because the absent-key path emits **no metric and no log**: `createLinearIssueForRequest()` returns before its first emission, so a vendor claim routes to nobody and the only signal is the 60-minute reconciliation-sweep email. Preflighted in `REQUIRED_SECRETS`, then re-asserted on the live Worker in `REQUIRED_WORKER_SECRETS`. **Production only, deliberately** — the board constants in `apps/api/src/lib/linear.ts` are hardcoded to the one live "Vendor Requests" project, so a staging/demo/preview Worker files fixture claims as real issues (`AECI-638` "Claim: Fixture Procore" is what that looks like). `apps/api/src/linear-secrets-ci.spec.ts` asserts both halves. The nightly Lighthouse alert job in `lighthouse.yml` (§11c) also reads the GH secret directly to file and comment on `lighthouse-regression` issues. So does the accessibility nightly's alert job in `a11y-nightly.yml` (§11a-quater), for `a11y-nightly-regression` issues. Neither pushes it to a Worker. ⚠️ **This row previously read `LINEAR_API_TOKEN` / "All", a name that exists nowhere in the code** — which is part of why prod ran with no key from the 2026-07 apex cutover to 2026-09-10. | production |
 | `LINEAR_WEBHOOK_SIGNING_SECRET` | HMAC-SHA256 signing secret for the inbound Linear webhook (AECI-212, §6.5, `POST /api/webhooks/linear`); pushed to the API Worker by `promote-to-prod.yml` **only** (AECI-851). **Single shared, un-suffixed.** **Recommended + warn-and-skip**, the opposite call from the row above: this one **fails closed** (every delivery rejected 401 before any write) and emits `aeci.webhooks.linear.hmac_failure`, which has its own alert — so its absence is loud, not silent. A prod webhook may not be registered in Linear at all, in which case the secret is moot and must not block a promote. Previously named `LINEAR_WEBHOOK_SECRET` here, which matches nothing in the code. | production |
 | `RESEND_WEBHOOK_SECRET_STAGING` / `_DEMO` / `_PRODUCTION` | Svix signing secret of that tier's Resend delivery-webhook endpoint (AECI-1222, `POST /api/webhooks/resend`), pushed to the API Worker as `RESEND_WEBHOOK_SECRET` by `deploy.yml` / `promote-to-demo.yml` / `promote-to-prod.yml`. **Suffixed per tier**, because each Resend endpoint has its own secret. **Required on production since AECI-1438** (`REQUIRED_SECRETS` and `REQUIRED_WORKER_SECRETS`, and the push step fails rather than skips), because the warn-and-skip hid a secret that was never created. `apps/api/src/resend-webhook-secrets-ci.spec.ts` gates it. **Recommended + warn-and-skip on staging and demo**, whose endpoints are not registered. Not on PR previews. | staging / demo / production (required) |
 | `TURNSTILE_SECRET_KEY_STAGING` / `_DEMO` / `_PRODUCTION` | Secret of that tier's Invisible Turnstile widget (AECI-1457, ADR 0049), pushed to the API Worker as `TURNSTILE_SECRET_KEY` by `deploy.yml` / `promote-to-demo.yml` / `promote-to-prod.yml`. **Suffixed per tier**, because each tier has its own widget. **REQUIRED + fail-closed on every tier (ruling 2026-10-29)**: in each workflow's `REQUIRED_SECRETS`, and the push step fails rather than skips. Staging and production also re-assert it in `REQUIRED_WORKER_SECRETS`; demo has no postflight secret check. `apps/api/src/turnstile-secrets-ci.spec.ts` gates all three. Whether Turnstile runs is the web Worker's committed `TURNSTILE_SITE_KEY` (required on staging, demo and production, `apps/web/src/turnstile-site-key.spec.ts`). EU, EEA, UK and Swiss visitors skip it until the AECI-1458 ruling (AECI-1581). Not on PR previews. | staging / demo / production (required) |
@@ -699,13 +699,16 @@ gh run watch --repo the-wbs-project/aec-integrations
 
 4. Open each Linear Document. Check that the header names a commit, and that the tables render as tables. Then record the key's identity and scope in the `LINEAR_DOCS_MIRROR_API_KEY` row above.
 
-**The `GITHUB_TOKEN` scope.** `deploy.yml` and `lighthouse.yml` set a top-level `permissions: contents: read`. A job that needs more grants it in its own block:
+**The `GITHUB_TOKEN` scope.** `deploy.yml`, `lighthouse.yml` and `a11y-nightly.yml` set a top-level `permissions: contents: read`. A job that needs more grants it in its own block:
 
 | Workflow | Job | Extra scope | Why |
 |---|---|---|---|
 | `deploy.yml` | `changes` | `pull-requests: read` | `dorny/paths-filter` lists the PR's files through the pulls API |
 | `lighthouse.yml` | `resolve` | `statuses: read` | Reads the existing `lighthouse` status |
 | `lighthouse.yml` | `lighthouse` | `statuses: write` | Posts the `lighthouse` status |
+| `a11y-nightly.yml` | `resolve` | `statuses: read` | Reads the existing `a11y-nightly` status |
+| `a11y-nightly.yml` | `suite` | `statuses: write` | Posts the `a11y-nightly` status |
+| `a11y-nightly.yml` | `confirm-alert` | `statuses: write` only | Rewrites a nightly failure to `(nightly)` after the alert lands. It has no `contents: read` and no Linear key |
 | `promote-to-demo.yml` | `lighthouse-lookup` | `statuses: read`, `actions: read` | Reads the status, then the run it links to |
 | `promote-to-demo.yml` | `lighthouse-measure` | `statuses: write` | Ceiling for the called `lighthouse.yml` jobs, which post the status |
 
@@ -1370,6 +1373,9 @@ created by **operator actions against live data**, not by merging code. Both are
 strictly read-only against production and never repair anything — repair is a
 deliberate, reviewed human action.
 
+The accessibility nightly is a scheduled test lane, not a data guard. It has its own section,
+§11a-quater.
+
 | Workflow | Cron (UTC) | What it checks | On red |
 |---|---|---|---|
 | [`reconcile-counts.yml`](../.github/workflows/reconcile-counts.yml) | `0 8 * * *` | Denormalized product aggregates (`integration_count`, `review_count`, `rating_*_avg`) against their source rows, on staging + production | A write path mutated rows without `recomputeProductCounts()` landing. Repair with `db:reconcile-counts -- --fix`. |
@@ -1403,6 +1409,22 @@ because GitHub delays scheduled runs). A run the schedule never started is caugh
 **Run it once per tier, before the publish.** The publish on `/admin/legal` reads the object and
 records its sha256 and size. The operator steps, in run order, are in
 `apps/web/src/content/legal/README.md` "Publishing an upcoming agreement version".
+
+---
+
+## 11a-quater. The accessibility nightly (AECI-1875)
+
+| Workflow | Trigger | What it does | Skips when | On red |
+|---|---|---|---|---|
+| [`a11y-nightly.yml`](../.github/workflows/a11y-nightly.yml) | `40 5 * * *` (05:40 UTC) + `workflow_dispatch` | Builds the SSR Worker, boots `dev:bound` and runs `pnpm test:a11y:nightly`: the Playwright suite in `apps/web/e2e-a11y/`, over every surface in `apps/web/e2e-a11y/surfaces.ts`. Uploads `a11y-nightly-summary.json` and the HTML report for 30 days. Posts commit status `a11y-nightly` on the SHA, `pending` then `success`, `failure` or `error`, with `(nightly)` or `(manual)` at the end of the description. Concurrency group per SHA, no cancel-in-progress | A scheduled run skips when `main` HEAD already has a bot-posted `success`, or a `failure` whose description ends `(nightly)`. A nightly failure is first posted as `(nightly, alert pending)`. The `confirm-alert` job rewrites it to `(nightly)` only after the Linear alert succeeds, so a failed alert is retried the next night. The status lookup fails open. A dispatch never skips and runs the dispatched ref | A scheduled red files or comments on a Linear issue labelled `a11y-nightly-regression` (`scripts/a11y-nightly-alert.mjs`, `LINEAR_API_KEY`, §7.1). A green night comments "Recovered" on an open issue. No email. `docs/OBSERVABILITY.md` describes the alert |
+
+**Separate from the PR suite.** The lane has its own config, `apps/web/playwright.a11y-nightly.config.ts`.
+The PR e2e job in `deploy.yml` runs the default config, whose `testDir` is `./e2e`, so it never sees
+`e2e-a11y/`. What the suite holds and how to add a check is `docs/TESTING_STRATEGY.md` §8.4.
+
+**Token scope.** As in §11c: the `suite` job's checkout sets `persist-credentials: false`, and only the
+two status steps receive the `statuses: write` token, as `GH_TOKEN`. Every action in the `alert` job is
+pinned to a full commit SHA, the same ones `lighthouse.yml` uses.
 
 ---
 

@@ -118,11 +118,23 @@ describe('server (invariants 2 and 3)', () => {
     expect(await t.run(routeFor('vendor-terms'))).toBe(false);
   });
 
-  it('a policy switches on its date with no read', async () => {
-    const request = vi.fn(() => Promise.reject(new Error('no read expected')));
-    const ctx = createRequestContext({ request: request as ServerApiClient['request'] });
-    expect(await decideOnServer(LA, MOMENT, ctx)).toBe(true);
-    expect(request).not.toHaveBeenCalled();
+  // AECI-1969 (ruling 54): a policy switches like an agreement, only once published.
+  it('a policy reads the published list and switches only on its row', async () => {
+    const withRow = ctxWith(() =>
+      Promise.resolve({
+        now: new Date(MOMENT).toISOString(),
+        published: [
+          {
+            document: 'listing_accuracy',
+            version: '1.1',
+            effective_at: new Date(MOMENT).toISOString(),
+          },
+        ],
+      } satisfies LegalPublishedResponse),
+    );
+    expect(await decideOnServer(LA, MOMENT, withRow)).toBe(true);
+    const noRow = ctxWith(() => Promise.resolve(published(MOMENT)));
+    expect(await decideOnServer(LA, MOMENT, noRow)).toBe(false);
   });
 
   it('a failed read keeps the old version and flags the request (fail safe)', async () => {

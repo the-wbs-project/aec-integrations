@@ -13,6 +13,8 @@
     "src/**/*.spec.ts",
     "src/**/*.integration.spec.ts",
     "e2e/**/*.ts",
+    "e2e-a11y/**/*.ts",
+    "playwright.a11y-nightly.config.ts",
     "worker-configuration.d.ts",
     "src/markdown.d.ts"
   ]

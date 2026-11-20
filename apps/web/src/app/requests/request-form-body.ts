@@ -261,11 +261,19 @@ export class RequestFormBody implements OnInit {
   /**
    * AECI-1366: the company already has an owner seat (`has_seats` from
    * `GET /api/requests/claim-target/:type/:slug`), so the claim goes to its team first.
-   * Drives the routed notice on the form and the routed receipt. Loaded in the browser
-   * after first render, never during SSR, so the cached routed page stays neutral. A
-   * failed lookup leaves it false: no notice, and the submit is never blocked.
+   * Drives the routed notice on the form. Loaded in the browser after first render,
+   * never during SSR, so the cached routed page stays neutral. A failed lookup leaves it
+   * false: no notice, and the submit is never blocked.
    */
   protected readonly routed = signal(false);
+
+  /**
+   * AECI-1972 (ruling 61): the claim was sent with `routed_notice_shown: true`, so the
+   * API routes it to the owners. Drives the routed receipt. It is the value the submit
+   * carried, not the live lookup: a lookup that lands after the submit must not turn a
+   * claim AECi will decide into a "their team confirms you" receipt.
+   */
+  protected readonly sentAsRouted = signal(false);
   protected readonly reviewDays = CLAIM_OWNER_REVIEW_DAYS;
 
   private readonly model = signal<RequestModel>({
@@ -419,6 +427,9 @@ export class RequestFormBody implements OnInit {
     const target = this.target();
     // The schema already refused an unchecked box; this narrows the type.
     if (this.kind() === 'claim' && !v.accepted_terms) return undefined;
+    // AECI-1972: read once, before the request. The notice renders on this form
+    // whenever `routed()` is true, so this is "the notice was on screen at submit".
+    const noticeShown = this.kind() === 'claim' && this.routed();
     try {
       const res =
         this.kind() === 'claim'
@@ -432,6 +443,7 @@ export class RequestFormBody implements OnInit {
               accepted_terms: true,
               found_via: v.found_via,
               found_via_detail: v.found_via_detail.trim(),
+              routed_notice_shown: noticeShown,
             })
           : await this.api.submitCorrection(
               target,
@@ -443,8 +455,9 @@ export class RequestFormBody implements OnInit {
               this.pairSlug(),
             );
       this.sentTo.set(v.submitter_email.trim());
+      this.sentAsRouted.set(noticeShown);
       this.submitted.set(res);
-      this.sentRouted.emit(this.kind() === 'claim' && this.routed());
+      this.sentRouted.emit(noticeShown);
       this.sentConfirm.emit(res.confirmation_required);
       this.sent.emit(this.sentTo());
       afterNextRender(() => this.confirmFocus()?.nativeElement.focus(), {

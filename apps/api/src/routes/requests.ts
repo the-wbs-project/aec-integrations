@@ -351,6 +351,11 @@ interface RequestInsert {
    *  vendor has an unbanned owner seat). The submit instant, else null. Always null
    *  for a correction. A column, so it rides `rowData` into the insert. */
   routedToOwnersAt: string | null;
+  /** AECI-1972: the company has an owner seat, but the form did not show the routed
+   *  notice, so the claim was not routed. Recorded in the audit metadata so the queue
+   *  can tell why a claim on a company with owners came to AECi. Not a column: it is
+   *  stripped before the insert. */
+  routingWithheld?: boolean;
   /** AECI-1420: the submit-time account check found the address already holds a seat
    *  on another company, or is a staff account. The row is then written already
    *  `rejected`, by the system, in the same batch. Always null for a correction. Not
@@ -422,6 +427,7 @@ async function createRequest(
     websiteUrl: _websiteUrl,
     contextProduct,
     rejectedAtSubmit,
+    routingWithheld,
     ...rowData
   } = insert;
   const workflowType = kind === 'claim' ? 'vendor_claim' : 'correction_request';
@@ -446,6 +452,8 @@ async function createRequest(
           context_product_slug: contextProduct?.slug ?? null,
           // AECI-1368: whether the claim went to the company's owners first.
           routed_to_owners: insert.routedToOwnersAt !== null,
+          // AECI-1972: an owner seat exists, but the form never showed the notice.
+          ...(routingWithheld ? { routing_withheld: 'notice_not_shown' } : {}),
           // AECI-1435: how the address was shown to be the claimant's.
           ...(opts.confirmation ? { confirmation: opts.confirmation } : {}),
           // AECI-1063: the self-reported channel, the enum only. Never the detail:
@@ -830,7 +838,9 @@ export interface SubmittedClaim {
  * (`POST /api/requests/confirm`, AECI-1435) calls it with the pending row's payload,
  * so the AECI-1420 check, the routing (`routed_to_owners_at` is the confirm time, so
  * the owners' 7 days start then), the duplicate probe and the domain match all run
- * when the address is shown to be the claimant's.
+ * when the address is shown to be the claimant's. Routing needs an owner seat now AND
+ * the payload's `routed_notice_shown` (AECI-1972), which the parked payload keeps
+ * from the submit.
  */
 export async function submitClaimNow(
   c: Context<{ Bindings: Env }>,
@@ -854,10 +864,15 @@ export async function submitClaimNow(
   const rejectedAtSubmit = account.outcome === 'conflict' ? account : null;
   // AECI-1368: one owner predicate (`lib/owner-seat.ts`). Status stays `open`. A
   // claim rejected here is never routed: the owners have nothing to decide.
-  const routedToOwnersAt =
-    !rejectedAtSubmit && (await vendorHasOwnerSeat(db, target.id))
-      ? new Date().toISOString()
-      : null;
+  //
+  // AECI-1972 (ruling 61): the owners see the claimant's name, title, work email,
+  // LinkedIn link and note, so a claim routes only when the form showed the notice
+  // that says so (`routed_notice_shown`). Without it (a failed lookup, a bundle from
+  // before the field, a seat granted after the form loaded) the claim is stored as a
+  // claim on a company with no owner seat is, and AECi decides it.
+  const hasOwnerSeat = !rejectedAtSubmit && (await vendorHasOwnerSeat(db, target.id));
+  const noticeShown = payload.routed_notice_shown === true;
+  const routedToOwnersAt = hasOwnerSeat && noticeShown ? new Date().toISOString() : null;
 
   const requestId = await createRequest(
     c,
@@ -886,6 +901,7 @@ export async function submitClaimNow(
       // AECI-1063: `''` stores NULL; a detail without a follow-up choice is dropped.
       ...normalizeFoundVia(payload),
       routedToOwnersAt,
+      routingWithheld: hasOwnerSeat && !noticeShown,
       rejectedAtSubmit,
     },
     opts,
@@ -966,7 +982,9 @@ export function createClaimSubmitHandler(
  *
  * It resolves through `resolveClaimTarget`, the same function the submit uses, so
  * the two cannot disagree about the company, and a slug the submit would 404 is a
- * 404 here. `has_seats` is `vendorHasOwnerSeat`, the predicate the submit routes on.
+ * 404 here. `has_seats` is `vendorHasOwnerSeat`, the predicate the submit routes on. The
+ * submit also needs `routed_notice_shown` from the form (AECI-1972), so a form that
+ * never got this answer sends a claim that is not routed.
  *
  * Public and read-only. `json()` sets `private, no-store`: the answer changes the
  * moment a seat is granted, so no layer may cache it. No `rateLimit()`, because reads

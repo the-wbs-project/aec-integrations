@@ -14,6 +14,8 @@ import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
 import type {
+  AcceptTermsResponse,
+  TermsPendingResponse,
   AccountProfileResponse,
   AccountReview,
   AccountReviewsQuery,
@@ -48,6 +50,20 @@ export class AccountApi {
   async listAudiences(): Promise<LinkRef[]> {
     const res = await firstValueFrom(this.http.get<CategoriesListResponse>('/api/audiences'));
     return res.data.map(({ id, name, slug }) => ({ id, name, slug }));
+  }
+
+  /** AECI-1637: what `/auth/terms` shows, the version waiting for this account's tick with
+   *  its date, summary and the version that applies until then. `pending: null` when none. */
+  getTermsPending(): Promise<TermsPendingResponse> {
+    return firstValueFrom(this.http.get<TermsPendingResponse>('/api/auth/terms/pending'));
+  }
+
+  /** AECI-1637 (ruling 53): the reader ticked the box on `/auth/terms` for this Terms
+   *  version. `422 LEGAL_ACCEPTANCE_NOT_PENDING` when it no longer waits for them. */
+  acceptTerms(version: string): Promise<AcceptTermsResponse> {
+    return firstValueFrom(
+      this.http.post<AcceptTermsResponse>('/api/auth/terms/accept', { version, accepted: true }),
+    );
   }
 
   /** Right-to-erasure: anonymizes the caller's reviews, deletes their profile +

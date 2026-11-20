@@ -12,8 +12,9 @@ import { AdminReasonSchema } from './admin-reason';
  *   POST /api/admin/litigation-holds/:id/release   the same guard and limiter.
  *
  * An open hold stops the legal retention prune (`apps/api/src/lib/legal-retention-prune.ts`).
- * Any open hold pauses the four-year `audit_log` prune. A vendor hold also keeps that
- * vendor's acceptance and grant records. A global hold keeps everything. Never public.
+ * A vendor hold keeps that vendor's `audit_log` rows (`auditRowOfVendor` says which rows are
+ * a vendor's) and its acceptance and grant records. Every other row goes on schedule (ruling
+ * 55, AECI-1970). A global hold keeps everything. Never public.
  */
 
 // ─── Retention periods (Privacy Policy "Retention") ──────────────────────────

@@ -4,13 +4,16 @@
  * only after the `afterNextRender` reconciliation, and only when consent is
  * still `'unknown'`. Mirrors the `ReviewCta` test shape.
  */
-import { provideZonelessChangeDetection, signal } from '@angular/core';
+import { Component, provideZonelessChangeDetection, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ConsentService, type ConsentState } from './consent';
-import { ConsentBanner } from './consent-banner';
+import { ConsentBanner, bannerHeldOn } from './consent-banner';
+
+@Component({ template: '' })
+class Blank {}
 
 function settle(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve));
@@ -145,5 +148,42 @@ describe('ConsentBanner', () => {
       fixture.destroy();
       expect(root.hasAttribute('data-consent-reserve')).toBe(false);
     });
+  });
+
+  // AECI-1637 (legal agent 2026-11-20): one "Accept" on the Terms tick-box page.
+  it('is held off /auth/terms, and comes back on the next page while still undecided', async () => {
+    const consent = { state: signal<ConsentState>('unknown'), grant: vi.fn(), deny: vi.fn() };
+    TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideRouter([
+          { path: 'auth/terms', component: Blank },
+          { path: 'account', component: Blank },
+        ]),
+        { provide: ConsentService, useValue: consent },
+      ],
+    });
+    const router = TestBed.inject(Router);
+    await router.navigateByUrl('/auth/terms?version=1.2&next=%2Faccount');
+    const fixture = TestBed.createComponent(ConsentBanner);
+    const el = fixture.nativeElement as HTMLElement;
+    await hydrate(fixture);
+    expect(el.querySelector('#consent-accept')).toBeNull();
+    // Nothing was decided for the visitor.
+    expect(consent.grant).not.toHaveBeenCalled();
+    expect(consent.deny).not.toHaveBeenCalled();
+
+    await router.navigateByUrl('/account');
+    await settle();
+    fixture.detectChanges();
+    expect(el.querySelector('#consent-accept')).not.toBeNull();
+  });
+
+  it('bannerHeldOn matches /auth/terms only', () => {
+    expect(bannerHeldOn('/auth/terms')).toBe(true);
+    expect(bannerHeldOn('/auth/terms?version=1.2')).toBe(true);
+    expect(bannerHeldOn('/auth/terms-of-x')).toBe(false);
+    expect(bannerHeldOn('/auth/login')).toBe(false);
+    expect(bannerHeldOn('/legal/terms')).toBe(false);
   });
 });

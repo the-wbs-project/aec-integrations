@@ -34,6 +34,7 @@ export * from './dmca-notices';
 export * from './legal-acceptance';
 export * from './legal-in-force';
 export * from './legal-versions';
+export * from './policy-binding';
 export * from './license-grants';
 export * from './license-release-requests';
 export * from './litigation-holds';

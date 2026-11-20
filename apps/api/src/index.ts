@@ -172,7 +172,11 @@ import { createAdminPageViewsHandler } from './routes/admin-page-views';
 import { createAdminTrafficBreakdownHandler } from './routes/admin-traffic';
 import { createAdminSummaryHandler } from './routes/admin-summary';
 import { createAdminSystemHandler } from './routes/admin-system';
-import { createEnsureProfileHandler } from './routes/auth-profile';
+import {
+  createAcceptTermsHandler,
+  createEnsureProfileHandler,
+  createTermsPendingHandler,
+} from './routes/auth-profile';
 import { createAuthWhoamiHandler } from './routes/auth-whoami';
 import { activityMiddleware } from './activity-middleware';
 import { bookmarkMiddleware } from './bookmark-middleware';
@@ -749,6 +753,19 @@ authAccount.get(
 );
 authAccount.get('/api/account/reviews', requireAuth(), createGetAccountReviewsHandler());
 authAccount.patch('/api/account', requireAuth(), rateLimit('write'), createUpdateAccountHandler());
+// AECI-1637: what `/auth/terms` shows (the version, its date and summary). A read, so
+// never rate-limited (`docs/waf-rate-limits.md` §6).
+authAccount.get('/api/auth/terms/pending', requireAuth(), createTermsPendingHandler());
+// AECI-1637 (ruling 53): the reader ticks the box on `/auth/terms` for a Terms version that
+// reduces their rights. The browser sends the session cookie, so this sits on the
+// `requireAuth()` router, not `authUser`. The write convention (`docs/waf-rate-limits.md`
+// §6.2): guard, then `write`.
+authAccount.post(
+  '/api/auth/terms/accept',
+  requireAuth(),
+  rateLimit('write'),
+  createAcceptTermsHandler(),
+);
 // AECI-773: `DELETE /api/account` is DELIBERATELY NOT rate-limited. Erasure is a
 // legal obligation (`docs/AUTH_AND_RLS.md` §8), the second call is a no-op, and
 // the whole abuse ceiling is one account erasing itself. A 429 must never be the

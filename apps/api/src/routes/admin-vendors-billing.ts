@@ -97,6 +97,11 @@ import type { AuthzVariables } from '../lib/authz';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { forwardAuditBatch } from '../lib/moderation-forward';
 import { fetchAuthUserEmailsResult } from '../lib/supabase-admin';
+import {
+  assembleCompanyPolicyVersions,
+  latestPolicyAcceptanceRowSelect,
+  policyNoticeRowsSelect,
+} from '../lib/policy-binding';
 import { toAdminAcceptance } from './admin-vendor-acceptances';
 import type { FetchAuthEmails } from './admin-vendors';
 import { ownerSeatsOf } from './vendor-shared';
@@ -106,6 +111,7 @@ type AdminContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 export function createAdminVendorBillingHandler(
   dbFor: DbFactory = getDb,
   fetchEmails: FetchAuthEmails = fetchAuthUserEmailsResult,
+  now: () => Date = () => new Date(),
 ): (c: AdminContext) => Promise<Response> {
   return async (c) => {
     const vendorId = c.req.param('id');
@@ -122,6 +128,8 @@ export function createAdminVendorBillingHandler(
       acceptanceRows,
       releaseRows,
       grantRows,
+      policyAcceptanceRows,
+      policyNoticeRows,
     ] = await db.batch([
       db
         .select({ id: vendors.id, legalName: vendors.legalName })
@@ -212,6 +220,9 @@ export function createAdminVendorBillingHandler(
           asc(licenseGrants.id),
         )
         .limit(ADMIN_BILLING_GRANTS_MAX + 1),
+      // AECI-1969: which policy version the company is on.
+      latestPolicyAcceptanceRowSelect(db, vendorId),
+      policyNoticeRowsSelect(db, vendorId),
     ]);
 
     if (vendorRows.length === 0) throw notFoundError('vendor', { id: vendorId });
@@ -279,6 +290,11 @@ export function createAdminVendorBillingHandler(
         .slice(0, ADMIN_BILLING_GRANTS_MAX)
         .map((row) => toAdminLicenseGrant(row.grant, row.method)),
       grants_truncated: grantRows.length > ADMIN_BILLING_GRANTS_MAX,
+      policy_versions: assembleCompanyPolicyVersions(
+        policyAcceptanceRows,
+        policyNoticeRows,
+        now().getTime(),
+      ),
     };
 
     validateResponseInDev(c.env, () => AdminVendorBillingResponseSchema.parse(body));

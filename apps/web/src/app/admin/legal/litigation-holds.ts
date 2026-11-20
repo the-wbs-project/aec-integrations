@@ -61,9 +61,9 @@ type Load =
 
 /**
  * "Litigation holds" on `/admin/legal` (AECI-1638, `ADMIN_PANEL_SPEC.md` §5.22b, ADR 0058).
- * A hold stops the legal retention prune: any open hold pauses the four-year audit prune,
- * a vendor hold keeps that vendor's acceptance and grant records, and a global hold keeps
- * everything. Its own component, apart from the publish form and "Who has accepted".
+ * A hold stops the legal retention prune: a vendor hold keeps that vendor's audit,
+ * acceptance and grant records and lets every other record go on schedule (ruling 55,
+ * AECI-1970), and a global hold keeps everything. Its own component, apart from the publish form and "Who has accepted".
  *
  * The list loads in `afterNextRender`, a read that is never rate-limited. Place and release
  * are inline forms with a required reason, the suspension section's idiom, because each
@@ -187,7 +187,7 @@ export class AdminLitigationHolds {
       this.liveMessage.set(
         scope === 'global'
           ? $localize`:@@admin.legal.holds.announce.placedGlobal:Global hold placed. The retention prune deletes nothing until it is released.`
-          : $localize`:@@admin.legal.holds.announce.placedVendor:Vendor hold placed. That vendor's records are kept, and audit pruning is paused.`,
+          : $localize`:@@admin.legal.holds.announce.placedVendor:Vendor hold placed. That vendor's records are kept. Other records are deleted on schedule.`,
       );
       await this.fetch();
     } catch (error) {

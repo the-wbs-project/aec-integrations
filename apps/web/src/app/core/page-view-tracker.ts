@@ -67,11 +67,21 @@
  *
  * At most one post per evidence word per view, so the shared `token` rate-limit
  * bucket is never spent twice on one view. Nothing is stored in the browser.
+ *
+ * AECI-1987 carries the click forward (ruling 2026-11-20). The visitor's click, tap
+ * or key press that starts an in-app navigation counts as interaction for the view
+ * it opens, so that view posts `interacted` once its beacon ray is known, with no
+ * second touch. The tie is the task: a trusted `NAVIGATION_INPUT_EVENTS` event marks
+ * the current task, and an `imperative` `NavigationStart` inside it marks that
+ * navigation's id. Angular starts a navigation synchronously from the click handler,
+ * so the two meet in one task. The mark clears on the next macrotask. A redirect,
+ * a timer or a programmatic navigation runs in a later task and is never marked.
+ * Back and Forward (`popstate`) are never marked: the page sees no input for them.
  */
 import { DOCUMENT, isPlatformBrowser } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { DestroyRef, Injectable, Injector, PLATFORM_ID, inject } from '@angular/core';
-import { NavigationEnd, Router } from '@angular/router';
+import { NavigationEnd, NavigationStart, Router } from '@angular/router';
 import { filter } from 'rxjs';
 
 import type { PageViewPayload } from '@aeci/shared';
@@ -91,6 +101,16 @@ import { turnstileSiteKey } from './turnstile-config';
  * propagation cannot hide one. `click` is left out: a `pointerdown` precedes it.
  */
 export const INTERACTION_EVENTS = ['pointerdown', 'keydown', 'wheel', 'touchstart'] as const;
+
+/**
+ * The visitor inputs that can start an in-app navigation (AECI-1987). `click` is here
+ * because `RouterLink` navigates on it: a tap, a mouse click, Enter on a link and a
+ * screen reader's activation all arrive as a trusted `click`. `keydown` covers Enter
+ * in a search box, `pointerdown` a control that navigates on press. Only a trusted
+ * event counts, so a script's `element.click()` alone carries nothing. Listened for
+ * on `window`, passive and in the capture phase, so they run before any handler.
+ */
+export const NAVIGATION_INPUT_EVENTS = ['pointerdown', 'click', 'keydown'] as const;
 
 /**
  * One view's browser report state (AECI-1714). `ray` names the view's `page_views`
@@ -136,8 +156,23 @@ export class PageViewTracker {
     this.flushInteraction(view);
   };
   private started = false;
-  /** Drop the document listeners with the injector (a test bed reset, an app teardown). */
-  private readonly unregisterDestroy = inject(DestroyRef).onDestroy(() => this.disarmView());
+  /**
+   * AECI-1987. True from a trusted navigation input until the next macrotask, so a
+   * navigation that input starts, in the same task, is tied to it.
+   */
+  private inputInTask = false;
+  /** The id of the navigation a visitor input started, or `null` (AECI-1987). */
+  private carriedNavigationId: number | null = null;
+  private readonly onNavigationInput = (event: Event): void => {
+    if (!event.isTrusted || this.inputInTask) return;
+    this.inputInTask = true;
+    setTimeout(() => (this.inputInTask = false), 0);
+  };
+  /** Drop the listeners with the injector (a test bed reset, an app teardown). */
+  private readonly unregisterDestroy = inject(DestroyRef).onDestroy(() => {
+    this.disarmView();
+    this.listenForNavigationInput(false);
+  });
 
   /**
    * The last route this tracker actually posted (AECI-743). See `fire()` — it is
@@ -154,13 +189,27 @@ export class PageViewTracker {
   start(): void {
     if (this.started || !this.isBrowser) return;
     this.started = true;
+    // AECI-1987. Only a tier and visitor that send the report watch for the input.
+    if (this.evidenceWanted) this.listenForNavigationInput(true);
 
     // The first NavigationEnd after hydration corresponds to the landing URL
     // the SSR Worker already counted; skip it so we never double-count it.
     let isInitialNavigation = true;
     this.router.events
-      .pipe(filter((event): event is NavigationEnd => event instanceof NavigationEnd))
+      .pipe(
+        filter(
+          (event): event is NavigationEnd | NavigationStart =>
+            event instanceof NavigationEnd || event instanceof NavigationStart,
+        ),
+      )
       .subscribe((event) => {
+        if (event instanceof NavigationStart) {
+          // AECI-1987. A navigation started inside a visitor input's task carries
+          // that input. Any other start, including a later redirect, replaces the mark.
+          this.carriedNavigationId =
+            this.inputInTask && event.navigationTrigger === 'imperative' ? event.id : null;
+          return;
+        }
         if (isInitialNavigation) {
           isInitialNavigation = false;
           this.lastFiredRoute = event.urlAfterRedirects.split(/[?#]/, 1)[0] || '/';
@@ -182,11 +231,16 @@ export class PageViewTracker {
           }
           return;
         }
-        this.fire(event.urlAfterRedirects);
+        this.fire(event.urlAfterRedirects, event.id === this.carriedNavigationId);
       });
   }
 
-  private fire(url: string): void {
+  /**
+   * Post the beacon for an in-app view. `carried` is true when a visitor input
+   * started this navigation (AECI-1987): the view starts touched, so it posts
+   * `interacted` as soon as its ray arrives.
+   */
+  private fire(url: string, carried = false): void {
     const route = url.split(/[?#]/, 1)[0] || '/';
     // §9.6 — never record the operator's own navigation. Guarding here rather
     // than in the subscription means any future caller inherits the exclusion.
@@ -223,6 +277,8 @@ export class PageViewTracker {
     // AECI-1714. A new view: arm it now with no ray, so an interaction before the
     // beacon answers is remembered and posted once the ray arrives.
     const view = this.evidenceWanted ? this.armView(null) : null;
+    // AECI-1987. The click or key press that opened this view counts for it.
+    if (view && carried) view.touched = true;
     // No Turnstile config (dark env, DNT/GPC, excluded region, server) posts at once, unchanged.
     const sent: Promise<string | null> = this.turnstileWanted
       ? // AECI-1457. The lazy module adds the token and posts. A failed chunk load
@@ -278,6 +334,19 @@ export class PageViewTracker {
     view.sent = true;
     postBrowserEvidence(view.ray, 'interacted');
     if (this.view === view) this.listen(false);
+  }
+
+  /** Watch, or stop watching, for the inputs that start a navigation (AECI-1987). */
+  private listenForNavigationInput(on: boolean): void {
+    const win = this.document.defaultView;
+    if (!win) return;
+    for (const type of NAVIGATION_INPUT_EVENTS) {
+      if (on) {
+        win.addEventListener(type, this.onNavigationInput, { capture: true, passive: true });
+      } else {
+        win.removeEventListener(type, this.onNavigationInput, { capture: true });
+      }
+    }
   }
 
   private listen(on: boolean): void {

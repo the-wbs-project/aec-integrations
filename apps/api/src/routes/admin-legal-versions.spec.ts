@@ -11,7 +11,8 @@
  *      unique index is a 409, never a 500.
  *   3. **Only a material publish enqueues the notice** (AECI-1620): one message per
  *      company, after the commit, with the outcome and its audit row in one batch. A
- *      non-material publish enqueues nothing. A failed fan-out leaves
+ *      non-material publish enqueues nothing, and since AECI-1977 (ruling 62) only a Terms
+ *      or Privacy version may be non-material. A failed fan-out leaves
  *      `notice_enqueued_at` NULL so the page can show it.
  *   5. **The re-send** refuses in order (gate, unknown id, not material, already in
  *      effect), records its outcome with a `legal_version.notice_resent` audit row in one
@@ -279,7 +280,7 @@ describe('POST /api/admin/legal-versions: refusals, in order', () => {
     const out = (await res.json()) as { error: { message: string; details: { reason: string } } };
     expect(out.error.details.reason).toBe('too_soon');
     expect(out.error.message).toMatch(
-      /less than 30 days away\. Move the effective date, or for the Vendor Terms give an expedited reason\./,
+      /less than 30 days away\. Move the effective date, or for the Vendor Terms or a policy they incorporate give an expedited reason\./,
     );
   });
 
@@ -649,15 +650,26 @@ describe('POST /api/admin/legal-versions: the notice fan-out', () => {
     expect(row?.noticeVendorCount).toBe(205);
   });
 
-  it('enqueues nothing for a non-material version', async () => {
+  // AECI-1977 (ruling 62): both agreements promise the email for every version, so neither
+  // may be published as not material. Only a Terms or Privacy version can skip the email.
+  it('refuses a non-material Vendor Terms or Managed plan version (400), writing and queuing nothing', async () => {
     await putPdf();
+    await putPdf(PDF, 'legal/managed-plan-agreement/v1.2.pdf');
     await seedCompanies();
-    const res = await post(body({ material: false, requires_acceptance: false }));
-    expect(res.status).toBe(201);
-    expect(res.legalQueue.sendBatch).not.toHaveBeenCalled();
-    const [row] = await t.db.select().from(legalVersions);
-    expect(row).toMatchObject({ noticeEnqueuedAt: null, noticeVendorCount: null });
-    expect(await t.db.select().from(auditLog)).toHaveLength(1);
+    const vt = await post(body({ material: false, requires_acceptance: false }));
+    await expectRefused(vt, 400, ApiErrorCode.VALIDATION_FAILED);
+    expect(vt.legalQueue.sendBatch).not.toHaveBeenCalled();
+    const mp = await post(
+      body({
+        document: 'managed_plan',
+        version: '1.2',
+        material: false,
+        requires_acceptance: false,
+      }),
+      { upcoming: { managed_plan: { version: '1.2', effectiveOn: FAR_DAY } } },
+    );
+    await expectRefused(mp, 400, ApiErrorCode.VALIDATION_FAILED);
+    expect(mp.legalQueue.sendBatch).not.toHaveBeenCalled();
   });
 
   it('leaves notice_enqueued_at NULL with the partial count when a chunk fails', async () => {
@@ -728,7 +740,9 @@ describe('POST /api/admin/legal-versions/:id/notice', () => {
   });
 
   it('refuses a non-material version (409 LEGAL_NOTICE_NOT_MATERIAL) and writes nothing', async () => {
-    const row = await published({ material: false });
+    // A row recorded before AECI-1977, when a Vendor Terms version could be non-material.
+    const row = await published();
+    await t.db.update(legalVersions).set({ material: false }).where(eq(legalVersions.id, row.id));
     const res = await resend(row.id);
     expect(res.status).toBe(409);
     expect(await codeOf(res)).toBe(ApiErrorCode.LEGAL_NOTICE_NOT_MATERIAL);
@@ -1049,5 +1063,104 @@ describe('the reader documents (AECI-1637)', () => {
       skipped: 0,
     });
     expect(parsed.upcoming[1]!.published).toBeNull();
+  });
+});
+
+// ─── AECI-1969 (counsel Q68, ruling 54): the two policies ─────────────────────
+
+describe('the two policies (AECI-1969)', () => {
+  const POLICY_UPCOMING = {
+    listing_accuracy: { version: '1.1', effectiveOn: FAR_DAY },
+    review_guidelines: { version: '1.1', effectiveOn: FAR_DAY },
+  } as unknown as Upcoming;
+  const KEYS = {
+    listing_accuracy: 'legal/listing-accuracy/v1.1.pdf',
+    review_guidelines: 'legal/review-guidelines/v1.1.pdf',
+  } as const;
+
+  for (const document of ['listing_accuracy', 'review_guidelines'] as const) {
+    it(`publishing ${document} queues the change notice once per claimed company, and a second run sends nothing`, async () => {
+      await putPdf(PDF, KEYS[document]);
+      await seedCompanies();
+      const res = await post(body({ document, version: '1.1' }), { upcoming: POLICY_UPCOMING });
+      expect(res.status).toBe(201);
+      // The Vendor Terms audience: every company with an unbanned seat (V3's is banned).
+      expect(queuedVendorIds(res.legalQueue)).toEqual([V1, V2]);
+      const [row] = await t.db.select().from(legalVersions);
+      expect(row).toMatchObject({
+        document,
+        version: '1.1',
+        material: true,
+        requiresAcceptance: false,
+        pdfKey: KEYS[document],
+        noticeEnqueuedAt: NOW.toISOString(),
+        noticeVendorCount: 2,
+      });
+      const deliveries = await t.db.select().from(legalNoticeDeliveries);
+      expect(deliveries.map((d) => [d.vendorId, d.status]).sort()).toEqual([
+        [V1, 'queued'],
+        [V2, 'queued'],
+      ]);
+
+      // A second publish of the same version is refused and queues nothing.
+      const again = await post(body({ document, version: '1.1' }), { upcoming: POLICY_UPCOMING });
+      expect(again.status).toBe(409);
+      expect(await codeOf(again)).toBe(ApiErrorCode.LEGAL_VERSION_EXISTS);
+      expect(again.legalQueue.sendBatch).not.toHaveBeenCalled();
+
+      // Once the consumer delivered both, a re-send queues nobody.
+      await t.db.update(legalNoticeDeliveries).set({ status: 'delivered' });
+      const { env, legalQueue } = envWith();
+      const resent = await app(POLICY_UPCOMING).request(
+        `/api/admin/legal-versions/${row!.id}/notice`,
+        { method: 'POST' },
+        env,
+        fakeExecutionContext(),
+      );
+      expect(resent.status).toBe(200);
+      expect(legalQueue.sendBatch).not.toHaveBeenCalled();
+    });
+  }
+
+  it('refuses a non-material or acceptance-needing policy version (400), writing nothing', async () => {
+    await putPdf(PDF, KEYS.listing_accuracy);
+    const notMaterial = await post(
+      body({ document: 'listing_accuracy', version: '1.1', material: false }),
+      { upcoming: POLICY_UPCOMING },
+    );
+    await expectRefused(notMaterial, 400, ApiErrorCode.VALIDATION_FAILED);
+    const accept = await post(
+      body({ document: 'listing_accuracy', version: '1.1', requires_acceptance: true }),
+      { upcoming: POLICY_UPCOMING },
+    );
+    await expectRefused(accept, 400, ApiErrorCode.VALIDATION_FAILED);
+  });
+
+  it('applies the 30-day window, and lets an expedited policy change in sooner', async () => {
+    await putPdf(PDF, KEYS.review_guidelines);
+    const near = {
+      review_guidelines: { version: '1.1', effectiveOn: NEAR_DAY },
+    } as unknown as Upcoming;
+    const refused = await post(body({ document: 'review_guidelines', version: '1.1' }), {
+      upcoming: near,
+    });
+    await expectRefused(refused, 422, ApiErrorCode.LEGAL_NOTICE_WINDOW);
+    const ok = await post(
+      body({ document: 'review_guidelines', version: '1.1', expedited_reason: 'error' }),
+      { upcoming: near },
+    );
+    expect(ok.status).toBe(201);
+    const [row] = await t.db.select().from(legalVersions);
+    expect(row?.expeditedReason).toBe('error');
+  });
+
+  it('GET lists the policy entries with their build version as the one they replace', async () => {
+    const { env } = envWith();
+    const res = await app(POLICY_UPCOMING).request('/api/admin/legal-versions', {}, env);
+    const parsed = AdminLegalVersionsResponseSchema.parse(await res.json());
+    expect(parsed.upcoming.map((e) => [e.document, e.current_version])).toEqual([
+      ['listing_accuracy', '1.0'],
+      ['review_guidelines', '1.0'],
+    ]);
   });
 });

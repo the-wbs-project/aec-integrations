@@ -303,9 +303,12 @@ The return is cleaned by `sanitizeReturnPath` first. `/welcome` cleans `next` ag
   stays for the page's life. It announces "Loading…", the form being ready, the fields a software
   vendor is not asked (and their return), and each audience count change. When the form appears,
   focus moves to the `h1`.
-- **No Terms gate (AECI-1637).** Signing in is the acceptance of the Terms of Service (ruling
-  of 2026-11-13). The sign-in that lands here already recorded it, so nothing overlays this
-  page and nothing blocks its writes (`AUTH_AND_RLS.md` §3.1b, `STAGE_1_SPEC.md` §27.4).
+- **No Terms gate on this page (AECI-1637).** Signing in is the acceptance of the Terms of
+  Service (ruling of 2026-11-13). The sign-in that lands here already recorded it, so nothing
+  overlays this page and nothing blocks its writes. Since 2026-11-19 (counsel Q63, ruling 53)
+  the callback may send a returning reader to `/auth/terms` before `next` when a
+  rights-reducing version is waiting for a box. A just-created account never sees it, so
+  `/welcome` is never preceded by it (`AUTH_AND_RLS.md` §3.1b, `STAGE_1_SPEC.md` §27.4).
 - **Copy.** The lede reads "A few questions about where you work. Reviewers get their review forms
   filled in from this. You can change any of it on your account page." It works for a vendor and a
   reviewer alike.
@@ -382,9 +385,11 @@ check.
   on the page and in the dialog, that covers the rest of the "Deletion" list: "We also keep the
   record of what you submitted or changed, any agreement you accepted for a company, and what the
   law requires us to keep, such as a record tied to a legal request." The page's line ends with
-  "Read the Retention section of our Privacy Policy." Reviews now "stay online, but are no longer
-  linked to your account" on the page and in the dialog (ruling 3). "Anonymized" is gone, because
-  a review's text can still identify its author.
+  "Read the Retention section of our Privacy Policy." "Anonymized" is gone, because a review's
+  text can still identify its author. *Since AECI-1972 (ruling 59, 2026-11-19, replacing
+  ruling 47):* the page and the dialog both read "Reviews you've published stay online. They
+  never showed your name or profile, and they are no longer linked to your account. The text
+  stays as written, so anything in it that identifies you will remain visible."
 - **The Terms acceptance record is kept (AECI-1637, ruling 1 of 2026-11-13).** The same screen
   says that signing in records your acceptance of the Terms of Service, and that the record is
   kept for 6 years after deletion. It holds the

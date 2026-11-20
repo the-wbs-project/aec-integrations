@@ -738,6 +738,43 @@ describe('POST /suspension/terminate: the work', () => {
     expect(paid!.status).toBe('succeeded');
   });
 
+  it('a retry reaches a failed refund on an older termination when a newer one owes nothing', async () => {
+    const failing = fakeStripe({
+      createRefund: vi.fn(async () => ({
+        ok: false,
+        status: 402,
+        reason: 'http_error',
+        message: 'no funds',
+      })),
+    });
+    await call('suspension/terminate', TERMINATE, { stripe: failing.stripe });
+    const [failed] = await t.db.select().from(vendorTerminationRefunds);
+    const older = await openRow();
+    // A second, newer termination of the same vendor that owes no refund.
+    await t.db.insert(vendorSuspensions).values({
+      vendorId: VENDOR,
+      kind: 'breach',
+      rule: 'r',
+      evidence: 'e',
+      reason: 'x',
+      suspendedAt: '2099-01-01T00:00:00.000Z',
+      suspendedBy: older.suspendedBy,
+      resolution: 'terminated',
+      resolvedAt: '2099-01-02T00:00:00.000Z',
+      statement: older.statement,
+    });
+
+    const f = fakeStripe();
+    const retry = await call('suspension/refunds/retry', {}, { stripe: f.stripe });
+    expect(retry.res.status).toBe(200);
+    expect(f.refunds[0]!.key).toBe(`aeci-termination-refund-${failed!.id}`);
+    const [paid] = await t.db
+      .select()
+      .from(vendorTerminationRefunds)
+      .where(eq(vendorTerminationRefunds.id, failed!.id));
+    expect(paid!.status).toBe('succeeded');
+  });
+
   it('a retry finds a refund Stripe took but whose response was lost, and does not pay again', async () => {
     const failing = fakeStripe({
       createRefund: vi.fn(async () => ({

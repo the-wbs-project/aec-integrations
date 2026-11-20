@@ -50,9 +50,16 @@ export class RequestsApi {
     );
   }
 
-  /** `ClaimFormInput`: every defaulted key (`body`, the LinkedIn URL) may be left
-   *  out, as the endpoint allows. */
-  submitClaim(target: RequestTargetRef, formValue: ClaimFormInput): Promise<RequestSubmitResponse> {
+  /**
+   * `ClaimFormInput`: every defaulted key (`body`, the LinkedIn URL) may be left
+   * out, as the endpoint allows. `routed_notice_shown` (AECI-1972) is required here
+   * so every caller states it: true only when the routed notice was on screen. The
+   * API routes the claim to the company's owners only when it is true.
+   */
+  submitClaim(
+    target: RequestTargetRef,
+    formValue: ClaimFormInput & { routed_notice_shown: boolean },
+  ): Promise<RequestSubmitResponse> {
     return firstValueFrom(
       this.http.post<RequestSubmitResponse>('/api/requests/claim', {
         ...formValue,
@@ -84,7 +91,8 @@ export class RequestsApi {
   /**
    * `GET /api/requests/claim-target/:type/:slug` (AECI-1368): the company a claim on
    * this target would land on, and whether it already has an owner seat. `has_seats`
-   * true means a claim submitted now goes to the company's owners first. Read
+   * true means the form shows the routed notice, and a claim sent with
+   * `routed_notice_shown: true` goes to the company's owners first. Read
    * `no-store`, so it reflects a seat granted a moment ago. A missing target rejects
    * with the 404 the claim submit would give.
    */

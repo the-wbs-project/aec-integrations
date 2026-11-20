@@ -7,6 +7,8 @@ out-tsc
 .claude
 coverage
 playwright-report
+playwright-report-a11y
+a11y-nightly-summary.json
 test-results
 **/*.min.js
 **/generated/**

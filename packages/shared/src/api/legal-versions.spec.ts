@@ -5,6 +5,8 @@ import {
   LEGAL_SUMMARY_MAX_BULLETS,
   PublishLegalVersionRequestSchema,
   hasForbiddenSummaryChar,
+  legalDocumentAlwaysMaterial,
+  legalDocumentMayBeExpedited,
   legalEffectiveAtMs,
   legalPdfKey,
   legalVersionPagePath,
@@ -78,8 +80,10 @@ describe('PublishLegalVersionRequestSchema', () => {
   });
 
   it('refuses requires_acceptance without material', () => {
+    // On the Terms of Service, the one document with both questions open.
+    const terms = { ...base, document: 'terms' };
     const r = PublishLegalVersionRequestSchema.safeParse({
-      ...base,
+      ...terms,
       material: false,
       requires_acceptance: true,
     });
@@ -88,7 +92,7 @@ describe('PublishLegalVersionRequestSchema', () => {
     for (const material of [true, false]) {
       expect(
         PublishLegalVersionRequestSchema.safeParse({
-          ...base,
+          ...terms,
           material,
           requires_acceptance: false,
         }).success,
@@ -144,10 +148,54 @@ describe('PublishLegalVersionRequestSchema', () => {
           .success,
       ).toBe(false);
     }
-    expect(
-      PublishLegalVersionRequestSchema.safeParse({ ...base, document: 'review_guidelines' })
-        .success,
-    ).toBe(false);
+  });
+
+  // AECI-1977 (ruling 62): both agreements promise the email for every version.
+  it('refuses a non-material Vendor Terms or Managed plan version; Terms and Privacy may be', () => {
+    for (const document of ['vendor_terms', 'managed_plan']) {
+      const r = PublishLegalVersionRequestSchema.safeParse({ ...base, document, material: false });
+      expect(r.success).toBe(false);
+      expect(r.error?.issues.map((i) => i.path.join('.'))).toEqual(['material']);
+    }
+    for (const document of ['terms', 'privacy']) {
+      expect(
+        PublishLegalVersionRequestSchema.safeParse({ ...base, document, material: false }).success,
+      ).toBe(true);
+    }
+    expect(legalDocumentAlwaysMaterial('vendor_terms')).toBe(true);
+    expect(legalDocumentAlwaysMaterial('managed_plan')).toBe(true);
+    expect(legalDocumentAlwaysMaterial('listing_accuracy')).toBe(true);
+    expect(legalDocumentAlwaysMaterial('terms')).toBe(false);
+    expect(legalDocumentAlwaysMaterial('privacy')).toBe(false);
+  });
+
+  // AECI-1969 (ruling 54): the two policies the Vendor Terms incorporate publish too.
+  it('takes the two policies: always material, never acceptance, expedited allowed', () => {
+    for (const document of ['listing_accuracy', 'review_guidelines']) {
+      expect(PublishLegalVersionRequestSchema.safeParse({ ...base, document }).success).toBe(true);
+      expect(
+        PublishLegalVersionRequestSchema.safeParse({ ...base, document, expedited_reason: 'error' })
+          .success,
+      ).toBe(true);
+      const notMaterial = PublishLegalVersionRequestSchema.safeParse({
+        ...base,
+        document,
+        material: false,
+      });
+      expect(notMaterial.success).toBe(false);
+      expect(notMaterial.error?.issues.map((i) => i.path.join('.'))).toEqual(['material']);
+      const accept = PublishLegalVersionRequestSchema.safeParse({
+        ...base,
+        document,
+        requires_acceptance: true,
+      });
+      expect(accept.success).toBe(false);
+      expect(accept.error?.issues.map((i) => i.path.join('.'))).toEqual(['requires_acceptance']);
+    }
+    expect(legalDocumentMayBeExpedited('vendor_terms')).toBe(true);
+    expect(legalDocumentMayBeExpedited('listing_accuracy')).toBe(true);
+    expect(legalDocumentMayBeExpedited('managed_plan')).toBe(false);
+    expect(legalDocumentMayBeExpedited('terms')).toBe(false);
   });
 
   it('is strict: an extra field such as effective_at is refused', () => {
@@ -187,5 +235,7 @@ describe('legalPdfKey and legalVersionPagePath', () => {
     expect(legalVersionPagePath('managed_plan', '1.2')).toBe('/legal/managed-plan-agreement/v1.2');
     expect(legalPdfKey('terms', '1.2')).toBe('legal/terms/v1.2.pdf');
     expect(legalVersionPagePath('privacy', '1.2')).toBe('/legal/privacy/v1.2');
+    expect(legalPdfKey('listing_accuracy', '1.1')).toBe('legal/listing-accuracy/v1.1.pdf');
+    expect(legalVersionPagePath('review_guidelines', '1.1')).toBe('/legal/review-guidelines/v1.1');
   });
 });

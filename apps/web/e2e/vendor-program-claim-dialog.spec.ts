@@ -235,6 +235,8 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
           accepted_terms: true,
           found_via: 'ai_tool',
           found_via_detail: 'who lists AEC integrations',
+          // AECI-1972: no owner seat here, so no routed notice was shown.
+          routed_notice_shown: false,
           target_type: 'product',
           slug: 'fixture-procore',
         },
@@ -336,7 +338,7 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
     await dialog.getByLabel('Your product or company').fill('Proc');
     await page.getByRole('option', { name: /Procore/ }).click();
     await expect(dialog.getByTestId('claim-routed-notice')).toHaveText(
-      'Procore Technologies already maintains this listing. Send your request and their team will confirm you. We step in if they do not answer within 7 days.',
+      'Procore Technologies already maintains this listing. Send your request and their team will confirm you. They will see your name, title, work email, LinkedIn link and note. We step in if they do not answer within 7 days.',
     );
     await fillYou(page);
     expect((await axe(page)).violations).toEqual([]);
@@ -344,6 +346,8 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
     await dialog.getByRole('button', { name: 'Send claim' }).click();
 
     await expect(dialog.getByRole('heading', { name: 'Claim sent' })).toBeVisible();
+    // AECI-1972: the notice was on screen, so the claim says so.
+    expect(sent.claim[0]).toMatchObject({ routed_notice_shown: true });
     await expect(dialog.getByTestId('claim-dialog-sent-routed')).toHaveText(
       'The team at Procore Technologies has been asked to confirm you.',
     );

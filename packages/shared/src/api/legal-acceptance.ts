@@ -143,3 +143,58 @@ export const AdminLegalAcceptancesResponseSchema = z.object({
   versions: z.array(AdminLegalAcceptanceVersionSchema),
 });
 export type AdminLegalAcceptancesResponse = z.infer<typeof AdminLegalAcceptancesResponseSchema>;
+
+// ─── Reader: the Terms tick box (AECI-1637, ruling 53) ───────────────────────────
+
+/**
+ * The Terms version a reader must tick a box for before the sign-in continues, as
+ * `POST /api/auth/profile/ensure` reports it. `null` on every ordinary sign-in: no version
+ * in force reduces their rights since they joined, or they already ticked one that covers it.
+ */
+export const TermsBoxPendingSchema = z.object({ version: z.string() }).nullable();
+export type TermsBoxPending = z.infer<typeof TermsBoxPendingSchema>;
+
+/** `POST /api/auth/profile/ensure` → 200. */
+export const EnsureProfileResponseSchema = z.object({
+  /** The profile was created by this call. */
+  created: z.boolean(),
+  /** AECI-1637: send the reader to `/auth/terms` for this version first. */
+  terms_acceptance: TermsBoxPendingSchema,
+});
+export type EnsureProfileResponse = z.infer<typeof EnsureProfileResponseSchema>;
+
+/** `POST /api/auth/terms/accept`: the reader ticked the box for this version. */
+export const AcceptTermsRequestSchema = z
+  .object({
+    version: z.string().trim().min(1).max(20),
+    accepted: z.literal(true),
+  })
+  .strict();
+export type AcceptTermsRequest = z.infer<typeof AcceptTermsRequestSchema>;
+
+/** `POST /api/auth/terms/accept` → 200. `accepted_at` is the stored acceptance's time. */
+export const AcceptTermsResponseSchema = z.object({
+  version: z.string(),
+  accepted_at: z.string(),
+});
+export type AcceptTermsResponse = z.infer<typeof AcceptTermsResponseSchema>;
+
+/**
+ * `GET /api/auth/terms/pending` → 200 (AECI-1637, counsel Q3 and Q63): what the tick-box page
+ * shows so the reader knows what they accept. `null` when no box waits for this account.
+ */
+export const TermsPendingSchema = z.object({
+  /** The version to accept. */
+  version: z.string(),
+  /** ISO timestamp of its effective moment, 12:00 UTC of the effective day. */
+  effective_at: z.string(),
+  /** The published summary of the material changes, as emailed (`legal_versions`). */
+  summary: z.array(z.string()),
+  /** The version that applies to this account until it ticks: its latest acceptance.
+   *  `null` when it holds none. */
+  previous_version: z.string().nullable(),
+});
+export type TermsPending = z.infer<typeof TermsPendingSchema>;
+
+export const TermsPendingResponseSchema = z.object({ pending: TermsPendingSchema.nullable() });
+export type TermsPendingResponse = z.infer<typeof TermsPendingResponseSchema>;

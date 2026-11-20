@@ -139,6 +139,7 @@ function makeBilling(over: Partial<AdminVendorBillingResponse> = {}): AdminVendo
     release_requests: [],
     grants: [],
     grants_truncated: false,
+    policy_versions: [],
     ...over,
   };
 }
@@ -621,7 +622,7 @@ describe('VendorDetail', () => {
       const api = makeApiMock(makeVendor());
       api.getBilling.mockResolvedValue(makeBilling({ billing_account: null }));
       const { el } = await setup(api, { provisionSeat: vi.fn() }, 'billing');
-      expect(el.textContent).toContain('This vendor has no billing account.');
+      expect(el.textContent).toContain('This vendor has no billing account yet.');
       expect(
         el.querySelector('section[aria-labelledby="admin-vendor-billing-licenses"]'),
       ).toBeNull();

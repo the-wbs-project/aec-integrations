@@ -257,6 +257,8 @@ describe('ClaimDialogFlow', () => {
         accepted_terms: true,
         found_via: '',
         found_via_detail: '',
+        // AECI-1972: this company has no owner seat, so no routed notice was shown.
+        routed_notice_shown: false,
       },
     );
     expect(t.heading()).toBe('Claim sent');
@@ -721,12 +723,14 @@ describe('ClaimDialogFlow', () => {
       slug: 'acme-takeoff',
     });
     expect(text(t.$('[data-testid="claim-routed-notice"]'))).toBe(
-      'Acme Software already maintains this listing. Send your request and their team will confirm you. We step in if they do not answer within 7 days.',
+      'Acme Software already maintains this listing. Send your request and their team will confirm you. They will see your name, title, work email, LinkedIn link and note. We step in if they do not answer within 7 days.',
     );
 
     t.fillYou();
     await t.primary();
     await t.primary();
+    // AECI-1972: the notice was on screen, so the claim says so.
+    expect(t.api.submitClaim.mock.calls[0]![1]).toMatchObject({ routed_notice_shown: true });
     expect(t.heading()).toBe('Claim sent');
     expect(text(t.host)).toContain("We've emailed a receipt to dana@acme.example.");
     expect(text(t.$('[data-testid="claim-dialog-sent-routed"]'))).toBe(
@@ -749,6 +753,7 @@ describe('ClaimDialogFlow', () => {
     t.fillYou();
     await t.primary();
     await t.primary();
+    expect(t.api.submitClaim.mock.calls[0]![1]).toMatchObject({ routed_notice_shown: false });
     expect(t.$('[data-testid="claim-dialog-sent-routed"]')).toBeNull();
     expect(text(t.host)).toContain('A person at AEC Integrations reviews every claim.');
   });
@@ -763,7 +768,58 @@ describe('ClaimDialogFlow', () => {
     await t.primary();
     await t.primary();
     expect(t.api.submitClaim).toHaveBeenCalledTimes(1);
+    // AECI-1972: no notice was shown, so the claim must not route to the owners.
+    expect(t.api.submitClaim.mock.calls[0]![1]).toMatchObject({ routed_notice_shown: false });
     expect(t.heading()).toBe('Claim sent');
+    expect(t.$('[data-testid="claim-dialog-sent-routed"]')).toBeNull();
+  });
+
+  // AECI-1972 (ruling 61): the notice sits on the You step. A lookup that lands after
+  // the visitor moved on to Comments was never read, so it does not count.
+  it('a lookup that lands on the Comments step does not count as the notice shown', async () => {
+    const t = setup({ page: 'vendor_program', entry: 'top' });
+    let resolveTarget!: (value: { vendor_id: string; has_seats: boolean }) => void;
+    t.api.getClaimTarget.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveTarget = resolve;
+      }),
+    );
+    t.choose(PRODUCT);
+    t.fillYou();
+    await t.primary();
+    expect(t.heading()).toBe('Anything to add?');
+    resolveTarget({ vendor_id: 'v-1', has_seats: true });
+    await t.fixture.whenStable();
+    t.fixture.detectChanges();
+
+    await t.primary();
+    expect(t.api.submitClaim.mock.calls[0]![1]).toMatchObject({ routed_notice_shown: false });
+    expect(t.heading()).toBe('Claim sent');
+    expect(t.$('[data-testid="claim-dialog-sent-routed"]')).toBeNull();
+    expect(text(t.host)).toContain('A person at AEC Integrations reviews every claim.');
+  });
+
+  it('going back to the You step shows the late notice, and then it counts', async () => {
+    const t = setup({ page: 'vendor_program', entry: 'top' });
+    let resolveTarget!: (value: { vendor_id: string; has_seats: boolean }) => void;
+    t.api.getClaimTarget.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveTarget = resolve;
+      }),
+    );
+    t.choose(PRODUCT);
+    t.fillYou();
+    await t.primary();
+    resolveTarget({ vendor_id: 'v-1', has_seats: true });
+    await t.fixture.whenStable();
+    t.back();
+    t.fixture.detectChanges();
+    expect(t.$('[data-testid="claim-routed-notice"]')).not.toBeNull();
+
+    await t.primary();
+    await t.primary();
+    expect(t.api.submitClaim.mock.calls[0]![1]).toMatchObject({ routed_notice_shown: true });
+    expect(t.$('[data-testid="claim-dialog-sent-routed"]')).not.toBeNull();
   });
 
   it('a 400 on accepted_terms (a stale bundle) returns to the box with its error, not the generic notice', async () => {

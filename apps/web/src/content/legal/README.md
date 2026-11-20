@@ -128,7 +128,7 @@ On November 13, 2026 **AECI-1712** added two sentences to the Privacy Policy's "
 
 **The copyright notice log is built (AECI-1665, November 17, 2026), with a Privacy Policy text change, so it is off the gate list.** It makes text item 13.3 true: the Terms' "Copyright complaints" says "we keep a log of every notice and counter-notice we receive". The log is the `dmca_notices` table (`docs/DATABASE_SCHEMA.md` §8.14), worked on `/admin/dmca`. It computes the restore window from the counter-notice's received date, business day 10 to business day 14. It counts each account's takedowns for the repeat-infringer review on `/admin/users/:id`. The operator steps are in `docs/runbooks/legal.md` "Copyright notice or counter-notice". The log is new personal data, kept after account deletion, so the Privacy Policy changed in the v1.1 draft, in place and without a bump, because that draft has never taken effect. "What we collect" gains a "Copyright notices" bullet. "Retention" keeps notices and counter-notices for three years after the matter closes, even after account deletion. "Deletion" lists them as kept. The account deletion screen names them too. Counsel has not been asked about the three years or the wording. The question is open in `docs/LEGAL_COUNSEL_RECORD.md`. The deletion job that ends the three years is **AECI-1905**, not built. No record can fall due before late 2029.
 
-**The legal retention prune is built (AECI-1638, November 17, 2026), with a Privacy Policy text change, so it is off the gate list.** Ruling 23 made AECI-1638 a gate before any effective date, but it was never added to the November 5 list above. It is recorded here instead. The prune makes the two retention periods in the Privacy Policy's "Retention" true. Audit records go four years after the action. Agreement acceptance records go six years after the vendor account ends, or five years after a granted subscription ends, if later. It runs nightly from the 03:00 tick (`apps/api/src/lib/legal-retention-prune.ts`, ADR 0058). A litigation hold placed on `/admin/legal` stops it: any open hold pauses the audit prune, a vendor hold keeps that vendor's acceptance records, and a global hold keeps everything. Two bullets changed in the v1.1 draft, in place and without a bump, because that draft has never taken effect. The "Agreement acceptance records" bullet gains "or longer while a legal hold requires it". The "Audit record for abuse prevention" bullet gains two sentences, after the legal agent's review: "We pause this deletion while we are under a legal duty to preserve records, for example after receiving legal process." and "Three kinds of audit record are kept longer, for as long as the acceptance record they belong to: the record that an agreement was accepted, the record that the Terms of Service were accepted, and the record that an account was deleted, which dates the start of the six-year period." The change history line says so. Counsel has not been asked about the hold wording or the kept-longer sentence. The question is open in `docs/LEGAL_COUNSEL_RECORD.md`. The Terms of Service acceptance record was not pruned at first. AECI-1718 (November 19, 2026) added its prune: six years after the account's `account.deleted` audit row, with no text change, because the Privacy Policy already promises that period.
+**The legal retention prune is built (AECI-1638, November 17, 2026), with a Privacy Policy text change, so it is off the gate list.** Ruling 23 made AECI-1638 a gate before any effective date, but it was never added to the November 5 list above. It is recorded here instead. The prune makes the two retention periods in the Privacy Policy's "Retention" true. Audit records go four years after the action. Agreement acceptance records go six years after the vendor account ends, or five years after a granted subscription ends, if later. It runs nightly from the 03:00 tick (`apps/api/src/lib/legal-retention-prune.ts`, ADR 0058). A litigation hold placed on `/admin/legal` stops deletion of the records it covers: since AECI-1970 (November 19, 2026, ruling 55), a vendor hold keeps that vendor's audit and acceptance records while other records go on schedule, and a global hold keeps everything. Two bullets changed in the v1.1 draft, in place and without a bump, because that draft has never taken effect. The "Agreement acceptance records" bullet gains "or longer while a legal hold requires it". The "Audit record for abuse prevention" bullet gains two sentences, after the legal agent's review: "We pause this deletion while we are under a legal duty to preserve records, for example after receiving legal process." and "Three kinds of audit record are kept longer, for as long as the acceptance record they belong to: the record that an agreement was accepted, the record that the Terms of Service were accepted, and the record that an account was deleted, which dates the start of the six-year period." The change history line says so. Counsel has not been asked about the hold wording or the kept-longer sentence. The question is open in `docs/LEGAL_COUNSEL_RECORD.md`. The Terms of Service acceptance record was not pruned at first. AECI-1718 (November 19, 2026) added its prune: six years after the account's `account.deleted` audit row, with no text change, because the Privacy Policy already promises that period.
 
 On November 18, 2026 **AECI-1914** gave every agreement acceptance record an end, under Chris's rulings 48 and 50. Before it, the prune kept forever a record with no company linked, such as the acceptance of a claim that was never approved, and a record whose company was deleted from the site. That broke the Privacy Policy's retention promise. Three clauses changed in the v1.1 draft, in place and without a bump, because that draft has never taken effect. The "Agreement acceptance records" bullet under "Retention" gains, after "even if you delete your account.": "If a claim is never approved, we keep its acceptance record for six years after the claim is closed. Where a record has no such date, we keep it for six years after the latest date we hold for it." The "Audit record for abuse prevention" bullet now reads "Four kinds of audit record are kept longer, for as long as the acceptance record they belong to: the record that an agreement was accepted, the record that the Terms of Service were accepted, the record that an account was deleted, which dates the start of the six-year period, and the record that a company was deleted from the site, which dates the six-year period when the company's record is gone." The change history line for 1.1 gains a clause that says so. The "Deletion" section and the `/account` deletion screen still hold: they say the agreement record is kept, and they name no period. Counsel has not been asked about these sentences yet. The question is open in `docs/LEGAL_COUNSEL_RECORD.md`.
 
@@ -159,7 +159,7 @@ Built rules that match the current text, for the legal stream to know:
 
 **Decided, no change (ruling 49, November 18, 2026): the IP address and browser on a portal acceptance.** The acceptance screen records no IP address or browser, and it stays that way. The owner seat is signed in, so the record already names the account, and an IP address deleted after 90 days would be gone before most disputes. The Privacy Policy's "Agreement acceptance records" names them only "for a claim or an in-portal acceptance of a granted subscription", which stays true. `PORTAL_RECORDS_EVIDENCE` stays `false` in `apps/api/src/lib/agreement-acceptances.ts`. This is no longer an open item before the first effective date.
 
-**Open item for the legal stream (AECI-1363): does a policy change need the Vendor Terms email?** Since AECI-1689 the Listing Accuracy Policy and the Review Guidelines switch to an upcoming version on its date alone, with the site-wide notice band as their notice. The Vendor Terms make both policies "part of these terms" and promise an email 30 days before "we change these terms". Whether a policy change is therefore a change to the Vendor Terms, and needs that email, is a legal question that predates AECI-1689. Answer it before the first policy change after an effective date goes out.
+**Open item for the legal stream (AECI-1363): does a policy change need the Vendor Terms email?** Since AECI-1689 the Listing Accuracy Policy and the Review Guidelines switch to an upcoming version on its date alone, with the site-wide notice band as their notice. The Vendor Terms make both policies "part of these terms" and promise an email 30 days before "we change these terms". Whether a policy change is therefore a change to the Vendor Terms, and needs that email, is a legal question that predates AECI-1689. Answer it before the first policy change after an effective date goes out. **Answered by counsel on November 19, 2026 (Q68): yes.** A policy change is a change to what the vendor agreed to, the site band is not the promised email, and a vendor stays on the policy version it accepted until the change process is followed. Either the publish flow sends the 30-day email for the two policies, or the change clause is amended. **Ruled the same day (ruling 54): the publish flow sends the email. Built by AECI-1969 (November 19, 2026), so this item is closed.** A policy version now publishes on `/admin/legal` like the Vendor Terms, and switches in only once published ("The effective date switches by itself" below). Which version a company is on is in "Which policy version a company is on" below.
 
 **Open item for the legal stream (AECI-1363): the first in-force version is a new version number.** The code requires it (the draft versions are pinned undated). It stands pending the legal stream's confirmation.
 
@@ -169,6 +169,29 @@ Built rules that match the current text, for the legal stream to know:
 - **Text item 14.5, Terms and Vendor Terms content license (Q53, ruling 27). Applied.** Both licenses now say "You also authorize our service providers to do these things on our behalf." The Q53 Privacy Policy disclosure of automated screening still waits for the screening build (ruling 29).
 - **Gate.** Items 14.1 to 14.5 are in the drafts that become the first in-force versions, so every vendor accepts them once on the acceptance screen. Landed after an effective date, they would reduce a vendor's rights under the indemnity and content license sections, and ruling 25 would make each company accept them in the portal.
 - **Text item 14.6, Review Guidelines "Vendor responses" (AECI-1872, ruling 42). Applied.** "Labeled" now reads: "A response appears after the review text, in its own panel labeled "Response from" the company's name, with the date it was published. It is never mixed with the reviewer's words." It is true of `main`'s separate block and of the redesigned panel inside the review card, so it reaches `main` before AECI-1784's layout, as ruling 42 requires. When the redesign merges, `content/docs/vendors/replying-to-reviews.md` ("never inside it") must change with it.
+**Counsel's batch 6 answers, November 19, 2026 (Q62 to Q70), and legal branch 7 (AECI-1363, November 19, 2026).** The answers and rulings 52 to 58 are in `docs/LEGAL_COUNSEL_RECORD.md`. Legal branch 7 changed the Privacy Policy 1.1 draft only, in place, because it has never taken effect.
+
+- **Item 14.9, Retention, copyright notices (Q64). Applied.** Three years, "or longer if a claim, dispute or legal hold is pending", "whether or not you have an account".
+- **Item 14.10, How we share data, the counter-notice (Q65). Applied.** "There is one exception" is gone. The whole counter-notice is forwarded, with no further notice to the sender. The poster is told of a removal.
+- **Item 14.11, Retention, the audit hold (Q66). Applied for the hold (AECI-1970, ruling 55, November 19, 2026).** The job now pauses audit deletion only for the held company's records, and the sentence says so: "A hold placed for one company pauses deletion only for that company's records: records about the company, its products and their reviews, the integrations and connections it built or its products take part in, and requests to claim its listings, and records of what its current team did. Every other audit record is still deleted on schedule. When the duty is not limited to one company, or we do not yet know its scope, we place a hold for all records, and it pauses deletion of every audit record while it is open." The trigger stays "when we reasonably anticipate or are subject to a legal duty". Edited in place in the 1.1 draft, which has no effective date, so no bump. The list matches the six ties of `auditRowOfVendor` (ADR 0058 decision 3). Counsel has not seen the new sentence. The "or four years if there is no acceptance record" fallback is AECI-1971 (ruling 60).
+- **Item 14.12, Retention, acceptances with no vendor account (Q67). Applied.** The three start days are named: the day a claim is declined, withdrawn or expires, the day of the acceptance, the day the company was deleted.
+- **Item 14.14, Deletion, the legal-process sentence (Q70). Applied.** "legally required to preserve, or that we need to keep for an actual or reasonably anticipated legal claim".
+
+**After the build checks of November 19, 2026 (AECI-1972, rulings 59 to 61).** Still the Privacy Policy 1.1 draft, in place.
+
+- **Retention.** The acceptance sentence names only a declined claim, because a claim has no withdrawn or expired state.
+- **How we share data.** "Only in response to legal process" now covers a person or company outside the service. Four things shown inside a vendor company are named: a claimant's details to the company's owners, seats to each other, acceptances to owners, and the sender's name on an invitation. The sentence "The claim form tells you this before you send it" is kept true by the claim form's notice and by the route, which sends a claim to the owners only when the form showed that notice (`routed_notice_shown`).
+- **AECI-1971 (ruling 60).** Audit rows of an acceptance that no longer exists are kept forever today. The "or for four years if there is no acceptance record" fallback lands with that build. It gates the first effective date.
+
+**Not applied, and each gates the first effective date:**
+
+- **Item 14.8, the ranking promise (Q62, Q70, ruling 52).** "No plan changes where you rank or appear" is false as written, counsel said. One new wording replaces it in the Vendor Terms, the Managed plan agreement, the Terms, How ranking works and `/methodology`. The wording is with counsel as a Q62 follow-up. Apply nothing before the reply.
+- **Item 14.13, the first in-force Vendor Terms (Q69, ruling 58).** It takes a new version number, says it replaces every earlier draft, says it covers the listing and content already submitted, and says a company that has not accepted sees only the acceptance screen and keeps its claimed listing. It lands in the change that creates that version.
+- **Item 14.14, the account deletion screen (Q70).** Counsel's wording says we remove the name and profile from published reviews. Confirm that first.
+- **Ruling 53 (Q63): a tick box.** A line beside the sign-in buttons does not bind a reader to a rights-reducing change. The box shows at the first sign-in after such a version (AECI-1637). This narrows ruling 43.
+- **Ruling 54 (Q68): AECI-1969. Built November 19, 2026, no text change, off the gate list.** A policy version is published on `/admin/legal`, emailed to every seat and the billing email of each claimed company by `legal-terms-change`, and switches in only once published. A company the email did not reach stays on the version it accepted.
+- **Ruling 55 (Q66): AECI-1970.** A hold pauses only the held company's records.
+
 - **AECI-1869, Privacy Policy "Retention": done, no text change (November 17, 2026).** The audit record no longer stores About you values, and a one-time scrub removes the old ones (`scripts/ops/2026-11-about-you-audit-scrub/`). The sentence is true once the scrub has run on a tier.
 - **Text item 14.7, Privacy Policy "Deletion" (AECI-1683, ruling 45). Applied.** After the list of what is kept: "We also keep a copy of information that the law requires us to preserve, for example when we have received legal process about it, for as long as that requirement lasts."
 - **AECI-1871, `/docs/trust/how-ranking-works` (Q44, ruling 36). Applied in ranking page 1.1.** "A paid plan lets a vendor edit more of its own listing. It changes what a page says, never where it appears."
@@ -180,9 +203,9 @@ Built rules that match the current text, for the legal stream to know:
 - **AECI-1532, Privacy Policy "Contact details" and "Retention".** A waitlist signup or feedback message keeps the referring page and approximate location from the connection. A waitlist signup also keeps campaign tags, metro area and network provider. Retention now reads "Waitlist and feedback records".
 - **AECI-1857, Terms of Service "What the service is".** "Our editorial judgment and search ranking are algorithmic" became "Search ranking is algorithmic. Neither it nor our editorial choices are ever influenced by payment." Chris ruled option B on 2026-11-18. Counsel has not seen it. Q62 may touch it again.
 - **AECI-1894, ranking page 1.1, "A product page".** The order of every list `main`'s product page renders, taken from the code. The redesign's lists (Similar products, the long-list groups, the hero category list, the empty-pair closest matches) and its Browse menu section go into the redesign branch's ranking bump, which becomes 1.2.
-- **AECI-1915, `/account` delete text.** The sentence saying published reviews are anonymized now reads "Reviews you've published stay online, but they are no longer linked to your account." That wording is ruling 3 of 2026-11-18. The confirmation dialog says the same ("Your published reviews stay online, but are no longer linked to your account."). The missing space before "Read the Retention section" is back. Both the page and the dialog gained one line for the rest of the Privacy Policy's "Deletion" list, which the screen did not name before (the audit record, an agreement accepted for a company, and the new legal-preservation copy), so "The deletion screen tells you what is kept" holds. The em dash guard for `.html` templates is still open on that issue.
+- **AECI-1915, `/account` delete text.** The sentence saying published reviews are anonymized now reads "Reviews you've published stay online, but they are no longer linked to your account." That wording is ruling 3 of 2026-11-18. The confirmation dialog says the same ("Your published reviews stay online, but are no longer linked to your account."). The missing space before "Read the Retention section" is back. Both the page and the dialog gained one line for the rest of the Privacy Policy's "Deletion" list, which the screen did not name before (the audit record, an agreement accepted for a company, and the new legal-preservation copy), so "The deletion screen tells you what is kept" holds. The em dash guard for `.html` templates is still open on that issue. **Superseded on November 19, 2026 by ruling 59 (AECI-1972):** both now read "Reviews you've published stay online. They never showed your name or profile, and they are no longer linked to your account. The text stays as written, so anything in it that identifies you will remain visible."
 
-**The gate list after legal branch 6.** Every counsel text item for the documents as they stand today is applied. The Q53 screening disclosure waits for the screening build (ruling 29). Every build issue named on the November 5 list, AECI-1677, AECI-1638, AECI-1665 and AECI-1690 is Done in Linear. AECI-1621 reads On Hold in Linear, though this README records it built on November 16, 2026. Before the first effective date, these remain: counsel's sign-off on the drafts (with the sentences counsel has not seen, listed on AECI-1363), the two open items above (the policy-change email, the first in-force version number), and the AECI-1870 notice for the day the first versions take effect.
+**The gate list after legal branch 6.** Every counsel text item for the documents as they stand today is applied. The Q53 screening disclosure waits for the screening build (ruling 29). Every build issue named on the November 5 list, AECI-1677, AECI-1638, AECI-1665 and AECI-1690 is Done in Linear. AECI-1621 reads On Hold in Linear, though this README records it built on November 16, 2026. Before the first effective date, these remain: counsel's sign-off on the drafts (with the sentences counsel has not seen, listed on AECI-1363), the open item above (the first in-force version number; the policy-change email was built by AECI-1969), and the AECI-1870 notice for the day the first versions take effect.
 
 On November 6, 2026 **AECI-1625** added one clause to the Privacy Policy's "Vendor claims and seats" bullet: a buyer of Managed subscriptions is asked for their title, and we use the company's legal name on record. An owner seat invited by a colleague has no claim, so checkout asks its title. It went into the v1.1 draft in place, without a bump, because that draft has never taken effect. The "Agreement acceptance records" bullet is left as counsel batch 2 (AECI-1363) wrote it, which says the signer fields go to Stripe with the checkout. Counsel should check the clause with AECI-308.
 
@@ -308,30 +331,58 @@ with no deploy. One rule decides it everywhere: `legalAgreementVersionInForce`,
 `legalReaderVersionInForce` and `legalPolicyVersionInForce`
 (`packages/shared/src/api/legal-in-force.ts`).
 
-- **The Vendor Terms, the Managed plan agreement, the Terms and the Privacy Policy switch only
-  once published.** Until AECI-1637 (2026-11-13) the last two switched on their date alone. The upcoming
+- **Every document switches only once published: the Vendor Terms, the Managed plan agreement,
+  the Terms, the Privacy Policy, the Review Guidelines and the Listing Accuracy Policy.** Until
+  AECI-1637 (2026-11-13) the Terms and the Privacy Policy switched on their date alone, and until
+  AECI-1969 (2026-11-19, counsel Q68, ruling 54) the two policies did. The upcoming
   version needs a `legal_versions` row with the same effective moment ("Publishing an upcoming
   agreement version" below). A row means its change notice went out. No row, no switch, on any
   surface, ever: the page keeps the old version current and keeps saying "takes effect on
   <date>", and new claims and checkouts keep stamping the old version. Publishing is refused in
   demo and production while `LEGAL_PUBLISH_ENABLED` is `"false"`, so each agreement's first
   effective date waits for that release.
-- **The Review Guidelines and the Listing Accuracy Policy switch on their date alone.** They have
-  no publish record. The manifest entry is a reviewed commit, and
-  their notice is the site-wide band in `notices.json`.
+- **A policy version is the Vendor Terms change email too (AECI-1969).** The Vendor Terms make
+  both policies "part of these terms", so publishing one emails every seat and the billing email
+  of each claimed company (`legal-terms-change`), with the version, its effective date, the
+  summary, the archived link and the PDF. Every policy version is material and none needs
+  acceptance; the API refuses either answer. It may be expedited for the Vendor Terms' two
+  reasons. The site-wide band in `notices.json` still announces it to readers, but it is not the
+  vendors' notice.
 - **What switches.** `/legal/<slug>` serves the new text as current. `/legal/<slug>/v<new>` is the
   current version at its own address. `/legal/<slug>/v<old>` serves the old text, superseded on
   the effective date. The announcement and the extra Change history line stop. A new claim,
   listing request, checkout or grant stamps the new version, its text hash and, for a policy,
   its version on the claim row. The 45-day renewal notice compares against it.
-- **How the pages know.** The legal pages have no database. Once the moment of an agreement, the Terms or the Privacy Policy has come,
+- **How the pages know.** The legal pages have no database. Once the moment of any upcoming version has come,
   the SSR Worker reads `GET /api/legal/published` over the service binding, decides, and hands
   the browser the same answer. If that read fails, the page shows the old version and is cached
   for a minute (`docs/CACHE_STRATEGY.md` §4). Every cacheable page's cache ends at the moment, the
   claim box and the docs included, so no purge is needed.
 - **A daily warning.** The data-quality digest lists `legal_agreement_unpublished` when an upcoming
-  agreement version is 30 days or less from its moment, or past it, with no publish. Publish it or
+  version of any publishable document (the two policies included since AECI-1969) is 30 days or
+  less from its moment, or past it, with no publish. Publish it or
   move the date.
+
+### Which policy version a company is on (AECI-1969, counsel Q68, ruling 54)
+
+A claim records the Listing Accuracy Policy and Review Guidelines versions its box named
+(`agreement_acceptances.listing_accuracy_version` / `review_guidelines_version`), and so does an
+owner's Vendor Terms acceptance on the portal screen (AECI-1677). Counsel: a company stays bound
+to that version until we follow the change process. So a company is on the **newest** of:
+
+- the version its latest Vendor Terms acceptance recorded (a claim or a portal accept; a claim
+  older than the policy columns recorded none and is skipped); and
+- each published version whose effective moment has passed **and** whose change email reached
+  that company (`legal_notice_deliveries.status = 'delivered'`).
+
+A company the email did not reach (no address, dropped, expired, or claimed after the fan-out)
+stays on its earlier version. A re-send before the moment reaches it, because the re-send queues
+every company not yet delivered. After the moment, only the next version's email moves it on.
+No new row is written: the acceptance row and the delivery row are the record, and
+`companyPolicyVersion` (`packages/shared/src/api/policy-binding.ts`) reads them. The admin
+Billing tab of each company shows the answer, with any version it missed and the one coming next
+(`GET /api/admin/vendors/:id/billing`, `policy_versions`). The public page and a new claim follow
+the version in force (`legalPolicyVersionInForce`), which is the same for everyone.
 
 **When to bump.** Once a version is in force (`effective_date` set), any text change is a new
 version: bump and archive. While a document is still a draft that never took effect, a wording
@@ -443,15 +494,15 @@ steps in this order.
      `{ version, effectiveOn }` to `LEGAL_POLICY_UPCOMING_VERSIONS`.
    - If the change is material, add the `notices.json` entry (next section).
 3. **Merge and deploy to production** at least 31 days before the effective date. The page goes
-   live at `/legal/<slug>/v<new>`. For an agreement, publish it next ("Publishing an upcoming
-   agreement version" below): without a publish it never switches.
+   live at `/legal/<slug>/v<new>`. Publish it next ("Publishing an upcoming agreement version"
+   below): without a publish no document switches, the two policies included since AECI-1969.
 4. **On the effective moment, nothing to do.** At 12:00 UTC of the effective day the site switches
    to the new version by itself ("The effective date switches by itself" above). Check
    `/legal/<slug>` shows the new version after the moment.
 5. **Clean up within two weeks, in one change.** For a version that switched, it changes no page
    and no stamp: the switch already shows exactly what this change builds
    (`legal-bump-equivalence.spec.ts`). Run these steps in order:
-   - **First, for the vendor terms or the Managed plan agreement, confirm the switch happened.**
+   - **First, for any document (the two policies included since AECI-1969), confirm the switch happened.**
      `/admin/legal` on production must show the version published with the same effective date
      as the entry (no "will not take effect" alert), and its change notice delivered. If it does
      not, do NOT clean up: this change would make the version current with no notice sent. Move
@@ -460,8 +511,8 @@ steps in this order.
      file. Its change history was written in step 1, so nothing in it changes.
    - Archive the old current text unchanged at `versions/<slug>/v<old>.md`, with a `LEGAL_ARCHIVES`
      entry whose `supersededOn` is the effective date. Fix the imports in `legal-content.ts`.
-   - Remove the `LEGAL_UPCOMING` entry, and the `LEGAL_AGREEMENT_UPCOMING_VERSIONS` entry if there
-     is one, or the `LEGAL_READER_UPCOMING_VERSIONS` entry.
+   - Remove the `LEGAL_UPCOMING` entry, and the `LEGAL_AGREEMENT_UPCOMING_VERSIONS`,
+     `LEGAL_READER_UPCOMING_VERSIONS` or `LEGAL_POLICY_UPCOMING_VERSIONS` entry.
    - If this lands on the effective day itself, leave the version's `notices.json` entry in place:
      the band runs through that whole day, and `legal-notices.spec.ts` accepts a notice for the
      version that is now current. On any later day, remove it here (step 6).
@@ -494,11 +545,12 @@ steps in this order.
 
 ## Publishing an upcoming agreement version (AECI-1688)
 
-For the Vendor Terms and the Managed plan agreement, and since AECI-1637 (2026-11-13) for the
-Terms of Service and the Privacy Policy too: see "Publishing a Terms or Privacy version" at the
-end of this section. Publishing records the announcement in
-D1 (`legal_versions`, `docs/DATABASE_SCHEMA.md` §8.6i): a summary of the changes, two answers the
-operator gives, and the fingerprint of a PDF a customer can save. A material version's publish
+For the Vendor Terms and the Managed plan agreement, since AECI-1637 (2026-11-13) for the
+Terms of Service and the Privacy Policy too (see "Publishing a Terms or Privacy version" at the
+end of this section), and since AECI-1969 (2026-11-19) for the Listing Accuracy Policy and the
+Review Guidelines (see "Publishing a policy version"). Publishing records the announcement in
+D1 (`legal_versions`, `docs/DATABASE_SCHEMA.md` §8.6i): a summary of the changes, the two flags
+(material, needs acceptance; since AECI-1977 an agreement or policy is always material), and the fingerprint of a PDF a customer can save. A material version's publish
 also emails the change notice (`legal-terms-change`, AECI-1620) to every affected company. The
 vendor acceptance screen (AECI-1677) and the sign-in Terms acceptance (AECI-1637) read the record too. Since AECI-1689
 the record is also what lets the version become current at its moment: an unpublished agreement
@@ -557,13 +609,18 @@ the decision. Run the steps in this order, once per tier.
    **After publishing, never replace the stored PDF.** The `legal_versions` row records its sha256,
    and every reader of the file re-hashes it. A replaced file no longer matches the record. If the
    published text is wrong, that is a new version.
-5. **Publish on `/admin/legal`** on that tier. Answer "Is this a material change?" and "Does it
-   need acceptance?" (no default; acceptance needs a material change), write one summary line
-   per change (1 to 10 lines, each up to 300 characters, plain text with no tabs or hidden
-   characters), and give an expedited reason only for a Vendor Terms version inside 30 days. The
+5. **Publish on `/admin/legal`** on that tier. Answer "Does it need acceptance?" (no default),
+   write one summary line per change (1 to 10 lines, each up to 300 characters, plain text with
+   no tabs or hidden characters), and give an expedited reason only for a Vendor Terms version
+   inside 30 days. **Every agreement version is a material change and is emailed (AECI-1977,
+   ruling 62, 2026-11-20):** both agreements promise the email for every new version, so the
+   card does not ask, and the API refuses "not material". A version that only fixes an error
+   still gets the email; say so in the summary ("This version fixes a typo. Nothing else
+   changed."), and give the "fixes an error" reason only if it must take effect sooner than 30
+   days. The Terms of Service and the Privacy Policy still ask "Is this a material change?". The
    confirmation says what each answer causes. A publish cannot be undone. The summary lines go
    into the email word for word.
-6. **Check the change notice on the card** (material versions only), after a minute and a
+6. **Check the change notice on the card** (every agreement version), after a minute and a
    Refresh. It should say "The last send queued N companies". The Vendor Terms notice goes to
    every unbanned seat and the billing email of every company with a seat. The Managed plan
    notice goes to the owner seats and the billing email of every company with a live
@@ -610,23 +667,48 @@ The steps are the ones above, with these differences.
   (`notices.json`) is separate.
 - **Set `requires_acceptance` to Yes only for a Terms change that reduces a reader's rights.**
   Signing in is the acceptance (ruling of 2026-11-13): the login page always says "By signing
-  in, you agree to our Terms of Service and Privacy Policy." A version with Yes applies to each
-  account holder only from their next sign-in, never on continued use, and the email says so.
-  Until then the earlier version applies to them. Nothing is blocked, and a live session is not
-  interrupted. A Terms change that does not reduce rights is material at most, and binds by
+  in, you agree to our Terms of Service and Privacy Policy." A version with Yes needs more
+  (counsel Q63, ruling 53, built 2026-11-19). At each account holder's first sign-in after it
+  takes effect, `/auth/terms` shows one unticked box, "I have read and accept the updated Terms
+  of Service." The version applies to that account only once they tick it, never on continued
+  use, and the email says so. Until then the earlier version applies. A reader who leaves
+  without ticking stays signed in on the earlier version, and the next sign-in asks again. An
+  account created by that sign-in never sees the box. Nothing else is blocked, and a live
+  session is not interrupted. A Terms change that does not reduce rights is material at most, and binds by
   continued use. **Privacy never takes it.** The form hides the
   question and the API refuses `requires_acceptance` for a Privacy publish: a Privacy change
   gets the email and the 30-day window and nothing else.
 - **Check the card** for "Accounts queued", "Delivered" and "Accounts not reached", and the
   account count in "The last send queued N accounts". The count is of every unbanned account.
 - **After the effective moment** every sign-in records the acceptance of the new Terms version,
-  whatever the flag, once per account. The acceptance records are in `terms_acceptances`
+  once per account. With Yes, the record is the ticked box, not the sign-in line. The acceptance records are in `terms_acceptances`
   (`docs/DATABASE_SCHEMA.md` §8.6k).
   They are kept for the life of the account plus 6 years, even after deletion, and the IP
   address and browser go at 90 days. The legal retention prune deletes them six years after
   the account's `account.deleted` audit row (AECI-1718). The Privacy Policy "Agreement acceptance records" names
   this record. The sign-in line's text is `SIGN_IN_TERMS_LINE`: change it only with the legal
-  text, and the record stores the exact text shown.
+  text, and the record stores the exact text shown. The box label is `TERMS_CHANGE_BOX_LABEL`
+  (`packages/shared/src/api/agreements.ts`) and follows the same rule.
+
+### Publishing a policy version (AECI-1969, counsel Q68, ruling 54)
+
+The steps are the agreement steps above, with these differences.
+
+- **Slug and maps.** Dispatch the PDF workflow with slug `listing-accuracy` or
+  `review-guidelines`. The upcoming entry goes in `LEGAL_POLICY_UPCOMING_VERSIONS`. Until a row
+  publishes the version it never switches, on the page or in a new claim.
+- **The notice is the Vendor Terms notice.** The Vendor Terms make both policies "part of these
+  terms", so the publish emails every unbanned seat and the billing email of every claimed
+  company (`legal-terms-change`), with the summary, the version link and the PDF. The card says
+  "companies".
+- **No questions.** Every policy version is material, because the Vendor Terms promise the email
+  for every change, and none needs acceptance. The card asks neither, and the API refuses
+  `material: false` and `requires_acceptance: true` for a policy.
+- **Window and expedite.** The 30-day window applies. Like the Vendor Terms, a policy version
+  may take effect sooner when the law requires the change or it corrects an error.
+- **Check the card** for "Companies queued", "Delivered" and "Companies not reached". A company
+  not reached stays on the version it accepted ("Which policy version a company is on"). Send
+  the notice again before the effective moment to reach it.
 
 ## Runbooks behind these promises (AECI-1622, AECI-1674)
 

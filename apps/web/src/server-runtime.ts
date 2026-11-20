@@ -135,7 +135,11 @@ import { buildRobotsTxt } from './server/robots';
 import { NOINDEX_DIRECTIVE, indexingAllowed, pathForcesNoindex } from './server/robots-policy';
 import { applySecurityHeaders, applySeoHeaders } from './server/seo-headers';
 import { createAdminPurgeHandler } from './server/routes/admin-purge';
-import { createAuthCallbackHandler, signInReturnPath } from './server/routes/auth-callback';
+import {
+  createAuthCallbackHandler,
+  signInReturnPath,
+  termsAcceptSignInReturnPath,
+} from './server/routes/auth-callback';
 import { refreshSessionCookies, withRefreshedCookies } from './server/auth/session-refresh';
 import { createAuthWhoamiHandler } from './server/routes/auth-whoami';
 import { createIndexNowKeyHandler } from './server/routes/indexnow-key';
@@ -251,6 +255,18 @@ export function isAccountPath(localePath: string): boolean {
  */
 export function isWelcomePath(localePath: string): boolean {
   return /^\/welcome\/?$/.test(localePath);
+}
+
+/**
+ * Matches the Terms tick-box page `/auth/terms` (AECI-1637, ruling 53, locale prefix
+ * already stripped). `/auth/callback` sends a reader here at the first sign-in after a
+ * Terms version that reduces their rights. Gated exactly like `/welcome`: a signed-out
+ * visitor bounces to login, a signed-in one gets the session refresh, so the tick's
+ * `POST /api/auth/terms/accept` authenticates on the first try. Non-cacheable by the
+ * `/auth/*` rule.
+ */
+export function isTermsAcceptPath(localePath: string): boolean {
+  return /^\/auth\/terms\/?$/.test(localePath);
 }
 
 /**
@@ -1837,10 +1853,17 @@ export function createApp(options: {
       const url = new URL(c.req.url);
       const { path } = stripLocalePrefix(url.pathname);
       if (
-        (isReviewPath(path) || isAccountPath(path) || isWelcomePath(path)) &&
+        (isReviewPath(path) ||
+          isAccountPath(path) ||
+          isWelcomePath(path) ||
+          isTermsAcceptPath(path)) &&
         !hasSessionCookie(c.req.raw)
       ) {
-        const returnPath = signInReturnPath(url);
+        // `/auth/terms` returns to the destination it carried, not to itself: its own
+        // query would be dropped here and the seat invite or page lost (AECI-1637).
+        const returnPath = isTermsAcceptPath(path)
+          ? termsAcceptSignInReturnPath(url)
+          : signInReturnPath(url);
         const query = returnPath === '/' ? '' : `?return=${encodeURIComponent(returnPath)}`;
         return new Response(null, {
           status: 303,
@@ -1891,12 +1914,16 @@ export function createApp(options: {
       // beside a live refresh token (the ordinary "back after an hour" state).
       // Trading it here lets the resolver's forwarded cookie authenticate on the
       // first try, instead of a 401 → `/auth/login` → "Restoring your session"
-      // → client navigation back. A fresh token costs no network. All four
+      // → client navigation back. A fresh token costs no network. All five
       // paths are non-cacheable, which is what makes the `Set-Cookie` safe —
       // see `server/auth/session-refresh.ts` for why this does not reopen
       // ADMIN_PANEL_SPEC.md §13 D22.
       if (
-        (isAdminPath(path) || isVendorPath(path) || isAccountPath(path) || isWelcomePath(path)) &&
+        (isAdminPath(path) ||
+          isVendorPath(path) ||
+          isAccountPath(path) ||
+          isWelcomePath(path) ||
+          isTermsAcceptPath(path)) &&
         hasSessionCookie(c.req.raw)
       ) {
         const refreshed = await refreshSessionCookies(c.req.raw, c.env);

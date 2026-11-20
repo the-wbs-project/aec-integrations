@@ -227,6 +227,16 @@ Consequences you must hold in your head when reading a number:
     ray comes from the `Server-Timing` header of its own `POST /api/page-views`
     response. No ray means nothing is posted for that view, which is always the case
     in local dev. At most one post per word per view, through `fetch` with `keepalive`.
+  - **The input that opens an in-app view counts for it (AECI-1987, ruled 2026-11-20).**
+    A visitor's click, tap or key press that starts an in-app navigation marks the view
+    it opens. That view posts `interacted` once its beacon ray arrives, with no second
+    touch. The tie is one browser task. A trusted `pointerdown`, `click` or `keydown`
+    marks the task, and a router navigation started in that task carries the mark. The
+    mark clears on the next task. So a redirect, a timer or a script's navigation is
+    never marked, and neither is a script's `element.click()`. Back and Forward are
+    never marked, because the page sees no input for them. A landing view is never
+    marked. A Ctrl, Cmd or middle click opens a new document, which is a landing view.
+    `scroll` is not an interaction event.
   - **Three gates, all checked before any post.** (1) The tier's switch: the SSR
     Worker injects `window.__AECI_BROWSER_EVIDENCE__ = { enabled: true }` only when the
     wrangler var `BROWSER_EVIDENCE_ENABLED` is `"true"` (`docs/environments.md`).

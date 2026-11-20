@@ -3,7 +3,7 @@ title: Your account and your data
 description: What your account page shows, what you can change there, and what happens to your reviews when you delete your account.
 section: account
 order: 2
-last_updated: November 14, 2026
+last_updated: November 19, 2026
 ---
 
 Your account page shows your email address, your display name and your reviews. It is also where you delete your account. To open it, choose **Account** in the account menu at the top right of any page (on a phone, in the menu at the top right), or go to [/account](/account). For what we collect, why, how long we keep it, and your rights over it, the [Privacy Policy](/legal/privacy) is the full statement. This page does not repeat it.
@@ -47,7 +47,7 @@ Under **Delete account**, choose **Delete account**, then **Delete my account** 
 When you confirm:
 
 - We delete your account and the personal data tied to it.
-- Your reviews stay, with no link to you. Published reviews stay on the product pages. The firm you gave on any review is removed.
+- Your reviews stay, with no link to you. Published reviews stay on the product pages. They never showed your name or profile. The text stays as written, so anything in it that identifies you will remain visible. The firm you gave on any review is removed.
 - You are signed out and taken to the home page.
 - We send a confirmation to your email address.
 - If you sent messages to another company in a private conversation, they stay with the conversation for 2 years after its last message, with your name removed. The text may still identify you. The page and the confirmation both say so before you confirm.

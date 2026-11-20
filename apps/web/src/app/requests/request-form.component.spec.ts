@@ -1003,11 +1003,13 @@ describe('RequestForm vendor terms and routed claims (AECI-1366)', () => {
     fixture.detectChanges();
     expect(api.getClaimTarget).toHaveBeenCalledWith({ targetType: 'vendor', slug: 'acme-co' });
     expect(squash(el.querySelector('[data-testid="claim-routed-notice"]')?.textContent)).toBe(
-      'Acme Software already maintains this listing. Send your request and their team will confirm you. We step in if they do not answer within 7 days.',
+      'Acme Software already maintains this listing. Send your request and their team will confirm you. They will see your name, title, work email, LinkedIn link and note. We step in if they do not answer within 7 days.',
     );
 
     await fillClaim(fixture);
     await send(fixture, el);
+    // AECI-1972: the notice was on screen, so the claim says so.
+    expect(api.submitClaim.mock.calls[0]![1]).toMatchObject({ routed_notice_shown: true });
     expect(squash(el.querySelector('[data-testid="request-sent-routed"]')?.textContent)).toBe(
       'The team at Acme Software has been asked to confirm you.',
     );
@@ -1054,6 +1056,32 @@ describe('RequestForm vendor terms and routed claims (AECI-1366)', () => {
     await fillClaim(fixture);
     await send(fixture, el);
     expect(api.submitClaim).toHaveBeenCalledTimes(1);
+    // AECI-1972: no notice was shown, so the claim must not route to the owners.
+    expect(api.submitClaim.mock.calls[0]![1]).toMatchObject({ routed_notice_shown: false });
+    expect(el.querySelector('[data-testid="request-sent-routed"]')).toBeNull();
+  });
+
+  it('a company with no owner seat sends routed_notice_shown false (AECI-1972)', async () => {
+    const { fixture, el, api } = setup('vendor', 'claim', 'acme-co');
+    await settle();
+    fixture.detectChanges();
+    expect(el.querySelector('[data-testid="claim-routed-notice"]')).toBeNull();
+    await fillClaim(fixture);
+    await send(fixture, el);
+    expect(api.submitClaim.mock.calls[0]![1]).toMatchObject({ routed_notice_shown: false });
+  });
+
+  it('the unnamed notice names what the owners see too (AECI-1972)', async () => {
+    const { fixture, el } = setup('vendor', 'claim', 'acme-co', null, undefined, {
+      getClaimTarget: vi.fn(async () => ({ vendor_id: 'v-1', has_seats: true })),
+    });
+    await settle();
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+    expect(squash(el.querySelector('[data-testid="claim-routed-notice"]')?.textContent)).toBe(
+      'This company already maintains this listing. Send your request and their team will confirm you. They will see your name, title, work email, LinkedIn link and note. We step in if they do not answer within 7 days.',
+    );
   });
 
   it('maps a 400 on accepted_terms (a stale bundle) to the box, not the generic failure', async () => {

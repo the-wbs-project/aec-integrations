@@ -314,7 +314,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `LICENSE_GRANT_VERSION_CHANGED` | 409 | `POST /api/vendor/license-grants/:id/accept` (AECI-1615) naming a Managed plan agreement `version` that is not the one the grant pinned at create. The page is stale. Reload and read that version. `details.terms_version` names it. Nothing was written |
 | `LICENSE_GRANT_NOT_PENDING` | 422 | `POST /api/vendor/license-grants/:id/accept` (AECI-1615) on a grant that is no longer waiting: accepted, withdrawn, expired, or past its `ends_at` before the sweep marked it. Also the loser of a race with a second accept or a withdraw. `details.state` names which. Nothing was written. The admin withdraw answers `INVALID_STATE_TRANSITION` instead |
 | `LICENSE_GRANT_PRODUCTS_CHANGED` | 409 | `POST /api/vendor/license-grants/:id/accept` (AECI-1615) when a ban-term product left the vendor (its `product_vendors` row went) between the read and the batch (`productsStillJoinedSentinel`). Nothing was written. A retry lands that subscription in the pool with a `product_not_owned` warning |
-| `VENDOR_STILL_BANNED` | 409 | `POST /api/admin/vendors/:id/licenses/ban-term` (AECI-1589). The vendor has no unbanned `vendor_admin` seat, so subscriptions for the ban term would land on a banned vendor. Unban a seat first. Nothing was written. Also `POST /api/admin/vendors/:id/licenses` (AECI-1589, ruled 2026-11-03) when the vendor has `vendor_admin` seats and every one is banned. A vendor with no seat at all (never claimed) is still grantable. A replay of a grant made before the ban is still `200` |
+| `VENDOR_STILL_BANNED` | 409 | `POST /api/admin/vendors/:id/licenses/ban-term` (AECI-1589). The vendor has no unbanned `vendor_admin` seat, so subscriptions for the ban term would land on a banned vendor. Unban a seat first. Nothing was written. Also `POST /api/admin/vendors/:id/licenses` (AECI-1589, ruled 2026-11-03) when the vendor has `vendor_admin` seats and every one is banned. A vendor that has never been claimed has no billing account, so the grant answers `404` and is not grantable (ruled 2026-11-20, AECI-1975). A replay of a grant made before the ban is still `200` |
 | `LICENSE_PRODUCT_ALREADY_LICENSED` | 409 | `POST /api/admin/vendors/:id/licenses/ban-term` (AECI-1589). A product the request names already holds a live subscription on any billing account, so a second would break `licenses_live_product_idx`. Nothing was written |
 | `INTEGRATION_CHANGED_WHILE_SAVING` | 409 | A retire, restore, owner edit or claim (AECI-1089) whose batch lost a race, when the re-read finds no other refusal to give: a contest was filed on the row between the read and the batch, say, or (for a claim) promote moved the row to the other table. Nothing was written. Reload and try again (AECI-1010) |
 | `INTEGRATION_RETIRED_BY_AECI` | 403 | `POST /api/vendor/integrations/:id/restore` on a row an AECi admin retired (`retired_by = 'aeci'`). Only an admin restores an admin retire (AECI-1046, ruled 2026-09-22). Nothing is written |
@@ -367,7 +367,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `LEGAL_NOTICE_TOO_LATE` | 422 | `POST /api/admin/legal-versions/:id/notice` (AECI-1620) once the version's `effective_at` has passed: the email says the version has not taken effect yet. Nothing is written |
 | `LEGAL_NOTICE_ENQUEUE_FAILED` | 503 | `POST /api/admin/legal-versions/:id/notice` (AECI-1620) when the audience read failed, `LEGAL_NOTICE_QUEUE` is unbound, or a `sendBatch` chunk failed. Retryable. The partial outcome **is** recorded first (`notice_enqueued_at` NULL, `notice_vendor_count` = companies queued) with its audit row. `details` is `{ queued, total, failure }`. Send again |
 | `LEGAL_ACCEPTANCE_REQUIRED` | 403 | Any vendor write (AECI-1677, ruling 24) while the Vendor Terms are in force and the company holds no acceptance of a version in force. Raised by the vendor guard (`lib/authz.ts`), after the ban, role and suspension checks. `details: { document: 'vendor_terms', version }` names the version to accept. Never on a read. Not on `POST /api/vendor/legal-acceptance` or `POST /api/vendor/billing/portal` (`allowTermsPending`). Nothing is written |
-| `LEGAL_ACCEPTANCE_NOT_PENDING` | 422 | `POST /api/vendor/legal-acceptance` (AECI-1677) when the `document` and `version` are not pending for the company now: not in force and not a published version that needs acceptance, already accepted, or a stale page. `field: 'version'`, `details: { document, version }`. Nothing is written |
+| `LEGAL_ACCEPTANCE_NOT_PENDING` | 422 | `POST /api/vendor/legal-acceptance` (AECI-1677) when the `document` and `version` are not pending for the company now: not in force and not a published version that needs acceptance, already accepted, or a stale page. `field: 'version'`, `details: { document, version }`. Also `POST /api/auth/terms/accept` (AECI-1637) for a Terms version not waiting for a box, with `details: { document: 'terms', version }`. Nothing is written |
 | `DMCA_NOTICE_CHANGED` | 409 | `PATCH /api/admin/dmca-notices/:id` (AECI-1665) when the row's `updated_at` is not the `expected_updated_at` the page sent: another tab or admin saved it first, or an account deletion cleared its account. Checked on read and again by a sentinel in the write batch. Nothing is written. Reload and edit again |
 | `LITIGATION_HOLD_EXISTS` | 409 | `POST /api/admin/litigation-holds` (AECI-1638) when an open hold of that scope already exists: the one open global hold, or an open hold for that vendor. The early read and the partial unique index both answer it. Nothing was written. |
 | `LITIGATION_HOLD_RELEASED` | 409 | `POST /api/admin/litigation-holds/:id/release` (AECI-1638) when the hold was already released, on read or by the batch's sentinel. Nothing was written. |
@@ -1614,7 +1614,7 @@ On the signed-in path `confirmation_required` is `false` and the message is the 
 
 **The vendor terms box (AECI-1366 — 2026-10-15, `VENDOR_SIGNUP_PROCESS.md` §4, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.3).** `accepted_terms` must be the literal `true`. Missing, `false` or any other value is `400 VALIDATION_FAILED` with `error.field = 'accepted_terms'` (and the Zod issue in `details.issues`), and nothing is written. Unlike the other added fields it has no default: a body from a bundle that predates the box is refused, and the web form maps that `400` to the box's own error. The client never sends a version, IP or time. The handler stamps the current `vendor_terms` version, `CF-Connecting-IP` and the user agent, and writes one `agreement_acceptances` row (`source: 'claim'`, `email` = `submitter_email`, `vendor_request_id` = the new claim) plus its `agreement.accepted` audit row in the claim's own `db.batch` (`DATABASE_SCHEMA.md` §8.6d). The batch is six statements; a failure writes none of them. After commit, after `claim-submitted-alert` in the same `waitUntil`, the submitter gets `claim-received`, at most one per address per UTC day (`waf-rate-limits.md` §6.2). The response shape and message are unchanged.
 
-*As built 2026-11-11 (AECI-1619, counsel Q14).* The handler also stamps the Listing Accuracy Policy and Review Guidelines versions in force (`legalPolicyVersionInForce`; before AECI-1689 the build constant `LEGAL_POLICY_CURRENT_VERSIONS`) and the box's label text on the acceptance row. The client sends neither, and the request shape is unchanged. On the confirm path the submit stores the policy versions on `request_confirmations`, and `POST /api/requests/confirm` copies them into the row. A pending row from before migration 0118 writes NULL for both. `POST /api/requests/listing` does the same (`DATABASE_SCHEMA.md` §8.6d).
+*As built 2026-11-11 (AECI-1619, counsel Q14).* The handler also stamps the Listing Accuracy Policy and Review Guidelines versions in force (`legalPolicyVersionInForce`; before AECI-1689 the build constant `LEGAL_POLICY_CURRENT_VERSIONS`; since AECI-1969 an upcoming policy version counts only once published) and the box's label text on the acceptance row. The client sends neither, and the request shape is unchanged. On the confirm path the submit stores the policy versions on `request_confirmations`, and `POST /api/requests/confirm` copies them into the row. A pending row from before migration 0118 writes NULL for both. `POST /api/requests/listing` does the same (`DATABASE_SCHEMA.md` §8.6d).
 
 **A claim is on the company (AECI-1364, `VENDOR_SIGNUP_PROCESS.md` decision 1, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.3).** The wire still accepts `target_type: 'product'`, and the request and response shapes are unchanged. The handler normalises a product target before the write:
 
@@ -1639,7 +1639,9 @@ Unlike the other submitter fields, the KEY is omittable: it carries `.default(''
 
 **The account check at submit (AECI-1420, 2026-10-19, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10). At confirm since AECI-1435 (2026-10-21) for an anonymous claim: everything in this paragraph runs when the link is clicked, and at submit only on the signed-in path.** Before the batch, the handler runs a lookup-only account check on `submitter_email` against the resolved company (`checkClaimAccount`, one GoTrue lookup then `profiles` by id, no account created). A seat on another vendor, or a staff account, is a conflict. The same batch then stores the claim already `rejected`: `resolved_by` null, `resolved_at` set, not routed, the workflow instance `rejected`, an `open → rejected` transition with `reason: 'account_conflict'` and a null actor, and a `vendor_claim.rejected` audit row with `actor_type: 'system'` and metadata `{ source: 'system', reason: 'account_conflict', conflict, other_vendor_id }`. The batch is eight statements. The signed-in submit's `201` and its message are unchanged. On the confirm path the confirm answers `status: 'rejected'` with the reason, so the page can say why (ruled 2026-10-21, see `POST /api/requests/confirm` below). After commit the claimant gets the reasoned `claim-rejected` instead of `claim-received` (at most one per address per UTC day), `claim-submitted-alert` adds a "Rejected automatically" line, and no `claim-owner-review` goes. No Linear issue is created, because the claim needs no operator work. The `*/15` reconciliation sweep reads only `open` rows, so it never creates one either. Every other outcome, including a check that could not run, submits as before.
 
-**Routed to the owners (AECI-1368, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10).** When the company has an unbanned owner seat (`lib/owner-seat.ts`), the row is stored with `routed_to_owners_at` set to the submit instant, and `status` stays `open`. For an anonymous claim the instant is the confirm's (AECI-1435), so the owners' 7 days start when the claim is sent. The audit metadata carries `routed_to_owners: true | false`. After commit each unbanned owner seat gets `claim-owner-review`, bounded per vendor per UTC day (`waf-rate-limits.md` §6.2). The request and response shapes are unchanged. The Linear issue and `claim-submitted-alert` still go.
+**Routed to the owners (AECI-1368, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10).** When the company has an unbanned owner seat (`lib/owner-seat.ts`) and the body carries `routed_notice_shown: true` (below), the row is stored with `routed_to_owners_at` set to the submit instant, and `status` stays `open`. For an anonymous claim the instant is the confirm's (AECI-1435), so the owners' 7 days start when the claim is sent. The audit metadata carries `routed_to_owners: true | false`. After commit each unbanned owner seat gets `claim-owner-review`, bounded per vendor per UTC day (`waf-rate-limits.md` §6.2). The response shape is unchanged. The Linear issue and `claim-submitted-alert` still go.
+
+**`routed_notice_shown` (AECI-1972, ruling 61, 2026-11-19).** An optional boolean on `ClaimRequestSchema`, not on the form schema. The form sends `true` only when it showed the claimant the routed notice, which names what the owners will see: name, title, work email, LinkedIn link and note. It has no default and the key may be omitted, so a bundle loaded before the field still submits. A value that is not a boolean is `400 VALIDATION_FAILED`. Absent or `false`, a claim on a company with an owner seat is **not routed**: `routed_to_owners_at` stays NULL, no `claim-owner-review` goes, the receipt and alert are the unrouted ones, and AECi decides the claim. The audit metadata then adds `routing_withheld: 'notice_not_shown'`. The flag never routes a claim by itself: the owner-seat predicate and the AECI-1420 account check still apply. On the confirm path it rides `request_confirmations.payload` and decides at confirm with the predicate read then. Do not make it required.
 
 #### `GET /api/requests/claim-target/:type/:slug` (AECI-1368)
 
@@ -1648,8 +1650,9 @@ Which company a claim on `(type, slug)` would be stored against, and whether it 
 ```typescript
 export const ClaimTargetResponseSchema = z.object({
   vendor_id: z.string().uuid(),
-  has_seats: z.boolean(),   // the vendor has an unbanned owner seat: a claim
-                            // submitted now is routed to the owners first
+  has_seats: z.boolean(),   // the vendor has an unbanned owner seat: the form shows the
+                            // routed notice, and a claim sent with
+                            // routed_notice_shown: true is routed to the owners first
 });
 ```
 
@@ -2043,6 +2046,8 @@ Under ADR 0016 the authoritative `profiles` row lives in **D1** and no database 
 ```typescript
 export type EnsureProfileResponse = {
   created: boolean; // false = row already existed (the normal case)
+  // AECI-1637, 2026-11-19: set only when the reader must tick the Terms box first.
+  terms_acceptance: { version: string } | null;
 };
 ```
 
@@ -2057,9 +2062,60 @@ sign-in line (`SIGN_IN_TERMS_LINE`) and its SHA-256, the request's `CF-Connectin
 `User-Agent` cut to 512. The callback forwards both headers from the browser's request. The
 audit row names no email, IP or user agent. Once per account per version: a second sign-in on
 the same version writes nothing. With no Terms version in force it reads and writes nothing,
-which is today. The write never changes the response and never fails the call: an error is
-logged and the endpoint still answers `{ created }`. No other endpoint writes an acceptance,
-and no route is blocked by a new Terms version.
+which is today. The write never fails the call: an error is logged and the endpoint still
+answers. No route is blocked by a new Terms version.
+
+*As built 2026-11-19 (AECI-1637, counsel Q63, ruling 53):* the line does not bind a reader to a
+version that reduces rights, so that version needs a box. When a published Terms version with
+`requires_acceptance` is in force, took effect after the profile was created, and no
+`terms_acceptances` row covers it, this endpoint writes no row and answers
+`terms_acceptance: { version }`. The callback then sends the reader to `/auth/terms`. In every
+other case it answers `terms_acceptance: null` and writes the line row as above. An account this
+call created never gets the box. The box row is written by `POST /api/auth/terms/accept`.
+
+#### `POST /api/auth/terms/accept`
+
+Records the tick box on `/auth/terms` (AECI-1637, counsel Q63, ruling 53, as built 2026-11-19).
+`requireAuth()` reads the session cookie, and a banned account gets 403. `rateLimit('write')` runs
+after it (`waf-rate-limits.md` §6).
+
+```typescript
+export type AcceptTermsRequest = { version: string; accepted: true }; // strict
+export type AcceptTermsResponse = { version: string; accepted_at: string };
+```
+
+Writes one `terms_acceptances` row and its `terms.accepted` audit row in one `db.batch`. The row
+holds `checkbox_label` (`TERMS_CHANGE_BOX_LABEL`), its SHA-256, `checkbox_default_unticked = 1`,
+the IP address and the browser. The audit `metadata.source` is `terms-box` and its `afterState`
+carries `checkbox`. A box already ticked for that version answers 200 again with the first
+`accepted_at` and writes nothing.
+
+Errors: `MALFORMED_REQUEST` (400), `VALIDATION_FAILED` (400), `UNAUTHENTICATED` (401), a banned
+account (403), `RATE_LIMITED` (429), and `LEGAL_ACCEPTANCE_NOT_PENDING` (422,
+`details: { document: 'terms', version }`) for a version that is not waiting for a box. Nothing is
+written on an error.
+
+#### `GET /api/auth/terms/pending`
+
+What `/auth/terms` shows the reader before they tick (AECI-1637, as built 2026-11-20).
+`requireAuth()` reads the session cookie, and a banned account gets 403. Reads are never
+rate-limited (`waf-rate-limits.md` §6.2) and the read writes no `audit_log` row.
+
+```typescript
+export const TermsPendingSchema = z.object({
+  version: z.string(),
+  effective_at: z.string(), // ISO, 12:00 UTC of the effective day
+  summary: z.array(z.string()), // the published legal_versions bullets, as emailed
+  previous_version: z.string().nullable(), // the account's latest acceptance by effective moment
+});
+export const TermsPendingResponseSchema = z.object({ pending: TermsPendingSchema.nullable() });
+```
+
+`pending` is `null` when no box waits for the account. `previous_version` is the version that
+applies until the reader ticks, and it is `null` when the account holds no acceptance. The page
+links both versions from it.
+
+Errors: `UNAUTHENTICATED` (401) and a banned account (403).
 
 ### 6.9 Tracking
 
@@ -2253,7 +2309,7 @@ export const TurnstileVerdictPostSchema = z.object({
 
 #### `POST /api/page-views/browser-evidence`
 
-The browser's report about one page load (AECI-1713, epic AECI-1711): `ran` (our page script ran) or `interacted` (a person then touched the page). It sets `page_views.browser_evidence` on the row the page load wrote (`DATABASE_SCHEMA.md` §9.1). Anonymous. Reached through the SSR `/api/*` passthrough with no `withForwardedCfContext` rebuild, because the ray is the body's claim. A landing view reads its ray from the document's `Server-Timing: cfray` entry. An in-app view reads it from the same entry on its own `POST /api/page-views` response, which the gateway stamps on the non-GET branch too (`CACHE_STRATEGY.md` §4a.1). A `browser-spa` row outside the held regions is already written with `ran`, so an in-app view posts only `interacted`.
+The browser's report about one page load (AECI-1713, epic AECI-1711): `ran` (our page script ran) or `interacted` (a person then touched the page, or clicked or pressed the key that opened an in-app page, AECI-1987). It sets `page_views.browser_evidence` on the row the page load wrote (`DATABASE_SCHEMA.md` §9.1). Anonymous. Reached through the SSR `/api/*` passthrough with no `withForwardedCfContext` rebuild, because the ray is the body's claim. A landing view reads its ray from the document's `Server-Timing: cfray` entry. An in-app view reads it from the same entry on its own `POST /api/page-views` response, which the gateway stamps on the non-GET branch too (`CACHE_STRATEGY.md` §4a.1). A `browser-spa` row outside the held regions is already written with `ran`, so an in-app view posts only `interacted`.
 
 **Switch:** `BROWSER_EVIDENCE_ENABLED` on the API Worker. Only `"true"` turns either writer on: the `ran` on a `browser-spa` insert and this endpoint's UPDATE. Any other value, or none, leaves both columns NULL on every row. Production holds it at `"false"` until Privacy Policy 1.1 is in force (the AECI-1712 entry in `apps/web/src/content/legal/README.md`, `LEGAL_COUNSEL_RECORD.md` Q37 and Q43). Off, a well-formed post gets the same `204`, writes nothing and counts `result:disabled`.
 
@@ -3614,7 +3670,10 @@ rate-limited, `Cache-Control: private, no-store`. Contract:
 One `db.batch` of five reads: the vendor (the 404 gate), its billing account, its owner
 seats (`profiles.seat_owner`, banned ones included and flagged), every subscription on its
 account with the assigned product, and its acceptances (`listVendorAcceptances`, the same
-reader and order as `GET /api/admin/vendors/:id/acceptances`). The owner-seat emails come
+reader and order as `GET /api/admin/vendors/:id/acceptances`). Later issues added the release
+requests, the grants and, since AECI-1969, two reads for `policy_versions`: the latest Vendor
+Terms acceptance that recorded the policy versions and every published policy version with this company's delivery row
+(`apps/api/src/lib/policy-binding.ts`). The owner-seat emails come
 from one bounded GoTrue lookup after the batch.
 
 ```typescript
@@ -3670,6 +3729,22 @@ export const AdminVendorBillingResponseSchema = z.object({
   release_requests: z.array(AdminLicenseReleaseRequestSchema),   // open first, ≤ 50
   grants: z.array(AdminLicenseGrantSchema),      // AECI-1615: pending first, then newest; ≤ ADMIN_BILLING_GRANTS_MAX (200)
   grants_truncated: z.boolean(),
+  // AECI-1969 (counsel Q68, ruling 54): one entry per policy, in vocabulary order.
+  policy_versions: z.array(CompanyPolicyVersionSchema),
+});
+
+// AECI-1969, `packages/shared/src/api/policy-binding.ts`. The version the company is on is the
+// newest of the version its latest Vendor Terms acceptance (claim or portal) recorded and each published version whose
+// moment has passed and whose change notice reached the company (legal_notice_deliveries
+// `delivered`). Read from two more statements in the same batch.
+export const CompanyPolicyVersionSchema = z.object({
+  policy: z.enum(['listing_accuracy', 'review_guidelines']),
+  version: z.string().nullable(),                // null: no acceptance named one and no delivered notice
+  basis: z.enum(['acceptance', 'notice', 'none']),
+  since: z.string().nullable(),                  // acceptance: accepted_at; notice: the effective moment
+  notice_delivered_at: z.string().nullable(),    // notice only
+  missed_versions: z.array(z.string()),          // in force, newer, email did not reach the company
+  upcoming: z.object({ version: z.string(), effective_at: z.string(), delivered: z.boolean() }).nullable(),
 });
 
 // AECI-1615, `packages/shared/src/api/license-grants.ts`
@@ -3703,9 +3778,9 @@ export const AdminLicenseGrantSchema = z.object({
   Stripe subscription is one row per unit, so a real account sits far below the cap.
   Live rows sort first, so a truncated list drops old ended rows, never a live one below
   the cap.
-- **`billing_account: null` is a 200**, with `licenses: []`. Every vendor with a seat or
-  an entitlement was back-filled an account (E1), so this is a back-fill defect, and the
-  tab says so. Acceptances are still read: a claim acceptance names the vendor directly.
+- **`billing_account: null` is a 200**, with `licenses: []`. A billing account is created
+  when a claim is approved or a seat is added, so this is an unclaimed vendor, and the tab
+  says so (AECI-1975). Acceptances are still read: a claim acceptance names the vendor directly.
 - **Vocabulary columns are `z.string()`**, so a row from a future writer cannot fail the
   read. The UI labels the known values.
 - **`release_requests`** (AECI-1373) is the vendor's early-unassign requests, the same row
@@ -4149,8 +4224,9 @@ answers the same 409.
 
 **A fully banned vendor is refused (AECI-1589, ruled 2026-11-03).** After the replay
 check, a vendor that has `vendor_admin` seats and every one banned answers
-`409 VENDOR_STILL_BANNED`. The operator unbans a seat first. A vendor with no seat at
-all (never claimed) is still grantable. The replay check runs first, so a retry of a
+`409 VENDOR_STILL_BANNED`. The operator unbans a seat first. A vendor that has never
+been claimed has no billing account, so the grant answers `404` and is not grantable
+(ruled 2026-11-20, AECI-1975). The replay check runs first, so a retry of a
 grant made before the ban still answers 200. The batch ends with
 `unbannedSeatExistsSentinel` (`allowNoSeats`). A termination (AECI-1623) that commits between the
 seat read and the batch aborts it with `409 VENDOR_SEATS_CHANGED`, nothing granted.
@@ -4304,7 +4380,7 @@ Nine routes under `/api/admin/vendors/:id`, each behind `requireAdmin()`. The ei
 | `POST /suspension/cost-log/:entryId/void` | `{ reason }` | Voids an entry, never edits it. `404` for an unknown or already voided entry. Audits `vendor.abuse_cost_voided` |
 | `POST /suspension/lift` | `{ reason }` | Closes the row `lifted`, audits `vendor.suspension_lifted`, sends `vendor-suspension-lifted`. No purge |
 | `POST /suspension/terminate` | `{ manual_payments: [{ license_id, paid_cents }], expected_gross_cents, expected_cost_cents }` | See below |
-| `POST /suspension/refunds/retry` | none | Retries `failed` refund rows of the latest terminated suspension under their original idempotency keys, then sends the statement again |
+| `POST /suspension/refunds/retry` | none | Retries `failed` and stranded `pending` refund rows of the newest terminated suspension that still owes a refund (else the newest terminated suspension, AECI-1985) under their original idempotency keys, then sends the statement again |
 
 **The window.** 7 business days: Monday to Friday, US federal holidays excluded as observed, dates in America/New_York. It runs from the first confirmed send of that stage's notice. A send is confirmed only on `sent`, and on `suppressed` outside production. `unknown` and `duplicate` start no clock. A refused accept on the invite page and a refused review each show their own suspended message. Before a confirmed send, each resend carries its own dedupe key, because a timed-out send holds its key. The end is computed (`lib/business-days.ts`), never stored, and falls up to an hour late and never early. A failed send leaves `notice_sent_at` NULL and no clock. `can_start_stage_2` and `can_terminate` on `VendorSuspension` say what is allowed now.
 
@@ -4848,6 +4924,7 @@ export const BanReviewerSchema = z.object({
   action: z.enum(['ban', 'unban']),
   // Required (non-empty) when action === 'ban' — enforced by a cross-field refine
   // (mirrors ModerateReviewSchema). Stored on `profiles.ban_reason`; cleared on unban.
+  // Internal (AECI-1973): the banned person's 403 reads "Account suspended", never this.
   reason: z.string().max(500).optional(),
 });
 
@@ -4897,7 +4974,7 @@ exception below. The response shape is unchanged (`STAGE_2_ATTESTATIONS_SPEC.md`
 vendor-seat ban or unban whose batch lost a race answers `409 VENDOR_SEATS_CHANGED` and
 writes nothing.
 
-**Terminate ends everything (AECI-1589, ruled 2026-11-03; rewrites AECI-1374; moved from this route to `POST /api/admin/vendors/:id/suspension/terminate` by AECI-1623).** *As built 2026-11-05: this route no longer does any of the following. A ban of the last unbanned seat answers `409 VENDOR_LAST_SEAT_USE_SUSPEND`. The batch below is Terminate's, with Terminate's `vendor-terminated` email in place of `vendor-banned`, `aeci.moderation.terminate_*` in place of `aeci.moderation.ban_*`, the refunds after the cancel, and `metadata.cause = 'vendor-banned'` kept on the return's audit row.* Terminate does all of this in the one `db.batch`, after it bans every seat.
+**Terminate ends everything (AECI-1589, ruled 2026-11-03; rewrites AECI-1374; moved from this route to `POST /api/admin/vendors/:id/suspension/terminate` by AECI-1623).** *As built 2026-11-05: this route no longer does any of the following. A ban of the last unbanned seat answers `409 VENDOR_LAST_SEAT_USE_SUSPEND`. The batch below is Terminate's, with Terminate's `vendor-terminated` email in place of `vendor-banned`, `aeci.moderation.terminate_*` in place of `aeci.moderation.ban_*`, the refunds after the cancel, and `metadata.cause = 'vendor-terminated'` on the return's audit row (AECI-1974).* Terminate does all of this in the one `db.batch`, after it bans every seat.
 
 - **Every live subscription ends now**, any source, `end_reason = 'banned'`, one `license.banned` row each
   (`entity_type = 'billing_account'`, `metadata.license_id`, `metadata.seat_user_id`,
@@ -4909,7 +4986,7 @@ writes nothing.
 - **The records return to AECi** as the explicit return does, although the banned seat remains
   (`planVendorHandback`): `vendors.owned_at` cleared, markers to `aeci`, claimed integrations and pairs
   un-claimed, every open owner contest moved to AECi **unstamped**, the open product proposals deleted.
-  One `vendor.records_returned` row carries `metadata.cause = 'vendor-banned'`. This replaces the
+  One `vendor.records_returned` row carries `metadata.cause = 'vendor-terminated'`. This replaces the
   AECI-989 seat-lapse contest re-route on this path, so the contest rows are written once.
 - **A grant that lands mid-request aborts the batch** (`noLiveLicenseSentinel`) with
   `409 VENDOR_SEATS_CHANGED`. So does a lapse or a Stripe cancel that ended one of the vendor's
@@ -4940,7 +5017,7 @@ batch revokes every pending invite in `vendor_seat_invites` for the vendor: not 
 not revoked, not expired (`liveInvitesFor`). Each revoke goes through
 `revokeInviteStatements`, sets `revoked_at`, and writes one `vendor_seat.invite_revoked`
 row (`entity_type = 'vendor_seat_invite'`, `metadata.source = 'admin-moderation'`,
-`metadata.reason = 'vendor-banned'`, `metadata.seat_user_id`). A later redeem of such an
+`metadata.reason = 'vendor-terminated'`, `metadata.suspension_id`; AECI-1974). A later redeem of such an
 invite fails `422` as revoked, so it cannot mint the unbanned seat that would clear the
 `vendor-banned` flags the ban no longer writes. A sentinel after the revokes aborts the batch when a live invite
 is still left, for example one created between the read and the batch: the ban answers
@@ -7182,24 +7259,27 @@ Errors: `VALIDATION_FAILED` (400) for a non-boolean `enabled`, an extra field or
 
 #### Legal versions: `GET /api/admin/legal-versions`, `POST /api/admin/legal-versions` (AECI-1688), `POST /api/admin/legal-versions/:id/notice` (AECI-1620)
 
-Record an upcoming version of the Vendor Terms, the Managed plan agreement, the Terms of Service
-or the Privacy Policy before it takes effect (`ADMIN_PANEL_SPEC.md` §5.22, `STAGE_1_SPEC.md` §27.5, ADR 0054). Table `legal_versions`
+Record an upcoming version of the Vendor Terms, the Managed plan agreement, the Terms of Service,
+the Privacy Policy or, since AECI-1969 (ruling 54), the Listing Accuracy Policy or the Review
+Guidelines before it takes effect (`ADMIN_PANEL_SPEC.md` §5.22, `STAGE_1_SPEC.md` §27.5, ADR 0054). Table `legal_versions`
 (`DATABASE_SCHEMA.md` §8.6i). `requireAdmin()` on both; the POST adds `rateLimit('write')` after
 the guard. Contract in `packages/shared/src/api/legal-versions.ts`. **A material publish
 enqueues its change notice post-commit** (AECI-1620, below). A non-material one sends nothing.
+Since AECI-1977 (ruling 62) only a Terms of Service or Privacy Policy version may be non-material:
+`material: false` on any other document is a `400 VALIDATION_FAILED`.
 
 ```typescript
 // GET /api/admin/legal-versions — no parameters. A read: no audit row, no limiter.
 export const AdminLegalVersionsResponseSchema = z.object({
   publish_enabled: z.boolean(),              // LEGAL_PUBLISH_ENABLED === "true" on this tier
-  upcoming: z.array(AdminLegalUpcomingEntrySchema), // one per document in LEGAL_AGREEMENT_UPCOMING_VERSIONS or LEGAL_READER_UPCOMING_VERSIONS
+  upcoming: z.array(AdminLegalUpcomingEntrySchema), // one per document in LEGAL_AGREEMENT_, LEGAL_READER_ or LEGAL_POLICY_UPCOMING_VERSIONS
 });
 export const AdminLegalUpcomingEntrySchema = z.object({
-  document: z.enum(['vendor_terms', 'managed_plan', 'terms', 'privacy']),
+  document: z.enum(['vendor_terms', 'managed_plan', 'terms', 'privacy', 'listing_accuracy', 'review_guidelines']),
   version: z.string(),
   effective_on: z.string(),                  // YYYY-MM-DD, from the upcoming map
   effective_at: z.string(),                  // ISO, 12:00 UTC of effective_on
-  current_version: z.string(),               // LEGAL_AGREEMENT_ or LEGAL_READER_CURRENT_VERSIONS[document]
+  current_version: z.string(),               // LEGAL_AGREEMENT_, LEGAL_READER_ or LEGAL_POLICY_CURRENT_VERSIONS[document]
   published: LegalVersionSchema.nullable(),  // the row for exactly this version, or null
   // AECI-1620: the notice's ADDRESSES, each counted once by the outcome of its latest
   // `legal-terms-change` ledger row for this version (`duplicate` rows ignored), so an
@@ -7234,12 +7314,12 @@ export const AdminLegalUpcomingEntrySchema = z.object({
 
 // POST /api/admin/legal-versions — strict body
 export const PublishLegalVersionRequestSchema = z.object({
-  document: z.enum(['vendor_terms', 'managed_plan', 'terms', 'privacy']),
+  document: z.enum(['vendor_terms', 'managed_plan', 'terms', 'privacy', 'listing_accuracy', 'review_guidelines']),
   version: z.string().trim().min(1).max(20),
-  material: z.boolean(),                     // no default: the page asks Yes or No
-  requires_acceptance: z.boolean(),          // no default; true needs material: true; refused for privacy
+  material: z.boolean(),                     // no default; must be true for the two agreements (AECI-1977) and the two policies (AECI-1969); the page asks only for terms and privacy
+  requires_acceptance: z.boolean(),          // no default; true needs material: true; refused for privacy and the two policies
   summary: z.array(z.string().trim().min(1).max(300) /* one line, no \p{Cc}, \p{Cf}, U+2028, U+2029 */).min(1).max(10),
-  expedited_reason: z.enum(['law', 'error']).nullable().optional(), // Vendor Terms only
+  expedited_reason: z.enum(['law', 'error']).nullable().optional(), // Vendor Terms and, since AECI-1969, the two policies
 }).strict();
 // 201: { legal_version: LegalVersion }
 // LegalVersion: id, document, version, effective_at, material, requires_acceptance, summary,
@@ -7260,7 +7340,7 @@ export const ResendLegalNoticeResponseSchema = z.object({ legal_version: LegalVe
 **Order of checks.** `LEGAL_PUBLISH_ENABLED` first: anything but `"true"` is `409
 LEGAL_PUBLISH_DISABLED`, before the body is read. Then the body: a non-JSON body is `400
 MALFORMED_REQUEST`, and a schema miss (an extra field, a bad summary, `requires_acceptance`
-without `material`, `requires_acceptance` on a Privacy Policy version, an expedited reason on anything but the Vendor Terms) is `400 VALIDATION_FAILED`.
+without `material`, `requires_acceptance` on a Privacy Policy or policy version, `material: false` on anything but a Terms or Privacy version, an expedited reason on anything but the Vendor Terms and the two policies) is `400 VALIDATION_FAILED`.
 Then `422 LEGAL_VERSION_NOT_UPCOMING`, `409 LEGAL_VERSION_EXISTS`, `422 LEGAL_NOTICE_WINDOW` and
 `409 LEGAL_PDF_MISSING`, in that order. The window refusal carries `details.reason`: `passed` or
 `too_soon`, so the page gives the right advice. A bullet holding a control character (tab, CR,
@@ -7296,6 +7376,15 @@ accounts. In `notice_deliveries` each `not_reached_companies` entry is then one 
 `legal-account-change` ledger (`docs/NOTIFICATIONS.md`). The re-send works for these rows,
 skips `delivered` accounts, and its error copy says "accounts".
 
+**The two policies (AECI-1969, counsel Q68, ruling 54).** A `listing_accuracy` or
+`review_guidelines` publish follows the Vendor Terms path exactly: the same checks, the 30-day
+window with the same expedite, the same single batch, and the company fan-out
+(`fanOutLegalNotice`) to the Vendor Terms audience, every company with an unbanned seat. The
+consumer emails every unbanned seat and the billing emails, keyed
+`legal-terms-change:{document}:{version}:{vendorId}:{hash}`, with the closing `vendor-policy`.
+A policy is always material and never needs acceptance. Which version a company is on is read
+by `GET /api/admin/vendors/:id/billing` (`policy_versions`).
+
 **`POST /api/admin/legal-versions/:id/notice`.** `requireAdmin()` then `rateLimit('write')`. No
 body. Checks in order: `409 LEGAL_PUBLISH_DISABLED`; `404 NOT_FOUND` for an unknown id;
 `409 LEGAL_NOTICE_NOT_MATERIAL`; `422 LEGAL_NOTICE_TOO_LATE` once `effective_at` has passed.
@@ -7317,7 +7406,7 @@ Public, no auth. A read: no audit row, never rate-limited. `Cache-Control: priva
 `LegalPublishedResponseSchema` in `packages/shared/src/api/legal-versions.ts`:
 `{ now, published: [{ document, version, effective_at }] }`. `now` is the API Worker's clock as
 an ISO timestamp. `published` lists a `legal_versions` row only when it names the version in
-`LEGAL_AGREEMENT_UPCOMING_VERSIONS` (or, since AECI-1637, `LEGAL_READER_UPCOMING_VERSIONS`) for its document, its `effective_at` equals that entry's
+`LEGAL_AGREEMENT_UPCOMING_VERSIONS` (or, since AECI-1637, `LEGAL_READER_UPCOMING_VERSIONS`, and since AECI-1969 `LEGAL_POLICY_UPCOMING_VERSIONS`) for its document, its `effective_at` equals that entry's
 moment (12:00 UTC of `effectiveOn`), and that moment has come. So it says nothing the legal page
 does not show from that moment. No query runs while no upcoming publishable document's moment has come, so
 with an empty map it never touches D1. Readers: the SSR Worker's legal resolver over the service

@@ -718,6 +718,61 @@ The Phase 2 success-path suite (AECI-65, above) is stricter: it asserts **zero v
 
 Some violations are unfixable in third-party code; maintain an explicit allowlist with documented reason for each.
 
+### 8.4 Nightly suite
+
+AECI-1875 added a nightly Playwright lane for accessibility checks that are too slow or too broad for a
+PR. The sub-issues of AECI-1874 add the checks. The workflow, its skip rule and its alert are in
+`docs/CICD_PLAN.md` §11a-quater.
+
+**The boundary.** The suite lives in `apps/web/e2e-a11y/` and runs from its own config,
+`apps/web/playwright.a11y-nightly.config.ts`. The default `playwright.config.ts` keeps `testDir: './e2e'`,
+so the PR e2e job never sees the nightly specs. The nightly config reuses everything else from the default
+one: the base URL, the `webServer` block and the `.dev.vars` auth hydration. Run it locally against
+`pnpm dev:agent`:
+
+```bash
+AECI_WEB_PORT=8790 PLAYWRIGHT_BASE_URL=http://localhost:8790 pnpm test:a11y:nightly
+```
+
+Use the web port `dev:agent` printed in place of `8790`.
+
+**The manifest.** `apps/web/e2e-a11y/surfaces.ts` is the one list of surfaces. It has the seven surfaces
+of `docs/a11y-manual-testing-checklist.md` §1, as nine routes, and the 14 URLs of `phase2-a11y.spec.ts`.
+The product page is in both, so the manifest has 22 entries.
+Each entry names its route, the persona that signs in, the seed it needs (`phase2` or `auth`), whether the
+AECI-1571 redesign is rebuilding it, and the status it should answer. `phase2-a11y.spec.ts` keeps its own
+list, so the PR job is unchanged. `personaCredentials()` maps a persona to a test account. The reviewer
+persona signs in as the admin test user until a plain reviewer account exists.
+
+**The placeholder.** `surfaces.spec.ts` checks that each surface answers its expected status and renders
+one visible `h1`. It runs no accessibility rule. A signed-in surface skips when its session cannot be
+minted. A `phase2` surface skips when the fixture product is absent. Skips are green, as in the PR suite.
+
+**The known-failure rule.** A real barrier we cannot fix yet is marked with
+`knownFailure('AECI-123', reason)` from `e2e-a11y/known-failure.ts`, inside the test body. The test stays
+green while it fails and turns red when it starts to pass, so the mark comes off. A bare `test.fail()`
+anywhere else in `e2e-a11y/`, or a call without a literal `'AECI-<n>'`, fails `pnpm test:scripts`
+(`scripts/a11y-known-failures.test.mjs`).
+
+**The summary.** `e2e-a11y/summary-reporter.ts` writes `apps/web/a11y-nightly-summary.json` after every
+run. CI keeps it as an artifact for 30 days. The alert reads it to name the failing surfaces, and
+AECI-1682 will read it for the dated record.
+
+| Field | Meaning |
+|---|---|
+| `schemaVersion` | `1`. Changes only when a field changes meaning or goes away |
+| `generatedAt`, `commitSha`, `trigger`, `runUrl` | When, which commit, `nightly` or `manual`, and the Actions run |
+| `status` | Playwright's overall result |
+| `totals` | `passed`, `failed`, `skipped`, `expectedFailures` |
+| `tests[]` | `title`, `surfaceId`, `route`, `outcome`, and `knownFailure` (the issue ID or `null`) |
+| `axe.violationsByImpact` | `null` until AECI-1876 adds the axe sweep |
+
+**Adding a check.** Write a new spec in `e2e-a11y/` that loops over `SURFACES`. Add the
+`surface` and `route` annotations to each test, as `surfaces.spec.ts` does, so the summary can name the
+surface. Mint sessions with `personaCredentials()` and skip the same way. Add a surface to `surfaces.ts`,
+never to a spec. When you change the manifest, change the manual checklist §1 with it.
+`apps/web/e2e-a11y/README.md` is the short version.
+
 ---
 
 ## 9. Visual regression — Playwright + Chromatic

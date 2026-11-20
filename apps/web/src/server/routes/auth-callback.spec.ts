@@ -23,6 +23,9 @@ import {
   sanitizeReturnPath,
   signInEvidenceHeaders,
   signInReturnPath,
+  termsAcceptRedirect,
+  termsAcceptSignInReturnPath,
+  unwrapTermsAcceptPath,
   type AuthCallbackDeps,
 } from './auth-callback';
 
@@ -78,6 +81,10 @@ describe('sanitizeReturnPath', () => {
     ['//evil.com/', 'scheme-relative'],
     ['/\\evil.com/', 'backslash-disguised scheme-relative'],
     ['evil.com/x', 'no leading slash'],
+    ['/\t/evil.example', 'a tab browsers strip from Location (AECI-1637 review)'],
+    ['/\n/evil.example', 'a newline'],
+    ['/a\\b', 'a backslash anywhere'],
+    ['/x\u007f', 'DEL'],
   ])('collapses %s (%s) to /', (raw, _label) => {
     expect(sanitizeReturnPath(raw)).toBe('/');
   });
@@ -350,6 +357,91 @@ describe('postSignInPath', () => {
   it('never wraps /welcome in itself', () => {
     expect(postSignInPath('/welcome', true)).toBe('/welcome');
     expect(postSignInPath('/welcome?next=%2Fx', true)).toBe('/welcome?next=%2Fx');
+  });
+});
+
+describe('the Terms tick box (AECI-1637, ruling 53)', () => {
+  const boxed = (version: unknown) =>
+    vi.fn().mockResolvedValue({
+      created: false,
+      terms_acceptance: { version },
+    } as never as Promise<never>);
+
+  it('sends a reader with a pending box to /auth/terms, keeping the return as next', async () => {
+    const { request } = makeHarness({ ensure: boxed('1.2') });
+    const res = await request('?code=pkce-123&return=%2Faccount');
+    expect(res.status).toBe(303);
+    expect(res.headers.get('Location')).toBe('/auth/terms?version=1.2&next=%2Faccount');
+    expect(res.headers.get('Set-Cookie')).toContain('sb-test-auth-token=session-value');
+  });
+
+  it('a bare return becomes a bare box page', async () => {
+    const { request } = makeHarness({ ensure: boxed('1.2') });
+    const res = await request('?code=pkce-123');
+    expect(res.headers.get('Location')).toBe('/auth/terms?version=1.2');
+  });
+
+  it('an ordinary sign-in (terms_acceptance null) shows no box', async () => {
+    const ensure = vi
+      .fn()
+      .mockResolvedValue({ created: false, terms_acceptance: null } as never as Promise<never>);
+    const { request } = makeHarness({ ensure });
+    const res = await request('?code=pkce-123&return=%2Faccount');
+    expect(res.headers.get('Location')).toBe('/account');
+  });
+
+  it('a malformed version is ignored rather than carried', async () => {
+    const { request } = makeHarness({ ensure: boxed('1.2"><script>') });
+    const res = await request('?code=pkce-123&return=%2Faccount');
+    expect(res.headers.get('Location')).toBe('/account');
+  });
+
+  it('a return that is already the box page keeps its original next (no double wrap)', async () => {
+    const { request } = makeHarness({ ensure: boxed('1.2') });
+    const stale = '/auth/terms?version=1.2&next=%2Fvendor%2Finvite%2Ftok-1';
+    const res = await request(`?code=pkce-123&return=${encodeURIComponent(stale)}`);
+    expect(res.headers.get('Location')).toBe(
+      '/auth/terms?version=1.2&next=%2Fvendor%2Finvite%2Ftok-1',
+    );
+  });
+
+  it('unwrapTermsAcceptPath', () => {
+    expect(unwrapTermsAcceptPath('/account')).toBe('/account');
+    expect(unwrapTermsAcceptPath('/auth/terms')).toBe('/');
+    expect(unwrapTermsAcceptPath('/auth/terms?version=1.2&next=%2Fx%3Fa%3D1')).toBe('/x?a=1');
+    expect(unwrapTermsAcceptPath('/auth/terms?next=%2F%2Fevil.com')).toBe('/');
+    expect(unwrapTermsAcceptPath('/auth/terms?next=%2Fauth%2Fterms')).toBe('/');
+    // Nothing is waiting any more: the stale return still lands on its destination.
+    expect(termsAcceptRedirect('/auth/terms?version=1.2&next=%2Fx', null)).toBe('/x');
+  });
+
+  it('an encoded tab inside a box-page next never becomes an off-site Location (BLOCKER fix)', async () => {
+    const stale = '/auth/terms?next=%2F%09%2Fevil.example';
+    expect(unwrapTermsAcceptPath(stale)).toBe('/');
+    const { request } = makeHarness({});
+    const res = await request(`?code=pkce-123&return=${encodeURIComponent(stale)}`);
+    expect(res.headers.get('Location')).toBe('/');
+    // And on the callback's own return, decoded once by URLSearchParams.
+    const direct = await makeHarness({}).request('?code=pkce-123&return=%2F%09%2Fevil.example');
+    expect(direct.headers.get('Location')).toBe('/');
+  });
+
+  it('termsAcceptSignInReturnPath returns to the carried destination, never the box page', () => {
+    const u = (x: string) => new URL(x, 'https://www.aecintegrations.com');
+    expect(
+      termsAcceptSignInReturnPath(u('/auth/terms?version=1.2&next=%2Fvendor%2Finvite%2Ftok-1')),
+    ).toBe('/vendor/invite/tok-1');
+    expect(termsAcceptSignInReturnPath(u('/auth/terms?version=1.2'))).toBe('/');
+    expect(termsAcceptSignInReturnPath(u('/auth/terms?next=%2F%09%2Fevil.example'))).toBe('/');
+    expect(termsAcceptSignInReturnPath(u('/auth/terms?next=%2F%2Fevil.example'))).toBe('/');
+  });
+
+  it('termsAcceptRedirect wraps the post-sign-in path', () => {
+    expect(termsAcceptRedirect('/welcome?next=%2Fx', '1.2')).toBe(
+      '/auth/terms?version=1.2&next=%2Fwelcome%3Fnext%3D%252Fx',
+    );
+    expect(termsAcceptRedirect('/x', null)).toBe('/x');
+    expect(termsAcceptRedirect('/x', '')).toBe('/x');
   });
 });
 
