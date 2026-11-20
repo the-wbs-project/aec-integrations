@@ -202,12 +202,12 @@ describe('BillingLicensesTable', () => {
     expect(el.textContent).toContain('Ended Oct 10, 2026, lapsed');
   });
 
-  it('says the vendor has no billing account, that it is a bug to file, and lists no licenses', () => {
+  it('says the vendor has no billing account yet, how one is created, and lists no licenses', () => {
     const { el } = mount(makeBilling({ billing_account: null, licenses: [] }));
     const note = el.querySelector('[data-testid="billing-no-account"]')?.textContent ?? '';
-    expect(note).toContain('This vendor has no billing account.');
-    expect(note).toContain('The E1.5 back-fill should have created one');
-    expect(note).toContain('this is a bug: file it in Linear');
+    expect(note).toContain('This vendor has no billing account yet.');
+    expect(note).toContain('when a claim is approved or a seat is');
+    expect(note).not.toContain('bug');
     expect(note).not.toContain('Report it to the team');
     expect(el.querySelector('section[aria-labelledby="admin-vendor-billing-licenses"]')).toBeNull();
   });

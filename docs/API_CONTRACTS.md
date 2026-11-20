@@ -309,7 +309,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `LICENSE_GRANT_VERSION_CHANGED` | 409 | `POST /api/vendor/license-grants/:id/accept` (AECI-1615) naming a Managed plan agreement `version` that is not the one the grant pinned at create. The page is stale. Reload and read that version. `details.terms_version` names it. Nothing was written |
 | `LICENSE_GRANT_NOT_PENDING` | 422 | `POST /api/vendor/license-grants/:id/accept` (AECI-1615) on a grant that is no longer waiting: accepted, withdrawn, expired, or past its `ends_at` before the sweep marked it. Also the loser of a race with a second accept or a withdraw. `details.state` names which. Nothing was written. The admin withdraw answers `INVALID_STATE_TRANSITION` instead |
 | `LICENSE_GRANT_PRODUCTS_CHANGED` | 409 | `POST /api/vendor/license-grants/:id/accept` (AECI-1615) when a ban-term product left the vendor (its `product_vendors` row went) between the read and the batch (`productsStillJoinedSentinel`). Nothing was written. A retry lands that subscription in the pool with a `product_not_owned` warning |
-| `VENDOR_STILL_BANNED` | 409 | `POST /api/admin/vendors/:id/licenses/ban-term` (AECI-1589). The vendor has no unbanned `vendor_admin` seat, so subscriptions for the ban term would land on a banned vendor. Unban a seat first. Nothing was written. Also `POST /api/admin/vendors/:id/licenses` (AECI-1589, ruled 2026-11-03) when the vendor has `vendor_admin` seats and every one is banned. A vendor with no seat at all (never claimed) is still grantable. A replay of a grant made before the ban is still `200` |
+| `VENDOR_STILL_BANNED` | 409 | `POST /api/admin/vendors/:id/licenses/ban-term` (AECI-1589). The vendor has no unbanned `vendor_admin` seat, so subscriptions for the ban term would land on a banned vendor. Unban a seat first. Nothing was written. Also `POST /api/admin/vendors/:id/licenses` (AECI-1589, ruled 2026-11-03) when the vendor has `vendor_admin` seats and every one is banned. A vendor that has never been claimed has no billing account, so the grant answers `404` and is not grantable (ruled 2026-11-20, AECI-1975). A replay of a grant made before the ban is still `200` |
 | `LICENSE_PRODUCT_ALREADY_LICENSED` | 409 | `POST /api/admin/vendors/:id/licenses/ban-term` (AECI-1589). A product the request names already holds a live subscription on any billing account, so a second would break `licenses_live_product_idx`. Nothing was written |
 | `INTEGRATION_CHANGED_WHILE_SAVING` | 409 | A retire, restore, owner edit or claim (AECI-1089) whose batch lost a race, when the re-read finds no other refusal to give: a contest was filed on the row between the read and the batch, say, or (for a claim) promote moved the row to the other table. Nothing was written. Reload and try again (AECI-1010) |
 | `INTEGRATION_RETIRED_BY_AECI` | 403 | `POST /api/vendor/integrations/:id/restore` on a row an AECi admin retired (`retired_by = 'aeci'`). Only an admin restores an admin retire (AECI-1046, ruled 2026-09-22). Nothing is written |
@@ -3691,9 +3691,9 @@ export const AdminLicenseGrantSchema = z.object({
   Stripe subscription is one row per unit, so a real account sits far below the cap.
   Live rows sort first, so a truncated list drops old ended rows, never a live one below
   the cap.
-- **`billing_account: null` is a 200**, with `licenses: []`. Every vendor with a seat or
-  an entitlement was back-filled an account (E1), so this is a back-fill defect, and the
-  tab says so. Acceptances are still read: a claim acceptance names the vendor directly.
+- **`billing_account: null` is a 200**, with `licenses: []`. A billing account is created
+  when a claim is approved or a seat is added, so this is an unclaimed vendor, and the tab
+  says so (AECI-1975). Acceptances are still read: a claim acceptance names the vendor directly.
 - **Vocabulary columns are `z.string()`**, so a row from a future writer cannot fail the
   read. The UI labels the known values.
 - **`release_requests`** (AECI-1373) is the vendor's early-unassign requests, the same row
@@ -4137,8 +4137,9 @@ answers the same 409.
 
 **A fully banned vendor is refused (AECI-1589, ruled 2026-11-03).** After the replay
 check, a vendor that has `vendor_admin` seats and every one banned answers
-`409 VENDOR_STILL_BANNED`. The operator unbans a seat first. A vendor with no seat at
-all (never claimed) is still grantable. The replay check runs first, so a retry of a
+`409 VENDOR_STILL_BANNED`. The operator unbans a seat first. A vendor that has never
+been claimed has no billing account, so the grant answers `404` and is not grantable
+(ruled 2026-11-20, AECI-1975). The replay check runs first, so a retry of a
 grant made before the ban still answers 200. The batch ends with
 `unbannedSeatExistsSentinel` (`allowNoSeats`). A termination (AECI-1623) that commits between the
 seat read and the batch aborts it with `409 VENDOR_SEATS_CHANGED`, nothing granted.
@@ -4836,6 +4837,7 @@ export const BanReviewerSchema = z.object({
   action: z.enum(['ban', 'unban']),
   // Required (non-empty) when action === 'ban' — enforced by a cross-field refine
   // (mirrors ModerateReviewSchema). Stored on `profiles.ban_reason`; cleared on unban.
+  // Internal (AECI-1973): the banned person's 403 reads "Account suspended", never this.
   reason: z.string().max(500).optional(),
 });
 
@@ -4885,7 +4887,7 @@ exception below. The response shape is unchanged (`STAGE_2_ATTESTATIONS_SPEC.md`
 vendor-seat ban or unban whose batch lost a race answers `409 VENDOR_SEATS_CHANGED` and
 writes nothing.
 
-**Terminate ends everything (AECI-1589, ruled 2026-11-03; rewrites AECI-1374; moved from this route to `POST /api/admin/vendors/:id/suspension/terminate` by AECI-1623).** *As built 2026-11-05: this route no longer does any of the following. A ban of the last unbanned seat answers `409 VENDOR_LAST_SEAT_USE_SUSPEND`. The batch below is Terminate's, with Terminate's `vendor-terminated` email in place of `vendor-banned`, `aeci.moderation.terminate_*` in place of `aeci.moderation.ban_*`, the refunds after the cancel, and `metadata.cause = 'vendor-banned'` kept on the return's audit row.* Terminate does all of this in the one `db.batch`, after it bans every seat.
+**Terminate ends everything (AECI-1589, ruled 2026-11-03; rewrites AECI-1374; moved from this route to `POST /api/admin/vendors/:id/suspension/terminate` by AECI-1623).** *As built 2026-11-05: this route no longer does any of the following. A ban of the last unbanned seat answers `409 VENDOR_LAST_SEAT_USE_SUSPEND`. The batch below is Terminate's, with Terminate's `vendor-terminated` email in place of `vendor-banned`, `aeci.moderation.terminate_*` in place of `aeci.moderation.ban_*`, the refunds after the cancel, and `metadata.cause = 'vendor-terminated'` on the return's audit row (AECI-1974).* Terminate does all of this in the one `db.batch`, after it bans every seat.
 
 - **Every live subscription ends now**, any source, `end_reason = 'banned'`, one `license.banned` row each
   (`entity_type = 'billing_account'`, `metadata.license_id`, `metadata.seat_user_id`,
@@ -4897,7 +4899,7 @@ writes nothing.
 - **The records return to AECi** as the explicit return does, although the banned seat remains
   (`planVendorHandback`): `vendors.owned_at` cleared, markers to `aeci`, claimed integrations and pairs
   un-claimed, every open owner contest moved to AECi **unstamped**, the open product proposals deleted.
-  One `vendor.records_returned` row carries `metadata.cause = 'vendor-banned'`. This replaces the
+  One `vendor.records_returned` row carries `metadata.cause = 'vendor-terminated'`. This replaces the
   AECI-989 seat-lapse contest re-route on this path, so the contest rows are written once.
 - **A grant that lands mid-request aborts the batch** (`noLiveLicenseSentinel`) with
   `409 VENDOR_SEATS_CHANGED`. So does a lapse or a Stripe cancel that ended one of the vendor's
@@ -4928,7 +4930,7 @@ batch revokes every pending invite in `vendor_seat_invites` for the vendor: not 
 not revoked, not expired (`liveInvitesFor`). Each revoke goes through
 `revokeInviteStatements`, sets `revoked_at`, and writes one `vendor_seat.invite_revoked`
 row (`entity_type = 'vendor_seat_invite'`, `metadata.source = 'admin-moderation'`,
-`metadata.reason = 'vendor-banned'`, `metadata.seat_user_id`). A later redeem of such an
+`metadata.reason = 'vendor-terminated'`, `metadata.suspension_id`; AECI-1974). A later redeem of such an
 invite fails `422` as revoked, so it cannot mint the unbanned seat that would clear the
 `vendor-banned` flags the ban no longer writes. A sentinel after the revokes aborts the batch when a live invite
 is still left, for example one created between the read and the batch: the ban answers

@@ -160,8 +160,8 @@ decisions 3 and 4. Every other seat loss, and every subscription lapse, still mo
 - **The ban returns the records.** In the ban's own batch, `vendors.owned_at` is cleared and
   the whole return runs (`planVendorHandback`): markers back to `aeci`, claimed integrations
   and pairs un-claimed, every open owner contest to AECi **unstamped**, open product proposals
-  deleted. It writes `vendor.records_returned` with `metadata.cause = 'vendor-banned'`. The
-  banned seat remains, so the explicit "Return records to AECi" route keeps its refusal
+  deleted. It writes `vendor.records_returned` with `metadata.cause = 'vendor-banned'` (Terminate,
+  which took this over in AECI-1623, writes `'vendor-terminated'`). The banned seat remains, so the explicit "Return records to AECi" route keeps its refusal
   while any seat remains (decision 4). The ban uses the same planner without that route.
   The seat lapse (`planOwnerSeatLapse`) is not planned on this path, because the return
   already re-routes the same contests.
@@ -183,7 +183,7 @@ Terminate. The 2026-11-03 amendment above is moved, not undone.
 - **The cause of the return changes, the return does not.** The ban of a vendor's last unbanned
   seat is refused with `409 VENDOR_LAST_SEAT_USE_SUSPEND`. Terminate bans every seat and runs the
   same planner (`planVendorHandback`) in its batch, from `lib/vendor-termination.ts`. The audit
-  row is still `vendor.records_returned` with `metadata.cause = 'vendor-banned'`, and the ownership
+  row is `vendor.records_returned` with `metadata.cause = 'vendor-terminated'` (AECI-1974; it read `vendor-banned` before AECI-1623), and the ownership
   message is still `records_returned`. The unban still re-stamps `owned_at` and leaves the contests
   with AECi.
 - **`owned_at` is an operational lock, not a transfer of the text.** Clearing it lets AECi correct

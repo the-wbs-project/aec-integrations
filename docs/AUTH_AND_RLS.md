@@ -529,7 +529,8 @@ const profile = await db.query.profiles.findFirst({
 // GET /api/account alone passes `onMissingProfile` (§3.1a): one ensure, then re-read.
 if (!profile) throw unauthenticated(); // 401: verified token, no profile row
 if (profile.bannedAt) {
-  throw new ApiError(403, ApiErrorCode.FORBIDDEN, profile.banReason ?? 'Account suspended');
+  // AECI-1973: the admin's reason stays internal. Only Terminate's own reason is shown.
+  throw new ApiError(403, ApiErrorCode.FORBIDDEN, bannedAccountMessage(profile.banReason));
 }
 if (requiredRole === 'admin' && profile.role !== 'admin') {
   throw new ApiError(403, ApiErrorCode.FORBIDDEN, 'Admin role required');
