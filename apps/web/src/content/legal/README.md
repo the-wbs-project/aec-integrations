@@ -633,23 +633,28 @@ The steps are the ones above, with these differences.
   (`notices.json`) is separate.
 - **Set `requires_acceptance` to Yes only for a Terms change that reduces a reader's rights.**
   Signing in is the acceptance (ruling of 2026-11-13): the login page always says "By signing
-  in, you agree to our Terms of Service and Privacy Policy." A version with Yes applies to each
-  account holder only from their next sign-in, never on continued use, and the email says so.
-  Until then the earlier version applies to them. Nothing is blocked, and a live session is not
-  interrupted. A Terms change that does not reduce rights is material at most, and binds by
+  in, you agree to our Terms of Service and Privacy Policy." A version with Yes needs more
+  (counsel Q63, ruling 53, built 2026-11-19). At each account holder's first sign-in after it
+  takes effect, `/auth/terms` shows one unticked box, "I have read and accept the updated Terms
+  of Service." The version applies to that account only once they tick it, never on continued
+  use, and the email says so. Until then the earlier version applies. A reader who leaves
+  without ticking stays signed in on the earlier version, and the next sign-in asks again. An
+  account created by that sign-in never sees the box. Nothing else is blocked, and a live
+  session is not interrupted. A Terms change that does not reduce rights is material at most, and binds by
   continued use. **Privacy never takes it.** The form hides the
   question and the API refuses `requires_acceptance` for a Privacy publish: a Privacy change
   gets the email and the 30-day window and nothing else.
 - **Check the card** for "Accounts queued", "Delivered" and "Accounts not reached", and the
   account count in "The last send queued N accounts". The count is of every unbanned account.
 - **After the effective moment** every sign-in records the acceptance of the new Terms version,
-  whatever the flag, once per account. The acceptance records are in `terms_acceptances`
+  once per account. With Yes, the record is the ticked box, not the sign-in line. The acceptance records are in `terms_acceptances`
   (`docs/DATABASE_SCHEMA.md` §8.6k).
   They are kept for the life of the account plus 6 years, even after deletion, and the IP
   address and browser go at 90 days. The legal retention prune deletes them six years after
   the account's `account.deleted` audit row (AECI-1718). The Privacy Policy "Agreement acceptance records" names
   this record. The sign-in line's text is `SIGN_IN_TERMS_LINE`: change it only with the legal
-  text, and the record stores the exact text shown.
+  text, and the record stores the exact text shown. The box label is `TERMS_CHANGE_BOX_LABEL`
+  (`packages/shared/src/api/agreements.ts`) and follows the same rule.
 
 ## Runbooks behind these promises (AECI-1622, AECI-1674)
 

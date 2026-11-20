@@ -303,9 +303,12 @@ The return is cleaned by `sanitizeReturnPath` first. `/welcome` cleans `next` ag
   stays for the page's life. It announces "Loading…", the form being ready, the fields a software
   vendor is not asked (and their return), and each audience count change. When the form appears,
   focus moves to the `h1`.
-- **No Terms gate (AECI-1637).** Signing in is the acceptance of the Terms of Service (ruling
-  of 2026-11-13). The sign-in that lands here already recorded it, so nothing overlays this
-  page and nothing blocks its writes (`AUTH_AND_RLS.md` §3.1b, `STAGE_1_SPEC.md` §27.4).
+- **No Terms gate on this page (AECI-1637).** Signing in is the acceptance of the Terms of
+  Service (ruling of 2026-11-13). The sign-in that lands here already recorded it, so nothing
+  overlays this page and nothing blocks its writes. Since 2026-11-19 (counsel Q63, ruling 53)
+  the callback may send a returning reader to `/auth/terms` before `next` when a
+  rights-reducing version is waiting for a box. A just-created account never sees it, so
+  `/welcome` is never preceded by it (`AUTH_AND_RLS.md` §3.1b, `STAGE_1_SPEC.md` §27.4).
 - **Copy.** The lede reads "A few questions about where you work. Reviewers get their review forms
   filled in from this. You can change any of it on your account page." It works for a vendor and a
   reviewer alike.

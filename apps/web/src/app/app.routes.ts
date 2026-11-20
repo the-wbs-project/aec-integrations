@@ -267,6 +267,15 @@ export const routes: Routes = [
     path: 'welcome',
     loadComponent: () => import('./welcome/welcome').then((m) => m.WelcomePage),
   },
+  // AECI-1637 (counsel Q63, ruling 53) — the one Terms tick box. `/auth/callback` sends a
+  // reader here only at the first sign-in after a Terms version that reduces their rights,
+  // with `?version=<v>&next=<path>`. Gated like `/welcome` (`isTermsAcceptPath` in
+  // `server-runtime.ts`), non-cacheable by the `/auth/*` rule, no resolver; the component
+  // sets `robots: noindex`.
+  {
+    path: 'auth/terms',
+    loadComponent: () => import('./auth/terms-accept').then((m) => m.TermsAcceptPage),
+  },
   // Dev-only preview routes for v0.dev → Angular ports. Always registered in
   // the Angular bundle (lazy-loaded, no eager-bundle cost) but blocked at the
   // SSR Worker on the public tiers (production + demo, `isPublicSite`). See

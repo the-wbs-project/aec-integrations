@@ -1695,8 +1695,8 @@ export function sendAttestationOpsDigestEmail(
  *
  *   - `reader-terms`: a Terms version with no acceptance. Continued use binds.
  *   - `reader-terms-accept`: a Terms version that reduces a reader's rights. It applies to
- *     the account only from the next sign-in, which records the acceptance. Never on
- *     continued use alone.
+ *     the account only once they tick the box their next sign-in shows (ruling 53). Never
+ *     on continued use alone.
  *   - `reader-privacy`: a Privacy Policy version. It applies from its date.
  */
 export type LegalTermsChangeClosing =
@@ -1766,7 +1766,7 @@ function legalClosingLine(closing: LegalTermsChangeClosing, version: string, dat
     case 'reader-terms':
       return `If you keep using the service after ${date}, the new version applies to you.`;
     case 'reader-terms-accept':
-      return `Because this change reduces your rights, it applies to your account only from the next time you sign in. Until then the earlier version applies. It never applies to a claim that arose before ${date}.`;
+      return `Because this change reduces your rights, it applies to your account only after you accept it. The next time you sign in, we will ask you to tick a box to accept it. Until you do, the earlier version applies. It never applies to a claim that arose before ${date}.`;
     case 'reader-privacy':
       return `The new version applies from ${date}.`;
   }

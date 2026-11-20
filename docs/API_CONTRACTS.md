@@ -362,7 +362,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `LEGAL_NOTICE_TOO_LATE` | 422 | `POST /api/admin/legal-versions/:id/notice` (AECI-1620) once the version's `effective_at` has passed: the email says the version has not taken effect yet. Nothing is written |
 | `LEGAL_NOTICE_ENQUEUE_FAILED` | 503 | `POST /api/admin/legal-versions/:id/notice` (AECI-1620) when the audience read failed, `LEGAL_NOTICE_QUEUE` is unbound, or a `sendBatch` chunk failed. Retryable. The partial outcome **is** recorded first (`notice_enqueued_at` NULL, `notice_vendor_count` = companies queued) with its audit row. `details` is `{ queued, total, failure }`. Send again |
 | `LEGAL_ACCEPTANCE_REQUIRED` | 403 | Any vendor write (AECI-1677, ruling 24) while the Vendor Terms are in force and the company holds no acceptance of a version in force. Raised by the vendor guard (`lib/authz.ts`), after the ban, role and suspension checks. `details: { document: 'vendor_terms', version }` names the version to accept. Never on a read. Not on `POST /api/vendor/legal-acceptance` or `POST /api/vendor/billing/portal` (`allowTermsPending`). Nothing is written |
-| `LEGAL_ACCEPTANCE_NOT_PENDING` | 422 | `POST /api/vendor/legal-acceptance` (AECI-1677) when the `document` and `version` are not pending for the company now: not in force and not a published version that needs acceptance, already accepted, or a stale page. `field: 'version'`, `details: { document, version }`. Nothing is written |
+| `LEGAL_ACCEPTANCE_NOT_PENDING` | 422 | `POST /api/vendor/legal-acceptance` (AECI-1677) when the `document` and `version` are not pending for the company now: not in force and not a published version that needs acceptance, already accepted, or a stale page. `field: 'version'`, `details: { document, version }`. Also `POST /api/auth/terms/accept` (AECI-1637) for a Terms version not waiting for a box, with `details: { document: 'terms', version }`. Nothing is written |
 | `DMCA_NOTICE_CHANGED` | 409 | `PATCH /api/admin/dmca-notices/:id` (AECI-1665) when the row's `updated_at` is not the `expected_updated_at` the page sent: another tab or admin saved it first, or an account deletion cleared its account. Checked on read and again by a sentinel in the write batch. Nothing is written. Reload and edit again |
 | `LITIGATION_HOLD_EXISTS` | 409 | `POST /api/admin/litigation-holds` (AECI-1638) when an open hold of that scope already exists: the one open global hold, or an open hold for that vendor. The early read and the partial unique index both answer it. Nothing was written. |
 | `LITIGATION_HOLD_RELEASED` | 409 | `POST /api/admin/litigation-holds/:id/release` (AECI-1638) when the hold was already released, on read or by the batch's sentinel. Nothing was written. |
@@ -1978,6 +1978,8 @@ Under ADR 0016 the authoritative `profiles` row lives in **D1** and no database 
 ```typescript
 export type EnsureProfileResponse = {
   created: boolean; // false = row already existed (the normal case)
+  // AECI-1637, 2026-11-19: set only when the reader must tick the Terms box first.
+  terms_acceptance: { version: string } | null;
 };
 ```
 
@@ -1992,9 +1994,60 @@ sign-in line (`SIGN_IN_TERMS_LINE`) and its SHA-256, the request's `CF-Connectin
 `User-Agent` cut to 512. The callback forwards both headers from the browser's request. The
 audit row names no email, IP or user agent. Once per account per version: a second sign-in on
 the same version writes nothing. With no Terms version in force it reads and writes nothing,
-which is today. The write never changes the response and never fails the call: an error is
-logged and the endpoint still answers `{ created }`. No other endpoint writes an acceptance,
-and no route is blocked by a new Terms version.
+which is today. The write never fails the call: an error is logged and the endpoint still
+answers. No route is blocked by a new Terms version.
+
+*As built 2026-11-19 (AECI-1637, counsel Q63, ruling 53):* the line does not bind a reader to a
+version that reduces rights, so that version needs a box. When a published Terms version with
+`requires_acceptance` is in force, took effect after the profile was created, and no
+`terms_acceptances` row covers it, this endpoint writes no row and answers
+`terms_acceptance: { version }`. The callback then sends the reader to `/auth/terms`. In every
+other case it answers `terms_acceptance: null` and writes the line row as above. An account this
+call created never gets the box. The box row is written by `POST /api/auth/terms/accept`.
+
+#### `POST /api/auth/terms/accept`
+
+Records the tick box on `/auth/terms` (AECI-1637, counsel Q63, ruling 53, as built 2026-11-19).
+`requireAuth()` reads the session cookie, and a banned account gets 403. `rateLimit('write')` runs
+after it (`waf-rate-limits.md` §6).
+
+```typescript
+export type AcceptTermsRequest = { version: string; accepted: true }; // strict
+export type AcceptTermsResponse = { version: string; accepted_at: string };
+```
+
+Writes one `terms_acceptances` row and its `terms.accepted` audit row in one `db.batch`. The row
+holds `checkbox_label` (`TERMS_CHANGE_BOX_LABEL`), its SHA-256, `checkbox_default_unticked = 1`,
+the IP address and the browser. The audit `metadata.source` is `terms-box` and its `afterState`
+carries `checkbox`. A box already ticked for that version answers 200 again with the first
+`accepted_at` and writes nothing.
+
+Errors: `MALFORMED_REQUEST` (400), `VALIDATION_FAILED` (400), `UNAUTHENTICATED` (401), a banned
+account (403), `RATE_LIMITED` (429), and `LEGAL_ACCEPTANCE_NOT_PENDING` (422,
+`details: { document: 'terms', version }`) for a version that is not waiting for a box. Nothing is
+written on an error.
+
+#### `GET /api/auth/terms/pending`
+
+What `/auth/terms` shows the reader before they tick (AECI-1637, as built 2026-11-20).
+`requireAuth()` reads the session cookie, and a banned account gets 403. Reads are never
+rate-limited (`waf-rate-limits.md` §6.2) and the read writes no `audit_log` row.
+
+```typescript
+export const TermsPendingSchema = z.object({
+  version: z.string(),
+  effective_at: z.string(), // ISO, 12:00 UTC of the effective day
+  summary: z.array(z.string()), // the published legal_versions bullets, as emailed
+  previous_version: z.string().nullable(), // the account's latest acceptance by effective moment
+});
+export const TermsPendingResponseSchema = z.object({ pending: TermsPendingSchema.nullable() });
+```
+
+`pending` is `null` when no box waits for the account. `previous_version` is the version that
+applies until the reader ticks, and it is `null` when the account holds no acceptance. The page
+links both versions from it.
+
+Errors: `UNAUTHENTICATED` (401) and a banned account (403).
 
 ### 6.9 Tracking
 

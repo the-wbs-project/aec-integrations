@@ -1688,7 +1688,10 @@ Property contract, emit sites and the naming rules live in
 — deployment-env-only, so it's safe to cache (§9.1a). In the browser, the `Analytics`
 service loads `posthog-js` (dynamic import) and calls `posthog.init()` **only after the
 visitor accepts the consent banner** (`consent-banner.ts`); Do-Not-Track is honored as a
-hard decline (no load, no banner). Init uses `capture_pageview: 'history_change'` (auto
+hard decline (no load, no banner). The banner is held off `/auth/terms`
+(`bannerHeldOn`, AECI-1637, 2026-11-20) so the Terms tick box has the one "Accept". An
+undecided visitor there stays undecided, so nothing loads, and the banner returns on the next
+page. Init uses `capture_pageview: 'history_change'` (auto
 pageviews incl. SPA navigations), `autocapture: false`, and
 `disable_external_dependency_loading: true` (so the CSP `script-src` stays untouched —
 only the two `connect-src` PostHog US hosts are needed).
