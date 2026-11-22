@@ -1311,3 +1311,154 @@ function formatViolation(v: {
   const targets = v.nodes.map((n) => `\n    ${n.target.join(' ')}`).join('');
   return `[${v.impact ?? '?'}] ${v.id}: ${v.help} (${v.nodes.length} node(s))${targets}`;
 }
+
+// AECI-1855: after a navigation to another page, focus moves to the new page's h1
+// (or `<main>` when it has none), never to `<body>`, and the focus does not scroll
+// (`core/route-focus.ts`, ANGULAR_STYLE_GUIDE.md §18). Escape with no navigation
+// still returns focus to the trigger.
+test.describe('focus after a navigation (AECI-1855)', () => {
+  /** What holds focus, as a short label. */
+  async function focused(page: Page): Promise<string> {
+    return page.evaluate(() => {
+      const el = document.activeElement;
+      if (!el || el === document.body) return 'body';
+      if (el.matches('main#main')) return 'main';
+      if (el.matches('main#main h1')) return 'h1';
+      return `${el.tagName.toLowerCase()}:${el.textContent?.trim().slice(0, 30) ?? ''}`;
+    });
+  }
+
+  async function expectPageHeadingFocused(page: Page) {
+    await expect.poll(() => focused(page)).toBe('h1');
+    // No ring on a heading that only holds focus for this.
+    const outline = await page
+      .locator('main#main h1')
+      .first()
+      .evaluate((el) => getComputedStyle(el).outlineStyle);
+    expect(outline).toBe('none');
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  }
+
+  test.describe('desktop Browse menu (1280px)', () => {
+    test.use({ viewport: DESKTOP });
+    const browse = (page: Page) =>
+      page
+        .locator('aec-site-header')
+        .getByRole('navigation', { name: 'Primary' })
+        .getByRole('link', { name: 'Browse', exact: true });
+    const panel = (page: Page) => page.locator('#browse-menu-panel');
+
+    test('a mouse click on a panel link puts focus on the new page h1', async ({ page }) => {
+      await page.goto(ROUTE);
+      await untilHydrated(browse(page));
+      await browse(page).hover();
+      await expect(panel(page)).toBeVisible();
+      await panel(page).getByRole('link', { name: 'See all phases' }).click();
+      await page.waitForURL(/\/phases$/);
+      await expectPageHeadingFocused(page);
+    });
+
+    test('Enter on a panel link puts focus on the new page h1', async ({ page }) => {
+      await page.goto(ROUTE);
+      await untilHydrated(browse(page));
+      await browse(page).focus();
+      await page.keyboard.press('ArrowDown');
+      const first = panel(page).getByRole('link', { name: /^All products/ });
+      await expect(first).toBeFocused();
+      await page.keyboard.press('Enter');
+      await page.waitForURL(/\/products$/);
+      await expectPageHeadingFocused(page);
+      // The next Tab starts from the content, not from the top of the document.
+      await page.keyboard.press('Tab');
+      expect(await page.evaluate(() => !!document.activeElement?.closest('main#main, aside'))).toBe(
+        true,
+      );
+    });
+
+    test('Escape with no navigation still returns focus to Browse', async ({ page }) => {
+      await page.goto(ROUTE);
+      await untilHydrated(browse(page));
+      await browse(page).focus();
+      await page.keyboard.press('ArrowDown');
+      await expect(panel(page).getByRole('link', { name: /^All products/ })).toBeFocused();
+      await page.keyboard.press('Escape');
+      await expect(panel(page)).toBeHidden();
+      await expect(browse(page)).toBeFocused();
+    });
+  });
+
+  test.describe('mobile menu (390px)', () => {
+    test.use({ viewport: { width: 390, height: 844 } });
+
+    test('a tap on a menu link puts focus on the new page h1', async ({ page }) => {
+      await page.goto(ROUTE);
+      await openMenu(page);
+      await menuPanel(page)
+        .getByRole('link', { name: /^For vendors$/ })
+        .click();
+      await page.waitForURL(/\/vendor-program$/);
+      await expect(menuPanel(page)).toBeHidden();
+      await expectPageHeadingFocused(page);
+    });
+
+    test('Enter on a menu link puts focus on the new page h1', async ({ page }) => {
+      await page.goto(ROUTE);
+      await openMenu(page);
+      // Focus starts on "All products".
+      await page.keyboard.press('Enter');
+      await page.waitForURL(/\/products$/);
+      await expectPageHeadingFocused(page);
+    });
+
+    test('a link to the page already showing still lands focus on its h1', async ({ page }) => {
+      await page.goto('/products');
+      await openMenu(page);
+      await page.keyboard.press('Enter'); // "All products", the page already showing
+      await expect(menuPanel(page)).toBeHidden();
+      await expect.poll(() => focused(page)).toBe('h1');
+    });
+
+    test('Escape with no navigation still returns focus to the toggle', async ({ page }) => {
+      await page.goto(ROUTE);
+      await openMenu(page);
+      await page.keyboard.press('Escape');
+      await expect(toggle(page)).toBeFocused();
+    });
+
+    test('growing the window to lg puts focus that was in the menu on the page h1', async ({
+      page,
+    }) => {
+      await page.goto('/products');
+      await openMenu(page);
+      await page.setViewportSize({ width: 1100, height: 844 });
+      await expect(toggle(page)).toBeHidden();
+      await expect.poll(() => focused(page)).toBe('h1');
+    });
+  });
+
+  test.describe('links on the page (1280px)', () => {
+    test.use({ viewport: DESKTOP });
+
+    test('a product card puts focus on the product page h1', async ({ page }) => {
+      await page.goto('/products');
+      const card = page.locator('main a[href^="/products/"]').first();
+      await untilHydrated(card);
+      await card.click();
+      await page.waitForURL(/\/products\/[^/]+$/);
+      await expectPageHeadingFocused(page);
+    });
+
+    test('a breadcrumb puts focus on the index h1', async ({ page }) => {
+      await page.goto('/products');
+      const href = (await page.locator('main a[href^="/products/"]').first().getAttribute('href'))!;
+      await page.goto(href);
+      const crumb = page
+        .getByRole('navigation', { name: 'Breadcrumb' })
+        .getByRole('link', { name: 'Products' });
+      await untilHydrated(crumb);
+      await crumb.click();
+      await page.waitForURL(/\/products$/);
+      await expectPageHeadingFocused(page);
+    });
+  });
+});

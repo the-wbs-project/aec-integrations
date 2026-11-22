@@ -3,7 +3,7 @@ import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { Component, signal, type WritableSignal } from '@angular/core';
 import { DeferBlockBehavior, DeferBlockState, TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { TaxonomyTermWithCount } from '@aeci/shared';
 
@@ -11,6 +11,7 @@ import { AdminStatus } from '../admin/admin-status';
 import { AdminSummaryStore } from '../admin/admin-summary.store';
 import { AuthService } from '../auth/auth.service';
 import { SessionStatus } from '../auth/session-status';
+import { RouteFocus } from '../core/route-focus';
 import type { BrowseMenuModel } from '../core/taxonomy/browse-menu-model';
 import { TaxonomyNavStore } from '../core/taxonomy/taxonomy-nav.store';
 import { VendorStatus } from '../vendor/vendor-status';
@@ -294,6 +295,52 @@ describe('NavMenu (the mobile menu)', () => {
     await settle();
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     expect(document.documentElement.style.overflow).toBe('');
+  });
+
+  // AECI-1855: at lg the toggle is hidden too, so focus that was in the menu goes
+  // where it goes after a navigation, through the one route-focus mechanism.
+  describe('when the window grows to lg (AECI-1855)', () => {
+    let onChange: ((event: { matches: boolean }) => void) | null;
+    const realMatchMedia = window.matchMedia;
+
+    beforeEach(() => {
+      onChange = null;
+      window.matchMedia = ((query: string) => ({
+        matches: false,
+        media: query,
+        addEventListener: (_: string, fn: (event: { matches: boolean }) => void) => {
+          onChange = fn;
+        },
+        removeEventListener: () => {},
+      })) as unknown as typeof window.matchMedia;
+    });
+
+    afterEach(() => {
+      window.matchMedia = realMatchMedia;
+    });
+
+    it('closes the menu and hands focus that was in it to RouteFocus', async () => {
+      const focusPage = vi.fn();
+      TestBed.overrideProvider(RouteFocus, { useValue: { focusPage } });
+      const { toggle, settle } = await open();
+      expect(onChange).not.toBeNull();
+      onChange!({ matches: true });
+      await settle();
+      expect(toggle.getAttribute('aria-expanded')).toBe('false');
+      expect(focusPage).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves focus alone when the menu was closed', async () => {
+      const focusPage = vi.fn();
+      TestBed.overrideProvider(RouteFocus, { useValue: { focusPage } });
+      const { settle } = await render();
+      const outside = root.querySelector<HTMLElement>('#outside')!;
+      outside.focus();
+      onChange!({ matches: true });
+      await settle();
+      expect(focusPage).not.toHaveBeenCalled();
+      expect(document.activeElement).toBe(outside);
+    });
   });
 
   it('a click on the page dimmer path (dismiss) closes it and returns focus to the toggle', async () => {

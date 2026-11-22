@@ -79,6 +79,7 @@ import { AdminSummaryStore } from '../admin/admin-summary.store';
 import { SessionStatus } from '../auth/session-status';
 import { injectSignInQueryParams } from '../auth/sign-in-link';
 import { isReplayedEvent } from '../core/event-replay';
+import { RouteFocus } from '../core/route-focus';
 import { TaxonomyNavStore } from '../core/taxonomy/taxonomy-nav.store';
 import { SearchAutocomplete } from '../search/search-autocomplete';
 import type { AutocompleteSuggestion } from '../search/autocomplete-mapping';
@@ -224,6 +225,7 @@ export class NavMenu {
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly routeFocus = inject(RouteFocus);
 
   protected readonly panelId = NAV_MENU_PANEL_ID;
   /** The menu field's input id. Bound, so the host does not repeat it. */
@@ -265,18 +267,30 @@ export class NavMenu {
     });
 
     // At `lg` the host is hidden, so an open menu there would trap focus in an
-    // invisible dialog and keep the page inert.
+    // invisible dialog and keep the page inert. The toggle is hidden too, so focus
+    // that was in the menu goes where it goes after a navigation: the page's h1
+    // (AECI-1855, `core/route-focus.ts`). A route change needs nothing here:
+    // `RouteFocus` moves the focus the closing menu drops.
     afterNextRender(() => {
       const query = this.document.defaultView?.matchMedia?.(LG_QUERY);
       if (!query) return;
       const onChange = (event: MediaQueryListEvent) => {
-        if (event.matches) this.close(false);
+        if (!event.matches) return;
+        const focusWasInMenu = this.isOpen() && this.focusInHost();
+        this.close(false);
+        if (focusWasInMenu) this.routeFocus.focusPage();
       };
       query.addEventListener('change', onChange);
       this.destroyRef.onDestroy(() => query.removeEventListener('change', onChange));
     });
 
     this.destroyRef.onDestroy(() => this.release());
+  }
+
+  /** Whether focus is inside this menu (the toggle or the panel). */
+  private focusInHost(): boolean {
+    const active = this.document.activeElement;
+    return active !== null && this.host.contains(active);
   }
 
   /** Close from outside the host: the page dimmer. Focus returns to the toggle. */

@@ -1473,6 +1473,13 @@ hr {
   }
 }
 
+/* The page heading that takes focus after a navigation (AECI-1855,
+   `core/route-focus.ts`) is not a control, so it draws no ring, as the skip link's
+   `<main id="main">` draws none. The attribute is set only while it holds focus. */
+[data-route-focus]:focus {
+  outline: none;
+}
+
 input,
 textarea,
 select {
