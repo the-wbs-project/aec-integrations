@@ -6,9 +6,11 @@
  * `integrations` rows that no upstream record points at. Each runs a clean
  * Algolia reindex + edge-cache purge of the target afterward. All writes are
  * dry-run-by-default and require typed confirmation; production needs an extra
- * explicit confirm. The prune adds three data-shape guards that refuse the delete
- * by default, overridable only by naming exactly the guards that tripped plus a
- * logged reason — see `prune-integrations.ts`.
+ * explicit confirm. Production is never a copy destination or a seed-apply
+ * target (AECI-1946): those requests are refused before anything is read. The
+ * prune adds three data-shape guards that refuse the delete by default,
+ * overridable only by naming exactly the guards that tripped plus a logged
+ * reason — see `prune-integrations.ts`.
  *
  * The mutating `/api/*` routes are gated by `requireAccess` (Access JWT or
  * TOOL_TOKEN); the UI shell and `/api/version` are not (the edge Access already
@@ -42,7 +44,14 @@ import {
   readProducts,
   summarizePlan,
 } from './seed';
-import { ENV_IDS, isEnvId, type Target, targetFor } from './targets';
+import {
+  COPY_SEED_DEST_IDS,
+  ENV_IDS,
+  isCopySeedDest,
+  isEnvId,
+  type Target,
+  targetFor,
+} from './targets';
 import { renderUi } from './ui';
 
 type App = { Bindings: Env; Variables: AccessVariables };
@@ -119,6 +128,20 @@ app.get('/api/version', (c) =>
 
 // ── Guards shared by the write routes ───────────────────────────────────────────
 
+/** AECI-1946: a copy into, or a seed apply onto, an env outside COPY_SEED_DEST_IDS
+ * (today: production). Refused on the dry run too, so no plan ever reads as runnable. */
+function productionWriteRefused(what: 'copy' | 'seed') {
+  return {
+    error: {
+      code: 'PRODUCTION_WRITE_REFUSED',
+      message:
+        what === 'copy'
+          ? `A copy cannot write into production. dest must be ${COPY_SEED_DEST_IDS.join('|')}.`
+          : `Seeding reviews into production is refused. target must be ${COPY_SEED_DEST_IDS.join('|')} for apply.`,
+    },
+  };
+}
+
 type WriteBody = { confirmName?: unknown; prodConfirm?: unknown };
 
 function confirmationError(
@@ -159,6 +182,7 @@ app.post('/api/copy', requireAccess(), async (c) => {
   if (source === dest) {
     return c.json({ error: { code: 'BAD_REQUEST', message: 'source and dest must differ' } }, 400);
   }
+  if (!isCopySeedDest(dest)) return c.json(productionWriteRefused('copy'), 400);
   const src = targetFor(c.env, source);
   const dst = targetFor(c.env, dest);
 
@@ -245,6 +269,11 @@ app.post('/api/seed', requireAccess(), async (c) => {
       { error: { code: 'BAD_REQUEST', message: "action must be 'apply' or 'teardown'" } },
       400,
     );
+  }
+  // Teardown stays open on production: it deletes only the synthetic 'aeceed00-%'
+  // reviews, so it is the clean-up path if a seed set ever reached production.
+  if (action === 'apply' && !isCopySeedDest(target)) {
+    return c.json(productionWriteRefused('seed'), 400);
   }
   const t = targetFor(c.env, target);
   const products = await readProducts(t.db);

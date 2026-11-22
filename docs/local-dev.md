@@ -26,7 +26,7 @@ pnpm build
 | `pnpm install` | Install dependencies. |
 | `pnpm dev` | Boots the AECi app: SSR Worker on `:8788` and private API Worker on `:8787`, bound. Alias for `pnpm dev:bound`. Uses `.dev.vars` for secrets. |
 | `pnpm typecheck` | Type check across the monorepo. |
-| `pnpm lint` | The `CLAUDE.md` size gate (`scripts/check-claude-md-size.mjs`), ESLint across all packages, the `apps/web` source-constraint guards, and Prettier `--check`. |
+| `pnpm lint` | The `CLAUDE.md` size gate (`scripts/check-claude-md-size.mjs`), the `NOTIFICATIONS.md` drift check, the `alerts.json` runbook-pointer gate (`scripts/check-alert-runbook-pointers.mjs`), ESLint across all packages, the `apps/web` source-constraint guards, and Prettier `--check`. |
 | `pnpm lint:fix` | ESLint `--fix` across all packages plus Prettier `--write`. |
 | `pnpm format` | Prettier `--write .` |
 | `pnpm format:check` | Prettier `--check .` |

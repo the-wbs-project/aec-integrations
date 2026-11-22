@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { VendorApi } from '../vendor-api';
 import { VENDOR_SEATS_FIXTURE } from '../vendor-fixtures';
 import { VendorPortalStore } from '../vendor-portal-store';
+import { expectTitleFirstDialog } from '../../core/testing/title-first-dialog.harness';
 import { VendorSeatInviteDialog } from './vendor-seat-invite-dialog';
 
 /**
@@ -95,5 +96,15 @@ describe('VendorSeatInviteDialog', () => {
     const overlay = document.querySelector('.cdk-overlay-container');
     expect(overlay?.textContent).toContain('Invite a colleague');
     expect(overlay?.querySelector('input[type="email"]')).not.toBeNull();
+  });
+
+  it('opens on its title, as an alert dialog, not on the email field (AECI-1861)', async () => {
+    const fixture = await render();
+    (fixture.nativeElement.querySelector('button') as HTMLButtonElement).click();
+    await flush();
+    fixture.detectChanges();
+    await flush();
+
+    expectTitleFirstDialog('Invite a colleague');
   });
 });

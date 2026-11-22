@@ -600,6 +600,14 @@ survive `MetaService.setEntityMeta`. Every other `MetaService` canonical path ke
 `og:url` follows the canonical. **No `rel="prev"` / `rel="next"`** is emitted — Google dropped them as
 an indexing signal in 2019; re-open only with a Bing-specific reason.
 
+**The canonical follows `?page=` on a client navigation too (AECI-1904, 2026-11-20).** The router reuses
+the listing component, so a navigation from `/products?page=2` to `/products` used to leave the live
+head on `?page=2`. The taxonomy resolver does not re-run on a query-only navigation either. Each of
+the five routes passes `canonicalPath` to `createPaginatedIndex`, whose effect rebuilds the canonical
+and `og:url` from the URL's `?page=` through `MetaService.setListingCanonical`. Its first run writes
+what the server rendered, so hydration does not drift. Append mode's "Load more" never writes `?page=`,
+so it never moves the canonical. Server HTML is unchanged.
+
 ### 9.2 JSON-LD
 
 - **Product detail**: `schema.org/SoftwareApplication` with `name`, `description`, `url`, `applicationCategory`, `applicationSubCategory`, `offers` (link to vendor site), `operatingSystem` if known

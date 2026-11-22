@@ -32,6 +32,7 @@ import type {
 } from '@aeci/shared';
 import { of } from 'rxjs';
 
+import { expectTitleFirstDialog } from '../../core/testing/title-first-dialog.harness';
 import type { AdminVendorTab } from './vendor-detail';
 
 import { AdminLicensesApi } from './admin-licenses-api';
@@ -363,7 +364,7 @@ describe('VendorDetail', () => {
   describe('vendor logo', () => {
     /** The open logo dialog, mounted in the CDK overlay container on `document.body`. */
     function logoDialog(): HTMLElement | null {
-      const open = [...document.body.querySelectorAll<HTMLElement>('[role="dialog"]')].filter(
+      const open = [...document.body.querySelectorAll<HTMLElement>('[role="alertdialog"]')].filter(
         (d) => d.querySelector('h2')?.textContent?.trim() === 'Vendor logo',
       );
       return open.at(-1) ?? null;
@@ -388,6 +389,15 @@ describe('VendorDetail', () => {
       const dialog = logoDialog();
       expect(dialog).not.toBeNull();
       expect(dialog!.querySelector('aec-admin-logo-editor')).not.toBeNull();
+    });
+
+    it('opens the logo editor on its title, as an alert dialog (AECI-1861)', async () => {
+      const { el, fixture } = await setup(makeApiMock(makeVendor()));
+      el.querySelector<HTMLButtonElement>('button[aria-label="Edit vendor logo"]')!.click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      await new Promise((r) => setTimeout(r));
+      expectTitleFirstDialog('Vendor logo', { described: false });
     });
 
     it('announces upload status inside the dialog and the save on the page after close', async () => {

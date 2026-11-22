@@ -153,12 +153,7 @@
         <div class="max-w-2xl">
           <!-- Email (read-only, from the session) -->
           <div class="mt-5 space-y-1.5">
-            <p
-              class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-              i18n="@@account.email.label"
-            >
-              Email
-            </p>
+            <p [class]="labelClass" i18n="@@account.email.label">Email</p>
             <p class="text-t-16 text-(--text-primary)">{{ p.email }}</p>
           </div>
 
@@ -166,7 +161,7 @@
           <form method="dialog" class="mt-6 space-y-1.5" novalidate (aecSubmit)="onSaveName()">
             <label
               for="account-display-name"
-              class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+              [class]="labelClass"
               i18n="@@account.displayName.label"
             >
               Display name
@@ -487,12 +482,7 @@
         <brn-dialog #deleteDialog="brnDialog">
           <ng-template brnDialogContent>
             <div class="aec-dialog w-[min(90vw,30rem)] p-6">
-              <h2
-                brnDialogTitle
-                id="account-delete-title"
-                class="text-lg font-semibold tracking-tight"
-                i18n="@@account.delete.dialog.title"
-              >
+              <h2 brnDialogTitle id="account-delete-title" i18n="@@account.delete.dialog.title">
                 Delete your account?
               </h2>
               <p

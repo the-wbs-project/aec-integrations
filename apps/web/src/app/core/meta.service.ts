@@ -160,6 +160,20 @@ export class MetaService {
   }
 
   /**
+   * Point the canonical, and `og:url` with it, at another page of the same
+   * paginated listing (AECI-1904). The listing controller calls this when `?page=`
+   * changes on a client navigation, because `setEntityMeta` ran once, when the
+   * page was built, and the router reuses the component. Title, description and
+   * the other tags stay as `setEntityMeta` (or the term resolver) set them.
+   * `page` is the only query param kept, as in `setEntityMeta`.
+   */
+  setListingCanonical(href: string): void {
+    const canonical = stripQueryParamsExcept(href, CANONICAL_QUERY_ALLOWLIST);
+    this.upsertCanonical(canonical);
+    this.meta.updateTag({ property: 'og:url', content: canonical });
+  }
+
+  /**
    * Meta for a "not found" response on a detail route. Sets a noindex robots
    * meta so the panel-bodied 404 never gets indexed (the inline panel is a
    * stopgap until AECI-62 lands the global 404 shell — even then, the panel's

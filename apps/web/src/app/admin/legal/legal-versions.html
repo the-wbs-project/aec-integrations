@@ -17,11 +17,13 @@
         Legal versions
       </h2>
       <p class="mt-1 max-w-[64ch] text-sm text-(--text-secondary)" i18n="@@admin.legal.subheading">
-        Record a new version of the Vendor Terms, the Managed plan agreement, the Terms of Service
-        or the Privacy Policy before it takes effect. Publishing stores your answers, the summary
-        and the PDF fingerprint. A material change is then emailed with the PDF attached: an
-        agreement to every affected company, the Terms of Service or the Privacy Policy to every
-        account. The text itself is changed in the repository, not here. All times are UTC.
+        Record a new version of the Vendor Terms, the Managed plan agreement, the Listing Accuracy
+        Policy, the Review Guidelines, the Terms of Service or the Privacy Policy before it takes
+        effect. Publishing stores your answers, the summary and the PDF fingerprint. A material
+        change is then emailed with the PDF attached: an agreement to every affected company, the
+        Listing Accuracy Policy or the Review Guidelines to every claimed company, the Terms of
+        Service or the Privacy Policy to every account. The text itself is changed in the
+        repository, not here. All times are UTC.
       </p>
     </div>
     <button
@@ -710,7 +712,12 @@
   <!-- AECI-1638: litigation holds, the switch that stops the legal retention prune. -->
   <aec-admin-litigation-holds />
 
-  <brn-dialog [disableClose]="submitting()" (closed)="onDialogClosed()">
+  <brn-dialog
+    [role]="'alertdialog'"
+    [autoFocus]="'first-heading'"
+    [disableClose]="submitting()"
+    (closed)="onDialogClosed()"
+  >
     <ng-template brnDialogContent>
       @if (pending(); as p) {
       <div
@@ -719,7 +726,8 @@
         @if (dialogMode() === 'resend') {
         <h2
           brnDialogTitle
-          class="text-lg font-bold text-(--text-primary)"
+          tabindex="-1"
+          class="text-lg font-bold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           i18n="@@admin.legal.resendDialog.title"
         >
           Send the notice for version {{ p.version }} of the {{ documentTitle(p.document) }} again?
@@ -752,7 +760,8 @@
         } @else {
         <h2
           brnDialogTitle
-          class="text-lg font-bold text-(--text-primary)"
+          tabindex="-1"
+          class="text-lg font-bold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           i18n="@@admin.legal.dialog.title"
         >
           Publish version {{ p.version }} of the {{ documentTitle(p.document) }}?

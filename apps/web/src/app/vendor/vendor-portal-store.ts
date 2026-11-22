@@ -302,6 +302,10 @@ export class VendorPortalStore {
   /** Fresh server payloads held back because a dirty section is rendering the
    *  resource they would replace. Values are read back through {@link adoptStash}. */
   private readonly stashed = signal<ReadonlyMap<VendorPortalResource, unknown>>(new Map());
+  /** The resource's write version when the stashed read was SENT. A write after
+   *  that (a save echo, even one that landed while the read was in flight) makes
+   *  the stash older than what is shown, so {@link releaseDirty} must not adopt it. */
+  private readonly stashedAt = new Map<VendorPortalResource, number>();
 
   /**
    * Sections with unsaved edits, keyed by section then by an owner token.
@@ -777,6 +781,28 @@ export class VendorPortalStore {
     });
   }
 
+  /**
+   * Drop one owner's registration because its form is gone (AECI-1943), and let
+   * the resource catch up. {@link clearDirty} alone leaves a stash in place, so a
+   * vendor who left a half-edited form would keep seeing the payload from before
+   * the refresh that was set aside for them.
+   *
+   * Once no other owner holds the resource, the stash is applied, unless the
+   * resource was written after the stash was taken (a save echo). Then the stash
+   * is older than what is shown, so it is dropped and the resource is re-read.
+   */
+  releaseDirty(section: VendorPortalSection, owner: string = section): void {
+    this.clearDirty(section, owner);
+    const resource = SECTION_RESOURCE[section];
+    if (this.isHeld(resource) || !this.stashed().has(resource)) return;
+    if (this.stashedAt.get(resource) === this.versions[resource]) {
+      this.adoptStash(resource);
+      return;
+    }
+    this.dropStash(resource);
+    void this.fetch(resource);
+  }
+
   /** Whether the section (or one specific owner within it) has unsaved edits. */
   isDirty(section: VendorPortalSection, owner?: string): boolean {
     const owners = this.dirty().get(section);
@@ -829,16 +855,20 @@ export class VendorPortalStore {
   }
 
   private async runFetch(resource: VendorPortalResource): Promise<void> {
+    // The stash stamp is the version when the request left, not when the reply
+    // landed. A save echo written while this read was in flight is newer than
+    // its reply, so `releaseDirty` must not adopt that reply.
+    const sentAt = this.versions[resource];
     const status = this.statuses[resource];
     status.set(this.loadedOnce.has(resource) ? 'refreshing' : 'loading');
     try {
       switch (resource) {
         case 'me':
-          this.receive('me', await this.api.getMe());
+          this.receive('me', await this.api.getMe(), sentAt);
           break;
         case 'integrations': {
           const payload = await this.api.getIntegrations();
-          this.receive('integrations', payload.integrations);
+          this.receive('integrations', payload.integrations, sentAt);
           // Defaulted for deploy skew: an API that predates AECI-1089 sends no
           // `owned`, which reads as "owns nothing outside the list".
           this.owned.set(payload.owned ?? []);
@@ -847,22 +877,22 @@ export class VendorPortalStore {
           break;
         }
         case 'notifications':
-          this.receive('notifications', (await this.api.getNotifications()).notifications);
+          this.receive('notifications', (await this.api.getNotifications()).notifications, sentAt);
           break;
         case 'contests':
-          this.receive('contests', await this.api.getContests());
+          this.receive('contests', await this.api.getContests(), sentAt);
           break;
         case 'catalogue':
           // No request: the tab owns its paged read. Bumping the tick is the signal.
-          this.receive('catalogue', this.read('catalogue') + 1);
+          this.receive('catalogue', this.read('catalogue') + 1, sentAt);
           break;
         case 'reviews':
           // No request: the Reviews tab owns its paged read (AECI-1179).
-          this.receive('reviews', this.read('reviews') + 1);
+          this.receive('reviews', this.read('reviews') + 1, sentAt);
           break;
         case 'threads':
           // No request: the thread view owns its per-claim read (AECI-1539).
-          this.receive('threads', this.read('threads') + 1);
+          this.receive('threads', this.read('threads') + 1, sentAt);
           break;
         case 'billing': {
           // Two reads, one tab: both or neither, so the tab never shows licenses
@@ -873,13 +903,17 @@ export class VendorPortalStore {
           ]);
           // AECI-1615: defaulted, not assumed. The SSR Worker and the API Worker deploy
           // separately, so a new bundle can briefly read an API that sends no list.
-          this.receive('billing', { ...billing, pending_grants: billing.pending_grants ?? [] });
+          this.receive(
+            'billing',
+            { ...billing, pending_grants: billing.pending_grants ?? [] },
+            sentAt,
+          );
           this.acceptanceRows.set(acceptances.acceptances);
           break;
         }
         case 'seats': {
           const payload = await this.api.getSeats();
-          this.receive('seats', payload.seats);
+          this.receive('seats', payload.seats, sentAt);
           // Defaulted, not assumed. The SSR Worker and the API Worker deploy
           // separately, so during a rollout a new bundle can briefly talk to an
           // API that predates AECI-664 and answers without these two fields.
@@ -910,9 +944,14 @@ export class VendorPortalStore {
 
   /** The deferral rule, in one place: a resource a dirty section is rendering is
    *  stashed, never applied. */
-  private receive<R extends VendorPortalResource>(resource: R, next: VendorPortalData[R]): void {
+  private receive<R extends VendorPortalResource>(
+    resource: R,
+    next: VendorPortalData[R],
+    sentAt: number = this.versions[resource],
+  ): void {
     if (this.isHeld(resource)) {
       this.stashed.update((current) => new Map(current).set(resource, next));
+      this.stashedAt.set(resource, sentAt);
       return;
     }
     this.write(resource, next);
@@ -935,6 +974,7 @@ export class VendorPortalStore {
   }
 
   private dropStash(resource: VendorPortalResource): void {
+    this.stashedAt.delete(resource);
     if (!this.stashed().has(resource)) return;
     this.stashed.update((current) => {
       const next = new Map(current);

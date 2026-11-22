@@ -1,5 +1,16 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, computed, inject, input, output, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  computed,
+  inject,
+  input,
+  output,
+  signal,
+  viewChild,
+} from '@angular/core';
 
 import {
   ApiErrorCode,
@@ -63,6 +74,11 @@ function todayLocal(): string {
  * No heading and no live region, like `ProvisionSeatControl`: `VendorDetail` owns
  * the page's `role="status"` region and its heading outline. Announcements leave
  * through {@link announce}.
+ *
+ * ── FOCUS (AECI-1989) ───────────────────────────────────────────────────────
+ * Opening the form focuses the quantity. Cancel and a grant return focus to the open
+ * button. A refusal focuses its message, because the confirm button was disabled while
+ * the request ran and a disabled button drops focus.
  */
 @Component({
   selector: 'aec-grant-licenses-control',
@@ -96,6 +112,11 @@ export class GrantLicensesControl {
   protected readonly currentVersion = computed(
     () => this.inForce.versions().agreements.managed_plan,
   );
+
+  private readonly injector = inject(Injector);
+  private readonly openButton = viewChild<ElementRef<HTMLButtonElement>>('openButton');
+  private readonly quantityInput = viewChild<ElementRef<HTMLInputElement>>('quantityInput');
+  private readonly failedAlert = viewChild<ElementRef<HTMLElement>>('failedAlert');
 
   protected readonly formOpen = signal(false);
   private readonly grantId = signal('');
@@ -218,6 +239,8 @@ export class GrantLicensesControl {
     this.dealSigningAccepts.set(false);
     this.dealSignedAt.set('');
     this.formOpen.set(true);
+    // The button the operator pressed is gone: put focus on the first field.
+    this.focusAfterRender(() => this.quantityInput()?.nativeElement);
   }
 
   protected toggleDeal(): void {
@@ -258,6 +281,11 @@ export class GrantLicensesControl {
   protected closeForm(): void {
     this.formOpen.set(false);
     this.grantId.set('');
+    this.focusAfterRender(() => this.openButton()?.nativeElement);
+  }
+
+  private focusAfterRender(target: () => HTMLElement | undefined): void {
+    afterNextRender(() => target()?.focus(), { injector: this.injector });
   }
 
   protected onQuantityInput(event: Event): void {
@@ -311,6 +339,7 @@ export class GrantLicensesControl {
       this.announce.emit(this.announcementFor(result));
     } catch (err) {
       this.failedMessage.set(messageForError(err, this.currentVersion()));
+      this.focusAfterRender(() => this.failedAlert()?.nativeElement);
     } finally {
       this.pending.set(false);
     }

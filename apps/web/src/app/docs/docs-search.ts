@@ -20,9 +20,12 @@
  * or still in flight, the combobox collapses, so `aria-expanded` never points
  * at a listbox that does not exist (AECI-1308). A settled query with no hit shows
  * "No matching sections" as plain text under the input. A polite live region announces the count either way. A real `label` names the input.
+ * No row is active until the first Down or Up (AECI-1860, `listboxEntry`):
+ * Down enters at the first row, Up at the last.
  *
  * **Choosing a row** navigates to its page and heading anchor with an absolute
- * path, then clears the box. Enter with no row active takes the first row.
+ * path, then clears the box. Enter with no row active takes the first row, the
+ * top match the live region has just counted.
  * Highlights are text runs with matched ones in `mark` (`docs-search-hits.ts`).
  * Nothing is bound to `innerHTML`.
  *
@@ -50,6 +53,7 @@ import { Router } from '@angular/router';
 
 import { readDocsSearchConfig } from '../search/algolia-config';
 import type { DocsGuide } from './docs-content';
+import { listboxEntry } from '../shared/listbox-entry/listbox-entry';
 import { DOCS_SEARCH_FACTORY } from './docs-search.factory';
 import type { DocsSearchFn, DocsSearchHit } from './docs-search-hits';
 import { AecIcon } from '../shared/icon/icon';
@@ -122,18 +126,19 @@ type State = 'pending' | 'ready' | 'off';
                     #listbox="ngListbox"
                     [(value)]="selected"
                     (valueChange)="onSelect($event)"
-                    [activeDescendant]="listbox.activeDescendant()"
+                    [activeDescendant]="navigated() ? listbox.activeDescendant() : undefined"
+                    [attr.data-navigated]="navigated()"
                     focusMode="activedescendant"
                     selectionMode="explicit"
                     [attr.aria-label]="listLabel()"
-                    class="m-0 flex max-h-[min(26rem,60vh)] list-none flex-col gap-0.5 overflow-y-auto p-0"
+                    class="group m-0 flex max-h-[min(26rem,60vh)] list-none flex-col gap-0.5 overflow-y-auto p-0"
                   >
                     @for (hit of hits(); track hit.objectID) {
                       <li
                         ngOption
                         [value]="hit"
                         [label]="optionLabel(hit)"
-                        class="flex min-h-11 cursor-pointer flex-col justify-center gap-0.5 rounded-mark px-3 py-2 data-[active=true]:bg-(--surface-sunken)"
+                        class="flex min-h-11 cursor-pointer flex-col justify-center gap-0.5 rounded-mark px-3 py-2 group-data-[navigated=true]:data-[active=true]:bg-(--surface-sunken)"
                       >
                         <span class="truncate text-t-12 text-(--text-secondary)"
                           >{{ hit.section }} / {{ hit.pageTitle }}</span
@@ -210,6 +215,15 @@ export class DocsSearchComponent {
   private readonly results = signal<readonly DocsSearchHit[]>([]);
   private readonly settled = signal(false);
   protected readonly hits = this.results.asReadonly();
+
+  /** The `ngListbox`, present only while the popup shows a row. */
+  private readonly popupListbox = viewChild<Listbox<DocsSearchHit>>(Listbox);
+  /** No row is active until the first arrow key (AECI-1860). Resets with the rows or the open state. */
+  protected readonly navigated = listboxEntry({
+    listbox: this.popupListbox,
+    count: () => this.results().length,
+    resetOn: () => [this.results(), this.expanded()],
+  });
 
   protected readonly label = computed(() =>
     this.guide() === 'vendor'
@@ -300,6 +314,7 @@ export class DocsSearchComponent {
   }
 
   protected onInput(event: Event): void {
+    this.navigated.set(false);
     this.setQuery((event.target as HTMLInputElement).value);
   }
 
@@ -313,6 +328,9 @@ export class DocsSearchComponent {
   /**
    * Enter. Aria commits an active option itself (then `onSelect` runs), so
    * this yields when one is active. With none active it takes the first row.
+   * `aria-activedescendant` is set only after the first arrow key, and
+   * `listboxEntry` stops Aria's relayed Enter until then, so the two paths
+   * never both run.
    */
   protected onEnterKey(event: Event): void {
     const field = event.target as HTMLInputElement;

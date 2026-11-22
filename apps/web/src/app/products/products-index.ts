@@ -59,9 +59,10 @@ import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcr
  * (set by the SSR Worker via `cacheTagInputsForPath`). Page 1 is prefetched by
  * `productsIndexResolver` through the service binding and handed to the grid via
  * `TransferState` (AECI-746) — until that shipped, this route server-rendered its
- * "Couldn't load products" branch to every crawler. `<link rel="canonical">` stays on the
- * unfiltered `/products` (filters/view are query params, stripped by the meta
- * layer — §20.6). The card grid's "broken-grid" featured lead is gated to page 1
+ * "Couldn't load products" branch to every crawler. `<link rel="canonical">` drops
+ * the filters and view (query params, stripped by the meta layer — §20.6) and
+ * keeps only `?page=` (AECI-803), which it follows on every navigation
+ * (AECI-1904, `canonicalPath`). The card grid's "broken-grid" featured lead is gated to page 1
  * at the newest sort (`showFeatured`) so its "Recently added" claim stays
  * truthful even with filters applied.
  */
@@ -183,11 +184,13 @@ export class ProductsIndex {
       // duplicate of page 1. Read from the SNAPSHOT, not the `queryParamMap`
       // signal: this runs once at construction on the server and again on the
       // first client evaluation, and both see the same `?page=`, so the SSR HTML
-      // and the hydrated head agree (the drift ADR 0011 guards against). Append
-      // mode never writes `?page=` to the address bar afterwards, so there is
-      // nothing later to react to.
+      // and the hydrated head agree (the drift ADR 0011 guards against).
       canonical: listingCanonicalUrl('/products', this.route.snapshot.queryParamMap.get('page')),
     },
+    // AECI-1904 — and keep following `?page=` afterwards. Append mode never writes
+    // it, but a navigation can: `/products?page=2`, then the header link to
+    // `/products`, reuses this component.
+    canonicalPath: () => '/products',
   });
 
   protected readonly sortOptions = productSortOptions();
