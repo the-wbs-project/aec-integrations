@@ -255,6 +255,102 @@ describe('SearchAutocomplete', () => {
     expect(submitted).toEqual([]);
   });
 
+  // AECI-1860: the header search follows the same entry rule as docs search and
+  // the product picker. Nothing is active until the first Down or Up.
+  describe('starts with no active suggestion (AECI-1860)', () => {
+    const SECOND: AutocompleteSuggestion = {
+      kind: 'vendor',
+      objectID: 'y',
+      title: 'Autodesk',
+      subtitle: null,
+      routerLink: ['/vendors', 'autodesk'],
+    };
+
+    async function open() {
+      setup();
+      const fixture = TestBed.createComponent(SearchAutocomplete);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      const controller = new AutocompleteController(() =>
+        Promise.resolve({ products: [SUGGESTION], vendors: [SECOND], nbHits: 2 }),
+      );
+      controller.setQuery('rev');
+      await new Promise((resolve) => setTimeout(resolve, 220));
+      (
+        fixture.componentInstance as unknown as {
+          controller: { set(c: AutocompleteController): void };
+        }
+      ).controller.set(controller);
+      const input = (fixture.nativeElement as HTMLElement).querySelector('input')!;
+      input.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      input.value = 'rev';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      return { fixture, input };
+    }
+
+    async function press(
+      fixture: { detectChanges(): void; whenStable(): Promise<unknown> },
+      input: HTMLInputElement,
+      key: string,
+    ) {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+      await Promise.resolve();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+    }
+
+    const options = () => [...document.querySelectorAll('[role="option"]')];
+    const listbox = () => document.querySelector('[role="listbox"]');
+
+    // jsdom has no scrollIntoView. The first arrow key scrolls the entered row into view.
+    const hadScroll = 'scrollIntoView' in Element.prototype;
+    beforeEach(() => {
+      if (!hadScroll) Element.prototype.scrollIntoView = () => undefined;
+    });
+    afterEach(() => {
+      if (!hadScroll) delete (Element.prototype as Partial<Element>).scrollIntoView;
+    });
+
+    it('has no active suggestion when the list opens', async () => {
+      const { input } = await open();
+      expect(listbox()).not.toBeNull();
+      expect(input.hasAttribute('aria-activedescendant')).toBe(false);
+      expect(listbox()?.getAttribute('data-navigated')).toBe('false');
+    });
+
+    it('enters at the first suggestion on the first Down, then moves on', async () => {
+      const { fixture, input } = await open();
+      await press(fixture, input, 'ArrowDown');
+      expect(input.getAttribute('aria-activedescendant')).toBe(options()[0]!.id);
+      expect(listbox()?.getAttribute('data-navigated')).toBe('true');
+      await press(fixture, input, 'ArrowDown');
+      expect(input.getAttribute('aria-activedescendant')).toBe(options()[1]!.id);
+    });
+
+    it('enters at the last suggestion on the first Up', async () => {
+      const { fixture, input } = await open();
+      await press(fixture, input, 'ArrowUp');
+      expect(input.getAttribute('aria-activedescendant')).toBe(options().at(-1)!.id);
+    });
+
+    it('sends Enter before any arrow key to /search, not to an unheard suggestion', async () => {
+      const { fixture, input } = await open();
+      const submitted: string[] = [];
+      const chosen: AutocompleteSuggestion[] = [];
+      fixture.componentInstance.querySubmitted.subscribe((q) => submitted.push(q));
+      fixture.componentInstance.suggestionChosen.subscribe((c) => chosen.push(c));
+
+      await press(fixture, input, 'Enter');
+
+      expect(chosen).toEqual([]);
+      expect(submitted).toEqual(['rev']);
+    });
+  });
+
   it('navigates to /search on a real Enter keydown (Aria preventDefaults the native submit)', async () => {
     // The exact regression AECI-191 fixes: Aria expands the combobox on input and
     // preventDefaults Enter, so the native <form> submit never fires under JS. A

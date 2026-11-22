@@ -502,3 +502,75 @@ describe('createPaginatedIndex baseParams + enabled (AECI-143)', () => {
     httpMock.verify();
   });
 });
+
+/**
+ * AECI-1904: the canonical follows `?page=` on a client navigation, not only at
+ * construction. The router reuses the listing component, so `/products?page=2`
+ * then the header link to `/products` used to leave the head on `?page=2`.
+ */
+@Component({ template: `<span class="sort">{{ idx.sort() }}</span>` })
+class TestCanonicalHost {
+  readonly path = signal<string | null>('/test');
+  readonly idx: PaginatedIndex<Resp> = createPaginatedIndex<Resp>({
+    apiPath: '/api/test',
+    validSorts: new Set(['created', 'name']),
+    defaultSort: 'created',
+    mode: 'append',
+    canonicalPath: () => this.path(),
+  });
+}
+
+describe('createPaginatedIndex canonical (AECI-1904)', () => {
+  const canonical = () =>
+    document.head.querySelector('link[rel="canonical"]')?.getAttribute('href') ?? null;
+  const ogUrl = () =>
+    document.head.querySelector('meta[property="og:url"]')?.getAttribute('content') ?? null;
+  const origin = () => document.defaultView!.location.origin;
+
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+    document.head.querySelector('link[rel="canonical"]')?.remove();
+    document.head.querySelector('meta[property="og:url"]')?.remove();
+  });
+
+  async function open(url: string) {
+    const setup = createIndexSetup(TestCanonicalHost, 'test');
+    await setup.router.navigateByUrl(url);
+    const fixture = TestBed.createComponent(TestCanonicalHost);
+    fixture.detectChanges();
+    setup.httpMock.match((r) => r.url === '/api/test').forEach((r) => r.flush(FIXTURE));
+    await settle();
+    fixture.detectChanges();
+    return { ...setup, fixture };
+  }
+
+  it('self-canonicalises page 2 on the first render', async () => {
+    await open('/test?page=2');
+    expect(canonical()).toBe(`${origin()}/test?page=2`);
+    expect(ogUrl()).toBe(`${origin()}/test?page=2`);
+  });
+
+  it('moves the canonical to the bare path after a navigation drops ?page=', async () => {
+    const { fixture, router } = await open('/test?page=2');
+    await router.navigateByUrl('/test');
+    fixture.detectChanges();
+    await settle();
+    expect(canonical()).toBe(`${origin()}/test`);
+    expect(ogUrl()).toBe(`${origin()}/test`);
+
+    await router.navigateByUrl('/test?page=3&sort=name');
+    fixture.detectChanges();
+    await settle();
+    // `page` is the only param a canonical keeps.
+    expect(canonical()).toBe(`${origin()}/test?page=3`);
+  });
+
+  it('leaves the canonical alone while the path is null (a missing term)', async () => {
+    const { fixture, router } = await open('/test?page=2');
+    fixture.componentInstance.path.set(null);
+    await router.navigateByUrl('/test');
+    fixture.detectChanges();
+    await settle();
+    expect(canonical()).toBe(`${origin()}/test?page=2`);
+  });
+});

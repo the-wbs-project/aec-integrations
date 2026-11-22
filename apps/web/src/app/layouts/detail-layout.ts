@@ -119,9 +119,10 @@ import { Component } from '@angular/core';
             <ng-content select="[slot=body-lead]" />
           </div>
 
+          <!-- print:static: a sticky rail prints at its scrolled offset (AECI-1856). -->
           <aside
             class="mt-10 min-w-0 space-y-6 empty:hidden lg:sticky lg:top-8 lg:col-start-2
-              lg:row-span-2 lg:row-start-1 lg:mt-0 lg:self-start"
+              lg:row-span-2 lg:row-start-1 lg:mt-0 lg:self-start print:static"
             i18n-aria-label="@@app.layouts.detail.metadata.aria"
             aria-label="Metadata"
           >

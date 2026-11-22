@@ -330,3 +330,9 @@ keeps "Grant complimentary subscriptions for the ban term" disabled until a date
 **Finding (AECI-1989).** Focus falls to `<body>` after four actions: opening the ban form,
 submitting it, opening the ban-term panel, and cancelling the panel. The next Tab restarts at
 "Skip to main content". WCAG 2.2 SC 2.4.3, Focus Order.
+
+**Fixed in code (AECI-1989, 2026-11-20; not yet re-run with Playwright).** Each step now moves
+focus on purpose: into the form on open, back to the trigger on cancel or a grant, and to the
+message on a refusal. The ban-term date error is now a `role="alert"` live region. The grant
+control beside the panel had the same gaps and got the same fix. Component specs assert
+`document.activeElement` after each step. The rules are in `ADMIN_PANEL_SPEC.md` §5.7 and §5.8.

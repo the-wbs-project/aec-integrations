@@ -293,6 +293,15 @@ widget/keyboard/overlay. This is the reusable shape for "search box that jumps t
    dep) and no hand-rolled `top-full` positioning needed.
 4. **Token styling matched the tabs ergonomics:** highlight via the `data-[active=true]:` variant Aria sets
    on the active option, selection via `aria-selected:`; both-theme via tokens, no TS state mirror.
+5. **`ngListbox` makes its first option active as soon as it renders (AECI-1860).** The combobox
+   mirrors that as `aria-activedescendant`. A screen reader never speaks it, the first Down lands on
+   option 2, and Enter commits option 1 unheard. Aria has no input to start with nothing active. Every
+   editable combobox wires `listboxEntry` (`apps/web/src/app/shared/listbox-entry/listbox-entry.ts`). Bind
+   `[activeDescendant]="navigated() ? listbox.activeDescendant() : undefined"` and
+   `[attr.data-navigated]="navigated()"` on the listbox, and gate the row highlight with
+   `group-data-[navigated=true]:data-[active=true]:`. The header search (`search-autocomplete.ts`), docs
+   search and the product picker all do this. In the header search, Enter before the first arrow key
+   goes to `/search?q=`.
 
 **Open / deferred:**
 

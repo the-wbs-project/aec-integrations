@@ -162,8 +162,10 @@
 <!-- ── Licenses ────────────────────────────────────────────────────────── -->
 @if (account()) {
 <section class="mt-6" aria-labelledby="admin-vendor-billing-licenses">
+  <!-- tabindex="-1": a ban-term grant that hides its control returns focus here (AECI-1989). -->
   <h3
     id="admin-vendor-billing-licenses"
+    tabindex="-1"
     class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
     i18n="@@admin.vendors.billing.licenses.heading"
   >

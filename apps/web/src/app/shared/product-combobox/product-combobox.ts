@@ -18,6 +18,7 @@ import {
 
 import type { ProductListItem } from '@aeci/shared';
 
+import { listboxEntry } from '../listbox-entry/listbox-entry';
 import { LogoOrInitial } from '../logo-or-initial/logo-or-initial';
 
 /**
@@ -60,7 +61,10 @@ type Phase = 'idle' | 'short' | 'loading' | 'done' | 'error';
  * An editable Angular Aria combobox over an Aria listbox (ADR 0010), wired the
  * way `search/search-autocomplete.ts` and `shared/aec-select/aec-select.ts` are:
  * Aria supplies the roles, `aria-activedescendant` and the keyboard model
- * (arrows, Home/End, Enter selects, Escape closes, Tab leaves). Aria's popup
+ * (arrows, Home/End, Enter selects, Escape closes, Tab leaves). No row is
+ * active until the first Down or Up (AECI-1860, `listboxEntry`): Down enters
+ * at the first row, Up at the last, and Enter before that picks nothing, so a
+ * product the user never heard is never chosen. Aria's popup
  * renders in-flow, so an outer `cdkConnectedOverlay` (`usePopover: 'inline'`)
  * supplies the floating layer. The listbox renders only when there are rows,
  * so an empty `role="listbox"` never reaches the DOM. Enter never submits the
@@ -184,18 +188,19 @@ type Phase = 'idle' | 'short' | 'loading' | 'done' | 'error';
                 #listbox="ngListbox"
                 [(value)]="selection"
                 (valueChange)="onSelect($event)"
-                [activeDescendant]="listbox.activeDescendant()"
+                [activeDescendant]="navigated() ? listbox.activeDescendant() : undefined"
+                [attr.data-navigated]="navigated()"
                 focusMode="activedescendant"
                 selectionMode="explicit"
                 [attr.aria-label]="listLabel()"
-                class="m-0 flex max-h-[min(20rem,50vh)] list-none flex-col gap-0.5 overflow-y-auto p-1.5"
+                class="group m-0 flex max-h-[min(20rem,50vh)] list-none flex-col gap-0.5 overflow-y-auto p-1.5"
               >
                 @for (p of visible(); track p.id) {
                   <li
                     ngOption
                     [value]="p"
                     [label]="p.name"
-                    class="flex cursor-pointer items-center gap-3 rounded-(--radius-sm) px-2 py-1.5 data-[active=true]:bg-(--surface-sunken)"
+                    class="flex cursor-pointer items-center gap-3 rounded-(--radius-sm) px-2 py-1.5 group-data-[navigated=true]:data-[active=true]:bg-(--surface-sunken)"
                     data-product-option
                   >
                     <aec-logo-or-initial [src]="p.logo_url ?? null" [name]="p.name" size="sm" />
@@ -260,6 +265,8 @@ export class ProductCombobox {
 
   private readonly field = viewChild.required<ElementRef<HTMLInputElement>>('field');
   private readonly comboboxDirective = viewChild.required(Combobox);
+  /** The `ngListbox`, present only while the popup shows rows. */
+  private readonly popupListbox = viewChild<Listbox<ProductComboboxItem>>(Listbox);
 
   /** The text box value, two-way with `ngCombobox`. */
   protected readonly query = signal('');
@@ -284,6 +291,13 @@ export class ProductCombobox {
   protected readonly dismissed = signal(false);
 
   protected readonly hasList = computed(() => this.visible().length > 0);
+
+  /** No row is active until the first arrow key (AECI-1860). Resets with the rows or the open state. */
+  protected readonly navigated = listboxEntry({
+    listbox: this.popupListbox,
+    count: () => this.visible().length,
+    resetOn: () => [this.visible(), this.expanded()],
+  });
 
   /** Rows open with the combobox. State text (too short, searching, nothing,
    *  failed) shows while the box is focused, with the combobox collapsed. */
@@ -354,6 +368,7 @@ export class ProductCombobox {
   }
 
   protected onInput(event: Event): void {
+    this.navigated.set(false);
     this.dismissed.set(false);
     this.schedule((event.target as HTMLInputElement).value);
   }

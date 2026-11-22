@@ -238,7 +238,7 @@ function parseQuantity(text: string): number | null {
           </p>
         }
 
-        <brn-dialog (closed)="onAddClosed()">
+        <brn-dialog [role]="'alertdialog'" [autoFocus]="'first-heading'" (closed)="onAddClosed()">
           <ng-template brnDialogContent>
             <form
               novalidate
@@ -248,7 +248,8 @@ function parseQuantity(text: string): number | null {
             >
               <h2
                 brnDialogTitle
-                class="font-display text-xl font-semibold text-(--text-primary)"
+                tabindex="-1"
+                class="font-display text-xl font-semibold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                 i18n="@@vendor.billing.stripe.add.heading"
               >
                 Add subscriptions
@@ -259,8 +260,8 @@ function parseQuantity(text: string): number | null {
                 i18n="@@vendor.billing.stripe.add.intro"
               >
                 New subscriptions join your Stripe plan and are billed on the same schedule, at
-                {{ unitPriceLabel() }} per subscription. Stripe charges your card now for the rest
-                of the current period, pro-rated, plus tax where applicable.
+                {{ unitPriceLabel() }}. Stripe charges your card now for the rest of the current
+                period, pro-rated, plus tax where applicable.
               </p>
               <div class="mt-6 space-y-1.5">
                 <label

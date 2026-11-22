@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TaxonomyResponse, UpdateVendorProductResponse, VendorProduct } from '@aeci/shared';
 import { capabilitiesFor, type Capability } from '@aeci/shared/entitlements';
 
+import { expectTitleFirstDialog } from '../../core/testing/title-first-dialog.harness';
 import { VendorApi } from '../vendor-api';
 import {
   VENDOR_ME_CONNECTOR_SEAT_FIXTURE,
@@ -182,6 +183,20 @@ describe('VendorProductFacetEditor', () => {
     expect(save(f)?.disabled).toBe(true);
   });
 
+  it('releases its store hold on destroy, applying a set-aside refresh (AECI-1943)', () => {
+    const store = TestBed.inject(VendorPortalStore);
+    const f = create('categories');
+    toggle(f, 'Project management');
+    const owner = `${PRODUCT.id}:categories`;
+    expect(store.isDirty('products', owner)).toBe(true);
+    const release = vi.spyOn(store, 'releaseDirty');
+
+    f.destroy();
+
+    expect(release).toHaveBeenCalledWith('products', owner);
+    expect(store.isDirty('products')).toBe(false);
+  });
+
   it('splices the save echo into the store so sibling tabs see it', async () => {
     const store = TestBed.inject(VendorPortalStore);
     store.seed(VENDOR_ME_FIXTURE);
@@ -312,6 +327,14 @@ describe('VendorProductFacetEditor', () => {
     for (const point of PRODUCT.usefulness!.audiences[0]!.points) {
       expect(dialog?.textContent).toContain(point);
     }
+  });
+
+  it('opens the removal confirmation on its title, as an alert dialog (AECI-1861)', async () => {
+    const f = create('audiences');
+    toggle(f, 'Architects');
+    await settle(f);
+    await settle(f);
+    expectTitleFirstDialog('Remove the points for Architects?');
   });
 
   it('removes the tag and its points once confirmed, and sends null when nothing remains', async () => {

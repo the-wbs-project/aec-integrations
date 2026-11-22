@@ -228,7 +228,7 @@
   <!-- AECI-1185: Done asks what the operator did. Opened from the row's click
        handler only (BrnDialog.open() must never run inside an effect). Its
        closed output keeps state in step on Escape and backdrop clicks. -->
-  <brn-dialog (closed)="closeDone()">
+  <brn-dialog [role]="'alertdialog'" [autoFocus]="'first-heading'" (closed)="closeDone()">
     <ng-template brnDialogContent>
       @if (doneTarget(); as t) {
       <div
@@ -236,7 +236,8 @@
       >
         <h2
           brnDialogTitle
-          class="text-lg font-bold text-(--text-primary)"
+          tabindex="-1"
+          class="text-lg font-bold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           i18n="@@admin.reindex.doneDialog.title"
         >
           Did you request indexing?

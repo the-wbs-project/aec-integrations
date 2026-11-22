@@ -1,6 +1,7 @@
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import {
   Component,
+  DestroyRef,
   computed,
   effect,
   inject,
@@ -378,6 +379,7 @@ interface FieldConfig {
 export class VendorProfileForm {
   private readonly api = inject(VendorApi);
   private readonly store = inject(VendorPortalStore);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly vendor = input.required<VendorAccount>();
 
@@ -607,10 +609,17 @@ export class VendorProfileForm {
 
     // Tell the store when there is something to protect. `hasChanges` is a
     // computed boolean, so this only runs on the transitions.
-    effect(() => {
+    effect((onCleanup) => {
       if (this.hasChanges()) untracked(() => this.store.markDirty('profile'));
       else untracked(() => this.store.clearDirty('profile'));
+      // AECI-1943: a tab switch destroys this form. Its registration must not
+      // outlive it, or the store would hold `me` for a form nobody can see.
+      onCleanup(() => untracked(() => this.store.clearDirty('profile')));
     });
+    // AECI-1943: the effect's cleanup also runs when `hasChanges` flips, so it
+    // only withdraws the registration. Leaving the form for good also applies
+    // the refresh the store set aside while it was dirty.
+    this.destroyRef.onDestroy(() => this.store.releaseDirty('profile'));
   }
 
   /** Take the server's copy and drop the unsaved edits. Deliberately explicit:

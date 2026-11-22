@@ -1,5 +1,14 @@
 import { VendorPortalAnnouncer } from '../vendor-announcer';
-import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
+import {
+  Component,
+  DestroyRef,
+  computed,
+  effect,
+  inject,
+  input,
+  signal,
+  untracked,
+} from '@angular/core';
 
 import {
   UpdateVendorProductSchema,
@@ -324,6 +333,7 @@ interface FieldConfig {
 export class VendorProductForm {
   private readonly api = inject(VendorApi);
   private readonly store = inject(VendorPortalStore);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly product = input.required<VendorProduct>();
 
@@ -503,14 +513,27 @@ export class VendorProductForm {
     });
 
     // Register/withdraw this product's unsaved-edit protection.
-    effect(() => {
+    effect((onCleanup) => {
       const dirty = this.hasChanges();
+      const id = untracked(() => this.product().id);
       untracked(() => {
-        const id = this.product().id;
         if (dirty) this.store.markDirty('products', id);
         else this.store.clearDirty('products', id);
       });
+      // AECI-1943: a tab switch destroys this form. Its registration must not
+      // outlive it, or the store would hold `me` (the products list, plan badges)
+      // for a form nobody can see. Same pattern as the facet editor.
+      onCleanup(() => untracked(() => this.store.clearDirty('products', id)));
     });
+    // AECI-1943: the effect's cleanup also runs when `hasChanges` flips, so it
+    // only withdraws the registration. Leaving the form for good also applies
+    // the refresh the store set aside while it was dirty.
+    this.destroyRef.onDestroy(() =>
+      this.store.releaseDirty(
+        'products',
+        untracked(() => this.product().id),
+      ),
+    );
   }
 
   /** Take the server's copy and drop the unsaved edits. */

@@ -6,9 +6,12 @@ three D1 environments (`staging` / `demo` / `production` — one per deploy tier
 (AECI-1268, 2026-10-10). The `DB_PREVIEW` binding is gone too, so the deployed Worker needs a hand redeploy:
 
 1. **Copy data env→env** — a **full clone** in **replace/mirror** mode: the
-   destination becomes an exact copy of the source, table for table.
+   destination becomes an exact copy of the source, table for table. The
+   destination is `staging` or `demo`. Production can be the source, never the
+   destination (AECI-1946).
 2. **Seed reviews** — generate ~150–200 deterministic anonymous reviews against
-   any env's products (the in-Worker port of `apps/api db:seed-reviews`).
+   `staging` or `demo` products (the in-Worker port of `apps/api db:seed-reviews`).
+   Production is refused as a seed target; only the teardown may run there.
 3. **Prune orphaned integrations** — delete stranded `integrations` rows (+ their
    claims/attestations) that no upstream record points at, behind three blocking
    guards (the in-Worker port of
@@ -20,10 +23,19 @@ is enqueued onto the destination tier's `aeci-cache-purge-{env}` queue (WC-7), w
 that tier's own SSR Worker consumes.
 
 > ⚠️ **This is a standing, browser-reachable endpoint (behind Access) that can
-> wipe-and-replace the PRODUCTION database, including auth-linked tables.** Writes
-> are dry-run by default, require typing the destination DB name, and production
-> needs an extra explicit confirm — but the capability is real. Treat the Access
-> allowlist and the `TOOL_TOKEN` secret accordingly.
+> delete rows in the PRODUCTION database.** Since AECI-1946 the server refuses
+> production as a copy destination or a seed-apply target with **400
+> `PRODUCTION_WRITE_REFUSED`**, on the dry run too, whatever confirms the request
+> carries. No runbook copies or seeds into production. Two production writes remain:
+> the prune and the seed teardown, which deletes only the synthetic `aeceed00-%`
+> reviews. Both are dry-run by default, need the typed DB name, and need
+> `prodConfirm: true`. The reindex rewrites production's Algolia indexes with no
+> confirm. Treat the Access allowlist and the `TOOL_TOKEN` secret accordingly.
+>
+> **Check the deployed commit before you rely on this.** The tool deploys by hand,
+> so the running code can lag `main`. The UI header shows the deployed commit from
+> `GET /api/version`. A deployment older than the AECI-1946 commit still accepts a
+> copy into production.
 
 ## How it works (and what it deliberately doesn't)
 
@@ -36,8 +48,8 @@ that tier's own SSR Worker consumes.
   `reviews` / `audit_log` etc. whose ids reference Supabase `auth.users`. Per
   [ADR 0017](../../docs/adr/0017-single-supabase-auth-project-across-environments.md)
   **every tier shares one auth project** (`ktuhnlypztujpsseujzx`), so those
-  referenced users exist everywhere — a clone between **any** two tiers
-  (staging/demo/production) stays sign-in-coherent. (This retires the
+  referenced users exist everywhere — a clone from any tier into staging or demo
+  stays sign-in-coherent. (This retires the
   earlier two-project caveat, where a prod↔dev clone left auth-linked rows orphaned;
   D1 has no auth FK regardless, so the insert always succeeds.)
 - **Not globally atomic.** A clone spans many tables / batches; a mid-clone failure
@@ -216,8 +228,8 @@ ungated (the edge Access gates the host).
 
 | Route | Body | Notes |
 |---|---|---|
-| `/api/copy` | `{ source, dest, dryRun?, confirmName?, prodConfirm?, refresh? }` | `dryRun` defaults **true** (per-table count diff + `estimatedQueries` / `queryBudget`). Over budget ⇒ **400 `COPY_TOO_LARGE`**, nothing written. Execute needs `confirmName === "aeci-app-<dest>"`; `dest:"production"` needs `prodConfirm:true`. |
-| `/api/seed` | `{ target, action:"apply"\|"teardown", seed?, dryRun?, confirmName?, prodConfirm?, refresh? }` | `seed` default `24301` (`0x5eed`). Same confirm rules. |
+| `/api/copy` | `{ source, dest, dryRun?, confirmName?, refresh? }` | `dest` is `staging` or `demo`; `dest:"production"` ⇒ **400 `PRODUCTION_WRITE_REFUSED`**, dry run included. `dryRun` defaults **true** (per-table count diff + `estimatedQueries` / `queryBudget`). Over budget ⇒ **400 `COPY_TOO_LARGE`**, nothing written. Execute needs `confirmName === "aeci-app-<dest>"`. |
+| `/api/seed` | `{ target, action:"apply"\|"teardown", seed?, dryRun?, confirmName?, prodConfirm?, refresh? }` | `seed` default `24301` (`0x5eed`). `apply` on `production` ⇒ **400 `PRODUCTION_WRITE_REFUSED`**. `teardown` on `production` needs `prodConfirm:true`, and the UI does not offer it (use curl). |
 | `/api/reindex` | `{ target, entities?, purge? }` | Rebuild search from current D1 (no DB write). |
 | `/api/prune-integrations` | `{ target, ids, dryRun?, confirmName?, prodConfirm?, refresh? }` | `ids` = a JSON array **or** a pasted blob (newline/comma separated); non-UUIDs throw rather than being dropped, max 500. `dryRun` defaults **true**. Returns `footprint`, `guards`, `blocked`, `affectedSlugs`, and `rollbackSql`. A tripped guard ⇒ **409 `GUARD_TRIPPED`**; a vendor-held id ⇒ **409 `VENDOR_HELD`**, not overridable (AECI-1005); same confirm rules as above. |
 
@@ -267,9 +279,13 @@ Needs `CLOUDFLARE_API_TOKEN` (Workers Scripts: Edit + D1: Edit on all three DBs)
 
 ## Verify (production → staging; never write production)
 
+The first call checks the deployed commit against `main`.
+
 ```bash
 H=(-H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" -H 'content-type: application/json')
 U=https://aeci-datatool.thewbsproject.workers.dev
+
+curl -s "${H[@]}" $U/api/version
 
 # Copy dry-run → execute
 curl -s "${H[@]}" -d '{"source":"production","dest":"staging","dryRun":true}'  $U/api/copy   # per-table counts

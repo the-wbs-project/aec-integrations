@@ -52,7 +52,7 @@ how you answer "did a deploy cause this" with a join rather than a guess.
 ## Alert → runbook
 
 Every signal that can page you today, and the runbook for it. The PostHog alerts are committed in
-`observability/posthog/alerts.json`, where each carries a `runbook` pointer to a heading below. Old
+`observability/posthog/alerts.json`, where each carries a `runbook` pointer to a heading below. The pointer quotes the heading exactly, and `pnpm lint` fails when it does not match one. So rename a heading here and its pointer in the same change. The pointer is not in the alert email: PostHog never receives it. Old
 thresholds of retired alerts are in `observability/posthog/README.md` "Monitor disposition".
 
 **PostHog alerts (production only, checked hourly unless marked daily).**
@@ -173,7 +173,7 @@ Cloudflare Workers observability dashboard (WC-8; see below).
    pnpm exec wrangler kv key put sitemap:dirty "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" --binding TAXONOMY_KV --env production --remote
    ```
 
-4. **The retraction CLI does not mark dirty.** `apps/api/scripts/retract-product.ts` removes URLs without touching `sitemap:dirty`. After a retraction, put the marker as in step 3, or wait for the 05:07 tick.
+4. **A retraction marks dirty itself.** Since AECI-1945, `ops:retract-product` and `ops:retract-vendor` put `sitemap:dirty` on `--apply`, through the same `wrangler kv` write as step 3. If that write fails, the run prints this step-3 command as its first follow-up. Run it, or wait for the 05:07 tick. Follow-ups: `docs/runbooks/catalog.md` "Retracting a product or vendor by hand".
 5. **Dirty is older than built_at but the edge copy is old.** The build is right and the edge copy has not been purged. The rebuild's purge may have failed to enqueue, which only logs a warning. The edge copy ages out within its hour. To skip the wait, run `POST /admin/purge` with the tag `sitemap`.
 
 The first read after the first deploy in an env finds no stored build and builds inline, so that one request is slow.
