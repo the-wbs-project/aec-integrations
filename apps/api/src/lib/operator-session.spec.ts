@@ -94,7 +94,7 @@ describe('resolveVisitorSession', () => {
     // the browser tracker's POST arrives this way, never as a bearer.
     const token = await mintToken({ sub: ADMIN_ID, supabaseUrl: SUPABASE_URL });
     const value = `base64-${btoa(JSON.stringify({ access_token: token }))}`;
-    expect(await ask({ cookie: `sb-test-auth-token=${value}` })).toBe(true);
+    expect(await ask({ cookie: `sb-test-project-auth-token=${value}` })).toBe(true);
   });
 
   it('is false for a verified NON-admin session', async () => {
@@ -235,7 +235,7 @@ describe('resolveVisitorSession', () => {
     it('resolves on the cookie path, which is how the browser tracker arrives', async () => {
       const token = await mintToken({ sub: VENDOR_ADMIN_ID, supabaseUrl: SUPABASE_URL });
       const value = `base64-${btoa(JSON.stringify({ access_token: token }))}`;
-      expect((await session({ cookie: `sb-test-auth-token=${value}` })).ownerVendorId).toBe(
+      expect((await session({ cookie: `sb-test-project-auth-token=${value}` })).ownerVendorId).toBe(
         VENDOR_ID,
       );
     });

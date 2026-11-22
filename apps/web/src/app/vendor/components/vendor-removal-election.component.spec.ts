@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { RemovalElectionResponse, VendorEntitlementBlock } from '@aeci/shared';
 
+import { expectTitleFirstDialog } from '../../core/testing/title-first-dialog.harness';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 import { VendorPlanPanel } from './vendor-plan-panel';
@@ -181,6 +182,13 @@ describe('VendorRemovalElection', () => {
     expect(dialog).toContain('cannot be undone');
     expect(dialog).toContain('November 20, 2026');
     expect(dialog).toContain('Catalog data and reviews stay.');
+  });
+
+  it('opens the dialog on its title, as an alert dialog (AECI-1861)', async () => {
+    const fixture = await mountAttached();
+    await openDialog(fixture);
+    await settle();
+    expectTitleFirstDialog('Remove the text you wrote?');
   });
 
   it('a success closes the dialog, revalidates the store and states the date', async () => {

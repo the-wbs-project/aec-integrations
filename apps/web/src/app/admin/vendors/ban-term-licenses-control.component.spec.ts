@@ -151,12 +151,14 @@ function makeApiMock(replayed = false): ApiMock {
   imports: [BanTermLicensesControl],
   template: `
     <p role="status" aria-live="polite">{{ announced() }}</p>
+    <h3 id="host-heading" tabindex="-1">Subscriptions</h3>
     <aec-ban-term-licenses-control
       [vendorId]="vendorId"
       vendorName="Bentley"
       [licenses]="rows()"
       [hasUnbannedSeat]="hasSeat()"
       idPrefix="host-1"
+      focusOnHideId="host-heading"
       (granted)="grants.push($event)"
       (announce)="announced.set($event)"
     />
@@ -406,6 +408,10 @@ describe('BanTermLicensesControl', () => {
     await refresh();
     expect(dateFor(el, P2).getAttribute('aria-invalid')).toBe('true');
     expect(el.textContent).toContain('Enter a date after today (UTC).');
+    // AECI-1989: a live region, so the error is heard when it appears (style guide §13).
+    expect(el.querySelector(`#host-1-ban-term-end-error-${P2}`)?.getAttribute('role')).toBe(
+      'alert',
+    );
     expect(dateFor(el, P2).getAttribute('aria-describedby')).toBe(
       `host-1-ban-term-end-hint-${P2} host-1-ban-term-end-error-${P2}`,
     );
@@ -479,6 +485,75 @@ describe('BanTermLicensesControl', () => {
     await refresh();
     expect(el.querySelector('[role="alert"]')?.textContent).toContain(text);
     expect(host.grants).toHaveLength(0);
+  });
+});
+
+// AECI-1989: opening, cancelling and submitting each remove or disable the button the
+// operator pressed. Each test asserts where focus lands, so it never falls to <body>.
+describe('BanTermLicensesControl focus (AECI-1989)', () => {
+  beforeEach(() => {
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('11111111-1111-4111-8111-111111111111');
+  });
+  afterEach(() => vi.restoreAllMocks());
+  const active = () => document.activeElement as HTMLElement | null;
+
+  it('opening focuses the first Include box, and Cancel returns to the open button', async () => {
+    const { el, refresh } = await setup(makeApiMock());
+    button(el, OPEN).click();
+    await refresh();
+    expect(active()).toBe(includeFor(el, P1));
+
+    button(el, 'Cancel').click();
+    await refresh();
+    expect(active()).toBe(button(el, OPEN));
+  });
+
+  it('a refused grant focuses its message', async () => {
+    const api = makeApiMock();
+    api.grantBanTermLicenses.mockRejectedValueOnce(new HttpErrorResponse({ status: 500 }));
+    const { el, refresh } = await setup(api);
+    button(el, OPEN).click();
+    await refresh();
+    type(dateFor(el, P2), '2099-05-15');
+    await refresh();
+    button(el, CONFIRM).click();
+    await refresh();
+    expect(active()?.getAttribute('role')).toBe('alert');
+    expect(active()?.textContent).toContain('Something went wrong');
+  });
+
+  it('a grant returns focus to the open button while the control still shows', async () => {
+    const { el, refresh } = await setup(makeApiMock());
+    button(el, OPEN).click();
+    await refresh();
+    type(dateFor(el, P2), '2099-05-15');
+    await refresh();
+    button(el, CONFIRM).click();
+    await refresh();
+    expect(active()).toBe(button(el, OPEN));
+  });
+
+  it("moves focus to the host's heading when the Billing reload hides the control", async () => {
+    const { el, host, refresh } = await setup(makeApiMock());
+    button(el, OPEN).click();
+    await refresh();
+    type(dateFor(el, P2), '2099-05-15');
+    await refresh();
+    button(el, CONFIRM).click();
+    await refresh();
+    // The host's reload: no banned product is left unlicensed, so the control hides.
+    host.rows.set([ROWS[0]!, ROWS[3]!, ROWS[4]!]);
+    await refresh();
+    expect(el.querySelector('[data-testid="ban-term-licenses"]')).toBeNull();
+    expect(active()?.id).toBe('host-heading');
+  });
+
+  it('does not pull focus back when the control hides with no grant', async () => {
+    const { el, host, refresh } = await setup(makeApiMock());
+    host.rows.set([ROWS[0]!, ROWS[3]!, ROWS[4]!]);
+    await refresh();
+    expect(el.querySelector('[data-testid="ban-term-licenses"]')).toBeNull();
+    expect(active()?.id).not.toBe('host-heading');
   });
 });
 

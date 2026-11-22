@@ -1613,9 +1613,10 @@ Four things they do **not** cover, all of which had to be applied by hand:
   chain, which would overwrite operator test state.
 
 `apps/datatool` **cannot** clone into a fifth tier without code changes:
-`apps/datatool/src/targets.ts` has a closed four-element `ENV_IDS` list and one D1 binding
-per tier, and adding an entry to a Worker that can wipe prod D1 is not worth it for a temp
-env. Re-promoting from the review app works if `REVIEW_APP_TOKEN` and the
+`apps/datatool/src/targets.ts` has a closed three-element `ENV_IDS` list and one D1 binding
+per tier, and adding an entry to a Worker that binds prod D1 is not worth it for a temp
+env. Copy and seed destinations are a further closed list, `COPY_SEED_DEST_IDS`, which
+leaves production out (AECI-1946). Re-promoting from the review app works if `REVIEW_APP_TOKEN` and the
 `PROMOTE_WORKFLOW` binding are wired and the review app is pointed at the host.
 
 #### 10.7 Verifying a hand-deployed tier

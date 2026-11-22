@@ -13,6 +13,8 @@
  *   6. Choosing a row, by keyboard or pointer, emits `picked` and clears the box.
  *   7. Enter in the box never submits the surrounding form. The clear button
  *      empties the box.
+ *   9. AECI-1860: no row is active until the first arrow key. Down enters at
+ *      the first row, Up at the last, and Enter before that picks nothing.
  *   8. AECI-1377: `queryChange` carries the trimmed query on every change, and
  *      `noMatch` carries a query whose finished search offered no row, never a
  *      failed or a too-short one.
@@ -128,11 +130,27 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+/** One key, then the relay effect, the first-key microtask and a render. */
+async function press(fixture: ComponentFixture<unknown>, input: HTMLInputElement, key: string) {
+  const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+  input.dispatchEvent(event);
+  await settle(fixture);
+  await Promise.resolve();
+  await settle(fixture);
+  return event;
+}
+
 describe('ProductCombobox', () => {
-  beforeEach(() => TestBed.resetTestingModule());
+  // jsdom has no scrollIntoView. The first arrow key scrolls the entered row into view.
+  const hadScroll = 'scrollIntoView' in Element.prototype;
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+    if (!hadScroll) Element.prototype.scrollIntoView = () => undefined;
+  });
   afterEach(() => {
     document.querySelectorAll('.cdk-overlay-container').forEach((n) => n.remove());
     vi.restoreAllMocks();
+    if (!hadScroll) delete (Element.prototype as Partial<Element>).scrollIntoView;
   });
 
   it('is a labelled combobox text box with no live region of its own', () => {
@@ -262,22 +280,66 @@ describe('ProductCombobox', () => {
     await typeAndSettle(fixture, input, 'co');
     expect(input.getAttribute('aria-expanded')).toBe('true');
 
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
-    await settle(fixture);
+    await press(fixture, input, 'ArrowDown');
     const activeId = input.getAttribute('aria-activedescendant');
-    expect(activeId).toBeTruthy();
-    const activeText = document.getElementById(activeId!)?.textContent ?? '';
+    expect(activeId).toBe(options()[0]!.id);
 
-    const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
-    input.dispatchEvent(enter);
-    await settle(fixture);
+    const enter = await press(fixture, input, 'Enter');
 
-    expect(host.picked).toHaveLength(1);
-    expect(activeText).toContain(host.picked[0]!.name);
+    expect(host.picked.map((p) => p.name)).toEqual(['Aconex']);
     expect(enter.defaultPrevented).toBe(true);
     expect(host.submits).toBe(0);
     expect(input.value).toBe('');
     expect(input.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  describe('active row (AECI-1860)', () => {
+    it('has no active row when the list opens', async () => {
+      const { fixture, input } = mount(async () => ({ data: [ACONEX, PROCORE, PROJECTSIGHT] }));
+      await typeAndSettle(fixture, input, 'pro');
+      expect(input.getAttribute('aria-expanded')).toBe('true');
+      expect(options()).toHaveLength(3);
+      expect(input.hasAttribute('aria-activedescendant')).toBe(false);
+      expect(document.querySelector('[role="listbox"]')?.getAttribute('data-navigated')).toBe(
+        'false',
+      );
+    });
+
+    it('enters at the first row on the first Down, then moves on', async () => {
+      const { fixture, input } = mount(async () => ({ data: [ACONEX, PROCORE, PROJECTSIGHT] }));
+      await typeAndSettle(fixture, input, 'pro');
+      await press(fixture, input, 'ArrowDown');
+      expect(input.getAttribute('aria-activedescendant')).toBe(options()[0]!.id);
+      await press(fixture, input, 'ArrowDown');
+      expect(input.getAttribute('aria-activedescendant')).toBe(options()[1]!.id);
+    });
+
+    it('enters at the last row on the first Up', async () => {
+      const { fixture, input } = mount(async () => ({ data: [ACONEX, PROCORE, PROJECTSIGHT] }));
+      await typeAndSettle(fixture, input, 'pro');
+      await press(fixture, input, 'ArrowUp');
+      expect(input.getAttribute('aria-activedescendant')).toBe(options()[2]!.id);
+    });
+
+    it('picks nothing on Enter before the first arrow key, and keeps the list open', async () => {
+      const { fixture, host, input } = mount(async () => ({ data: [ACONEX, PROCORE] }));
+      await typeAndSettle(fixture, input, 'co');
+      const enter = await press(fixture, input, 'Enter');
+      expect(host.picked).toEqual([]);
+      expect(enter.defaultPrevented).toBe(true);
+      expect(host.submits).toBe(0);
+      expect(input.value).toBe('co');
+      expect(input.getAttribute('aria-expanded')).toBe('true');
+    });
+
+    it('starts over with no active row when the query changes', async () => {
+      const { fixture, input } = mount(async () => ({ data: [ACONEX, PROCORE] }));
+      await typeAndSettle(fixture, input, 'co');
+      await press(fixture, input, 'ArrowDown');
+      expect(input.hasAttribute('aria-activedescendant')).toBe(true);
+      await type(fixture, input, 'con');
+      expect(input.hasAttribute('aria-activedescendant')).toBe(false);
+    });
   });
 
   it('picks a row on click', async () => {

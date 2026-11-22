@@ -25,6 +25,7 @@ import type {
   RepeatOffenderPrompt,
 } from '@aeci/shared';
 
+import { expectTitleFirstDialog } from '../../core/testing/title-first-dialog.harness';
 import { AdminSummaryStore } from '../admin-summary.store';
 import { ReviewerBansApi } from '../reviewers/reviewer-bans-api';
 import { AdminReviewsApi } from './admin-reviews-api';
@@ -488,6 +489,21 @@ describe('ReviewQueue', () => {
 
       expect(findButton(el, 'Ban reviewer')).toBeUndefined();
       expect(bansApi.ban).not.toHaveBeenCalled();
+    });
+
+    it('opens the ban dialog as an alert dialog with focus on its title (AECI-1861)', async () => {
+      const api = makeApiMock();
+      api.moderate.mockResolvedValueOnce(repeatOffenderEnvelope('a', PROMPT));
+      const { el, fixture } = await setup(api);
+
+      await rejectWithReason(el, fixture, 'Alpha', 'Coordinated spam.');
+      findButton(el, 'Ban reviewer')!.click();
+      fixture.detectChanges();
+      await settle();
+      fixture.detectChanges();
+      await settle();
+      expectTitleFirstDialog('Ban this reviewer?');
+      document.querySelectorAll('.cdk-overlay-container').forEach((n) => n.replaceChildren());
     });
 
     it('bans the reviewer from the prompt: opens the dialog and calls the API', async () => {

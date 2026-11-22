@@ -263,8 +263,9 @@ jobs:
         run: node scripts/ci/lane-plan.mjs
       - run: pnpm install --frozen-lockfile
       # The lite branch is root `pnpm run lint` with only the per-package ESLint
-      # pass narrowed. The CLAUDE.md size gate, the NOTIFICATIONS.md drift check
-      # and the whole-repo Prettier check stay unconditional because they are cheap.
+      # pass narrowed. The CLAUDE.md size gate, the NOTIFICATIONS.md drift check, the
+      # alerts.json runbook-pointer gate and the whole-repo Prettier check stay
+      # unconditional because they are cheap.
       - name: Lint
         env:
           LANE: ${{ steps.plan.outputs.lane }}
@@ -276,6 +277,7 @@ jobs:
           fi
           node scripts/check-claude-md-size.mjs
           pnpm run docs:notifications:check
+          node scripts/check-alert-runbook-pointers.mjs
           if [ -n "$LINT_FILTER" ]; then
             read -ra FILTER <<< "$LINT_FILTER"
             pnpm "${FILTER[@]}" run lint

@@ -1,17 +1,18 @@
 /**
  * The datatool single-page UI — inline HTML served from the Worker. Two panels
  * (Copy, Seed reviews) plus a standalone Reindex control, a dry-run-first flow,
- * typed confirmation, and a production double-confirm. The client script is
- * nonce'd (CSP in index.ts) and deliberately uses no template literals so the
+ * typed confirmation, and a production double-confirm on prune. Copy and seed
+ * do not offer production as a destination (AECI-1946; the server refuses it
+ * too). The client script is nonce'd (CSP in index.ts) and deliberately uses no template literals so the
  * ONLY interpolation in this module is `${nonce}`.
  */
 
-import { ENV_IDS } from './targets';
+import { COPY_SEED_DEST_IDS, ENV_IDS } from './targets';
 
-function envOptions(selected: string): string {
-  return ENV_IDS.map(
-    (e) => `<option value="${e}"${e === selected ? ' selected' : ''}>${e}</option>`,
-  ).join('');
+function envOptions(selected: string, ids: readonly string[] = ENV_IDS): string {
+  return ids
+    .map((e) => `<option value="${e}"${e === selected ? ' selected' : ''}>${e}</option>`)
+    .join('');
 }
 
 export function renderUi(nonce: string): string {
@@ -51,6 +52,7 @@ export function renderUi(nonce: string): string {
 <header>
   <h1>AECi datatool</h1>
   <p>Internal — clone D1 data env→env, seed reviews, reindex search. Behind Cloudflare Access. Writes are dry-run by default.</p>
+  <p>Deployed commit: <span class="hint" id="version">loading…</span></p>
 </header>
 <main>
   <section>
@@ -65,18 +67,15 @@ export function renderUi(nonce: string): string {
 
   <section>
     <h2>Copy data (full clone → replace)</h2>
-    <p class="muted">Makes the destination an exact mirror of the source — every table, including reviews/auth/analytics. Destructive on the destination.</p>
+    <p class="muted">Makes the destination an exact mirror of the source — every table, including reviews/auth/analytics. Destructive on the destination. Production can be a source, never a destination.</p>
     <div class="row">
       <div><label for="copy-source">Source</label><select id="copy-source">${envOptions('production')}</select></div>
-      <div><label for="copy-dest">Destination</label><select id="copy-dest">${envOptions('staging')}</select></div>
+      <div><label for="copy-dest">Destination</label><select id="copy-dest">${envOptions('staging', COPY_SEED_DEST_IDS)}</select></div>
       <button id="copy-dry" class="primary">Dry run</button>
     </div>
     <div class="confirm">
       <label for="copy-confirm">Type the destination DB name to execute: <span class="hint" id="copy-confirm-hint"></span></label>
       <input type="text" id="copy-confirm" placeholder="aeci-app-…" autocomplete="off">
-      <div class="checkline" id="copy-prod-wrap" style="display:none; margin-top:8px;">
-        <input type="checkbox" id="copy-prod"><label for="copy-prod">I understand this overwrites PRODUCTION</label>
-      </div>
       <div class="checkline" style="margin-top:8px;">
         <input type="checkbox" id="copy-refresh" checked><label for="copy-refresh">Reindex search + purge cache after</label>
       </div>
@@ -87,9 +86,9 @@ export function renderUi(nonce: string): string {
 
   <section>
     <h2>Seed reviews</h2>
-    <p class="muted">Generate ~150–200 deterministic anonymous reviews against the target's products. Idempotent (re-runs replace the seeded set).</p>
+    <p class="muted">Generate ~150–200 deterministic anonymous reviews against the target's products. Idempotent (re-runs replace the seeded set). Not offered for production.</p>
     <div class="row">
-      <div><label for="seed-target">Target</label><select id="seed-target">${envOptions('staging')}</select></div>
+      <div><label for="seed-target">Target</label><select id="seed-target">${envOptions('staging', COPY_SEED_DEST_IDS)}</select></div>
       <div><label for="seed-seed">Seed</label><input type="number" id="seed-seed" value="24301"></div>
       <div class="checkline"><input type="radio" name="seed-action" value="apply" id="seed-apply-r" checked><label for="seed-apply-r">Apply</label></div>
       <div class="checkline"><input type="radio" name="seed-action" value="teardown" id="seed-teardown-r"><label for="seed-teardown-r">Teardown</label></div>
@@ -98,9 +97,6 @@ export function renderUi(nonce: string): string {
     <div class="confirm">
       <label for="seed-confirm">Type the target DB name to execute: <span class="hint" id="seed-confirm-hint"></span></label>
       <input type="text" id="seed-confirm" placeholder="aeci-app-…" autocomplete="off">
-      <div class="checkline" id="seed-prod-wrap" style="display:none; margin-top:8px;">
-        <input type="checkbox" id="seed-prod"><label for="seed-prod">I understand this targets PRODUCTION</label>
-      </div>
       <div class="checkline" style="margin-top:8px;">
         <input type="checkbox" id="seed-refresh" checked><label for="seed-refresh">Reindex search + purge cache after</label>
       </div>
@@ -175,16 +171,21 @@ function sync(){
   $('copy-confirm-hint').textContent = dbName($('copy-dest').value);
   $('seed-confirm-hint').textContent = dbName($('seed-target').value);
   $('prune-confirm-hint').textContent = dbName($('prune-target').value);
-  $('copy-prod-wrap').style.display = ($('copy-dest').value === 'production') ? 'flex' : 'none';
-  $('seed-prod-wrap').style.display = ($('seed-target').value === 'production') ? 'flex' : 'none';
   $('prune-prod-wrap').style.display = ($('prune-target').value === 'production') ? 'flex' : 'none';
 }
 function seedAction(){ return document.querySelector('input[name=seed-action]:checked').value; }
 function seedVal(){ var v = parseInt($('seed-seed').value, 10); return isNaN(v) ? undefined : v; }
 function copyDry(){ return post('/api/copy', { source: $('copy-source').value, dest: $('copy-dest').value, dryRun: true }, 'copy-out'); }
-function copyExec(){ return post('/api/copy', { source: $('copy-source').value, dest: $('copy-dest').value, dryRun: false, confirmName: $('copy-confirm').value, prodConfirm: $('copy-prod').checked, refresh: $('copy-refresh').checked }, 'copy-out'); }
+function copyExec(){ return post('/api/copy', { source: $('copy-source').value, dest: $('copy-dest').value, dryRun: false, confirmName: $('copy-confirm').value, refresh: $('copy-refresh').checked }, 'copy-out'); }
 function seedDry(){ return post('/api/seed', { target: $('seed-target').value, action: seedAction(), seed: seedVal(), dryRun: true }, 'seed-out'); }
-function seedExec(){ return post('/api/seed', { target: $('seed-target').value, action: seedAction(), seed: seedVal(), dryRun: false, confirmName: $('seed-confirm').value, prodConfirm: $('seed-prod').checked, refresh: $('seed-refresh').checked }, 'seed-out'); }
+function seedExec(){ return post('/api/seed', { target: $('seed-target').value, action: seedAction(), seed: seedVal(), dryRun: false, confirmName: $('seed-confirm').value, refresh: $('seed-refresh').checked }, 'seed-out'); }
+// The datatool deploys by hand, so the running code can lag main. Show which commit it is.
+async function loadVersion(){
+  try {
+    var v = await (await fetch('/api/version')).json();
+    $('version').textContent = v.sha + ' (deployed ' + v.deployedAt + ')';
+  } catch (e) { $('version').textContent = 'unknown'; }
+}
 function reindexRun(){ return post('/api/reindex', { target: $('reindex-target').value }, 'reindex-out'); }
 // The acknowledgment UI is driven BY the dry run: you cannot tick a guard the plan
 // did not report, which is the browser-side half of the route's exact-match rule.
@@ -224,6 +225,7 @@ document.addEventListener('DOMContentLoaded', function(){
   $('prune-dry').onclick = pruneDry; $('prune-exec').onclick = pruneExec;
   $('copy-dest').onchange = sync; $('seed-target').onchange = sync; $('prune-target').onchange = sync;
   sync();
+  loadVersion();
 });
 </script>
 </body>

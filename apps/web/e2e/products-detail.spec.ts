@@ -293,6 +293,50 @@ test.describe('product detail — table names and section-nav location (AECI-831
     const nav = page.getByRole('navigation', { name: 'On this page' });
     await expect(nav.locator('a[aria-current="location"]')).toHaveCount(1);
   });
+
+  // AECI-1856: a click names its own section, even one shorter than the spy's
+  // band, where the next section used to take aria-current after the jump.
+  test('a clicked section link stays aria-current after the jump (AECI-1856)', async ({ page }) => {
+    await page.goto(`/products/${SLUG}`);
+    await untilHydrated(page.locator('aec-section-nav'));
+    const links = page
+      .getByRole('navigation', { name: 'On this page' })
+      .locator('a[data-section-id]');
+    const count = await links.count();
+    expect(count).toBeGreaterThanOrEqual(2);
+    for (let i = 0; i < count; i++) {
+      const link = links.nth(i);
+      await link.click();
+      // Let the smooth scroll and the spy's callbacks finish.
+      await page.waitForTimeout(800);
+      await expect(link).toHaveAttribute('aria-current', 'location');
+    }
+  });
+
+  // AECI-1856: in print the sticky bar and the metadata rail are static, so neither
+  // prints over the page. On the redesign's band shell the facts card (the Metadata
+  // aside) sits above the bar, so the check is that the two never overlap.
+  test('the section nav and the metadata rail are static in print (AECI-1856)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/products/${SLUG}`);
+    await page.evaluate(() => window.scrollTo(0, 1200));
+    await page.emulateMedia({ media: 'print' });
+    const position = (selector: string) =>
+      page
+        .locator(selector)
+        .first()
+        .evaluate((el) => getComputedStyle(el).position);
+    expect(await position('aec-section-nav')).toBe('static');
+    expect(['static', 'relative']).toContain(await position('aside[aria-label="Metadata"]'));
+    const navBox = await page.locator('aec-section-nav').boundingBox();
+    const railBox = await page.locator('aside[aria-label="Metadata"]').first().boundingBox();
+    expect(navBox && railBox).toBeTruthy();
+    const apart =
+      navBox!.y + navBox!.height <= railBox!.y || railBox!.y + railBox!.height <= navBox!.y;
+    expect(apart).toBe(true);
+  });
 });
 
 // AECI-1778 review: below md every hero action is on one line and 44px tall. From 480px

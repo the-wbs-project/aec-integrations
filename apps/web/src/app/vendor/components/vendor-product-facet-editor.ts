@@ -1,5 +1,6 @@
 import {
   Component,
+  DestroyRef,
   computed,
   effect,
   inject,
@@ -376,14 +377,23 @@ interface PendingRemoval {
       </div>
     </form>
 
-    <brn-dialog [closeOnBackdropClick]="false" (closed)="pendingRemoval.set(null)">
+    <brn-dialog
+      [role]="'alertdialog'"
+      [autoFocus]="'first-heading'"
+      [closeOnBackdropClick]="false"
+      (closed)="pendingRemoval.set(null)"
+    >
       <ng-template brnDialogContent>
         @if (pendingRemoval(); as removal) {
           <div
             class="flex max-h-[85vh] w-[min(95vw,36rem)] flex-col rounded-(--radius-lg) border border-(--border-default) bg-(--surface-base) text-(--text-primary) shadow-[0_16px_48px_-8px_rgb(0_0_0/0.18),0_4px_16px_-2px_rgb(0_0_0/0.10)]"
           >
             <div class="shrink-0 p-6 pb-4">
-              <h2 brnDialogTitle class="font-display text-xl font-semibold text-(--text-primary)">
+              <h2
+                brnDialogTitle
+                tabindex="-1"
+                class="font-display text-xl font-semibold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              >
                 {{ removalHeading(removal.name) }}
               </h2>
               <p
@@ -432,6 +442,7 @@ interface PendingRemoval {
 export class VendorProductFacetEditor {
   private readonly api = inject(VendorApi);
   private readonly store = inject(VendorPortalStore);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly product = input.required<VendorProduct>();
   readonly facet = input.required<ProductFacetKind>();
@@ -673,6 +684,15 @@ export class VendorProductFacetEditor {
       // or the store would hold `me` for a form nobody can see.
       onCleanup(() => untracked(() => this.store.clearDirty('products', owner)));
     });
+    // AECI-1943: the effect's cleanup also runs when `hasChanges` flips, so it
+    // only withdraws the registration. Leaving the form for good also applies
+    // the refresh the store set aside while it was dirty.
+    this.destroyRef.onDestroy(() =>
+      this.store.releaseDirty(
+        'products',
+        untracked(() => this.owner()),
+      ),
+    );
   }
 
   protected rowLabelClass(row: FacetRow): string {

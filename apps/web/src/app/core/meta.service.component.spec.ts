@@ -829,3 +829,37 @@ describe('MetaService.setEntityMeta title budget (AECI-1055)', () => {
     expect(doc.title).toContain('AEC Integrations');
   });
 });
+
+describe('MetaService.setListingCanonical (AECI-1904)', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+    for (const el of document.head.querySelectorAll(
+      'meta[name="description"], link[rel="canonical"], meta[property="og:url"]',
+    )) {
+      el.remove();
+    }
+  });
+
+  it('moves the canonical and og:url, keeps only page, and leaves the other tags', () => {
+    const { service, doc } = setup();
+    service.setEntityMeta({
+      entity: 'index',
+      name: 'Products',
+      description: 'Every product.',
+      canonical: 'https://www.aecintegrations.com/products?page=2',
+    });
+
+    service.setListingCanonical('https://www.aecintegrations.com/products?page=3&sort=name');
+
+    expect(doc.head.querySelectorAll('link[rel="canonical"]')).toHaveLength(1);
+    expect(doc.head.querySelector('link[rel="canonical"]')?.getAttribute('href')).toBe(
+      'https://www.aecintegrations.com/products?page=3',
+    );
+    expect(doc.head.querySelector('meta[property="og:url"]')?.getAttribute('content')).toBe(
+      'https://www.aecintegrations.com/products?page=3',
+    );
+    expect(doc.head.querySelector('meta[name="description"]')?.getAttribute('content')).toBe(
+      'Every product.',
+    );
+  });
+});

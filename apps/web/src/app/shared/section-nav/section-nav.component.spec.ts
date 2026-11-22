@@ -279,6 +279,69 @@ describe('SectionNav', () => {
     });
   });
 
+  // AECI-1856 (ported from main to the redesigned bar): a section shorter than the spy's band
+  // (a short About) left the next section in the band too, and the spy named that one after
+  // the click. The spy is the observer without the stuck observer's `threshold: [1]`.
+  describe('a clicked section stays current (AECI-1856)', () => {
+    async function withSpy() {
+      const fixture = await setup();
+      const el = fixture.nativeElement as HTMLElement;
+      const observer = FakeObserver.instances.find((o) => !Array.isArray(o.options.threshold))!;
+      const spy = (...ids: string[]) => {
+        observer.callback(
+          ids.map((id) => {
+            const target = document.createElement('section');
+            target.id = id;
+            return { isIntersecting: true, target } as unknown as IntersectionObserverEntry;
+          }),
+          observer as unknown as IntersectionObserver,
+        );
+        fixture.detectChanges();
+      };
+      const click = (id: string) => {
+        const link = el.querySelector<HTMLAnchorElement>(`a[data-section-id="${id}"]`)!;
+        link.addEventListener('click', (e) => e.preventDefault(), { once: true });
+        link.dispatchEvent(new MouseEvent('click', { cancelable: true, bubbles: true }));
+        fixture.detectChanges();
+      };
+      const current = () =>
+        el.querySelector('a[aria-current="location"]')?.getAttribute('data-section-id');
+      return { spy, click, current };
+    }
+
+    it('keeps the clicked short section current when the next one enters the band too', async () => {
+      const { spy, click, current } = await withSpy();
+      spy('integrations');
+      expect(current()).toBe('integrations');
+      click('about');
+      // The jump puts About and the section after it in the band at once.
+      spy('about', 'how-teams-use-it');
+      expect(current()).toBe('about');
+    });
+
+    it('hands back to the spy once the reader scrolls', async () => {
+      const { spy, click, current } = await withSpy();
+      click('about');
+      spy('how-teams-use-it');
+      expect(current()).toBe('about');
+      window.dispatchEvent(new WheelEvent('wheel'));
+      spy('integrations');
+      expect(current()).toBe('integrations');
+    });
+
+    it('follows the spy when nothing was clicked', async () => {
+      const { spy, current } = await withSpy();
+      spy('how-teams-use-it');
+      expect(current()).toBe('how-teams-use-it');
+    });
+  });
+
+  it('drops sticky in print so the bar does not print over the page (AECI-1856)', async () => {
+    const host = ((await setup()).nativeElement as HTMLElement).querySelector('aec-section-nav')!;
+    expect(host.classList).toContain('sticky');
+    expect(host.classList).toContain('print:static');
+  });
+
   describe('counts', () => {
     it('prints a quiet tabular count only where the section has one', async () => {
       const el = (await setup()).nativeElement as HTMLElement;

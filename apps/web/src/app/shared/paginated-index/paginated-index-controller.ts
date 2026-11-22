@@ -6,6 +6,7 @@ import {
   type Signal,
   TransferState,
   computed,
+  effect,
   inject,
   linkedSignal,
   makeStateKey,
@@ -17,6 +18,7 @@ import { filter } from 'rxjs';
 
 import type { PaginatedResponse } from '@aeci/shared';
 
+import { listingCanonicalPath, servingOrigin } from '../../core/canonical';
 import { MetaService, type SetEntityMetaInput } from '../../core/meta.service';
 import { apiStateKey } from '../../core/server-api-interceptor';
 
@@ -93,6 +95,16 @@ export interface PaginatedIndexConfig extends PaginatedIndexRequestConfig {
    * resolved term meta with a generic index title.
    */
   meta?: SetEntityMetaInput;
+  /**
+   * The listing's bare path for its self-canonical (`/products`, `/categories/bim`),
+   * or `null` while there is none (an unresolved or missing term). When given,
+   * the canonical and `og:url` follow `?page=` on every navigation, not only at
+   * construction (AECI-1904): the router reuses the component, so a client
+   * navigation from `?page=2` to the bare path would otherwise leave the head on
+   * `?page=2`. The first run writes the value the server already rendered, so the
+   * hydrated head does not drift (ADR 0011).
+   */
+  canonicalPath?: () => string | null;
   /**
    * Pagination model.
    *
@@ -252,6 +264,20 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
   // Active query params as a signal. Emits synchronously on subscribe (the
   // router seeds the current value), so `requireSync` holds.
   const queryParamMap = toSignal(route.queryParamMap, { requireSync: true });
+
+  // AECI-1904: keep the self-canonical on the URL's `?page=`. Append mode never
+  // writes `?page=` itself, so this moves only on a real navigation.
+  const canonicalPath = config.canonicalPath;
+  if (canonicalPath) {
+    const origin = servingOrigin();
+    effect(() => {
+      const path = canonicalPath();
+      if (path === null) return;
+      meta.setListingCanonical(
+        `${origin}${listingCanonicalPath(path, queryParamMap().get('page'))}`,
+      );
+    });
+  }
 
   // Everything that must WIPE the append buffer when it changes: sort + the
   // non-`page` filters (baseParams + passthrough). NOT `page` — advancing the

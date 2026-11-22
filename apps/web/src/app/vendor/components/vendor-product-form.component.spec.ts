@@ -316,3 +316,38 @@ describe('VendorProductForm — read-only when the plan holds no product edit', 
     expect(updateProduct).not.toHaveBeenCalled();
   });
 });
+
+// ── AECI-1943: the store hold ends with the form ────────────────────────────
+// A tab switch destroys this form. A dirty registration that outlived it would
+// make the store stash every later `me` payload (the products list, plan
+// badges) for a form nobody can see.
+describe('VendorProductForm — releases its store hold when destroyed (AECI-1943)', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        { provide: VendorApi, useValue: { updateProduct: vi.fn() } as Partial<VendorApi> },
+        VendorPortalStore,
+      ],
+    });
+  });
+
+  it("holds this product's owner while dirty and lets go on destroy", () => {
+    const store = TestBed.inject(VendorPortalStore);
+    const fixture = TestBed.createComponent(VendorProductForm);
+    fixture.componentRef.setInput('product', PRODUCT);
+    fixture.detectChanges();
+
+    setInput(fixture, DESCRIPTION_ID, 'An unsaved product description.');
+    expect(store.isDirty('products', PRODUCT.id)).toBe(true);
+    const release = vi.spyOn(store, 'releaseDirty');
+
+    fixture.destroy();
+    // Release, not just clear, so a refresh set aside while dirty is applied.
+    expect(release).toHaveBeenCalledWith('products', PRODUCT.id);
+    expect(store.isDirty('products', PRODUCT.id)).toBe(false);
+    expect(store.isDirty('products')).toBe(false);
+  });
+});

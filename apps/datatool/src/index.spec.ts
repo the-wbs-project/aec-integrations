@@ -166,20 +166,86 @@ describe('datatool routes', () => {
     ).toBe(0);
   });
 
-  it('requires the production double-confirm', async () => {
+  // AECI-1946: production is never a copy destination, whatever the request carries.
+  it.each([
+    ['a dry run', { dryRun: true }],
+    [
+      'an execute with every confirm set',
+      { dryRun: false, confirmName: 'aeci-app-production', prodConfirm: true },
+    ],
+  ])('refuses a copy into production on %s', async (_label, extra) => {
     seedCatalog(staging.raw);
     const res = await call(
       '/api/copy',
-      { source: 'staging', dest: 'production', dryRun: false, confirmName: 'aeci-app-production' },
+      { source: 'staging', dest: 'production', refresh: false, ...extra },
       TOKEN,
     );
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
-      'PROD_CONFIRM_REQUIRED',
+      'PRODUCTION_WRITE_REFUSED',
     );
     expect(
       (production.raw.prepare('SELECT count(*) AS n FROM products').get() as { n: number }).n,
     ).toBe(0);
+  });
+
+  it('still copies FROM production', async () => {
+    seedCatalog(production.raw);
+    const res = await call(
+      '/api/copy',
+      { source: 'production', dest: 'staging', dryRun: true },
+      TOKEN,
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it.each([
+    ['a dry run', { dryRun: true }],
+    [
+      'an execute with every confirm set',
+      { dryRun: false, confirmName: 'aeci-app-production', prodConfirm: true },
+    ],
+  ])('refuses a seed apply on production on %s', async (_label, extra) => {
+    seedProducts(production.raw, 12);
+    const res = await call(
+      '/api/seed',
+      { target: 'production', action: 'apply', refresh: false, ...extra },
+      TOKEN,
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'PRODUCTION_WRITE_REFUSED',
+    );
+    expect(
+      (production.raw.prepare('SELECT count(*) AS n FROM reviews').get() as { n: number }).n,
+    ).toBe(0);
+  });
+
+  it('keeps seed teardown on production, behind the double-confirm', async () => {
+    seedProducts(production.raw, 12);
+    const base = { target: 'production', action: 'teardown', dryRun: false, refresh: false };
+    const noProd = await call('/api/seed', { ...base, confirmName: 'aeci-app-production' }, TOKEN);
+    expect(noProd.status).toBe(400);
+    expect(((await noProd.json()) as { error: { code: string } }).error.code).toBe(
+      'PROD_CONFIRM_REQUIRED',
+    );
+    const ok = await call(
+      '/api/seed',
+      { ...base, confirmName: 'aeci-app-production', prodConfirm: true },
+      TOKEN,
+    );
+    expect(ok.status).toBe(200);
+  });
+
+  it('does not offer production as a copy or seed destination in the UI', async () => {
+    const html = await (await app.fetch(new Request('http://tool.local/'), env, CTX)).text();
+    const select = (id: string) => html.match(new RegExp(`<select id="${id}">(.*?)</select>`))![1];
+    expect(select('copy-dest')).not.toContain('production');
+    expect(select('seed-target')).not.toContain('production');
+    expect(select('copy-source')).toContain('production');
+    expect(select('prune-target')).toContain('production');
+    expect(select('reindex-target')).toContain('production');
+    expect(html).toContain('id="version"');
   });
 
   it('seeds reviews into a confirmed target', async () => {
