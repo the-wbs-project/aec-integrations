@@ -648,7 +648,7 @@ Scope — must ship as one change:
 
 _Rewritten 2026-11-14 by AECI-1821. It replaces the earlier "Other tools that connect to {context product}" suggestions module._ The page layout is in `docs/design/mockups/redesign-2026-11/PLAN.md` §5.1. The mock-up is `mockups/5-statement-first.html`. PLAN.md §10 lists the mock-up's known defects. The build must not copy them.
 
-The empty pair page is the first place this module ships. **Ruling 2026-11-14 (Chris, asked on AECI-1821): "C, but create a ticket to address later".** Closest matches also render on pair pages that have an integration, as AECI-341 planned. §11.2 relies on suggestions that differ by orientation, so that requirement stands. A page for a real pair keeps its mechanism list. The position of the module on such a page is decided in its mock-up (AECI-1791) and AECI-1837.
+The empty pair page is the first place this module ships. **Ruling 2026-11-14 (Chris, asked on AECI-1821): "C, but create a ticket to address later".** Closest matches also render on pair pages that have an integration, as AECI-341 planned. §11.2 relies on suggestions that differ by orientation, so that requirement stands. A page for a real pair keeps its mechanism list. The position of the module on such a page is decided in AECI-1837. Not built yet: the alternatives read runs for an empty pair only, so a pair page with an integration shows no closest matches today.
 
 **What the module is.**
 
@@ -681,7 +681,7 @@ The empty pair page is the first place this module ships. **Ruling 2026-11-14 (C
 - The filter's count and its empty state must say that rows with no recorded data objects are left out. They must not say those products do not move the object. The copy points at AECi's records, never at a vendor's plan.
 - Re-run the AECI-1816 query once a licensed vendor owns integrations. The AECI-1814 test keeps the filter from becoming an order.
 
-**Data.** The payload for each side carries categories, audiences, phases, trades, `api_docs_url` and `tool_integrations_url` (AECI-1822, merged), and since AECI-1827 each side's captions and `under_review`. The closest-matches read needs the kept product's integrations with each partner's categories, ratings and data objects. AECI-1829 and AECI-1830 built it as `GET /api/products/:slug/integrations/:otherSlug/alternatives` (`API_CONTRACTS.md`): both lanes and "What you would be moving" in one response, read by the SSR resolver for an empty pair only, so the first lane is in the cached HTML. Every match joins the pair page's embedded cache tags. "How ranking works" version 1.2 describes this list under "A pair page with no integration". Its wording is provisional until Chris approves it on AECI-1894 (AECI-1815).
+**Data.** The payload for each side carries categories, audiences, phases, trades, `api_docs_url` and `tool_integrations_url` (AECI-1822, merged), and since AECI-1827 each side's captions and `under_review`. The closest-matches read needs the kept product's integrations with each partner's categories, ratings and data objects. AECI-1829 and AECI-1830 built it as `GET /api/products/:slug/integrations/:otherSlug/alternatives` (`API_CONTRACTS.md`): both lanes and "What you would be moving" in one response, read by the SSR resolver for an empty pair only, so the first lane is in the cached HTML. Every match joins the pair page's embedded cache tags. "How ranking works" version 1.2 describes this list under "A pair page with no integration". The legal agent approved its wording with edits on 2026-11-20 (AECI-1894, #1434). Its recorded date is set on the day it reaches production.
 
 ### 11.4 Tiered indexing for empty pairs — the "meaningful no" (AECI-342)
 
@@ -698,7 +698,7 @@ The searcher whose true answer is _no_ currently gets nothing from us. A good "n
 
 1. **Statement and caveat.** A "Not on record" pill, the statement and the caveat. The pair has zero mechanisms.
 2. **Correction entry.** "Know of one?" with the button "It does exist". It opens the existing correction request (§11.5).
-3. **Interest card.** The look-up count, "I need this too" and "Watch this pair".
+3. **Interest card.** The look-up count, "I need this too" and "Watch this pair". Not built: the captures wait until after go-live (Chris, 2026-11-18), and the page renders without this card.
 4. **What you would be moving.** Data objects in three groups: only {A}, both, only {B}. They come from each product's other integrations on record.
 5. **Closest matches.** See §11.3.
 6. **Side by side ("How the two products compare").** A facts table and "Who each product is for", each the full row. The facts table shows integration counts, reviews, ratings and claim state. "Who each is for" shows audiences, phases and trades.
@@ -737,7 +737,7 @@ The searcher whose true answer is _no_ currently gets nothing from us. A good "n
 
 **Correction entry style (ruling R6, AECI-1737).** The build follows mock-up 5 in its default state. The default is the inline strip. It sits in the hero under the lede. It shows the heading, the body and the button. The "Is this right?" prompt is an alternate in the mock-up's Options panel. It is not built.
 
-**Interest card.**
+**Interest card.** Ruled, not built. The captures wait until after go-live (Chris, 2026-11-18), and none ships before the Privacy Policy text (AECI-1825).
 
 - **Look-up count (ruling R7, AECI-1738).** It counts pair page views over 90 days with identified automated visits removed. It is hidden below a floor of 10. When it is hidden, the other two controls fill the card. A Privacy Policy line about published aggregate look-up counts is needed first.
 - **"I need this too" (R7).** It shows its count above the same floor of 10. The repeat-click guard is server-side, keyed on a hashed IP and the day. It uses no browser storage, so no cookie line is needed. It is a new server-side store of a keyed IP hash and a day. Under `docs/LEGAL_IMPACT_REVIEW.md` §3 it needs a "What we collect" line and a "Retention" line with a stated period in the Privacy Policy. The live policy names a keyed IP hash for visit statistics only. That text is AECI-1825, and the captures do not ship before it.
@@ -764,7 +764,7 @@ The searcher whose true answer is _no_ currently gets nothing from us. A good "n
 - No JSON-LD. The resolver skips it on the same condition.
 - No sitemap entry.
 - A pair whose integration moved still redirects with a 301 (AECI-953).
-- A pair finder pick whose slug does not resolve goes to `/search?q={typed name}`. AECI-1823 owns this and is not merged yet. The finder first checks the retired-slug map (AECI-991), then falls back to search.
+- A pair finder pick whose slug does not resolve goes to `/search?q={typed name}` (AECI-1823, #1277). The finder first checks the retired-slug map (AECI-991), then falls back to search.
 
 **Tiering for qualifying pairs.**
 
@@ -1372,6 +1372,20 @@ half-populated FK misfiles connector edges as direct, which is worse than today'
 Deliberately written **source-agnostically**, so that Phase 2 changes nothing in this subsection.
 `#integrations` stays **one** section with one anchor and one section-nav entry; the split is
 within it.
+
+⚠️ **Amended by the November 2026 redesign (AECI-1782, AECI-1783, AECI-1891, AECI-1720 restores,
+#1392).** The lane order, the row identity rules, the reach line and one `<table>` per lane in the
+table view all stand. What renders changed, and the amendments below are history where they differ:
+
+- **Cards are the default view.** Each row is an integration card. A Cards and Table toggle sits in
+  the filter panel, and the table view keeps one table per lane.
+- **The `<h2>` "Integrations" carries no count** (ruled 2026-11-16). The rendered rows still equal
+  the per-lane counts, and the "Showing n of m" status line counts them while a filter is on.
+- **The filter is a Bone panel under the heading**, with direction, data and partner category chips.
+- **A long single-lane list groups by partner category** (13 rows or more, and fewer groups than
+  half the rows), with a jump rail and "Show more" per group (ruling R5).
+- **The card view has no `@defer` cut.** The 20-row cut applies to the table view only (AECI-1891).
+- `DESIGN.md` §5 "The integrations section" and "The long integration list" hold the recipe.
 
 - **Order: the direct lane first, then one group per connector.** Connector groups sort by row
   count desc, then connector name. Direct-first because an accountable-party integration is a

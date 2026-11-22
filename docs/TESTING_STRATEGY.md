@@ -221,6 +221,26 @@ Three ship with the Stage 2 entitlement model (`docs/STAGE_2_PAID_TIERS_SPEC.md`
 
 Alongside them, per issue: the second-seat no-op matrix against the in-memory D1 harness; 422 idempotency on the admin `set`/`clear` (retired with its route by AECI-1375, 2026-10-17); `POST /api/promote` still cannot move `verified` (the AECI-520 regression guard); the expiry cron writes **no `status`** (asserted against generated SQL, since a `WHERE status = 'active'` guard is a read and must not be mistaken for a write; since AECI-1356 it stamps `licenses`, and the same test asserts no statement names `ended_at`, `assigned_product_id` or `vendors`); and a no-read-path guard asserting no read config in `lib/drizzle-helpers.ts` references `vendor_entitlements`. The same spec (`drizzle-helpers.read-path.spec.ts`) also asserts that no read config references `billing_accounts` or `licenses` and that neither has a `relations()` entry. Since AECI-1358 it also asserts that no non-spec module names the dropped `vendor_entitlements` table in code. Prose mentions pass.
 
+**The November 2026 redesign's guards (AECI-1720).** Each pins a design or legal decision that a component test cannot see. Most read source or built output rather than a rendered component.
+
+| Guard | Runs in | Pins |
+|---|---|---|
+| `apps/web/src/design-tokens.guard.spec.ts` | unit | Every token the source names exists in `styles.css`. Its source half also stops `font-display` beside a small size (the serif floor) |
+| `apps/web/src/design-tokens.hex.guard.spec.ts` | unit | Every colour token renders the hex its comment documents (AECI-1747) |
+| `apps/web/src/chip.guard.spec.ts`, `field-recipe-css.guard.spec.ts`, `pair-diff-edge.guard.spec.ts` | unit | The one chip recipe, the shared field recipe and the pair page's diff edge, read from `styles.css` |
+| `apps/web/src/prose.guard.spec.ts` | unit | The one prose style reads only type ramp tokens (AECI-1804) |
+| `apps/web/src/font-files.guard.spec.ts` | unit | Each self-hosted font file's bytes, because `/fonts/*` is cached for a year (AECI-1892) |
+| `apps/web/src/app/legal/legal-heading-ids.spec.ts` | unit | The heading ids on `/legal/*` and `/methodology` change no word of the page |
+| `apps/web/src/app/legal/legal-archive-freeze.spec.ts`, `app/docs/ranking-page-versions.spec.ts` | unit | Archived legal versions and ranking page versions keep their published bytes |
+| `apps/web/src/app/shared/form-field/early-input-coverage.spec.ts` | unit | Every component that binds a text field, select or radio imports `AecEarlyInput`, and every consent box carries `aecConsent` |
+| `scripts/check-conflict-markers.mjs` | `pnpm lint` | No tracked file holds git conflict markers (`ANGULAR_STYLE_GUIDE.md` §24) |
+| `apps/web/e2e/serif-floor.spec.ts` | e2e | No rendered Source Serif text is under 20px (AECI-1928) |
+| `apps/web/e2e/first-paint.spec.ts`, `font-loading.spec.ts` | e2e | First paint matches final paint, and fallback fonts take the same space (`ANGULAR_STYLE_GUIDE.md` §20b) |
+| `apps/web/e2e/hydration-class-recipe.spec.ts` | e2e | Nothing resolves an `aecButton` or `aecCard` style while hydration has it without its recipe (AECI-1937) |
+| `apps/web/e2e/forms-early-input.spec.ts` | e2e | Typed text survives hydration, and no tick does (§14.3) |
+
+The on-page ordering firewall in the table above is the redesign's legal guard.
+
 **A caveat worth generalizing.** An invariant asserted in a file where its subject is *mocked* passes vacuously. Where a cron-level suite mocks the sweep it is testing, the real obligation belongs in the sweep's own spec, and any exemption list in the mocking file should say which entries are genuinely exempt versus merely asserted elsewhere.
 
 ---

@@ -469,12 +469,13 @@ Lint: 🟡 review-only. The e2e is the enforcement.
 
 ## 24. Appendix: ESLint enforcement matrix
 
-Rules enforced by `pnpm lint`. Four layers, and knowing which is which matters when you add a rule:
+Rules enforced by `pnpm lint`. Five layers, and knowing which is which matters when you add a rule:
 
 1. **`angularBase`** (`eslint.config.base.mjs`, consumed by `apps/web/eslint.config.mjs`) — the Angular and brand-voice rules. `apps/web` only.
 2. **`tsBase`** (same file, consumed by all four packages) — the cross-cutting constraint guards from AECI-549. These reach `apps/api`, `apps/datatool`, and `packages/shared` as well.
 3. **Package-local file-scoped blocks** (e.g. `packages/shared/eslint.config.mjs`) — a rule that applies to one file, not a tier. See "Package-local guards" below.
 4. **`apps/web/scripts/check-source-constraints.mjs`** — a line scanner for what ESLint structurally cannot read: Tailwind class strings inside external `.html` templates (the template processor parses them into a template AST, not lintable string literals) and selectors in `.css` (nothing lints CSS here — there is no stylelint). Wired into `apps/web`'s `lint` script.
+5. **Root gates in `scripts/`**, run by the root `pnpm lint` before the package lints: `check-claude-md-size.mjs` (`CLAUDE.md` at most 30,000 bytes), `check-conflict-markers.mjs` (no tracked file holds git conflict markers, AECI-1720) and `pnpm docs:notifications:check` (`docs/NOTIFICATIONS.md` matches the registry). See "Root gates" below.
 
 A constraint that spans layers 1 and 4 keeps its patterns in a **shared leaf module** rather than spelling them twice. `eslint.color-patterns.mjs` (repo root, zero dependencies) is the worked example: the `dark:` rule predates the convention and *is* spelled twice, which is exactly the drift the connector-lane vocabulary hit before AECI-735 had to add lockstep tests. Root and dependency-free are both load-bearing — the scanner walks `apps/web/src` and each package lints from its own basePath, so a root file is outside every scanned tree and cannot flag its own source; and the scanner runs as a bare `node` process, so importing `eslint.config.base.mjs` would drag in typescript-eslint for four regexes.
 
@@ -571,6 +572,24 @@ A rule may carry an `allow` array of repo-relative paths. It is per-RULE, not pe
 For a one-off line, `constraints-guard-allow-next-line` in a comment on the preceding line. Use it sparingly and say why — it exists so a comment or a test fixture that legitimately *names* a banned pattern does not make the file uneditable. Its first real uses are in `source-constraints.spec.ts`, where the fixture proving `text-left` is caught has to contain `text-left`.
 
 The guard is unit-tested as of AECI-597 (`apps/web/src/source-constraints.spec.ts`), which also back-filled coverage for the three rules above that had none. That matters because every failure mode here is silent: a pattern that stops matching still exits 0 and still prints "rules clean".
+
+### Root gates (`scripts/`)
+
+| Gate | Scans | Fails on | Constraint |
+|---|---|---|---|
+| `check-claude-md-size.mjs` | `CLAUDE.md` | more than 30,000 bytes | `CLAUDE.md` stays a pointer file |
+| `check-conflict-markers.mjs` | every tracked text file | a line of seven `<` closed later by a line of seven `>`, each followed by a space or the line end. NUL-byte files are skipped | A merge must not leave markers, as one did in an archived ranking page (AECI-1720) |
+| `docs:notifications:check` | `docs/NOTIFICATIONS.md` | a file that differs from the registry's output | The notification doc is generated (ADR 0038) |
+
+### Spec-enforced guards from the redesign
+
+Lint cannot read these, so a spec holds them. `docs/TESTING_STRATEGY.md` §3.6 lists every one.
+
+| Guard | Constraint |
+|---|---|
+| `apps/web/src/app/shared/form-field/early-input-coverage.spec.ts` | Every acceptance checkbox carries `aecConsent`, and every component binding a text field, select or radio imports `AecEarlyInput` (§13) |
+| `apps/web/e2e/serif-floor.spec.ts`, with its source half in `design-tokens.guard.spec.ts` | Source Serif never renders below 20px (`DESIGN.md` §3 "The Serif-Floor Rule") |
+| `apps/api/src/lib/on-page-ordering-firewall.spec.ts` and the web firewall specs | No on-page order reads an input a paid plan can change. A new `orderBy`, `.sort(` or `.toSorted(` on a public read path fails until it is registered, a tripwire that reads tokens, not meaning (`STAGE_2_PAID_TIERS_SPEC.md` §3.2 assertion 8) |
 
 ### Template files (`**/*.html`)
 
