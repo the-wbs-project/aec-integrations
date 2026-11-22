@@ -1,5 +1,16 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, computed, inject, input, output, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  computed,
+  inject,
+  input,
+  output,
+  signal,
+  viewChild,
+} from '@angular/core';
 
 import type {
   ProvisionVendorSeatResponse,
@@ -61,6 +72,13 @@ const REASON_MAX_LENGTH = 500;
  * contract: `VendorDetail` owns the page's single
  * `role="status"` region and the heading level its outline requires, and
  * announcements leave through {@link announce}.
+ *
+ * ── FOCUS (AECI-1994) ───────────────────────────────────────────────────────
+ * Opening the form focuses the email field, and Cancel returns focus to "Add a seat".
+ * A refusal focuses its message, because the confirm button was disabled while the
+ * request ran and a disabled button drops focus. A provision also closes back to
+ * "Add a seat", but `VendorDetail` then reloads the whole page, which loses focus
+ * (AECI-2001).
  */
 @Component({
   selector: 'aec-provision-seat-control',
@@ -68,6 +86,10 @@ const REASON_MAX_LENGTH = 500;
 })
 export class ProvisionSeatControl {
   private readonly api = inject(SeatProvisionApi);
+  private readonly injector = inject(Injector);
+  private readonly openButton = viewChild<ElementRef<HTMLButtonElement>>('openButton');
+  private readonly emailInput = viewChild<ElementRef<HTMLInputElement>>('emailInput');
+  private readonly failedAlert = viewChild<ElementRef<HTMLElement>>('failedAlert');
 
   readonly vendorId = input.required<string>();
   /** The §8.8(1) payer test, from the detail payload (AECI-738). Drives the
@@ -118,12 +140,19 @@ export class ProvisionSeatControl {
     this.formOpen.set(true);
     this.email.set('');
     this.reason.set('');
+    // The button the operator pressed is gone: put focus on the first field.
+    this.focusAfterRender(() => this.emailInput()?.nativeElement);
   }
 
   protected closeForm(): void {
     this.formOpen.set(false);
     this.email.set('');
     this.reason.set('');
+    this.focusAfterRender(() => this.openButton()?.nativeElement);
+  }
+
+  private focusAfterRender(target: () => HTMLElement | undefined): void {
+    afterNextRender(() => target()?.focus(), { injector: this.injector });
   }
 
   protected onEmailInput(event: Event): void {
@@ -151,6 +180,7 @@ export class ProvisionSeatControl {
       this.announce.emit(this.announcementFor(result));
     } catch (err) {
       this.failedMessage.set(messageForError(err));
+      this.focusAfterRender(() => this.failedAlert()?.nativeElement);
     } finally {
       this.pending.set(false);
     }
