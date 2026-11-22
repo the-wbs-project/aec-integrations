@@ -224,8 +224,8 @@ export class AecSelect {
 
   protected readonly labelClass = computed(() =>
     this.layout() === 'stacked'
-      ? 'block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase'
-      : 'text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase',
+      ? 'block text-t-13 font-semibold tracking-[0.01em] text-(--text-secondary)'
+      : 'text-t-13 font-semibold tracking-[0.01em] text-(--text-secondary)',
   );
 
   protected readonly triggerClass = computed(() => {

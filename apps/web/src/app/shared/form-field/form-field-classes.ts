@@ -17,12 +17,18 @@
 
 import { buttonClass } from '../button/button';
 
-/** A field label, or a `legend` acting as one: the uppercase overline role. */
+/**
+ * A field label, or a `legend` acting as one: the Label role (`DESIGN.md` §3),
+ * 13px at weight 600 on a 1.4 line, tracking +0.01em, in sentence case. Since
+ * AECI-1850 it is no longer the uppercase overline: uppercase is for overlines only
+ * (the Sentence-Case Rule). The hand-written copies in the home feedback form, the
+ * `/account` profile panel and `aec-select` carry the same string.
+ */
 export const FIELD_LABEL_CLASS =
-  'block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)';
+  'block text-t-13 font-semibold tracking-[0.01em] text-(--text-secondary)';
 
 /** The "(optional)" marker inside a label. */
-export const FIELD_OPTIONAL_CLASS = 'font-normal normal-case text-(--text-tertiary)';
+export const FIELD_OPTIONAL_CLASS = 'font-normal text-(--text-tertiary)';
 
 /**
  * A text input, textarea or select. `aec-field-control` (unlayered,

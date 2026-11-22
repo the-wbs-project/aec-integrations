@@ -77,7 +77,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         <div class="flex flex-col gap-1.5">
           <label
             for="home-feedback-features"
-            class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+            class="block text-t-13 font-semibold tracking-[0.01em] text-(--text-secondary)"
             i18n="@@home.feedback.features.label"
             >Features to build</label
           >
@@ -97,7 +97,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         <div class="flex flex-col gap-1.5">
           <label
             for="home-feedback-tools"
-            class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+            class="block text-t-13 font-semibold tracking-[0.01em] text-(--text-secondary)"
             i18n="@@home.feedback.tools.label"
             >Tools to cover</label
           >
@@ -128,7 +128,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         <div class="flex flex-col gap-1.5">
           <label
             for="home-feedback-email"
-            class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+            class="block text-t-13 font-semibold tracking-[0.01em] text-(--text-secondary)"
             i18n="@@home.feedback.email.label"
             >Email (optional)</label
           >
