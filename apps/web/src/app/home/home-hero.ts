@@ -94,7 +94,7 @@ const FOCUS_RING_CLASS =
 
 /** A link in the "Most viewed" row. The underline is the link cue, not colour. */
 const POPULAR_LINK_CLASS =
-  'rounded-sm text-(--text-primary) underline decoration-(--border-field) decoration-1 underline-offset-4 transition-colors hover:text-(--accent-primary) hover:decoration-current focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
+  'rounded-mark text-(--text-primary) underline decoration-(--border-field) decoration-1 underline-offset-4 transition-colors hover:text-(--accent-primary) hover:decoration-current focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
 
 @Component({
   selector: 'aec-home-hero',

@@ -22,7 +22,7 @@ import { AecSelect, type AecSelectOption } from '../shared/aec-select/aec-select
 @Component({
   selector: 'aec-company-country-field',
   imports: [AecSelect],
-  host: { class: 'block space-y-1.5' },
+  host: { class: 'block space-y-2' },
   template: `
     <aec-select
       class="block"

@@ -152,7 +152,7 @@ const FOCUS_RING =
                   [alt]="logoAlt(v.name)"
                   size="sm"
                 />
-                <span class="flex min-w-0 flex-col gap-0.5">
+                <span class="flex min-w-0 flex-col gap-1">
                   <span
                     class="min-w-0 break-words font-display text-t-20 font-semibold text-(--text-primary)"
                     >{{ v.name }}</span
@@ -214,7 +214,7 @@ const FOCUS_RING =
                 <aec-icon name="book" decorative [size]="4" />
                 <span i18n="@@products.detail.metadata.resources">Resources</span>
               </h2>
-              <ul class="m-0 grid list-none gap-0.5 p-0">
+              <ul class="m-0 grid list-none gap-1 p-0">
                 @if (p.tool_integrations_url) {
                   <li>
                     <a

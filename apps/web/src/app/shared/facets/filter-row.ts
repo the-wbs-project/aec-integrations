@@ -33,4 +33,4 @@ export const FILTER_COUNT_CLASS = 'ms-auto shrink-0 text-t-13 tabular-nums text-
  * 44px target.
  */
 export const FILTER_LINK_CLASS =
-  'inline-flex min-h-11 cursor-pointer items-center self-start rounded-sm text-t-14 font-semibold text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
+  'inline-flex min-h-11 cursor-pointer items-center self-start rounded-mark text-t-14 font-semibold text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';

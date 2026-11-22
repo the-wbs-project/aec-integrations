@@ -201,7 +201,7 @@ import { BAND_WRAP_CLASS } from '../shared/band-wrap';
                bar it sticks only on screens tall enough to show it whole (.aec-detail-aside
                in styles.css). -->
             <aside
-              class="aec-detail-aside mt-10 min-w-0 space-y-6 empty:hidden lg:sticky lg:top-[calc(var(--aec-sticky-offset,0px)+2rem)] lg:col-start-2
+              class="aec-detail-aside mt-12 min-w-0 space-y-6 empty:hidden lg:sticky lg:top-[calc(var(--aec-sticky-offset,0px)+2rem)] lg:col-start-2
               lg:row-span-2 lg:row-start-1 lg:mt-0 lg:self-start"
               i18n-aria-label="@@app.layouts.detail.metadata.aria"
               aria-label="Metadata"
@@ -209,7 +209,7 @@ import { BAND_WRAP_CLASS } from '../shared/band-wrap';
               <ng-container [ngTemplateOutlet]="metadataSlot" />
             </aside>
 
-            <div class="mt-10 min-w-0 space-y-12 lg:col-start-1 lg:row-start-2 lg:mt-12">
+            <div class="mt-12 min-w-0 space-y-12 lg:col-start-1 lg:row-start-2 lg:mt-12">
               <ng-container [ngTemplateOutlet]="bodySlot" />
             </div>
           </div>

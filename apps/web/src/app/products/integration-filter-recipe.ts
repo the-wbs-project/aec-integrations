@@ -36,4 +36,4 @@ export const INTEGRATION_STATUS_CLASS = 'text-t-14 text-(--text-secondary)';
 
 /** "Clear filters": an in-text button with its x glyph. */
 export const INTEGRATION_CLEAR_CLASS =
-  'inline-flex min-h-6 items-center gap-1 rounded-(--radius-sm) text-t-14 font-semibold text-(--accent-primary) underline-offset-2 transition-colors hover:underline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
+  'inline-flex min-h-6 items-center gap-1 rounded-mark text-t-14 font-semibold text-(--accent-primary) underline-offset-2 transition-colors hover:underline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';

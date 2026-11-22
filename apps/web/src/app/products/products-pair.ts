@@ -789,7 +789,7 @@ function writePairViewCookie(mode: PairViewMode): void {
               <div [class]="side.offsetClass">
                 <div
                   aecCard
-                  class="px-6 py-5 text-(--text-primary)"
+                  class="p-6 text-(--text-primary)"
                   [attr.data-testid]="'pair-side-' + side.key"
                 >
                   <div class="flex min-w-0 items-center gap-4">
@@ -961,7 +961,7 @@ function writePairViewCookie(mode: PairViewMode): void {
                     <button
                       type="button"
                       (click)="showLatest()"
-                      class="mt-3 inline-flex min-h-6 items-center rounded-(--radius-sm) text-xs font-semibold
+                      class="mt-3 inline-flex min-h-6 items-center rounded-mark text-xs font-semibold
                       text-(--accent-primary) underline underline-offset-2 focus-visible:outline-3
                       focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
                       i18n="@@pair.version.showLatest"
@@ -1124,7 +1124,7 @@ function writePairViewCookie(mode: PairViewMode): void {
                      tertiary fails AA on Bone. -->
                   @if (m.glance; as g) {
                     <div
-                      class="rounded-panel bg-(--accent-warm) px-5 py-4"
+                      class="rounded-panel bg-(--accent-warm) px-6 py-4"
                       data-testid="pair-glance"
                     >
                       <h4 class="aec-overline text-(--text-secondary)" i18n="@@pair.glance.title">
@@ -1140,7 +1140,7 @@ function writePairViewCookie(mode: PairViewMode): void {
                             <dt class="text-xs text-(--text-secondary)" i18n="@@pair.glance.price">
                               Price
                             </dt>
-                            <dd class="mt-0.5 text-sm text-(--text-primary)">
+                            <dd class="mt-1 text-sm text-(--text-primary)">
                               <!-- AECI-1158 (§6.17.11): the owner's pricing page links the
                                  price, or reads "See pricing" when there is no price. A
                                  vendor-controlled destination, so the card links' rel. -->
@@ -1172,7 +1172,7 @@ function writePairViewCookie(mode: PairViewMode): void {
                             <dt class="text-xs text-(--text-secondary)" i18n="@@pair.glance.stage">
                               Release stage
                             </dt>
-                            <dd class="mt-0.5 text-sm text-(--text-primary)">
+                            <dd class="mt-1 text-sm text-(--text-primary)">
                               {{ g.stage }}
                             </dd>
                           </div>
@@ -1182,7 +1182,7 @@ function writePairViewCookie(mode: PairViewMode): void {
                             <dt class="text-xs text-(--text-secondary)" i18n="@@pair.glance.how">
                               How you get it
                             </dt>
-                            <dd class="mt-0.5 text-sm text-(--text-primary)">
+                            <dd class="mt-1 text-sm text-(--text-primary)">
                               @if (how.kind) {
                                 <span class="block">{{ how.kind }}</span>
                               }
@@ -1243,7 +1243,7 @@ function writePairViewCookie(mode: PairViewMode): void {
                             >
                               Last checked
                             </dt>
-                            <dd class="mt-0.5 text-sm tabular-nums text-(--text-primary)">
+                            <dd class="mt-1 text-sm tabular-nums text-(--text-primary)">
                               {{ g.lastChecked }}
                             </dd>
                           </div>
@@ -1293,7 +1293,7 @@ function writePairViewCookie(mode: PairViewMode): void {
                                 class="flex min-h-13 flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-control border bg-(--surface-base) py-1 ps-4 pe-1"
                                 [class]="r.rowClass"
                               >
-                                <span class="flex min-w-0 flex-col gap-0.5">
+                                <span class="flex min-w-0 flex-col gap-1">
                                   <span class="text-sm" [class]="r.nameClass">{{
                                     r.claim.data_object_name
                                   }}</span>

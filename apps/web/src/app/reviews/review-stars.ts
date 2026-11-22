@@ -22,7 +22,7 @@ import { Component, ChangeDetectionStrategy, computed, input } from '@angular/co
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'inline-flex' },
   template: `
-    <span class="inline-flex gap-0.5 leading-none" role="img" [attr.aria-label]="ariaLabel()">
+    <span class="inline-flex gap-1 leading-none" role="img" [attr.aria-label]="ariaLabel()">
       @for (n of positions; track n) {
         <span
           aria-hidden="true"

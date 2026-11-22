@@ -323,10 +323,7 @@ import { ProductIntegrationsTable } from './product-integrations-table';
                 </p>
               }
             </div>
-            <ul
-              class="m-0 grid list-none gap-0.5 p-0"
-              aria-labelledby="integrations-zero-resources"
-            >
+            <ul class="m-0 grid list-none gap-1 p-0" aria-labelledby="integrations-zero-resources">
               @if (p.tool_integrations_url) {
                 <li>
                   <a
@@ -373,7 +370,7 @@ import { ProductIntegrationsTable } from './product-integrations-table';
             class="flex gap-2 rounded-panel bg-(--accent-warm) p-4 text-t-14 leading-normal text-(--text-primary)"
             data-testid="integrations-zero-api-note"
           >
-            <aec-icon name="info" class="mt-0.5 shrink-0" decorative [size]="4" />
+            <aec-icon name="info" class="mt-1 shrink-0" decorative [size]="4" />
             <span i18n="@@products.detail.body.integrations.zero.apiNote"
               >An API is not an integration. We list an integration only when we can show that one
               exists.</span
@@ -384,7 +381,7 @@ import { ProductIntegrationsTable } from './product-integrations-table';
               class="flex gap-2 rounded-panel bg-(--surface-sunken) p-4 text-t-14 leading-normal text-(--text-secondary)"
               data-testid="integrations-zero-no-directory"
             >
-              <aec-icon name="info" class="mt-0.5 shrink-0" decorative [size]="4" />
+              <aec-icon name="info" class="mt-1 shrink-0" decorative [size]="4" />
               <span>{{ line }}</span>
             </p>
           }
@@ -658,7 +655,7 @@ import { ProductIntegrationsTable } from './product-integrations-table';
            that only powers edges. -->
       @if (!zero()) {
         <div
-          class="space-y-2 rounded-(--radius-lg) border border-dashed border-(--border-default)
+          class="space-y-2 rounded-panel border border-dashed border-(--border-default)
             bg-(--surface-sunken) p-6 text-sm text-(--text-secondary)"
         >
           <!-- §13.3b (AECI-710): an extension usually has no integrations with its
@@ -801,7 +798,7 @@ import { ProductIntegrationsTable } from './product-integrations-table';
         <!-- Chips, with or without a search, take the filters message (approved
              2026-11-16). A search alone keeps the search message. -->
         <p
-          class="rounded-(--radius-lg) border border-dashed border-(--border-default)
+          class="rounded-panel border border-dashed border-(--border-default)
               bg-(--surface-sunken) p-6 text-sm text-(--text-secondary)"
           data-testid="integrations-filter-empty"
         >
@@ -1234,7 +1231,7 @@ export class ProductIntegrationsSection {
   protected readonly rowClass =
     'grid gap-2 md:grid-cols-[8.5rem_minmax(0,1fr)] md:items-start md:gap-4';
   /** The row label: an overline, centred on the first line of 44px chips from md. */
-  protected readonly rowLabelClass = 'aec-overline text-(--text-secondary) md:pt-3.5';
+  protected readonly rowLabelClass = 'aec-overline text-(--text-secondary) md:pt-3';
   /**
    * The chips: one line that scrolls sideways below md, wrapping from md. The padding,
    * cancelled by a negative margin, keeps each chip's 3px focus ring at 3px inside the

@@ -84,7 +84,7 @@ export const LIST_YOUR_PRODUCT_OPENING: ClaimDialogOpening = {
                   >What happens next</span
                 >
               </h2>
-              <ol class="mt-6 space-y-5 lg:mt-8" aria-labelledby="list-your-product-next-heading">
+              <ol class="mt-6 space-y-6 lg:mt-8" aria-labelledby="list-your-product-next-heading">
                 <li class="flex gap-4">
                   <span [class]="stepNumber" aria-hidden="true">1</span>
                   <div>
@@ -92,7 +92,7 @@ export const LIST_YOUR_PRODUCT_OPENING: ClaimDialogOpening = {
                       Confirm your email.
                     </p>
                     <p
-                      class="mt-0.5 leading-relaxed text-(--text-secondary)"
+                      class="mt-1 leading-relaxed text-(--text-secondary)"
                       i18n="@@listYourProduct.next.confirm.body"
                     >
                       We email you a link. Your request is sent when you click it.
@@ -106,7 +106,7 @@ export const LIST_YOUR_PRODUCT_OPENING: ClaimDialogOpening = {
                       We review it.
                     </p>
                     <p
-                      class="mt-0.5 leading-relaxed text-(--text-secondary)"
+                      class="mt-1 leading-relaxed text-(--text-secondary)"
                       i18n="@@listYourProduct.next.review.body"
                     >
                       A person on our team confirms that you work for the company and checks the
@@ -128,7 +128,7 @@ export const LIST_YOUR_PRODUCT_OPENING: ClaimDialogOpening = {
                       We may add the listing.
                     </p>
                     <p
-                      class="mt-0.5 leading-relaxed text-(--text-secondary)"
+                      class="mt-1 leading-relaxed text-(--text-secondary)"
                       i18n="@@listYourProduct.next.add.body"
                     >
                       If it meets our conditions, we write it from the product's public pages and
@@ -143,7 +143,7 @@ export const LIST_YOUR_PRODUCT_OPENING: ClaimDialogOpening = {
                       You claim it.
                     </p>
                     <p
-                      class="mt-0.5 leading-relaxed text-(--text-secondary)"
+                      class="mt-1 leading-relaxed text-(--text-secondary)"
                       i18n="@@listYourProduct.next.claim.body"
                     >
                       We email you so you can claim the listing and keep it current.

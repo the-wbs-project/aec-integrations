@@ -128,8 +128,8 @@ abstract class PlanCta {
         routerLink="/contact"
         [class]="
           tone() === 'inverse'
-            ? 'rounded-sm font-semibold text-(--text-on-brand) underline underline-offset-4 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--focus-ring-on-brand)'
-            : 'rounded-sm font-semibold text-(--accent-primary) underline underline-offset-4 hover:text-(--accent-primary-hover) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)'
+            ? 'rounded-mark font-semibold text-(--text-on-brand) underline underline-offset-4 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--focus-ring-on-brand)'
+            : 'rounded-mark font-semibold text-(--accent-primary) underline underline-offset-4 hover:text-(--accent-primary-hover) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)'
         "
         i18n="@@planCta.contact.link"
         >Contact us</a
@@ -203,7 +203,7 @@ export class PlanCtaActionsComponent extends PlanCta {}
       </div>
       <div [class.lg:col-span-6]="split()" [class.xl:col-span-5]="split()">
         <div
-          class="mt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-6"
+          class="mt-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-6"
           [class.lg:mt-0]="split()"
           [class.lg:flex-col]="split()"
           [class.lg:items-start]="split()"
@@ -237,7 +237,7 @@ export class PlanCtaActionsComponent extends PlanCta {}
           }
         </div>
         @if (!portal() && !hideManaged()) {
-          <ol class="mt-5 space-y-1.5 text-sm">
+          <ol class="mt-6 space-y-2 text-sm">
             <li class="flex gap-2">
               <span class="font-semibold" aria-hidden="true">1.</span>
               <span>{{ copy.steps[0] }}</span>

@@ -115,7 +115,7 @@ type State = 'pending' | 'ready' | 'off';
             <ng-template ngComboboxPopup [combobox]="combobox" popupType="listbox">
               <!-- The panel renders only with a row, never blank. -->
               @if (hits().length > 0) {
-                <div class="aec-popover w-[min(24rem,calc(100vw-2rem))] p-1.5">
+                <div class="aec-popover w-[min(24rem,calc(100vw-2rem))] p-2">
                   <ul
                     ngComboboxWidget
                     ngListbox
@@ -126,14 +126,14 @@ type State = 'pending' | 'ready' | 'off';
                     focusMode="activedescendant"
                     selectionMode="explicit"
                     [attr.aria-label]="listLabel()"
-                    class="m-0 flex max-h-[min(26rem,60vh)] list-none flex-col gap-0.5 overflow-y-auto p-0"
+                    class="m-0 flex max-h-[min(26rem,60vh)] list-none flex-col gap-1 overflow-y-auto p-0"
                   >
                     @for (hit of hits(); track hit.objectID) {
                       <li
                         ngOption
                         [value]="hit"
                         [label]="optionLabel(hit)"
-                        class="flex min-h-11 cursor-pointer flex-col justify-center gap-0.5 rounded-mark px-3 py-2 data-[active=true]:bg-(--surface-sunken)"
+                        class="flex min-h-11 cursor-pointer flex-col justify-center gap-1 rounded-mark px-3 py-2 data-[active=true]:bg-(--surface-sunken)"
                       >
                         <span class="truncate text-t-12 text-(--text-secondary)"
                           >{{ hit.section }} / {{ hit.pageTitle }}</span
@@ -177,7 +177,7 @@ type State = 'pending' | 'ready' | 'off';
           -->
           @if (showEmpty()) {
             <p
-              class="m-0 mt-1.5 px-1 text-t-12 text-(--text-secondary)"
+              class="m-0 mt-2 px-1 text-t-12 text-(--text-secondary)"
               aria-hidden="true"
               i18n="@@app.docs.search.empty"
             >

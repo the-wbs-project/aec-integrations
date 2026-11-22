@@ -44,7 +44,7 @@ const PLANS_PAGE = 'vendors/plans';
   selector: 'app-docs-archive-page',
   imports: [RouterLink, AecProseTableScroll],
   template: `
-    <div class="px-4 pt-8 pb-14 md:px-6 lg:px-8 lg:pt-10">
+    <div class="px-4 pt-8 pb-16 md:px-6 lg:px-8 lg:pt-12">
       <article class="mx-auto w-full max-w-[42rem] min-w-0">
         <header>
           <h1 class="aec-docs-title text-(--text-primary)">{{ snapshot.title }}</h1>

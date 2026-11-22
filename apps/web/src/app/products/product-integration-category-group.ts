@@ -62,7 +62,7 @@ import { ProductIntegrationCard } from './product-integration-card';
       <h4
         [id]="headingId()"
         tabindex="-1"
-        class="rounded-sm text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
+        class="rounded-mark text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
       >
         <span class="font-display text-t-24 leading-tight font-semibold">{{ name() }}</span>
       </h4>

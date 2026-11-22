@@ -43,7 +43,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
           >
         </p>
         @if (record().headquarters; as hq) {
-          <p class="mt-0.5 truncate text-sm text-(--text-secondary)">{{ hq }}</p>
+          <p class="mt-1 truncate text-sm text-(--text-secondary)">{{ hq }}</p>
         }
       </div>
     </div>

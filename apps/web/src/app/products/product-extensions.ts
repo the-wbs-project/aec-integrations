@@ -34,7 +34,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 
 /** The "Built within" link card: the vendor card's shape, plus a visible focus ring. */
 const CARD_CLASS =
-  'flex h-full items-center gap-3 rounded-(--radius-lg) border border-(--border-default) ' +
+  'flex h-full items-center gap-3 rounded-panel border border-(--border-default) ' +
   'p-3 no-underline transition-colors hover:border-(--border-strong) ' +
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent-primary) ' +
   'focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-base)';
@@ -162,7 +162,7 @@ export class ProductBuiltWithin {
               >
               @if (extension.vendor; as v) {
                 <span
-                  class="mt-0.5 block text-t-13 break-words text-(--text-secondary)"
+                  class="mt-1 block text-t-13 break-words text-(--text-secondary)"
                   i18n="@@products.detail.extensions.byline"
                   >by {{ v.name }}</span
                 >

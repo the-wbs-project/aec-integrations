@@ -14,7 +14,7 @@ import { BAND_WRAP_CLASS } from '../shared/band-wrap';
  *   - The page header: white, no hero, a hairline across the full width below
  *     it. List pages are not detail pages, so there is no Forest band and no
  *     Bone here. The `/search` tablist sits on that hairline by a negative
- *     bottom margin equal to this header's bottom padding (32px, 40px from
+ *     bottom margin equal to this header's bottom padding (32px, 48px from
  *     `md`). Change one and you must change the other.
  *   - The body: the filter rail beside the results, 1 to 3 from `md`, with a
  *     48px gap. Below `md` the rail stacks above the results and
@@ -36,7 +36,7 @@ import { BAND_WRAP_CLASS } from '../shared/band-wrap';
   selector: 'aec-browse-layout',
   host: { class: 'block bg-(--surface-base) text-(--text-primary)' },
   template: `
-    <header class="border-b pt-6 pb-8 md:pt-8 md:pb-10">
+    <header class="border-b pt-6 pb-8 md:pt-8 md:pb-12">
       <div [class]="wrapClass">
         <ng-content select="[slot=header]" />
       </div>
@@ -79,5 +79,5 @@ export class BrowseLayout {
   );
 }
 
-/** 32px above the body and 64px below it, 40px and 96px from `md`. */
-const BODY_SPACING = 'pt-8 pb-16 md:pt-10 md:pb-24';
+/** 32px above the body and 64px below it, 48px and 96px from `md`. */
+const BODY_SPACING = 'pt-8 pb-16 md:pt-12 md:pb-24';

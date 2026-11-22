@@ -65,7 +65,7 @@ export const INTEGRATION_TABLE_FIRST_CELL_CLASS = 'px-4 py-3 font-semibold';
  * (DESIGN.md "Tertiary": never on muted).
  */
 export const INTEGRATION_TABLE_META_CLASS =
-  'mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-(--text-tertiary) transition-colors group-hover:text-(--text-secondary) group-focus-within:text-(--text-secondary)';
+  'mt-1 flex flex-wrap items-center gap-x-2 text-xs text-(--text-tertiary) transition-colors group-hover:text-(--text-secondary) group-focus-within:text-(--text-secondary)';
 
 /** The Connection cell, hidden below `md`. */
 export const INTEGRATION_TABLE_CONNECTION_CELL_CLASS =
@@ -76,4 +76,4 @@ export const INTEGRATION_TABLE_LINK_CELL_CLASS = 'px-4 py-3 text-end align-middl
 
 /** The row's pair-page link: the chevron, a 24px target (WCAG 2.2 SC 2.5.8). */
 export const INTEGRATION_TABLE_ROW_LINK_CLASS =
-  'inline-flex size-6 items-center justify-center rounded-sm align-middle focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  'inline-flex size-6 items-center justify-center rounded-mark align-middle focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';

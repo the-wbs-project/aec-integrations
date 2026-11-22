@@ -180,7 +180,7 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
             >
               How claiming works
             </p>
-            <ol class="mt-5 space-y-5" aria-labelledby="vp-how-heading">
+            <ol class="mt-6 space-y-6" aria-labelledby="vp-how-heading">
               <li class="flex gap-4">
                 <span [class]="stepNumber" aria-hidden="true">1</span>
                 <div>
@@ -188,7 +188,7 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                     Find your product
                   </p>
                   <p
-                    class="mt-0.5 leading-relaxed text-(--text-secondary)"
+                    class="mt-1 leading-relaxed text-(--text-secondary)"
                     i18n="@@vendorProgram.how.find.body"
                   >
                     Start your claim here, or press Claim on any of your product pages, then search
@@ -203,7 +203,7 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                     Claim the listing
                   </p>
                   <p
-                    class="mt-0.5 leading-relaxed text-(--text-secondary)"
+                    class="mt-1 leading-relaxed text-(--text-secondary)"
                     i18n="@@vendorProgram.how.claim.body"
                   >
                     Claiming is free. We set up your account when we approve your claim.
@@ -215,7 +215,7 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                 <div>
                   <p class="font-semibold" i18n="@@vendorProgram.how.review.title">We review it</p>
                   <p
-                    class="mt-0.5 leading-relaxed text-(--text-secondary)"
+                    class="mt-1 leading-relaxed text-(--text-secondary)"
                     i18n="@@vendorProgram.how.review.body"
                   >
                     A person reviews every claim and emails you the result.
@@ -433,7 +433,7 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                   fragment="compare-plans"
                   target="_blank"
                   rel="noopener"
-                  class="inline-flex items-center gap-1.5 rounded-sm underline decoration-(--border-strong) underline-offset-4 hover:text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
+                  class="inline-flex items-center gap-2 rounded-mark underline decoration-(--border-strong) underline-offset-4 hover:text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
                 >
                   <span i18n="@@vendorProgram.plans.compare"
                     >Compare every feature side by side</span
@@ -476,7 +476,7 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                   never changes where you appear, whether a review is published, or how an agreement
                   label is worked out.
                 </p>
-                <p class="mt-5">
+                <p class="mt-6">
                   <a
                     routerLink="/docs/trust/how-ranking-works"
                     target="_blank"
@@ -725,7 +725,7 @@ export class VendorProgramPage {
   protected readonly exampleUpdatedAt = this.resolveExampleUpdatedAt();
   protected readonly summaryClass =
     'flex cursor-pointer list-none items-center justify-between gap-4 py-4 font-semibold text-(--text-primary) hover:text-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary) [&::-webkit-details-marker]:hidden';
-  protected readonly answerClass = 'max-w-[60ch] pb-5 leading-relaxed text-(--text-secondary)';
+  protected readonly answerClass = 'max-w-[60ch] pb-6 leading-relaxed text-(--text-secondary)';
   /** The 1328px page wrap the header, footer and bands share. */
   protected readonly wrap = BAND_WRAP_CLASS;
   /**

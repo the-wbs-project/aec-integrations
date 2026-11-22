@@ -179,14 +179,14 @@ type Phase = 'idle' | 'short' | 'loading' | 'done' | 'error';
                 focusMode="activedescendant"
                 selectionMode="explicit"
                 [attr.aria-label]="listLabel()"
-                class="m-0 flex max-h-[min(20rem,50vh)] list-none flex-col gap-0.5 overflow-y-auto p-1.5"
+                class="m-0 flex max-h-[min(20rem,50vh)] list-none flex-col gap-1 overflow-y-auto p-2"
               >
                 @for (p of visible(); track p.id) {
                   <li
                     ngOption
                     [value]="p"
                     [label]="p.name"
-                    class="flex cursor-pointer items-center gap-3 rounded-(--radius-sm) px-2 py-1.5 data-[active=true]:bg-(--surface-sunken)"
+                    class="flex cursor-pointer items-center gap-3 rounded-mark px-2 py-2 data-[active=true]:bg-(--surface-sunken)"
                     data-product-option
                   >
                     <aec-logo-or-initial
@@ -211,7 +211,7 @@ type Phase = 'idle' | 'short' | 'loading' | 'done' | 'error';
             }
           </ng-template>
           @if (!hasList()) {
-            <p class="m-0 px-3 py-2.5 text-sm text-(--text-secondary)" data-product-combobox-state>
+            <p class="m-0 px-3 py-2 text-sm text-(--text-secondary)" data-product-combobox-state>
               {{ stateMessage() }}
             </p>
           }
@@ -318,7 +318,7 @@ export class ProductCombobox {
       ? 'border [border-color:var(--status-error)]'
       : 'border border-(--border-default)';
     return (
-      `w-full rounded-(--radius-md) ${border} bg-(--surface-base) py-2 ps-9 pe-16 text-sm` +
+      `w-full rounded-control ${border} bg-(--surface-base) py-2 ps-9 pe-16 text-sm` +
       ' text-(--text-primary) placeholder:text-(--text-secondary)' +
       ' focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)' +
       ' aria-disabled:cursor-not-allowed aria-disabled:bg-(--surface-sunken)'

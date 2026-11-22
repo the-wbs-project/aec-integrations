@@ -110,14 +110,14 @@ export class ListingSortIds {
               selectionMode="explicit"
               i18n-aria-label="@@listing.sort.listbox.aria"
               aria-label="Sort"
-              class="aec-popover z-50 flex min-w-[12rem] list-none flex-col gap-0.5 overflow-y-auto p-1.5"
+              class="aec-popover z-50 flex min-w-[12rem] list-none flex-col gap-1 overflow-y-auto p-2"
             >
               @for (opt of options(); track opt.value) {
                 <li
                   ngOption
                   [value]="opt"
                   [label]="opt.label"
-                  class="flex cursor-pointer items-center justify-between rounded-(--radius-sm) px-3 py-2 text-sm
+                  class="flex cursor-pointer items-center justify-between rounded-mark px-3 py-2 text-sm
                     text-(--text-primary) data-[active=true]:bg-(--surface-sunken)"
                 >
                   <span>{{ opt.label }}</span>

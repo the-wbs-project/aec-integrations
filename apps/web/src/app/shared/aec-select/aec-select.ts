@@ -119,8 +119,8 @@ let nextAecSelectId = 0;
               focusMode="activedescendant"
               selectionMode="explicit"
               [attr.aria-label]="label()"
-              class="aec-popover z-50 flex max-h-[18rem] w-full min-w-[12rem] list-none flex-col gap-0.5
-                overflow-y-auto p-1.5"
+              class="aec-popover z-50 flex max-h-[18rem] w-full min-w-[12rem] list-none flex-col gap-1
+                overflow-y-auto p-2"
             >
               @for (section of sections(); track $index) {
                 @if (section.heading === null) {
@@ -144,7 +144,7 @@ let nextAecSelectId = 0;
                         text-(--text-secondary) uppercase"
                       >{{ section.heading }}</span
                     >
-                    <ul role="none" class="m-0 flex list-none flex-col gap-0.5 p-0">
+                    <ul role="none" class="m-0 flex list-none flex-col gap-1 p-0">
                       @for (opt of section.options; track opt.value ?? ANY) {
                         <li ngOption [value]="opt" [label]="opt.label" [class]="optionClass">
                           <span>{{ opt.label }}</span>
@@ -191,7 +191,7 @@ export class AecSelect {
   protected readonly ANY = ' any';
 
   protected readonly optionClass =
-    'flex cursor-pointer items-start justify-between gap-3 rounded-(--radius-sm) px-3 py-2' +
+    'flex cursor-pointer items-start justify-between gap-3 rounded-mark px-3 py-2' +
     ' text-sm text-(--text-primary) data-[active=true]:bg-(--surface-sunken)';
 
   /** The options split into runs that share a `group`. A list with no groups is
@@ -219,7 +219,7 @@ export class AecSelect {
   protected readonly expanded = signal(false);
 
   protected readonly wrapperClass = computed(() =>
-    this.layout() === 'stacked' ? 'flex w-full flex-col gap-1.5' : 'inline-flex items-center gap-2',
+    this.layout() === 'stacked' ? 'flex w-full flex-col gap-2' : 'inline-flex items-center gap-2',
   );
 
   protected readonly labelClass = computed(() =>
