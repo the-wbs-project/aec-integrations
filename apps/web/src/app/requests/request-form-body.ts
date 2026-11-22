@@ -43,6 +43,7 @@ import { ClaimantFields } from './claimant-fields';
 import { RequestsApi, type RequestTargetRef } from './requests-api';
 import { VendorTermsBox, isAcceptedTermsRejection } from './vendor-terms-box';
 import { isReplayedEvent } from '../core/event-replay';
+import { FIELD_ERROR_CLASS } from '../shared/form-field/form-field-classes';
 
 type Entity = 'product' | 'vendor';
 type Kind = 'claim' | 'correction';
@@ -122,6 +123,8 @@ interface RequestModel {
   templateUrl: './request-form-body.html',
 })
 export class RequestFormBody implements OnInit {
+  /** A field's inline error: the shared recipe (AECI-1984). */
+  protected readonly errorClass = FIELD_ERROR_CLASS;
   private readonly api = inject(RequestsApi);
   private readonly injector = inject(Injector);
   private readonly analytics = inject(Analytics);

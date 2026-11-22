@@ -80,7 +80,7 @@
           />
           @if (showDateError(c.productId)) {
           <p
-            class="mt-1 text-xs font-medium text-(--text-primary)"
+            [class]="'mt-1 ' + errorClass"
             [attr.id]="idPrefix() + '-ban-term-end-error-' + c.productId"
             role="alert"
             i18n="@@admin.vendors.billing.banTerm.field.endError"

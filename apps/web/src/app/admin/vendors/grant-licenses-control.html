@@ -176,7 +176,7 @@
         />
         @if (endNotAfterStart()) {
         <p
-          class="mt-1 text-xs font-medium text-(--text-primary)"
+          [class]="'mt-1 ' + errorClass"
           [attr.id]="idPrefix() + '-licenses-end-error'"
           i18n="@@admin.vendors.licenses.field.endError"
         >
@@ -365,7 +365,7 @@
             />
             @if (dealEmailInvalid()) {
             <p
-              class="mt-1 text-xs font-medium text-(--text-primary)"
+              [class]="'mt-1 ' + errorClass"
               [attr.id]="idPrefix() + '-deal-email-error'"
               i18n="@@admin.vendors.billing.grants.deal.emailError"
             >
@@ -422,7 +422,7 @@
             />
             @if (dealVersionMismatch()) {
             <p
-              class="mt-1 text-xs font-medium text-(--text-primary)"
+              [class]="'mt-1 ' + errorClass"
               [attr.id]="idPrefix() + '-deal-version-error'"
               i18n="@@admin.vendors.billing.grants.deal.versionError"
             >
@@ -468,7 +468,7 @@
             />
             @if (dealSignedInFuture()) {
             <p
-              class="mt-1 text-xs font-medium text-(--text-primary)"
+              [class]="'mt-1 ' + errorClass"
               [attr.id]="idPrefix() + '-deal-signed-at-error'"
               i18n="@@admin.vendors.billing.grants.deal.signedAtError"
             >

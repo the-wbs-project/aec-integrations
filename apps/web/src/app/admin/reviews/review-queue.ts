@@ -42,6 +42,7 @@ import { compareText } from '@aeci/shared/text-sort';
 import { AdminSummaryStore } from '../admin-summary.store';
 import { ReviewerBansApi } from '../reviewers/reviewer-bans-api';
 import { AdminReviewsApi } from './admin-reviews-api';
+import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
 
 /** Score at/above which a review is flagged "high toxicity" and styled with a
  *  warning. 70 is our cutoff on the 0–100 toxicity score; the default sort
@@ -111,6 +112,8 @@ const BanReasonSchema = z.object({
   templateUrl: './review-queue.html',
 })
 export class ReviewQueue {
+  /** A field's inline error: the shared recipe (AECI-1984). */
+  protected readonly errorClass = FIELD_ERROR_CLASS;
   private readonly api = inject(AdminReviewsApi);
   private readonly bansApi = inject(ReviewerBansApi);
   private readonly summaryStore = inject(AdminSummaryStore);

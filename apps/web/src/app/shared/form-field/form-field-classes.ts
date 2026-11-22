@@ -10,8 +10,8 @@
  *
  * Users today: the claim dialog flow, `ClaimantFields`, `ProfileDetailsForm`,
  * `/welcome` and the `/account` "About you" section.
- * Light only. The strings are byte-identical to what the claim dialog had
- * inline, so moving them here changed no rendered class.
+ * Light only. Every field error in the app uses `FIELD_ERROR_CLASS`, so the
+ * error look is set here once (AECI-1984, the Same-Behavior Rule).
  */
 
 /** A field label, or a `legend` acting as one: the uppercase overline role. */
@@ -33,19 +33,32 @@ export const FIELD_INPUT_CLASS =
 /** Persistent help text, directly under the control. */
 export const FIELD_HINT_CLASS = 'text-xs text-(--text-secondary)';
 
-/** A field's inline error, under the hint. Carries `role="alert"`. */
-export const FIELD_ERROR_CLASS = 'text-xs font-medium text-(--text-primary)';
+/**
+ * A field's inline error, under the hint. Carries `role="alert"`.
+ * `aec-field-error` (unlayered, `styles.css`) puts a `--status-error` alert
+ * icon at the start, so colour is never the only signal (`DESIGN.md`
+ * "Inputs / Fields", Error). The text stays `--text-primary` for contrast.
+ * Set `aria-invalid="true"` on the control too: that is what paints its red
+ * edge.
+ */
+export const FIELD_ERROR_CLASS = 'aec-field-error text-xs font-medium text-(--text-primary)';
 
 /**
  * One bordered choice row wrapping a native radio or checkbox: the plan
- * question's card. 44px tall, tinted when checked.
+ * question's card. 44px tall, tinted when checked. `aec-choice-card`
+ * (unlayered, `styles.css`) draws the border, and turns it `--status-error`
+ * when the input inside has `aria-invalid="true"`.
  */
 export const CHOICE_CARD_CLASS =
-  'flex min-h-11 cursor-pointer items-center gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) has-[:checked]:bg-(--accent-primary-soft) has-[:checked]:font-semibold';
+  'aec-choice-card flex min-h-11 cursor-pointer items-center gap-3 rounded-(--radius-md) border bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) has-[:checked]:bg-(--accent-primary-soft) has-[:checked]:font-semibold';
 
-/** The native radio or checkbox inside a choice card. */
+/**
+ * The native radio or checkbox, in a choice card or on its own.
+ * `aec-choice-input` gives a bare box a `--status-error` outline when it has
+ * `aria-invalid="true"`.
+ */
 export const CHOICE_INPUT_CLASS =
-  'size-4 shrink-0 accent-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  'aec-choice-input size-4 shrink-0 accent-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
 /** The primary action: Continue, Send, Save. */
 export const BUTTON_PRIMARY_CLASS =

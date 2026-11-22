@@ -108,6 +108,16 @@ describe('TermsAcceptPage', () => {
     expect(document.activeElement).toBe(box);
   });
 
+  it('the error state carries the shared error look: icon on the message, red edge on the card (AECI-1984)', async () => {
+    const { fixture, el } = await setup();
+    await submit(fixture, el);
+    const box = el.querySelector<HTMLInputElement>('[data-testid="terms-accept-box"]')!;
+    // `.aec-choice-card:has([aria-invalid='true'])` paints the card's border red.
+    expect(box.closest('label')?.classList).toContain('aec-choice-card');
+    expect(box.classList).toContain('aec-choice-input');
+    expect(el.querySelector('#terms-accept-error')?.classList).toContain('aec-field-error');
+  });
+
   it('with the tick it posts the version, then goes to next', async () => {
     const { fixture, el, api, navigate } = await setup();
     tick(el);

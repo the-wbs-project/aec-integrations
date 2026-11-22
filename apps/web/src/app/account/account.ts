@@ -37,6 +37,7 @@ import { ReviewUpdatePanel } from './review-update-panel';
 import {
   BUTTON_PRIMARY_CLASS,
   BUTTON_SECONDARY_CLASS,
+  FIELD_ERROR_CLASS,
 } from '../shared/form-field/form-field-classes';
 
 /** Page size for the own-reviews list — matches the API default `perPage`. */
@@ -89,6 +90,8 @@ const REVIEWS_PER_PAGE = 24;
   templateUrl: './account.html',
 })
 export class AccountPage {
+  /** A field's inline error: the shared recipe (AECI-1984). */
+  protected readonly errorClass = FIELD_ERROR_CLASS;
   private readonly api = inject(AccountApi);
   private readonly auth = inject(AuthService);
   private readonly analytics = inject(Analytics);

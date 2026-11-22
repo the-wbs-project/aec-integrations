@@ -25,6 +25,7 @@ import {
 import type { Subscription } from 'rxjs';
 
 import { pickLogoFile, uploadLogo } from '../../shared/logo-input/logo-upload';
+import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
 
 /** Saves the logo and resolves to the value the server now holds. */
 export type SaveLogo = (logoUrl: string | null) => Promise<string | null>;
@@ -281,7 +282,7 @@ export type SaveLogo = (logoUrl: string | null) => Promise<string | null>;
             @if (invalidUrl()) {
               <p
                 [id]="fieldId() + '-url-error'"
-                class="mt-2 text-xs font-medium text-(--text-primary)"
+                [class]="'mt-2 ' + errorClass"
                 i18n="@@vendor.logo.dialog.urlInvalid"
               >
                 Enter a URL that starts with https://
@@ -390,6 +391,8 @@ export type SaveLogo = (logoUrl: string | null) => Promise<string | null>;
   styles: [':host { display: block; }'],
 })
 export class VendorLogoField {
+  /** A field's inline error: the shared recipe (AECI-1984). */
+  protected readonly errorClass = FIELD_ERROR_CLASS;
   /** Prefix for every id this control renders. */
   readonly fieldId = input.required<string>();
   /** The saved logo, from the server. */

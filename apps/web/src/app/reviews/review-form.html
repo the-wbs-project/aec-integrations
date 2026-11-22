@@ -227,6 +227,7 @@
             [(value)]="overallSel"
             (valueChange)="onOverallChange($event)"
             aria-labelledby="overall-label"
+            [attr.aria-invalid]="form.rating_overall().touched() && form.rating_overall().getError('standardSchema') ? 'true' : null"
             [attr.aria-describedby]="form.rating_overall().touched() && form.rating_overall().getError('standardSchema') ? 'overall-error' : null"
             class="m-0 flex list-none gap-1 p-0"
           >
@@ -246,7 +247,7 @@
           {
           <p
             id="overall-error"
-            class="text-xs font-medium text-(--text-primary)"
+            [class]="errorClass"
             role="alert"
             i18n="@@reviews.rating.overall.error"
           >
@@ -273,6 +274,7 @@
             [(value)]="onboardingSel"
             (valueChange)="onOnboardingChange($event)"
             aria-labelledby="onboarding-label"
+            [attr.aria-invalid]="form.rating_onboarding().touched() && form.rating_onboarding().getError('standardSchema') ? 'true' : null"
             [attr.aria-describedby]="form.rating_onboarding().touched() && form.rating_onboarding().getError('standardSchema') ? 'onboarding-error' : null"
             class="m-0 flex list-none gap-1 p-0"
           >
@@ -292,7 +294,7 @@
           form.rating_onboarding().getError('standardSchema')) {
           <p
             id="onboarding-error"
-            class="text-xs font-medium text-(--text-primary)"
+            [class]="errorClass"
             role="alert"
             i18n="@@reviews.rating.onboarding.error"
           >
@@ -328,12 +330,7 @@
             <strong class="text-(--text-primary)">Between 5 and 100 characters.</strong>
           </p>
           @if (form.title().touched() && form.title().getError('standardSchema')) {
-          <p
-            id="review-title-error"
-            class="text-xs font-medium text-(--text-primary)"
-            role="alert"
-            i18n="@@reviews.title.error"
-          >
+          <p id="review-title-error" [class]="errorClass" role="alert" i18n="@@reviews.title.error">
             Use between 5 and 100 characters.
           </p>
           }
@@ -366,12 +363,7 @@
             <strong class="text-(--text-primary)">Between 50 and 2,000 characters.</strong>
           </p>
           @if (form.body().touched() && form.body().getError('standardSchema')) {
-          <p
-            id="review-body-error"
-            class="text-xs font-medium text-(--text-primary)"
-            role="alert"
-            i18n="@@reviews.body.error"
-          >
+          <p id="review-body-error" [class]="errorClass" role="alert" i18n="@@reviews.body.error">
             Use between 50 and 2,000 characters.
           </p>
           }
@@ -523,12 +515,7 @@
             class="w-28 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           />
           @if (yearsTouched() && yearsInvalid()) {
-          <p
-            id="years-using-error"
-            class="text-xs font-medium text-(--text-primary)"
-            role="alert"
-            i18n="@@reviews.years.error"
-          >
+          <p id="years-using-error" [class]="errorClass" role="alert" i18n="@@reviews.years.error">
             Enter a whole number between 0 and 50.
           </p>
           }
