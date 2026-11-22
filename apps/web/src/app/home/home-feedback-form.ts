@@ -21,6 +21,7 @@ import { LandingApi, buildAttribution } from '../shared/landing/landing-api';
 import { isReplayedEvent } from '../core/event-replay';
 import { AecEarlyInput } from '../shared/form-field/early-input';
 import { AecConsentBox } from '../shared/form-field/consent-box';
+import { FIELD_LABEL_CLASS } from '../shared/form-field/form-field-classes';
 
 /** Standard-schema-validated subset of the feedback form. Only `features` /
  *  `tools` live in the Signal Forms model so `FeedbackSubmitSchema`'s `.refine`
@@ -77,7 +78,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         <div class="flex flex-col gap-1.5">
           <label
             for="home-feedback-features"
-            class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+            [class]="labelClass"
             i18n="@@home.feedback.features.label"
             >Features to build</label
           >
@@ -95,10 +96,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
         <!-- Tool ideas -->
         <div class="flex flex-col gap-1.5">
-          <label
-            for="home-feedback-tools"
-            class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-            i18n="@@home.feedback.tools.label"
+          <label for="home-feedback-tools" [class]="labelClass" i18n="@@home.feedback.tools.label"
             >Tools to cover</label
           >
           <textarea
@@ -126,10 +124,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
         <!-- Email (optional) -->
         <div class="flex flex-col gap-1.5">
-          <label
-            for="home-feedback-email"
-            class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-            i18n="@@home.feedback.email.label"
+          <label for="home-feedback-email" [class]="labelClass" i18n="@@home.feedback.email.label"
             >Email (optional)</label
           >
           <input
@@ -219,6 +214,8 @@ export class HomeFeedbackForm {
 
   /** Standalone optional fields (see `FeedbackModel`). */
   protected readonly email = signal('');
+  /** The shared field label (AECI-1850). */
+  protected readonly labelClass = FIELD_LABEL_CLASS;
   protected readonly subscribed = signal(false);
 
   protected readonly submitted = signal(false);

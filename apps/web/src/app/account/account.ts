@@ -36,7 +36,11 @@ import { ReviewStatusBadge } from './review-status-badge';
 import { ReviewUpdatePanel } from './review-update-panel';
 import { AecButton } from '../shared/button/button';
 import { AecCard } from '../shared/card/card';
-import { FIELD_ERROR_CLASS, FIELD_INPUT_CLASS } from '../shared/form-field/form-field-classes';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../shared/form-field/form-field-classes';
 import { AecFormSubmit } from '../shared/form-field/form-submit';
 import { AecEarlyInput } from '../shared/form-field/early-input';
 
@@ -146,6 +150,7 @@ export class AccountPage {
   /** The display-name field and its error: the shared field recipe (AECI-1806). */
   protected readonly inputClass = FIELD_INPUT_CLASS;
   protected readonly errorClass = FIELD_ERROR_CLASS;
+  protected readonly labelClass = FIELD_LABEL_CLASS;
 
   /** The `lg` section nav's links (AECI-987). Plain anchors with absolute hrefs. */
   protected readonly navLinkClass =
