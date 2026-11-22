@@ -275,8 +275,9 @@ async function wholePage(
  * on `/products/revit` at 1440px: exactly 10 pixels, every one on the two right corners
  * of the "Suggest a correction" button (x 1226 to 1227, y 630 to 658), each off by 1 in
  * one or more channels. Every computed property and every unrounded box on the page
- * matched between the two runs, and a later screenshot of the same loaded page differed
- * from the compared one at other corners in the same way. A level of 1 in 255 at a
+ * matched between the two runs. A third screenshot of the page from the same CI run (the
+ * one Playwright keeps when a context closes) differed from both compared screens at
+ * other rounded corners, again by 1 level. A level of 1 in 255 at a
  * corner pixel is not visible to a reader. So a pixel may differ by at most 1 per
  * channel, and at most 32 pixels may differ. A real first-paint change moves a colour
  * by many levels (the `::placeholder` defect moved text by about 30) or covers a
