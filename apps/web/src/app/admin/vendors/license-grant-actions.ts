@@ -32,6 +32,11 @@ import { AdminLicensesApi } from './admin-licenses-api';
  * No heading and no live region: `VendorDetail` owns the page's `role="status"`
  * region. Announcements leave through {@link announce}; the host refetches the billing
  * and the audit trail on {@link changed}.
+ *
+ * ── FOCUS (AECI-1994) ───────────────────────────────────────────────────────
+ * Opening the form focuses the reason, and Cancel returns focus to Withdraw. A refusal
+ * focuses its message, because the confirm button was disabled while the request ran
+ * and a disabled button drops focus.
  */
 @Component({
   selector: 'aec-license-grant-actions',
@@ -107,7 +112,12 @@ import { AdminLicensesApi } from './admin-licenses-api';
           </p>
         }
         @if (failedMessage()) {
-          <p role="alert" class="mt-2 text-sm font-medium text-(--text-primary)">
+          <p
+            #failedAlert
+            tabindex="-1"
+            role="alert"
+            class="mt-2 text-sm font-medium text-(--text-primary)"
+          >
             {{ failedMessage() }}
           </p>
         }
@@ -160,6 +170,7 @@ export class LicenseGrantActions {
 
   private readonly reasonInput = viewChild<ElementRef<HTMLTextAreaElement>>('reasonInput');
   private readonly trigger = viewChild<ElementRef<HTMLButtonElement>>('trigger');
+  private readonly failedAlert = viewChild<ElementRef<HTMLElement>>('failedAlert');
 
   protected openForm(): void {
     this.reason.set('');
@@ -200,6 +211,10 @@ export class LicenseGrantActions {
       );
     } catch (err) {
       this.failedMessage.set(withdrawErrorMessage(err));
+      // AECI-1994: the confirm button was disabled while the request ran, which drops focus.
+      afterNextRender(() => this.failedAlert()?.nativeElement.focus(), {
+        injector: this.injector,
+      });
     } finally {
       this.pending.set(false);
     }

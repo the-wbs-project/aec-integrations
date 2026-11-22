@@ -336,3 +336,13 @@ focus on purpose: into the form on open, back to the trigger on cancel or a gran
 message on a refusal. The ban-term date error is now a `role="alert"` live region. The grant
 control beside the panel had the same gaps and got the same fix. Component specs assert
 `document.activeElement` after each step. The rules are in `ADMIN_PANEL_SPEC.md` §5.7 and §5.8.
+
+**Same gap, five more controls (AECI-1994, 2026-11-22; found by reading the code, not yet re-run
+with Playwright).** Five inline controls on the vendor page dropped focus to `<body>` when the API
+refused a submit: the subscription row actions, the bulk subscription actions, the grant
+Withdraw, "Add a seat" and "Return records to AECi". Each refusal message now takes focus
+(`tabindex="-1"`). "Add a seat" now focuses the email field on open and returns focus to its
+button on Cancel. "Return records to AECi" returns focus to its button on
+Cancel. Component specs assert `document.activeElement`. The rules are in `ADMIN_PANEL_SPEC.md`
+§5.7. A successful action can still lose focus when the page reloads or the control
+disappears. AECI-2001 tracks that.

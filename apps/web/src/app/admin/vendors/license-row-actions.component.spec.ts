@@ -299,6 +299,9 @@ describe('LicenseRowActions', () => {
     expect(el.textContent).toContain('Stripe manages this subscription.');
     expect(el.querySelector('#host-1-license-end')).not.toBeNull();
     expect(host.changes).toHaveLength(0);
+    // AECI-1994: the disabled Save dropped focus, so the refusal takes it.
+    expect(document.activeElement?.getAttribute('role')).toBe('alert');
+    expect(document.activeElement?.textContent).toContain('Stripe manages this subscription.');
   });
 
   it('Cancel closes the form and returns focus to its button', async () => {

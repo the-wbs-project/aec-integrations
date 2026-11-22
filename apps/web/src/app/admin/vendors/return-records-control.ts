@@ -33,6 +33,11 @@ const REASON_MAX_LENGTH = 1000;
  * a dialog: the reason field is the confirmation, and no `BrnDialog` opens from an
  * effect. No heading and no live region: `VendorDetail` owns both, and
  * announcements leave through {@link announce}.
+ *
+ * ── FOCUS (AECI-1994) ───────────────────────────────────────────────────────
+ * Opening the confirm step focuses the reason, and Cancel returns focus to "Return
+ * records to AECi". A refusal focuses its message, because the confirm button was
+ * disabled while the request ran and a disabled button drops focus.
  */
 @Component({
   selector: 'aec-return-records-control',
@@ -71,6 +76,8 @@ export class ReturnRecordsControl {
   protected readonly blockedBySeats = computed(() => this.hasSeats() === true);
 
   private readonly reasonInput = viewChild<ElementRef<HTMLTextAreaElement>>('reasonInput');
+  private readonly trigger = viewChild<ElementRef<HTMLButtonElement>>('trigger');
+  private readonly failedAlert = viewChild<ElementRef<HTMLElement>>('failedAlert');
 
   protected open(): void {
     this.failedMessage.set('');
@@ -85,6 +92,7 @@ export class ReturnRecordsControl {
 
   protected cancel(): void {
     this.confirming.set(false);
+    afterNextRender(() => this.trigger()?.nativeElement.focus(), { injector: this.injector });
   }
 
   protected onReasonInput(event: Event): void {
@@ -115,6 +123,9 @@ export class ReturnRecordsControl {
       );
     } catch (err) {
       this.failedMessage.set(messageForError(err));
+      afterNextRender(() => this.failedAlert()?.nativeElement.focus(), {
+        injector: this.injector,
+      });
     } finally {
       this.pending.set(false);
     }
