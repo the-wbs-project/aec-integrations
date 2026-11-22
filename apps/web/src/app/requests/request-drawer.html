@@ -47,10 +47,7 @@
                 } }
               </p>
               }
-              <h2
-                brnDialogTitle
-                class="mt-1 font-display text-xl font-semibold tracking-tight text-(--text-primary)"
-              >
+              <h2 brnDialogTitle class="mt-1 font-display text-(--text-primary)">
                 @if (sentTo() !== null) { @switch (t.kind) { @case ('claim') { @if (sentConfirm()) {
                 <ng-container i18n="@@requests.sent.claim.confirm.title"
                   >Check your inbox</ng-container
