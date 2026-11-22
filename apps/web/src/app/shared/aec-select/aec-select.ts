@@ -10,6 +10,7 @@ import {
   output,
   signal,
 } from '@angular/core';
+import { FIELD_LABEL_CLASS, FIELD_LABEL_TYPE_CLASS } from '../form-field/form-field-classes';
 import { AecIcon } from '../icon/icon';
 
 /**
@@ -223,9 +224,7 @@ export class AecSelect {
   );
 
   protected readonly labelClass = computed(() =>
-    this.layout() === 'stacked'
-      ? 'block text-t-13 font-semibold tracking-[0.01em] text-(--text-secondary)'
-      : 'text-t-13 font-semibold tracking-[0.01em] text-(--text-secondary)',
+    this.layout() === 'stacked' ? FIELD_LABEL_CLASS : FIELD_LABEL_TYPE_CLASS,
   );
 
   protected readonly triggerClass = computed(() => {
