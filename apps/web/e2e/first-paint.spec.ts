@@ -214,7 +214,7 @@ test.describe('first paint equals the final paint (AECI-1854)', () => {
  * The whole page, not four elements (AECI-1854 audit). Scripts off, so both runs
  * hold exactly the server HTML. Every element must keep its box, display,
  * visibility, opacity, transform, background and colour, and a screenshot of the
- * first screen must match pixel for pixel, whether or not the full stylesheet
+ * first screen must match, up to raster noise (see RASTER_NOISE_PIXELS), whether or not the full stylesheet
  * has loaded. Content that renders only after hydration (the consent banner) is
  * not in this DOM: its rules come from the full stylesheet alone.
  */
@@ -267,6 +267,23 @@ async function wholePage(
   await context.close();
   return { elements, shot };
 }
+
+/**
+ * Raster noise the screenshot comparison accepts, and nothing more. In CI (Linux,
+ * software rendering) two paints of the same DOM and the same computed styles can
+ * antialias a rounded corner one level apart. Run 45007653563 (2026-11-22) showed it
+ * on `/products/revit` at 1440px: exactly 10 pixels, every one on the two right corners
+ * of the "Suggest a correction" button (x 1226 to 1227, y 630 to 658), each off by 1 in
+ * one or more channels. Every computed property and every unrounded box on the page
+ * matched between the two runs, and a later screenshot of the same loaded page differed
+ * from the compared one at other corners in the same way. A level of 1 in 255 at a
+ * corner pixel is not visible to a reader. So a pixel may differ by at most 1 per
+ * channel, and at most 32 pixels may differ. A real first-paint change moves a colour
+ * by many levels (the `::placeholder` defect moved text by about 30) or covers a
+ * region, and still fails.
+ */
+const RASTER_NOISE_DELTA = 1;
+const RASTER_NOISE_PIXELS = 32;
 
 interface PixelDiff {
   /** Pixels whose colour differs at all. */
@@ -371,10 +388,14 @@ test.describe('the whole server-rendered page paints the same before the stylesh
             contentType: 'text/plain',
           });
         }
-        expect(
-          diff.differ,
-          `first screen pixels (max channel delta ${diff.maxDelta}): ${diff.pixels.slice(0, 20).join('; ')}`,
-        ).toBe(0);
+        const detail = `max channel delta ${diff.maxDelta}: ${diff.pixels.slice(0, 20).join('; ')}`;
+        // No pixel may change by more than one level in any channel.
+        expect(diff.maxDelta, `first screen pixel colour (${detail})`).toBeLessThanOrEqual(
+          RASTER_NOISE_DELTA,
+        );
+        expect(diff.differ, `first screen pixels (${detail})`).toBeLessThanOrEqual(
+          RASTER_NOISE_PIXELS,
+        );
       });
     }
   }
