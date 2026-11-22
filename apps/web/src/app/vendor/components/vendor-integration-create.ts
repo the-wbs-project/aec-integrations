@@ -886,7 +886,11 @@ function emptyDraft(): Draft {
           </div>
           @if (claimNotice(); as notice) {
             @if (notice.id === dup.id) {
-              <p role="alert" [class]="errorClass + ' mt-2'" data-testid="create-dupe-notice">
+              <p
+                role="alert"
+                class="mt-2 max-w-prose text-xs font-medium text-(--text-primary)"
+                data-testid="create-dupe-notice"
+              >
                 {{ notice.message }}
               </p>
             }
