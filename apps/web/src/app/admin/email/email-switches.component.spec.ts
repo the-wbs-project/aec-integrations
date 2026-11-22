@@ -18,6 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AdminEmailSwitch, AdminEmailSwitchesResponse } from '@aeci/shared';
 
+import { expectTitleFirstDialog } from '../../core/testing/title-first-dialog.harness';
 import { AdminEmailApi } from './admin-email-api';
 import { EmailSwitches } from './email-switches';
 
@@ -113,7 +114,10 @@ const button = (el: HTMLElement, text: string) =>
   );
 
 beforeEach(() => TestBed.resetTestingModule());
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  document.querySelectorAll('.cdk-overlay-container').forEach((n) => n.replaceChildren());
+});
 
 describe('EmailSwitches', () => {
   it('gives a control to pausable templates only', async () => {
@@ -158,6 +162,14 @@ describe('EmailSwitches', () => {
       }),
     );
     expect(api.setSwitch).not.toHaveBeenCalled();
+  });
+
+  it('opens the confirmation as an alert dialog with focus on its title (AECI-1861)', async () => {
+    const { el, rerender } = await setup();
+    button(el, 'Pause landing-feedback')!.click();
+    await rerender();
+    await settle();
+    expectTitleFirstDialog('Pause landing-feedback?');
   });
 
   it('confirming pauses it, with the reason, updates the row and announces', async () => {

@@ -379,3 +379,36 @@ describe('VendorProfileForm — a field AECi locked (AECI-1237)', () => {
     expect(fixture.nativeElement.textContent).not.toContain('Something went wrong');
   });
 });
+
+// ── AECI-1943: the store hold ends with the form ────────────────────────────
+// A tab switch destroys this form. A dirty registration that outlived it would
+// make the store stash every later `me` payload for a form nobody can see.
+describe('VendorProfileForm — releases its store hold when destroyed (AECI-1943)', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        { provide: VendorApi, useValue: { updateProfile: vi.fn() } as Partial<VendorApi> },
+        VendorPortalStore,
+      ],
+    });
+  });
+
+  it('holds `profile` while dirty and lets go on destroy', () => {
+    const store = TestBed.inject(VendorPortalStore);
+    const fixture = TestBed.createComponent(VendorProfileForm);
+    fixture.componentRef.setInput('vendor', VENDOR);
+    fixture.detectChanges();
+
+    setInputValue(fixture, 'vendor-profile-website', 'https://unsaved.example.com');
+    expect(store.isDirty('profile')).toBe(true);
+    const release = vi.spyOn(store, 'releaseDirty');
+
+    fixture.destroy();
+    expect(store.isDirty('profile')).toBe(false);
+    // Release, not just clear, so a refresh set aside while dirty is applied.
+    expect(release).toHaveBeenCalledWith('profile');
+  });
+});

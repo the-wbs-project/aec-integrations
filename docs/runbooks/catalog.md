@@ -317,8 +317,8 @@ it. You are executing a decision, not making one.
    node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production --apply --allow-production --confirm-count <N>
    ```
 4. Afterwards: `db:reconcile-algolia-drift -- --env production` to measure orphans (purge with
-   `--apply --allow-production`), then `db:reconcile-counts -- --fix --allow-production` as an
-   independent check on the count repair.
+   `--apply --allow-production`), then `RECONCILE_ENV=production db:reconcile-counts` as an
+   independent check on the count repair (repair with `-- --fix --allow-production`).
 
 **Three things to know before you run it:**
 
@@ -329,7 +329,8 @@ it. You are executing a decision, not making one.
 - **A product retracted by hand still opens an entry.** The order for a product is
   `ops:retract-product` first, then `delete_product` upstream. That delete opens a journal entry
   for a row that is already gone, and the consumer parks product entries. Read back the 404, then
-  call `confirm_retractions` on that entry yourself, or the next audit goes red. Worked example:
+  call `confirm_retractions` on that entry yourself, or the next audit goes red. The CLI prints
+  this as its last follow-up ("Retracting a product or vendor by hand" below). Worked example:
   `scripts/ops/2026-10-cove-retraction/README.md` (AECI-1496).
 - **A held entry is not a finding.** Entries on the script's `HELD_RETRACTIONS` list are printed
   with their reason and do not fail the run. If the job is red, something *new* arrived.
@@ -380,6 +381,33 @@ before or after the retraction: a live product row always beats a mapping, so an
 seed is inert rather than harmful. Move rows themselves no longer cascade away with the
 product — that was the AECI-991 defect, and `apps/api/src/test/d1.spec.ts` pins the
 absence of the foreign key that caused it.
+
+---
+
+## Retracting a product or vendor by hand
+
+`ops:retract-product` and `ops:retract-vendor` (`apps/api/scripts/`) delete from D1 and de-index
+Algolia. On `--apply` they also mark the sitemap dirty (AECI-1945). They put `sitemap:dirty` in
+`TAXONOMY_KV` through `wrangler kv`, so the next `sitemap-rebuild` tick drops the URLs within
+15 minutes. A dry run writes nothing. A remote run needs a `CLOUDFLARE_API_TOKEN` with D1 Edit
+and Workers KV Storage Edit. A token with D1 Edit alone deletes the rows but cannot set the flag.
+
+Each run then prints the steps it cannot do itself, numbered in run order. Work down that list.
+For a production product it is:
+
+1. Mark the sitemap dirty by hand. This step appears only when the CLI's own write failed. The
+   command is the one in `docs/runbooks/alerts.md` "Sitemap is stale", step 3.
+2. Purge the edge cache with the `POST /admin/purge` body the run printed. It needs
+   `ADMIN_PURGE_TOKEN`. A vendor retraction says to run it on each tier you touched.
+3. Measure Algolia drift: `db:reconcile-algolia-drift -- --env production`.
+4. Check the product counts: `RECONCILE_ENV=production db:reconcile-counts`. A vendor run has no
+   such step, because a retractable vendor owns no product.
+5. Upstream. For a product, `delete_product` in the review app, read back the 404, then
+   `confirm_retractions` on the journal entry the delete opened. For a vendor, clear the record's
+   `supabase_vendor_id`, then delete it.
+
+Demo has no reconciler steps, because neither reconciler targets demo. Only production runs have an
+upstream step.
 
 ---
 

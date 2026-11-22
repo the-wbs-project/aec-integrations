@@ -279,6 +279,69 @@ describe('SectionNav', () => {
     });
   });
 
+  // AECI-1856 (ported from main to the redesigned bar): a section shorter than the spy's band
+  // (a short About) left the next section in the band too, and the spy named that one after
+  // the click. The spy is the observer without the stuck observer's `threshold: [1]`.
+  describe('a clicked section stays current (AECI-1856)', () => {
+    async function withSpy() {
+      const fixture = await setup();
+      const el = fixture.nativeElement as HTMLElement;
+      const observer = FakeObserver.instances.find((o) => !Array.isArray(o.options.threshold))!;
+      const spy = (...ids: string[]) => {
+        observer.callback(
+          ids.map((id) => {
+            const target = document.createElement('section');
+            target.id = id;
+            return { isIntersecting: true, target } as unknown as IntersectionObserverEntry;
+          }),
+          observer as unknown as IntersectionObserver,
+        );
+        fixture.detectChanges();
+      };
+      const click = (id: string) => {
+        const link = el.querySelector<HTMLAnchorElement>(`a[data-section-id="${id}"]`)!;
+        link.addEventListener('click', (e) => e.preventDefault(), { once: true });
+        link.dispatchEvent(new MouseEvent('click', { cancelable: true, bubbles: true }));
+        fixture.detectChanges();
+      };
+      const current = () =>
+        el.querySelector('a[aria-current="location"]')?.getAttribute('data-section-id');
+      return { spy, click, current };
+    }
+
+    it('keeps the clicked short section current when the next one enters the band too', async () => {
+      const { spy, click, current } = await withSpy();
+      spy('integrations');
+      expect(current()).toBe('integrations');
+      click('about');
+      // The jump puts About and the section after it in the band at once.
+      spy('about', 'how-teams-use-it');
+      expect(current()).toBe('about');
+    });
+
+    it('hands back to the spy once the reader scrolls', async () => {
+      const { spy, click, current } = await withSpy();
+      click('about');
+      spy('how-teams-use-it');
+      expect(current()).toBe('about');
+      window.dispatchEvent(new WheelEvent('wheel'));
+      spy('integrations');
+      expect(current()).toBe('integrations');
+    });
+
+    it('follows the spy when nothing was clicked', async () => {
+      const { spy, current } = await withSpy();
+      spy('how-teams-use-it');
+      expect(current()).toBe('how-teams-use-it');
+    });
+  });
+
+  it('drops sticky in print so the bar does not print over the page (AECI-1856)', async () => {
+    const host = ((await setup()).nativeElement as HTMLElement).querySelector('aec-section-nav')!;
+    expect(host.classList).toContain('sticky');
+    expect(host.classList).toContain('print:static');
+  });
+
   describe('counts', () => {
     it('prints a quiet tabular count only where the section has one', async () => {
       const el = (await setup()).nativeElement as HTMLElement;
@@ -364,10 +427,15 @@ describe('SectionNav', () => {
         const tag = tagOf(el)!;
         expect(tag).not.toBeNull();
         expect(tag.textContent!.trim()).toBe('Unclaimed');
-        // Inside the brand cluster, after the name, outside the "On this page" landmark.
+        // Inside the name element, after the name, outside the "On this page" landmark. The
+        // name element carries the responsive hiding, so the tag can never show without it.
         const brand = el.querySelector('[data-testid="section-nav-brand"]')!;
-        expect(brand.contains(tag)).toBe(true);
-        expect(brand.lastElementChild).toBe(tag);
+        const nameEl = brand.querySelector<HTMLElement>('[data-testid="section-nav-name"]')!;
+        expect(nameEl.contains(tag)).toBe(true);
+        expect(nameEl.lastElementChild).toBe(tag);
+        expect(nameEl.textContent).toContain('Bluebeam Revu');
+        expect(nameEl.className).toContain('hidden');
+        expect(nameEl.className).toContain('md:inline-flex');
         expect(tag.closest('nav')).toBeNull();
         // Information, not a control: no link, no button, no focus stop, no live region.
         expect(tag.querySelector('a, button, [tabindex]')).toBeNull();
@@ -380,9 +448,13 @@ describe('SectionNav', () => {
         expect(brand.textContent).not.toContain('not affiliated');
       });
 
-      it('shows the tag with no name too, beside the phone monogram', async () => {
+      // The owner, 2026-11: never "Unclaimed" without the product name beside it.
+      it('never shows the tag when the bar has no name', async () => {
         const el = await stuckWith('unclaimed', null);
-        expect(tagOf(el)!.textContent!.trim()).toBe('Unclaimed');
+        expect(tagOf(el)).toBeNull();
+        expect(el.querySelector('[data-testid="section-nav-brand"]')!.textContent).not.toContain(
+          'Unclaimed',
+        );
       });
 
       it('adds nothing for a claimed listing', async () => {

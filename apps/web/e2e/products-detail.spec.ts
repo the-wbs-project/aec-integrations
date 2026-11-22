@@ -293,6 +293,50 @@ test.describe('product detail — table names and section-nav location (AECI-831
     const nav = page.getByRole('navigation', { name: 'On this page' });
     await expect(nav.locator('a[aria-current="location"]')).toHaveCount(1);
   });
+
+  // AECI-1856: a click names its own section, even one shorter than the spy's
+  // band, where the next section used to take aria-current after the jump.
+  test('a clicked section link stays aria-current after the jump (AECI-1856)', async ({ page }) => {
+    await page.goto(`/products/${SLUG}`);
+    await untilHydrated(page.locator('aec-section-nav'));
+    const links = page
+      .getByRole('navigation', { name: 'On this page' })
+      .locator('a[data-section-id]');
+    const count = await links.count();
+    expect(count).toBeGreaterThanOrEqual(2);
+    for (let i = 0; i < count; i++) {
+      const link = links.nth(i);
+      await link.click();
+      // Let the smooth scroll and the spy's callbacks finish.
+      await page.waitForTimeout(800);
+      await expect(link).toHaveAttribute('aria-current', 'location');
+    }
+  });
+
+  // AECI-1856: in print the sticky bar and the metadata rail are static, so neither
+  // prints over the page. On the redesign's band shell the facts card (the Metadata
+  // aside) sits above the bar, so the check is that the two never overlap.
+  test('the section nav and the metadata rail are static in print (AECI-1856)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/products/${SLUG}`);
+    await page.evaluate(() => window.scrollTo(0, 1200));
+    await page.emulateMedia({ media: 'print' });
+    const position = (selector: string) =>
+      page
+        .locator(selector)
+        .first()
+        .evaluate((el) => getComputedStyle(el).position);
+    expect(await position('aec-section-nav')).toBe('static');
+    expect(['static', 'relative']).toContain(await position('aside[aria-label="Metadata"]'));
+    const navBox = await page.locator('aec-section-nav').boundingBox();
+    const railBox = await page.locator('aside[aria-label="Metadata"]').first().boundingBox();
+    expect(navBox && railBox).toBeTruthy();
+    const apart =
+      navBox!.y + navBox!.height <= railBox!.y || railBox!.y + railBox!.height <= navBox!.y;
+    expect(apart).toBe(true);
+  });
 });
 
 // AECI-1778 review: below md every hero action is on one line and 44px tall. From 480px
@@ -544,14 +588,23 @@ test.describe('product facts card claim button (AECI-1925)', () => {
 /**
  * Ruling 41 (Q61, docs/LEGAL_COUNSEL_RECORD.md): once the hero has scrolled away, the stuck
  * bar keeps the unclaimed status on screen with an "Unclaimed" tag. The bar follows the hero:
- * the tag shows exactly where the hero shows the Unclaimed note. `fixture-acme-connector` is the
- * product with no vendor record, `revit` an unclaimed one with a vendor, `fixture-procore` the
- * claimed one. `e2e/section-nav.spec.ts` covers the tag's fit at 320, 390 and 1440px.
+ * the tag shows exactly where the hero shows the Unclaimed note, and only beside the product
+ * name. Below 768px the bar shows no name, so it shows no tag either (the owner, 2026-11).
+ * `fixture-acme-connector` is the product with no vendor record, `revit` an unclaimed one with a
+ * vendor, `fixture-procore` the claimed one. `e2e/section-nav.spec.ts` covers the fit.
  */
 test.describe('product sticky bar Unclaimed tag (ruling 41, AECI-1931)', () => {
+  test.beforeEach(async ({ page }) => {
+    // Any PostHog request is answered here, so nothing leaves the machine.
+    await page.route(
+      (url) => url.hostname === 'posthog.com' || url.hostname.endsWith('.posthog.com'),
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
+    );
+  });
+
   for (const width of [1440, 390]) {
     for (const slug of ['revit', 'fixture-acme-connector', 'fixture-procore']) {
-      test(`${slug} at ${width}px: the tag shows only where the hero note does`, async ({
+      test(`${slug} at ${width}px: the tag shows only where the hero note and the name do`, async ({
         page,
         request,
       }) => {
@@ -576,10 +629,15 @@ test.describe('product sticky bar Unclaimed tag (ruling 41, AECI-1931)', () => {
         });
         await expect(nav).toHaveAttribute('data-stuck', '');
         const tag = nav.getByTestId('section-nav-unclaimed');
-        if (claim === 'unclaimed') {
+        if (claim === 'unclaimed' && width >= 768) {
           await expect(note).not.toBeInViewport();
+          await expect(nav.getByTestId('section-nav-name')).toBeVisible();
           await expect(tag).toBeVisible();
           await expect(tag).toHaveText('Unclaimed');
+        } else if (claim === 'unclaimed') {
+          // A phone bar shows no name, so never the tag alone.
+          await expect(nav.getByTestId('section-nav-name')).toBeHidden();
+          await expect(tag).toBeHidden();
         } else {
           await expect(tag).toHaveCount(0);
         }

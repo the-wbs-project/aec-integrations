@@ -45,13 +45,23 @@
 //                      ~/.config/aeci/gsc-sa.json.
 //   AECI_ORIGIN        Default https://www.aecintegrations.com.
 //   GSC_SITE           Default sc-domain:aecintegrations.com.
+//   AECI_D1_DATABASE   --from-d1 only. Default aeci-app-production-us, the live
+//                      production D1 (ENAM). Not aeci-app-production: outside
+//                      apps/api/wrangler.jsonc that name is the retired APAC
+//                      copy (AECI-839, AECI-1941).
+//   GSC_TRIAGE_DIR     Where saved results and reports go. Default
+//                      .context/gsc-triage at the repo root.
 //
 // Flags:
 //   --apply            Clear the rows marked done. Without it nothing is written.
 //   --from-d1          Read the worklist from production D1 with a read-only
 //                      SELECT through wrangler, instead of the admin API. Uses
 //                      the wrangler OAuth login on The WBS Project account.
-//                      Clearing still goes through the admin API.
+//                      Clearing still goes through the admin API. Before it
+//                      reads the queue it checks the database is live: a
+//                      job_runs row from the last 48 hours. A stale or empty
+//                      database stops the run, so a wrong name cannot read as
+//                      an empty queue.
 //   --limit N          Inspect only the first N rows of the worklist.
 //   --priority N       Only rows of this priority tier (1 to 4).
 //   --recheck-hours N  Re-inspect rows whose saved result is older than N
@@ -89,7 +99,9 @@ const ADMIN_COOKIE = process.env.AECI_ADMIN_COOKIE;
 const INSPECT_CONCURRENCY = 4;
 const PER_PAGE = 100;
 const RECHECK_MS = Number(args['recheck-hours']) * 3600e3;
-const TRIAGE_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '.context', 'gsc-triage');
+const TRIAGE_DIR =
+  process.env.GSC_TRIAGE_DIR ??
+  join(dirname(fileURLToPath(import.meta.url)), '..', '.context', 'gsc-triage');
 const STATE_PATH = join(TRIAGE_DIR, 'state.json');
 
 function fail(message) {
@@ -97,10 +109,18 @@ function fail(message) {
   process.exit(1);
 }
 
-// The Cloudflare account that holds aeci-app-production since the 2026-09
+// The Cloudflare account that holds the production D1 since the 2026-09
 // account move (scripts/ops/2026-09-wbs-account-move).
 const D1_ACCOUNT_ID = process.env.AECI_D1_ACCOUNT_ID ?? '004dc1af737b22a8aa83b3550fa9b9d3';
-const D1_DATABASE = process.env.AECI_D1_DATABASE ?? 'aeci-app-production';
+// The Cloudflare name of the live production D1 (ENAM, id 1f4378db-…). The script
+// runs wrangler from the OS temp dir, so the name is looked up on the account, not
+// through apps/api/wrangler.jsonc. There `aeci-app-production` still resolves to this
+// id on purpose, but on the account that name is the retired APAC copy (AECI-1941,
+// scripts/ops/2026-10-prod-d1-us-move/README.md).
+const D1_DATABASE = process.env.AECI_D1_DATABASE ?? 'aeci-app-production-us';
+// A live production D1 writes job_runs rows many times a day. None in this window
+// means the name reached a stale copy or the wrong database.
+const LIVE_DB_MAX_AGE_MS = 48 * 3600e3;
 
 if (!ADMIN_TOKEN && !ADMIN_COOKIE && (args.apply || !args['from-d1'])) {
   fail('set AECI_ADMIN_TOKEN or AECI_ADMIN_COOKIE. See docs/runbooks/gsc-reindex.md, step 0.');
@@ -194,6 +214,24 @@ function readWorklistFromD1() {
       return { parsed: null, run };
     }
   };
+  const failed = (parsed) => !Array.isArray(parsed) || parsed[0]?.success !== true;
+  const wranglerFailure = (run) =>
+    `wrangler d1 execute failed on ${D1_DATABASE} (exit ${run.status}).\n${(run.stderr || run.stdout).slice(-600)}`;
+
+  // Is this the live database? An empty queue is a normal answer, so it cannot be
+  // the test. The retired APAC copy answers the queue read with zero rows.
+  const live = execute('SELECT MAX(started_at) AS newest FROM job_runs');
+  if (failed(live.parsed)) fail(wranglerFailure(live.run));
+  const newest = live.parsed[0].results[0]?.newest ?? null;
+  // `!(age <= max)` so an unparseable timestamp (NaN) fails too.
+  if (!newest || !(Date.now() - Date.parse(newest) <= LIVE_DB_MAX_AGE_MS)) {
+    fail(
+      `${D1_DATABASE} is not the live production database: its newest job_runs row is ${
+        newest ?? 'missing'
+      }. Set AECI_D1_DATABASE to the live name (aeci-app-production-us). See docs/runbooks/gsc-reindex.md.`,
+    );
+  }
+
   const base = 'id, url, priority, reason, source, queued_at';
   let { parsed, run } = execute(query(`${base}, last_changed_at`));
   // Before migration 0064 the column does not exist. Read without it; decide()
@@ -204,11 +242,7 @@ function readWorklistFromD1() {
     );
     ({ parsed, run } = execute(query(base, false)));
   }
-  if (!Array.isArray(parsed) || parsed[0]?.success !== true) {
-    fail(
-      `wrangler d1 execute failed (exit ${run.status}).\n${(run.stderr || run.stdout).slice(-600)}`,
-    );
-  }
+  if (failed(parsed)) fail(wranglerFailure(run));
   const rows = parsed[0].results;
   return { rows, total: rows.length };
 }

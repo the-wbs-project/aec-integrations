@@ -88,6 +88,16 @@ export function canonicalUrl(path: string): string {
  * in step. Must be called within an injection context.
  */
 export function listingCanonicalUrl(path: string, pageParam: string | null): string {
+  return canonicalUrl(listingCanonicalPath(path, pageParam));
+}
+
+/**
+ * The path half of {@link listingCanonicalUrl}: `path?page=N` from page 2, else the
+ * bare path. Pure, so it can run outside an injection context: the listing
+ * controller rebuilds the canonical from it whenever `?page=` changes on a client
+ * navigation (AECI-1904).
+ */
+export function listingCanonicalPath(path: string, pageParam: string | null): string {
   const page = parseIndexPage(pageParam);
-  return canonicalUrl(page > 1 ? `${path}?page=${page}` : path);
+  return page > 1 ? `${path}?page=${page}` : path;
 }
