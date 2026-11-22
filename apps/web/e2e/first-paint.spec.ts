@@ -174,7 +174,11 @@ async function paintAt(
   // full stylesheet started, so both reads see a settled frame.
   await page.evaluate(async () => {
     await document.fonts.ready;
-    await Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined)));
+    // An infinite animation (a spinner, a pulse) never finishes, so it is not waited on.
+    const finite = document
+      .getAnimations()
+      .filter((a) => a.effect?.getComputedTiming().endTime !== Infinity);
+    await Promise.all(finite.map((a) => a.finished.catch(() => undefined)));
   });
   const paint = await readPaint(page);
   await context.close();
@@ -234,7 +238,11 @@ async function wholePage(
   await page.goto(url, { waitUntil: 'load' });
   await page.evaluate(async () => {
     await document.fonts.ready;
-    await Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined)));
+    // An infinite animation (a spinner, a pulse) never finishes, so it is not waited on.
+    const finite = document
+      .getAnimations()
+      .filter((a) => a.effect?.getComputedTiming().endTime !== Infinity);
+    await Promise.all(finite.map((a) => a.finished.catch(() => undefined)));
   });
   const elements = await page.evaluate(() =>
     Array.from(document.body.querySelectorAll('*')).map((el) => {
@@ -315,7 +323,7 @@ test.describe('the whole server-rendered page paints the same before the stylesh
  * back 1.5s, cold, so hydration and the data run while the page has only the
  * inlined CSS. The home "Most viewed" row was a data shift: it filled in after
  * hydration. AECI-1792 put it in the server HTML with a height floor. The
- * `/products` grid is kept by hydration, not rebuilt. Both stay at no shift.
+ * `/products` grid is kept by hydration since #1344. Both stay at no shift.
  */
 test.describe('no layout shift while the stylesheet is late (AECI-1854)', () => {
   for (const path of ['/', '/products']) {
