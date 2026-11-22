@@ -734,7 +734,12 @@ test.describe('the Unclaimed tag in the stuck bar (ruling 41)', () => {
   const UNCLAIMED = 'revit';
   const CLAIMED = 'fixture-procore';
 
-  test.beforeEach(async ({ request }) => {
+  test.beforeEach(async ({ page, request }) => {
+    // Any PostHog request is answered here, so nothing leaves the machine.
+    await page.route(
+      (url) => url.hostname === 'posthog.com' || url.hostname.endsWith('.posthog.com'),
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
+    );
     const status = async (slug: string) => {
       const res = await request.get(`/api/products/${slug}`);
       if (!res.ok()) return null;
@@ -761,10 +766,15 @@ test.describe('the Unclaimed tag in the stuck bar (ruling 41)', () => {
     return nav;
   }
 
-  // 640px is a 1280px screen at 200% zoom.
-  for (const width of [1440, 640, 390, 320]) {
-    test(`an unclaimed product's stuck bar shows the tag at ${width}px`, async ({ page }) => {
-      await page.setViewportSize({ width, height: width > 500 ? 900 : 760 });
+  // The tag lives inside the name element, so it shows exactly where the name does: from
+  // md (768px). Below md the bar shows our monogram and no name, so no tag either (the
+  // owner, 2026-11: never "Unclaimed" without the product name). 640px is a 1280px screen
+  // at 200% zoom.
+  for (const width of [1440, 768]) {
+    test(`an unclaimed product's stuck bar shows the name and the tag at ${width}px`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
       const nav = await stuckOn(page, UNCLAIMED);
       const tag = nav.getByTestId('section-nav-unclaimed');
       await expect(tag).toBeVisible();
@@ -772,11 +782,11 @@ test.describe('the Unclaimed tag in the stuck bar (ruling 41)', () => {
       await expect(tag).toBeInViewport({ ratio: 1 });
       // Information only: nothing to click or focus inside it.
       await expect(tag.locator('a, button, [tabindex]')).toHaveCount(0);
-      // From md the name sits before it. Below md the monogram does, and there is no name.
-      if (width >= 768) {
-        const name = await page.locator('aec-product-detail h1').first().innerText();
-        await expect(nav.getByTestId('section-nav-brand')).toContainText(name.trim());
-      }
+      // The name sits before it, in the same element.
+      const name = (await page.locator('aec-product-detail h1').first().innerText()).trim();
+      const nameEl = nav.getByTestId('section-nav-name');
+      await expect(nameEl).toBeVisible();
+      await expect(nameEl).toContainText(name);
       // The tag never covers the links: at least one link sits fully clear of it, in the row.
       const box = (await tag.boundingBox())!;
       const clear = await nav.locator('nav a').evaluateAll((links, edge) => {
@@ -788,12 +798,30 @@ test.describe('the Unclaimed tag in the stuck bar (ruling 41)', () => {
       expect(clear, 'a section link is fully visible beside the tag').toBeGreaterThan(0);
       await expectNoSidewaysScroll(page, 'the tag never makes the page scroll sideways');
       // The bar keeps its height.
-      expect(Math.round(await navBottom(page))).toBe(width >= 768 ? 73 : 65);
+      expect(Math.round(await navBottom(page))).toBe(73);
+    });
+  }
+
+  for (const width of [640, 390, 320]) {
+    test(`an unclaimed product's stuck bar shows neither the name nor the tag at ${width}px`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 760 });
+      const nav = await stuckOn(page, UNCLAIMED);
+      await expect(nav.getByTestId('section-nav-brand').locator('img:visible')).toHaveAttribute(
+        'src',
+        /monogram-light\.svg/,
+      );
+      await expect(nav.getByTestId('section-nav-name')).toBeHidden();
+      await expect(nav.getByTestId('section-nav-unclaimed')).toBeHidden();
+      expect(await nav.evaluate((el) => (el as HTMLElement).innerText)).not.toContain('Unclaimed');
+      await expectNoSidewaysScroll(page);
+      expect(Math.round(await navBottom(page))).toBe(65);
     });
   }
 
   test("a claimed product's stuck bar has no tag", async ({ page }) => {
-    for (const width of [1440, 390]) {
+    for (const width of [1440, 768, 390]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`/products/${CLAIMED}`);
       const nav = page.locator('aec-section-nav');

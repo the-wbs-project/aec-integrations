@@ -544,14 +544,23 @@ test.describe('product facts card claim button (AECI-1925)', () => {
 /**
  * Ruling 41 (Q61, docs/LEGAL_COUNSEL_RECORD.md): once the hero has scrolled away, the stuck
  * bar keeps the unclaimed status on screen with an "Unclaimed" tag. The bar follows the hero:
- * the tag shows exactly where the hero shows the Unclaimed note. `fixture-acme-connector` is the
- * product with no vendor record, `revit` an unclaimed one with a vendor, `fixture-procore` the
- * claimed one. `e2e/section-nav.spec.ts` covers the tag's fit at 320, 390 and 1440px.
+ * the tag shows exactly where the hero shows the Unclaimed note, and only beside the product
+ * name. Below 768px the bar shows no name, so it shows no tag either (the owner, 2026-11).
+ * `fixture-acme-connector` is the product with no vendor record, `revit` an unclaimed one with a
+ * vendor, `fixture-procore` the claimed one. `e2e/section-nav.spec.ts` covers the fit.
  */
 test.describe('product sticky bar Unclaimed tag (ruling 41, AECI-1931)', () => {
+  test.beforeEach(async ({ page }) => {
+    // Any PostHog request is answered here, so nothing leaves the machine.
+    await page.route(
+      (url) => url.hostname === 'posthog.com' || url.hostname.endsWith('.posthog.com'),
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
+    );
+  });
+
   for (const width of [1440, 390]) {
     for (const slug of ['revit', 'fixture-acme-connector', 'fixture-procore']) {
-      test(`${slug} at ${width}px: the tag shows only where the hero note does`, async ({
+      test(`${slug} at ${width}px: the tag shows only where the hero note and the name do`, async ({
         page,
         request,
       }) => {
@@ -576,10 +585,15 @@ test.describe('product sticky bar Unclaimed tag (ruling 41, AECI-1931)', () => {
         });
         await expect(nav).toHaveAttribute('data-stuck', '');
         const tag = nav.getByTestId('section-nav-unclaimed');
-        if (claim === 'unclaimed') {
+        if (claim === 'unclaimed' && width >= 768) {
           await expect(note).not.toBeInViewport();
+          await expect(nav.getByTestId('section-nav-name')).toBeVisible();
           await expect(tag).toBeVisible();
           await expect(tag).toHaveText('Unclaimed');
+        } else if (claim === 'unclaimed') {
+          // A phone bar shows no name, so never the tag alone.
+          await expect(nav.getByTestId('section-nav-name')).toBeHidden();
+          await expect(tag).toBeHidden();
         } else {
           await expect(tag).toHaveCount(0);
         }

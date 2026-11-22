@@ -54,7 +54,8 @@ const FADE_PX = 40;
  *
  * **An unclaimed listing adds an "Unclaimed" tag** beside the name (ruling 41, Q61 in
  * `docs/LEGAL_COUNSEL_RECORD.md`), from `claimStatus`. It is the stuck cluster's last item, so
- * it too renders only while stuck. Below `md` it follows the monogram. A static chip, no link.
+ * it too renders only while stuck. It lives inside the name element, so it is hidden wherever
+ * the name is (below `md`, or a page with no name). A static chip, no link.
  *
  * **Links keep the query (AECI-1843).** The app ships `<base href="/">`, so a bare `href="#id"`
  * resolves to `/#id`. The hrefs come from `injectInPageHrefFor()` (`shared/in-page-href.ts`):
@@ -208,26 +209,32 @@ const FADE_PX = 40;
             aria-label="AEC Integrations home"
             ><img ngSrc="/branding/monogram-light.svg" width="32" height="32" alt=""
           /></a>
+          <!-- The name and, on an unclaimed listing, the "Unclaimed" tag share one wrapper
+               (ruling 41, Q61 in LEGAL_COUNSEL_RECORD.md: "beside the product name"). The tag
+               exists only inside the name element, so wherever the name is hidden (below md,
+               or no name at all) the tag is hidden with it. The hero's status chip recipe.
+               Information, not a link. It never shrinks; the name truncates first. -->
           @if (pageName(); as name) {
             <span
-              class="hidden min-w-12 max-w-[200px] items-center gap-3 text-t-16 text-(--text-secondary) md:inline-flex"
+              class="hidden min-w-0 items-center gap-3 md:inline-flex"
+              data-testid="section-nav-name"
             >
-              <span aria-hidden="true" class="shrink-0">›</span>
-              <span class="truncate">{{ name }}</span>
+              <span
+                class="inline-flex min-w-12 max-w-[200px] items-center gap-3 text-t-16 text-(--text-secondary)"
+              >
+                <span aria-hidden="true" class="shrink-0">›</span>
+                <span class="truncate">{{ name }}</span>
+              </span>
+              @if (claimStatus() === 'unclaimed') {
+                <aec-chip
+                  class="shrink-0"
+                  tone="quiet"
+                  data-testid="section-nav-unclaimed"
+                  i18n="@@products.detail.nav.unclaimed"
+                  >Unclaimed</aec-chip
+                >
+              }
             </span>
-          }
-          <!-- Ruling 41 (Q61, LEGAL_COUNSEL_RECORD.md): an unclaimed listing carries a short
-               "Unclaimed" tag beside the name, at every width (below md it follows the
-               monogram, because the name is not shown there). The hero's status chip recipe.
-               Information, not a link. It never shrinks; the name truncates first. -->
-          @if (claimStatus() === 'unclaimed') {
-            <aec-chip
-              class="shrink-0"
-              tone="quiet"
-              data-testid="section-nav-unclaimed"
-              i18n="@@products.detail.nav.unclaimed"
-              >Unclaimed</aec-chip
-            >
           }
         </div>
       }

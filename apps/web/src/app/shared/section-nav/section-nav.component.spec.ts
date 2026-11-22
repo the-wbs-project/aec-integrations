@@ -364,10 +364,15 @@ describe('SectionNav', () => {
         const tag = tagOf(el)!;
         expect(tag).not.toBeNull();
         expect(tag.textContent!.trim()).toBe('Unclaimed');
-        // Inside the brand cluster, after the name, outside the "On this page" landmark.
+        // Inside the name element, after the name, outside the "On this page" landmark. The
+        // name element carries the responsive hiding, so the tag can never show without it.
         const brand = el.querySelector('[data-testid="section-nav-brand"]')!;
-        expect(brand.contains(tag)).toBe(true);
-        expect(brand.lastElementChild).toBe(tag);
+        const nameEl = brand.querySelector<HTMLElement>('[data-testid="section-nav-name"]')!;
+        expect(nameEl.contains(tag)).toBe(true);
+        expect(nameEl.lastElementChild).toBe(tag);
+        expect(nameEl.textContent).toContain('Bluebeam Revu');
+        expect(nameEl.className).toContain('hidden');
+        expect(nameEl.className).toContain('md:inline-flex');
         expect(tag.closest('nav')).toBeNull();
         // Information, not a control: no link, no button, no focus stop, no live region.
         expect(tag.querySelector('a, button, [tabindex]')).toBeNull();
@@ -380,9 +385,13 @@ describe('SectionNav', () => {
         expect(brand.textContent).not.toContain('not affiliated');
       });
 
-      it('shows the tag with no name too, beside the phone monogram', async () => {
+      // The owner, 2026-11: never "Unclaimed" without the product name beside it.
+      it('never shows the tag when the bar has no name', async () => {
         const el = await stuckWith('unclaimed', null);
-        expect(tagOf(el)!.textContent!.trim()).toBe('Unclaimed');
+        expect(tagOf(el)).toBeNull();
+        expect(el.querySelector('[data-testid="section-nav-brand"]')!.textContent).not.toContain(
+          'Unclaimed',
+        );
       });
 
       it('adds nothing for a claimed listing', async () => {
