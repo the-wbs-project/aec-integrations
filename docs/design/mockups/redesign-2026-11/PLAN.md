@@ -2,28 +2,29 @@
 
 ## 1. Status and how to use this document
 
-Nothing in this document is built. It is a plan, and it is not yet a build contract.
+**Built (marked 2026-11-22, AECI-1820).** The public pages and the shared shell are built on the hold branch `redesign/on-hold-2026-11-16`. They reach `main` only after Chris has verified them. Ruling R2's follow-up says nothing ships half built. The vendor portal and admin page bodies are deferred (R2). The demand captures are deferred until after go-live (§11.1, 2026-11-18).
 
-**Legal impact:** decision — the mock-ups order integrations and closest matches by inputs only a Managed vendor can change, which the Terms of Service say never happens, and Chris has not ruled on the ordering rule.
+This document is now the design record, not the build truth. Sections 2 to 10 and 12 to 16 are the plan as written on 2026-11-13, kept for the record, with a few dated notes where a ruling changed them. The §9.5 table is ticked with the commits that made each doc current. Where the plan differs from the build, `DESIGN.md` and the specs in §9.5 describe what was built. Section 11 records every decision and ruling.
+
+**Legal impact:** none — ruling R1 (AECI-1732, 2026-11-14) keeps existing orders and makes every new on-page list A to Z, so no order reads an input a paid plan can change. Each build issue carried its own line.
 
 | Field | Value |
 | --- | --- |
 | Written | 2026-11-13 |
-| Work happened | 2026-11-11 to 2026-11-13 |
-| Linear issue | AECI-1571, status In Progress, project Pilot |
-| Follow-up issue | AECI-1679, the weekly interest chart, Backlog |
-| Branch | `chris/aeci-1571-pair-page-with-no-integration-say-so-show` |
-| Conductor workspace | `tirana-v1` |
-| Code written | None |
+| Work happened | 2026-11-11 to 2026-11-13. Built 2026-11-14 to 2026-11-22. |
+| Linear issue | AECI-1571 closed with no code. The build umbrella is AECI-1720. |
+| Follow-up issue | AECI-1679, the weekly interest chart, under AECI-1731 and blocked by AECI-1831 |
+| Branch | `redesign/on-hold-2026-11-16`. Main is merged into it by fast-forward syncs. |
+| Code written | PRs #1274 to #1434. The first went to `main` and `batch/redesign-shell`. `main` was reverted to its 2026-11-13 state (#1320), and the work continued on the hold branch. |
 | Linear breakdown | 117 issues under AECI-1720 and the SEO epic AECI-1731. The map is `BUILD_PLAN.md`. |
-| Spec this would amend | `docs/STAGE_1_5_SPEC.md` §11 |
+| Spec it amended | `docs/STAGE_1_5_SPEC.md` §11, and every doc in §9.5 |
 
 How to use it:
 
-- Read section 2 for the short version.
-- Read section 11 before planning any build. It lists the decisions Chris has not made.
-- Read section 7 before touching any ordering. It is the one place this work can break a public promise.
-- Open the mock-ups in `mockups/`. They are the visual truth. Section 14 says how.
+- Read `DESIGN.md` for how a built surface looks and behaves.
+- Read section 11 for every ruling Chris made, with its date and source.
+- Read section 7 for why the ordering rule exists. It is the one place this work could break a public promise.
+- Open the mock-ups in `mockups/`. They were the visual anchor. Section 14 says how.
 - Treat every number, product name and logo in the mock-ups as invented sample data.
 
 Terms used throughout:
@@ -216,6 +217,8 @@ Chris asked to limit sizes and weights. The audit went from 36 distinct sizes to
 
 Clashes 9 and 17 decided this section.
 
+*As built: two sizes joined the ramp. `--t-48` (48px) is the score figure, ruling A3 of 2026-11-16. `--t-statement-wide` caps the empty pair page headline at 51px, and Chris ruled on 2026-11-20 that it ships as built. `DESIGN.md` §3 has the ramp.*
+
 ### 4.3 Spacing, radius and elevation
 
 | Property | Decided values | Clash |
@@ -263,6 +266,8 @@ Two of these rulings cost the design something. Section 10.3 covers them.
 - **The initial tile must not look lesser.** It carries no label and no muted styling.
 - **No vendor logo or vendor colour in the sticky bar**, on any listing.
 
+*Changed 2026-11-16 by counsel's ruling 34 (AECI-1826, AECI-1769): an unclaimed listing shows no vendor brand colour on any page, its own page included. The logo rule above is unchanged: an unclaimed product's own page may show its logo at 32px or smaller.*
+
 ### 4.6 Motion
 
 | Rule | Value | Clash |
@@ -297,7 +302,7 @@ Structure:
 | Trades | Top 7 | Most products first |
 
 - **Each facet column ends with its own "See all" link.**
-- **Key categories default to four**: AI, Project management, BIM authoring, Accounting and ERP. Chris asked for AI. I picked the other three, and he has not confirmed them.
+- **Key categories default to four**: AI, Project management, BIM authoring, Accounting and ERP. Chris asked for AI. I picked the other three. *Ruling R4 (AECI-1735, 2026-11-14) confirmed all four in this order.*
 - **A footer line states the rule**: "Key categories are chosen by AEC Integrations. Other lists show most products first. Phases in project order."
 - **No vendor or product names appear in the menu.** No "Popular", "New" or "Featured" badges.
 - **The card is off by default.** A "How we rank" card existed in earlier versions. It does not fit beside five columns.
@@ -792,24 +797,26 @@ Clash 45 requires these to go to Chris one by one before any build.
 
 ### 9.5 Other docs that go stale
 
-| Doc | What changes |
-| --- | --- |
-| `DESIGN.md` | Most sections, per 9.1 |
-| `PRODUCT.md` | The position on brand colour as a ground, and on icons |
-| `docs/BRAND_GUIDELINES.md` | Colour use, icons, a reversed wordmark |
-| `docs/STAGE_1_5_SPEC.md` | §11.3 to §11.5: the page template, the no-bridge ruling, the new modules, the ordering rule |
-| `docs/STAGE_1_SPEC.md` | §4.2 product page |
-| `docs/API_CONTRACTS.md` | Every new or widened endpoint |
-| `docs/DATABASE_SCHEMA.md` | The two capture tables, the pair on a request |
-| `docs/CACHE_STRATEGY.md` | Tags for the new reads and the header counts |
-| `docs/NOTIFICATIONS.md` | The watch email. It is generated from the registry, so the registry changes. |
-| `docs/email.md` | The watch email template |
-| `docs/ANALYTICS.md` | Events for the new controls, and the public use of view counts |
-| `docs/STAGE_2_PAID_TIERS_SPEC.md` | The firewall section, for on-page ordering and the new test |
-| `docs/TESTING_STRATEGY.md` | The new firewall test |
-| The "How ranking works" help page | See 8.3 |
-| The Privacy Policy | See 8.3 |
-| `ANGULAR_STYLE_GUIDE.md` | The lint rule map, if the colour guard changes |
+Each row is ticked with the commits that made it current (AECI-1820, 2026-11-22). "This PR" is the AECI-1820 close-out.
+
+| Doc | What changes | Current as of |
+| --- | --- | --- |
+| `DESIGN.md` | Most sections, per 9.1 | ✅ #1282 to #1294 (AECI-1740 to AECI-1746), then each build PR. This PR fixed the smooth-scroll note, the anchor and the pages that waited for mock-ups 10 to 12. |
+| `PRODUCT.md` | The position on brand colour as a ground, and on icons | ✅ #1292 (AECI-1745). This PR removed the "until the shell batch lands" lines and added the Forest feature card. |
+| `docs/BRAND_GUIDELINES.md` | Colour use, icons, a reversed wordmark | ✅ #1292, #1284 (AECI-1754). This PR removed the "until the shell batch lands" lines and added the Forest feature card. |
+| `docs/STAGE_1_5_SPEC.md` | §11.3 to §11.5: the page template, the no-bridge ruling, the new modules, the ordering rule | ✅ #1281 (AECI-1821), #1286 (AECI-1838), #1353 (AECI-1827, AECI-1835), #1434 (AECI-1894). This PR marked the deferred captures and the merged AECI-1823, and added the redesign note to §13.3. |
+| `docs/STAGE_1_SPEC.md` | §4.2 product page | ✅ §4.1 by #1331 (AECI-1792). This PR rewrote §4.2 for the built band page. |
+| `docs/API_CONTRACTS.md` | Every new or widened endpoint | ✅ #1274 (AECI-1773), #1275 (AECI-1781), #1276 (AECI-1822), #1336 (AECI-1785), #1353 (the alternatives read and `pair_slug`). No change needed. |
+| `docs/DATABASE_SCHEMA.md` | The two capture tables, the pair on a request | ✅ #1353: a pair correction records the other product in `context_product_id`. The capture tables are not built (deferred). No change needed. |
+| `docs/CACHE_STRATEGY.md` | Tags for the new reads and the header counts | ✅ #1307 (the Browse menu bakes no counts), #1353 (closest-match tags). No change needed. |
+| `docs/NOTIFICATIONS.md` | The watch email. It is generated from the registry, so the registry changes. | ✅ Not built. The watch email ships with the deferred captures. No change needed. |
+| `docs/email.md` | The watch email template | ✅ Not built, as above. No change needed. |
+| `docs/ANALYTICS.md` | Events for the new controls, and the public use of view counts | ✅ The redesign added no event. The "Most viewed" row reads the AECI-1572 view counts, unchanged. No change needed. |
+| `docs/STAGE_2_PAID_TIERS_SPEC.md` | The firewall section, for on-page ordering and the new test | ✅ #1293 (AECI-1814), #1319 (AECI-1841), #1337, #1340. This PR marked closest matches covered and recorded ruling 63. |
+| `docs/TESTING_STRATEGY.md` | The new firewall test | ✅ #1293, #1432. This PR added the redesign's guard specs. |
+| The "How ranking works" help page | See 8.3 | ✅ Version 1.2, #1434 (AECI-1894). Its recorded date is set on production day. |
+| The Privacy Policy | See 8.3 | ✅ Not needed yet. Its capture lines (AECI-1825) ship with the deferred captures. |
+| `ANGULAR_STYLE_GUIDE.md` | The lint rule map, if the colour guard changes | ✅ #1300 (AECI-1752), #1376 (AECI-1919), #1410 (AECI-1937). This PR added the redesign's gates to §24. |
 
 ## 10. Known defects in the mock-ups
 
@@ -849,7 +856,7 @@ Measured on 2026-11-12, before the rulings were applied. They need re-measuring.
 | 9 | Section headings got smaller. The bands feel quieter. | Review after the type ramp is settled |
 | 18 | The first card is wider than the rest and has slack space. | Drop the wide lead card |
 
-Chris has not answered these.
+Ruling R3 (2026-11-14) answered clashes 8 and 18: the figures go back up and the wide lead card goes. Clash 9 was not ruled.
 
 ### 10.4 Content that is wrong or invented
 
@@ -870,32 +877,103 @@ Chris has not answered these.
 - No contrast audit after the rulings were applied.
 - The `impeccable` in-browser overlay. The command-line detector ran in its place.
 
-## 11. Open decisions
+## 11. Decisions and rulings
 
-| # | Question | Options | My recommendation | Blocks |
-| --- | --- | --- | --- | --- |
-| 1 | What replaces the hero ring on the product page? | Keep the ring. A category hub with counts. A pair finder. A data flow map. A project phase strip. The two ratings. No visual. | A category hub with a pair finder under it. It features no product, so no ranking rule is needed. | Workstream E |
-| 2 | What is the ordering rule for new lists? | The four options in 7.6 | Ruled 2026-11-14 (R1): new lists A to Z, existing orders kept. See 7.8 | A, C, E |
-| 3 | If a count is used, how is it made payment-proof? | AECi-recorded flows only. Open confirmation to Free. | Ruled 2026-11-14 (R1): no new list uses a count. Taxonomy term counts accepted as they are, follow-up AECI-1836, see 7.4 | C |
-| 4 | Does the Browse menu keep the "How we rank" card? | Off. A band under the columns. | Off | D |
-| 5 | Which key categories sit beside AI, and how many? | 3, 4 or 5. Mine are Project management, BIM authoring, Accounting and ERP. | Four, after checking real counts | D |
-| 6 | Do the score figures go back up, and does the wide lead card go? | Yes or no to each | Yes to both | E |
-| 7 | Which correction entry style? | Inline strip. "Is this right?" prompt. | **Ruled 2026-11-14 (AECI-1737, R6):** as mock-up 5's default shows it, the inline strip. (was: Inline strip) | A |
-| 8 | What is the look-up count floor? | 10, or another number | **Ruled 2026-11-14 (AECI-1738, R7):** the count is hidden below 10. (was: 10) | B |
-| 9 | How long is a watch address kept? | Until the email is sent. 12 months. | **Ruled 2026-11-14 (AECI-1738, R7):** deleted when the email is sent, or at 12 months, whichever is first. (was: Delete on send, or at 12 months, whichever is first) | B, F |
-| 10 | Do "I need this too" and "Watch" stay inside AECI-1571? | Inside. Separate issues. | **Ruled 2026-11-14 (AECI-1738, R7):** separate issues. The captures ship apart from the empty pair page. (was: Separate issues) | A, B |
-| 11 | Does "I need this too" show its count publicly? | Yes. Chris said he likes the count. | **Ruled 2026-11-14 (AECI-1738, R7):** yes, above the same floor of 10. (was: Yes, above the same floor as look-ups) | B |
-| 12 | Does the "Reviewed" date return on the maintenance chip? | Yes or no | Yes. The column exists. | E |
-| 13 | Do review excerpts show role and years of use? | Yes. Keep company type. | Yes. Company type breaks the Privacy Policy. | E |
-| 14 | What colour is the active bar in the section nav? | Clay to match the header. Forest for contrast. | Clay | D |
-| 15 | Is the redesign site-wide, and in what order? | This page only. Product and pair pages. Everything. | Tokens and header first, then the pair and product pages, then the rest | D, E |
-| 16 | Is the data object filter fair to Free vendors? | Ship it. Measure first. | **Ruled 2026-11-14 (AECI-1737, R6):** built as mock-up 5 shows it. The AECI-1816 measurement ran 2026-11-14: 0 Managed integrations in production, so it is cleared to build. The count and empty state must say rows with no recorded data objects are left out. Re-run once a licensed vendor owns integrations. (was: Measure how uneven data objects are before shipping) | A, E |
-| 17 | How many products are in the AI category today? | Unknown | Check before making it a headline link | D |
-| 18 | Who makes the reversed wordmark? | Unknown | File it with the design language work | D |
-| 19 | Does the category chart on the empty product page stay? | Yes or no. It is a new aggregate. | Cut it for now | E |
-| 20 | Does the 58-integration list group by category by default? | Grouped. One list. | Grouped, raised under the same-behaviour rule | E |
-| 21 | Does trades, phases and audiences get the same key-item treatment as categories? | Yes or no | No | D |
-| 22 | Does the pair page move its matches up under the hero? | Yes or no | **Ruled 2026-11-14 (AECI-1737, R6):** no. Matches stay where mock-up 5 has them. (was: Yes) | A |
+Every decision the plan left open is ruled. The table keeps the original question and recommendation. The "Outcome" column says who decided it, when, and where it is recorded. Section 11.1 lists the rulings Chris made during the build. Section 11.2 lists decisions the build team made that Chris did not rule.
+
+| # | Question | Options | Recommendation (2026-11-13) | Outcome | Blocks |
+| --- | --- | --- | --- | --- | --- |
+| 1 | What replaces the hero ring on the product page? | Keep the ring. A category hub with counts. A pair finder. A data flow map. A project phase strip. The two ratings. No visual. | A category hub with a pair finder under it. It features no product, so no ranking rule is needed. | **Ruled 2026-11-14 (R3, AECI-1734, "A"):** a category hub with a pair finder under it. Built by AECI-1787 (#1340). | Workstream E |
+| 2 | What is the ordering rule for new lists? | The four options in 7.6 | A to Z | **Ruled 2026-11-14 (R1, AECI-1732):** new lists A to Z, existing orders kept. See 7.8 | A, C, E |
+| 3 | If a count is used, how is it made payment-proof? | AECi-recorded flows only. Open confirmation to Free. | No count in a new list | **Ruled 2026-11-14 (R1):** no new list uses a count. Taxonomy term counts accepted as they are (AECI-1814, "A, create a ticket to address later"). **Ruled again 2026-11-20 (ruling 63, AECI-1836):** leave the term counts as they are, option 1. See 7.4 | C |
+| 4 | Does the Browse menu keep the "How we rank" card? | Off. A band under the columns. | Off | **Ruled 2026-11-14 (R4, AECI-1735, "A"):** off. | D |
+| 5 | Which key categories sit beside AI, and how many? | 3, 4 or 5. Mine are Project management, BIM authoring, Accounting and ERP. | Four, after checking real counts | **Ruled 2026-11-14 (R4, "A"):** AI, Project management, BIM authoring, Accounting and ERP, in that order. Seven items per column. Production counts were 69, 62, 15 and 92 that day, all above the floor of 5. | D |
+| 6 | Do the score figures go back up, and does the wide lead card go? | Yes or no to each | Yes to both | **Ruled 2026-11-14 (R3, "A"):** yes to both. Ruling A3 (2026-11-16) set the figure at 48px. Ruling A8 (2026-11-16) drops the wide lead card everywhere except `/products`. | E |
+| 7 | Which correction entry style? | Inline strip. "Is this right?" prompt. | Inline strip | **Ruled 2026-11-14 (AECI-1737, R6):** as mock-up 5's default shows it, the inline strip. | A |
+| 8 | What is the look-up count floor? | 10, or another number | 10 | **Ruled 2026-11-14 (AECI-1738, R7):** the count is hidden below 10. Not built: the captures are deferred (11.1, 2026-11-18). | B |
+| 9 | How long is a watch address kept? | Until the email is sent. 12 months. | Delete on send, or at 12 months, whichever is first | **Ruled 2026-11-14 (AECI-1738, R7):** deleted when the email is sent, or at 12 months, whichever is first. Not built, as above. | B, F |
+| 10 | Do "I need this too" and "Watch" stay inside AECI-1571? | Inside. Separate issues. | Separate issues | **Ruled 2026-11-14 (AECI-1738, R7):** separate issues. The captures ship apart from the empty pair page. | A, B |
+| 11 | Does "I need this too" show its count publicly? | Yes. Chris said he likes the count. | Yes, above the same floor as look-ups | **Ruled 2026-11-14 (AECI-1738, R7):** yes, above the same floor of 10. Not built, as above. | B |
+| 12 | Does the "Reviewed" date return on the maintenance chip? | Yes or no | Yes. The column exists. | **Ruled 2026-11-14 (R3, "A"):** yes. `main` then retired the chip (AECI-1666, 2026-11-17). The date shows in the "About this listing" panel. | E |
+| 13 | Do review excerpts show role and years of use? | Yes. Keep company type. | Yes. Company type breaks the Privacy Policy. | **Built as recommended (AECI-1784, #1335):** role and years of use, no company. A build decision under the Privacy Policy, not a ruling. | E |
+| 14 | What colour is the active bar in the section nav? | Clay to match the header. Forest for contrast. | Clay | **Ruled 2026-11-14 (R3, "A"):** Clay. | D |
+| 15 | Is the redesign site-wide, and in what order? | This page only. Product and pair pages. Everything. | Tokens and header first, then the pair and product pages, then the rest | **Ruled 2026-11-14 (R2, AECI-1733):** "Just do public pages for now". The shared header, footer, button and input are one component everywhere. Portal and admin page bodies wait until Chris has verified the public pages. | D, E |
+| 16 | Is the data object filter fair to Free vendors? | Ship it. Measure first. | Measure how uneven data objects are before shipping | **Ruled 2026-11-14 (AECI-1737, R6):** built as mock-up 5 shows it. The AECI-1816 measurement ran 2026-11-14: 0 Managed integrations in production, so it is cleared to build. The count and empty state must say rows with no recorded data objects are left out. Re-run once a licensed vendor owns integrations. | A, E |
+| 17 | How many products are in the AI category today? | Unknown | Check before making it a headline link | **Checked 2026-11-14 (AECI-1735):** 69 in production. A check, not a ruling. | D |
+| 18 | Who makes the reversed wordmark? | Unknown | File it with the design language work | **Built by AECI-1754 (#1284):** `branding/wordmark-on-dark.svg`, Bone type, the Clay connector, a transparent field. A build issue, not a ruling. | D |
+| 19 | Does the category chart on the empty product page stay? | Yes or no. It is a new aggregate. | Cut it for now | **Ruled 2026-11-14 (R3, "A"):** cut. | E |
+| 20 | Does the 58-integration list group by category by default? | Grouped. One list. | Grouped, raised under the same-behaviour rule | **Ruled 2026-11-14 (R3 and R5, "A"):** grouped by default, with the jump rail and "Show more". Illustrated empty states and a sort control rejected (R5, AECI-1736). | E |
+| 21 | Does trades, phases and audiences get the same key-item treatment as categories? | Yes or no | No | **Ruled 2026-11-14 (R4, "A"):** no. | D |
+| 22 | Does the pair page move its matches up under the hero? | Yes or no | Yes | **Ruled 2026-11-14 (AECI-1737, R6):** no. Matches stay where mock-up 5 has them. | A |
+
+### 11.1 Rulings Chris made during the build
+
+Each row is a ruling by Chris. "Chat" means he answered the build orchestrator in the Conductor chat. The orchestrator's notes hold his words, and the "Applied in" column names where the build recorded it. Legal counsel's rulings are in `docs/LEGAL_COUNSEL_RECORD.md` and are not repeated here.
+
+| Date | Ruling | Source | Applied in |
+| --- | --- | --- | --- |
+| 2026-11-14 | The portal and admin inherit the new shared button and input: "A. We will do admin pages i just want a good natural stopping point where i can verify the work". | Slack, AECI-1733 comment | `DESIGN.md` §5 "Scope", AECI-1758, AECI-1764 |
+| 2026-11-14 | The portal and admin wear the shared header and footer: "A. This is a temporary stopping point, we won't go live half built." | Slack, AECI-1733 comment | `DESIGN.md` §5, AECI-1771, AECI-1776 |
+| 2026-11-14 | The orchestrator may open PRs and squash-merge them once the required checks are green and an independent review passes: "Yes". | Slack, AECI-1733 comment | `BUILD_PLAN.md` §6 |
+| 2026-11-14 | The row agreement roll-up: "A". The weakest flow decides, and a `single_source` row reads "Confirmed by one company". | Slack, AECI-1781 comment | `STAGE_2_ATTESTATIONS_SPEC.md` §4.3, `DESIGN.md` §5 |
+| 2026-11-14 | Taxonomy term counts stay one accepted exception in the firewall test: "A, create a ticket to address later". | Slack, AECI-1814 comment | `STAGE_2_PAID_TIERS_SPEC.md` §3.2, AECI-1836 |
+| 2026-11-14 | The two older plans that conflict with the no-bridge ruling both stand: "C, but create a ticket to address later". | Slack, AECI-1821 comment | `STAGE_1_5_SPEC.md` §11.3 and §11.4, AECI-1837 |
+| 2026-11-14 | A report through "It does exist" flags the pair page "Under review" until AECi adds the integration or declines the report: "A". | Slack, AECI-343 and AECI-1828 comments | `STAGE_1_5_SPEC.md` §11.5 |
+| 2026-11-16 | A1: Terms §1 against the key categories is out of scope for the build. It went to the legal agent as AECI-1857, which closed when `main` reworded Terms §1 (#1383). | Chat | AECI-1857 |
+| 2026-11-16 | A2: the header and footer move to the 1328px page wrap now. Page bodies follow when their own issue rebuilds them. | Chat | `DESIGN.md` §4, #1329 |
+| 2026-11-16 | A3: the score figure is a new 48px token, `--t-48`. | Chat | `DESIGN.md` §3, #1329 |
+| 2026-11-16 | A4: the reviews band shows two large figures, one per score. | Chat | `DESIGN.md` §5, #1335 |
+| 2026-11-16 | A5: the unclaimed hero is built as designed, the initial tile in the 104px slot and the name in the sticky bar. AECI-1778 stays On Hold after its build, for the legal agent. | Chat | AECI-1778 (#1330) |
+| 2026-11-16 | A6: after the product page, the empty pair page is next. The home mock-up runs in parallel. | Chat | Build order |
+| 2026-11-16 | A7: the card shadow goes on the plan cards now, on review and score cards with their issues, and never on table wrappers. | Chat | `DESIGN.md` §4 "Shadow Vocabulary", #1329 |
+| 2026-11-16 | A8: no wide lead card anywhere except `/products`. | Chat | `DESIGN.md` §4, #1329 |
+| 2026-11-16 | The home mock-up (9): "I agree with all 6 recommendations" in `records/9-home-notes.md`. | Chat | AECI-1792 (#1331) |
+| 2026-11-16 | The browse mock-up (10): nine rulings. | Chat | `records/10-directory-notes.md` "Rulings 2026-11-16" |
+| 2026-11-16 | The vendor and pair mock-ups (11, 12): every one of the thirteen recommendations. | Chat | `records/11-vendor-and-pair-notes.md` "Rulings 2026-11-16" |
+| 2026-11-16 | AECI-1780: "Maintained by" stays in both places, a single card spans the full row, and the declined mock-up wording stays out. | Chat | #1334 |
+| 2026-11-16 | Decision list items 27 to 38, "Accept all". Among them: the Integrations heading drops its count (28), one or two reviews share the row equally (34), the extension tiles are built (35), and "Who it is for" takes the full width when a product has no description (36). | Chat | #1341, #1335, #1346 |
+| 2026-11-16 | Decision list items 44 to 50 approve the integrations copy: "A to Z by partner name.", "Types of data", "No integrations match these filters.", the chip row labels, and one or two cards sharing a row. Item 49, 44px chips, became its own issue (AECI-1896). | Chat | #1341 |
+| 2026-11-16 | Item 51, option A: "Know of one?" and "Tell us where you saw it and we will look at it." sit beside "It does exist", with a ticket for the legal agent (AECI-1893). | Chat | #1338 |
+| 2026-11-16 | Item 59, option A: from `lg` the category hub shows its first 8 categories A to Z and a "Show all" button. Item 60: no counts in the caption. Item 61: the finder heading reads "Does {product} connect to…?". | Chat | #1340 |
+| 2026-11-16 | Items 62 to 72: a list groups at 13 rows or more when it has fewer groups than half its rows, a closed group shows 6 cards, rows with no category sit under "No category on record", a zero-count chip is disabled, no category icons, and the three views stay. | Chat | `DESIGN.md` §5 "The long integration list", #1341 |
+| 2026-11-16 | Items 73 to 75 and 77: the `/search` caption shows only where it is true (73, option A), two strings approved (74, 75), and a smaller vendor lede below 640px (77). | Chat | #1350 (73), #1346 (77) |
+| 2026-11-16 | Item 1: yes to the "How ranking works" edit that came with the home build. | Chat | #1331 |
+| 2026-11-17 | Item 54: the hub heading "Integrations by partner category". Item 82: the hero columns top-align while "Show all" is open. | Chat | #1340, #1356 |
+| 2026-11-17 | Item 96, option B: the empty pair page keeps its "Integrations on record" row, and a zero reads "None on record yet". Item 97: the title is "{A} and {B}: " and the caveat. Item 98: the empty pair page drops the "Integration" overline. Item 94: its labels approved. | Chat | #1353, `STAGE_1_5_SPEC.md` §11.4 |
+| 2026-11-17 | Item 86, option B: the `/about` trust pillars become the page's one Forest feature card. | Chat | #1347 |
+| 2026-11-17 | Item 91: "Clear filters" joins the "Integrations it powers" panel. Later that day: "align them", so that panel takes the Integrations section's recipe. | Chat | #1348, `DESIGN.md` §5 |
+| 2026-11-17 | AECI-1872, option C: the reply layout stays, and the Review Guidelines sentence is reworded. Counsel record ruling 42. | Chat | #1335 |
+| 2026-11-17 | The empty pair page is built to mock-up 5, its kickers and headings included. From then on a mock-up's headings and kickers are built by default. Only claim and promise lines wait for Chris. | Chat | AECI-1835 (#1353) |
+| 2026-11-17 | The product page mock-up comparison: yes. Chris picks what to restore from side-by-side pictures. The product page's Integrations head follows mock-up 6, with the small label over the heading. | Chat | #1363, #1364, #1379, `DESIGN.md` §5 |
+| 2026-11-17 | The Updates, Roadmap and Contact pictures are approved. | Chat | #1356 |
+| 2026-11-18 | The form hotfix goes to `main`: "yes". | Chat | #1377 |
+| 2026-11-18 | The connector hub "Overall it looks good". He asked for a Cards and Table toggle in each hub (AECI-1924) and for "Claim Vendor" on the claim buttons (AECI-1925). | Chat | #1348 |
+| 2026-11-18 | AECI-1925: "buttons only". The three buttons read "Claim Vendor". The claim titles keep the vendor's name. | Chat, AECI-1925 comment | #1387 |
+| 2026-11-18 | The demand captures ("I need this too", "Watch this pair", the look-up count) wait until after go-live. The empty pair page is complete without them. | Chat | AECI-1825, AECI-1831 to AECI-1834 |
+| 2026-11-18 | The empty pair page round: the lane switch "{A} integrations" and "{B} integrations" replaces the keep buttons, the filters sit under it, the view toggle sits in the list row, the cards get more room, and the page lists only what we have for each vendor. Then "I like", and the page merged. | Chat | `STAGE_1_5_SPEC.md` §11.3 and §11.4, #1353 |
+| 2026-11-18 | Ruling 1A on legal branch 6: `main`'s ranking page 1.1 describes only the lists `main` renders. The redesign's lists go into version 1.2. | Chat, AECI-1894 comment | #1383, #1434 |
+| 2026-11-19 | One section toggle for every hub is fine. The table header inside a hub card is square, and the table shows more columns. Then "both pictures look good, merge it". | Chat | AECI-1924 (#1388) |
+| 2026-11-19 | The docs "On this page" rail keeps its dashes. | Chat | `DESIGN.md` §5 |
+| 2026-11-20 | Ruling 63 on AECI-1836: the Browse menu and home keep ordering trades and audiences by product count. The Browse menu's "most products" order stays (A). | Chat, AECI-1836 comment | `STAGE_2_PAID_TIERS_SPEC.md` §3.2 |
+| 2026-11-20 | Items left as built ship as built: the 51px empty pair headline cap, the empty pair page wording, the dropped "We have not found an integrations page" line on that page, and the Unclaimed tag beside the monogram on phones. | Chat | `DESIGN.md`, `STAGE_1_5_SPEC.md` §11.4 |
+| 2026-11-20 | Chip casing stays Title Case. Closed. | Chat | No change |
+| 2026-11-20 | A defect found outside the work in hand becomes a Linear issue, not a fix. `main` is merged into the hold branch only when Chris says so. | Chat | Working rule |
+| 2026-11-22 | Answers 10 to 12 of that day: the Similar products A to Z cut stays, the mock-ups' unbuilt claim lines are dropped for launch, and AECI-1993 waits for the redesign. | Chat | No change |
+| 2026-11-22 | The final hold-to-`main` PR waits. The read-only production check for a Review Guidelines 1.0 acceptance runs just before ship. | Chat | Ship checklist |
+
+The legal agent's two verdicts on ranking page 1.2 (2026-11-20, AECI-1894) were relayed by Chris and applied in #1434. They are the legal agent's verdicts, not Chris's rulings.
+
+### 11.2 Decisions the build made that Chris did not rule
+
+| Date | Decision | Made by | Where |
+| --- | --- | --- | --- |
+| 2026-11-14 | Dense chips in index rows take the raised neutral look with an edge, because the ruled sunken fill matches the row hover. Marked "for Chris to confirm". | Orchestrator, AECI-1763 | `DESIGN.md` §5 "The public chip" |
+| 2026-11-17 | A page with no mock-up follows the accepted `/about` recipe, and Chris sees before and after pictures at the end. | Orchestrator | The content pages and flows |
+| 2026-11-17 | The two-column mailing list card stays. | Orchestrator | #1363 |
+| 2026-11-18 | One Cards and Table toggle sets every hub on the page, not one toggle per hub. Chris then said he had no objection (11.1, 2026-11-19). | Builder, AECI-1924 | #1388 |
+| 2026-11-18 | The hydration class gap gets no runtime fix. The template rule, the docs and a passive style guard ship instead. | Orchestrator, after an independent review, AECI-1937 | #1410, `ANGULAR_STYLE_GUIDE.md` §10 |
+| 2026-11-20 | Consent checkboxes never carry a tick across hydration, and stay disabled until the app is live. Typed text carries. | Orchestrator, after the security review, #1432 | `TESTING_STRATEGY.md` §14.3 |
+| 2026-11-16 to 2026-11-22 | `main` is merged into the hold branch by a fast-forward push, never a squash. | Orchestrator | Syncs 1 to 13 |
 
 ## 12. Proposed workstreams and issues
 
