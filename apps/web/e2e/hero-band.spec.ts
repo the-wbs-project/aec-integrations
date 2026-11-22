@@ -577,8 +577,29 @@ test.describe('hero title sizes, rendered (AECI-1847)', () => {
     );
   }
 
-  async function firstPair(page: Page, empty: boolean): Promise<string | null> {
-    const res = await page.request.get('/api/products?perPage=24');
+  /** At most this many products are paired up looking for an empty pair: 28 reads. */
+  const EMPTY_PAIR_PRODUCTS = 8;
+
+  /** A pair with an integration on record: one read of the integrations list. */
+  async function integratedPair(page: Page): Promise<string | null> {
+    const res = await page.request.get('/api/integrations?perPage=25');
+    if (!res.ok()) return null;
+    const rows = (
+      (await res.json()) as {
+        data?: { source?: { slug?: string }; target?: { slug?: string } }[];
+      }
+    ).data;
+    for (const row of rows ?? []) {
+      const a = row.source?.slug;
+      const b = row.target?.slug;
+      if (a && b && a !== b) return `/products/${a}/integrations/${b}`;
+    }
+    return null;
+  }
+
+  /** A pair with nothing on record, from the first few products, so the search is bounded. */
+  async function emptyPair(page: Page): Promise<string | null> {
+    const res = await page.request.get(`/api/products?perPage=${EMPTY_PAIR_PRODUCTS}`);
     if (!res.ok()) return null;
     const slugs = ((await res.json()) as { data?: { slug: string }[] }).data?.map((p) => p.slug);
     for (const a of slugs ?? []) {
@@ -587,11 +608,23 @@ test.describe('hero title sizes, rendered (AECI-1847)', () => {
         const pair = await page.request.get(`/api/products/${a}/integrations/${b}`);
         if (!pair.ok()) continue;
         const body = (await pair.json()) as { mechanisms: unknown[]; moved_to: unknown };
-        if (body.moved_to !== null) continue;
-        if ((body.mechanisms.length === 0) === empty) return `/products/${a}/integrations/${b}`;
+        if (body.moved_to === null && body.mechanisms.length === 0) {
+          return `/products/${a}/integrations/${b}`;
+        }
       }
     }
     return null;
+  }
+
+  /**
+   * The seeded catalog (`db:setup:local`, which CI runs too) has both kinds of pair, so
+   * in CI a missing pair fails instead of skipping. Elsewhere a thin catalog skips.
+   */
+  function requirePair(path: string | null, kind: string): string {
+    if (process.env['CI']) expect(path, `the seeded catalog has ${kind}`).not.toBeNull();
+    test.skip(path === null, `no ${kind} in this catalog`);
+    test.info().annotations.push({ type: 'pair', description: path! });
+    return path!;
   }
 
   async function firstSlug(page: Page, kind: 'products' | 'vendors'): Promise<string> {
@@ -632,15 +665,13 @@ test.describe('hero title sizes, rendered (AECI-1847)', () => {
   });
 
   test('the pair page statement renders Statement', async ({ page }) => {
-    const path = await firstPair(page, false);
-    test.skip(path === null, 'no pair with an integration in this catalog');
-    await check(page, path!, 'aec-hero-band h1 > span', () => '--t-statement');
+    const path = requirePair(await integratedPair(page), 'a pair with an integration');
+    await check(page, path, 'aec-hero-band h1 > span', () => '--t-statement');
   });
 
   test('the empty pair page statement renders the wide Statement', async ({ page }) => {
-    const path = await firstPair(page, true);
-    test.skip(path === null, 'no empty pair in this catalog');
-    await check(page, path!, 'aec-hero-band h1 > span', () => '--t-statement-wide');
+    const path = requirePair(await emptyPair(page), 'an empty pair');
+    await check(page, path, 'aec-hero-band h1 > span', () => '--t-statement-wide');
   });
 
   test('the About h1 keeps the global h1 size (Headline)', async ({ page }) => {
