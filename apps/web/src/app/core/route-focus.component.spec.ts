@@ -5,7 +5,7 @@
  * The `Router` is a stub driven through a `Subject`. The page is real DOM: a
  * `<main id="main" tabindex="-1">` like the app shell's, with an `h1` inside.
  */
-import { ApplicationRef, PLATFORM_ID } from '@angular/core';
+import { ApplicationRef, Injector, PLATFORM_ID, afterNextRender } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import {
   type Event,
@@ -79,10 +79,12 @@ function setup(platform: 'browser' | 'server' = 'browser') {
     );
     appRef.tick();
   };
+  /** NavigationEnd with no render yet, so a test can queue the page's own hooks first. */
+  const endBeforeRender = (url: string) => events.next(new NavigationEnd(navId, url, url));
   service.start();
   // The initial (hydration) navigation.
   navigate('/products');
-  return { service, start, end, navigate, skip };
+  return { service, start, end, navigate, skip, endBeforeRender, appRef };
 }
 
 const el = (id: string) => document.getElementById(id) as HTMLElement;
@@ -105,12 +107,47 @@ describe('RouteFocus (AECI-1855)', () => {
     expect(el('title').hasAttribute(ROUTE_FOCUS_ATTR)).toBe(true);
   });
 
-  it('takes the tabindex and the marker off the heading when it loses focus', () => {
+  it('takes the tabindex and the marker off the heading when focus lands elsewhere', () => {
     const { navigate } = setup();
     navigate('/products/procore');
     el('in-page').focus();
     expect(el('title').hasAttribute('tabindex')).toBe(false);
     expect(el('title').hasAttribute(ROUTE_FOCUS_ATTR)).toBe(false);
+  });
+
+  it('keeps them through a window or tab blur, so focus can come back to the heading', () => {
+    const { navigate } = setup();
+    navigate('/products/procore');
+    const heading = el('title');
+    // What the browser fires on the focused element when the window loses focus.
+    heading.dispatchEvent(new FocusEvent('blur'));
+    heading.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+    expect(heading.getAttribute('tabindex')).toBe('-1');
+    expect(heading.hasAttribute(ROUTE_FOCUS_ATTR)).toBe(true);
+    // The window comes back: focus returns to the heading, still focusable.
+    heading.focus();
+    expect(document.activeElement).toBe(heading);
+    expect(heading.getAttribute('tabindex')).toBe('-1');
+  });
+
+  it("runs after the page's own default-phase afterNextRender, so a page's focus wins", () => {
+    const { start, endBeforeRender, appRef } = setup();
+    const heading = el('title');
+    let headingFocused = 0;
+    const original = heading.focus.bind(heading);
+    heading.focus = (o?: FocusOptions) => {
+      headingFocused++;
+      original(o);
+    };
+    el('header-link').focus();
+    start('/search');
+    endBeforeRender('/search');
+    // The routed page queues its own focus after NavigationEnd, in the default phase.
+    // RouteFocus queued first, in the read phase, so it must still run second.
+    afterNextRender(() => el('search').focus(), { injector: TestBed.inject(Injector) });
+    appRef.tick();
+    expect(document.activeElement).toBe(el('search'));
+    expect(headingFocused).toBe(0);
   });
 
   it('falls back to <main> when the page has no h1', () => {

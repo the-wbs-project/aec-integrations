@@ -274,11 +274,16 @@ export class NavMenu {
     afterNextRender(() => {
       const query = this.document.defaultView?.matchMedia?.(LG_QUERY);
       if (!query) return;
+      // An open menu is modal: focus is in it, or the browser has already dropped it
+      // to <body> because the host just went `display: none` (the style change can
+      // land before this event). So an open menu always hands focus on.
       const onChange = (event: MediaQueryListEvent) => {
         if (!event.matches) return;
-        const focusWasInMenu = this.isOpen() && this.focusInHost();
+        const wasOpen = this.isOpen();
         this.close(false);
-        if (focusWasInMenu) this.routeFocus.focusPage();
+        if (wasOpen && (this.focusInHost() || this.focusIsLost())) {
+          this.routeFocus.focusPage();
+        }
       };
       query.addEventListener('change', onChange);
       this.destroyRef.onDestroy(() => query.removeEventListener('change', onChange));
@@ -291,6 +296,12 @@ export class NavMenu {
   private focusInHost(): boolean {
     const active = this.document.activeElement;
     return active !== null && this.host.contains(active);
+  }
+
+  /** Focus is on `<body>` or gone. */
+  private focusIsLost(): boolean {
+    const active = this.document.activeElement;
+    return active === null || active === this.document.body || !active.isConnected;
   }
 
   /** Close from outside the host: the page dimmer. Focus returns to the toggle. */

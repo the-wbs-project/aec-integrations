@@ -27,7 +27,8 @@
  *
  * The heading takes `tabindex="-1"` only while it holds focus, and
  * `data-route-focus` so `styles.css` draws no ring on it (the skip link's `<main>`
- * draws none either). Both go when it loses focus. Nothing is server-rendered, so
+ * draws none either). Both go when focus next lands on another element, not on a
+ * window or tab blur. Nothing is server-rendered, so
  * the cached HTML is unchanged.
  *
  * Browser-only and started once from the root component. The menus call
@@ -102,19 +103,26 @@ export class RouteFocus {
     if (target !== main && !target.hasAttribute('tabindex')) {
       target.setAttribute('tabindex', '-1');
       target.setAttribute(ROUTE_FOCUS_ATTR, '');
-      target.addEventListener(
-        'blur',
-        () => {
-          target.removeAttribute('tabindex');
-          target.removeAttribute(ROUTE_FOCUS_ATTR);
-        },
-        { once: true },
-      );
+      // Clean up when focus lands somewhere else, not on `blur`: a heading also blurs
+      // when the window or tab loses focus, and it must keep its `tabindex` then, so
+      // the browser can give focus back to it on return.
+      const doc = this.document;
+      const onFocusIn = (event: FocusEvent) => {
+        if (event.target === target) return;
+        target.removeAttribute('tabindex');
+        target.removeAttribute(ROUTE_FOCUS_ATTR);
+        doc.removeEventListener('focusin', onFocusIn, true);
+      };
+      doc.addEventListener('focusin', onFocusIn, true);
     }
     target.focus({ preventScroll: true });
   }
 
-  /** Run once the navigation's view has rendered. */
+  /**
+   * Run once the navigation's view has rendered. The `read` phase runs after every
+   * default-phase `afterNextRender` of the same render, so a page that focuses its own
+   * element there has done so before this checks (`pageTookFocus`).
+   */
   private afterRender(fn: () => void): void {
     afterNextRender({ read: fn }, { injector: this.injector });
   }

@@ -330,6 +330,17 @@ describe('NavMenu (the mobile menu)', () => {
       expect(focusPage).toHaveBeenCalledTimes(1);
     });
 
+    it('hands focus on when the browser already dropped it to <body> as the host hid', async () => {
+      const focusPage = vi.fn();
+      TestBed.overrideProvider(RouteFocus, { useValue: { focusPage } });
+      const { settle } = await open();
+      (document.activeElement as HTMLElement).blur();
+      expect(document.activeElement).toBe(document.body);
+      onChange!({ matches: true });
+      await settle();
+      expect(focusPage).toHaveBeenCalledTimes(1);
+    });
+
     it('leaves focus alone when the menu was closed', async () => {
       const focusPage = vi.fn();
       TestBed.overrideProvider(RouteFocus, { useValue: { focusPage } });

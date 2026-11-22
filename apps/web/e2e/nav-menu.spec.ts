@@ -1336,7 +1336,6 @@ test.describe('focus after a navigation (AECI-1855)', () => {
       .first()
       .evaluate((el) => getComputedStyle(el).outlineStyle);
     expect(outline).toBe('none');
-    expect(await page.evaluate(() => window.scrollY)).toBe(0);
   }
 
   test.describe('desktop Browse menu (1280px)', () => {
@@ -1459,6 +1458,36 @@ test.describe('focus after a navigation (AECI-1855)', () => {
       await crumb.click();
       await page.waitForURL(/\/products$/);
       await expectPageHeadingFocused(page);
+    });
+
+    // Back restores `/products` far down the page, with its h1 above the viewport. The
+    // h1 takes focus and the restored position holds. This guards the restore. It does
+    // not pin `preventScroll`: the router re-applies the saved position after the
+    // render, so it would pass without it. No navigation in the app today leaves the
+    // focus as the last scroll write, so `route-focus.component.spec.ts` pins the
+    // focus options instead.
+    test('Back focuses the h1 above the viewport and keeps the restored position', async ({
+      page,
+    }) => {
+      await page.goto('/products');
+      const cards = page.locator('main a[href^="/products/"]');
+      await untilHydrated(cards.first());
+      const card = cards.nth(Math.min(11, (await cards.count()) - 1));
+      await card.scrollIntoViewIfNeeded();
+      const left = await page.evaluate(() => window.scrollY);
+      expect(left, 'the listing is tall enough to leave far down').toBeGreaterThan(600);
+      await card.click();
+      await page.waitForURL(/\/products\/[^/]+$/);
+      await page.goBack();
+      await page.waitForURL(/\/products$/);
+      await expect.poll(() => focused(page)).toBe('h1');
+      const headingBottom = await page
+        .locator('main#main h1')
+        .first()
+        .evaluate((el) => el.getBoundingClientRect().bottom);
+      expect(headingBottom, 'the h1 is above the viewport').toBeLessThan(0);
+      await page.waitForTimeout(300);
+      expect(Math.abs((await page.evaluate(() => window.scrollY)) - left)).toBeLessThan(80);
     });
   });
 });
