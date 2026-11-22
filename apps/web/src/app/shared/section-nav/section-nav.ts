@@ -54,7 +54,12 @@ export interface SectionNavItem {
  *
  * The only JS is the active-link highlight: a click marks the target active for
  * instant feedback, and an `IntersectionObserver` scrollspy keeps it in sync as
- * the user scrolls. The observer is wired in an `afterRenderEffect` (browser-only
+ * the user scrolls. **A click pins its section (AECI-1856).** The jump can leave
+ * the next section in the spy's band as well, when the clicked one is shorter
+ * than the band (a short About), and the spy used to name that next section.
+ * So the spy is ignored from the click until the reader next scrolls or types
+ * (`wheel`, `touchstart`, `pointerdown` or `keydown`), never on a timer: the jump's
+ * own smooth scroll fires none of those. The observer is wired in an `afterRenderEffect` (browser-only
  * by contract, and after the sibling sections are in the DOM) that reads
  * `sections()`, so it re-subscribes whenever the section set changes — e.g. when
  * a client-side navigation reuses this component for a different product. The
@@ -73,6 +78,9 @@ export interface SectionNavItem {
  * pins that behaviour. A listener on the host leaves the anchors with no
  * `jsaction`, so their native default always runs. Keyboard users still activate
  * the anchors, and Enter's synthetic click bubbles to the host.
+ *
+ * **Print (AECI-1856).** The host drops `sticky` for `static` in print, or the
+ * bar prints at its scrolled position, over the page.
  *
  * Link text uses
  * `--text-secondary`, never `--text-tertiary` (fails WCAG AA — AECI-166/149).
@@ -96,7 +104,8 @@ export interface SectionNavItem {
   // `backdrop-blur` also cannot save it: it blurs, it does not hide. If a frosted
   // treatment is ever wanted back, it needs a solid layer under it, not an alpha.
   host: {
-    class: 'block sticky top-0 z-10 border-b border-(--border-default) bg-(--surface-base)',
+    class:
+      'block sticky top-0 z-10 border-b border-(--border-default) bg-(--surface-base) print:static',
     // Delegated, highlight-only. Kept off the <a> on purpose; see the docblock.
     '(click)': 'onClick($event)',
   },
@@ -133,6 +142,9 @@ export class SectionNav {
   /** DOM id of the section the scrollspy or a click last named. */
   protected readonly observedId = signal<string | null>(null);
 
+  /** True from a link click until the reader next scrolls or types. The spy is ignored meanwhile. */
+  private pinned = false;
+
   /** The current section; drives `aria-current` + emphasis. Defaults to the first. */
   protected readonly activeId = computed(() => this.observedId() ?? this.sections()[0]?.id ?? null);
 
@@ -146,7 +158,9 @@ export class SectionNav {
     const target = event.target;
     if (!(target instanceof Element)) return;
     const id = target.closest('a[data-section-id]')?.getAttribute('data-section-id');
-    if (id) this.observedId.set(id);
+    if (!id) return;
+    this.observedId.set(id);
+    this.pinned = true;
   }
 
   constructor() {
@@ -160,12 +174,23 @@ export class SectionNav {
       // A new section set starts again from its first link.
       const sections = this.sections();
       untracked(() => this.observedId.set(null));
+      this.pinned = false;
       if (typeof IntersectionObserver === 'undefined') return;
+
+      // The reader's own scroll or key releases a click's pin (AECI-1856). A
+      // keydown that activates the next link releases first, then its click
+      // pins again.
+      const release = () => (this.pinned = false);
+      const releaseOn = ['wheel', 'touchstart', 'pointerdown', 'keydown'] as const;
+      for (const type of releaseOn) {
+        window.addEventListener(type, release, { capture: true, passive: true });
+      }
 
       // Bias the trigger band to the upper viewport so the active link reflects
       // the section just under the sticky nav, not whatever is centered.
       const observer = new IntersectionObserver(
         (entries) => {
+          if (this.pinned) return;
           for (const entry of entries) {
             if (entry.isIntersecting && entry.target.id) {
               this.observedId.set(entry.target.id);
@@ -180,7 +205,10 @@ export class SectionNav {
         if (el) observer.observe(el);
       }
 
-      onCleanup(() => observer.disconnect());
+      onCleanup(() => {
+        observer.disconnect();
+        for (const type of releaseOn) window.removeEventListener(type, release, { capture: true });
+      });
     });
   }
 }

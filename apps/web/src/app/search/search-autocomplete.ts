@@ -77,6 +77,7 @@ import {
 } from '@angular/core';
 import { Combobox, ComboboxPopup, ComboboxWidget } from '@angular/aria/combobox';
 import { Listbox, Option } from '@angular/aria/listbox';
+import { listboxEntry } from '../shared/listbox-entry/listbox-entry';
 import { OverlayModule } from '@angular/cdk/overlay';
 import { NgTemplateOutlet } from '@angular/common';
 
@@ -180,19 +181,20 @@ const DEFAULT_SEARCH_NAME = $localize`:@@app.search.autocomplete.landmark:Site s
               #listbox="ngListbox"
               [(value)]="selected"
               (valueChange)="onSelect($event)"
-              [activeDescendant]="listbox.activeDescendant()"
+              [activeDescendant]="navigated() ? listbox.activeDescendant() : undefined"
+              [attr.data-navigated]="navigated()"
               focusMode="activedescendant"
               selectionMode="explicit"
               i18n-aria-label="@@app.search.autocomplete.listbox.aria"
               aria-label="Search suggestions"
-              class="m-0 flex max-h-[min(24rem,60vh)] w-[min(22rem,calc(100vw-2rem))] list-none flex-col gap-0.5 overflow-y-auto rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1.5 shadow-lg"
+              class="group m-0 flex max-h-[min(24rem,60vh)] w-[min(22rem,calc(100vw-2rem))] list-none flex-col gap-0.5 overflow-y-auto rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1.5 shadow-lg"
             >
               @for (s of suggestions(); track s.objectID) {
                 <li
                   ngOption
                   [value]="s"
                   [label]="s.title"
-                  class="flex cursor-pointer flex-col gap-0.5 rounded-(--radius-sm) px-3 py-2 data-[active=true]:bg-(--surface-sunken)"
+                  class="flex cursor-pointer flex-col gap-0.5 rounded-(--radius-sm) px-3 py-2 group-data-[navigated=true]:data-[active=true]:bg-(--surface-sunken)"
                 >
                   <span class="flex items-center justify-between gap-2">
                     <span class="truncate text-sm font-medium text-(--text-primary)">{{
@@ -266,6 +268,8 @@ export class SearchAutocomplete {
   protected readonly expanded = signal(false);
   /** The `ngCombobox` directive, so a zero-hit collapse can write its model. */
   private readonly combobox = viewChild(Combobox);
+  /** The `ngListbox`, present only while the popup shows a suggestion. */
+  private readonly popupListbox = viewChild<Listbox<AutocompleteSuggestion>>(Listbox);
   /** Listbox selection (two-way with `ngListbox`); reset after each commit. */
   protected readonly selected = signal<AutocompleteSuggestion[]>([]);
   /** Whether the input currently holds focus — gates opening on late responses. */
@@ -292,6 +296,17 @@ export class SearchAutocomplete {
     const all = this.controller()?.suggestions() ?? [];
     const kinds = this.kinds();
     return kinds ? all.filter((s) => kinds.includes(s.kind)) : all;
+  });
+
+  /**
+   * No suggestion is active until the first Down or Up (AECI-1860, `listboxEntry`).
+   * Until then the input carries no `aria-activedescendant`, so Enter goes to
+   * `/search?q=` through `onEnterKey` and never commits an option nobody heard.
+   */
+  protected readonly navigated = listboxEntry({
+    listbox: this.popupListbox,
+    count: () => this.suggestions().length,
+    resetOn: () => [this.suggestions(), this.expanded()],
   });
 
   constructor() {

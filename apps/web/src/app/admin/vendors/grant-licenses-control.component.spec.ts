@@ -329,6 +329,42 @@ describe('GrantLicensesControl', () => {
     expect(el.querySelector('[role="alert"]')?.textContent).toContain(text);
   });
 
+  // AECI-1989: opening, cancelling and submitting each remove or disable the button
+  // the operator pressed. Each test asserts where focus lands, so it never falls to <body>.
+  describe('focus (AECI-1989)', () => {
+    const active = () => document.activeElement as HTMLElement | null;
+
+    it('opening focuses the quantity, and Cancel returns to the open button', async () => {
+      const { el, refresh } = await setup(makeApiMock());
+      button(el, 'Grant subscriptions').click();
+      await refresh();
+      expect(active()).toBe(field(el, 'quantity'));
+
+      button(el, 'Cancel').click();
+      await refresh();
+      expect(active()).toBe(button(el, 'Grant subscriptions'));
+    });
+
+    it('a grant returns focus to the open button', async () => {
+      const { el, refresh } = await setup(makeApiMock());
+      await openAndFill(el, refresh);
+      button(el, 'Grant the subscriptions').click();
+      await refresh();
+      expect(active()).toBe(button(el, 'Grant subscriptions'));
+    });
+
+    it('a refused grant focuses its message', async () => {
+      const api = makeApiMock();
+      api.grantLicenses.mockRejectedValue(new HttpErrorResponse({ status: 409 }));
+      const { el, refresh } = await setup(api);
+      await openAndFill(el, refresh);
+      button(el, 'Grant the subscriptions').click();
+      await refresh();
+      expect(active()?.getAttribute('role')).toBe('alert');
+      expect(active()?.textContent).toContain('reopen the form');
+    });
+  });
+
   describe('the recorded signed deal (AECI-1615)', () => {
     const deal = (el: HTMLElement, name: string) =>
       el.querySelector<HTMLInputElement>(`#host-1-deal-${name}`)!;

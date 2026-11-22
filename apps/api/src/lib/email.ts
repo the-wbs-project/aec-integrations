@@ -211,11 +211,20 @@ const TIMEOUT_MS = 5000;
  */
 const ATTACHMENT_TIMEOUT_MS = 30_000;
 
-/** A file attached to a send (AECI-1620): its name and its bytes as base64. */
+/** The MIME type of every notice PDF we attach (AECI-1992). */
+export const PDF_CONTENT_TYPE = 'application/pdf';
+
+/** A file attached to a send (AECI-1620): its name, its bytes as base64 and its type. */
 export interface EmailAttachment {
   filename: string;
   /** Base64 of the file's bytes (`bytesToBase64`). */
   content: string;
+  /**
+   * The MIME type, sent to Resend as `content_type` (AECI-1992). Without it Resend
+   * labelled the notice PDF `application/octet-stream`, and a mail app may then not
+   * offer to preview the file.
+   */
+  contentType: string;
 }
 
 /**
@@ -400,7 +409,13 @@ export async function sendTransactionalEmail(
       ...(content.html ? { html: content.html } : {}),
       ...(input.headers ? { headers: input.headers } : {}),
       ...(attachments
-        ? { attachments: attachments.map((a) => ({ filename: a.filename, content: a.content })) }
+        ? {
+            attachments: attachments.map((a) => ({
+              filename: a.filename,
+              content: a.content,
+              content_type: a.contentType,
+            })),
+          }
         : {}),
       tags: resendTags(c.env, input.template),
     });
@@ -1880,6 +1895,7 @@ export function sendLegalTermsChangeEmail(
       {
         filename: legalNoticeAttachmentName(opts.document, opts.version),
         content: opts.pdfBase64,
+        contentType: PDF_CONTENT_TYPE,
       },
     ],
     dedupeKey: opts.dedupeKey,
@@ -2156,6 +2172,7 @@ export function sendEntitlementExpiringEmail(
             {
               filename: legalNoticeAttachmentName('managed_plan', newVersion.version),
               content: pdfBase64,
+              contentType: PDF_CONTENT_TYPE,
             },
           ],
           operatorCopy: { notification: 'entitlement-expiring-operator-copy', render },

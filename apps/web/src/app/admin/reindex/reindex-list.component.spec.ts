@@ -29,6 +29,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ListReindexQueueResponse, ReindexQueueRow } from '@aeci/shared';
 
+import { expectTitleFirstDialog } from '../../core/testing/title-first-dialog.harness';
 import { AdminSummaryStore } from '../admin-summary.store';
 import { AdminReindexApi } from './admin-reindex.api';
 import { ReindexList } from './reindex-list';
@@ -106,8 +107,8 @@ function buttonByText(root: HTMLElement, text: string): HTMLButtonElement {
  *  `document.body`. A closing container lingers empty for its close delay, so
  *  "open" means a dialog that still renders its title. */
 function dialogEl(): HTMLElement | null {
-  const open = [...document.body.querySelectorAll<HTMLElement>('[role="dialog"]')].filter((d) =>
-    d.querySelector('h2'),
+  const open = [...document.body.querySelectorAll<HTMLElement>('[role="alertdialog"]')].filter(
+    (d) => d.querySelector('h2'),
   );
   return open.at(-1) ?? null;
 }
@@ -267,6 +268,18 @@ describe('ReindexList', () => {
       expect(b.textContent).not.toContain('indexed');
     }
     expect(api.clear).not.toHaveBeenCalled();
+  });
+
+  it('Done opens an alert dialog with focus on its title (AECI-1861)', async () => {
+    const api = makeApiMock([
+      makeRow({ id: 1, url: 'https://www.aecintegrations.com/products/procore' }),
+    ]);
+    const { el, fixture } = await setup(api);
+    buttonByText(rowFor(el, '/products/procore'), 'Done').click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await settle();
+    expectTitleFirstDialog('Did you request indexing?');
   });
 
   it('Requested: clears with outcome=requested, drops the row and ticks the badge down', async () => {

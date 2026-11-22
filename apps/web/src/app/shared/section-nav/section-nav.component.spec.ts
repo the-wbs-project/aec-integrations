@@ -1,6 +1,6 @@
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SectionNav, type SectionNavItem } from './section-nav';
 
@@ -95,5 +95,83 @@ describe('SectionNav', () => {
 
     // Still the first-link default.
     expect(el.querySelector('a[aria-current="location"]')).toBe(el.querySelector('nav a'));
+  });
+
+  // AECI-1856: a section shorter than the spy's band (a short About) left the
+  // next section in the band too, and the spy named that one after the click.
+  describe('a clicked section stays current (AECI-1856)', () => {
+    type Callback = (entries: Partial<IntersectionObserverEntry>[]) => void;
+    let callback: Callback | null = null;
+
+    function withSpy() {
+      callback = null;
+      vi.stubGlobal(
+        'IntersectionObserver',
+        class {
+          constructor(cb: Callback) {
+            callback = cb;
+          }
+          observe() {}
+          disconnect() {}
+        },
+      );
+      for (const s of sections) {
+        const el = document.createElement('section');
+        el.id = s.id;
+        document.body.appendChild(el);
+      }
+      const fixture = setup();
+      const el = fixture.nativeElement as HTMLElement;
+      const spy = (...ids: string[]) => {
+        callback!(
+          ids.map((id) => ({ isIntersecting: true, target: document.getElementById(id)! })),
+        );
+        fixture.detectChanges();
+      };
+      const current = () =>
+        el.querySelector('a[aria-current="location"]')?.getAttribute('data-section-id');
+      return { fixture, el, spy, current };
+    }
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      for (const s of sections) document.getElementById(s.id)?.remove();
+    });
+
+    it('keeps the clicked short section current when the next one enters the band too', () => {
+      const { fixture, el, spy, current } = withSpy();
+      spy('integrations');
+      expect(current()).toBe('integrations');
+
+      el.querySelector<HTMLAnchorElement>('a[data-section-id="about"]')!.click();
+      fixture.detectChanges();
+      // The jump puts About and the section after it in the band at once.
+      spy('about', 'how-teams-use-it');
+      expect(current()).toBe('about');
+    });
+
+    it('hands back to the spy once the reader scrolls', () => {
+      const { fixture, el, spy, current } = withSpy();
+      el.querySelector<HTMLAnchorElement>('a[data-section-id="about"]')!.click();
+      fixture.detectChanges();
+      spy('how-teams-use-it');
+      expect(current()).toBe('about');
+
+      window.dispatchEvent(new WheelEvent('wheel'));
+      spy('integrations');
+      expect(current()).toBe('integrations');
+    });
+
+    it('follows the spy when nothing was clicked', () => {
+      const { spy, current } = withSpy();
+      spy('how-teams-use-it');
+      expect(current()).toBe('how-teams-use-it');
+    });
+  });
+
+  it('drops sticky in print so the bar does not print over the page (AECI-1856)', () => {
+    const host = (setup().nativeElement as HTMLElement).querySelector('aec-section-nav')!;
+    expect(host.classList).toContain('sticky');
+    expect(host.classList).toContain('print:static');
   });
 });

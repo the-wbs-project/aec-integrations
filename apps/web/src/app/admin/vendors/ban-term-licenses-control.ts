@@ -1,5 +1,19 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, computed, inject, input, output, signal } from '@angular/core';
+import { DOCUMENT } from '@angular/common';
+import {
+  Component,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  computed,
+  effect,
+  inject,
+  input,
+  output,
+  signal,
+  untracked,
+  viewChild,
+} from '@angular/core';
 
 import {
   ApiErrorCode,
@@ -150,6 +164,13 @@ export function uncoveredBanTermCandidates(
  * No heading and no live region: `VendorDetail` owns both. Announcements leave through
  * {@link announce}; the host reloads Billing on {@link granted}, which hides the
  * control once every product is licensed again.
+ *
+ * ── FOCUS (AECI-1989) ───────────────────────────────────────────────────────
+ * Opening the form focuses the first Include checkbox. Cancel and a grant return focus
+ * to the open button. A refusal focuses its message, because the confirm button was
+ * disabled while the request ran and a disabled button drops focus. When the host's
+ * Billing reload then hides the whole control, focus would fall to the page body, so
+ * it moves to the element {@link focusOnHideId} names, if focus was lost.
  */
 @Component({
   selector: 'aec-ban-term-licenses-control',
@@ -169,6 +190,9 @@ export class BanTermLicensesControl {
   readonly grants = input<readonly AdminLicenseGrant[]>([]);
   /** Prefix for the form controls' `id`/`for` pairs. */
   readonly idPrefix = input.required<string>();
+  /** AECI-1989: the `id` of a focusable host element (the section heading) that takes
+   *  focus when a grant hides this control. `null`: nothing moves. */
+  readonly focusOnHideId = input<string | null>(null);
 
   /** The committed grant. The host reloads Billing and the audit trail on it. */
   readonly granted = output<BanTermLicensesResponse>();
@@ -182,6 +206,15 @@ export class BanTermLicensesControl {
     () => this.hasUnbannedSeat() === true && this.candidates().length > 0,
   );
 
+  private readonly injector = inject(Injector);
+  private readonly document = inject(DOCUMENT);
+  private readonly openButton = viewChild<ElementRef<HTMLButtonElement>>('openButton');
+  /** The ref sits inside the row `@for`, so `viewChild` resolves the first row's box. */
+  private readonly firstInclude = viewChild<ElementRef<HTMLInputElement>>('firstInclude');
+  private readonly failedAlert = viewChild<ElementRef<HTMLElement>>('failedAlert');
+  /** Set by a grant: if the host's reload hides the control, focus moves to the host. */
+  private readonly focusHostOnHide = signal(false);
+
   protected readonly formOpen = signal(false);
   private readonly grantId = signal('');
   protected readonly rows = signal<ReadonlyMap<string, BanTermRowState>>(new Map());
@@ -190,6 +223,27 @@ export class BanTermLicensesControl {
   /** Captured at open: the form compares dates against it, as the API compares with
    *  its request time. */
   private readonly openedAt = signal(Date.now());
+
+  constructor() {
+    effect(() => {
+      if (this.visible() || !this.focusHostOnHide()) return;
+      untracked(() => {
+        this.focusHostOnHide.set(false);
+        const id = this.focusOnHideId();
+        if (!id) return;
+        afterNextRender(
+          () => {
+            // Only when the hidden control took focus with it: never pull the operator
+            // back from somewhere they have moved on to.
+            const active = this.document.activeElement;
+            if (active && active !== this.document.body) return;
+            this.document.getElementById(id)?.focus();
+          },
+          { injector: this.injector },
+        );
+      });
+    });
+  }
 
   protected readonly includedCount = computed(
     () => [...this.rows().values()].filter((r) => r.include).length,
@@ -241,11 +295,19 @@ export class BanTermLicensesControl {
       ),
     );
     this.formOpen.set(true);
+    this.focusHostOnHide.set(false);
+    // The button the operator pressed is gone: put focus on the first field.
+    this.focusAfterRender(() => this.firstInclude()?.nativeElement);
   }
 
   protected closeForm(): void {
     this.formOpen.set(false);
     this.grantId.set('');
+    this.focusAfterRender(() => this.openButton()?.nativeElement);
+  }
+
+  private focusAfterRender(target: () => HTMLElement | undefined): void {
+    afterNextRender(() => target()?.focus(), { injector: this.injector });
   }
 
   protected onIncludeChange(productId: string, event: Event): void {
@@ -285,11 +347,13 @@ export class BanTermLicensesControl {
         grant_id: this.grantId(),
         items,
       });
+      this.focusHostOnHide.set(true);
       this.granted.emit(result);
       this.closeForm();
       this.announce.emit(this.announcementFor(result));
     } catch (err) {
       this.failedMessage.set(messageForError(err));
+      this.focusAfterRender(() => this.failedAlert()?.nativeElement);
     } finally {
       this.pending.set(false);
     }

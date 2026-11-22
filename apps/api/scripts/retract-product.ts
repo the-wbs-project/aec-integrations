@@ -13,8 +13,11 @@
  *      `wrangler d1 execute` batch (§26.1, AECI-687 — see the core-lib header).
  *   2. Algolia: delete the `products` object (objectID = product id) so search
  *      doesn't keep an orphan (reuses the AECI-267 orphan-purge core).
- *   3. Cache: purge the product/index/browse Cache-Tags so no edge-cached page
- *      keeps rendering it.
+ *   3. Sitemap: put `sitemap:dirty` in TAXONOMY_KV through `wrangler kv`, so the next
+ *      `sitemap-rebuild` tick drops the product's URLs (AECI-1945, `src/lib/retract-followups.ts`).
+ *   4. Print the remaining follow-ups in run order: the edge-cache purge of the
+ *      product/index/browse Cache-Tags, the Algolia drift and count reconcilers, and the
+ *      upstream `delete_product` + `confirm_retractions` (production).
  *
  * SAFETY:
  *   - Dry-run by default; `--apply` performs the writes.
@@ -94,6 +97,12 @@ import {
   type RawFootprintRow,
   type RetractTarget,
 } from '../src/lib/retract-product';
+import {
+  formatFollowUps,
+  productRetractFollowUps,
+  sitemapDirtyWranglerArgs,
+  type RetractCliTarget,
+} from '../src/lib/retract-followups';
 
 // ─── Args + target resolution ────────────────────────────────────────────────
 
@@ -206,7 +215,7 @@ function runD1<T>(target: Target, sql: string): D1ExecResult<T>[] {
   }
   if (res.status !== 0) {
     const hint = target.remote
-      ? `Check CLOUDFLARE_API_TOKEN (Account→D1→Edit) + CLOUDFLARE_ACCOUNT_ID, and that "${target.db}" exists for --env ${target.label}.`
+      ? `Check CLOUDFLARE_API_TOKEN (Account→D1→Edit and Account→Workers KV Storage→Edit) + CLOUDFLARE_ACCOUNT_ID, and that "${target.db}" exists for --env ${target.label}.`
       : 'Set up the local D1 first:  pnpm --filter @aeci/api db:setup:local';
     throw new D1ExecError(
       `wrangler d1 execute failed on "${target.db}" (exit ${res.status}).\n${hint}\n\n${res.stderr}`,
@@ -250,18 +259,29 @@ async function deindexAlgolia(target: Target, product: ProductRow): Promise<void
 }
 
 /**
- * Cache-tag purge is native (WC-6): the SSR Worker's `POST /admin/purge` invalidates
- * in-process via `ctx.cache.purge()`. This CLI runs outside any Worker (no cache context
- * of its own), so it prints the exact purge command for the operator to run —
- * authenticated with `ADMIN_PURGE_TOKEN` — rather than calling Cloudflare directly. The
- * old zone HTTP purge (`callCloudflarePurge` / `CF_PURGE_API_TOKEN`) was retired in WC-10.
+ * AECI-1945: put `sitemap:dirty` on the target's tier, as every Worker writer does through
+ * `markSitemapDirty`. Returns whether the put landed. A failure warns, and the follow-up
+ * list then carries the manual command.
  */
-function reportCachePurge(tags: string[]): void {
-  console.warn(
-    '⚠  Cache: purge the edge cache by POSTing to the SSR Worker (auth: ADMIN_PURGE_TOKEN):\n' +
-      `     POST /admin/purge  {"tags": ${JSON.stringify(tags)}}`,
-  );
+function markSitemapDirty(target: RetractCliTarget): boolean {
+  const res = spawnSync('wrangler', sitemapDirtyWranglerArgs(target, new Date().toISOString()), {
+    encoding: 'utf8',
+  });
+  if (res.error || res.status !== 0) {
+    console.error(
+      `✗ Sitemap: could not mark sitemap:dirty (exit ${res.status ?? 'n/a'}). ${res.stderr ?? res.error?.message ?? ''}`.trim(),
+    );
+    return false;
+  }
+  console.log('✓ Sitemap: marked dirty. The next sitemap-rebuild tick drops the URLs.');
+  return true;
 }
+
+// Cache-tag purge is native (WC-6): the SSR Worker's `POST /admin/purge` invalidates
+// in-process via `ctx.cache.purge()`. This CLI runs outside any Worker (no cache context
+// of its own), so it prints the exact purge command as a follow-up for the operator,
+// authenticated with `ADMIN_PURGE_TOKEN`, rather than calling Cloudflare directly. The
+// old zone HTTP purge (`callCloudflarePurge` / `CF_PURGE_API_TOKEN`) was retired in WC-10.
 
 // ─── Main ────────────────────────────────────────────────────────────────────
 
@@ -409,12 +429,12 @@ export async function main(argv: string[]): Promise<number> {
     console.log(
       `On --apply: delete the above from ${target.db}, de-index Algolia object ${product.id},`,
     );
-    console.log(`and purge Cache-Tags: ${tags.join(', ')}.`);
+    console.log(`mark the sitemap dirty, and purge Cache-Tags: ${tags.join(', ')}.`);
     console.log('Re-run with --apply to perform the deletion.');
     return 0;
   }
 
-  // 5. Apply: D1 delete (one execute, ordered statements) → Algolia → cache.
+  // 5. Apply: D1 delete (one execute, ordered statements) → Algolia → sitemap → follow-ups.
   console.log('Deleting from D1…');
   const statements = buildDeleteStatements({
     product,
@@ -456,11 +476,16 @@ export async function main(argv: string[]): Promise<number> {
   else console.log('Algolia: skipped (--skip-algolia).');
   console.log('');
 
-  if (!argv.includes('--skip-cache')) reportCachePurge(tags);
-  else console.log('Cache: skipped (--skip-cache).');
+  const sitemapMarked = markSitemapDirty(target);
+  const cacheSkipped = argv.includes('--skip-cache');
+  if (cacheSkipped) console.log('Cache: skipped (--skip-cache).');
 
   console.log('');
   console.log(`✓ Retracted "${product.name}" (${product.slug}) from ${target.db}.`);
+  console.log('');
+  console.log(
+    formatFollowUps(productRetractFollowUps({ target, tags, cacheSkipped, sitemapMarked })),
+  );
   return 0;
 }
 
