@@ -268,8 +268,19 @@ async function wholePage(
   return { elements, shot };
 }
 
-/** Share of differing pixels between two same-size PNG screenshots, decoded in a page. */
-async function pixelDiff(page: Page, a: Buffer, b: Buffer): Promise<number> {
+interface PixelDiff {
+  /** Pixels whose colour differs at all. */
+  differ: number;
+  /** The largest difference in any one channel, 0 to 255. */
+  maxDelta: number;
+  /** Each differing pixel: `(x,y) r,g,b -> r,g,b`, at most 200. */
+  pixels: string[];
+  /** A PNG the size of the screenshot: differing pixels in red on the first shot, dimmed. */
+  diffPng: string;
+}
+
+/** Compare two same-size PNG screenshots, decoded in a page. */
+async function pixelDiff(page: Page, a: Buffer, b: Buffer): Promise<PixelDiff> {
   return page.evaluate(
     async ([one, two]) => {
       const load = async (b64: string) => {
@@ -281,15 +292,40 @@ async function pixelDiff(page: Page, a: Buffer, b: Buffer): Promise<number> {
         canvas.height = img.height;
         const ctx = canvas.getContext('2d')!;
         ctx.drawImage(img, 0, 0);
-        return ctx.getImageData(0, 0, img.width, img.height).data;
+        return { data: ctx.getImageData(0, 0, img.width, img.height).data, canvas, ctx };
       };
       const [x, y] = await Promise.all([load(one), load(two)]);
-      if (x.length !== y.length) return 1;
-      let differ = 0;
-      for (let i = 0; i < x.length; i += 4) {
-        if (x[i] !== y[i] || x[i + 1] !== y[i + 1] || x[i + 2] !== y[i + 2]) differ++;
+      const w = x.canvas.width;
+      if (x.data.length !== y.data.length) {
+        return { differ: Infinity, maxDelta: 255, pixels: ['size differs'], diffPng: '' };
       }
-      return differ / (x.length / 4);
+      const out = x.ctx.createImageData(w, x.canvas.height);
+      let differ = 0;
+      let maxDelta = 0;
+      const pixels: string[] = [];
+      for (let i = 0; i < x.data.length; i += 4) {
+        const d = Math.max(
+          Math.abs(x.data[i]! - y.data[i]!),
+          Math.abs(x.data[i + 1]! - y.data[i + 1]!),
+          Math.abs(x.data[i + 2]! - y.data[i + 2]!),
+        );
+        if (d > 0) {
+          differ++;
+          maxDelta = Math.max(maxDelta, d);
+          if (pixels.length < 200) {
+            const p = i / 4;
+            pixels.push(
+              `(${p % w},${Math.floor(p / w)}) ${x.data[i]},${x.data[i + 1]},${x.data[i + 2]} -> ${y.data[i]},${y.data[i + 1]},${y.data[i + 2]}`,
+            );
+          }
+          out.data.set([255, 0, 0, 255], i);
+        } else {
+          out.data.set([x.data[i]! / 3, x.data[i + 1]! / 3, x.data[i + 2]! / 3, 255], i);
+        }
+      }
+      x.ctx.putImageData(out, 0, 0);
+      const diffPng = x.canvas.toDataURL('image/png').split(',')[1] ?? '';
+      return { differ, maxDelta, pixels, diffPng };
     },
     [a.toString('base64'), b.toString('base64')] as const,
   );
@@ -298,7 +334,7 @@ async function pixelDiff(page: Page, a: Buffer, b: Buffer): Promise<number> {
 test.describe('the whole server-rendered page paints the same before the stylesheet (AECI-1854)', () => {
   for (const path of PAGES) {
     for (const width of [1440, 390]) {
-      test(`${path} at ${width}px`, async ({ browser, baseURL, page }) => {
+      test(`${path} at ${width}px`, async ({ browser, baseURL, page }, testInfo) => {
         const url = `${baseURL}${path}`;
         const first = await wholePage(browser, url, width, 'blocked');
         const final = await wholePage(browser, url, width, 'loaded');
@@ -312,7 +348,33 @@ test.describe('the whole server-rendered page paints the same before the stylesh
           .filter((line): line is string => line !== null);
         expect(changed, 'elements that change when the stylesheet lands').toEqual([]);
         await page.goto(`${baseURL}/robots.txt`);
-        expect(await pixelDiff(page, first.shot, final.shot), 'first screen pixels').toBe(0);
+        const diff = await pixelDiff(page, first.shot, final.shot);
+        if (diff.differ > 0) {
+          // The evidence for a reviewer: both screens, the differing pixels in red, and
+          // each pixel's colour in both runs.
+          await testInfo.attach('first-paint-blocked.png', {
+            body: first.shot,
+            contentType: 'image/png',
+          });
+          await testInfo.attach('first-paint-loaded.png', {
+            body: final.shot,
+            contentType: 'image/png',
+          });
+          if (diff.diffPng) {
+            await testInfo.attach('first-paint-diff.png', {
+              body: Buffer.from(diff.diffPng, 'base64'),
+              contentType: 'image/png',
+            });
+          }
+          await testInfo.attach('first-paint-pixels.txt', {
+            body: diff.pixels.join('\n'),
+            contentType: 'text/plain',
+          });
+        }
+        expect(
+          diff.differ,
+          `first screen pixels (max channel delta ${diff.maxDelta}): ${diff.pixels.slice(0, 20).join('; ')}`,
+        ).toBe(0);
       });
     }
   }
