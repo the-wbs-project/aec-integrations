@@ -308,7 +308,34 @@ were changed.
 
 ---
 
-## 10. Redesign accessibility gate (AECI-1818, 2026-11-18)
+## 10. Ban form and ban-term panel (AECI-1607, 2026-11-20)
+
+**Scope:** `/admin/users/:id` (the ban form on a vendor's last unbanned seat) and
+`/admin/vendors/:id?tab=billing` (the ban-term panel, with a banned subscription whose term end is
+unknown). Run against local `pnpm dev:agent` with a real admin session, using `@axe-core/playwright`
+(WCAG 2.0 to 2.2 A and AA tags) and a scripted keyboard pass in Chromium. This is not a
+screen-reader speech audit.
+
+| State | axe critical or serious | axe other |
+| --- | --- | --- |
+| User page, ban form closed | 0 | 0 |
+| User page, after the last-seat refusal | 0 | 0 |
+| Billing tab, ban-term panel closed | 0 | 0 |
+| Billing tab, ban-term panel open | 0 | 0 |
+
+**Keyboard.** Every control is reachable with Tab and works with Enter. The last-seat refusal is
+announced (`role="alert"`). The "Term end unknown: enter the date the vendor had paid through" row
+keeps "Grant complimentary subscriptions for the ban term" disabled until a date is entered. The
+"Enter a date after today (UTC)." error is tied to its input with `aria-describedby` and
+`aria-invalid`, but it has no live region.
+
+**Finding (AECI-1989).** Focus falls to `<body>` after four actions: opening the ban form,
+submitting it, opening the ban-term panel, and cancelling the panel. The next Tab restarts at
+"Skip to main content". WCAG 2.2 SC 2.4.3, Focus Order.
+
+---
+
+## 11. Redesign accessibility gate (AECI-1818, 2026-11-18)
 
 **Scope:** every public surface the November 2026 redesign rebuilt (AECI-1720), as merged on
 `redesign/on-hold-2026-11-16` at **`42f192752`**. Measured in Chromium against this issue's local
@@ -316,9 +343,9 @@ were changed.
 intercepted with `page.route`, so no form, sign-in or email reached a real service.
 **Procedure:** the dev-time axe recipe (`apps/web`, `@playwright/test`, `browser.newContext()`),
 plus real `Tab` walks with Playwright's keyboard. Playwright drives a visible, focused page, so the
-hidden-tab trap of checklist §5 does not apply to this run. **Not a screen-reader run:** see §10.6.
+hidden-tab trap of checklist §5 does not apply to this run. **Not a screen-reader run:** see §11.6.
 
-### 10.1 Verdict
+### 11.1 Verdict
 
 **The gate passes on this branch, with two WCAG defects fixed in it.** axe found no error and no
 `serious` violation on any surface, at any width, in any state. The tags were `wcag2a`, `wcag2aa`,
@@ -338,7 +365,7 @@ controls. A second case opens the menu at 844 by 390 with the banner up. It tabs
 `consent-banner.component.spec.ts` and `search-page.component.spec.ts` pin the attribute, the
 custom property, the label link and the ring classes.
 
-### 10.2 Coverage, per surface
+### 11.2 Coverage, per surface
 
 Each row was scanned at 1440, 768, 390 and 320px. "Keys" is a real `Tab` walk at all four
 widths: cycle closed, no trap, no focus on a hidden element, a ring on every stop, and nothing
@@ -383,7 +410,7 @@ animation runs over 200ms, and the Browse menu opens with no animation. The skip
 URL path, focuses `<main>`, and the next `Tab` lands inside it. Sign-in needs no cognitive test:
 the email field has `autocomplete="email"` and allows paste (3.3.8).
 
-### 10.3 Contrast, measured
+### 11.3 Contrast, measured
 
 Ratios are WCAG 2, computed in the page after a canvas resolves each token to sRGB. Buttons and
 chips were real `aecButton` and `.aec-chip` elements rendered with the shipped classes.
@@ -419,7 +446,7 @@ measured 6.54:1 or more at rest and on hover on white, raised and Bone, with the
 tabs change weight. The jump rail fills Forest. The docs "On this page" dash grows from 12px to
 20px. The Browse trigger's Clay bar comes with weight 600.
 
-### 10.4 Open findings (moderate and minor)
+### 11.4 Open findings (moderate and minor)
 
 None of these is an axe error or `serious` violation. Each needs the owner's decision, words or
 a build.
@@ -435,16 +462,16 @@ a build.
 | **P7** | `/products`, product pages, docs | Some link names repeat with different targets: "Procore" (product and vendor), "About" (section link and footer), "For vendors" (header and docs guide). Each pair sits in a different card or landmark. | 2.4.4 passes in context. A links list shows the pair without that context. | No change needed. Recorded so a re-run does not count it as new. |
 | **P8** | Consent banner | The banner is the last thing in the Tab order: about 70 stops on a product page. | Not a WCAG failure. A keyboard user meets the choice last. | Owner's call. |
 
-### 10.5 Live regions (DOM shape, not speech)
+### 11.5 Live regions (DOM shape, not speech)
 
 Filter changes update the pagination line, a polite region present from load ("Showing 1 of 1").
 `/search` says "0 results" once through its `role="status"`. The mailing-list signup keeps focus
 on the field and updates one persistent `role="status"`. Every form error pass moves focus to the
 first bad field and ties each message to its field through `aria-describedby`. Each message is a
 `role="alert"` inserted with its text, up to six at once on list-your-product. Whether that burst
-reads as one announcement or six is a question for §10.6.
+reads as one announcement or six is a question for §11.6.
 
-### 10.6 Not covered, and what a human must still do
+### 11.6 Not covered, and what a human must still do
 
 1. **No screen reader ran.** No VoiceOver or NVDA speech was observed. The tooling here drives
    Chrome's accessibility tree, not speech.
