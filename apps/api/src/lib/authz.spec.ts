@@ -42,6 +42,7 @@ import { seedLicense } from '../test/licenses';
 import {
   auditActorType,
   extractSessionCookieToken,
+  sessionCookieNameFor,
   productPlan,
   productTier,
   requireAdmin,
@@ -331,6 +332,29 @@ describe('requireAuth', () => {
     const { status, body } = await call(makeApp(), '/api/account', 'DELETE', { Cookie: cookie });
     expect(status).toBe(200);
     expect(body.auth?.userId).toBe('user-abc');
+  });
+
+  // AECI-1990: the reported bug. A stale cookie from another project sat beside the
+  // right one and was read first, so a signed-in user got 401 from /api/account.
+  it('reads the configured project cookie when another project cookie comes first', async () => {
+    await seedProfile('user-abc', REVIEWER);
+    const token = await mintToken({ sub: 'user-abc' });
+    // Any token another project issued fails this project's JWKS check.
+    const cookie = [
+      `sb-old-project-auth-token=${encodeSessionCookie({ access_token: 'old.project.jwt' })}`,
+      `sb-test-project-auth-token=${encodeSessionCookie({ access_token: token })}`,
+    ].join('; ');
+    const { status, body } = await call(makeApp(), '/api/account', 'DELETE', { Cookie: cookie });
+    expect(status).toBe(200);
+    expect(body.auth?.userId).toBe('user-abc');
+  });
+
+  it('401s when only another project cookie is present', async () => {
+    await seedProfile('user-abc', REVIEWER);
+    const token = await mintToken({ sub: 'user-abc' });
+    const cookie = `sb-old-project-auth-token=${encodeSessionCookie({ access_token: token })}`;
+    const { status } = await call(makeApp(), '/api/account', 'DELETE', { Cookie: cookie });
+    expect(status).toBe(401);
   });
 
   it('rejects an invalid cookie session token with 401', async () => {
@@ -1051,23 +1075,40 @@ describe('requireProductCapability', () => {
 });
 
 describe('extractSessionCookieToken', () => {
+  // SUPABASE_URL is https://test-project.supabase.co, so the session cookie is
+  // `sb-test-project-auth-token`.
+  const OURS = 'sb-test-project-auth-token';
+  const THEIRS = 'sb-otherproject-auth-token';
+  const read = (cookies: Record<string, string>) =>
+    extractSessionCookieToken(cookies, SUPABASE_URL);
+  const raw = (token: string) => JSON.stringify({ access_token: token });
+  /** A cookie record built in the given order, so iteration order is pinned. */
+  const ordered = (...pairs: [string, string][]) => Object.fromEntries(pairs);
+  const chunked = (name: string, token: string): [string, string][] => {
+    const encoded = encodeSessionCookie({ access_token: token, padding: 'x'.repeat(64) });
+    const mid = Math.floor(encoded.length / 2);
+    return [
+      [`${name}.0`, encoded.slice(0, mid)],
+      [`${name}.1`, encoded.slice(mid)],
+    ];
+  };
+
   it('returns null when no session cookie is present', () => {
-    expect(extractSessionCookieToken({ theme: 'dark', other: 'x' })).toBeNull();
+    expect(read({ theme: 'dark', other: 'x' })).toBeNull();
   });
 
   it('returns null for an unparseable cookie value', () => {
-    expect(extractSessionCookieToken({ 'sb-ref-auth-token': 'base64-!!!notbase64' })).toBeNull();
-    expect(extractSessionCookieToken({ 'sb-ref-auth-token': 'not-json' })).toBeNull();
+    expect(read({ [OURS]: 'base64-!!!notbase64' })).toBeNull();
+    expect(read({ [OURS]: 'not-json' })).toBeNull();
   });
 
   it('returns null when the session JSON has no access_token', () => {
     const value = encodeSessionCookie({ refresh_token: 'r' });
-    expect(extractSessionCookieToken({ 'sb-ref-auth-token': value })).toBeNull();
+    expect(read({ [OURS]: value })).toBeNull();
   });
 
   it('parses a raw-JSON (non-base64) cookie value', () => {
-    const value = JSON.stringify({ access_token: 'tok' });
-    expect(extractSessionCookieToken({ 'sb-ref-auth-token': value })).toBe('tok');
+    expect(read({ [OURS]: raw('tok') })).toBe('tok');
   });
 
   it('orders chunks numerically (10 after 2)', () => {
@@ -1075,9 +1116,79 @@ describe('extractSessionCookieToken', () => {
     const size = Math.ceil(encoded.length / 11);
     const cookies: Record<string, string> = {};
     for (let i = 0; i < 11; i++) {
-      cookies[`sb-ref-auth-token.${i}`] = encoded.slice(i * size, (i + 1) * size);
+      cookies[`${OURS}.${i}`] = encoded.slice(i * size, (i + 1) * size);
     }
-    expect(extractSessionCookieToken(cookies)).toBe('tok');
+    expect(read(cookies)).toBe('tok');
+  });
+
+  // AECI-1990: a stale cookie from another Supabase project must never be read.
+  it('ignores a cookie from another project', () => {
+    expect(read({ [THEIRS]: raw('stale') })).toBeNull();
+  });
+
+  it('reads the configured project with two projects present, in both orders', () => {
+    expect(read(ordered([THEIRS, raw('stale')], [OURS, raw('mine')]))).toBe('mine');
+    expect(read(ordered([OURS, raw('mine')], [THEIRS, raw('stale')]))).toBe('mine');
+  });
+
+  it('reads the configured chunked cookie with another project chunked too, in both orders', () => {
+    expect(read(ordered(...chunked(THEIRS, 'stale'), ...chunked(OURS, 'mine')))).toBe('mine');
+    expect(read(ordered(...chunked(OURS, 'mine'), ...chunked(THEIRS, 'stale')))).toBe('mine');
+  });
+
+  it('mixes forms: a whole cookie of ours beside a chunked one of theirs, and the reverse', () => {
+    expect(read(ordered(...chunked(THEIRS, 'stale'), [OURS, raw('mine')]))).toBe('mine');
+    expect(read(ordered([THEIRS, raw('stale')], ...chunked(OURS, 'mine')))).toBe('mine');
+  });
+
+  it('does not match a ref that merely starts or ends like ours', () => {
+    expect(read({ 'sb-test-project-x-auth-token': raw('a') })).toBeNull();
+    expect(read({ 'sb-test-auth-token': raw('b') })).toBeNull();
+    expect(read({ 'sb-my-test-project-auth-token': raw('c') })).toBeNull();
+    expect(read({ [`${OURS}.x`]: raw('d'), [`${OURS}-1`]: raw('e') })).toBeNull();
+  });
+
+  it('keeps the chunked form ahead of a stale whole cookie of the same project', () => {
+    expect(read(ordered([OURS, raw('old')], ...chunked(OURS, 'new')))).toBe('new');
+  });
+
+  it('falls back to the whole cookie when the chunks do not parse', () => {
+    expect(read({ [OURS]: raw('whole'), [`${OURS}.0`]: 'base64-!!!' })).toBe('whole');
+  });
+
+  it('returns null for a gapped chunk set (.0 and .2, no .1)', () => {
+    const [first, second] = chunked(OURS, 'mine');
+    const encoded = first![1] + second![1];
+    const third = Math.floor(encoded.length / 3);
+    expect(
+      read({
+        [`${OURS}.0`]: encoded.slice(0, third),
+        [`${OURS}.2`]: encoded.slice(2 * third),
+      }),
+    ).toBeNull();
+  });
+
+  it('fails closed when the configured project cannot be derived', () => {
+    const cookies = { [OURS]: raw('mine') };
+    expect(extractSessionCookieToken(cookies, undefined)).toBeNull();
+    expect(extractSessionCookieToken(cookies, '')).toBeNull();
+    expect(extractSessionCookieToken(cookies, 'not a url')).toBeNull();
+  });
+});
+
+describe('sessionCookieNameFor', () => {
+  it('matches the supabase-js default storage key', () => {
+    expect(sessionCookieNameFor('https://ktuhnlypztujpsseujzx.supabase.co')).toBe(
+      'sb-ktuhnlypztujpsseujzx-auth-token',
+    );
+    expect(sessionCookieNameFor('https://abc.supabase.co/')).toBe('sb-abc-auth-token');
+    expect(sessionCookieNameFor('http://127.0.0.1:54321')).toBe('sb-127-auth-token');
+  });
+
+  it('is null without a usable URL', () => {
+    expect(sessionCookieNameFor(undefined)).toBeNull();
+    expect(sessionCookieNameFor('')).toBeNull();
+    expect(sessionCookieNameFor('::')).toBeNull();
   });
 });
 

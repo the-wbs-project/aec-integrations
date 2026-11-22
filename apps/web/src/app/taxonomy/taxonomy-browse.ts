@@ -78,7 +78,8 @@ import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcr
  * resolver pushes `product:{slug}` for every product the term carries onto
  * `ctx.embedded` (a superset of any filtered grid subset), so editing any of
  * those products purges this page. Filters are query params → `<link
- * rel="canonical">` stays on the unfiltered `/{kind}/{slug}` (§20.6).
+ * rel="canonical">` stays on the unfiltered `/{kind}/{slug}` (§20.6), plus
+ * `?page=` from page 2 (AECI-803), followed on every navigation (AECI-1904).
  */
 @Component({
   selector: 'aec-taxonomy-browse',
@@ -276,6 +277,13 @@ export class TaxonomyBrowsePage {
     // pages append client-side (the page number stays out of the URL).
     mode: 'append',
     enabled: () => this.term() !== null,
+    // AECI-1904 — the resolver sets the canonical when the term resolves, and
+    // query-only navigations do not re-run it, so the controller keeps the
+    // canonical on `?page=`. Null on a 404, whose canonical strips the query.
+    canonicalPath: () => {
+      const slug = this.term()?.slug;
+      return slug ? `/${KIND_PATH_SEGMENT[this.kind()]}/${slug}` : null;
+    },
   });
 
   /**

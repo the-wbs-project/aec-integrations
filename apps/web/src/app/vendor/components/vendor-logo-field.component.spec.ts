@@ -4,6 +4,7 @@ import { Component, provideZonelessChangeDetection, signal } from '@angular/core
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { expectTitleFirstDialog } from '../../core/testing/title-first-dialog.harness';
 import { VendorLogoField } from './vendor-logo-field';
 
 /**
@@ -111,6 +112,13 @@ describe('VendorLogoField', () => {
     fixture.componentInstance.canEdit.set(false);
     await settle(fixture);
     expect(el.querySelector('[data-testid="logo-edit"]')).toBeNull();
+  });
+
+  it('opens the logo dialog on its title, as an alert dialog (AECI-1861)', async () => {
+    const fixture = await mount();
+    await openDialog(fixture);
+    await settle(fixture);
+    expectTitleFirstDialog('Change logo');
   });
 
   it('saves a pasted URL straight away and closes', async () => {

@@ -252,11 +252,12 @@ Runs in parallel where possible to minimize wall time. Goal: under 10 minutes to
 1. Checkout
 2. Setup Node 24 with cache
 3. `pnpm install --frozen-lockfile`
-4. `pnpm run lint` (ESLint ×4 packages + `apps/web/scripts/check-source-constraints.mjs` + Prettier)
+4. `pnpm run lint` (CLAUDE.md size gate + NOTIFICATIONS.md drift check + alerts.json runbook-pointer gate + ESLint ×4 packages + `apps/web/scripts/check-source-constraints.mjs` + Prettier)
 5. `pnpm run typecheck` (`tsc --noEmit` across the monorepo)
 
 In the lite lane, step 4 narrows only the per-package ESLint pass to the affected packages. The
-CLAUDE.md size gate, the NOTIFICATIONS.md drift check and the whole-repo Prettier check still run.
+CLAUDE.md size gate, the NOTIFICATIONS.md drift check, the alerts.json runbook-pointer gate
+(`scripts/check-alert-runbook-pointers.mjs`) and the whole-repo Prettier check still run.
 Step 5 runs `typecheck` for the affected packages. apps/web has had a `typecheck` script since
 AECI-1652 (`tsc -p tsconfig.spec.json --noEmit`, the spec + e2e graph), so both lanes check it.
 Its app code is still covered by `ng build` in the Build SSR Worker lane.

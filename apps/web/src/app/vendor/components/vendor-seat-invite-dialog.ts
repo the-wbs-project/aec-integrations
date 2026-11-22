@@ -63,7 +63,7 @@ import { VendorSeatInviteForm } from './vendor-seat-invite-form';
         <span i18n="@@vendor.seats.invite.open">Invite</span>
       </button>
 
-      <brn-dialog>
+      <brn-dialog [role]="'alertdialog'" [autoFocus]="'first-heading'">
         <ng-template brnDialogContent>
           <div
             class="max-h-[85vh] w-[min(92vw,32rem)] overflow-y-auto rounded-(--radius-lg) border border-(--border-default) bg-(--surface-base) p-6 text-(--text-primary) md:p-8"
@@ -71,7 +71,8 @@ import { VendorSeatInviteForm } from './vendor-seat-invite-form';
             <div class="flex items-start justify-between gap-4">
               <h2
                 brnDialogTitle
-                class="font-display text-xl font-semibold text-(--text-primary)"
+                tabindex="-1"
+                class="font-display text-xl font-semibold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                 i18n="@@vendor.seats.invite.heading"
               >
                 Invite a colleague

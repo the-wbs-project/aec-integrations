@@ -48,7 +48,8 @@ export async function verifiedSessionEmail(
   // Bearer wins, as in `lib/authz.ts`. A present but invalid bearer does not fall
   // back to the cookie: it fails, which here means the confirm path.
   const token =
-    extractBearer(c.req.header('Authorization')) ?? extractSessionCookieToken(getCookie(c));
+    extractBearer(c.req.header('Authorization')) ??
+    extractSessionCookieToken(getCookie(c), supabaseUrl);
   if (!token) return null;
   try {
     const user = await verifySupabaseJwt(token, supabaseUrl, getKey);

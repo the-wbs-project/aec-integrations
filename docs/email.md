@@ -62,14 +62,19 @@ decision record; no separate ADR.
     is not counted in `aeci.email.send`, and a failed copy only warns. No copy goes
     out when the subscriber's send fails. A paused support-copy switch skips it too, and
     writes a `paused` ledger row per copy address instead (AECI-1224).
-  - **Attachments (AECI-1620).** `SendInput.attachments` (`{ filename, content }[]`, content in
-    base64 from `bytesToBase64`, which encodes in chunks so a 5 MB file cannot overflow the stack)
-    goes to Resend as `attachments`. It is inside the request body, so the `Idempotency-Key` body
+  - **Attachments (AECI-1620).** `SendInput.attachments` (`{ filename, content, contentType }[]`,
+    content in base64 from `bytesToBase64`, which encodes in chunks so a 5 MB file cannot overflow
+    the stack) goes to Resend as `attachments`, each with its `content_type`. Every notice PDF
+    sends `application/pdf` (`PDF_CONTENT_TYPE`, AECI-1992): without it Resend labelled the file
+    `application/octet-stream`, and a mail app may not offer to preview it. It is inside the request body, so the `Idempotency-Key` body
     hash covers it. A send with an attachment waits 30 seconds for Resend instead of 5. It never
     carries a `bcc`, for the same reason an unsubscribable send does not: a blind copy is the same
     message and would carry the file. When the template passes an `operatorCopy`, the separate
     `COPY:` goes after the recipient's send lands, and it never carries the attachment. Today the
-    senders are `legal-terms-change` and, since AECI-1637, `legal-account-change`. Neither passes an `operatorCopy`, so neither copies anyone.
+    senders are `legal-terms-change`, `legal-account-change` (AECI-1637) and
+    `entitlement-expiring` when it carries a new Managed plan agreement version (AECI-1690). The
+    two legal notices pass no `operatorCopy`, so they copy no one. `entitlement-expiring` passes
+    `entitlement-expiring-operator-copy`.
   - **Resend tags (AECI-1222).** Every Resend call carries `tags`: `tier` (`tierLabel(env)`)
     and `notification_id` (the registry id). That covers the transactional send, the operator
     `COPY:` (under its own `-operator-copy` id) and the digest `sendEmail`. A BCC copy rides

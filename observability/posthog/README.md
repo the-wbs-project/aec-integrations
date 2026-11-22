@@ -11,7 +11,7 @@ change it here first and carry the edit across; keep the table clean and liftabl
 |---|---|
 | `project-config.json` | Topology (both projects, hosts, alert subscribers) + the **liveness registry** the CI sweep reads: all twenty-four crons, plus the GitHub Actions IndexNow runner (`indexnow-send`, `scheduler: github-actions`, AECI-1476). An entry for a cron that has not run in production yet carries an `activeFrom` (see New crons: activeFrom). |
 | `insights.json` | 8 dashboards, 61 insights (36 board + 25 alert-source), as data. Names and descriptions are written for a **reader**, not for an archaeologist — see "Naming and descriptions". |
-| `alerts.json` | 24 PostHog alerts. Each names its source insight by **stable key** (`insightKey`, never by title) and carries the **retired Datadog query verbatim**. |
+| `alerts.json` | 25 PostHog alerts. Each names its source insight by **stable key** (`insightKey`, never by title) and carries the **retired Datadog query verbatim**. Its `runbook` field is for a reader of this file. `apply.sh` never sends it to PostHog, so a pointer edit needs no apply. Each pointer names a heading as `docs/<file>.md — 'Exact heading'`, and `pnpm lint` fails on one that does not resolve (`scripts/check-alert-runbook-pointers.mjs`, AECI-1940). |
 | `apply.sh` | Thin applier over the three JSON files. Dashboards + insights to both projects, alerts to prod only. |
 | `../../scripts/ci/posthog-liveness-sweep.sh` | The absence detector. Replaces all eight `notify_no_data` monitors. |
 | `../../.github/workflows/posthog-liveness-sweep.yml` | Runs it every 3 hours, outside the Worker, and **fails red**. |

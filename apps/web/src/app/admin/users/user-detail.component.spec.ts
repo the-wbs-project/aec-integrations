@@ -500,6 +500,88 @@ describe('UserDetail', () => {
     });
   });
 
+  // AECI-1989: every ban step removes or disables the button the operator
+  // pressed. Each test asserts where focus lands, so it never falls to <body>.
+  describe('focus after each ban step (AECI-1989)', () => {
+    const active = () => document.activeElement as HTMLElement | null;
+
+    async function typeReason(fixture: { detectChanges: () => void }, el: HTMLElement) {
+      const textarea = el.querySelector<HTMLTextAreaElement>('#admin-user-ban-reason')!;
+      textarea.value = 'Coordinated spam.';
+      textarea.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+    }
+
+    it('opening the form focuses the reason, and Cancel returns to the ban button', async () => {
+      const { el, fixture } = await setup();
+      await click(fixture, buttonByText(el, 'Ban this account')!);
+      expect(active()?.id).toBe('admin-user-ban-reason');
+
+      await click(fixture, buttonByText(el, 'Cancel')!);
+      expect(active()).toBe(buttonByText(el, 'Ban this account'));
+    });
+
+    it('an empty reason keeps focus on the reason', async () => {
+      const { el, fixture } = await setup();
+      await click(fixture, buttonByText(el, 'Ban this account')!);
+      await click(fixture, buttonByText(el, 'Confirm ban')!);
+      expect(active()?.id).toBe('admin-user-ban-reason');
+    });
+
+    it('a last-seat refusal focuses its message', async () => {
+      const bans = makeBansMock();
+      bans.ban.mockRejectedValueOnce({
+        status: 409,
+        error: {
+          error: { code: 'VENDOR_LAST_SEAT_USE_SUSPEND', details: { vendor_id: VENDOR_ID } },
+        },
+      });
+      const { el, fixture } = await setup(makeApiMock(), bans);
+      await click(fixture, buttonByText(el, 'Ban this account')!);
+      await typeReason(fixture, el);
+      await click(fixture, buttonByText(el, 'Confirm ban')!);
+
+      expect(active()?.getAttribute('role')).toBe('alert');
+      expect(active()?.textContent).toContain("This is the vendor's last unbanned seat");
+    });
+
+    it('a generic refusal focuses its message', async () => {
+      const bans = makeBansMock();
+      bans.ban.mockRejectedValueOnce({ status: 403 });
+      const { el, fixture } = await setup(makeApiMock(), bans);
+      await click(fixture, buttonByText(el, 'Ban this account')!);
+      await typeReason(fixture, el);
+      await click(fixture, buttonByText(el, 'Confirm ban')!);
+
+      expect(active()?.getAttribute('role')).toBe('alert');
+      expect(active()?.textContent).toContain("Admin accounts can't be banned");
+    });
+
+    it('a ban focuses the "Banned since" status, and a reinstate returns to the ban button', async () => {
+      const { el, fixture } = await setup();
+      await click(fixture, buttonByText(el, 'Ban this account')!);
+      await typeReason(fixture, el);
+      await click(fixture, buttonByText(el, 'Confirm ban')!);
+      expect(active()?.textContent).toContain('Banned since');
+
+      await click(fixture, buttonByText(el, 'Reinstate')!);
+      expect(active()).toBe(buttonByText(el, 'Ban this account'));
+    });
+
+    it('a 422 focuses its message once the page has reloaded', async () => {
+      const bans = makeBansMock();
+      bans.ban.mockRejectedValueOnce({ status: 422 });
+      const banned = makeUser({ banned_at: '2026-08-01T00:00:00.000Z', ban_reason: 'Spam.' });
+      const { el, fixture } = await setup(makeApiMock(banned), bans);
+      await click(fixture, buttonByText(el, 'Reinstate')!);
+      await settle();
+      fixture.detectChanges();
+
+      expect(active()?.getAttribute('role')).toBe('alert');
+      expect(active()?.textContent).toContain('was not banned');
+    });
+  });
+
   describe('reinstate (carried over from the folded /admin/reviewers spec)', () => {
     const banned = () =>
       makeUser({ banned_at: '2026-08-01T00:00:00.000Z', ban_reason: 'Coordinated spam.' });

@@ -471,6 +471,27 @@ export async function requireAuth(request: Request, env: Env): Promise<AuthConte
 }
 ```
 
+**The session cookie is read for the configured project only (AECI-1990).** When there is no
+`Authorization` header, the API reads the `@supabase/ssr` session cookie. It reads exactly one
+name: `sb-<ref>-auth-token`, whole or chunked (`.0`, `.1`, …), where `<ref>` is the first label
+of the `SUPABASE_URL` hostname. That is supabase-js's own default storage key, and the web app
+sets no custom cookie name. `sessionCookieNameFor` and `extractSessionCookieToken` in
+`apps/api/src/lib/authz.ts` hold the rule. The guards, `resolveVisitorSession` and
+`verifiedSessionEmail` all go through it.
+
+A host that once served another Supabase project keeps that project's cookie. Before this
+change the API read the first `sb-*-auth-token` cookie it could parse, so a stale one from an
+old project hid the right one. Every request then 401'd until the user cleared cookies by hand.
+This bit demo in 2026-07 and staging on 2026-11-12.
+
+When the name cannot be derived, because `SUPABASE_URL` is unset or unparseable, no cookie is
+read and the request fails closed. That loses nothing: without a usable `SUPABASE_URL` no token
+can be verified. The SSR Worker needs no matching change. `@supabase/ssr` there already reads
+only its own project's cookie. Its two presence checks, `hasSessionCookie()` in
+`server-runtime.ts` and `hasSupabaseAuthCookie()` in `auth.service.ts`, still match any project.
+They grant nothing. A foreign cookie only skips the SSR signed-out redirect, and the API's 401
+then sends the visitor to sign-in (§4.1a).
+
 **Why hard-fail rather than soft-fail:** an unauthenticated request to an authenticated endpoint is either a bug in our own code, a misconfigured client, or someone probing. None of these benefit from being silently downgraded to anonymous.
 
 #### 4.1a What a 401 means to the _page_ gates (AECI-954)

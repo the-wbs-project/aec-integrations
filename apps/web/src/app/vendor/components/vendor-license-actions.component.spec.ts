@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { VendorBillingLicense } from '@aeci/shared';
 
+import { expectTitleFirstDialog } from '../../core/testing/title-first-dialog.harness';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { VENDOR_ACCEPTANCES_FIXTURE, VENDOR_BILLING_FIXTURE } from '../vendor-fixtures';
@@ -231,6 +232,13 @@ describe('VendorLicenseActions', () => {
 
     expect(focus).toHaveBeenCalled();
     expect(dialog()).not.toBeNull();
+  });
+
+  it('opens the release dialog on its title, as an alert dialog (AECI-1861)', async () => {
+    const fixture = render();
+    await choose(fixture, 'license-actions-release');
+    await settle(fixture);
+    expectTitleFirstDialog('Release subscription');
   });
 
   it('closes the dialog and hands a 409 to the section', async () => {

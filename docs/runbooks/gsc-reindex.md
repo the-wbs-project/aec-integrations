@@ -41,7 +41,7 @@ If it ran, go straight to the loop. If it did not, run the triage script below, 
 
 **One authorized exception (2026-10-08).** Migration 0064 stamped `last_changed_at` = 2026-10-05 07:30 UTC on every row then queued, not the page's real last change. So rows Google had already re-crawled read "crawled before the change". With the operator's written authorization, 411 such rows were cleared by one direct SQL run. The run wrote a single `reindex.bulk_cleared` audit row listing every cleared row and the rule used. The rule: Google reports the page indexed and last crawled it at least an hour after its real last change, taken from `audit_log`. This was a one-off. It is not a pattern to repeat. The 919 rows left still carry the placeholder date.
 
-**Dry run without a session.** `--from-d1` reads the worklist from production D1 with a read-only `SELECT` through wrangler, so a dry run needs no admin session. It uses your wrangler OAuth login on The WBS Project account, and drops `CLOUDFLARE_API_TOKEN` for that call because the token in Conductor's environment reaches only the old account. `--apply` still needs the admin session, because rows are only ever cleared through the audited Done call. Since the 2026-10-05 move the bare name `aeci-app-production` resolves to the retired APAC copy, which has no queue rows; until the script passes the ENAM database (`aeci-app-production-us`), `--from-d1` reads an empty worklist.
+**Dry run without a session.** `--from-d1` reads the worklist from production D1 with a read-only `SELECT` through wrangler, so a dry run needs no admin session. It uses your wrangler OAuth login on The WBS Project account, and drops `CLOUDFLARE_API_TOKEN` for that call because the token in Conductor's environment reaches only the old account. `--apply` still needs the admin session, because rows are only ever cleared through the audited Done call. It reads `aeci-app-production-us`, the live production database in ENAM. It runs wrangler from the OS temp dir, so the name is looked up on the account. There the old name `aeci-app-production` is the retired APAC copy. `AECI_D1_DATABASE` overrides the name. Before it reads the queue, the script checks that the database wrote a `job_runs` row in the last 48 hours. If not, it stops with "is not the live production database" rather than report an empty queue (AECI-1941).
 
 ```bash
 node scripts/gsc-reindex-triage.mjs --from-d1
@@ -61,10 +61,11 @@ AECI_ADMIN_COOKIE='paste the Cookie header here' node scripts/gsc-reindex-triage
 
 **Saved results.** The script saves each inspection in `.context/gsc-triage/state.json`, keyed by row id, and does not re-inspect a row checked within the last 72 hours, or whose page changed since. A done row is cleared from its saved result. So the `--apply` run after a dry run inspects nothing again, and several runs a day stay inside the inspection quota. A URL queued again gets a new row id and is always inspected fresh.
 
-Other flags: `--limit N` inspects only the first N rows, `--priority N` only one tier, `--recheck-hours N` changes the 12-hour window, `--fresh` ignores saved results, `--out PATH` moves the report.
+Other flags: `--limit N` inspects only the first N rows, `--priority N` only one tier, `--recheck-hours N` changes the 72-hour window, `--fresh` ignores saved results, `--out PATH` moves the report.
 
 **When it stops.**
 
+- **"is not the live production database"** (`--from-d1` only): the name reached a database with no `job_runs` row in 48 hours, such as the retired APAC copy. Unset `AECI_D1_DATABASE`, or set it to `aeci-app-production-us`, and re-run. Nothing was read or cleared.
 - **Admin API 401 or 403**: the session expired or is not an admin. Copy a fresh `Cookie` header and re-run. Re-running is safe: a row already cleared answers 404 and counts as cleared.
 - **"usually a Cloudflare challenge"**: the zone's bot protection blocked the script. Run the manual loop without step 0 and report it.
 - **Search Console 401 or 403**: the service account lost access to the property. Nothing was cleared. Run the manual loop without step 0 and report it.
