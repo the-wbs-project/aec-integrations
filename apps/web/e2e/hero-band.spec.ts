@@ -538,3 +538,112 @@ test.describe('bone band rendered (AECI-1766)', () => {
     expect(results.violations).toEqual([]);
   });
 });
+
+/**
+ * AECI-1847, decision of 2026-11-22: no hero changes size. Display stays on the home
+ * hero, the product name and the vendor name. The pair page takes Statement, and the
+ * empty pair page the wide Statement. Every other page `h1`, About included, keeps the
+ * global `h1` size (Headline, `--t-fig`). Each size is read off the rendered page and
+ * compared with the token it should resolve to, at the four widths `DESIGN.md` §3
+ * tabulates. The pixel table there is the second check.
+ */
+test.describe('hero title sizes, rendered (AECI-1847)', () => {
+  const WIDTHS = [320, 768, 1280, 1920] as const;
+  type Token = '--t-display' | '--t-statement' | '--t-statement-wide' | '--t-fig';
+  /** DESIGN.md §3 "Settled values" at 320 / 768 / 1280 / 1920px. */
+  const PX: Record<Token, readonly number[]> = {
+    '--t-display': [45.7, 56.4, 68.7, 72],
+    '--t-statement': [35.8, 43.8, 53, 56],
+    '--t-statement-wide': [34, 35, 50.4, 51],
+    '--t-fig': [28, 31.2, 40, 40],
+  };
+  /** The detail hero steps down below md, and to the Headline size below 360px. */
+  const detailToken = (w: number): Token =>
+    w < 360 ? '--t-fig' : w < 768 ? '--t-statement' : '--t-display';
+
+  async function measure(page: Page, selector: string, token: Token) {
+    return page.evaluate(
+      ({ selector, token }) => {
+        const el = document.querySelector(selector);
+        if (!el) return null;
+        const probe = document.createElement('span');
+        probe.style.fontSize = `var(${token})`;
+        document.body.appendChild(probe);
+        const want = parseFloat(getComputedStyle(probe).fontSize);
+        probe.remove();
+        return { got: parseFloat(getComputedStyle(el).fontSize), want };
+      },
+      { selector, token },
+    );
+  }
+
+  async function firstPair(page: Page, empty: boolean): Promise<string | null> {
+    const res = await page.request.get('/api/products?perPage=24');
+    if (!res.ok()) return null;
+    const slugs = ((await res.json()) as { data?: { slug: string }[] }).data?.map((p) => p.slug);
+    for (const a of slugs ?? []) {
+      for (const b of slugs ?? []) {
+        if (a >= b) continue;
+        const pair = await page.request.get(`/api/products/${a}/integrations/${b}`);
+        if (!pair.ok()) continue;
+        const body = (await pair.json()) as { mechanisms: unknown[]; moved_to: unknown };
+        if (body.moved_to !== null) continue;
+        if ((body.mechanisms.length === 0) === empty) return `/products/${a}/integrations/${b}`;
+      }
+    }
+    return null;
+  }
+
+  async function firstSlug(page: Page, kind: 'products' | 'vendors'): Promise<string> {
+    const res = await page.request.get(`/api/${kind}?perPage=1`);
+    expect(res.ok()).toBe(true);
+    const slug = ((await res.json()) as { data: { slug: string }[] }).data[0]?.slug;
+    expect(slug).toBeTruthy();
+    return slug!;
+  }
+
+  async function check(page: Page, path: string, selector: string, token: (w: number) => Token) {
+    for (const [i, w] of WIDTHS.entries()) {
+      await page.setViewportSize({ width: w, height: 900 });
+      await page.goto(path);
+      await expect(page.locator(selector).first()).toBeVisible();
+      const t = token(w);
+      const m = await measure(page, selector, t);
+      expect(m, `${path} at ${w}px`).not.toBeNull();
+      expect(m!.got, `${path} at ${w}px reads ${t}`).toBeCloseTo(m!.want, 1);
+      expect(Math.abs(m!.got - PX[t][i]!), `${path} at ${w}px matches DESIGN.md`).toBeLessThan(0.6);
+    }
+  }
+
+  test('the home hero renders Display at every width', async ({ page }) => {
+    await check(page, '/', '[data-testid="home-hero-title"]', () => '--t-display');
+  });
+
+  test('the product name renders Display from md, Statement below, Headline below 360px', async ({
+    page,
+  }) => {
+    const slug = await firstSlug(page, 'products');
+    await check(page, `/products/${slug}`, 'aec-hero-band h1 > span', detailToken);
+  });
+
+  test('the vendor name renders the same steps as the product name', async ({ page }) => {
+    const slug = await firstSlug(page, 'vendors');
+    await check(page, `/vendors/${slug}`, 'aec-hero-band h1 > span', detailToken);
+  });
+
+  test('the pair page statement renders Statement', async ({ page }) => {
+    const path = await firstPair(page, false);
+    test.skip(path === null, 'no pair with an integration in this catalog');
+    await check(page, path!, 'aec-hero-band h1 > span', () => '--t-statement');
+  });
+
+  test('the empty pair page statement renders the wide Statement', async ({ page }) => {
+    const path = await firstPair(page, true);
+    test.skip(path === null, 'no empty pair in this catalog');
+    await check(page, path!, 'aec-hero-band h1 > span', () => '--t-statement-wide');
+  });
+
+  test('the About h1 keeps the global h1 size (Headline)', async ({ page }) => {
+    await check(page, '/about', 'main h1', () => '--t-fig');
+  });
+});

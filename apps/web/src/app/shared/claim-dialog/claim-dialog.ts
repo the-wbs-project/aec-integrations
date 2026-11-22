@@ -58,7 +58,7 @@ import { AecIcon } from '../icon/icon';
                    AECI-1705: the typed-in path is a request to be listed, not a claim. -->
               <h2
                 brnDialogTitle
-                class="font-display text-2xl font-normal leading-[1.15] tracking-[-0.01em] text-(--text-primary)"
+                class="font-display text-(--text-primary)"
                 data-testid="claim-dialog-title"
               >
                 @if (dialog.typed()) {

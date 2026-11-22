@@ -57,7 +57,7 @@ import { AecIcon } from '../shared/icon/icon';
           <div class="flex items-start justify-between gap-4">
             <h2
               brnDialogTitle
-              class="font-display text-2xl font-normal leading-[1.15] tracking-[-0.01em] text-(--text-primary)"
+              class="font-display text-(--text-primary)"
               i18n="@@home.feedback.title"
             >
               Suggest a tool or share feedback
