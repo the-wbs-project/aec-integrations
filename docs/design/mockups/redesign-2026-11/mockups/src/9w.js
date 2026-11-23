@@ -19,15 +19,15 @@
   var DEFAULTS = {
     product: 'medium', // small | cc | revit | medium | live | large | full
     claim: 'claimed', // claimed | unclaimed (the page's own product)
-    partners: 'mixed', // mixed | all | none (which partners show a logo)
+    partners: 'mixed', // mixed | all | none (which products on the ring show a logo)
     cut: 'fit', // fit | fixed: modes by what fits at the real width, or by the numbers below
     tmin: 28, // smallest tile beside the text (lg and up), px. Phones use 24.
-    one: 30, // fixed: one ring up to this many partners
+    one: 30, // fixed: one ring up to this many products
     two: 70, // fixed: two rings up to this many, dots above
     phone: 18, // fixed: phone, one ring up to this many, dots above
     base: 'inner', // inner | full: where the one-ring slides sit on desktop
     names: 'off', // on | off: names under tiles on slides of 8 or fewer
-    first: 0, // boundary test: only the first N partners A to Z (0 = all)
+    first: 0, // boundary test: only the first N products A to Z (0 = all)
     slide: 0,
   };
   W.DEFAULTS = DEFAULTS;
@@ -106,11 +106,11 @@
   }
   W.mark = mark;
 
-  /* ---------- The model: partners A to Z, and the slides ---------- */
+  /* ---------- The model: the connected products A to Z, and the slides ---------- */
   function partnerClaimed(name, mode) {
     if (mode === 'all') return true;
     if (mode === 'none') return false;
-    return hash(name + '#claim') % 10 < 3; // stand-in: about 3 in 10 partners claimed
+    return hash(name + '#claim') % 10 < 3; // stand-in: about 3 in 10 claimed
   }
   function model(state) {
     var raw = DATA.products[state.product] || DATA.products.medium;
@@ -129,7 +129,7 @@
       });
     });
     var cats = Object.keys(byCat).sort(cmp);
-    var slides = [{ key: 'all', name: 'All partners', partners: partners }].concat(
+    var slides = [{ key: 'all', name: 'All integrations', partners: partners }].concat(
       cats.map(function (c) {
         return { key: slugify(c), name: c, partners: byCat[c] };
       }),
@@ -165,7 +165,7 @@
     var inner = outer - t - RING_GAP;
     return { outer: outer, inner: inner, one: twoOk && base === 'inner' ? inner : outer };
   }
-  // The largest partner count one ring, or two, can hold at tile size t.
+  // The largest product count one ring, or two, can hold at tile size t.
   function capacity(D, t, base) {
     var twoOk = !isPhone(D);
     var r = radii(D, t, base, twoOk);
@@ -196,8 +196,8 @@
     }
     var rr = radii(D, t, state.base, twoOk);
     var c2 = capacity(D, t, state.base);
-    if (mode === 'one' && n > c2.one) out.warn = 'Over capacity: ' + n + ' partners on one ring that holds ' + c2.one + ' at ' + t + 'px.';
-    if (mode === 'two' && n > c2.two) out.warn = 'Over capacity: ' + n + ' partners on two rings that hold ' + c2.two + ' at ' + t + 'px.';
+    if (mode === 'one' && n > c2.one) out.warn = 'Over capacity: ' + n + ' products on one ring that holds ' + c2.one + ' at ' + t + 'px.';
+    if (mode === 'two' && n > c2.two) out.warn = 'Over capacity: ' + n + ' products on two rings that hold ' + c2.two + ' at ' + t + 'px.';
     out.t = t;
     var groups;
     if (mode === 'one') groups = [[rr.one, n]];
@@ -249,7 +249,7 @@
 
   /* ---------- Rendering ---------- */
   function countLine(s) {
-    return plural(s.partners.length, 'partner', 'partners');
+    return plural(s.partners.length, 'product', 'products');
   }
   function stageInner(m, s, L, state) {
     var p = m.raw;
@@ -301,11 +301,11 @@
       '<span class="sr">, </span><span class="ct">' + countLine(s) + '</span></button></h2>' +
       '<button type="button" class="wheel-step" data-step="1" aria-label="Next category"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>' +
       '<ul class="jump-list" id="jump-list" aria-label="Jump to a category" hidden></ul></div>';
-    h += '<h2 class="wheel-static-title">Integration partners<span class="ct">' + countLine(s) + ', ' + plural(m.cats, 'category', 'categories') + '</span></h2>';
+    h += '<h2 class="wheel-static-title">All integrations<span class="ct">' + countLine(s) + ', ' + plural(m.cats, 'category', 'categories') + '</span></h2>';
     h += '<div class="stage' + (L.mode === 'dots' ? ' dots' : '') + '" data-mode="' + L.mode + '" data-d="' + D + '">' + stageInner(m, s, L, state) + '</div>';
     h += '<p class="wheel-foot" id="wheel-foot">Shown A to Z. Position is not a ranking.</p>';
     if (L.mode === 'dots') h += '<p class="wheel-more"><a href="#integrations">See all ' + s.integrations + ' in Integrations</a></p>';
-    h += '<p class="sr" id="ring-hint">Arrow keys move between partners.</p>';
+    h += '<p class="sr" id="ring-hint">Arrow keys move between products.</p>';
     h += '<p class="sr" aria-live="polite" id="wheel-live"></p>';
     // The card is fixed to the viewport, so it is never clipped by the hero; it lives here
     // so it stays inside the page's landmarks.
@@ -603,16 +603,16 @@
 
   /* ---------- The harness: a control strip and a frame ---------- */
   var CONTROLS = [
-    ['product', 'Product', 'select', [['small', 'Small: ALICE Optimize, 6'], ['cc', 'CompanyCam, 26'], ['revit', 'Autodesk Revit, 38'], ['medium', 'Medium: Autodesk Forma, 54'], ['live', 'Procore Project Management, live, 57'], ['large', 'Large: Procore Project Management, 140'], ['full', 'Largest: Procore Project Management, 387']]],
+    ['product', 'Product', 'select', [['small', 'Small: ALICE Optimize, 6 products'], ['cc', 'CompanyCam, 26 products'], ['revit', 'Autodesk Revit, 38 products'], ['medium', 'Medium: Autodesk Forma, 54 products'], ['live', 'Procore Project Management, live, 57 products'], ['large', 'Large: Procore Project Management, first 140 products A to Z'], ['full', 'Largest: Procore Project Management, all 387 products']]],
     ['w', 'Width', 'radio', [['1440', '1440'], ['390', '390 phone'], ['320', '320']]],
     ['claim', 'This product', 'radio', [['claimed', 'Claimed'], ['unclaimed', 'Unclaimed']]],
-    ['partners', 'Partner logos', 'radio', [['mixed', 'Mixed'], ['all', 'All claimed'], ['none', 'None claimed']]],
+    ['partners', 'Logos on the ring', 'radio', [['mixed', 'Mixed'], ['all', 'All claimed'], ['none', 'None claimed']]],
     ['cut', 'Cut-offs', 'radio', [['fit', 'Fit to the width'], ['fixed', 'Fixed numbers']]],
     ['tmin', 'Smallest tile beside the text', 'radio', [['24', '24'], ['28', '28'], ['32', '32']]],
     ['one', 'Fixed: one ring up to', 'number'],
     ['two', 'Fixed: two rings up to', 'number'],
     ['phone', 'Fixed: phone ring up to', 'number'],
-    ['first', 'Only the first N partners', 'number'],
+    ['first', 'Only the first N products', 'number'],
     ['base', 'One-ring slides sit', 'radio', [['inner', 'On the inner ring'], ['full', 'At full width']]],
     ['names', 'Names under tiles, 8 or fewer', 'radio', [['off', 'Off'], ['on', 'On']]],
     ['script', 'Script', 'radio', [['on', 'On'], ['off', 'Off: server HTML']]],
@@ -674,7 +674,7 @@
     win.addEventListener('message', function (e) {
       var r = e.data && e.data.wheel;
       if (!r || e.source !== frame.contentWindow) return;
-      read.textContent = 'Slide ' + (r.i + 1) + ' of ' + r.of + ': ' + r.slide + '. ' + r.n + ' partners, ' + r.m + ' integrations. ' +
+      read.textContent = 'Slide ' + (r.i + 1) + ' of ' + r.of + ': ' + r.slide + '. ' + r.n + ' products, ' + r.m + ' integrations. ' +
         (r.mode === 'dots' ? 'Dots on ' + r.rings + ' rings.' : (r.mode === 'two' ? 'Two rings' : 'One ring') + ', tiles ' + r.t + 'px.') +
         ' Stage ' + r.D + 'px. At the smallest tile this stage holds ' + r.cap1 + ' on one ring' + (r.cap2 ? ' and ' + r.cap2 + ' on two.' : '.') + (r.warn ? ' ' + r.warn : '');
     });

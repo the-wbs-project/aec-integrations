@@ -218,7 +218,7 @@ html.js .wheel-more { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
 
-/* ---------- The partner card (a popover in the top layer, never clipped) ---------- */
+/* ---------- The product card (a popover in the top layer, never clipped) ---------- */
 .pcard { position: fixed; z-index: 50; width: 264px; padding: 16px; display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 12px; align-items: center;
   background: var(--surface-base); color: var(--text-primary); border: 1px solid var(--border-default); border-radius: var(--radius-control); box-shadow: var(--shadow-menu); }
 .pcard[hidden] { display: none; }
