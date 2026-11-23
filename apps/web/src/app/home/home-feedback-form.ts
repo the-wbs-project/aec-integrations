@@ -17,6 +17,7 @@ import {
 
 import { FoundViaField } from '../shared/found-via/found-via-field';
 import { LandingApi, buildAttribution } from '../shared/landing/landing-api';
+import { FIELD_ERROR_CLASS } from '../shared/form-field/form-field-classes';
 
 /** Standard-schema-validated subset of the feedback form. Only `features` /
  *  `tools` live in the Signal Forms model so `FeedbackSubmitSchema`'s `.refine`
@@ -112,7 +113,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         @if (atLeastOneError()) {
           <p
             id="home-feedback-fields-error"
-            class="-mt-2 text-xs font-medium text-(--text-primary)"
+            [class]="'-mt-2 ' + errorClass"
             role="alert"
             i18n="@@home.feedback.fields.error"
           >
@@ -143,7 +144,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
           @if (emailInvalid()) {
             <p
               id="home-feedback-email-error"
-              class="text-xs font-medium text-(--text-primary)"
+              [class]="errorClass"
               role="alert"
               i18n="@@home.feedback.email.error"
             >
@@ -201,6 +202,8 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   `,
 })
 export class HomeFeedbackForm {
+  /** A field's inline error: the shared recipe (AECI-1984). */
+  protected readonly errorClass = FIELD_ERROR_CLASS;
   private readonly api = inject(LandingApi);
 
   /** Emitted on a successful submit so the host dialog can close. */

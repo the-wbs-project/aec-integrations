@@ -31,6 +31,7 @@ import {
 
 import { LegalInForceClient } from '../../legal/legal-in-force-client';
 import { AdminLicensesApi } from './admin-licenses-api';
+import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
 
 /** The operator's local today as `YYYY-MM-DD`, the form a date input holds. Local, not
  *  UTC, so an evening grant in the Americas does not prefill tomorrow. */
@@ -83,6 +84,8 @@ function todayLocal(): string {
   templateUrl: './grant-licenses-control.html',
 })
 export class GrantLicensesControl {
+  /** A field's inline error: the shared recipe (AECI-1984). */
+  protected readonly errorClass = FIELD_ERROR_CLASS;
   private readonly api = inject(AdminLicensesApi);
 
   readonly vendorId = input.required<string>();

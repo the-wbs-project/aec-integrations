@@ -543,7 +543,7 @@
           rejectForm.rejection_reason().getError('standardSchema') ) {
           <p
             [id]="'reject-reason-' + r.id + '-error'"
-            class="text-xs font-medium text-(--text-primary)"
+            [class]="errorClass"
             role="alert"
             i18n="@@admin.reviews.reject.error"
           >
@@ -640,7 +640,7 @@
           @if (banForm.reason().touched() && banForm.reason().getError('standardSchema')) {
           <p
             id="ban-reason-error"
-            class="text-xs font-medium text-(--text-primary)"
+            [class]="errorClass"
             role="alert"
             i18n="@@admin.reviews.ban.dialog.error"
           >

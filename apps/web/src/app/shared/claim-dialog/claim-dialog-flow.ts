@@ -44,6 +44,7 @@ import { SearchAutocomplete } from '../../search/search-autocomplete';
 import {
   BUTTON_PRIMARY_CLASS,
   BUTTON_SECONDARY_CLASS,
+  FIELD_ERROR_CLASS,
   FIELD_INPUT_CLASS,
   FIELD_LABEL_CLASS,
 } from '../form-field/form-field-classes';
@@ -463,7 +464,7 @@ interface ClaimDialogModel {
                       @if (invalid(form.listing_name)) {
                         <p
                           id="claim-dialog-listing-name-error"
-                          class="text-xs font-medium text-(--text-primary)"
+                          [class]="errorClass"
                           role="alert"
                           i18n="@@claimDialog.you.listingName.error"
                         >
@@ -495,7 +496,7 @@ interface ClaimDialogModel {
                       @if (invalid(form.website)) {
                         <p
                           id="claim-dialog-website-error"
-                          class="text-xs font-medium text-(--text-primary)"
+                          [class]="errorClass"
                           role="alert"
                           i18n="@@claimDialog.you.website.error"
                         >
@@ -572,7 +573,7 @@ interface ClaimDialogModel {
                   @if (invalid(form.body)) {
                     <p
                       id="claim-dialog-comments-error"
-                      class="text-xs font-medium text-(--text-primary)"
+                      [class]="errorClass"
                       role="alert"
                       i18n="@@requests.claim.body.error"
                     >
@@ -669,6 +670,8 @@ interface ClaimDialogModel {
   `,
 })
 export class ClaimDialogFlow implements OnInit {
+  /** A field's inline error: the shared recipe (AECI-1984). */
+  protected readonly errorClass = FIELD_ERROR_CLASS;
   private readonly api = inject(RequestsApi);
   private readonly analytics = inject(Analytics);
   private readonly session = inject(SessionStatus);

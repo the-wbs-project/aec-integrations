@@ -449,6 +449,66 @@ h3 {
   border-color: var(--status-error);
 }
 
+/* The rest of the DESIGN.md "Inputs / Fields" error rule (AECI-1984): a red
+   edge, an inline message and an icon, so colour is never the only signal.
+   Unlayered for the same reason as `.aec-field-control`, and keyed off
+   `aria-invalid` the same way.
+
+   `.aec-choice-card` is the bordered row round a radio or checkbox
+   (CHOICE_CARD_CLASS). It turns red when the input inside is invalid. */
+.aec-choice-card {
+  border-color: var(--border-default);
+}
+
+.aec-choice-card:has([aria-invalid='true']) {
+  border-color: var(--status-error);
+}
+
+/* A native checkbox or radio with no card round it (CHOICE_INPUT_CLASS). A
+   native box cannot take a border colour, so it gets a red outline instead.
+   The focus ring wins while the box has keyboard focus. */
+.aec-choice-input[aria-invalid='true']:not(:focus-visible) {
+  outline: 2px solid var(--status-error);
+  outline-offset: 2px;
+}
+
+/* Inside a card the card's edge already turns red, so the box itself does not. */
+.aec-choice-card .aec-choice-input[aria-invalid='true']:not(:focus-visible) {
+  outline: none;
+}
+
+/* The field's error message (FIELD_ERROR_CLASS). A Lucide `circle-alert`
+   icon in `--status-error` sits in the start padding. It is absolutely
+   placed, not a flex item, so a message with a link or several inline nodes
+   still wraps as one line. The empty `content` adds nothing to what a screen
+   reader announces. The mask only reads alpha, so the SVG strokes with
+   `currentColor` and the fill comes from `background-color`. */
+.aec-field-error {
+  position: relative;
+  padding-inline-start: 1.375em;
+}
+
+.aec-field-error::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: 0;
+  /* Centre the 1em icon on the first line box. */
+  top: calc((1lh - 1em) / 2);
+  width: 1em;
+  height: 1em;
+  background-color: var(--status-error);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cline x1='12' x2='12' y1='8' y2='12'/%3E%3Cline x1='12' x2='12.01' y1='16' y2='16'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cline x1='12' x2='12' y1='8' y2='12'/%3E%3Cline x1='12' x2='12.01' y1='16' y2='16'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+}
+
+@media (forced-colors: active) {
+  .aec-field-error::before {
+    background-color: CanvasText;
+  }
+}
+
 /* A scroll box whose last row may be clipped (the "About you" audience list).
    A bottom hairline from the `*` rule plus an always-drawn thin scrollbar, so
    the overflow reads as scrollable where overlay scrollbars hide. */

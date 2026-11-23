@@ -40,6 +40,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 
 import { ReviewsApi } from './reviews-api';
+import { FIELD_ERROR_CLASS } from '../shared/form-field/form-field-classes';
 
 type RoleValue = NonNullable<SubmitReviewInput['role_at_company']>;
 type RecommendValue = NonNullable<SubmitReviewInput['would_recommend']>;
@@ -123,6 +124,8 @@ interface ReviewModel {
   templateUrl: './review-form.html',
 })
 export class ReviewForm {
+  /** A field's inline error: the shared recipe (AECI-1984). */
+  protected readonly errorClass = FIELD_ERROR_CLASS;
   private readonly route = inject(ActivatedRoute);
   private readonly api = inject(ReviewsApi);
   private readonly account = inject(AccountApi);

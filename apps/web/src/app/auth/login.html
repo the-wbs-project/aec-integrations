@@ -228,12 +228,7 @@
         class="h-11 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 text-sm text-(--text-primary) placeholder:text-(--text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       />
       @if (form.email().touched() && form.email().getError('standardSchema')) {
-      <p
-        id="login-email-error"
-        class="text-xs font-medium text-(--text-primary)"
-        role="alert"
-        i18n="@@auth.login.email.error"
-      >
+      <p id="login-email-error" [class]="errorClass" role="alert" i18n="@@auth.login.email.error">
         Enter a valid email address.
       </p>
       }

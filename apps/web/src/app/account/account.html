@@ -199,7 +199,7 @@
             @if (form.display_name().touched() && form.display_name().getError('standardSchema')) {
             <p
               id="account-display-name-error"
-              class="text-xs font-medium text-(--text-primary)"
+              [class]="errorClass"
               role="alert"
               i18n="@@account.displayName.error"
             >

@@ -2,7 +2,11 @@ import { Component, computed, input } from '@angular/core';
 import { isFreeEmailAddress } from '@aeci/shared/free-email-domains';
 import { type FieldTree, FormField } from '@angular/forms/signals';
 
-import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../shared/form-field/form-field-classes';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../shared/form-field/form-field-classes';
 
 /**
  * The claim form's identity fields (AECI-847, AECI-1293): name, title, LinkedIn
@@ -46,7 +50,7 @@ import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../shared/form-field/form-
       @if (showError(name())) {
         <p
           [id]="idPrefix() + '-name-error'"
-          class="text-xs font-medium text-(--text-primary)"
+          [class]="errorClass"
           role="alert"
           i18n="@@requests.claim.name.error"
         >
@@ -75,7 +79,7 @@ import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../shared/form-field/form-
       @if (showError(title())) {
         <p
           [id]="idPrefix() + '-title-error'"
-          class="text-xs font-medium text-(--text-primary)"
+          [class]="errorClass"
           role="alert"
           i18n="@@requests.claim.title.error"
         >
@@ -119,7 +123,7 @@ import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../shared/form-field/form-
       @if (showError(linkedin())) {
         <p
           [id]="idPrefix() + '-linkedin-error'"
-          class="text-xs font-medium text-(--text-primary)"
+          [class]="errorClass"
           role="alert"
           i18n="@@requests.claim.linkedin.error"
         >
@@ -164,7 +168,7 @@ import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../shared/form-field/form-
       @if (showError(email())) {
         <p
           [id]="idPrefix() + '-email-error'"
-          class="text-xs font-medium text-(--text-primary)"
+          [class]="errorClass"
           role="alert"
           i18n="@@requests.email.invalid"
         >
@@ -193,7 +197,7 @@ import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../shared/form-field/form-
       @if (showError(legalName())) {
         <p
           [id]="idPrefix() + '-legal-name-error'"
-          class="text-xs font-medium text-(--text-primary)"
+          [class]="errorClass"
           role="alert"
           i18n="@@requests.claim.legalName.error"
         >
@@ -204,6 +208,8 @@ import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../shared/form-field/form-
   `,
 })
 export class ClaimantFields {
+  /** A field's inline error: the shared recipe (AECI-1984). */
+  protected readonly errorClass = FIELD_ERROR_CLASS;
   readonly name = input.required<FieldTree<string>>();
   readonly title = input.required<FieldTree<string>>();
   readonly linkedin = input.required<FieldTree<string>>();

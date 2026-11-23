@@ -38,6 +38,7 @@ import { VendorLogoField, type SaveLogo } from './vendor-logo-field';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 import { isReplayedEvent } from '../../core/event-replay';
+import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
 
 /** The vendor-editable text fields (`founded_year` is the one numeric field; the
  *  discrete company facts are in `choiceFields`, handled separately). */
@@ -246,11 +247,7 @@ interface FieldConfig {
               <aec-vendor-hidden-note [hide]="hide" [noteId]="fieldId(cfg.key) + '-hidden'" />
             }
             @if (fieldErrors()[cfg.key]; as err) {
-              <p
-                [id]="fieldId(cfg.key) + '-error'"
-                class="text-xs font-medium text-(--text-primary)"
-                role="alert"
-              >
+              <p [id]="fieldId(cfg.key) + '-error'" [class]="errorClass" role="alert">
                 {{ err }}
               </p>
             }
@@ -322,11 +319,7 @@ interface FieldConfig {
               <aec-vendor-hidden-note [hide]="hide" [noteId]="fieldId(cfg.key) + '-hidden'" />
             }
             @if (fieldErrors()[cfg.key]; as err) {
-              <p
-                [id]="fieldId(cfg.key) + '-error'"
-                class="text-xs font-medium text-(--text-primary)"
-                role="alert"
-              >
+              <p [id]="fieldId(cfg.key) + '-error'" [class]="errorClass" role="alert">
                 {{ err }}
               </p>
             }
@@ -377,6 +370,8 @@ interface FieldConfig {
   styles: [':host { display: block; }'],
 })
 export class VendorProfileForm {
+  /** A field's inline error: the shared recipe (AECI-1984). */
+  protected readonly errorClass = FIELD_ERROR_CLASS;
   private readonly api = inject(VendorApi);
   private readonly store = inject(VendorPortalStore);
   private readonly destroyRef = inject(DestroyRef);

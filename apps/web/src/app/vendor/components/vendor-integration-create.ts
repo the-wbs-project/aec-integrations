@@ -60,6 +60,7 @@ import { editFieldLabel } from './vendor-contest-labels';
 import { VendorDocsLink } from './vendor-docs-link';
 import { EDIT_GROUPS } from './vendor-integration-edit-form';
 import { claimErrorMessage, editValueMessage } from './vendor-integration-ownership-labels';
+import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
 
 /**
  * Render the form open on first paint. Provided ONLY by the dev preview
@@ -885,7 +886,11 @@ function emptyDraft(): Draft {
           </div>
           @if (claimNotice(); as notice) {
             @if (notice.id === dup.id) {
-              <p role="alert" [class]="errorClass + ' mt-2'" data-testid="create-dupe-notice">
+              <p
+                role="alert"
+                class="mt-2 max-w-prose text-xs font-medium text-(--text-primary)"
+                data-testid="create-dupe-notice"
+              >
                 {{ notice.message }}
               </p>
             }
@@ -1712,7 +1717,7 @@ export class VendorIntegrationCreate implements OnInit {
   protected readonly stepTitleClass = 'block text-base font-semibold text-(--text-primary)';
   protected readonly inputClass =
     'w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly errorClass = 'max-w-prose text-xs font-medium text-(--text-primary)';
+  protected readonly errorClass = `max-w-prose ${FIELD_ERROR_CLASS}`;
   protected readonly primaryButtonClass =
     'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
   protected readonly secondaryButtonClass =
