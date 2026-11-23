@@ -198,9 +198,11 @@ describe('VendorDetailPage band shell (AECI-1797)', () => {
     const card = el.querySelector('[data-testid=vendor-facts]')!;
     const headings = [...card.querySelectorAll('h2')].map((h) => h.textContent?.trim());
     expect(headings).toEqual(['At a glance', 'Company facts', 'Actions']);
-    expect(card.querySelector('aec-company-facts')?.textContent).toContain(
-      'Set by AEC Integrations on Nov 4, 2026',
-    );
+    // The fact shows beside its label. Who set it sits in the "i" pop-out (company-facts spec).
+    expect(card.querySelector('aec-company-facts')?.textContent).toContain('Carpinteria, CA');
+    expect(
+      card.querySelector('aec-company-facts [data-testid=company-facts-sources-trigger]'),
+    ).not.toBeNull();
     // The licence note sits under the card, in the same slot.
     expect(card.lastElementChild?.tagName.toLowerCase()).toBe('aec-company-facts-note');
   });

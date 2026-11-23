@@ -578,12 +578,12 @@ describe('FacetSidebar, mock-up 10 shell (AECI-1793)', () => {
     httpMock.verify();
   });
 
-  it('draws every term row as a 44px label holding a 20px checkbox', async () => {
+  it('draws every term row as a 36px label holding a 20px checkbox', async () => {
     const { httpMock, root } = await render('/products');
     const rows = [...root.querySelectorAll('fieldset label')];
     expect(rows).toHaveLength(3);
     for (const row of rows) {
-      expect(row.classList.contains('min-h-11')).toBe(true);
+      expect(row.classList.contains('min-h-9')).toBe(true);
       const box = row.querySelector('input[type="checkbox"]')!;
       expect(box.classList.contains('size-5')).toBe(true);
     }
