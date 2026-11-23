@@ -7,8 +7,9 @@ import { Component, computed, input } from '@angular/core';
  * reader hears the two together.
  *
  * Plain muted text. It is never a chip, badge or header, and no public label says
- * Claimed. (The product page's stuck section bar carries a separate one-word "Unclaimed"
- * tag under ruling 41. That tag is `section-nav.ts`, not this note.) The host decides from `claim_status` and shows it even with no logo.
+ * Claimed. The product page's stuck section bar carries no Unclaimed marking since AECI-2012:
+ * this note in the hero is the one. The host decides from `claim_status` and shows it even with
+ * no logo.
  * `claim_status` is listing state, so this stays safe on cached SSR routes.
  *
  * `tone="on-brand"` is for the Forest hero band (AECI-1778): `--text-on-brand-secondary`,
