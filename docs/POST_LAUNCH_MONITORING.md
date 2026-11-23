@@ -1441,6 +1441,67 @@ coordinated family" gives the three step-3 numbers under the overlay, and "Moved
 family" lists every class change by slice. The values are in `BOT_TRAFFIC_CLASSIFICATION.md` §2.15.
 They are starting values, and a rule follows only from a ruling on the issue.
 
+**Reading the browser-report candidates (AECI-1716).** The runner pulls `browser_evidence` and
+reads it as two candidates in `lib/traffic-shadow-browser-evidence.ts`. The classifier does not
+import that file, so the version and fingerprint do not move, and the "Reproduces digest" column is
+unchanged. `interacted` is a human override. It outweighs swarm, rotator, crawl shape and
+coordinated identities and, since the 2026-11-22 ruling, the network family. It reads
+`browser_with_human_evidence` when no other family is left. It never outweighs an identified row or a
+stored `is_bot`. It leaves a request-shape family standing, and by the 2026-11-23 ruling a burst too.
+So an `interacted` row with a burst reads `unresolved`, or Suspected with a second standing family,
+and it stays in the forgery check. The ASN rule writes `is_bot` on every `DATACENTER_ASNS` row at
+ingest, so the network drop reaches `asn_non_eyeball` rows, not listed datacenter rows. `ran` is
+counted and is never human evidence. `no_browser_report` is one automation family and still needs a second family
+to reach Suspected. A row carries it only when every condition holds: it is an `ssr-arrival`, it has
+no privacy signal and no held-region country (`isHeldRegionCountry`, a NULL country included), it was
+written on or after the capture start, it was at least 10 minutes old when read, `is_bot` is not set,
+`client_verdict` is `browser`, and `browser_evidence` is NULL. The gateway writes an arrival only for
+a 200 HTML response, so an errored page has no row. A privacy-signal or held-region row reads "not
+collected" on its own line, and its NULL is never evidence.
+
+```bash
+pnpm --filter @aeci/api ops:traffic-shadow -- --from 2026-12-01 --to 2026-12-14 --capture-from 2026-12-01
+```
+
+Two inputs are new. `--capture-from` takes the day or UTC instant the tier began capturing
+reports. Every row before it is NULL by construction and reads "capture off", never "no report".
+Without the flag the runner uses the first `ssr-arrival` that carries a report, which can only be
+later than the true start. Give the flag for production, because capture there starts when Privacy
+Policy 1.1 is in force. `--exclude-ids` takes ids or ranges, such as `492-537,412937-412951`, and
+leaves those rows out of the browser-report sections only. Use it for a live check's test rows. The
+digest columns keep them, so "Reproduces digest" still reads `yes`. A tier whose `page_views` was
+copied from another tier (AECI-1986, demo from production on 2026-11-19) reads the source tier's
+reports on the copied rows.
+
+The report has these sections. "Arrivals by report state" and "In-app views by report state" count
+every row by state, per day. "Not collected" is the line for privacy and held-region rows, with a
+count of any that carry a report anyway, which should be 0. "Blocker loss" counts Turnstile-pass
+arrivals that could report and did not. A pass proves our script ran, so each one is a lost or
+blocked report and a false-exclusion floor for `no_browser_report`. Its last column counts
+`no_browser_report` rows whose client made a browser-verified in-app hop within 30 minutes, another
+lost report. "Moved by" lists class changes under each signal by network, and again by slice with the
+step-3 metrics. "Coordinated identities beside `no_browser_report`" counts AECI-1659 member rows that
+pair with the missing report. "Interacted share" gives the share for `is_operator = 1` rows and for
+each labelled session, and says "none supplied" when the labels file has no session. The share has a
+seam on 2026-11-20: before AECI-1987 and AECI-1988, a click that opened an in-app page or a new tab
+left the view at `ran`. The "Forgery check" lists `interacted` rows that also carry an automation
+family, by network, and the client-days with the most `interacted` rows. A `network` family is
+listed like any other. A `burst` row is listed and never rescued. "Network drop only" counts the rescues the 2026-11-22 ruling adds, and "Held:
+known bot" counts the rows the override declines. The `interacted` "Moved by" table has the same
+split in its "By the network drop" column. A client that runs our script can post `interacted` for
+itself, so this is the cheap check. It cannot see a forger whose rows carry no family.
+
+Three limits to read the report with. The runner cannot see a tier whose capture was switched off
+after it started. Its later NULLs would read `no_browser_report`, so give a window that capture
+covered throughout. A repeat load of the same page by the same client within about
+20 seconds writes no row, and its report matches nothing. If the first load closed before its script
+reported, that first row reads `no_browser_report` although a browser ran: a false one, not only a
+lost report. An in-app row stores its real path in `path`, and an arrival stores the route pattern.
+No browser-report section groups by `path`, so this does not change them.
+
+The values are in `BOT_TRAFFIC_CLASSIFICATION.md` §2.15. They are shadow-only. A rule follows only
+from a ruling on the issue.
+
 **3. Measure — three numbers, always reported together.** One of the three alone is a way to look
 good.
 

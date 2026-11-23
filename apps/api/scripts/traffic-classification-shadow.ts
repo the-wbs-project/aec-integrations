@@ -31,12 +31,19 @@
  *   --labels <path>            labels file; default `.context/aeci-872/labels.json` if present.
  *                              Shape: `scripts/traffic-shadow-labels.example.json`.
  *   --chunk <n>                rows per pull statement (default 5000)
+ *   --capture-from <instant>   AECI-1716. When the tier began capturing browser reports, as
+ *                              YYYY-MM-DD (00:00 UTC) or a UTC ISO instant. Every NULL report
+ *                              before it reads "capture off". Default: the first `ssr-arrival`
+ *                              in the pulled rows that carries a report.
+ *   --exclude-ids <ranges>     AECI-1716. Ids or inclusive ranges, such as 492-537, left out of
+ *                              the browser-report sections only. The digest columns keep them.
  */
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
+import { parseIdRanges } from '../src/lib/traffic-shadow-browser-evidence';
 import {
   assertSelectOnly,
   buildAsnRegistrySql,
@@ -167,6 +174,19 @@ function gitSha(): string {
   return `${sha || 'unknown'}${dirty ? '-dirty' : ''}`;
 }
 
+/** `--capture-from` as a UTC ISO instant, or undefined to derive it. */
+function readCaptureFrom(argv: string[]): string | undefined {
+  const v = readValueFlag(argv, '--capture-from');
+  if (v === undefined) return undefined;
+  const iso = DAY_RE.test(v) ? `${v}T00:00:00.000Z` : v;
+  if (
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/.test(iso) ||
+    !Number.isFinite(Date.parse(iso))
+  )
+    throw new Error(`--capture-from must be YYYY-MM-DD or a UTC ISO instant. Got: ${v}`);
+  return new Date(Date.parse(iso)).toISOString();
+}
+
 function readLabels(argv: string[], outDir: string): { labels: LabelsFile; path: string | null } {
   const explicit = readValueFlag(argv, '--labels');
   const path = explicit ? resolve(explicit) : join(outDir, 'labels.json');
@@ -194,6 +214,11 @@ export async function main(argv: string[]): Promise<number> {
   const { labels, path: labelsPath } = readLabels(argv, outDir);
   const target = resolveTarget(argv, apiDir);
   const windows = evidenceWindows(fromDay, toDay);
+  const captureFrom = readCaptureFrom(argv);
+  const excludeSpec = readValueFlag(argv, '--exclude-ids');
+  const excludeIds = excludeSpec === undefined ? [] : parseIdRanges(excludeSpec);
+  // Before the first pull, so a row counts as settled only if it was settled when read.
+  const readAt = new Date().toISOString();
 
   console.log(`Shadow run ${fromDay} to ${toDay} against ${target.label}`);
   const views = pullChunked(target, windows.rows, chunk, false);
@@ -208,7 +233,12 @@ export async function main(argv: string[]): Promise<number> {
     console.log(
       `  loaded ${pulled.pageViews} page views and ${pulled.asnRegistry} ASNs; classifying`,
     );
-    const result = await runShadow(local.db, { fromDay, toDay, labels });
+    const result = await runShadow(local.db, {
+      fromDay,
+      toDay,
+      labels,
+      browserEvidence: { readAt, captureFrom, excludeIds },
+    });
 
     const generatedAt = new Date().toISOString();
     const meta: ShadowMeta = {
