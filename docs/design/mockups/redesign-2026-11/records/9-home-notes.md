@@ -5,8 +5,8 @@
 The home page keeps its four bands and its copy. It moves into the new language. The hero stays on Bone, which is now the page's only Bone band. The closing call to action moves off Bone onto white. The page's one Forest feature card is the "What we do instead" block. Chris needs to answer seven questions before AECI-1792 builds it.
 
 - Mock-up: `mockups/9-home.html`. Open it in a browser. The "Options" control switches the alternates. Its defaults are my recommendation, not decisions.
-- Screenshots: `screens/9-home-1440.png`, `screens/9-home-390.png`, and one 1440 shot per alternate (`9-home-trust-white`, `9-home-trust-vendor`, `9-home-h1-headline`, `9-home-popular-categories`, `9-home-popular-reserved`).
-- Baseline: `baseline/home-1440.png` and `baseline/home-390.png` (AECI-1817).
+- Screenshots (archived outside the repo on 2026-11-23): `9-home-1440.png`, `9-home-390.png`, and one 1440 shot per alternate (`9-home-trust-white`, `9-home-trust-vendor`, `9-home-h1-headline`, `9-home-popular-categories`, `9-home-popular-reserved`).
+- Baseline (archived outside the repo on 2026-11-23): `home-1440.png` and `home-390.png` (AECI-1817).
 
 ## 1. What changed from today's home, and why
 

@@ -6,8 +6,8 @@ The browse lists move into the new language with the same behaviour they have to
 
 - Mock-up: `mockups/10-browse.html`. Open it in a browser. The "Options" control switches page, view, state and two alternates. Its defaults are my recommendation, not decisions.
 - The file is generated. Its sources are `mockups/src/10-build.py`, `10.css`, `10-data.json` and `10-wordmark.svg`. Edit those and run `python3 -I 10-build.py` from `mockups/src`.
-- Screenshots: `screens/10-browse-*.png`. The list is in section 8.
-- Baseline: `baseline/products-*.png`, `category-term-*.png`, `categories-*.png` and `search-*.png` (AECI-1817).
+- Screenshots (archived outside the repo on 2026-11-23): `10-browse-*.png`. The list is in section 8.
+- Baseline (archived outside the repo on 2026-11-23): `products-*.png`, `category-term-*.png`, `categories-*.png` and `search-*.png` (AECI-1817).
 
 ## 1. Scope
 
@@ -230,7 +230,7 @@ Run on 2026-11-16 with Playwright 1.64 and axe-core 4.11.4 against the file, in 
 
 Each page has one `h1`. Filter legends, card titles and the band heading follow it in order. Tables have real `th` headers. Buttons and inputs are 44px. Focus is a 3px Forest ring, Bone on the Forest header and footer. One-line truncation of long product names is deliberate, as today.
 
-Screenshots in `screens/`:
+Screenshots, archived outside the repo on 2026-11-23:
 
 | State | Files |
 | -- | -- |

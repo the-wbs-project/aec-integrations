@@ -158,6 +158,7 @@ const readme = `# Baseline screenshots (AECI-1817)
 
 "Before" images for the AECI-1720 site redesign. Reviewers compare a redesign PR against these.
 Pixel-diff tooling was ruled out on 2026-10-23, so these are for human eyes only.
+The images are not committed: \`.gitignore\` keeps them out of git (AECI-1720, 2026-11-23).
 
 - **Date taken:** ${date}
 - **Origin used:** \`${origin}\`
