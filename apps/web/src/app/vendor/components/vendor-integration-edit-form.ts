@@ -36,6 +36,7 @@ import { VendorLockedNote } from './vendor-locked-note';
 import { editFieldLabel } from './vendor-contest-labels';
 import { editSaveErrorMessage, editValueMessage } from './vendor-integration-ownership-labels';
 import { isReplayedEvent } from '../../core/event-replay';
+import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
 
 /** How each field is edited. Same split as the contest form. */
 type ControlKind = 'url' | 'text' | 'textarea' | 'mechanism' | 'direction';
@@ -252,11 +253,7 @@ export type EditFormOutcome = 'saved' | 'cancelled';
                 }
               }
               @if (showError(field)) {
-                <p
-                  [id]="fieldId(field) + '-error'"
-                  role="alert"
-                  class="text-xs font-medium text-(--text-primary)"
-                >
+                <p [id]="fieldId(field) + '-error'" role="alert" [class]="errorClass">
                   {{ errorFor(field) }}
                 </p>
               }
@@ -293,6 +290,8 @@ export type EditFormOutcome = 'saved' | 'cancelled';
   `,
 })
 export class VendorIntegrationEditForm implements OnInit {
+  /** A field's inline error: the shared recipe (AECI-1984). */
+  protected readonly errorClass = FIELD_ERROR_CLASS;
   private readonly api = inject(VendorApi);
   private readonly store = inject(VendorPortalStore);
   private readonly announcer = inject(VendorPortalAnnouncer);

@@ -224,12 +224,7 @@
           class="w-full aec-field-control rounded-control border bg-(--surface-base) px-4 text-t-16 text-(--text-primary) placeholder:text-(--text-secondary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
         />
         @if (form.email().touched() && form.email().getError('standardSchema')) {
-        <p
-          id="login-email-error"
-          class="aec-field-error text-t-14 font-semibold text-(--status-error)"
-          role="alert"
-          i18n="@@auth.login.email.error"
-        >
+        <p id="login-email-error" [class]="errorClass" role="alert" i18n="@@auth.login.email.error">
           Enter a valid email address.
         </p>
         }

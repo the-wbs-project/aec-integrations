@@ -218,6 +218,7 @@
               [(value)]="overallSel"
               (valueChange)="onOverallChange($event)"
               aria-labelledby="overall-label"
+              [attr.aria-invalid]="form.rating_overall().touched() && form.rating_overall().getError('standardSchema') ? 'true' : null"
               [attr.aria-describedby]="form.rating_overall().touched() && form.rating_overall().getError('standardSchema') ? 'overall-error' : null"
               class="m-0 flex list-none gap-2 p-0"
             >
@@ -264,6 +265,7 @@
               [(value)]="onboardingSel"
               (valueChange)="onOnboardingChange($event)"
               aria-labelledby="onboarding-label"
+              [attr.aria-invalid]="form.rating_onboarding().touched() && form.rating_onboarding().getError('standardSchema') ? 'true' : null"
               [attr.aria-describedby]="form.rating_onboarding().touched() && form.rating_onboarding().getError('standardSchema') ? 'onboarding-error' : null"
               class="m-0 flex list-none gap-2 p-0"
             >

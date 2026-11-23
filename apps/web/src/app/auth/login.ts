@@ -26,6 +26,7 @@ import { isReplayedEvent } from '../core/event-replay';
 import { AecButton } from '../shared/button/button';
 import { AecCard } from '../shared/card/card';
 import { AecEarlyInput } from '../shared/form-field/early-input';
+import { FIELD_ERROR_CLASS } from '../shared/form-field/form-field-classes';
 
 /**
  * Magic-link model schema, local to the auth folder: there is no API endpoint
@@ -111,6 +112,8 @@ export function callbackErrorCode(raw: string | null): CallbackErrorCode | null 
   templateUrl: './login.html',
 })
 export class LoginPage {
+  /** A field's inline error: the shared recipe (AECI-1984). */
+  protected readonly errorClass = FIELD_ERROR_CLASS;
   private readonly route = inject(ActivatedRoute);
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
