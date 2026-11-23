@@ -1057,6 +1057,10 @@ counting and render-condition rules above are all still in force.
    heading row is what makes this free — an idle filter now costs no vertical space, which is the
    only cost the threshold was buying back. The one remaining gate is emptiness: a section with no
    rows shows its empty state and no filter.
+   ⚠️ **Superseded for §13.3's `#integrations` by AECI-2021 (ruled 2026-11-23).** That section's
+   panel now shows a control only when it can change the list: the search box from 5 rows, Cards
+   and Table from 2, a chip only while it would hide a row. "Integrations it powers" keeps this
+   item. `DESIGN.md` §5 and its Same-Behavior Rule note carry the ruling.
 3. **`ProductPoweredHub` is now the whole section**, reached through an **attribute selector on the
    page's existing `<section>`** (`section[aec-product-powered-hub]`) — the same form §13.3's
    endpoint section already takes. It owns the `<h2>`, the empty state, the filter, the cards and
@@ -1491,7 +1495,10 @@ right-aligned opposite the `<h2>` (superseded by AECI-1720 and AECI-1788: the fi
 panel under the `<h2>`, `DESIGN.md` §5), and `INTEGRATION_FILTER_MIN_ROWS` was deleted — **any section
 that renders rows renders a filter**, including the single-lane page above. Both changes and the
 reasoning behind them are stated once in §12.3's AECI-848 amendment; the sibling section adopted the
-same component shape there.
+same component shape there. ⚠️ **Superseded by AECI-2021 (ruled 2026-11-23):** this section's panel
+shows a control only when it can change the list. The search box needs 5 rows, the Cards/Table toggle
+2, and a chip shows only while it would hide a row. A one-row section has no panel. The section also
+lost its list heading and states its order as "A to Z by product name." (`DESIGN.md` §5).
 
 ⚠️ **Amended again by AECI-966 (2026-09-15): the filter matches the mechanism label as well as the
 partner name.** Matching only `other.name` broke the filter's own promise against text the reader
@@ -1559,10 +1566,12 @@ AECI-1117 re-recorded that snapshot once for its own changes (chevron, header wr
 mechanism in the row name, §12.3). The depth axis still adds nothing to the null case.
 
 **Partner categories, agreement and data-object names (AECI-1781, 2026-11-14).** The site redesign's
-integrations section filters by partner category and shows an agreement state on each card
+integrations section filters by partner category and shows an agreement state on its cards
 (`docs/design/mockups/redesign-2026-11/PLAN.md` §6.2). Each `ProductIntegrationItem` in the two
 endpoint buckets now carries three more fields, on direct, Via and `powered_by` rows alike. The
-powered hub's `PoweredIntegrationItem` does not: its rows have no single partner.
+powered hub's `PoweredIntegrationItem` does not: its rows have no single partner. **AECI-2021
+(ruled 2026-11-23):** product-page cards and table rows omit the `unverified` label; other
+agreement states still appear, and the pair page keeps every label.
 
 - **`partner_categories`**: the categories of the endpoint that is not the page product, in the
   order a product's own categories take (AECI-1242): curated `display_order`, then name, then slug.

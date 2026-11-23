@@ -12,7 +12,8 @@ import type { IntegrationLaneRow } from './connector-lane-grouping';
  * **One named list per lane**, for the reason §13.3 gives one table per lane: a
  * group heading inside a single list has no accessible name relationship to the
  * items under it. The list is named by `ariaLabel` (one lane) or by
- * `ariaLabelledby` pointing at the lane card's `<h3>`, never both.
+ * `ariaLabelledby` pointing at the lane card's `<h3>`, never both. The list must keep
+ * one of the two: since AECI-2021 the one-lane list has no visible heading over it.
  *
  * The same `@defer` cut as the table: `above` renders eagerly, `deferred` sits in
  * an `@defer (on viewport; hydrate on viewport)` block that is still rendered on the
@@ -77,8 +78,11 @@ export class ProductIntegrationCards {
   readonly ariaLabel = input<string | null>(null);
   /** …or the id of the lane card's `<h3>`. */
   readonly ariaLabelledby = input<string | null>(null);
-  /** 4 under a one-lane page's list heading (`h3`) or inside a lane card (AECI-1720). */
-  readonly headingLevel = input<3 | 4 | 5>(4);
+  /**
+   * 3 on a one-lane page, under the section `<h2>` (AECI-2021 removed the list heading),
+   * 4 inside a lane card, under its `<h3>`.
+   */
+  readonly headingLevel = input<3 | 4>(3);
   /** Inside a lane card: nested card surfaces (tint, no shadow). */
   readonly nested = input(false);
 

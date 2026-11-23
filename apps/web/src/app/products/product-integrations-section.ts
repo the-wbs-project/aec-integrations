@@ -46,6 +46,9 @@ import {
   dataObjectOptions,
   directionOptions,
   filterIntegrationLanes,
+  INTEGRATION_SEARCH_MIN_ROWS,
+  INTEGRATION_VIEW_TOGGLE_MIN_ROWS,
+  chipsThatNarrow,
   isIntegrationFilterActive,
   partnerCategoryOptions,
   rowsForFacetCount,
@@ -138,7 +141,20 @@ import { ProductIntegrationsTable } from './product-integrations-table';
  * one table per lane. The filters sit in one panel of their own under the `<h2>`
  * (ruling R5). There is no sort control (R5), and no control reads the agreement
  * state (R1). The order is the lane order below, unchanged: R1 keeps existing
- * orders, and the direct lane is already A to Z by partner name with the id last.
+ * orders, and the direct lane is already A to Z by the partner product's name with
+ * the id last. The order line under the `<h2>` says so, "A to Z by product name."
+ * (AECI-2021, ruled 2026-11-23), on a page with no Via lane and two rows or more.
+ *
+ * **A control shows only when it can change the list** (AECI-2021, ruled 2026-11-23).
+ * A chip shows only when its count over the UNFILTERED rows is less than the row total,
+ * so pressing it would hide a row. The test reads the unfiltered rows, so chips never
+ * come and go as the reader filters, and a pressed chip always stays, so it can be
+ * released. A direction group with no such chip drops whole, "Any direction" included,
+ * and an empty data or category row drops with its label. The search box needs
+ * {@link INTEGRATION_SEARCH_MIN_ROWS} rows and the Cards/Table toggle
+ * {@link INTEGRATION_VIEW_TOGGLE_MIN_ROWS}. A panel with no control left does not
+ * render, and neither does the list row under it. The section has no list heading of
+ * its own since the same ruling: the `<h2>` heads the list.
  *
  * ── LONG LISTS (AECI-1783) ───────────────────────────────────────────────────────
  * A single-lane section of 13 rows or more, with fewer category groups than half its
@@ -157,7 +173,9 @@ import { ProductIntegrationsTable } from './product-integrations-table';
  * still renders exactly one unheaded list, named by the section `<h2>`. §13.3
  * rejected a "Direct integrations" heading over the only table as chrome over a
  * fact the heading already states, and a collapsible card would be that same
- * chrome with a button on it.
+ * chrome with a button on it. So the cards there are `<h3>`, and in a long list a
+ * category group heading is `<h3>` and its cards `<h4>` (AECI-2021). On a page with a
+ * Via lane each lane card's heading is the `<h3>` and its cards are `<h4>`.
  *
  * ── THE `@defer` CUT ────────────────────────────────────────────────────────────
  * Table view only since AECI-1891: the card view renders every row eagerly (see
@@ -407,17 +425,18 @@ import { ProductIntegrationsTable } from './product-integrations-table';
           <h2 id="integrations-title" class="text-balance">
             <span [class]="headingClass">{{ heading() }}</span>
           </h2>
-          <!-- The order line (approved 2026-11-16). Only where it is true of every row: a
-               page with a Via lane orders its connector groups by row count (R1), so it
-               shows only on a page with no Via lane. Grouped or not, the rows run A to Z by
-               partner. -->
-          @if (lanes().rowCount > 0 && lanes().via.length === 0) {
+          <!-- The order line (approved 2026-11-16, reworded AECI-2021, ruled 2026-11-23).
+               Only where it is true of every row: a page with a Via lane orders its
+               connector groups by row count (R1), so it shows only on a page with no Via
+               lane. Grouped or not, the rows run A to Z by the partner product's name. One
+               row has no order to state, so the line needs two rows or more. -->
+          @if (lanes().rowCount > 1 && lanes().via.length === 0) {
             <p
               class="mt-4 text-t-16 text-(--text-secondary)"
               data-testid="integrations-order"
-              i18n="@@products.detail.body.integrations.order"
+              i18n="@@products.detail.body.integrations.order.product"
             >
-              A to Z by partner name.
+              A to Z by product name.
             </p>
           }
         </div>
@@ -428,7 +447,8 @@ import { ProductIntegrationsTable } from './product-integrations-table';
          own panel": one panel of its own, not the shared facet panel. Every control
          is a choice the reader makes, and the state never reaches the URL, so the
          server always renders the whole section. The agreement state is not a
-         filter (ruling R1). -->
+         filter (ruling R1). AECI-2021 (ruled 2026-11-23): a control shows only when it
+         can change the list, and a panel with no control left does not render. -->
     @if (showFilter()) {
       <!-- AECI-1720 (mock-up 6, .deck): one compact Bone panel. The top row holds the
            search box, the direction chips and the view toggles. Under it, one row each for
@@ -436,8 +456,11 @@ import { ProductIntegrationsTable } from './product-integrations-table';
            wrapped chips line up after it. Below md each chip row is one line that scrolls
            sideways, as the mock-up does on a phone, instead of wrapping into a tall block.
            The panel's name "Filters" is kept for assistive tech only: the mock-up shows no
-           heading here. -->
+           heading here. From lg the top row is a flex row, so it lays out the same
+           whichever of its three parts AECI-2021 leaves in it. The search box keeps a
+           16rem basis and the row wraps, so long direction chips never crush it. -->
       <div
+        #filterPanel
         role="group"
         aria-labelledby="integrations-filters-title"
         [class]="panelClass"
@@ -447,34 +470,40 @@ import { ProductIntegrationsTable } from './product-integrations-table';
           >Filters</span
         >
         <div
-          class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-center lg:gap-4"
+          class="grid gap-3 lg:flex lg:flex-wrap lg:items-center lg:gap-4"
           data-testid="integrations-filter-top"
         >
-          <!-- The search box (mock-up 6, .sfield): the field recipe with a search glyph
+          @if (searchVisible()) {
+            <!-- The search box (mock-up 6, .sfield): the field recipe with a search glyph
                inside it, filling its column. The status lives in the list row below, so
-               the panel holds no count. "Integrations it powers" uses the same recipe. -->
-          <div class="relative min-w-0" data-testid="integrations-filter-search">
-            <label
-              for="integrations-filter"
-              class="sr-only"
-              i18n="@@products.detail.body.integrations.filter.label"
-              >Search these integrations</label
+               the panel holds no count. "Integrations it powers" uses the same recipe.
+               AECI-2021: five rows or more, because a shorter list is read at a glance. -->
+            <div
+              class="relative min-w-0 lg:flex-[1_1_16rem]"
+              data-testid="integrations-filter-search"
             >
-            <span [class]="searchIconClass" aria-hidden="true">
-              <aec-icon name="search" decorative [size]="4" />
-            </span>
-            <input
-              #filterInput
-              id="integrations-filter"
-              type="search"
-              autocomplete="off"
-              [value]="query()"
-              i18n-placeholder="@@products.detail.body.integrations.filter.placeholder"
-              placeholder="Filter by product or connection"
-              (input)="onQuery($event)"
-              [class]="searchInputClass"
-            />
-          </div>
+              <label
+                for="integrations-filter"
+                class="sr-only"
+                i18n="@@products.detail.body.integrations.filter.label"
+                >Search these integrations</label
+              >
+              <span [class]="searchIconClass" aria-hidden="true">
+                <aec-icon name="search" decorative [size]="4" />
+              </span>
+              <input
+                #filterInput
+                id="integrations-filter"
+                type="search"
+                autocomplete="off"
+                [value]="query()"
+                i18n-placeholder="@@products.detail.body.integrations.filter.placeholder"
+                placeholder="Filter by product or connection"
+                (input)="onQuery($event)"
+                [class]="searchInputClass"
+              />
+            </div>
+          }
 
           @if (directionChoices().length > 0) {
             <!-- AECI-1720 restore C (mock-up 6, #dirSeg): "Any direction" first, then the
@@ -482,7 +511,8 @@ import { ProductIntegrationsTable } from './product-integrations-table';
                  mock-up's phone layout does, so none hides off the edge. "Any direction"
                  is pressed while no direction chip is, and pressing it releases them.
                  Its count is every row the other filters keep, rows with no direction
-                 on record included. -->
+                 on record included. AECI-2021: the group shows only while one direction
+                 chip could hide a row, so "Any direction" never stands alone. -->
             <div
               role="group"
               aria-labelledby="integrations-filter-direction"
@@ -525,15 +555,20 @@ import { ProductIntegrationsTable } from './product-integrations-table';
             </div>
           }
 
-          <div class="flex flex-wrap items-center gap-2">
-            @if (long() && view() === 'cards') {
-              <aec-integration-arrangement-toggle
-                [arrangement]="arrangement()"
-                (arrangementChange)="arrangement.set($event)"
-              />
-            }
-            <aec-listing-view-toggle [view]="view()" (viewChange)="view.set($event)" />
-          </div>
+          @if (arrangementVisible() || viewToggleVisible()) {
+            <!-- AECI-2021: Cards and Table need two rows or more to differ. -->
+            <div class="flex flex-wrap items-center gap-2 lg:ms-auto lg:shrink-0">
+              @if (arrangementVisible()) {
+                <aec-integration-arrangement-toggle
+                  [arrangement]="arrangement()"
+                  (arrangementChange)="arrangement.set($event)"
+                />
+              }
+              @if (viewToggleVisible()) {
+                <aec-listing-view-toggle [view]="view()" (viewChange)="view.set($event)" />
+              }
+            </div>
+          }
         </div>
 
         @if (dataChoices().length > 0) {
@@ -617,19 +652,12 @@ import { ProductIntegrationsTable } from './product-integrations-table';
         }
       </div>
 
-      <!-- The list row (mock-up 6, .lane-row): the list's own heading, the view's count
-           as a status message, and "Clear filters" while anything filters. On a page with
-           a Via lane each lane card carries its own heading, so the row keeps only the
-           count. -->
-      <div [class]="listRowClass" data-testid="integrations-list-row">
-        @if (lanes().via.length === 0) {
-          <h3 class="min-w-0" data-testid="integrations-list-heading">
-            <span
-              class="font-display text-t-24 leading-tight font-semibold text-(--text-primary)"
-              >{{ listHeading() }}</span
-            >
-          </h3>
-        }
+      <!-- The list row (mock-up 6, .lane-row): the view's count as a status message, and
+           "Clear filters" while anything filters. AECI-2021 (ruled 2026-11-23) removed
+           the list's own heading, so the section h2 heads the list. Idle, the row holds
+           only the empty status, so it is visually hidden and takes no room. It stays in
+           the accessibility tree, so the first change is still announced. -->
+      <div [class]="filterActive() ? listRowClass : 'sr-only'" data-testid="integrations-list-row">
         <div [class]="listRowEndClass">
           <p role="status" [class]="statusClass" data-testid="integrations-status">
             {{ statusLabel() }}
@@ -1088,13 +1116,26 @@ export class ProductIntegrationsSection {
   );
 
   /**
-   * Direction chips: only directions some row has, in vocabulary order. Each prints
-   * how many rows it would show with the reader's other filters.
+   * Every row of the section, unfiltered: what a chip's visibility is judged on
+   * (AECI-2021, `chipsThatNarrow`), so a chip never comes and goes as the reader filters.
+   */
+  private readonly unfilteredRows = computed(() => allRows(this.lanes()));
+
+  /**
+   * Direction chips: only directions some row has, in vocabulary order, and only those
+   * that can narrow the list (AECI-2021). Each prints how many rows it would show with
+   * the reader's other filters.
    */
   protected readonly directionChoices = computed(() => {
     const chosen = this.directions();
     const rows = this.directionCountRows();
-    return directionOptions(this.lanes()).map((token) => {
+    const unfiltered = this.unfilteredRows();
+    return chipsThatNarrow(
+      directionOptions(this.lanes()),
+      this.lanes().rowCount,
+      (token) => countRowsWithDirection(unfiltered, token),
+      (token) => chosen.includes(token),
+    ).map((token) => {
       return {
         token,
         label: directionFilterLabel(token, this.productName()),
@@ -1113,18 +1154,33 @@ export class ProductIntegrationsSection {
   protected readonly dataChoices = computed(() => {
     const chosen = this.dataObjects();
     const rows = allRows(this.filteredLanes());
-    return dataObjectOptions(this.lanes()).map((term) => ({
+    const unfiltered = this.unfilteredRows();
+    return chipsThatNarrow(
+      dataObjectOptions(this.lanes()),
+      this.lanes().rowCount,
+      (term) => countRowsMovingDataObject(unfiltered, term.slug),
+      (term) => chosen.includes(term.slug),
+    ).map((term) => ({
       ...term,
       selected: chosen.includes(term.slug),
       count: countRowsMovingDataObject(rows, term.slug),
     }));
   });
 
-  /** Partner-category chips: A to Z by name, slug breaking a tie (ruling R1). */
+  /**
+   * Partner-category chips: A to Z by name, slug breaking a tie (ruling R1), and only
+   * those that can narrow the list (AECI-2021).
+   */
   protected readonly categoryChoices = computed(() => {
     const chosen = this.categories();
     const rows = this.categoryCountRows();
-    return partnerCategoryOptions(this.lanes()).map((term) => ({
+    const unfiltered = this.unfilteredRows();
+    return chipsThatNarrow(
+      partnerCategoryOptions(this.lanes()),
+      this.lanes().rowCount,
+      (term) => rowsInCategory(unfiltered, term.slug).length,
+      (term) => chosen.includes(term.slug),
+    ).map((term) => ({
       ...term,
       selected: chosen.includes(term.slug),
       count: rowsInCategory(rows, term.slug).length,
@@ -1158,17 +1214,29 @@ export class ProductIntegrationsSection {
   /** The panel's search field, so "Clear filters" can hand focus back to it. */
   private readonly filterInput = viewChild<ElementRef<HTMLInputElement>>('filterInput');
 
+  /** The panel, for the focus hand-off when it has no search field (AECI-2021). */
+  private readonly filterPanel = viewChild<ElementRef<HTMLElement>>('filterPanel');
+
   /**
    * "Clear filters": every facet and the query, back to the whole section. The button
    * goes with the filter, so focus moves to the search field rather than falling to
-   * the page body (AECI-1788, the same hand-off as "Integrations it powers").
+   * the page body (AECI-1788, the same hand-off as "Integrations it powers"). A list
+   * under five rows has no search field (AECI-2021), so focus goes to the panel's first
+   * enabled button instead.
    */
   protected clearFilters(): void {
     this.query.set('');
     this.directions.set([]);
     this.categories.set([]);
     this.dataObjects.set([]);
-    this.filterInput()?.nativeElement.focus();
+    const input = this.filterInput()?.nativeElement;
+    if (input) {
+      input.focus();
+      return;
+    }
+    this.filterPanel()
+      ?.nativeElement.querySelector<HTMLButtonElement>('button:not([disabled])')
+      ?.focus();
   }
 
   /**
@@ -1182,13 +1250,34 @@ export class ProductIntegrationsSection {
     () => $localize`:@@products.detail.nav.integrations:Integrations`,
   );
 
+  /** The search box: {@link INTEGRATION_SEARCH_MIN_ROWS} rows or more (AECI-2021). */
+  protected readonly searchVisible = computed(
+    () => this.lanes().rowCount >= INTEGRATION_SEARCH_MIN_ROWS,
+  );
+
+  /** Cards and Table: {@link INTEGRATION_VIEW_TOGGLE_MIN_ROWS} rows or more (AECI-2021). */
+  protected readonly viewToggleVisible = computed(
+    () => this.lanes().rowCount >= INTEGRATION_VIEW_TOGGLE_MIN_ROWS,
+  );
+
+  /** "By category" and "One list": a long list in the card view (AECI-1783, unchanged). */
+  protected readonly arrangementVisible = computed(() => this.long() && this.view() === 'cards');
+
   /**
-   * The filter renders whenever the section renders rows — there is no row
-   * threshold. See `integration-filter.ts` for why the ten-row gate went: on a
-   * connector page the two integration sections sit next to each other, and the
-   * same control appearing over one and not the other reads as a bug.
+   * The panel renders while any control in it can change the list (AECI-2021, ruled
+   * 2026-11-23). Chris ruled this for this section, so "Integrations it powers" keeps
+   * its own rule. A section with one row has no control left, so it has no panel.
    */
-  protected readonly showFilter = computed(() => this.lanes().rowCount > 0);
+  protected readonly showFilter = computed(
+    () =>
+      this.lanes().rowCount > 0 &&
+      (this.searchVisible() ||
+        this.viewToggleVisible() ||
+        this.arrangementVisible() ||
+        this.directionChoices().length > 0 ||
+        this.dataChoices().length > 0 ||
+        this.categoryChoices().length > 0),
+  );
 
   /**
    * §13.7's sentence, built in TS for the same reason `countLabel()` is: the
@@ -1262,17 +1351,6 @@ export class ProductIntegrationsSection {
     const total = this.lanes().rowCount;
     return $localize`:@@products.detail.filter.status:Showing ${shown}:SHOWN: of ${total}:TOTAL:`;
   });
-
-  /**
-   * The list's heading (mock-up 6, `#laneHeading`): "All integrations on record", or
-   * while anything filters, "Integrations that match these filters", so the heading is
-   * never false of the list under it.
-   */
-  protected readonly listHeading = computed(() =>
-    this.filterActive()
-      ? $localize`:@@products.detail.body.integrations.list.filtered:Integrations that match these filters`
-      : $localize`:@@products.detail.body.integrations.list.all:All integrations on record`,
-  );
 
   /**
    * An active filter opens every surviving card, whatever the reader closed

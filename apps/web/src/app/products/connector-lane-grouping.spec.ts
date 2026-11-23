@@ -6,6 +6,7 @@ import {
   countLaneUnderReview,
   routeIntegrationLane,
   splitIntegrationLanes,
+  visibleAgreement,
 } from './connector-lane-grouping';
 
 /**
@@ -451,5 +452,16 @@ describe('splitIntegrationLanes — card facts (AECI-1782)', () => {
     expect(viaRow(['unverified', 'confirmed']).agreement).toBe('unverified');
     expect(viaRow(['single_source', 'confirmed', 'confirmed']).agreement).toBe('single_source');
     expect(viaRow(['confirmed', 'confirmed']).agreement).toBe('confirmed');
+  });
+});
+
+describe('visibleAgreement (AECI-2021, ruled 2026-11-23)', () => {
+  it('drops "Listed by AEC Integrations" and keeps every other state', () => {
+    expect(visibleAgreement('unverified')).toBeNull();
+    expect(visibleAgreement(null)).toBeNull();
+    expect(visibleAgreement(undefined)).toBeNull();
+    expect(visibleAgreement('confirmed')).toBe('confirmed');
+    expect(visibleAgreement('single_source')).toBe('single_source');
+    expect(visibleAgreement('conflict')).toBe('conflict');
   });
 });
