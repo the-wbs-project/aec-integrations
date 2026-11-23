@@ -6,8 +6,8 @@ Both pages move into the product page's language. The vendor page takes the band
 
 - Mock-ups: `mockups/11-vendor.html` and `mockups/12-pair.html`. Open them in a browser. The "Options" control switches vendor, pair and states. Its defaults are my recommendation, not decisions.
 - Both files are generated. The sources are `mockups/src/11-build.py`, `11.css`, `11-data.json` and `10-wordmark.svg`. Edit those and run `python3 -I 11-build.py` from `mockups/src`.
-- Screenshots: `screens/11-vendor-*.png` and `screens/12-pair-*.png`. The list is in section 8.
-- Baseline: `baseline/vendor-*.png` and `baseline/pair-with-integrations-*.png` (AECI-1817).
+- Screenshots (archived outside the repo on 2026-11-23): `11-vendor-*.png` and `12-pair-*.png`. The list is in section 8.
+- Baseline (archived outside the repo on 2026-11-23): `vendor-*.png` and `pair-with-integrations-*.png` (AECI-1817).
 
 ## 1. Scope
 
@@ -225,7 +225,7 @@ Run on 2026-11-16 with Playwright 1.64 and axe-core 4.11.4 against the files, in
 
 Each page has one `h1`. Focus is a 3px Forest ring on white and a Bone ring on Forest. Agreement chips carry their full meaning as screen-reader text, not as an `aria-label` on a span. The Sources popover is a disclosure that closes on Escape and returns focus.
 
-Screenshots in `screens/`:
+Screenshots, archived outside the repo on 2026-11-23:
 
 | State | Files |
 | -- | -- |

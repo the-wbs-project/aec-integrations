@@ -51,7 +51,7 @@ AECI-1571 asked for a real empty state on the pair page. The work grew into thre
 2. **A new product details page** in the same style, covering a normal product, one with 58 integrations and one with none.
 3. **A new design language** that Chris wants to consider for the whole site. He ruled on all 45 clashes with the current design rules.
 
-![Pair page hero](screens/pair-hero.jpg)
+*Screenshot: Pair page hero (archived outside the repo, see 14.1).*
 
 The work splits into six workstreams. Section 12 breaks them into issues.
 
@@ -282,7 +282,7 @@ Chris's note on clash 38: "Make sure we know how to adopt the old way if needed.
 
 ### 4.7 The header
 
-![Browse menu](screens/browse-menu.jpg)
+*Screenshot: Browse menu (archived outside the repo, see 14.1).*
 
 - **Links are Browse, How we rank and For vendors.** Products live under Browse as "All products". Clash 26.
 - **The search control is a pill with a "/" shortcut hint.** Clash 29.
@@ -331,7 +331,7 @@ Clash 27 decided that one mega-menu replaces the four dropdowns.
 
 ### 4.9 The sticky section nav
 
-![Sticky section nav](screens/product-sticky-nav.jpg)
+*Screenshot: Sticky section nav (archived outside the repo, see 14.1).*
 
 - **It reads "AEC Integrations › Bluebeam Revu".** Our wordmark holds the brand position.
 - **No "Unclaimed" tag in the bar** (AECI-2012). Ruling 41 tried one after the name (AECI-1931). Chris removed it on 2026-11-23. The hero keeps the Unclaimed note. DESIGN.md §5 "The section nav and the sticky bar" has the rule.
@@ -351,7 +351,7 @@ This is the page AECI-1571 is about. The sample pair is Bluebeam Revu and Sage 3
 
 **Purpose.** Tell the visitor honestly that we hold no integration, then give them somewhere useful to go.
 
-![Pair page, full](screens/pair-full.jpg)
+*Screenshot: Pair page, full (archived outside the repo, see 14.1).*
 
 Sections in order:
 
@@ -387,7 +387,7 @@ Never write that a product "does not integrate". The legal agent also asked that
 
 **Closest matches behaviour.**
 
-![Closest matches](screens/pair-matches.jpg)
+*Screenshot: Closest matches (archived outside the repo, see 14.1).*
 
 - A two-option button group: "Keep Bluebeam Revu" and "Keep Sage 300 CRE". One lane shows at a time.
 - The lane heading restates the choice in plain words, such as "Construction accounting or ERP products that Bluebeam Revu connects to".
@@ -421,7 +421,7 @@ Never write that a product "does not integrate". The legal agent also asked that
 
 The sample product is Bluebeam Revu.
 
-![Product page hero](screens/product-hero.jpg)
+*Screenshot: Product page hero (archived outside the repo, see 14.1).*
 
 Sections in order:
 
@@ -442,7 +442,7 @@ The agent that built it read the live product page for content only. It reported
 
 **Integrations section.**
 
-![Integrations](screens/product-integrations.jpg)
+*Screenshot: Integrations (archived outside the repo, see 14.1).*
 
 - Filters: a search box, direction, data objects, partner category.
 - A live count, and cards by default with a table alternative.
@@ -451,7 +451,7 @@ The agent that built it read the live product page for content only. It reported
 
 **Reviews section.**
 
-![Reviews](screens/product-reviews.jpg)
+*Screenshot: Reviews (archived outside the repo, see 14.1).*
 
 - Product quality and onboarding experience each get a card. A shared scale shows the gap between them.
 - Ratings show once a product has five reviews. That matches the live rule.
@@ -459,9 +459,9 @@ The agent that built it read the live product page for content only. It reported
 
 **The 58-integration state.**
 
-![Procore hero](screens/many-hero.jpg)
+*Screenshot: Procore hero (archived outside the repo, see 14.1).*
 
-![Procore integrations](screens/many-integrations.jpg)
+*Screenshot: Procore integrations (archived outside the repo, see 14.1).*
 
 - The list groups by partner category, with a sticky jump rail and a "Show more" button per group.
 - Every filter chip shows how many results it would leave.
@@ -471,9 +471,9 @@ The agent that built it read the live product page for content only. It reported
 
 **The zero-integration state.**
 
-![Empty product hero](screens/none-hero.jpg)
+*Screenshot: Empty product hero (archived outside the repo, see 14.1).*
 
-![Empty product integrations](screens/none-integrations.jpg)
+*Screenshot: Empty product integrations (archived outside the repo, see 14.1).*
 
 - The hero shows the product among empty slots, with one slot reading "Know of one?".
 - The facts card shows "0 integrations on record" and "Not found yet. Not proof that none exists."
@@ -1088,7 +1088,7 @@ Everything is in `docs/design/mockups/redesign-2026-11/`.
 | `mockups/7-product-many.html` | The product page, Procore, 58 integrations |
 | `mockups/8-product-none.html` | The product page, SiteLedger, none, unclaimed |
 | `mockups/src/` | Build sources for mock-ups 7 and 8, the Browse menu and the rulings layer |
-| `screens/` | Screenshots, shot from the final files on 2026-11-13 |
+| `screens/` | Screenshots, shot from the final files on 2026-11-13. Archived outside the repo by Chris on 2026-11-23 |
 | `records/design-clashes.md` | The 45 clashes in full, with rule quotes |
 | `records/design-rulings.md` | Chris's ruling on each |
 | `records/AECi-design-clashes-RULED-2026-11-13.docx` | The Word document Chris filled in, with side-by-side images |
@@ -1096,7 +1096,7 @@ Everything is in `docs/design/mockups/redesign-2026-11/`.
 | `records/impeccable-critique-pair-page.md` | Design review of mock-up 5 |
 | `records/impeccable-critique-product-pages.md` | Design review of mock-ups 6, 7 and 8 |
 
-Screenshots in `screens/` that are not embedded above:
+The screenshots in `screens/` and the AECI-1817 "before" set in `baseline/` were archived outside the repo by Chris on 2026-11-23. Both folders hold no images now; the captions above name what each screenshot showed. These were not embedded above:
 
 | File | What it shows |
 | --- | --- |

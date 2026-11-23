@@ -3,6 +3,10 @@
 "Before" images for the AECI-1720 site redesign. Reviewers compare a redesign PR against these.
 Pixel-diff tooling was ruled out on 2026-10-23, so these are for human eyes only.
 
+**The images were archived outside the repo by Chris on 2026-11-23.** This folder keeps
+this README as the record of what was taken. A re-run writes new images here, and `.gitignore`
+keeps them out of git.
+
 - **Date taken:** 2026-11-14
 - **Origin used:** `http://localhost:8792`
 - **Viewports:** 1440 px and 390 px wide, full page, PNG
