@@ -493,6 +493,16 @@ export type JobRunDetail =
       /** AECI-1228: the archive step that ran before the prune. Absent on rows
        *  written before it. */
       archive?: RetentionArchiveDetail;
+      /** AECI-1917: true when the first plan lost a race and the replan committed. */
+      replanned?: boolean;
+    }
+  /** AECI-1917: the plan lost a race twice in a row (an overlapping run deleted the
+   *  planned rows first), so this run deleted nothing. No gate fired, so no days. */
+  | {
+      job: 'retention-prune';
+      reason: 'concurrent_run';
+      tables: RetentionPrunedTableDetail[];
+      archive?: RetentionArchiveDetail;
     }
   /** The daily AECI-1638 legal retention prune (ADR 0058). `tables` is always all three,
    *  zeros included, without the ids: those are in the run's `retention.pruned` audit row.
