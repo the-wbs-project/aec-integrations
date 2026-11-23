@@ -17,6 +17,8 @@ const QUERY_CASES: readonly [string, string][] = [
   ['/search?q=x', '/search?q=x#main'],
   // AECI-1848 — an email token page is never cached, so the token survives the SSR href.
   ['/unsubscribe?token=x', '/unsubscribe?token=x#main'],
+  // AECI-1848 review — /contact is not edge-cached, so its 200 render keeps the topic.
+  ['/contact?topic=add-product', '/contact?topic=add-product#main'],
   ['/products?utm_source=x&page=2', '/products?page=2#main'],
 ];
 

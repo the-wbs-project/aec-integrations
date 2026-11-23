@@ -1397,7 +1397,12 @@ async function handleSsr(
     // authenticated resolver (e.g. the `/admin` gate) can read the session
     // cookie. Safe here precisely because this branch never writes the response
     // to the shared edge cache.
-    const reqCtx = createRequestContext(createServerApiClient(env, { forwardCookieFrom: request }));
+    // `edgeCacheable: false` lets the skip link keep the whole query on a non-404
+    // render here, since nothing on this branch but a 404 is stored (AECI-1848).
+    const reqCtx = createRequestContext(
+      createServerApiClient(env, { forwardCookieFrom: request }),
+      { edgeCacheable: false },
+    );
     const rendered = await renderer(request, reqCtx);
     const transformed = transformResponse
       ? await transformResponse(rendered, env, request, execCtx)

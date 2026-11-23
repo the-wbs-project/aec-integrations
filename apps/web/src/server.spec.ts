@@ -1548,6 +1548,29 @@ describe('createApp security headers on every SSR render (AECI-1478)', () => {
   });
 });
 
+// AECI-1848 review — the skip link keeps the whole query on a render the edge will not store,
+// so the runtime must say which branch it rendered on.
+describe('request context edgeCacheable (AECI-1848)', () => {
+  it.each([
+    ['/contact?topic=add-product', false],
+    ['/products/acme', true],
+  ])('%s renders with edgeCacheable %s', async (path, expected) => {
+    const { binding } = recordingApiBinding();
+    let seen: boolean | undefined;
+    const renderer: SsrRenderer = async (_req, ctx) => {
+      seen = ctx.edgeCacheable;
+      return htmlResponse('<p>ok</p>');
+    };
+    const app = createApp({ ssrRenderer: renderer });
+    await app.fetch(
+      new Request(`https://www.aecintegrations.com${path}`),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+    expect(seen).toBe(expected);
+  });
+});
+
 describe('isNeverCacheablePath (AECI-1442)', () => {
   it.each([
     '/auth',
