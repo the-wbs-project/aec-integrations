@@ -24,17 +24,49 @@
     1024, stage 336:        one ring 18 at 28px; two rings 43 at 28px (51 at 24px).
     390, stage 294:         one ring 25 at 24px (22 at 28px). No second ring.
     320, stage 224:         one ring 18 at 24px.
-  The default cut-off is "fit": a slide takes the first layout whose tiles stay at
-  or above the smallest size at the rendered width (28px beside the text, 24px on a
-  phone), else dots. The "Fixed numbers" control applies set numbers instead.
+  Rulings of 2026-11-23. Chris ruled the wording. He left the other five to the
+  orchestrator ("your call"), so items 2 to 6 are the orchestrator's decisions:
+  1. Chris: the wheel's text says products and integrations, never partners. The
+     first slide is "All integrations" over "54 products"; "1 product" in the singular.
+  2. Cut-offs fit the rendered width: one ring while every tile fits at the smallest
+     size (28px beside the text, 24px on a phone), then a second ring (not on phones)
+     while that fits, then dots. "Fixed numbers" stays in the control strip only to compare.
+  3. One tile size per product. It is set once, from the "All" slide, or from the
+     largest tiled slide when "All" is dots, at the largest size that slide fits in its
+     mode. Every tiled slide uses it, and takes the first mode that fits at that size.
+  4. A dots slide keeps both counts: products under the title, integrations in the centre.
+  5. Names under tiles are on for slides of 8 or fewer. They are off when the stage is
+     under 260px (320 wide), where they run into the tiles and the hub.
+  6. The Clay mark at 12 o'clock, the arrows beside the title and the guide circles stay.
+  7. Legal agent's approved wording for the line under the wheel: on a tile slide
+     "Shown A to Z. Position is not a ranking."; on a dots slide "Too many to show as
+     tiles. Each dot is one integration." There is one dot per integration, so the dots
+     always equal the integrations count in the centre (388 for Procore's 387 products).
+  8. A tile never shows a logo for an unclaimed product, at any size, card included:
+     it shows the initial tile.
+
+  Final cut-offs, for the "All" slide (re-measured under rule 3: unchanged):
+    width   stage   one ring   two rings   dots from
+    1440    476     1 to 31    32 to 69    70
+    1280    476     1 to 31    32 to 69    70
+    1024    336     1 to 18    19 to 43    44
+    390     294     1 to 25    none        26
+    320     224     1 to 18    none        19
+  Tile size per product at 1440: 48px up to 16 on one ring, then down to 28px
+  at 31; 40px at 32 on two rings, then down to 28px at 69.
 
   FINDINGS for the build:
   1. The cut-offs depend on the width, not only the count. At 1024 the panel is 400px,
      so a fixed "30 on one ring" overlaps there. The server HTML has to carry the phone
      and the desktop layout of the first slide and switch by container query, or the
      wheel shifts at hydration. Picture 19 shows the desktop layout scaled to a phone.
-  2. The ruled "second, outer ring" makes every one-ring slide sit on the inner orbit,
-     so the tile size jumps: 31 products at 28px, 32 products on two rings at 40px.
+  2. One tile size per product stops tiles resizing between slides. Between products
+     the jump stays: a product with 31 shows 28px tiles on one ring, one with 32 shows
+     40px tiles on two rings, because the outer ring is held empty on one-ring slides.
+     A category of a product whose size came from a two-ring "All" may sit on two rings
+     even under 31, because it takes the product's larger tile.
+  5. Under 260px the title takes the first row and the arrows sit in a row below it, so
+     a long category name ("BIM Coordination") is not squeezed between the arrows.
   3. A dots slide's server HTML has no product list. It links to the Integrations
      section instead ("See all N in Integrations").
   4. The product page 500s above roughly 155 to 160 integrations in today's code: the

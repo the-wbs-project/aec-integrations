@@ -26,7 +26,7 @@
     two: 70, // fixed: two rings up to this many, dots above
     phone: 18, // fixed: phone, one ring up to this many, dots above
     base: 'inner', // inner | full: where the one-ring slides sit on desktop
-    names: 'off', // on | off: names under tiles on slides of 8 or fewer
+    names: 'on', // on | off: names under tiles on slides of 8 or fewer (orchestrator's decision: on)
     first: 0, // boundary test: only the first N products A to Z (0 = all)
     slide: 0,
   };
@@ -173,27 +173,53 @@
   }
   W.capacity = capacity;
 
-  function layout(slide, D, state) {
+  // The mode a count takes at tile size t: one ring while it fits, then two (not on a
+  // phone), then dots.
+  function modeAt(n, D, t, base) {
+    var c = capacity(D, t, base);
+    return n <= c.one ? 'one' : !isPhone(D) && n <= c.two ? 'two' : 'dots';
+  }
+  // The largest tile in [tmin, top] at which n still fits in the given mode.
+  function largestTile(n, D, mode, tmin, base) {
+    var t = mode === 'two' ? TMAX_TWO : isPhone(D) ? TMAX_PHONE : TMAX_DESK;
+    for (; t > tmin; t--) {
+      var c = capacity(D, t, base);
+      if (mode === 'one' ? n <= c.one : n <= c.two) break;
+    }
+    return t;
+  }
+  /* One tile size per product (orchestrator's decision, 2026-11-23). The size is set once,
+     from the "All" slide, or from the largest slide that is tiled when "All" is dots. Its
+     mode is the one that fits at the smallest tile. Every tiled slide of the product then
+     uses that size, so stepping never resizes the tiles. */
+  function productTile(slides, D, state) {
+    var tmin = isPhone(D) ? TMIN_PHONE : state.tmin;
+    var ref = null;
+    for (var i = 0; i < slides.length; i++) {
+      var n = slides[i].partners.length;
+      if (modeAt(n, D, tmin, state.base) !== 'dots' && (!ref || n > ref)) ref = n;
+    }
+    if (!ref) return tmin;
+    return largestTile(ref, D, modeAt(ref, D, tmin, state.base), tmin, state.base);
+  }
+  W.productTile = productTile;
+
+  function layout(slide, D, state, slides) {
     var n = slide.partners.length;
     var twoOk = !isPhone(D);
-    var tmax = twoOk ? TMAX_DESK : TMAX_PHONE;
     var tmin = twoOk ? state.tmin : TMIN_PHONE;
-    var mode;
+    var mode, tFixed = 0;
     if (state.cut === 'fit') {
-      // Whatever holds every tile at the smallest size, at this width.
-      var cm = capacity(D, tmin, state.base);
-      mode = n <= cm.one ? 'one' : twoOk && n <= cm.two ? 'two' : 'dots';
+      // The product's one tile size decides; every slide takes the first mode that fits at it.
+      tFixed = productTile(slides || [slide], D, state);
+      mode = modeAt(n, D, tFixed, state.base);
     } else if (!twoOk) mode = n <= state.phone ? 'one' : 'dots';
     else mode = n <= state.one ? 'one' : n <= state.two ? 'two' : 'dots';
     var out = { mode: mode, D: D, n: n, items: [], rings: [], warn: '' };
     if (mode === 'dots') return dotLayout(slide, D, out);
-    // The largest tile in [tmin, tmax] that fits. At tmin they may not fit, which is warned.
+    // The fixed-numbers comparison may force a count past capacity; that is warned.
     // Two rings cap the tile lower than one ring does, so a full wheel stays calm.
-    var t = mode === 'two' ? Math.min(tmax, TMAX_TWO) : tmax;
-    for (; t > tmin; t--) {
-      var c = capacity(D, t, state.base);
-      if (mode === 'one' ? n <= c.one : n <= c.two) break;
-    }
+    var t = tFixed || largestTile(n, D, mode, tmin, state.base);
     var rr = radii(D, t, state.base, twoOk);
     var c2 = capacity(D, t, state.base);
     if (mode === 'one' && n > c2.one) out.warn = 'Over capacity: ' + n + ' products on one ring that holds ' + c2.one + ' at ' + t + 'px.';
@@ -264,7 +290,9 @@
     h += '</svg>';
     // The ring: a real list of links, A to Z, one tab stop.
     var label = s.name + ', ' + countLine(s) + ', A to Z';
-    var names = state.names === 'on' && s.partners.length <= 8;
+    // Names under tiles: slides of 8 or fewer, and only on a stage of 260px or more. At
+    // 320 (a 224px stage) the names run into the tiles and the hub, so they are off there.
+    var names = state.names === 'on' && s.partners.length <= 8 && L.D >= 260;
     h += '<ul class="ring' + (names ? ' names' : '') + '" aria-label="' + esc(label) + '" style="--t:' + (((L.t || 0) * 100) / L.D).toFixed(3) + '">';
     if (L.mode !== 'dots') {
       s.partners.forEach(function (q, i) {
@@ -288,10 +316,14 @@
   }
   W.stageInner = stageInner;
 
+  // The line under the wheel (legal agent's approved wording, 2026-11-23).
+  function footText(mode) {
+    return mode === 'dots' ? 'Too many to show as tiles. Each dot is one integration.' : 'Shown A to Z. Position is not a ranking.';
+  }
   function renderWheel(m, state, D) {
     var i = Math.max(0, Math.min(state.slide, m.slides.length - 1));
     var s = m.slides[i];
-    var L = layout(s, D, state);
+    var L = layout(s, D, state, m.slides);
     var h = '<section class="wheel" aria-labelledby="wheel-title" data-slide="' + i + '">';
     // With script: the arrows and the title that opens the list. Without: a static heading.
     h += '<div class="wheel-head">' +
@@ -303,13 +335,10 @@
       '<ul class="jump-list" id="jump-list" aria-label="Jump to a category" hidden></ul></div>';
     h += '<h2 class="wheel-static-title">All integrations<span class="ct">' + countLine(s) + ', ' + plural(m.cats, 'category', 'categories') + '</span></h2>';
     h += '<div class="stage' + (L.mode === 'dots' ? ' dots' : '') + '" data-mode="' + L.mode + '" data-d="' + D + '">' + stageInner(m, s, L, state) + '</div>';
-    h += '<p class="wheel-foot" id="wheel-foot">Shown A to Z. Position is not a ranking.</p>';
+    h += '<p class="wheel-foot" id="wheel-foot">' + footText(L.mode) + '</p>';
     if (L.mode === 'dots') h += '<p class="wheel-more"><a href="#integrations">See all ' + s.integrations + ' in Integrations</a></p>';
     h += '<p class="sr" id="ring-hint">Arrow keys move between products.</p>';
     h += '<p class="sr" aria-live="polite" id="wheel-live"></p>';
-    // The card is fixed to the viewport, so it is never clipped by the hero; it lives here
-    // so it stays inside the page's landmarks.
-    h += '<div class="pcard" id="pcard" role="tooltip" hidden></div>';
     h += '</section>';
     return { html: h, layout: L, slide: s };
   }
@@ -334,7 +363,9 @@
     h += '<p class="reviews-none">No reviews yet</p>';
     h += '<div class="hacts"><a class="btn btn-on-brand" href="#">Visit website <svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg><span class="sr">(opens in a new tab)</span></a>' +
       '<a class="btn btn-on-brand-2" href="#">Write a review</a></div>';
-    h += '</div><div class="panel">' + wheel.html + '</div></div></div></section>';
+    // The card is fixed to the viewport, so the hero never clips it. It sits outside the
+    // wheel (the wheel is a size container, which would trap a fixed child) and inside main.
+    h += '</div><div class="panel">' + wheel.html + '<div class="pcard" id="pcard" role="tooltip" hidden></div></div></div></div></section>';
     h += '<div class="ground"><div class="wrap"><div class="facts">' +
       '<div class="stat"><div class="fig">' + total + '</div><div class="lab">integrations</div></div>' +
       '<div><p class="overline">Vendor</p><p>' + esc(p.vendor) + '</p></div>' +
@@ -405,7 +436,7 @@
       cur = (i + n) % n;
       var s = m.slides[cur];
       var D2 = stage.getBoundingClientRect().width || D;
-      var L = layout(s, Math.round(D2), state);
+      var L = layout(s, Math.round(D2), state, m.slides);
       lastLayout = L;
       hideCard();
       stage.className = 'stage' + (L.mode === 'dots' ? ' dots' : '');
@@ -413,6 +444,7 @@
       setHtml(stage, stageInner(m, s, L, state));
       jump.querySelector('.nm span').textContent = s.name;
       jump.querySelector('.ct').textContent = countLine(s);
+      section.querySelector('#wheel-foot').textContent = footText(L.mode);
       section.dataset.slide = cur;
       var more = section.querySelector('.wheel-more');
       if (more) more.remove();
@@ -607,7 +639,7 @@
     ['w', 'Width', 'radio', [['1440', '1440'], ['390', '390 phone'], ['320', '320']]],
     ['claim', 'This product', 'radio', [['claimed', 'Claimed'], ['unclaimed', 'Unclaimed']]],
     ['partners', 'Logos on the ring', 'radio', [['mixed', 'Mixed'], ['all', 'All claimed'], ['none', 'None claimed']]],
-    ['cut', 'Cut-offs', 'radio', [['fit', 'Fit to the width'], ['fixed', 'Fixed numbers']]],
+    ['cut', 'Cut-offs', 'radio', [['fit', 'Fit to the width'], ['fixed', 'Fixed numbers, for comparison']]],
     ['tmin', 'Smallest tile beside the text', 'radio', [['24', '24'], ['28', '28'], ['32', '32']]],
     ['one', 'Fixed: one ring up to', 'number'],
     ['two', 'Fixed: two rings up to', 'number'],

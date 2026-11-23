@@ -133,7 +133,15 @@ h1 .display { font-size: var(--t-display); line-height: 1; letter-spacing: -0.02
 @media (min-width: 768px) { .panel { padding: 32px; } }
 @media (forced-colors: active) { .panel { border: 1px solid CanvasText; } .hero { border-block: 1px solid CanvasText; } }
 
-.wheel { position: relative; }
+.wheel { position: relative; container-type: inline-size; }
+/* Under 260px (a 320 phone) a long category name does not fit between the arrows, so the
+   title takes the whole first row and the arrows sit in a row under it. */
+@container (max-width: 259px) {
+  .wheel-head { grid-template-columns: 44px 1fr 44px; }
+  .wheel-head .wheel-title { grid-column: 1 / -1; grid-row: 1; }
+  .wheel-head [data-step='-1'] { grid-column: 1; grid-row: 2; }
+  .wheel-head [data-step='1'] { grid-column: 3; grid-row: 2; }
+}
 .wheel-head { position: relative; display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; gap: 8px; }
 .wheel-step { width: 44px; height: 44px; display: grid; place-items: center; border-radius: var(--radius-control); cursor: pointer;
   background: var(--surface-on-brand-wash); border: 1px solid var(--border-on-brand-strong); color: var(--text-on-brand);
@@ -144,9 +152,9 @@ h1 .display { font-size: var(--t-display); line-height: 1; letter-spacing: -0.02
 .wheel-jump { max-width: 100%; display: inline-flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 12px;
   border: 0; background: none; border-radius: var(--radius-control); cursor: pointer; }
 .wheel-jump:hover { background: var(--surface-on-brand-wash); }
-.wheel-jump .nm { display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
+.wheel-jump .nm { display: block; max-width: 100%; text-align: center; text-wrap: balance;
   font: 600 var(--t-20)/1.3 var(--font-display); color: var(--text-on-brand); }
-.wheel-jump .nm span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wheel-jump .nm .ico { display: inline-block; margin-left: 4px; vertical-align: -2px; }
 .wheel-jump .ct { font-size: var(--t-13); line-height: 1.4; color: var(--text-on-brand-secondary); }
 .wheel-jump .ico { transition: transform var(--duration-base) var(--ease-standard); }
 .wheel-jump[aria-expanded='true'] .ico { transform: rotate(180deg); }
