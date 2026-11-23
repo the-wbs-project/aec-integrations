@@ -3,9 +3,8 @@
  *
  * `BROWSER_EVIDENCE_ENABLED` is a committed web Worker var, and it is the switch:
  * `"true"` injects `window.__AECI_BROWSER_EVIDENCE__`, anything else ships the
- * report dark. Production stays `"false"` until Privacy Policy 1.1 is in force, which
- * is the promise this file holds. AECI-1715 changes the production expectation in
- * the same PR that flips the var.
+ * report dark. All four tiers are `"true"`. Production turned on only once Privacy
+ * Policy 1.1 was in force (AECI-1715), in the same PR that changed this expectation.
  */
 
 import { readFileSync } from 'node:fs';
@@ -38,8 +37,8 @@ describe('wrangler.jsonc BROWSER_EVIDENCE_ENABLED (AECI-1714)', () => {
     expect(config.env[tier]?.vars?.['BROWSER_EVIDENCE_ENABLED']).toBe('true');
   });
 
-  it('production has it off until Privacy Policy 1.1 is in force (AECI-1715)', () => {
-    expect(config.env['production']?.vars?.['BROWSER_EVIDENCE_ENABLED']).toBe('false');
+  it('production has it on, now that Privacy Policy 1.1 is in force (AECI-1715)', () => {
+    expect(config.env['production']?.vars?.['BROWSER_EVIDENCE_ENABLED']).toBe('true');
   });
 
   it('every env block declares it, because vars are not inherited across wrangler envs', () => {

@@ -61,6 +61,35 @@ nil-to-negligible. The value is a known zero to accrue against.
 
 ## Entries
 
+## PENDING-1.1-EFFECTIVE-DATE — AECI-1715: production browser-evidence capture on
+
+**Capture change, not a snapshot.** This entry dates a seam in the production `page_views` series.
+From this deploy, production rows can carry `browser_evidence` (`ran` or `interacted`). Rows written
+before it are NULL in both columns, so the columns are not comparable across the seam.
+
+**Prod SHA / deploy:** `PENDING-DEPLOY-SHA` (replace with the SHA and its `deployedAt` from `GET /api/version`)
+**Privacy Policy 1.1 in force from:** PENDING-1.1-EFFECTIVE-DATE, 12:00 UTC. The deploy came after it.
+
+**What turned on.** `BROWSER_EVIDENCE_ENABLED` is `"true"` in the production block of both Workers.
+The SSR Worker injects `window.__AECI_BROWSER_EVIDENCE__`, the page tracker posts `ran` and
+`interacted`, and the API stores them. A DNT, GPC or held-region row still gets nothing. The
+`browser_evidence_coverage` data-quality check now measures production. Its first run reads the deploy
+day, part of it from before the deploy, so a failure that morning is expected. The first full day is
+read the second morning.
+
+**Verified on production:**
+
+| Check | Result |
+|---|---|
+| An arrival row from a test visit gains `ran`, then `interacted` | Not yet read |
+| A GPC visit's row stays NULL in both columns | Not yet read |
+| First full-day `browser_evidence_coverage` reading (coverage, row count) | Not yet read |
+
+**Regressions / tickets filed:** not yet read. **Threshold tuning:** none yet. The floor of 0.8 and the
+20-row minimum are starting values. AECI-1715 records the first reading.
+**Actions / follow-ups:** day-7 blocker-loss read on AECI-1715. Day-14 shadow run (AECI-1716,
+AECI-2013).
+
 ## 2026-11-05 — AECI-1626: classifier `tc-2026.11.2`, a `Claude-User` label
 
 **Version change, not a snapshot.** `NAMED_BOTS` gains `Claude-User (Anthropic)`, mapped to

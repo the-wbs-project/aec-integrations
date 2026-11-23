@@ -323,9 +323,9 @@ export type Env = {
    * UPDATE, AECI-1713), and tells the `browser_evidence_coverage` data-quality check to
    * run (AECI-1715). The browser's half is the SSR Worker's var of the same name
    * (`apps/web/wrangler.jsonc`, AECI-1714), which the API cannot read. Anything else, or
-   * unset, writes nothing and reports the check skipped. `"true"` on local, staging and
-   * demo, `"false"` on production until Privacy Policy 1.1 is in force. Flip it in the
-   * same change as the web var. Read by `browserEvidenceEnabled` (`routes/page-views.ts`)
+   * unset, writes nothing and reports the check skipped. `"true"` on all four tiers.
+   * Production turned on once Privacy Policy 1.1 was in force (AECI-1715). Change it
+   * only in the same change as the web var. Read by `browserEvidenceEnabled` (`routes/page-views.ts`)
    * and `browserEvidenceCaptureEnabled` (`lib/data-quality.ts`).
    * `wrangler-browser-evidence.spec.ts` pins the four blocks.
    */

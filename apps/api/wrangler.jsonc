@@ -329,9 +329,9 @@
     // browser report on. The API cannot read the web var, so this one is the server's
     // half: only "true" lets the API store a report (AECI-1713) and runs the
     // `browser_evidence_coverage` data-quality check; anything else writes nothing and
-    // reports the check skipped. "true" on local, staging and
-    // demo. Production stays "false" until Privacy Policy 1.1 is in force, and flips in
-    // the same change as the web var. `wrangler-browser-evidence.spec.ts` pins all four.
+    // reports the check skipped. "true" on all four tiers. Production turned on once
+    // Privacy Policy 1.1 was in force (AECI-1715), in the same change as the web var.
+    // `wrangler-browser-evidence.spec.ts` pins all four.
     "BROWSER_EVIDENCE_ENABLED": "true",
   },
   "dev": {
@@ -1117,9 +1117,10 @@
         // docs/ACCOUNT_ONBOARDING_SPEC.md §1.1 has landed (AECI-1595). The flip is Chris's.
         // "true" turns it on. Only production can send it.
         "VENDOR_CLAIM_NUDGE_ENABLED": "false",
-        // AECI-1715: browser report capture OFF until Privacy Policy 1.1 is in force.
-        // Flip in the same change as the web Worker's var (see the base-config note).
-        "BROWSER_EVIDENCE_ENABLED": "false",
+        // AECI-1715: browser report capture on. Turned on only once Privacy Policy 1.1
+        // was in force, in the same change as the web Worker's var (see the base-config
+        // note).
+        "BROWSER_EVIDENCE_ENABLED": "true",
       },
       "kv_namespaces": [
         {

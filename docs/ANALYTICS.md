@@ -275,7 +275,8 @@ Consequences you must hold in your head when reading a number:
   - **Three gates, all checked before any post.** (1) The tier's switch: the SSR
     Worker injects `window.__AECI_BROWSER_EVIDENCE__ = { enabled: true }` only when the
     wrangler var `BROWSER_EVIDENCE_ENABLED` is `"true"` (`docs/environments.md`).
-    Production is `"false"` until Privacy Policy 1.1 is in force (AECI-1715). (2) No
+    It is `"true"` on every tier. Production turned on only after Privacy Policy 1.1
+    was in force (AECI-1715). (2) No
     DNT or GPC signal. (3) No `Server-Timing: geo;desc="eu"` stamp, so nothing is sent
     from the EEA, the UK or Switzerland (ruling 21). A browser that exposes no
     `serverTiming` sends nothing. The DNT/GPC and region checks are the same functions

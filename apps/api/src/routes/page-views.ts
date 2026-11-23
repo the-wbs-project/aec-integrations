@@ -95,7 +95,7 @@ import { verifyTurnstile } from '../lib/turnstile';
  * writer ever sets it on a privacy-signal row or a held-region row (EEA, UK,
  * Switzerland, or an unknown country; `isHeldRegionCountry`). The Privacy Policy
  * promises both. Neither writer runs at all while `BROWSER_EVIDENCE_ENABLED` is not
- * `"true"`, and production holds it at `"false"` until Privacy Policy 1.1 is in force.
+ * `"true"`. Production turned it on once Privacy Policy 1.1 was in force (AECI-1715).
  */
 
 /** Structural view of a directly-present `request.cf` (local dev / direct test). */
@@ -652,9 +652,9 @@ async function recordPageView(
   // EEA, the UK or Switzerland (ruling 21). Writing `ran` from the insert would be
   // collecting it. An unknown country is held: `isHeldRegionCountry` fails closed.
   //
-  // Never while `BROWSER_EVIDENCE_ENABLED` is not `"true"`. Production holds it at
-  // `"false"` until Privacy Policy 1.1 is in force (the AECI-1712 README entry,
-  // counsel Q37 and Q43). The browser's own switch is the SSR Worker's var of the
+  // Never while `BROWSER_EVIDENCE_ENABLED` is not `"true"`. Production turned it on
+  // only once Privacy Policy 1.1 was in force (the AECI-1712 README entry, counsel
+  // Q37 and Q43, AECI-1715). The browser's own switch is the SSR Worker's var of the
   // same name, so this one is the server's half: with it off, no row gets `ran`
   // from the insert, whatever the client sends.
   const ranInApp =
@@ -1009,7 +1009,7 @@ const BROWSER_EVIDENCE_METRIC = 'aeci.pageviews.browser_evidence';
 /**
  * Whether this tier records the browser report at all. Only `"true"` counts. Both
  * writers read it: the `ran` on a `browser-spa` insert and the report endpoint's
- * UPDATE. Production holds it at `"false"` until Privacy Policy 1.1 is in force.
+ * UPDATE. Production turned it on once Privacy Policy 1.1 was in force (AECI-1715).
  * `browserEvidenceCaptureEnabled` in `lib/data-quality.ts` reads the same var.
  */
 function browserEvidenceEnabled(env: Pick<Env, 'BROWSER_EVIDENCE_ENABLED'>): boolean {

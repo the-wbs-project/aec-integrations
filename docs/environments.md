@@ -231,10 +231,11 @@ value writes nothing and reports the check *Skipped*. It is a plain var: no secr
 | **Local** | `"true"` |
 | **Staging** | `"true"` |
 | **Demo** | `"true"` |
-| **Production** | `"false"` |
+| **Production** | `"true"` |
 
-Production stays `"false"` until Privacy Policy 1.1 is in force. Flip it in the same change as
-the web var. `apps/api/src/wrangler-browser-evidence.spec.ts` pins the four API blocks, and fails
+Production was `"false"` until Privacy Policy 1.1 was in force. AECI-1715 turned it on after 1.1
+took effect on PENDING-1.1-EFFECTIVE-DATE, deployed at `PENDING-DEPLOY-SHA`. Change it only in the
+same change as the web var. `apps/api/src/wrangler-browser-evidence.spec.ts` pins the four API blocks, and fails
 any block where the web Worker declares the var with a different value.
 
 ### Ownership receiver per tier (AECI-1418, AECI-1427)
@@ -1806,12 +1807,13 @@ too ("Browser report check per tier" above). Flip both in the same change.
 | **Local** | `"true"`, the top-level `vars` block |
 | **Staging** | `"true"`, `env.staging.vars` |
 | **Demo** | `"true"`, `env.demo.vars` |
-| **Production** | `"false"`, `env.production.vars` |
+| **Production** | `"true"`, `env.production.vars` |
 
-**Production stays `"false"` until Privacy Policy 1.1 is in force.** The 1.1 sentence that describes
-the report (AECI-1712) is a promise only from its effective date. AECI-1715 flips the var in the same
-PR that changes the pin. `apps/web/src/browser-evidence-enabled.spec.ts` pins all four values, so a
-flip without that PR fails CI.
+**Production turned on only after Privacy Policy 1.1 was in force.** The 1.1 sentence that describes
+the report (AECI-1712) is a promise only from its effective date, PENDING-1.1-EFFECTIVE-DATE. AECI-1715
+flipped the var in the same PR that changed the pin, deployed at `PENDING-DEPLOY-SHA`.
+`apps/web/src/browser-evidence-enabled.spec.ts` pins all four values, so a flip without a matching
+spec change fails CI.
 
 The flag is per tier, not per visitor. A visitor with DNT or GPC, or one the gateway stamps with
 `Server-Timing: geo;desc="eu"`, sends nothing on any tier. The script is stored with the cached page,
