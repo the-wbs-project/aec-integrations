@@ -104,9 +104,12 @@ AECI_WEB_PORT=8790 pnpm test:e2e
 ```
 
 Playwright finds the running stack on that port and reuses it. The config and every spec take
-their origin from `apps/web/e2e/base-url.ts`, so none of them falls back to 8788 (AECI-1449). `AECI_API_PORT` is
-not needed, because the specs reach the API through the SSR Worker. Set `PLAYWRIGHT_BASE_URL`
-to target a deployed tier or an already-running stack without Playwright managing its server.
+their origin from `apps/web/e2e/base-url.ts`, so none of them falls back to 8788 (AECI-1449).
+Most specs reach the API through the SSR Worker. The browser-evidence spec also contacts the API
+Worker's Local Explorer directly: it assumes the API port is one below the web port unless
+`AECI_API_PORT` is set. Set that variable when the stack uses a different API port.
+Set `PLAYWRIGHT_BASE_URL` to target a deployed tier or an already-running stack without
+Playwright managing its server; local-only specs such as browser evidence then skip.
 
 If nothing answers on a non-default `AECI_WEB_PORT`, the run stops at once with a message. It does
 not boot `pnpm dev:bound` itself, because the API Worker would default to the reserved 8787
