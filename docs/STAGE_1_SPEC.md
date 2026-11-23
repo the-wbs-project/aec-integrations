@@ -374,6 +374,8 @@ Same layout pattern for all four (trades became the fourth facet in AECI-544 —
   - Sort options per tab
   - Infinite scroll with a "Load more" floor, the same footer `/products` uses (`connectInfiniteHits`;
     replaced a Previous/Next paginator on 2026-10-26, `DESIGN.md` "The Same-Behavior Rule")
+  - "Load more" pressed while a search for a changed query, filter or sort is in flight waits for
+    that search, then loads, so a page 2 never replaces the new state's page 1 (AECI-1906)
   - Sort options match `/products` exactly (Newest, Name, Recently updated, Highest rated, Most
     reviewed), with the same default, Newest. Vendors offer Name only. No Relevance option
     (ruled 2026-10-26, AECI-1486). Algolia replicas, `docs/SEARCH_RANKING.md` §5a. The sort
