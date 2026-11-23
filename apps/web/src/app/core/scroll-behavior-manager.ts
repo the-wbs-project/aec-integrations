@@ -54,11 +54,10 @@
  * `ScrollMarginViewportScroller` skips the router's follow-up scroll for that
  * fragment. (A follow-up used to run: it first overshot by the target's
  * `scroll-mt-20`, then desynced Safari by interrupting the smooth scroll — see
- * `core/scroll-margin-viewport-scroller.ts`.) The skip link is not one of
- * these today: it is a bare `href="#main"`, which `<base href="/">` resolves to
- * `/#main`, so off the home page it loads `/` (AECI-1839). Once that is fixed
- * it becomes a same-document jump, and it must stay instant: it does not carry
- * `data-smooth-scroll`. The reduced-motion block in styles.css (`scroll-behavior: auto !important`) wins
+ * `core/scroll-margin-viewport-scroller.ts`.) The skip link is one of these: its
+ * href is `{path}#main`, built by `injectInPageHref('main')` (`layout/skip-link.ts`,
+ * AECI-1839), so it is a same-document jump on every page. It must stay instant,
+ * so it does not carry `data-smooth-scroll`. The reduced-motion block in styles.css (`scroll-behavior: auto !important`) wins
  * over both this inline style and the restore, so reduced-motion visitors stay
  * instant throughout — as intended.
  *
