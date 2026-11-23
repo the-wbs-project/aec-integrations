@@ -43,6 +43,10 @@ function buildPage(): void {
   const main = add(document.body, 'main', 'main');
   main.tabIndex = -1;
   add(main, 'h1', 'title', 'Page title');
+  // A persistent section row, as the admin shell and the vendor portal render.
+  const row = add(main, 'nav', 'section-row');
+  row.setAttribute('data-route-focus-keep', '');
+  add(row, 'a', 'row-link', 'Billing').setAttribute('href', '/vendor/acme/billing');
   add(main, 'a', 'in-page', 'A card').setAttribute('href', '/b');
   add(main, 'input', 'search');
 }
@@ -148,6 +152,24 @@ describe('RouteFocus (AECI-1855)', () => {
     appRef.tick();
     expect(document.activeElement).toBe(el('search'));
     expect(headingFocused).toBe(0);
+  });
+
+  it('keeps focus on a link in a data-route-focus-keep row after it navigates', () => {
+    const { start, end } = setup();
+    el('row-link').focus();
+    start('/vendor/acme/billing');
+    end('/vendor/acme/billing');
+    expect(document.activeElement).toBe(el('row-link'));
+    expect(el('title').hasAttribute('tabindex')).toBe(false);
+  });
+
+  it('still moves focus to the h1 when the pressed row link is gone after the navigation', () => {
+    const { start, end } = setup();
+    el('row-link').focus();
+    start('/vendor/acme/billing');
+    el('row-link').remove(); // the new page renders the row without it
+    end('/vendor/acme/billing');
+    expect(document.activeElement).toBe(el('title'));
   });
 
   it('falls back to <main> when the page has no h1', () => {

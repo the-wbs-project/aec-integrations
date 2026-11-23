@@ -19,6 +19,10 @@
  *     `ScrollMarginViewportScroller`;
  *   - the new page put focus somewhere itself, inside `<main>` or a dialog (a form
  *     that focuses its success heading, a page that focuses its search box);
+ *   - focus is on a link inside a persistent section row marked `data-route-focus-keep`
+ *     (the admin section row, the vendor portal nav) and that link is still on screen.
+ *     The row and the heading above it stay put across the navigation, so the reader
+ *     keeps their place in the row (Chris's ruling on AECI-1855, option A);
  *   - it is the initial (hydration) navigation.
  *
  * A link to the page already showing ends in `NavigationSkipped`. Then focus moves
@@ -41,6 +45,13 @@ import { NavigationEnd, NavigationSkipped, NavigationStart, Router } from '@angu
 
 /** The marker that keeps the ring off a heading that only holds focus for this. */
 export const ROUTE_FOCUS_ATTR = 'data-route-focus';
+
+/**
+ * Marks a persistent section row (a `<nav>` that stays on screen, under a heading that
+ * does not change, across the navigations its links make). Focus on a link inside it
+ * stays there after the navigation.
+ */
+export const ROUTE_FOCUS_KEEP_ATTR = 'data-route-focus-keep';
 
 /**
  * Whether an element is rendered. `checkVisibility()` where the browser has it
@@ -81,7 +92,8 @@ export class RouteFocus {
         if (previous === null || path === previous) return;
         const from = trigger;
         this.afterRender(() => {
-          if (!this.pageTookFocus(from)) this.focusPage();
+          if (this.keepRowHoldsFocus() || this.pageTookFocus(from)) return;
+          this.focusPage();
         });
       } else if (event instanceof NavigationSkipped) {
         this.afterRender(() => {
@@ -131,6 +143,15 @@ export class RouteFocus {
   private focusIsLost(): boolean {
     const active = this.document.activeElement;
     return !active || active === this.document.body || !active.isConnected || !isRendered(active);
+  }
+
+  /**
+   * Focus is on an element inside a `data-route-focus-keep` row, still connected and
+   * rendered: a persistent section row whose link the reader just pressed.
+   */
+  private keepRowHoldsFocus(): boolean {
+    if (this.focusIsLost()) return false;
+    return this.document.activeElement!.closest(`[${ROUTE_FOCUS_KEEP_ATTR}]`) !== null;
   }
 
   /**

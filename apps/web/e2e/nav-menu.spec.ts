@@ -1435,6 +1435,34 @@ test.describe('focus after a navigation (AECI-1855)', () => {
     });
   });
 
+  // Chris's ruling on AECI-1855 (option A): a persistent section row keeps focus on
+  // the pressed link. The vendor portal row is driven on the session-free preview,
+  // which mounts the real portal shell and nav. The admin row needs a session, so
+  // `route-focus.component.spec.ts` covers the attribute's behaviour for it.
+  test.describe('a persistent section row keeps focus (1280px)', () => {
+    test.use({ viewport: DESKTOP });
+    const row = (page: Page) => page.getByRole('navigation', { name: 'Portal sections' });
+
+    for (const how of ['Enter', 'click'] as const) {
+      test(`the vendor portal row keeps focus on the link pressed by ${how}`, async ({ page }) => {
+        await page.goto('/preview/vendor-dashboard/overview');
+        const link = row(page).getByRole('link').nth(2);
+        await untilHydrated(link);
+        const href = (await link.getAttribute('href'))!;
+        if (how === 'Enter') {
+          await link.focus();
+          await page.keyboard.press('Enter');
+        } else {
+          await link.click();
+        }
+        await page.waitForURL((url) => url.pathname === href);
+        await expect(link).toHaveAttribute('aria-current', 'page');
+        await page.waitForTimeout(300);
+        await expect(link).toBeFocused();
+      });
+    }
+  });
+
   test.describe('links on the page (1280px)', () => {
     test.use({ viewport: DESKTOP });
 
