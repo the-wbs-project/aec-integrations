@@ -2393,7 +2393,7 @@ It is not a `/legal/*` page. Nobody accepts it, so it has no `version`, no archi
 Counsel's four wording rules bind every edit:
 
 1. Say "we aim to conform" to WCAG 2.1 AA. Never "compliant" or "fully compliant".
-2. Say "we test each release" and say how. State only what is true on the day. Today that is the axe job in `deploy.yml` (`e2e-and-integration`, which blocks `deploy-staging`) and the manual keyboard and screen-reader checklist before major releases (`docs/a11y-manual-testing-checklist.md`).
+2. Say "we test each release" and say how. State only what is true on the day. Today that is axe in the `deploy.yml` `e2e-shard` jobs, behind the `e2e-and-integration` gate that blocks `deploy-staging`, and the manual keyboard and screen-reader checklist before major releases (`docs/a11y-manual-testing-checklist.md`).
 3. Give one contact route: `support@aecintegrations.com`, the production `SUPPORT_EMAIL`.
 4. Give a reply window we meet every time: 10 business days. The page promises a reply, not a fix. The operator step is `docs/runbooks/legal.md` "Accessibility barrier report (AECI-1673)".
 
