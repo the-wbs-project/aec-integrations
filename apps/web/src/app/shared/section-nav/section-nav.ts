@@ -42,7 +42,8 @@ const FADE_PX = 40;
  *
  * **It leads with our wordmark, never a vendor's.** Once the bar sticks, our header has
  * scrolled away (the header is not sticky), and the bar reads "AEC Integrations › {pageName}":
- * `aec-brand-logo` linked home, then the page name as plain text. Below `md` it shows our
+ * `aec-brand-logo` linked home, then the page name as a link back to the top of the page
+ * (`#top`, AECI-2020). Below `md` it shows our
  * monogram in a home link of its own, and no name. Never a vendor logo, a product mark or a vendor colour, on any listing:
  * a vendor logo there would read as the vendor's own site, which on an unclaimed listing
  * contradicts "not affiliated with or endorsed by this vendor" (PLAN.md §8.5, counsel's ruling
@@ -222,7 +223,17 @@ const FADE_PX = 40;
               data-testid="section-nav-name"
             >
               <span aria-hidden="true" class="shrink-0">›</span>
-              <span class="truncate">{{ name }}</span>
+              <!-- Back to the top (AECI-2020). "#top" scrolls to the document start with no
+                   element (HTML spec), and data-smooth-scroll animates it like the section links. -->
+              <a
+                [href]="hrefFor()('top')"
+                data-smooth-scroll
+                data-testid="section-nav-top"
+                [attr.aria-label]="topLabel(name)"
+                class="truncate rounded-mark text-(--text-secondary) no-underline transition-colors duration-base ease-standard
+                  hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                >{{ name }}</a
+              >
             </span>
           }
         </div>
@@ -292,8 +303,8 @@ const FADE_PX = 40;
 export class SectionNav {
   readonly sections = input.required<readonly SectionNavItem[]>();
   /**
-   * The page's name, shown as plain text after our wordmark once the bar sticks ("AEC
-   * Integrations › Bluebeam Revu"). Text only: the bar never draws the entity's logo.
+   * The page's name, shown after our wordmark once the bar sticks ("AEC Integrations › Bluebeam
+   * Revu"). It links to the top of the page. Text only: the bar never draws the entity's logo.
    */
   readonly pageName = input<string | null>(null);
   /**
@@ -305,6 +316,11 @@ export class SectionNav {
   readonly rest = input<'solid' | 'clear'>('solid');
 
   protected readonly hrefFor = injectInPageHrefFor();
+
+  /** The stuck name's accessible name. It starts with the visible name (WCAG 2.5.3). */
+  protected topLabel(name: string): string {
+    return $localize`:@@products.detail.nav.top:${name}:name:, back to top`;
+  }
 
   /** DOM id of the section the scrollspy or a click last named. */
   protected readonly observedId = signal<string | null>(null);

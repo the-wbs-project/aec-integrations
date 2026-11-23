@@ -21,8 +21,8 @@
  * Opt a link in with the bare `data-smooth-scroll` attribute. It must be a
  * plain anchor: on a `routerLink` the attribute does nothing, because
  * `RouterLink` cancels the click and the router does the (instant) scroll.
- * Opted in today: the product page section nav (`shared/section-nav/section-nav.ts`)
- * and its "N reviews" link, the "On this page" component
+ * Opted in today: the product page section nav (`shared/section-nav/section-nav.ts`),
+ * its stuck name's back-to-top link and its "N reviews" link, the "On this page" component
  * (`shared/page-toc/page-toc.ts`: the docs rail and the `/legal/*` and
  * `/methodology` list), the account page nav (`account/account.html`), and the vendor integration
  * page nav (`vendor/integration-detail/vendor-integration-detail-page.ts`). The

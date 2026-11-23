@@ -356,7 +356,7 @@ describe('SectionNav', () => {
       expect(el.querySelector('[data-testid="section-nav-brand"]')).toBeNull();
     });
 
-    it('leads with our wordmark linked home, then the page name as plain text', async () => {
+    it('leads with our wordmark linked home, then the page name linked to the top', async () => {
       const fixture = await setup();
       stuckObserver().fire({ intersectionRatio: 0.98, boundingClientRect: { top: 0 } as DOMRect });
       fixture.detectChanges();
@@ -367,7 +367,7 @@ describe('SectionNav', () => {
 
       const brand = el.querySelector('[data-testid="section-nav-brand"]')!;
       // The wordmark link (from md) and the monogram link (below md). CSS shows one.
-      const homes = [...brand.querySelectorAll('a')];
+      const homes = [...brand.querySelectorAll('a:not([data-testid="section-nav-top"])')];
       expect(homes).toHaveLength(2);
       for (const home of homes) {
         expect(home.getAttribute('href')).toBe('/');
@@ -378,7 +378,7 @@ describe('SectionNav', () => {
       expect(homes[0]!.closest('.md\\:flex')).not.toBeNull();
       expect(homes[1]!.className).toContain('md:hidden');
       expect(brand.textContent).toContain('Bluebeam Revu');
-      // The name is text, not a link and not a heading.
+      // The name is not a heading.
       expect(brand.querySelector('h1, h2, h3, h4')).toBeNull();
       // Every image in the bar is one of ours. No vendor logo can reach it.
       const srcs = [...host.querySelectorAll('img')].map((i) => i.getAttribute('src'));
@@ -401,6 +401,24 @@ describe('SectionNav', () => {
       expect(el.querySelector('.aec-chip')).toBeNull();
       expect(brand.textContent).not.toContain('Unclaimed');
       expect('claimStatus' in fixture.debugElement.children[0]!.componentInstance).toBe(false);
+    });
+
+    // AECI-2020: a click on the stuck name goes back to the top of the page. "#top" scrolls to
+    // the document start natively, and data-smooth-scroll lets InPageSmoothScroll animate it.
+    it('links the stuck name to the top of the page', async () => {
+      const fixture = await setup();
+      stuckObserver().fire({ intersectionRatio: 0.98, boundingClientRect: { top: 0 } as DOMRect });
+      fixture.detectChanges();
+      await fixture.whenStable();
+      const top = (fixture.nativeElement as HTMLElement).querySelector<HTMLAnchorElement>(
+        '[data-testid="section-nav-top"]',
+      )!;
+      expect(top.getAttribute('href')).toMatch(/#top$/);
+      expect(top.hasAttribute('data-smooth-scroll')).toBe(true);
+      expect(top.hasAttribute('data-section-id')).toBe(false);
+      expect(top.textContent!.trim()).toBe('Bluebeam Revu');
+      expect(top.getAttribute('aria-label')).toBe('Bluebeam Revu, back to top');
+      expect(top.closest('nav')).toBeNull();
     });
 
     it('omits the name when the page gives none', async () => {

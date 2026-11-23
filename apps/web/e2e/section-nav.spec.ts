@@ -179,6 +179,27 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
     expect(offsets[1]).toBeGreaterThan(0);
   });
 
+  // AECI-2020: the stuck name is a link to #top. A click scrolls back to the page start in the
+  // same document, and the bar returns to rest with the first link current.
+  test('a click on the stuck name goes back to the top with no page load', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const path = await openProduct(page);
+    await hydrated(page, path);
+    const nav = page.locator('aec-section-nav');
+    await page.evaluate(() =>
+      document.getElementById('integrations')!.scrollIntoView({ behavior: 'instant' }),
+    );
+    await expect(nav).toHaveAttribute('data-stuck', '');
+    const loads = countDocumentLoads(page);
+
+    await nav.getByTestId('section-nav-top').click();
+    await expect(page).toHaveURL(`${path}#top`);
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+    expect(loads(), 'the click must not load a document').toBe(0);
+    await expect(nav).not.toHaveAttribute('data-stuck', '');
+    await expect(nav.locator('nav a').first()).toHaveAttribute('aria-current', 'location');
+  });
+
   test('aria-current follows the scroll', async ({ page }) => {
     const path = await openProduct(page);
     await hydrated(page, path);
