@@ -67,11 +67,10 @@
  *     `promote.ts`, this deriver must also emit `integration:{id}` and re-purge
  *     the affected source/target `product:{slug}` (tie it to the `affectedProducts`
  *     set the commented integration block maintains).
- *   - An integration whose powered-by product MOVES (re-pointed to a different
- *     connector, or cleared) only purges the NEW connector — the response carries
- *     the post-update `poweredBySlug`, not the pre-update one — so the previous
- *     connector's page falls back to the TTL. Same bounded shape as the endpoint
- *     move above; widen it here if connector re-pointing becomes common.
+ *   - ~~An integration whose powered-by product MOVES only purges the NEW
+ *     connector.~~ Closed by AECI-1897: the result carries
+ *     `movedFromConnectorSlug` on a re-point, and a de-route already names the old
+ *     connector in `poweredBySlug`, so both connectors' pages purge.
  *   - A promote that REMOVES a category/audience/phase from a product doesn't purge
  *     that term's browse page: the response echoes only the terms the product now
  *     carries. Those pages fall back to their 5-minute browse TTL. Trades are
@@ -106,6 +105,31 @@ export function touchedTradeSlugs(
   removedTradeSlugs: readonly string[] = [],
 ): string[] {
   return [...new Set([...response.taxonomy.trades.map((t) => t.slug), ...removedTradeSlugs])];
+}
+
+/**
+ * Every product slug an edge in this promote touches (AECI-1897): both endpoints, the
+ * connector, the endpoints an edge moved away from, and the connector it moved away
+ * from. A vendor's `integration_count` is its reach, so each of these products'
+ * vendors saw its count move. Two readers, kept on one set: the purge below tags
+ * `product:{slug}` for each (the vendor page carries that tag for every product it
+ * lists, and so does a counterpart's product page), and the Algolia hook re-indexes
+ * their vendors. The slugs are already on the response, so this needs no read.
+ */
+export function edgeProductSlugs(response: PromoteResponse): string[] {
+  const slugs = new Set<string>();
+  for (const edge of response.integrations) {
+    for (const slug of [
+      edge.sourceSlug,
+      edge.targetSlug,
+      edge.poweredBySlug,
+      edge.movedFromConnectorSlug,
+      ...(edge.movedFromSlugs ?? []),
+    ]) {
+      if (slug) slugs.add(slug);
+    }
+  }
+  return [...slugs].sort();
 }
 
 /**
@@ -207,10 +231,15 @@ export function cacheTagsForPromote(
     if (integration.movedFromSlugs) {
       const [fromA, fromB] = integration.movedFromSlugs;
       tags.add(pairCacheTag(fromA, fromB));
-      tags.add(`product:${fromA}`);
-      tags.add(`product:${fromB}`);
     }
   }
+
+  // AECI-1897: every product an edge touches, now or before this promote. This covers
+  // the old endpoints of a move (AECI-953), the connector and the connector the edge
+  // moved away from. It also covers the OTHER endpoint, whose page did not carry the
+  // promoted product's tag before the edge existed. That page's own count moved, and
+  // so did the reach count on its vendor's page, which tags each product it lists.
+  for (const slug of edgeProductSlugs(response)) tags.add(`product:${slug}`);
 
   return [...tags];
 }

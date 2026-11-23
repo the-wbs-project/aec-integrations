@@ -25,6 +25,8 @@
  */
 
 import { ApiErrorCode } from '@aeci/shared';
+import { liveEvidencedPairSql, liveIntegrationSql } from '@aeci/shared/live-integration';
+import { visibleProductSql } from '@aeci/shared/listing-visibility';
 import { eq, isNull, not, sql, type Column, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
@@ -104,6 +106,45 @@ export const liveEvidencedPairWhere: SQL = liveEvidencedPairOn(connectorEvidence
 
 /** Not live: the exact complement of {@link liveEvidencedPairWhere}. */
 export const notLiveEvidencedPairWhere: SQL = not(liveEvidencedPairWhere);
+
+/**
+ * The public vendor `integration_count`: the vendor's REACH (AECI-1897, ruled
+ * 2026-11-23, `STAGE_1_5_SPEC.md` §13.5). It counts the distinct live delivered edges
+ * that touch any of the vendor's visible products. A reader comes to learn what
+ * connects to a vendor's tools, not how many edges the vendor built.
+ *
+ *   - **Both arms.** `integrations` by source or target, and
+ *     `connector_evidenced_pairs` by either endpoint or the connector. The connector
+ *     disjunct is the product rule's §12.5 option B, so a connector vendor's count is
+ *     its reach.
+ *   - **Distinct by construction.** Each arm counts edge rows. An edge between two of
+ *     the vendor's own products satisfies the OR once, so it counts once. Summing the
+ *     stored `products.integration_count` would count it twice.
+ *   - **The index plan (AECI-1483).** The OR sits at the top level of each WHERE, one
+ *     `IN (owned set)` per endpoint column, so SQLite drives each leg off that column's
+ *     index (`integrations_source_idx`, `connector_evidenced_pairs_product_a_idx` and
+ *     the rest). Do not fold it into one correlated `EXISTS`.
+ *   - **Visible products only.** The owned set uses the `productCount` extra's test.
+ *     The live predicates already drop an edge with a hidden endpoint, so this is
+ *     the same answer stated where a reader of the set looks for it.
+ *
+ * `vendorIdSql` is the outer correlated column, qualified (`"vendors"."id"` in the
+ * relational builder): a bare `"id"` is shadowed by the subqueries' own tables.
+ *
+ * Ownership is a different question. `vendor-owned-integrations.ts` (lockstep 14b)
+ * keeps the `built_by_vendor_id` rule for the admin owner test. The datatool reindex
+ * (`buildVendorRecords`, lockstep 6b) carries the same text as raw SQL.
+ */
+export function vendorReachCountSql(vendorIdSql: string): SQL<number> {
+  const owned = `SELECT pv.product_id FROM product_vendors pv JOIN products vp ON vp.id = pv.product_id WHERE pv.vendor_id = ${vendorIdSql} AND ${visibleProductSql('vp')}`;
+  return sql<number>`((SELECT count(*) FROM integrations ri WHERE (
+      ri.source_product_id IN (${sql.raw(owned)}) OR ri.target_product_id IN (${sql.raw(owned)})
+    ) AND ${sql.raw(liveIntegrationSql('ri'))})
+    + (SELECT count(*) FROM connector_evidenced_pairs rep WHERE (
+      rep.product_a_id IN (${sql.raw(owned)}) OR rep.product_b_id IN (${sql.raw(owned)})
+        OR rep.connector_product_id IN (${sql.raw(owned)})
+    ) AND ${sql.raw(liveEvidencedPairSql('rep'))}))`;
+}
 
 /** The in-memory RETIRE test, for rows already loaded. It does not know about
  *  hidden endpoints: it backs the retire and restore refusals, which ask only
