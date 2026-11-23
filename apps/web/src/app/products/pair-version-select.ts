@@ -10,6 +10,7 @@ import {
   output,
   signal,
 } from '@angular/core';
+import { FIELD_LABEL_CLASS } from '../shared/form-field/form-field-classes';
 import { AecIcon } from '../shared/icon/icon';
 
 /** One selectable release. `released_at` is display-only — never an ordering input. */
@@ -58,7 +59,7 @@ export interface PairVersionOption {
     <!-- AECI-1798: the label sits above the field, and the trigger is the shared form
          control (.aec-field-control): the 3:1 field edge, the control radius, 44px tall. -->
     <div class="flex flex-col items-start gap-2">
-      <span [id]="labelId()" class="aec-overline text-(--text-secondary)">{{ label() }}</span>
+      <span [id]="labelId()" [class]="labelClass">{{ label() }}</span>
       <div #origin class="relative">
         <button
           ngCombobox
@@ -138,6 +139,8 @@ export class PairVersionSelect {
   readonly value = input.required<string | null>();
   readonly changed = output<string>();
 
+  /** A form field label: the Label role, not the overline (AECI-1850). */
+  protected readonly labelClass = FIELD_LABEL_CLASS;
   protected readonly labelId = computed(() => `pair-version-label-${this.side()}`);
   protected readonly triggerId = computed(() => `pair-version-trigger-${this.side()}`);
 

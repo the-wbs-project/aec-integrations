@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import { SUSPENSION_INPUT } from '../../admin/vendors/vendor-suspension-model';
-import { FIELD_ERROR_CLASS, FIELD_INPUT_CLASS } from './form-field-classes';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+  FIELD_OPTIONAL_CLASS,
+} from './form-field-classes';
 
 /**
  * The shared field recipe's class strings (AECI-1764). The CSS half, the unlayered
@@ -31,6 +36,27 @@ describe('FIELD_INPUT_CLASS', () => {
 
   it('is the one recipe the suspension inputs use', () => {
     expect(SUSPENSION_INPUT).toContain(FIELD_INPUT_CLASS);
+  });
+});
+
+describe('FIELD_LABEL_CLASS', () => {
+  const tokens = FIELD_LABEL_CLASS.split(/\s+/);
+
+  it('is the Label role: 13px at weight 600, tracking +0.01em (AECI-1850)', () => {
+    expect(tokens).toEqual(
+      expect.arrayContaining(['block', 'text-t-13', 'font-semibold', 'tracking-[0.01em]']),
+    );
+  });
+
+  it('is sentence case, not the uppercase overline it used to be', () => {
+    expect(tokens).not.toContain('uppercase');
+    expect(tokens).not.toContain('text-xs');
+    expect(tokens).not.toContain('font-bold');
+    expect(tokens).not.toContain('tracking-[0.08em]');
+  });
+
+  it('leaves the "(optional)" marker nothing to undo', () => {
+    expect(FIELD_OPTIONAL_CLASS).not.toContain('normal-case');
   });
 });
 

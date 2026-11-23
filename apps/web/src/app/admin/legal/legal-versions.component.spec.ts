@@ -31,6 +31,7 @@ import type {
   PublishLegalVersionRequest,
 } from '@aeci/shared';
 
+import { expectTitleFirstDialog } from '../../core/testing/title-first-dialog.harness';
 import { AdminLegalApi } from './admin-legal-api';
 import {
   AdminLegalVersions,
@@ -170,7 +171,7 @@ const radio = (scope: HTMLElement, doc: string, q: 'material' | 'acceptance', a:
   scope.querySelector<HTMLInputElement>(`#admin-legal-${doc}-${q}-${a}`)!;
 const publishButton = (scope: HTMLElement) =>
   scope.querySelector<HTMLButtonElement>('form button[type="submit"]')!;
-const dialogEl = () => document.querySelector<HTMLElement>('[role="dialog"]');
+const dialogEl = () => document.querySelector<HTMLElement>('[role="alertdialog"]');
 const dialogButton = (label: string) =>
   [...(dialogEl()?.querySelectorAll('button') ?? [])].find((b) => text(b)?.startsWith(label))!;
 
@@ -240,6 +241,24 @@ describe('AdminLegalVersions', () => {
     const { el } = await setup({ data: { publish_enabled: true, upcoming: [] } });
     expect(text(el)).toContain('No version is waiting to be published');
     expect(el.querySelector('[data-testid="legal-card"]')).toBeNull();
+  });
+
+  it('names all six documents in the intro, the two policies included (AECI-1992)', async () => {
+    const { el } = await setup();
+    const intro = text(el.querySelector('#admin-legal-heading + p'));
+    for (const doc of [
+      'Vendor Terms',
+      'Managed plan agreement',
+      'Listing Accuracy Policy',
+      'Review Guidelines',
+      'Terms of Service',
+      'Privacy Policy',
+    ]) {
+      expect(intro).toContain(doc);
+    }
+    expect(intro).toContain(
+      'the Listing Accuracy Policy or the Review Guidelines to every claimed company',
+    );
   });
 
   it('starts with no answer chosen and Publish off, and asks no material question', async () => {
@@ -336,6 +355,13 @@ describe('AdminLegalVersions', () => {
     );
     expect(text(d)).toContain('A publish cannot be undone.');
     expect(text(d)).not.toMatch(/\b1 bullets\b|goes to The/);
+  });
+
+  it('opens the publish confirmation as an alert dialog with focus on its title (AECI-1861)', async () => {
+    const ctx = await setup();
+    await openDialog(ctx, { material: 'yes', acceptance: 'yes' });
+    await settle();
+    expectTitleFirstDialog('Publish version 1.4 of the Vendor Terms?');
   });
 
   it('says what "not material, no acceptance" means on the Terms card', async () => {

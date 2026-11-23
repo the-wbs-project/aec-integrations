@@ -139,4 +139,29 @@ test.describe('the shared field recipe (AECI-1764)', () => {
     // Typed text starts clear of the glyph.
     expect(got.textStart).toBeGreaterThan(got.glyphEnd);
   });
+
+  // AECI-1850: a field label is the Label role, 13px at 600 on a 1.4 line with
+  // +0.01em tracking, in sentence case. Uppercase belongs to the overline alone.
+  test('a field label renders the Label role, in sentence case', async ({ page }) => {
+    await page.goto(PATH);
+    const label = page.locator('label[for="correction-source"]');
+    await expect(label).toBeVisible();
+    const got = await label.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return {
+        size: cs.fontSize,
+        weight: cs.fontWeight,
+        lineHeight: cs.lineHeight,
+        tracking: cs.letterSpacing,
+        transform: cs.textTransform,
+      };
+    });
+    expect(got).toEqual({
+      size: '13px',
+      weight: '600',
+      lineHeight: '18.2px',
+      tracking: '0.13px',
+      transform: 'none',
+    });
+  });
 });

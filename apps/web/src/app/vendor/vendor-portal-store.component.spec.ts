@@ -362,6 +362,76 @@ describe('VendorPortalStore — never clobber an in-flight edit', () => {
     expect(store.isStale('profile')).toBe(false);
   });
 
+  it('applies the set-aside refresh when the dirty form is released (AECI-1943)', async () => {
+    const store = makeStore();
+    store.seed(VENDOR_ME_FIXTURE);
+    store.markDirty('profile');
+    const fresh = renamed('Fresh');
+    api.getMe.mockResolvedValue(fresh);
+    await store.revalidate(['profile']);
+    expect(store.me()).toBe(VENDOR_ME_FIXTURE);
+
+    // The vendor leaves the half-edited form.
+    store.releaseDirty('profile');
+
+    expect(store.me()).toBe(fresh);
+    expect(store.isStale('profile')).toBe(false);
+    expect(api.getMe).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the stash while another owner still holds the resource', async () => {
+    const store = makeStore();
+    store.seed(VENDOR_ME_FIXTURE);
+    store.markDirty('products', 'product-a');
+    store.markDirty('products', 'product-b');
+    api.getMe.mockResolvedValue(renamed('Fresh'));
+    await store.revalidate(['products']);
+
+    store.releaseDirty('products', 'product-b');
+
+    expect(store.me()).toBe(VENDOR_ME_FIXTURE);
+    expect(store.isStale('products', 'product-a')).toBe(true);
+  });
+
+  it('re-reads instead of adopting a stash older than a later write', async () => {
+    const store = makeStore();
+    store.seed(VENDOR_ME_FIXTURE);
+    store.markDirty('profile');
+    api.getMe.mockResolvedValue(renamed('Stashed'));
+    await store.revalidate(['profile']);
+
+    // A save echo lands after the stash was taken.
+    const saved = renamed('Saved');
+    store.apply('me', () => saved).commit();
+    const latest = renamed('Latest');
+    api.getMe.mockResolvedValue(latest);
+
+    store.releaseDirty('profile');
+    await vi.waitFor(() => expect(store.me()).toBe(latest));
+    expect(api.getMe).toHaveBeenCalledTimes(2);
+  });
+
+  it('re-reads when a save lands while the stashed read is in flight', async () => {
+    const store = makeStore();
+    store.seed(VENDOR_ME_FIXTURE);
+    store.markDirty('profile');
+    let answer!: (value: VendorMeResponse) => void;
+    api.getMe.mockReturnValueOnce(new Promise<VendorMeResponse>((resolve) => (answer = resolve)));
+    const read = store.revalidate(['profile']);
+
+    // The save echo lands before the read's reply.
+    const saved = renamed('Saved');
+    store.apply('me', () => saved).commit();
+    answer(renamed('Sent before the save'));
+    await read;
+    expect(store.me()).toBe(saved);
+
+    const latest = renamed('Latest');
+    api.getMe.mockResolvedValue(latest);
+    store.releaseDirty('profile');
+    await vi.waitFor(() => expect(store.me()).toBe(latest));
+  });
+
   it('keeps one product form’s protection when a sibling clears its own', async () => {
     const store = makeStore();
     store.seed(VENDOR_ME_FIXTURE);

@@ -54,7 +54,8 @@ const FADE_PX = 40;
  *
  * **An unclaimed listing adds an "Unclaimed" tag** beside the name (ruling 41, Q61 in
  * `docs/LEGAL_COUNSEL_RECORD.md`), from `claimStatus`. It is the stuck cluster's last item, so
- * it too renders only while stuck. Below `md` it follows the monogram. A static chip, no link.
+ * it too renders only while stuck. It lives inside the name element, so it is hidden wherever
+ * the name is (below `md`, or a page with no name). A static chip, no link.
  *
  * **Links keep the query (AECI-1843).** The app ships `<base href="/">`, so a bare `href="#id"`
  * resolves to `/#id`. The hrefs come from `injectInPageHrefFor()` (`shared/in-page-href.ts`):
@@ -93,6 +94,15 @@ const FADE_PX = 40;
  * links past it. The current link, and any link reached by Tab, is scrolled fully into the row
  * (the row only, never the page). The page itself still reflows at 320px.
  *
+ * **A click pins its section (AECI-1856).** The jump can leave the next section in the spy's
+ * band as well, when the clicked one is shorter than the band (a short About), and the spy used
+ * to name that next section. So the spy is ignored from the click until the reader next scrolls
+ * or types (`wheel`, `touchstart`, `pointerdown` or `keydown`), never on a timer: the jump's own
+ * smooth scroll fires none of those.
+ *
+ * **Print (AECI-1856).** The host drops `sticky` for `static` in print, or the bar prints at its
+ * scrolled position, over the page.
+ *
  * **The browser-only parts** are the scroll-spy (an `IntersectionObserver` on the sections), the
  * stuck test (an `IntersectionObserver` on the host) and the row geometry (`ResizeObserver`
  * entries and the row's own passive scroll events). Only `reveal` reads layout, and never while
@@ -118,7 +128,7 @@ const FADE_PX = 40;
   // no `--surface-sticky`: a translucent bar let a section heading scrolling past read through
   // the labels. The bottom hairline is the global `--border-default` edge.
   host: {
-    class: 'block sticky top-0 z-20 border-b bg-(--surface-base)',
+    class: 'block sticky top-0 z-20 border-b bg-(--surface-base) print:static',
     '[attr.data-stuck]': 'stuck() ? "" : null',
     '[attr.data-rest]': 'rest()',
     // Delegated, highlight-only. Kept off the <a> on purpose; see the docblock.
@@ -208,26 +218,32 @@ const FADE_PX = 40;
             aria-label="AEC Integrations home"
             ><img ngSrc="/branding/monogram-light.svg" width="32" height="32" alt=""
           /></a>
+          <!-- The name and, on an unclaimed listing, the "Unclaimed" tag share one wrapper
+               (ruling 41, Q61 in LEGAL_COUNSEL_RECORD.md: "beside the product name"). The tag
+               exists only inside the name element, so wherever the name is hidden (below md,
+               or no name at all) the tag is hidden with it. The hero's status chip recipe.
+               Information, not a link. It never shrinks; the name truncates first. -->
           @if (pageName(); as name) {
             <span
-              class="hidden min-w-12 max-w-[200px] items-center gap-3 text-t-16 text-(--text-secondary) md:inline-flex"
+              class="hidden min-w-0 items-center gap-3 md:inline-flex"
+              data-testid="section-nav-name"
             >
-              <span aria-hidden="true" class="shrink-0">›</span>
-              <span class="truncate">{{ name }}</span>
+              <span
+                class="inline-flex min-w-12 max-w-[200px] items-center gap-3 text-t-16 text-(--text-secondary)"
+              >
+                <span aria-hidden="true" class="shrink-0">›</span>
+                <span class="truncate">{{ name }}</span>
+              </span>
+              @if (claimStatus() === 'unclaimed') {
+                <aec-chip
+                  class="shrink-0"
+                  tone="quiet"
+                  data-testid="section-nav-unclaimed"
+                  i18n="@@products.detail.nav.unclaimed"
+                  >Unclaimed</aec-chip
+                >
+              }
             </span>
-          }
-          <!-- Ruling 41 (Q61, LEGAL_COUNSEL_RECORD.md): an unclaimed listing carries a short
-               "Unclaimed" tag beside the name, at every width (below md it follows the
-               monogram, because the name is not shown there). The hero's status chip recipe.
-               Information, not a link. It never shrinks; the name truncates first. -->
-          @if (claimStatus() === 'unclaimed') {
-            <aec-chip
-              class="shrink-0"
-              tone="quiet"
-              data-testid="section-nav-unclaimed"
-              i18n="@@products.detail.nav.unclaimed"
-              >Unclaimed</aec-chip
-            >
           }
         </div>
       }
@@ -320,6 +336,9 @@ export class SectionNav {
   /** DOM id of the section the scrollspy or a click last named. */
   protected readonly observedId = signal<string | null>(null);
 
+  /** True from a link click until the reader next scrolls or types. The spy is ignored meanwhile. */
+  private pinned = false;
+
   /** The current section; drives `aria-current` + emphasis. Defaults to the first. */
   protected readonly activeId = computed(() => this.observedId() ?? this.sections()[0]?.id ?? null);
 
@@ -382,7 +401,9 @@ export class SectionNav {
     const target = event.target;
     if (!(target instanceof Element)) return;
     const id = target.closest('a[data-section-id]')?.getAttribute('data-section-id');
-    if (id) this.observedId.set(id);
+    if (!id) return;
+    this.observedId.set(id);
+    this.pinned = true;
   }
 
   /**
@@ -461,12 +482,22 @@ export class SectionNav {
       // A new section set starts again from its first link.
       const sections = this.sections();
       untracked(() => this.observedId.set(null));
+      this.pinned = false;
       if (typeof IntersectionObserver === 'undefined') return;
+
+      // The reader's own scroll or key releases a click's pin (AECI-1856). A keydown that
+      // activates the next link releases first, then its click pins again.
+      const release = () => (this.pinned = false);
+      const releaseOn = ['wheel', 'touchstart', 'pointerdown', 'keydown'] as const;
+      for (const type of releaseOn) {
+        window.addEventListener(type, release, { capture: true, passive: true });
+      }
 
       // Bias the trigger band to the upper viewport so the active link reflects the section just
       // under the sticky bar, not whatever is centred.
       const observer = new IntersectionObserver(
         (entries) => {
+          if (this.pinned) return;
           for (const entry of entries) {
             if (entry.isIntersecting && entry.target.id) {
               this.observedId.set(entry.target.id);
@@ -481,7 +512,10 @@ export class SectionNav {
         if (el) observer.observe(el);
       }
 
-      onCleanup(() => observer.disconnect());
+      onCleanup(() => {
+        observer.disconnect();
+        for (const type of releaseOn) window.removeEventListener(type, release, { capture: true });
+      });
     });
 
     // Keep the current link visible in the row, or the focused one while a link has keyboard

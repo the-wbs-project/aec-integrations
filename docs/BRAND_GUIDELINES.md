@@ -14,13 +14,11 @@ For implementation-level tokens (CSS custom properties, Tailwind config, the the
 
 ## 1. Surfaces are neutral
 
-The reading area is neutral. The `<body>` is white, and brand colors layer on top as accents. Forest is the one brand color that may also be a ground, and only in three chrome bands: the header, the hero of a detail page and the footer. The reading area is neutral. This rewrites the old rule that no brand color is ever a ground (ADR 0059, clash 1). The full rule is `DESIGN.md` §2, "Forest grounds" and the Surfaces-Are-Neutral Rule.
+The reading area is neutral. The `<body>` is white, and brand colors layer on top as accents. Forest is the one brand color that may also be a ground: in three chrome bands, the header, the hero of a detail page and the footer, and in at most one Forest feature card on a page. This rewrites the old rule that no brand color is ever a ground (ADR 0059, clash 1). The full rule is `DESIGN.md` §2, "Forest grounds" and the Surfaces-Are-Neutral Rule.
 
 This is a light theme with Forest chrome. It is not a dark theme. There is no `dark:` variant and no toggle.
 
 Ruling R2 (2026-11-14) builds the public pages first. Shared components, the header, the footer, the button and the input, are one component on every surface. Vendor portal and admin page bodies are restyled after the public pages are verified.
-
-This ships with the shell batch (AECI-1747). The live header and footer are white until then.
 
 | Theme | Page background | Raised (cards/panels) | Sunken (insets) | Muted (row hover) |
 |---|---|---|---|---|
@@ -44,7 +42,7 @@ Near-black `#0A0A0A` (rather than pure `#000000`) is intentional in dark mode: m
 | Goldenrod | `#DAA520` | Gold-star fill for rating glyphs (`--accent-rating`). Decorative (`aria-hidden`) — the rating value is carried by the numeral + `aria-label` — so its ~2.2:1 on white is permitted; empty stars use Border strong `#D4D4D8` in displays, Text tertiary `#71717A` in the interactive review-form picker. See §5.1. |
 | Bone | `#F5F2EA` | Warm-tinted accent surface: one band per page. Also the ink on a Forest ground. **Not a page background** — see §4. |
 
-Two companion grounds, Hero panel `#26473A` and Footer ground `#15291F`, are listed in `DESIGN.md` §2 "Forest grounds". The shell batch (AECI-1747) adds them as tokens. It also corrects the four brand tokens that did not render the hex above. Until it lands, the shipped tokens differ slightly from the hex in this table. The hex here are the intended values.
+Two companion grounds, Hero panel `#26473A` and Footer ground `#15291F`, are listed in `DESIGN.md` §2 "Forest grounds". AECI-1747 added them as tokens and corrected the four brand tokens that did not render the hex above. The shipped tokens now render the hex in this table.
 
 ---
 
@@ -136,7 +134,7 @@ Computed against the spec's surface tokens. WCAG 2.1 AA requires 4.5:1 for norma
 | Clay dark `#F0A887` | Near-black `#0A0A0A` | ~10.3 : 1 | Passes AAA (brand policy still restricts use) |
 | White `#FAFAFA` | Bone dark `#2A2520` | ~15.8 : 1 | AAA |
 
-Any text colour on a Forest ground other than Bone is not measured here. The shell batch (AECI-1747) measures it before it ships. Text tertiary is never used on Forest, the hero panel, the footer ground, Bone, sunken or muted surfaces.
+The other inks on a Forest ground are measured in `DESIGN.md` §2 "Settled values" (AECI-1747), not here. Text tertiary is never used on Forest, the hero panel, the footer ground, Bone, sunken or muted surfaces.
 
 Contrast verification is automated in CI via a token-pair check matrix (see `docs/STAGE_1_SPEC.md` §2a.4). These numbers are the expected values — drift from them in either direction warrants review.
 
@@ -149,9 +147,9 @@ A small set of cross-cutting principles. Component-level implementation lives in
 - **Sentence case everywhere.** Headings, buttons, labels, navigation items, table headers. Title Case reads as marketing; sentence case reads as editorial. The one named exception is the overline role (eyebrows, kickers, sidebar microheadings — `DESIGN.md` §3, AECI-230), uppercase via CSS only.
 - **Typography: Source Serif 4 (display) + Atkinson Hyperlegible Next (body and label).** Source Serif 4 is the editorial / industry-publication anchor — used for display, headline, and title roles (weights 400 and 600). Atkinson Hyperlegible Next is the a11y-first body face (Braille Institute) — used for body prose, labels, overlines, and captions (variable 400–700; AECI-230 upgraded from the classic two-weight cut so the system's 500/600 roles render as real cuts). The pairing makes the trust/transparency principle visible in the typography itself. The full type scale, role definitions, and named rules live in `DESIGN.md` §3 (source of truth). The type ramp is one ten-token ramp at weights 400 and 600 (clashes 9 and 17). Display sizes are allowed on detail pages for the product name (clash 7, ADR 0059). Lede text is sans and card titles are serif. `DESIGN.md` §3 holds the sizes. The previous Inter-only / 400-and-500-only doctrine was retired in May 2026; the rationale is documented in §7a below.
 - **Borders mark controls and separators. One card shadow lifts the cards.** One shadow serves the product card grid, search hit cards, the integration group card and the facts card (clash 11, ADR 0059). Controls keep borders and take no shadow, and so do buttons. Menus and dialogs keep their own shadows. Primary actions are never pills (clash 12). Default border `0.5px`; `1px` for emphasis (inputs, focused elements); `2px` reserved for featured states. `DESIGN.md` §4 Radius holds the radii, and §4 holds the shadow values.
-- **Motion has a purpose.** Animate for feedback, transition, or focus. Decorative animation is noise. There is no endless pulse, no per-card stagger and no bounce. The hero diagram keeps one entrance animation (clash 36). `DESIGN.md` holds the durations (120, 180 and 280ms, clash 36, in §6 Do's). Smooth scrolling is for in-page section links only, and is off under reduced motion (clash 38, ADR 0059). This ships with the shell batch (AECI-1752), and `html { scroll-behavior: smooth }` is still global until then.
+- **Motion has a purpose.** Animate for feedback, transition, or focus. Decorative animation is noise. There is no endless pulse, no per-card stagger and no bounce. The hero diagram keeps one entrance animation (clash 36). `DESIGN.md` holds the durations (120, 180 and 280ms, clash 36, in §6 Do's). Smooth scrolling is for in-page section links only, and is off under reduced motion (clash 38, ADR 0059). AECI-1752 built it.
 - **No pure black for text.** Use Ink `#0F1419` (light theme) or the theme's `--text-primary` token. Pure black plus pure white is harsher than the near-black/near-white pairings the design system already provides.
-- **Icons are a custom set.** It is drawn at a 1.75 stroke and rendered on public pages only through the `aec-icon` component (`apps/web/src/app/shared/icon/`, which sets the box and the sizes). The vendor portal and admin keep their current icons until their migrations run. Ships with the shell batch (AECI-1753). A few icons are Lucide-derived, with Lucide's licence shipped at `/third-party-notices.txt`. Icons are stroke only and `currentColor`. A decorative icon is hidden from assistive technology. A meaningful icon carries a localised label. This rewrites "Lucide icons exclusively" (clash 34, ADR 0059).
+- **Icons are a custom set.** It is drawn at a 1.75 stroke and rendered on public pages only through the `aec-icon` component (`apps/web/src/app/shared/icon/`, which sets the box and the sizes). The vendor portal and admin keep their current icons until their migrations run (AECI-1756, AECI-1757, deferred by ruling R2). A few icons are Lucide-derived, with Lucide's licence shipped at `/third-party-notices.txt`. Icons are stroke only and `currentColor`. A decorative icon is hidden from assistive technology. A meaningful icon carries a localised label. This rewrites "Lucide icons exclusively" (clash 34, ADR 0059).
 - **No emoji in UI chrome.** Emoji rendering is inconsistent across platforms and clashes with the editorial brand.
 - **No stock photography of construction sites, hard hats, or blueprints.** The AEC software visual cliché. The brand is editorial — diagrams, screenshots, and original photography only.
 - **No pay-for-placement visual tells.** Paid vendor access carries no public badge or label. The neutral account-status label was removed on 2026-10-09 (AECI-1264), and nothing replaces it. The claim button copy still reads the mirror, which is copy, not a badge. Never use verification iconography, endorsement color, or promoted treatment for a paying vendor (`DESIGN.md` §Badges).

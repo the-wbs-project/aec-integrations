@@ -20,9 +20,10 @@
  *      service-binding path — the SSR Worker turns the `@supabase/ssr` cookie
  *      session into a bearer header) or, failing that, the browser's
  *      `sb-<ref>-auth-token` session cookie (the raw `/api/*` passthrough
- *      forwards cookies untouched). The cookie is TRANSPORT ONLY: the access
- *      token inside it goes through full JWKS verification, so nothing in the
- *      cookie is trusted.
+ *      forwards cookies untouched). Only the cookie whose `<ref>` is the
+ *      configured `SUPABASE_URL` project is read (AECI-1990). The cookie is
+ *      TRANSPORT ONLY: the access token inside it goes through full JWKS
+ *      verification, so nothing in the cookie is trusted.
  *   2. Verify or hard-fail `401 UNAUTHENTICATED` (§4.1 — a missing token on
  *      an authenticated route is 401, never anonymous treatment).
  *   3. Re-fetch `profiles.role` + `vendor_id` + `banned_at` from the DB on
@@ -256,7 +257,29 @@ export type AuthzOptions = {
   onMissingProfile?: MissingProfileHook;
 };
 
-const SESSION_COOKIE_RE = /^(sb-.+-auth-token)(?:\.(\d+))?$/;
+/** A chunk suffix on the session cookie name: `.0`, `.1`, … */
+const CHUNK_SUFFIX_RE = /^\.(\d+)$/;
+
+/**
+ * The session cookie name `@supabase/ssr` writes for `supabaseUrl`, or null when
+ * the URL is missing or unparseable (AECI-1990).
+ *
+ * This is supabase-js's own default `storageKey`:
+ * `sb-${new URL(supabaseUrl).hostname.split('.')[0]}-auth-token`. The web app
+ * sets no custom `cookieOptions.name`, so the two always agree. If it ever does,
+ * this function must change with it.
+ */
+export function sessionCookieNameFor(supabaseUrl: string | undefined): string | null {
+  if (!supabaseUrl) return null;
+  let hostname: string;
+  try {
+    hostname = new URL(supabaseUrl).hostname;
+  } catch {
+    return null;
+  }
+  const ref = hostname.split('.')[0];
+  return ref ? `sb-${ref}-auth-token` : null;
+}
 
 /** Decode a base64url (or base64) string to UTF-8 text; null on bad input. */
 function base64UrlDecode(value: string): string | null {
@@ -283,43 +306,47 @@ function accessTokenFromCookieValue(value: string): string | null {
 }
 
 /**
- * Extract the Supabase access token from `@supabase/ssr` session cookies:
- * `sb-<ref>-auth-token` either whole or chunked (`.0`, `.1`, …) with a
- * `base64-`-prefixed base64url JSON value containing `access_token`. Returns
- * null when absent or unparseable — the caller 401s; nothing here is trusted
+ * Extract the Supabase access token from the `@supabase/ssr` session cookie of the
+ * configured project: `sb-<ref>-auth-token` either whole or chunked (`.0`, `.1`, …)
+ * with a `base64-`-prefixed base64url JSON value containing `access_token`.
+ *
+ * AECI-1990: only the cookie named for `supabaseUrl`'s project is read. A host that
+ * once served another Supabase project keeps that project's cookie, and reading it
+ * first 401'd a signed-in user on demo (2026-07) and staging (2026-11-12). When the
+ * name cannot be derived (no or unparseable `SUPABASE_URL`) this returns null, so the
+ * caller fails closed. That costs nothing: without a usable `SUPABASE_URL` no token
+ * can be verified anyway.
+ *
+ * Returns null when absent or unparseable — the caller 401s; nothing here is trusted
  * before JWKS verification.
  */
-export function extractSessionCookieToken(cookies: Record<string, string>): string | null {
-  const whole = new Map<string, string>();
-  const chunks = new Map<string, Map<number, string>>();
-  for (const [name, value] of Object.entries(cookies)) {
-    const match = SESSION_COOKIE_RE.exec(name);
-    if (!match) continue;
-    const [, base, index] = match;
-    if (base === undefined) continue;
-    if (index === undefined) {
-      whole.set(base, value);
-    } else {
-      const byIndex = chunks.get(base) ?? new Map<number, string>();
-      byIndex.set(Number(index), value);
-      chunks.set(base, byIndex);
-    }
+export function extractSessionCookieToken(
+  cookies: Record<string, string>,
+  supabaseUrl: string | undefined,
+): string | null {
+  const name = sessionCookieNameFor(supabaseUrl);
+  if (!name) return null;
+
+  const chunks = new Map<number, string>();
+  for (const [cookieName, value] of Object.entries(cookies)) {
+    if (!cookieName.startsWith(name)) continue;
+    const index = CHUNK_SUFFIX_RE.exec(cookieName.slice(name.length))?.[1];
+    if (index !== undefined) chunks.set(Number(index), value);
   }
 
-  for (const [base, byIndex] of chunks) {
-    const joined = [...byIndex.entries()]
+  // The chunked form supersedes a stale whole cookie of the same project. A chunk
+  // set that does not parse falls back to the whole cookie, so one broken or planted
+  // chunk cannot lock a valid session out.
+  if (chunks.size > 0) {
+    const joined = [...chunks.entries()]
       .sort(([a], [b]) => a - b)
       .map(([, v]) => v)
       .join('');
     const token = accessTokenFromCookieValue(joined);
     if (token) return token;
-    whole.delete(base); // chunked form supersedes a stale whole cookie
   }
-  for (const value of whole.values()) {
-    const token = accessTokenFromCookieValue(value);
-    if (token) return token;
-  }
-  return null;
+  const whole = cookies[name];
+  return whole === undefined ? null : accessTokenFromCookieValue(whole);
 }
 
 /**
@@ -642,7 +669,8 @@ function createAuthzMiddleware(
     // Bearer wins; a present-but-invalid bearer token fails verification (no
     // silent fallback to the cookie — fail closed, no oracle).
     const token =
-      extractBearer(c.req.header('Authorization')) ?? extractSessionCookieToken(getCookie(c));
+      extractBearer(c.req.header('Authorization')) ??
+      extractSessionCookieToken(getCookie(c), supabaseUrl);
     if (!supabaseUrl || !token) throw unauthenticated();
 
     const user = await verifySupabaseJwt(token, supabaseUrl, options.getKey);

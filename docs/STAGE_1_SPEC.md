@@ -282,29 +282,26 @@ There is no separate marketing page: the app home **is** the marketing page. It 
 
 ### 4.2 Product page (`/products/:slug`)
 
-**Header:**
-- Product name + logo (Brandfetch hotlink)
-- Vendor name (linked to vendor page)
-- Categories, audiences, phases as badges
-- Vendor account label (placeholder — no active vendor accounts in Stage 1) *(Removed 2026-10-09, AECI-1264: no public page shows an account label. `STAGE_2_VENDOR_PORTAL_SPEC.md` §8 has the ruling.)*
-- "Is this your product?" CTA → claim form modal *(Since 2026-10-24 the claim button reads "Claim <Company>", and "Claim Vendor" since AECI-1925 (2026-11-18), and a separate "Learn more about claiming" link opens `/vendor-program`. `VENDOR_PROGRAM_PAGE_SPEC.md` §2.4.)*
+> **Rewritten 2026-11-22 (AECI-1820) for the page the November 2026 redesign built (AECI-1726, Redesign 5).** The earlier header, tabs and right rail are retired. The page assembly is `apps/web/src/app/products/product-detail.ts`. `DESIGN.md` §4 "The detail page band shell" and §5 hold the recipe. Mock-ups 6, 7 and 8 were the anchor.
 
-**Tabs:** Each tab is a separately addressable URL using route segments (see Section 4.2.1 for full URL strategy).
+One page on `DetailLayout`'s band shell (`shell="bands"`), in this order:
 
-1. **Overview** (`/products/:slug` or `/products/:slug/overview`) — description, website link, key features, supported phases/audiences
-2. **Integrations** (`/products/:slug/integrations`) — table of integrations with mechanism badges. **"Grouped by source/target" is superseded** (`STAGE_1_5_SPEC.md` §7.1): the two buckets interleave into one list ordered alphabetically by partner name, because the source/target split is invisible in the rendered row.
-3. **Reviews** (`/products/:slug/reviews`) — individual reviews from review 1, aggregate score shown only at ≥5 reviews
-4. **Details** (`/products/:slug/details`) — vendor info, API docs link, marketplace link, founded year, headquarters
+1. **Hero** (`product-hero.ts`, Forest): the breadcrumb, the mark and the name at Display, the vendor, the two ratings, and two equal actions, "Visit website" and "Write a review". An unclaimed listing shows the "Unclaimed · not affiliated with or endorsed by this vendor" note. On the right, the category hub with a pair finder under it (ruling R3, AECI-1787), A to Z by category name.
+2. **Facts card** (`product-facts-card.ts`): one elevated card pulled up over the hero's lower edge. It holds the integration count as a figure, the vendor, the categories, the resources, and the "Claim Vendor" and "Suggest a correction" buttons (AECI-1779, AECI-1925).
+3. **Section nav** (`aec-section-nav`), sticky, when the page has two sections or more. An unclaimed listing adds the "Unclaimed" tag after the name (ruling 41, AECI-1931).
+4. **About** (`#about`), the page's one Bone band: the description and "Who it is for" (AECI-1780).
+5. **How teams use it** (`#how-teams-use-it`), when the vendor has written it (`STAGE_2_5_SPEC.md` §12).
+6. **Integrations** (`#integrations`): cards by default, a Cards and Table toggle, the filter panel, and the long-list grouping (§13.3 of `STAGE_1_5_SPEC.md`). On a connector page "Integrations it powers" (`#powered-integrations`) sits after it, or before it where §13.6 swaps them.
+7. **Extensions** (`#extensions`), when products are built within this one (`STAGE_1_5_SPEC.md` §13.3b).
+8. **Reviews** (`#reviews`): two score cards at 48px and the review cards. The aggregate shows only at 5 reviews or more (§5.5).
+9. **Similar products** (`#similar`): up to six products sharing a category, A to Z by name with id breaking a tie (ruling R1, AECI-1785). No integration overlap is read. `API_CONTRACTS.md` has the order.
+10. **About this listing**: the page's one provenance panel (AECI-1666).
 
-**Right rail:**
-- "Submit a review" CTA (auth-gated)
-- Quick stats: integration count, review count, last updated
-- Related products (same category, by integration overlap) *(Since AECI-1785 (2026-11) the page renders them as "Similar products", the last body section: up to six products sharing a category, A to Z by name with id breaking a tie, per ruling R1 on AECI-1732. No integration overlap is read. `API_CONTRACTS.md` has the order.)*
-
-**Below the fold:**
-- "Report an error" link → correction request form
+Under the shell sit the mailing list signup on white and the claim and correction drawer. A product with no integrations shows the zero-integration state in place of the list (AECI-1786). Every section is server rendered, so the cached HTML is the same for every visitor.
 
 ### 4.2.1 Tab URL strategy
+
+> **Not built.** The product page is one page, and its sections are in-page anchors (§4.2). No tab route exists. The strategy below is kept for the record.
 
 Product tabs use route segments, not query parameters. Each tab is its own indexable, linkable, server-rendered page.
 

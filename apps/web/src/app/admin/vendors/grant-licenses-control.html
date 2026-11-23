@@ -50,6 +50,7 @@
   </p>
   } @if (!formOpen()) {
   <button
+    #openButton
     type="button"
     class="mt-3 cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
     (click)="openForm()"
@@ -92,6 +93,7 @@
         From 1 to {{ quantityMax }}.
       </p>
       <input
+        #quantityInput
         type="number"
         inputmode="numeric"
         min="1"
@@ -495,7 +497,9 @@
     </div>
 
     @if (failedMessage()) {
-    <p class="text-sm font-medium text-(--text-primary)" role="alert">{{ failedMessage() }}</p>
+    <p #failedAlert tabindex="-1" class="text-sm font-medium text-(--text-primary)" role="alert">
+      {{ failedMessage() }}
+    </p>
     }
 
     <div class="flex gap-2">

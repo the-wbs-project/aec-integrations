@@ -164,7 +164,7 @@ export const LIST_YOUR_PRODUCT_OPENING: ClaimDialogOpening = {
             <div class="px-6 pt-6 pb-3">
               <h2
                 id="list-your-product-form-heading"
-                class="font-display text-2xl font-normal leading-[1.15] tracking-[-0.01em] text-(--text-primary)"
+                class="font-display text-(--text-primary)"
                 i18n="@@listYourProduct.form.heading"
               >
                 Request a listing

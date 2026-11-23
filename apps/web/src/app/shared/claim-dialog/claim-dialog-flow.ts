@@ -787,8 +787,7 @@ export class ClaimDialogFlow implements OnInit {
   protected readonly searchLabel = $localize`:@@vendorProgram.find.label:Your product or company`;
   protected readonly searchPlaceholder = $localize`:@@vendorProgram.find.placeholder:Search for your product or company`;
 
-  protected readonly headingClass =
-    'font-display text-xl font-normal text-(--text-primary) focus:outline-none';
+  protected readonly headingClass = 'font-display text-(--text-primary) focus:outline-none';
   protected readonly labelClass = FIELD_LABEL_CLASS;
   protected readonly inputClass = FIELD_INPUT_CLASS;
   protected readonly textButtonClass =

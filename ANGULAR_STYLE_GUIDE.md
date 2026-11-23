@@ -341,9 +341,11 @@ Lint: 🟡 review-only.
 - **No project-level wrapper components** around brain primitives. Compose with Tailwind in the consuming template. Reference: `apps/web/src/app/preview/vendor-detail/vendor-detail.ts:2-4`, `apps/web/src/app/demo/spartan-demo.ts`.
 - No `@spartan-ng/helm` codegen (per `docs/STAGE_1_SPEC.md` §16 Phase 1).
 - Angular CDK is fine where Spartan doesn't cover (overlays, drag-drop, virtual scroll).
+- **A confirmation dialog opens on its title** (AECI-1861, DESIGN.md "The Title-First Dialog Rule"). Bind `[role]="'alertdialog'"` and `[autoFocus]="'first-heading'"` on the `<brn-dialog>`, as bound inputs so no stray attribute lands on the role-less wrapper. Give the `brnDialogTitle` `h2` `tabindex="-1"` and the focus ring, and put the sentence that says what the choice does on `brnDialogDescription`. Pin it with `expectTitleFirstDialog` (`core/testing/title-first-dialog.harness.ts`).
 - **New interactive/form-control patterns → Angular Aria.** This is the **rule** (ADR 0010, **Accepted**), not a proposal. For _new_ selects, comboboxes, listboxes, radio groups, accordions, trees, grids, menus, toolbars, and tabs, build on Angular Aria (`@angular/aria`, stable in v22) — it's first-party and Signal-Forms-friendly (§13). Spartan stays for the overlay primitives Aria lacks (Popover, Dialog); CDK remains the shared overlay/positioning foundation under both. Reference implementations: the review-submission form (`apps/web/src/app/reviews/review-form.ts`), the header search combobox (`apps/web/src/app/search/search-autocomplete.ts`), and the listing sort dropdown on `/search`, `/products` and the taxonomy pages (`apps/web/src/app/shared/listing-toolbar/listing-sort-select.ts`).
   - **`select`/`radio` are realised via combobox/listbox** — Aria@22 GA ships neither directive, so a non-editable `ngCombobox` + `ngListbox` popup stands in for a select, and a horizontal `ngListbox`/`ngOption` stands in for a radio group (e.g. the review-form star ratings).
   - **Exception: a plain single-value form field may be a native `<select>`** (ADR 0010 deviation (d), 2026-09-17). It applies only to one value from a closed, plain-text list, with no type-to-filter, in an ordinary form. Give it a `<label for>` and map the `""` row to `null`. Reference: the vendor data-flow forms on the integration detail page (`vendor/integration-detail/integration-shared-data.ts`, `vendor/integration-detail/integration-answer-form.ts`; the original reference, `vendor/components/vendor-add-claim-form.ts` and `vendor-attestation-control.ts`, was retired by AECI-1156). Styled, filterable or overlay dropdowns stay on `AecSelect`.
+  - **An editable combobox starts with no option active** (AECI-1860, ADR 0010 finding 5). Wire `listboxEntry` from `shared/listbox-entry/listbox-entry.ts`: Down enters at the first row, Up at the last, and Enter before the first arrow key never commits an option.
   - **Signal Forms wiring depends on the control kind.** Native `<input>`/`<textarea>` bind `[formField]` directly (like `requests/request-form.ts`). **Discrete-choice Aria controls (listbox/combobox) do _not_ — bridge them** with a local `signal` two-way bound via `[(value)]` (Aria's `value` is a `ModelSignal<V[]>`; drives `aria-selected` + roving state) plus a `(valueChange)` handler that writes `values[0]` into the field with `.value.set()` + `.markAsTouched()`. `[formField]` fails here because undefined-seeded fields aren't materialised and a seeded `0`-sentinel can't be told apart from a real first pick. See `reviews/review-form.ts` (`onOverallChange`/`onOnboardingChange`).
   - **Style Aria like brain primitives:** Tailwind `aria-*:` variant utilities (`aria-selected:`, `aria-expanded:`, `aria-checked:`) and the `data-[active=true]:` variant Aria sets on the active option, bound to the OKLCH tokens — no TS state mirror. Stage 1 is **light-only** (AECI-226); do not add `dark:` variants.
   - **Overlay glue:** `ComboboxPopup` content renders **in-flow**, not in a CDK overlay. For a floating popup, nest `ngComboboxPopup` inside `cdkConnectedOverlay` (`usePopover: 'inline'`) driven by the `[(expanded)]` signal (AECI-232).
@@ -411,21 +413,24 @@ Lint: 🟡 review-only.
 
 ## 20b. First paint and critical CSS
 
-**How it works.** Angular SSR runs Beasties on every server render. Beasties inlines a per-page subset of `styles.css` into a `<style>` in the head: every rule whose selector matches an element in the server HTML, plus `:root`, `html`, `body`, every `@property` and every `@layer` statement. About 30 kB raw and 6.5 kB gzipped per page. The full `styles-*.css` (about 105 kB raw, 18 kB gzipped) loads without blocking render: a `media="print"` link that an inline script switches to `all`. Until it arrives, the page paints with the subset alone. On a cold load over a throttled mobile connection (150ms latency, 1.6 Mbps) we measured about 500ms.
+**How it works.** Angular SSR runs Beasties on every server render. Beasties inlines a per-page subset of `styles.css` into a `<style>` in the head: every rule whose selector matches an element in the server HTML, plus `:root`, `html`, `body`, every `@property` and every `@layer` statement. About 30 to 37 kB raw and 6.5 to 8 kB gzipped per page (the home page: 37.1 kB, 8.0 kB gzipped, 2026-11-22). The full `styles-*.css` (about 105 kB raw, 18 kB gzipped) loads without blocking render: a `media="print"` link that an inline script switches to `all`. Until it arrives, the page paints with the subset alone. On a cold load over a throttled mobile connection (150ms latency, 1.6 Mbps) we measured about 500ms.
 
-**Two Beasties defects broke the subset (AECI-1854).** Both are fixed in `pnpm-workspace.yaml`.
+**Three Beasties defects broke the subset (AECI-1854).** All three are fixed in `pnpm-workspace.yaml`.
 
 - Beasties 0.5.4 wrote a `;` after each `@property` rule. The browser drops the rule after a stray `;`. That lost 78 of 80 `@property` rules and the whole `:root` token block, so every `var(--token)` was empty at first paint. The override pins 0.5.5, which fixes it.
 - Beasties drops a rule whose selector is wholly `:where(…)`. Tailwind v4 writes `space-*` and `divide-*` that way. `patches/beasties@0.5.5.patch` matches the selector's argument instead.
+- Beasties also dropped a rule whose selector is only pseudo-elements or pseudo-classes, such as `::placeholder` or `:focus-visible`, because stripping them left nothing to match. So the unlayered `::placeholder { color: var(--text-tertiary) }` never reached the subset: every placeholder painted in its `placeholder:` utility's colour (secondary ink) and turned tertiary when the full stylesheet landed. 0.2% of the home page's first screen at 1440px and 0.6% at 390px changed colour (AECI-1854 audit, 2026-11-22). The same patch matches such a selector as `*`, so it is always kept.
 
 **The rule.** First paint must equal the final paint for everything in the server HTML.
 
 - Put design values in tokens on `:root` in `styles.css`. Tokens always reach the subset.
 - A class only reaches the subset if an element in the server HTML carries it. Content that renders only in the browser (a `@defer` block, an `isPlatformBrowser` branch, data fetched after hydration) gets its rules only from the full stylesheet. Give that content a server-rendered placeholder of the same size, or accept that it can paint unstyled for a moment.
-- Never add a selector Beasties cannot match to style a first-paint state. It strips pseudo-classes before matching, so `:hover` and `:focus-visible` rules are kept when the element exists. A selector that is only pseudo-classes and no class, tag or attribute is kept or dropped as a whole.
+- Never add a selector Beasties cannot match to style a first-paint state. It strips pseudo-classes before matching, so `:hover` and `:focus-visible` rules are kept when the element exists. A selector that is only pseudo-classes or pseudo-elements, with no class, tag or attribute, is always kept since the AECI-1854 patch.
 - Do not fix a first-paint flash with a literal value in one component (AECI-1852 did). Find why the subset differs and fix that once.
 
-**The guard.** `apps/web/e2e/first-paint.spec.ts` runs in the CI e2e lane. It parses the inlined CSS of `/` with the browser's parser and asserts every `@property` rule, the `:root` tokens and the `space-y` rules survive. It then renders six public pages at 1440px and 390px with scripts off, once with `styles-*.css` blocked and once loaded. The header, the first heading, the first button and the header search field must match in background, colour, corner radius and box. When you bump Angular or Beasties, run it. Drop the override and the patch once Angular pins a Beasties release that carries both fixes.
+**The guard.** `apps/web/e2e/first-paint.spec.ts` runs in the CI e2e lane. It parses the inlined CSS of `/` with the browser's parser and asserts every `@property` rule, the `:root` tokens, the `space-y` rules and the `::placeholder` rule survive. It then renders six public pages at 1440px and 390px with scripts off, once with `styles-*.css` blocked and once loaded. The header, the first heading, the first button and the header search field must match in background, colour, corner radius and box. Every element in the server HTML must keep its box, display, visibility, opacity, transform, background and colour, and the first screen must match: no pixel may move more than one level in a channel, and at most 32 may move that much. That is corner antialiasing in CI (run 45007653563: 10 pixels on one button corner, each off by 1), not a first-paint change. Last, `/` and `/products` load cold with scripts on and the stylesheet held back 1.5s, and their layout shift must stay under 0.01. When you bump Angular or Beasties, run it. Drop the override and the patch once Angular pins a Beasties release that carries all three fixes.
+
+**The audit (AECI-1854, 2026-11-22).** On `/`, `/products`, a product page, a pair page, `/docs` and `/vendor-program`, at 1440px and 390px, with the patch above, no element of the server HTML changes box, display, visibility, opacity, transform, background or colour when the full stylesheet lands, and no pixel of the first screen changes. Before the `::placeholder` fix, the only change was the placeholder colour of the home hero search and both pair pickers. The two shifts PR #1328 left open no longer happen. The home "Most viewed" row was a data shift, not a stylesheet one: it filled in after hydration. AECI-1792 put it in the server HTML with a height floor. The `/products` grid has been kept by hydration since #1344 (AECI-1863): all 24 server-rendered card links stay connected. Measured cold with the stylesheet held 1.5s: layout shift 0.000 on both pages at both widths. One element is client-only and so outside the subset: the consent banner. It renders after hydration, so its rules arrive with the full stylesheet. If the stylesheet were still missing after hydration, the banner would paint in the page flow below the footer, then jump to its fixed place. In practice the stylesheet lands first: 0.8s against the banner's 2.9s on a throttled phone profile.
 
 Lint: 🟡 review-only. The e2e is the enforcement.
 
@@ -467,12 +472,13 @@ Lint: 🟡 review-only. The e2e is the enforcement.
 
 ## 24. Appendix: ESLint enforcement matrix
 
-Rules enforced by `pnpm lint`. Four layers, and knowing which is which matters when you add a rule:
+Rules enforced by `pnpm lint`. Five layers, and knowing which is which matters when you add a rule:
 
 1. **`angularBase`** (`eslint.config.base.mjs`, consumed by `apps/web/eslint.config.mjs`) — the Angular and brand-voice rules. `apps/web` only.
 2. **`tsBase`** (same file, consumed by all four packages) — the cross-cutting constraint guards from AECI-549. These reach `apps/api`, `apps/datatool`, and `packages/shared` as well.
 3. **Package-local file-scoped blocks** (e.g. `packages/shared/eslint.config.mjs`) — a rule that applies to one file, not a tier. See "Package-local guards" below.
 4. **`apps/web/scripts/check-source-constraints.mjs`** — a line scanner for what ESLint structurally cannot read: Tailwind class strings inside external `.html` templates (the template processor parses them into a template AST, not lintable string literals) and selectors in `.css` (nothing lints CSS here — there is no stylelint). Wired into `apps/web`'s `lint` script.
+5. **Root gates in `scripts/`**, run by the root `pnpm lint` before the package lints: `check-claude-md-size.mjs` (`CLAUDE.md` at most 30,000 bytes), `check-conflict-markers.mjs` (no tracked file holds git conflict markers, AECI-1720) and `pnpm docs:notifications:check` (`docs/NOTIFICATIONS.md` matches the registry). See "Root gates" below.
 
 A constraint that spans layers 1 and 4 keeps its patterns in a **shared leaf module** rather than spelling them twice. `eslint.color-patterns.mjs` (repo root, zero dependencies) is the worked example: the `dark:` rule predates the convention and *is* spelled twice, which is exactly the drift the connector-lane vocabulary hit before AECI-735 had to add lockstep tests. Root and dependency-free are both load-bearing — the scanner walks `apps/web/src` and each package lints from its own basePath, so a root file is outside every scanned tree and cannot flag its own source; and the scanner runs as a bare `node` process, so importing `eslint.config.base.mjs` would drag in typescript-eslint for four regexes.
 
@@ -569,6 +575,24 @@ A rule may carry an `allow` array of repo-relative paths. It is per-RULE, not pe
 For a one-off line, `constraints-guard-allow-next-line` in a comment on the preceding line. Use it sparingly and say why — it exists so a comment or a test fixture that legitimately *names* a banned pattern does not make the file uneditable. Its first real uses are in `source-constraints.spec.ts`, where the fixture proving `text-left` is caught has to contain `text-left`.
 
 The guard is unit-tested as of AECI-597 (`apps/web/src/source-constraints.spec.ts`), which also back-filled coverage for the three rules above that had none. That matters because every failure mode here is silent: a pattern that stops matching still exits 0 and still prints "rules clean".
+
+### Root gates (`scripts/`)
+
+| Gate | Scans | Fails on | Constraint |
+|---|---|---|---|
+| `check-claude-md-size.mjs` | `CLAUDE.md` | more than 30,000 bytes | `CLAUDE.md` stays a pointer file |
+| `check-conflict-markers.mjs` | every tracked text file | a line of seven `<` closed later by a line of seven `>`, each followed by a space or the line end. NUL-byte files are skipped | A merge must not leave markers, as one did in an archived ranking page (AECI-1720) |
+| `docs:notifications:check` | `docs/NOTIFICATIONS.md` | a file that differs from the registry's output | The notification doc is generated (ADR 0038) |
+
+### Spec-enforced guards from the redesign
+
+Lint cannot read these, so a spec holds them. `docs/TESTING_STRATEGY.md` §3.6 lists every one.
+
+| Guard | Constraint |
+|---|---|
+| `apps/web/src/app/shared/form-field/early-input-coverage.spec.ts` | Every acceptance checkbox carries `aecConsent`, and every component binding a text field, select or radio imports `AecEarlyInput` (§13) |
+| `apps/web/e2e/serif-floor.spec.ts`, with its source half in `design-tokens.guard.spec.ts` | Source Serif never renders below 20px (`DESIGN.md` §3 "The Serif-Floor Rule") |
+| `apps/api/src/lib/on-page-ordering-firewall.spec.ts` and the web firewall specs | No on-page order reads an input a paid plan can change. A new `orderBy`, `.sort(` or `.toSorted(` on a public read path fails until it is registered, a tripwire that reads tokens, not meaning (`STAGE_2_PAID_TIERS_SPEC.md` §3.2 assertion 8) |
 
 ### Template files (`**/*.html`)
 
