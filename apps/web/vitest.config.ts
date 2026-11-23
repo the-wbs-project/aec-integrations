@@ -3,7 +3,9 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     environment: 'node',
-    include: ['src/**/*.spec.ts'],
+    // `e2e/**/*.unit.spec.ts` pin the Playwright config helpers (AECI-1955);
+    // `playwright.config.ts` ignores them.
+    include: ['src/**/*.spec.ts', 'e2e/**/*.unit.spec.ts'],
     // Angular component specs run through the Angular build pipeline, not
     // Vitest. We scope Vitest to non-Angular server-side modules
     // (e.g. `server-api-client.spec.ts`). `.integration.spec.ts` files run

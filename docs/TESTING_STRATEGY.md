@@ -923,7 +923,7 @@ Use Miniflare's in-memory storage. Reset between tests.
 
 Run against a local `dev:bound` server with seed data applied. The seed is a known, stable dataset.
 
-In an agent workspace, boot with `pnpm dev:agent` and set `AECI_WEB_PORT` to the web port it printed (`docs/local-dev.md` §3.1). On that port Playwright never boots `dev:bound` itself. If no stack answers, the run fails fast (AECI-1955).
+In an agent workspace, boot with `pnpm dev:agent` and set `AECI_WEB_PORT` to the web port it printed (`docs/local-dev.md` §3.1). On that port Playwright never boots `dev:bound` itself. If no stack answers, the run fails fast (AECI-1955). `apps/web/e2e/web-server.unit.spec.ts` (Vitest, ignored by Playwright) pins each `webServer` branch: default port, agent port, `PLAYWRIGHT_BASE_URL` override, CI, and the guard script's exit.
 
 If a test needs to create data (e.g. submit a review), it creates it with a unique identifier (test-{timestamp}) so it doesn't conflict with other concurrent test runs.
 
