@@ -17,6 +17,8 @@ a11y-nightly-summary.json
 test-results/
 .lighthouseci/
 coverage/
+# Vitest blob reports from the sharded apps/api unit job (AECI-1709).
+.vitest-reports/
 out-tsc/
 # Vitest JSON reporter output from the CI integration job (AECI-90).
 integration-results.json

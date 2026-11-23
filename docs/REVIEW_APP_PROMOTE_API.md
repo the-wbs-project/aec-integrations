@@ -1104,6 +1104,10 @@ The `result` object in full:
   on your side; it is listed so a diff of the response shape has an explanation. Note
   that re-sending an edge with its endpoints **swapped** is not a move — AECi compares
   them unordered, so an authorship-order correction never mints a redirect.
+- **`movedFromConnectorSlug`** (AECI-1897) appears on an integration result only when
+  your push **re-pointed the connector** to a different product. It names the connector
+  the edge moved away from, so AECi can refresh that connector's page and its vendor's
+  search record. Informational and optional. Nothing changes on your side.
 - **Always inspect `skipped[]`.** An entry there means AECi could **not** link
   that integration/extension (typically the other endpoint isn't promoted yet),
   could **not** resolve a usefulness group to an existing audience/phase term

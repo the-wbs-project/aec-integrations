@@ -21,6 +21,7 @@ import {
   fieldOverrides,
   integrations,
   products,
+  productVendors,
   statsCache,
   vendors,
 } from '../db/schema';
@@ -32,7 +33,9 @@ import {
   indexEntity,
   readWatermark,
   runDailySync,
+  syncIndexTargets,
   syncPromoteTargets,
+  vendorIdsForProducts,
   writeWatermark,
   type AlgoliaSyncFilter,
   type AlgoliaWatermark,
@@ -558,5 +561,123 @@ describe('syncPromoteTargets', () => {
     });
     expect(results).toEqual([]);
     expect(calls).toHaveLength(0);
+  });
+});
+
+// ── AECI-1897: the vendors of an edge's products re-index too ────────────────
+//
+// The vendor `integration_count` is reach: every live edge touching the vendor's
+// products. So an edge write moves the count of every endpoint's vendor, not only
+// the owner's, and the by-id syncs must re-index them all.
+
+describe('endpoint vendors join the vendor targets (AECI-1897)', () => {
+  async function seedTwoVendors(): Promise<void> {
+    await seedVendor('v-owner');
+    await seedVendor('v-partner');
+    await seedVendor('v-bystander');
+    await seedProduct('p-owner');
+    await seedProduct('p-partner');
+    await seedProduct('p-bystander');
+    await t.db.insert(productVendors).values([
+      { productId: 'p-owner', vendorId: 'v-owner' },
+      { productId: 'p-partner', vendorId: 'v-partner' },
+      { productId: 'p-bystander', vendorId: 'v-bystander' },
+    ]);
+  }
+
+  const vendorCallIds = (calls: BatchCall[]) =>
+    calls
+      .filter((c) => c.url.includes('staging_vendors'))
+      .flatMap((c) => c.body.requests.map((r) => r.body.objectID))
+      .sort();
+
+  it('vendorIdsForProducts reads by id and by slug, deduplicated', async () => {
+    await seedTwoVendors();
+    expect(await vendorIdsForProducts(t.db, { ids: ['p-owner', 'p-partner', 'p-owner'] })).toEqual([
+      'v-owner',
+      'v-partner',
+    ]);
+    expect(await vendorIdsForProducts(t.db, { slugs: ['p-partner'] })).toEqual(['v-partner']);
+    expect(await vendorIdsForProducts(t.db, {})).toEqual([]);
+  });
+
+  it('syncIndexTargets re-indexes the owner and the partner endpoint vendor, in one request', async () => {
+    await seedTwoVendors();
+    await seedIntegration('i-1', 'p-owner', 'p-partner', { builtByVendorId: 'v-owner' });
+    const { fetchImpl, calls } = makeFetch();
+
+    const results = await syncIndexTargets(t.db, fetchImpl, CREDS, ENV, {
+      integrations: ['i-1'],
+      products: ['p-owner', 'p-partner'],
+      vendors: ['v-owner'],
+      vendorsOfProducts: ['p-owner', 'p-partner'],
+    });
+
+    expect(results.every((r) => r.ok)).toBe(true);
+    expect(calls.filter((c) => c.url.includes('staging_vendors'))).toHaveLength(1);
+    expect(vendorCallIds(calls)).toEqual(['v-owner', 'v-partner']);
+  });
+
+  it('syncIndexTargets without vendorsOfProducts indexes only the named vendors', async () => {
+    await seedTwoVendors();
+    const { fetchImpl, calls } = makeFetch();
+    await syncIndexTargets(t.db, fetchImpl, CREDS, ENV, {
+      integrations: [],
+      products: [],
+      vendors: ['v-owner'],
+    });
+    expect(vendorCallIds(calls)).toEqual(['v-owner']);
+  });
+
+  it('syncPromoteTargets adds the vendors of the edge product slugs', async () => {
+    await seedTwoVendors();
+    const { fetchImpl, calls } = makeFetch();
+    await syncPromoteTargets(t.db, fetchImpl, CREDS, ENV, {
+      product: { id: 'p-owner' },
+      vendors: [{ id: 'v-owner' }],
+      integrations: [],
+      vendorsOfProductSlugs: ['p-owner', 'p-partner'],
+    });
+    expect(vendorCallIds(calls)).toEqual(['v-owner', 'v-partner']);
+  });
+
+  it('splits a long vendor list into chunks under the D1 bound-parameter cap', async () => {
+    const ids = Array.from({ length: 85 }, (_, i) => `v-${String(i).padStart(3, '0')}`);
+    for (const id of ids) await seedVendor(id);
+    const { fetchImpl, calls } = makeFetch();
+    const results = await syncIndexTargets(t.db, fetchImpl, CREDS, ENV, {
+      integrations: [],
+      products: [],
+      vendors: ids,
+    });
+    expect(results.map((r) => r.entity)).toEqual(['vendors', 'vendors']);
+    expect(results.every((r) => r.ok)).toBe(true);
+    expect(vendorCallIds(calls)).toEqual(ids);
+  });
+
+  it('a failed lookup still re-indexes the named vendors and reports the failure', async () => {
+    await seedTwoVendors();
+    const { fetchImpl, calls } = makeFetch();
+    const broken = new Proxy(t.db, {
+      get(target, key, receiver) {
+        if (key === 'selectDistinct') {
+          return () => {
+            throw new Error('d1 down');
+          };
+        }
+        return Reflect.get(target, key, receiver) as unknown;
+      },
+    });
+    const results = await syncIndexTargets(broken, fetchImpl, CREDS, ENV, {
+      integrations: [],
+      products: [],
+      vendors: ['v-owner'],
+      vendorsOfProducts: ['p-partner'],
+    });
+    expect(vendorCallIds(calls)).toEqual(['v-owner']);
+    const failed = results.filter((r) => !r.ok);
+    expect(failed).toHaveLength(1);
+    expect(failed[0]?.entity).toBe('vendors');
+    expect(failed[0]?.error).toContain('d1 down');
   });
 });

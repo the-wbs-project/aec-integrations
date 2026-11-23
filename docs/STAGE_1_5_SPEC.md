@@ -1922,11 +1922,30 @@ count(evidenced_pairs WHERE a=p OR b=p OR connector=p)`; the third disjunct IS o
   product: count(integrations WHERE (src=p OR tgt=p) AND retired_at IS NULL)
          + count(evidenced_pairs WHERE (a=p OR b=p OR connector=p)
                  AND retired_at IS NULL)                            ← §12.5 option B
-  vendor:  count(integrations WHERE built_by=v AND retired_at IS NULL)
-         + count(evidenced_pairs WHERE built_by=v AND retired_at IS NULL)
+  vendor:  count(integrations WHERE (src IN P(v) OR tgt IN P(v)) AND retired_at IS NULL)
+         + count(evidenced_pairs WHERE (a IN P(v) OR b IN P(v) OR connector IN P(v))
+                 AND retired_at IS NULL)                            ← reach (AECI-1897)
+         P(v) = the vendor's visible products (product_vendors)
+  owner:   count(integrations WHERE built_by=v AND retired_at IS NULL)
+         + count(evidenced_pairs WHERE built_by=v AND retired_at IS NULL)  ← 14b only
   total:   count(integrations WHERE retired_at IS NULL)
          + count(evidenced_pairs WHERE retired_at IS NULL)
   ```
+
+  **Ruling 2026-11-23 (Chris): the public vendor count is reach, not built-by (AECI-1897).**
+  Autodesk showed 48 integrations while its Autodesk Forma row alone showed 54. Both numbers
+  were right, but they counted different things. The vendor figure counted the edges Autodesk
+  built. The product figure counted every edge touching the product. Readers come to learn what
+  connects to a vendor's tools, so the public vendor figure now counts the distinct live
+  delivered edges that touch any of the vendor's visible products. The label stays
+  "Integrations". An edge between two of the vendor's own products counts once. So the vendor
+  figure is at least every product row's figure on its page, and at most their sum. The
+  connector disjunct matches the product rule, so a connector vendor's count is its reach. One
+  builder holds the rule, `vendorReachCountSql` in `apps/api/src/lib/live-integration.ts`, used
+  by sites 6a and 14a. Site 6b, the datatool reindex, carries the same text as raw SQL. **The
+  owner rule (14b) is unchanged.** `vendor-owned-integrations.ts` still counts by
+  `built_by_vendor_id`, because ownership is built-by by definition (`STAGE_2_SPEC.md` §8.10).
+  The lockstep spec holds the two as separate rules.
 
   The `retired_at IS NULL` terms on the `integrations` arm are AECI-1010's. The evidenced arm
   took them in AECI-1091, when the owner and AECi gained a retire on `connector_evidenced_pairs`
@@ -1937,11 +1956,12 @@ count(evidenced_pairs WHERE a=p OR b=p OR connector=p)`; the third disjunct IS o
      reports 100% drift every morning and `--fix` silently reverts the new rule.
   3. `apps/datatool/src/prune-integrations.ts` — the prune-path repair copy.
   4. `apps/api/src/lib/algolia-transforms.ts` — the product record (reads the denormalized column).
-  5. **The Algolia _vendor_ count is a different rule** — a correlated subquery on
-     `built_by_vendor_id` (`algolia-transforms.ts` and, independently,
-     `apps/datatool/src/algolia-reindex.ts`). It is not downstream of the product column, so it
-     drops every migrated edge on its own and connector vendors' counts collapse. Named nowhere
-     before this addendum.
+  5. **The Algolia _vendor_ count is a different rule** — a correlated subquery, not a read of
+     the product column (`algolia-transforms.ts` and, independently,
+     `apps/datatool/src/algolia-reindex.ts`). It was keyed on `built_by_vendor_id` until
+     AECI-1897 made it the vendor's reach (the ruling above). It is not downstream of the
+     product column, so it drops every migrated edge on its own and connector vendors' counts
+     collapse. Named nowhere before this addendum.
   6. `apps/datatool/src/algolia-reindex.ts` — datatool's independent copy of the _product_ rule.
   7. Four expressions in `apps/api/src/lib/home-stats.ts`: the total, the added-in-30-days figure,
      most-active-category, and the recent-integrations rail.
@@ -1979,6 +1999,9 @@ count(evidenced_pairs WHERE a=p OR b=p OR connector=p)`; the third disjunct IS o
       extra, which is why the lockstep is asserted on the config rather than on a reader) and
       `apps/api/src/routes/admin-vendors.ts` (vendor detail). Item 6 names only the two
       Algolia copies; there are five, and connector vendors' counts collapse on all five.
+      _(AECI-1897, 2026-11-23: the public copy in `vendorListConfig` is now the reach rule,
+      with the two Algolia copies. The admin vendor detail and the `/admin/claims` owner test
+      read `vendor-owned-integrations.ts` (14b), which keeps the built-by rule.)_
 
   **Two further sites, found by AECI-789 — and these two have DELETE authority.** Items 1-14 are
   counts and reads: getting one wrong produces a wrong number. These two express the identical
@@ -2045,8 +2068,10 @@ count(evidenced_pairs WHERE a=p OR b=p OR connector=p)`; the third disjunct IS o
   **The Algolia sync's delete arm is the primary remover** of a retired record, and it is the exact
   complement of the upsert arm: `either endpoint unpromoted OR retired`. The 09:00 orphan sweep is
   the backstop, and it refuses a pass above 50 deletes, so a bulk retire left to the sweep would stay
-  searchable. The retire route also re-indexes the integration, both products and the owner vendor
-  by id after commit, because the vendor record's count has no other refresh path.
+  searchable. The retire route also re-indexes the integration, both products, the owner vendor
+  and every vendor of an endpoint or connector by id after commit, because the vendor record's
+  count has no other refresh path. Since AECI-1897 that count is reach, so an edge moves the
+  count of every vendor whose product it touches.
 
   **Tools that query a deployed database probe the column first.** The datatool prune and
   reindex, the retraction consumer and both reconcile CLIs read the `integrations` DDL and use

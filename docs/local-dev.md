@@ -92,9 +92,23 @@ Two scripts split the lanes.
   starting at `8790/8789` (`scripts/dev-launch.sh`), stepping up in twos, so it never touches
   the reserved conductor pair. It prints the URL it chose.
 
+**`dev:agent` retries a lost port race (AECI-2014).** The API runs local migrations for about a
+minute before wrangler binds. A sibling workspace can take the chosen port in that gap. When
+wrangler then fails with `Address already in use`, the launcher prints a `↻ dev:agent` line,
+re-scans from the next pair up, and relaunches without rebuilding.
+
+- It tries at most three times in total. Set `AECI_DEV_RETRIES` to change the bound.
+- A pinned pair (`AECI_WEB_PORT` set by the caller) never retries. It exits with a hint.
+- Read the **last** `▶ dev:agent →` line for the live pair. After a retry, earlier lines are stale.
+- The full output of the current attempt is also in `.wrangler/dev-launch.log`.
+- Stopping the launcher stops the whole stack. It forwards Ctrl-C and `SIGTERM` to every
+  `workerd` it started.
+- `scripts/dev-launch.test.mjs` covers the scan, the retry, the bound, the pinned case and
+  teardown, with fake `pnpm` and `lsof`. It runs in `pnpm test:scripts`.
+
 The port override is plumbed through `AECI_WEB_PORT` and `AECI_API_PORT`. Each app's
-`dev:preview` and `playwright.config.ts` honor them. Both default to `8788/8787`, so direct
-`pnpm dev:bound`, CI and e2e are unchanged, and each gets its own registry too.
+`dev:preview` honors its port; Playwright uses `AECI_WEB_PORT` to find the SSR Worker.
+The ports default to `8788/8787`, and each workspace gets its own registry too.
 
 **Running e2e in an agent workspace needs one variable.** Boot with `pnpm dev:agent`, then set
 `AECI_WEB_PORT` to the web port it printed:
@@ -104,9 +118,17 @@ AECI_WEB_PORT=8790 pnpm test:e2e
 ```
 
 Playwright finds the running stack on that port and reuses it. The config and every spec take
-their origin from `apps/web/e2e/base-url.ts`, so none of them falls back to 8788 (AECI-1449). `AECI_API_PORT` is
-not needed, because the specs reach the API through the SSR Worker. Set `PLAYWRIGHT_BASE_URL`
-only to target a deployed tier.
+their origin from `apps/web/e2e/base-url.ts`, so none of them falls back to 8788 (AECI-1449).
+Most specs reach the API through the SSR Worker. The browser-evidence spec also contacts the API
+Worker's Local Explorer directly: it assumes the API port is one below the web port unless
+`AECI_API_PORT` is set. Set that variable when the stack uses a different API port.
+Set `PLAYWRIGHT_BASE_URL` to target a deployed tier or an already-running stack without
+Playwright managing its server; local-only specs such as browser evidence then skip.
+
+If nothing answers on a non-default `AECI_WEB_PORT`, the run stops at once with a message. It does
+not boot `pnpm dev:bound` itself, because the API Worker would default to the reserved 8787
+(AECI-1955). Restart `pnpm dev:agent` and use the port it prints. Playwright can boot
+`dev:bound` on the default 8788; CI starts the stack separately and sets `PLAYWRIGHT_BASE_URL`.
 
 **An agent that needs to boot the app in a workspace uses `pnpm dev:agent`.** It does not use
 `pnpm dev:conductor`, `pnpm dev` or `pnpm dev:bound`. Leave the constant pair for the human.

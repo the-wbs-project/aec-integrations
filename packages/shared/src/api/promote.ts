@@ -652,6 +652,17 @@ export interface PromoteIntegrationResult {
    * Unordered — `pairCacheTag` sorts them.
    */
   movedFromSlugs?: [string, string];
+  /**
+   * The connector product this edge moved **away from** (AECI-1897), when this promote
+   * re-pointed the connector to a different product. Absent otherwise. A de-route
+   * (connector cleared) already names the old connector in {@link poweredBySlug}, so
+   * this field is absent there too.
+   *
+   * **A purge and re-index target, not state.** The old connector's page still lists
+   * the edge, and its vendor's reach count moved. Optional, and consumers must
+   * tolerate its absence, like every slug on this result.
+   */
+  movedFromConnectorSlug?: string;
 }
 
 export interface PromoteTaxonomyResult {

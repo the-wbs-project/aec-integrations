@@ -65,8 +65,9 @@
  *
  * 404s on a non-cacheable path are the one exception (AECI-62): they get
  * `NOT_FOUND_TTL` + `route:404`. That exception skips `/auth`, `/account`,
- * `/welcome`, `/admin`, `/vendor` and `/search` (`isNeverCacheablePath`,
- * AECI-1442): a 404 there stays `private, no-store`.
+ * `/welcome`, `/admin`, `/vendor`, `/search` and the email token pages
+ * (`isNeverCacheablePath`, AECI-1442, AECI-1848): a 404 there stays
+ * `private, no-store`.
  *
  * Locale prefixes from `LOCALES` are stripped before classification so the
  * matcher table stays single-source as locales are added. The `LOCALES`
@@ -637,8 +638,9 @@ export function isCacheableRoute(url: URL): boolean {
 /**
  * AECI-1442 — paths whose responses must never enter the shared edge cache, at
  * any status. Input is the locale-stripped path (`stripLocalePrefix`). True for
- * `/auth`, `/account`, `/welcome`, `/admin`, `/vendor` and `/search`, each as an
- * exact match or a `prefix/` match. `/vendor` is SINGULAR: the public
+ * `/auth`, `/account`, `/welcome`, `/admin`, `/vendor`, `/search` and the email
+ * token pages `/unsubscribe`, `/claims/confirm` and `/notifications/mute`
+ * (AECI-1848), each as an exact match or a `prefix/` match. `/vendor` is SINGULAR: the public
  * `/vendors/:slug` page and `/vendor-program` are not matched (`isVendorPath`).
  *
  * The non-cacheable branch of `handleSsr` reads this to keep the AECI-62 404
@@ -1395,7 +1397,12 @@ async function handleSsr(
     // authenticated resolver (e.g. the `/admin` gate) can read the session
     // cookie. Safe here precisely because this branch never writes the response
     // to the shared edge cache.
-    const reqCtx = createRequestContext(createServerApiClient(env, { forwardCookieFrom: request }));
+    // `edgeCacheable: false` lets the skip link keep the whole query on a non-404
+    // render here, since nothing on this branch but a 404 is stored (AECI-1848).
+    const reqCtx = createRequestContext(
+      createServerApiClient(env, { forwardCookieFrom: request }),
+      { edgeCacheable: false },
+    );
     const rendered = await renderer(request, reqCtx);
     const transformed = transformResponse
       ? await transformResponse(rendered, env, request, execCtx)

@@ -261,6 +261,16 @@ describe('Algolia builder parity: datatool full reindex vs Worker transform (AEC
     expect(byId.get(u(1))?.integration_count).toBe(2);
   });
 
+  // AECI-1897: the vendor count is reach. Vendor 2 built nothing, but it shares
+  // product 11, which both live edges touch, so both builders count 2 for it.
+  it('counts a vendor reach, not what it built, on both paths', async () => {
+    await seed();
+    const reindexed = await buildVendorRecords(asD1(t.raw));
+    const record = reindexed.find((r) => r.objectID === u(2))!;
+    expect(record.integration_count).toBe(2);
+    expect((await transformVendor(u(2))).integration_count).toBe(2);
+  });
+
   it('hides an unclaimed logo on both paths and keeps its tier (AECI-1618)', async () => {
     await seed();
     await t.db

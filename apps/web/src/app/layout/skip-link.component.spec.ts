@@ -1,5 +1,11 @@
 import { Location } from '@angular/common';
-import { PLATFORM_ID, provideZonelessChangeDetection } from '@angular/core';
+import {
+  PLATFORM_ID,
+  REQUEST_CONTEXT,
+  RESPONSE_INIT,
+  provideZonelessChangeDetection,
+  type Provider,
+} from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -13,13 +19,14 @@ import { SkipLink } from './skip-link';
 describe('SkipLink', () => {
   const Stub = class {};
 
-  function configure(platform: 'browser' | 'server') {
+  function configure(platform: 'browser' | 'server', extra: Provider[] = []) {
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       providers: [
         provideZonelessChangeDetection(),
         provideRouter([{ path: '**', component: Stub }]),
         { provide: PLATFORM_ID, useValue: platform },
+        ...extra,
       ],
     });
   }
@@ -97,6 +104,69 @@ describe('SkipLink', () => {
     it('keeps the whole query on a route the edge never caches', async () => {
       expect(href(await render('/search?q=x&utm_source=y'))).toBe('/search?q=x&utm_source=y#main');
     });
+
+    it('keeps the token on an email token page (AECI-1848)', async () => {
+      expect(href(await render('/unsubscribe?token=x'))).toBe('/unsubscribe?token=x#main');
+    });
+  });
+
+  // AECI-1848 review: a render on the runtime's non-cacheable branch is never stored unless it
+  // is a 404, so its server href keeps the whole query. `/contact?topic=add-product` shows a
+  // panel only with its topic.
+  describe('on the server, non-cacheable branch', () => {
+    const uncached = (status?: number): Provider[] => [
+      { provide: REQUEST_CONTEXT, useValue: { edgeCacheable: false } },
+      { provide: RESPONSE_INIT, useValue: status === undefined ? {} : { status } },
+    ];
+
+    it('keeps the whole query on a 200 render', async () => {
+      configure('server', uncached());
+      expect(href(await render('/contact?topic=add-product'))).toBe(
+        '/contact?topic=add-product#main',
+      );
+    });
+
+    it('drops the query on a 404 render, which the edge stores under a path-only key', async () => {
+      configure('server', uncached(404));
+      expect(href(await render('/typo?token=secret'))).toBe('/typo#main');
+    });
+
+    it('recomputes when a resolver sets 404 after the shell was built', async () => {
+      const init: { status?: number } = {};
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        providers: [
+          provideZonelessChangeDetection(),
+          provideRouter([
+            {
+              path: '**',
+              component: Stub,
+              resolve: {
+                _: () => {
+                  init.status = 404;
+                  return true;
+                },
+              },
+            },
+          ]),
+          { provide: PLATFORM_ID, useValue: 'server' },
+          { provide: REQUEST_CONTEXT, useValue: { edgeCacheable: false } },
+          { provide: RESPONSE_INIT, useValue: init },
+        ],
+      });
+      TestBed.inject(Location).replaceState('/typo?token=secret');
+      const fixture = TestBed.createComponent(SkipLink);
+      fixture.detectChanges();
+      expect(href(fixture)).toBe('/typo?token=secret#main');
+      await TestBed.inject(Router).navigateByUrl('/typo?token=secret');
+      await fixture.whenStable();
+      expect(href(fixture)).toBe('/typo#main');
+    });
+
+    it('drops the query when the runtime rendered on the cacheable branch', async () => {
+      configure('server', [{ provide: REQUEST_CONTEXT, useValue: { edgeCacheable: true } }]);
+      expect(href(await render('/contact?topic=add-product'))).toBe('/contact#main');
+    });
   });
 
   describe('when the URL changes without a router navigation', () => {
@@ -119,19 +189,6 @@ describe('SkipLink', () => {
     expect(classes).toContain('focus:text-(--accent-primary)');
     expect(classes).toContain('focus:outline-(--focus-ring-on-brand)');
     expect(classes).not.toContain('focus:bg-(--accent-primary)');
-  });
-
-  // AECI-1777: the 44px target, the 12px radius and the 16px size.
-  it('is a 44px target with the control radius and 16px text on focus', () => {
-    const fixture = TestBed.createComponent(SkipLink);
-    fixture.detectChanges();
-
-    const classes = (fixture.nativeElement.querySelector('a') as HTMLElement).className;
-    expect(classes).toContain('focus:min-h-11');
-    expect(classes).toContain('focus:rounded-control');
-    expect(classes).toContain('focus:text-t-16');
-    expect(classes).toContain('focus:inline-flex');
-    expect(classes).toContain('focus:items-center');
   });
 
   // AECI-1777: the 44px target, the 12px radius and the 16px size.

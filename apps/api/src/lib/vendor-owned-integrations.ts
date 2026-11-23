@@ -20,9 +20,12 @@
  *     `connector_evidenced_pairs` takes the same rule through
  *     {@link liveEvidencedPairWhere} since AECI-1091, when pairs became retirable.
  *
- * This is the same vendor rule as `algoliaVendorConfig` and `vendorListConfig`
- * (lockstep sites 6a and 14a). It is lockstep site 14b, and the claim queue reads
- * it through this module rather than adding a site of its own.
+ * This is the vendor OWNER rule, lockstep site 14b, and the claim queue reads it
+ * through this module rather than adding a site of its own. It is NOT the public
+ * vendor count. Since AECI-1897 (ruled 2026-11-23) `algoliaVendorConfig` and
+ * `vendorListConfig` (sites 6a and 14a) count the vendor's reach: the live edges
+ * touching any of its products, whoever built them (`vendorReachCountSql`). Do not
+ * edit either rule into the other.
  *
  * ── WHY TWO GROUPED READS AND NOT A UNION ───────────────────────────────────
  * Two reads keep each table's own predicate visible. The vendor-detail handler

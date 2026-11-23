@@ -70,6 +70,53 @@ describe('GET /api/vendors', () => {
     expect(parsed.data[0]?.integration_count).toBe(1);
   });
 
+  // AECI-1897 (ruled 2026-11-23): the count is the vendor's reach, the distinct live
+  // edges touching any of its products. Autodesk read 48 while Forma alone read 54,
+  // because the old rule counted only the edges Autodesk built.
+  it('counts every live edge touching its products, whoever built it, each edge once', async () => {
+    await seedVendor(u(1), 'autodesk', 'Autodesk');
+    await seedVendor(u(2), 'partner', 'Partner');
+    await t.db.insert(products).values([
+      { id: u(11), slug: 'forma', name: 'Forma', promotionStatus: 'promoted' },
+      { id: u(12), slug: 'revit', name: 'Revit', promotionStatus: 'promoted' },
+      { id: u(13), slug: 'partner-app', name: 'Partner App', promotionStatus: 'promoted' },
+    ]);
+    await t.db.insert(productVendors).values([
+      { productId: u(11), vendorId: u(1), isPrimary: true },
+      { productId: u(12), vendorId: u(1), isPrimary: true },
+      { productId: u(13), vendorId: u(2), isPrimary: true },
+    ]);
+    await t.db.insert(integrations).values([
+      // Built by the partner, into Autodesk's product: counts for both vendors.
+      { id: u(21), sourceProductId: u(13), targetProductId: u(11), builtByVendorId: u(2) },
+      { id: u(22), sourceProductId: u(12), targetProductId: u(13), builtByVendorId: u(2) },
+      // Between two Autodesk products: counts once.
+      { id: u(23), sourceProductId: u(11), targetProductId: u(12), builtByVendorId: u(1) },
+      // Retired: counts nowhere.
+      {
+        id: u(24),
+        sourceProductId: u(13),
+        targetProductId: u(12),
+        builtByVendorId: u(2),
+        retiredAt: '2026-11-01T00:00:00.000Z',
+        retiredBy: 'owner',
+      },
+    ]);
+
+    const parsed = VendorsListResponseSchema.parse(
+      await (await get(listApp(), '/api/vendors?sort=name')).json(),
+    );
+    const count = (slug: string) => parsed.data.find((v) => v.slug === slug)?.integration_count;
+    expect(count('autodesk')).toBe(3);
+    expect(count('partner')).toBe(2);
+
+    // The detail page reads the same extra.
+    const detail = VendorDetailSchema.parse(
+      await (await get(detailApp(), '/api/vendors/autodesk')).json(),
+    );
+    expect(detail.integration_count).toBe(3);
+  });
+
   it('filters by search', async () => {
     await seedVendor(u(1), 'autodesk', 'Autodesk');
     await seedVendor(u(2), 'bentley', 'Bentley Systems');

@@ -241,7 +241,13 @@ export function createCreateVendorIntegrationHandler(
       syncOwnerWriteSearch(
         c,
         db,
-        { integrations: [id], products: [sourceId, targetId], vendors: [vendorId] },
+        {
+          integrations: [id],
+          products: [sourceId, targetId],
+          vendors: [vendorId],
+          // AECI-1897: the vendor count is reach, so both endpoints' vendors moved.
+          vendorsOfProducts: [sourceId, targetId],
+        },
         'aeci.api.vendor.create_algolia_sync_failed',
       ),
     );

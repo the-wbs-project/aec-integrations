@@ -2065,8 +2065,8 @@ brought forward to match. Decisions taken at build that §8.1–§8.3 did not pr
 
 ### 9.2 Two things that are easy to miss
 
-- **Cache key.** The selectors are **content-affecting URL params**, so they must be added to the
-  pair route's `cacheKeyParams` in `apps/web/src/server-runtime.ts` — exactly as `?view` was for
+- **Cache key.** The selectors are **content-affecting URL params**, so they belong in
+  `PAIR_PAGE_CACHE_KEY_PARAMS` in `apps/web/src/app/core/route-cache-key.ts` — exactly as `?view` was for
   the Basic/Detailed toggle (`STAGE_1_5_SPEC.md` §8, `CACHE_STRATEGY.md` §4a). Omitting this
   serves one visitor's version selection to everyone.
 - **SEO.** A non-default version selection must be **`noindex`** and canonicalise to the default
