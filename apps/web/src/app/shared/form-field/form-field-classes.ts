@@ -13,6 +13,8 @@
  * Light only. The strings are byte-identical to what the claim dialog had
  * inline, so moving them here changed no rendered class. The two button
  * constants are the exception: since AECI-1758 they are the `aecButton` recipe.
+ * Every field error in the app uses `FIELD_ERROR_CLASS`, so the error look is set
+ * here once (AECI-1984, the Same-Behavior Rule).
  */
 
 import { buttonClass } from '../button/button';
@@ -55,21 +57,28 @@ export const FIELD_HINT_CLASS = 'text-xs text-(--text-secondary)';
 /**
  * A field's inline error, under the hint. Carries `role="alert"`. `aec-field-error`
  * (unlayered, `styles.css`) draws the alert icon before the message, so colour is
- * never the only error signal and no caller template changes.
+ * never the only error signal and no caller template changes. Set `aria-invalid="true"`
+ * on the control too: that is what paints its red edge (AECI-1984).
  */
 export const FIELD_ERROR_CLASS =
   'aec-field-error flex items-start gap-2 text-t-14 font-semibold text-(--status-error)';
 
 /**
  * One bordered choice row wrapping a native radio or checkbox: the plan
- * question's card. 44px tall, tinted when checked.
+ * question's card. 44px tall, tinted when checked. `aec-choice-card`
+ * (unlayered, `styles.css`) draws the border, and turns it `--status-error`
+ * when the input inside has `aria-invalid="true"`.
  */
 export const CHOICE_CARD_CLASS =
-  'flex min-h-11 cursor-pointer items-center gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) has-[:checked]:bg-(--accent-primary-soft) has-[:checked]:font-semibold';
+  'aec-choice-card flex min-h-11 cursor-pointer items-center gap-3 rounded-(--radius-md) border bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) has-[:checked]:bg-(--accent-primary-soft) has-[:checked]:font-semibold';
 
-/** The native radio or checkbox inside a choice card. */
+/**
+ * The native radio or checkbox, in a choice card or on its own.
+ * `aec-choice-input` gives a bare box a `--status-error` outline when it has
+ * `aria-invalid="true"`.
+ */
 export const CHOICE_INPUT_CLASS =
-  'size-4 shrink-0 accent-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  'aec-choice-input size-4 shrink-0 accent-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
 /**
  * The primary action: Continue, Send, Save. The `aecButton` recipe
