@@ -75,7 +75,7 @@ export interface FieldCaptionPage {
             [aecTrackExternalLink]="page().surface"
             [aecLinkContext]="sourceLinkContext()"
             data-testid="field-correction-source"
-            class="inline-flex items-center gap-1 rounded-(--radius-sm) font-semibold underline
+            class="inline-flex items-center gap-1 rounded-mark font-semibold underline
               underline-offset-4 transition-colors"
             [class]="sourceLinkClass()"
             ><span

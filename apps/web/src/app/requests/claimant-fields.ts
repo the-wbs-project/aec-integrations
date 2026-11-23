@@ -31,7 +31,7 @@ import { AecEarlyInput } from '../shared/form-field/early-input';
   imports: [FormField, AecEarlyInput],
   host: { class: 'block space-y-6' },
   template: `
-    <div class="space-y-1.5">
+    <div class="space-y-2">
       <label
         [attr.for]="idPrefix() + '-name'"
         [class]="labelClass"
@@ -60,7 +60,7 @@ import { AecEarlyInput } from '../shared/form-field/early-input';
       }
     </div>
 
-    <div class="space-y-1.5">
+    <div class="space-y-2">
       <label
         [attr.for]="idPrefix() + '-title'"
         [class]="labelClass"
@@ -89,7 +89,7 @@ import { AecEarlyInput } from '../shared/form-field/early-input';
       }
     </div>
 
-    <div class="space-y-1.5">
+    <div class="space-y-2">
       <label
         [attr.for]="idPrefix() + '-linkedin'"
         [class]="labelClass"
@@ -133,7 +133,7 @@ import { AecEarlyInput } from '../shared/form-field/early-input';
       }
     </div>
 
-    <div class="space-y-1.5">
+    <div class="space-y-2">
       <label
         [attr.for]="idPrefix() + '-email'"
         [class]="labelClass"
@@ -158,7 +158,7 @@ import { AecEarlyInput } from '../shared/form-field/early-input';
         @if (personalEmail()) {
           <p
             [id]="idPrefix() + '-email-personal'"
-            class="rounded-(--radius-md) bg-(--accent-warm) px-3 py-2 text-xs text-(--accent-secondary-deep)"
+            class="rounded-panel bg-(--accent-warm) px-3 py-2 text-xs text-(--accent-secondary-deep)"
             i18n="@@requests.claim.email.personal"
           >
             This looks like a personal email address. Please use your work email if you have one. We
@@ -178,7 +178,7 @@ import { AecEarlyInput } from '../shared/form-field/early-input';
       }
     </div>
 
-    <div class="space-y-1.5">
+    <div class="space-y-2">
       <label
         [attr.for]="idPrefix() + '-legal-name'"
         [class]="labelClass"

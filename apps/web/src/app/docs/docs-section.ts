@@ -37,7 +37,7 @@ import { pathForcesNoindex } from './docs-indexing';
   template: `
     <!-- AECI-987: the index takes the docs content column. The header and the
          intro prose keep the 42rem measure. From lg the page list runs two columns. -->
-    <div class="px-4 pt-8 pb-14 md:px-6 lg:px-8 lg:pt-10" data-testid="page-canvas">
+    <div class="px-4 pt-8 pb-16 md:px-6 lg:px-8 lg:pt-12" data-testid="page-canvas">
       <div class="mx-auto max-w-6xl">
         <header class="max-w-[42rem]">
           <h1 class="aec-docs-title text-(--text-primary)">{{ section.label }}</h1>
@@ -73,7 +73,7 @@ import { pathForcesNoindex } from './docs-indexing';
         </ol>
 
         @if (rest.length > 0) {
-          <div class="aec-prose mt-10 max-w-[42rem]" data-intro="rest" aecProseTableScroll>
+          <div class="aec-prose mt-12 max-w-[42rem]" data-intro="rest" aecProseTableScroll>
             @for (block of rest; track $index) {
               @if (block.heading; as heading) {
                 @if (heading.level === 2) {

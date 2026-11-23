@@ -173,7 +173,7 @@ const GUIDE_LINK =
         <div class="px-4 py-4 lg:sticky lg:top-0 lg:max-h-dvh lg:overflow-y-auto lg:py-6">
           <!-- The guide toggle (AECI-1271). Current guide from the URL alone. -->
           <nav class="mb-4" i18n-aria-label="@@app.docs.guide.aria" aria-label="Guides">
-            <ul class="flex gap-5 border-b border-(--border-default) px-3">
+            <ul class="flex gap-6 border-b border-(--border-default) px-3">
               @for (link of guideLinks; track link.guide) {
                 <li [attr.data-guide-link]="link.guide">
                   <a

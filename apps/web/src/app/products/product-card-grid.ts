@@ -120,7 +120,7 @@ export type ProductCardGridColumns = 1 | 2 | 3;
                   >{{ product.name }}</a
                 >
               </p>
-              <p class="mt-0.5 truncate text-sm text-(--text-secondary)">
+              <p class="mt-1 truncate text-sm text-(--text-secondary)">
                 @if (product.vendor; as v) {
                   {{ v.name }}
                 } @else {

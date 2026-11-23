@@ -215,7 +215,7 @@ import { AecIcon } from '../shared/icon/icon';
 
     @if (view().pairCount === 0) {
       <p
-        class="rounded-(--radius-lg) border border-dashed border-(--border-default)
+        class="rounded-panel border border-dashed border-(--border-default)
             bg-(--surface-sunken) p-6 text-sm text-(--text-secondary)"
         i18n="@@products.detail.body.powers.empty"
       >
@@ -296,7 +296,7 @@ import { AecIcon } from '../shared/icon/icon';
                     <!-- Flow relative to the HUB (this card's frame), matching how the
                        endpoint cards frame direction relative to their page product. -->
                     <span
-                      class="flex flex-wrap items-center gap-x-1.5 text-sm text-(--text-secondary)"
+                      class="flex flex-wrap items-center gap-x-2 text-sm text-(--text-secondary)"
                     >
                       <span class="sr-only" i18n="@@products.detail.body.powers.direction.srLabel"
                         >Direction:</span
@@ -434,7 +434,7 @@ import { AecIcon } from '../shared/icon/icon';
 
       @if (filteredView().pairCount === 0) {
         <p
-          class="rounded-(--radius-lg) border border-dashed border-(--border-default)
+          class="rounded-panel border border-dashed border-(--border-default)
             bg-(--surface-sunken) p-6 text-sm text-(--text-secondary)"
           i18n="@@products.detail.body.powers.filter.empty"
         >

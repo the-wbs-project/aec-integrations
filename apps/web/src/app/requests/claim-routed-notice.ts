@@ -29,7 +29,7 @@ import { CLAIM_OWNER_REVIEW_DAYS } from '@aeci/shared';
   template: `
     @if (show()) {
       <p
-        class="rounded-(--radius-md) bg-(--accent-warm) px-3 py-2 text-sm text-(--accent-secondary-deep)"
+        class="rounded-panel bg-(--accent-warm) px-3 py-2 text-sm text-(--accent-secondary-deep)"
         data-testid="claim-routed-notice"
       >
         @if (company(); as name) {

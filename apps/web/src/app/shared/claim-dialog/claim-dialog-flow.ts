@@ -178,7 +178,7 @@ interface ClaimDialogModel {
           <p class="mt-1 text-sm text-(--text-secondary)" i18n="@@claimDialog.find.lede">
             Your product or company may already be listed, under a different name.
           </p>
-          <div class="mt-5">
+          <div class="mt-6">
             <aec-search-autocomplete
               inputId="claim-dialog-search"
               [label]="searchLabel"
@@ -334,7 +334,7 @@ interface ClaimDialogModel {
               </p>
             }
             <div
-              class="mt-5 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
+              class="mt-6 rounded-panel border border-(--border-default) bg-(--surface-raised) p-4"
             >
               <p
                 class="text-sm font-bold text-(--text-primary)"
@@ -343,7 +343,7 @@ interface ClaimDialogModel {
                 What happens next
               </p>
               <ol
-                class="mt-2 list-decimal space-y-1 ps-5 text-sm leading-relaxed text-(--text-secondary)"
+                class="mt-2 list-decimal space-y-1 ps-6 text-sm leading-relaxed text-(--text-secondary)"
               >
                 @if (sentAsRouted()) {
                   <!-- AECI-1366: the company's team decides first (AECI-1368). -->
@@ -396,7 +396,7 @@ interface ClaimDialogModel {
                 </h3>
                 @if (path() === 'found') {
                   <p
-                    class="mt-3 flex flex-wrap items-baseline gap-x-2 rounded-(--radius-md) bg-(--surface-raised) px-3 py-2 text-sm text-(--text-primary)"
+                    class="mt-3 flex flex-wrap items-baseline gap-x-2 rounded-panel bg-(--surface-raised) px-3 py-2 text-sm text-(--text-primary)"
                     data-testid="claim-dialog-listing"
                   >
                     <!-- AECI-1364: the claim is on the company. A product hit names
@@ -441,8 +441,8 @@ interface ClaimDialogModel {
                       >Tell us the product or company to add.</span
                     >
                   </p>
-                  <div class="mt-5 space-y-6">
-                    <div class="space-y-1.5">
+                  <div class="mt-6 space-y-6">
+                    <div class="space-y-2">
                       <label
                         for="claim-dialog-listing-name"
                         [class]="labelClass"
@@ -472,7 +472,7 @@ interface ClaimDialogModel {
                         </p>
                       }
                     </div>
-                    <div class="space-y-1.5">
+                    <div class="space-y-2">
                       <label
                         for="claim-dialog-website"
                         [class]="labelClass"
@@ -541,7 +541,7 @@ interface ClaimDialogModel {
                 >
                   Anything to add?
                 </h3>
-                <div class="mt-4 space-y-1.5">
+                <div class="mt-4 space-y-2">
                   <label
                     for="claim-dialog-comments"
                     [class]="labelClass"

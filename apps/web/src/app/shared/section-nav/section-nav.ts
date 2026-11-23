@@ -253,7 +253,7 @@ const FADE_PX = 40;
                   [attr.data-section-id]="s.id"
                   data-smooth-scroll
                   [attr.aria-current]="activeId() === s.id ? 'location' : null"
-                  class="aec-section-nav-link relative inline-flex min-h-11 items-center gap-1.5 rounded-mark px-3
+                  class="aec-section-nav-link relative inline-flex min-h-11 items-center gap-2 rounded-mark px-3
                     text-t-16 font-normal text-(--text-secondary) no-underline
                     transition-colors duration-base ease-standard hover:text-(--text-primary)
                     aria-[current=location]:font-semibold aria-[current=location]:text-(--text-primary)

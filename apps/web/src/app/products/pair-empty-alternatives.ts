@@ -104,7 +104,7 @@ function objectIcon(slug: string): AecIconName | null {
       data-testid="pair-empty-moving"
     >
       <div [class]="movingWrap">
-        <div class="mb-8 max-w-prose md:mb-10">
+        <div class="mb-8 max-w-prose md:mb-12">
           <p class="aec-overline mb-3 text-(--text-secondary)" i18n="@@pair.empty.moving.kicker">
             What you would be moving
           </p>
@@ -195,7 +195,7 @@ function objectIcon(slug: string): AecIconName | null {
 
         <div class="mt-6 flex justify-center" aria-live="polite" data-testid="pair-moving-picked">
           <p
-            class="m-0 inline-flex flex-wrap items-center justify-center gap-x-3 gap-y-1 rounded-pill bg-(--surface-base) px-5 py-2.5 text-t-14 text-(--text-secondary) shadow-card"
+            class="m-0 inline-flex flex-wrap items-center justify-center gap-x-3 gap-y-1 rounded-pill bg-(--surface-base) px-6 py-3 text-t-14 text-(--text-secondary) shadow-card"
           >
             @if (pickedNames().length > 0) {
               <span>
@@ -637,7 +637,7 @@ function objectIcon(slug: string): AecIconName | null {
                   <div [class]="card.block">
                     <p class="aec-overline m-0 text-(--text-secondary)">{{ movesWith() }}</p>
                     @if (direction(m); as d) {
-                      <p class="m-0 flex items-center gap-1.5 text-t-14 font-semibold">
+                      <p class="m-0 flex items-center gap-2 text-t-14 font-semibold">
                         <span class="sr-only" i18n="@@pair.depth.direction.srLabel"
                           >Direction:</span
                         >

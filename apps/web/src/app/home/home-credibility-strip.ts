@@ -67,7 +67,7 @@ type CoverageMetric = { key: string; count: number; label: string; note?: string
         @if (metrics().length > 0) {
           <ul role="list" class="flex flex-wrap items-baseline gap-x-6 gap-y-2">
             @for (m of metrics(); track m.key) {
-              <li class="flex items-baseline gap-1.5">
+              <li class="flex items-baseline gap-2">
                 <span
                   data-testid="credibility-count"
                   class="text-t-16 font-semibold tabular-nums text-(--accent-primary)"

@@ -188,14 +188,14 @@ const UNDER_REVIEW_MARKED_FIELDS: readonly string[] = [
                does not make the hero a wall. Every word still shows. -->
           @if (v.description) {
             <p
-              class="mt-5 max-w-[40rem] break-words text-t-16 text-(--text-on-brand-secondary) sm:text-t-20 sm:leading-normal"
+              class="mt-6 max-w-[40rem] break-words text-t-16 text-(--text-on-brand-secondary) sm:text-t-20 sm:leading-normal"
               data-testid="vendor-description"
             >
               {{ v.description }}
             </p>
           } @else if (descriptionUnderReview()) {
             <aec-under-review
-              class="mt-5 block"
+              class="mt-6 block"
               tone="on-brand"
               data-testid="vendor-description-under-review"
             />
@@ -402,7 +402,7 @@ const UNDER_REVIEW_MARKED_FIELDS: readonly string[] = [
 
             @if (v.products.length === 0) {
               <p
-                class="rounded-(--radius-lg) border border-dashed border-(--border-default)
+                class="rounded-panel border border-dashed border-(--border-default)
                   bg-(--surface-sunken) p-6 text-sm text-(--text-secondary)"
                 i18n="@@vendors.detail.body.products.empty"
               >
@@ -479,7 +479,7 @@ const UNDER_REVIEW_MARKED_FIELDS: readonly string[] = [
                         <tr aria-hidden="true">
                           <td colspan="4" class="px-4 py-3">
                             <div
-                              class="h-16 animate-pulse rounded-(--radius-lg)
+                              class="h-16 animate-pulse rounded-mark
                                 border border-(--border-default) bg-(--surface-sunken)"
                             ></div>
                           </td>

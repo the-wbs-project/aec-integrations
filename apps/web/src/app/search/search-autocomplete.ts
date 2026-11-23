@@ -99,7 +99,7 @@ import { Chip } from '../shared/chip/chip';
 import { AecIcon } from '../shared/icon/icon';
 
 const DEFAULT_FIELD_CLASS =
-  'rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-4 text-sm text-(--text-primary) placeholder:text-(--text-secondary)';
+  'rounded-control border border-(--border-default) bg-(--surface-base) px-4 text-sm text-(--text-primary) placeholder:text-(--text-secondary)';
 
 /**
  * What a pill adds: room for the glyph at the start and the cap at the end, and
@@ -244,7 +244,7 @@ const DEFAULT_SEARCH_NAME = $localize`:@@app.search.autocomplete.landmark:Site s
               i18n-aria-label="@@app.search.autocomplete.listbox.aria"
               aria-label="Search suggestions"
               [style.max-height.px]="listMaxHeight()"
-              class="aec-popover group m-0 flex max-h-[min(24rem,60vh)] w-[min(22rem,calc(100vw-2rem))] list-none flex-col gap-0.5 overflow-y-auto p-1.5"
+              class="aec-popover group m-0 flex max-h-[min(24rem,60vh)] w-[min(22rem,calc(100vw-2rem))] list-none flex-col gap-1 overflow-y-auto p-2"
             >
               <!-- The shared popover surface (.aec-popover, DESIGN.md "Overlays"):
                    white, 12px radius, a hairline edge and the menu shadow. No
@@ -256,7 +256,7 @@ const DEFAULT_SEARCH_NAME = $localize`:@@app.search.autocomplete.landmark:Site s
                   ngOption
                   [value]="s"
                   [label]="s.title"
-                  class="flex min-h-11 cursor-pointer flex-col justify-center gap-0.5 rounded-mark px-3 py-2 group-data-[navigated=true]:data-[active=true]:bg-(--surface-sunken)"
+                  class="flex min-h-11 cursor-pointer flex-col justify-center gap-1 rounded-mark px-3 py-2 group-data-[navigated=true]:data-[active=true]:bg-(--surface-sunken)"
                 >
                   <span class="flex items-center justify-between gap-2">
                     <span class="truncate text-t-14 font-semibold text-(--text-primary)">{{

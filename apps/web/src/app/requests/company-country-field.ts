@@ -23,7 +23,7 @@ import { FIELD_ERROR_CLASS } from '../shared/form-field/form-field-classes';
 @Component({
   selector: 'aec-company-country-field',
   imports: [AecSelect],
-  host: { class: 'block space-y-1.5' },
+  host: { class: 'block space-y-2' },
   template: `
     <aec-select
       class="block"

@@ -47,7 +47,7 @@ export type RatingSummaryVariant = 'inline' | 'cell';
       <span
         role="img"
         [attr.aria-label]="ariaLabel()"
-        class="inline-flex items-baseline gap-1.5 leading-none"
+        class="inline-flex items-baseline gap-2 leading-none"
       >
         <span aria-hidden="true" class="text-sm" [style.color]="'var(--accent-rating)'">★</span>
         <!-- The body face: a 14px number is below the 20px serif floor

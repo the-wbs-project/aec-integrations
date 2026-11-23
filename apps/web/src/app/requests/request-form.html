@@ -25,7 +25,7 @@
          request is sent: the confirmation carries its own next steps. -->
     @if (!sent()) {
     <aside
-      class="mt-10 min-w-0 rounded-panel border bg-(--surface-raised) p-5 lg:sticky lg:top-8 lg:col-span-4 lg:col-start-9 lg:row-start-1 lg:mt-0 lg:self-start lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0"
+      class="mt-12 min-w-0 rounded-panel border bg-(--surface-raised) p-6 lg:sticky lg:top-8 lg:col-span-4 lg:col-start-9 lg:row-start-1 lg:mt-0 lg:self-start lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0"
       aria-labelledby="request-rail-heading"
       data-testid="context-rail"
     >
@@ -64,7 +64,7 @@
       </h2>
       }
       <ol
-        class="mt-2 list-decimal space-y-1.5 ps-5 text-t-14 leading-relaxed text-(--text-secondary)"
+        class="mt-2 list-decimal space-y-2 ps-6 text-t-14 leading-relaxed text-(--text-secondary)"
       >
         @if (kind === 'claim') {
         <li i18n="@@requests.rail.claim.step1">Nothing is granted until your claim is approved.</li>

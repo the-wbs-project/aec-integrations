@@ -135,7 +135,7 @@ const SORT_MODES_BY_KIND: Record<TaxonomyKind, readonly SortMode[]> = {
                   <p class="mt-4 text-t-13 text-(--text-secondary) tabular-nums">
                     {{ countLabel(term.product_count) }}
                     @if (term.integration_count !== undefined) {
-                      <span aria-hidden="true" class="mx-1.5">·</span>
+                      <span aria-hidden="true" class="mx-2">·</span>
                       {{ integrationCountLabel(term.integration_count) }}
                     }
                   </p>

@@ -127,7 +127,7 @@ import { Chip } from '../shared/chip/chip';
                very short partner name. -->
           <a
             [routerLink]="['/products', other().slug]"
-            class="-my-0.5 w-fit min-w-6 rounded-sm py-0.5 transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            class="-my-0.5 w-fit min-w-6 rounded-mark py-0.5 transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
             >{{ other().name }}</a
           >
           <!-- AECI-1720: the partner's vendor, as the card prints it (mock-up 6). -->
@@ -143,7 +143,7 @@ import { Chip } from '../shared/chip/chip';
                once the row fill goes muted (DESIGN.md §"Tertiary": never on
                muted). -->
           <span
-            class="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-(--text-tertiary) transition-colors group-hover:text-(--text-secondary) group-focus-within:text-(--text-secondary)"
+            class="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-(--text-tertiary) transition-colors group-hover:text-(--text-secondary) group-focus-within:text-(--text-secondary)"
           >
             <!-- Direction, context-relative to THIS page's product and
                  precomputed server-side (claims-aware, §3.2), so it can never
@@ -199,7 +199,7 @@ import { Chip } from '../shared/chip/chip';
          only, so the table's 34rem floor below lg is unchanged. -->
     <td class="hidden px-4 py-3 lg:table-cell" data-testid="row-categories">
       @if (integration().partner_categories.length > 0) {
-        <ul class="flex flex-wrap gap-1.5">
+        <ul class="flex flex-wrap gap-2">
           @for (category of integration().partner_categories; track category.slug) {
             <li>
               <aec-chip density="dense">{{ category.name }}</aec-chip>
@@ -278,7 +278,7 @@ import { Chip } from '../shared/chip/chip';
         #rowLink
         [routerLink]="pairLink()"
         [attr.aria-label]="pairAriaLabel()"
-        class="inline-flex size-6 items-center justify-center rounded-sm align-middle focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        class="inline-flex size-6 items-center justify-center rounded-mark align-middle focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       >
         <aec-icon
           class="text-(--text-tertiary)"

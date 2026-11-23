@@ -222,7 +222,7 @@ export class RequestFormBody implements OnInit {
   protected readonly confirmCardClass = `${cardClass({ phoneFlush: true })} p-6 sm:p-8`;
   /** A standalone docs link: the in-text link look with a 44px target (AECI-1808). */
   protected readonly docsLinkClass =
-    'mt-3 inline-flex min-h-11 items-center gap-1.5 text-t-14 font-semibold text-(--accent-primary) ' +
+    'mt-3 inline-flex min-h-11 items-center gap-2 text-t-14 font-semibold text-(--accent-primary) ' +
     'underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 ' +
     'focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 

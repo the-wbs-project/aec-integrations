@@ -58,14 +58,14 @@ import { AecIcon } from '../icon/icon';
       <section
         aecCard
         data-plan-card="free"
-        class="flex flex-col p-5 sm:row-span-6 sm:grid sm:grid-rows-subgrid sm:gap-y-0"
+        class="flex flex-col p-6 sm:row-span-6 sm:grid sm:grid-rows-subgrid sm:gap-y-0"
         aria-labelledby="plan-card-free"
       >
         <h3 id="plan-card-free" class="aec-plan-card-name text-(--text-primary)">
           {{ copy.free.name }}
         </h3>
         <p class="mt-1 text-sm text-(--text-secondary)">{{ copy.free.summary }}</p>
-        <p class="mt-4 flex items-baseline gap-1.5 sm:self-end">
+        <p class="mt-4 flex items-baseline gap-2 sm:self-end">
           <span class="text-sm text-(--text-secondary)">{{ copy.free.unit }}</span>
         </p>
         @if (portal()) {
@@ -90,11 +90,11 @@ import { AecIcon } from '../icon/icon';
             >Claim your listing</a
           >
         }
-        <p class="mt-5 text-xs font-semibold text-(--text-secondary)">{{ copy.free.includes }}</p>
+        <p class="mt-6 text-xs font-semibold text-(--text-secondary)">{{ copy.free.includes }}</p>
         <ul class="mt-2 space-y-2 text-sm text-(--text-primary)">
           @for (item of copy.free.highlights; track item) {
             <li class="flex gap-2">
-              <span class="mt-0.5 flex shrink-0 text-(--accent-primary)">
+              <span class="flex h-5 shrink-0 items-center text-(--accent-primary)">
                 <aec-icon name="check" decorative [size]="4" />
               </span>
               <span>{{ item }}</span>
@@ -106,14 +106,14 @@ import { AecIcon } from '../icon/icon';
       <section
         aecCard
         data-plan-card="managed"
-        class="aec-plan-card-featured flex flex-col p-[19px] sm:row-span-6 sm:grid sm:grid-rows-subgrid sm:gap-y-0"
+        class="aec-plan-card-featured flex flex-col p-[23px] sm:row-span-6 sm:grid sm:grid-rows-subgrid sm:gap-y-0"
         aria-labelledby="plan-card-managed"
       >
         <h3 id="plan-card-managed" class="aec-plan-card-name text-(--text-primary)">
           {{ copy.managed.name }}
         </h3>
         <p class="mt-1 text-sm text-(--text-secondary)">{{ copy.managed.summary }}</p>
-        <p class="mt-4 flex items-baseline gap-1.5">
+        <p class="mt-4 flex items-baseline gap-2">
           <span class="aec-plan-price text-(--text-primary)">{{ copy.managed.price }}</span>
           <span class="text-sm text-(--text-secondary)">{{ copy.managed.unit }}</span>
         </p>
@@ -133,13 +133,13 @@ import { AecIcon } from '../icon/icon';
             >Claim your listing</a
           >
         }
-        <p class="mt-5 text-xs font-semibold text-(--text-secondary)">
+        <p class="mt-6 text-xs font-semibold text-(--text-secondary)">
           {{ copy.managed.includes }}
         </p>
         <ul class="mt-2 space-y-2 text-sm text-(--text-primary)">
           @for (item of copy.managed.highlights; track item) {
             <li class="flex gap-2">
-              <span class="mt-0.5 flex shrink-0 text-(--accent-primary)">
+              <span class="flex h-5 shrink-0 items-center text-(--accent-primary)">
                 <aec-icon name="check" decorative [size]="4" />
               </span>
               <span>{{ item }}</span>
