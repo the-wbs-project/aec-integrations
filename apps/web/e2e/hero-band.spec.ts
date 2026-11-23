@@ -72,27 +72,6 @@ function contrast(a: string, b: string): number {
   return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
 }
 
-/**
- * A translucent paint (a wash or an alpha edge) composited over a ground, as the
- * browser does it in sRGB. `style()` drops alpha, so contrast needs this.
- */
-async function paintOver(
-  loc: Locator,
-  prop: 'backgroundColor' | 'borderTopColor',
-  ground: string,
-): Promise<string> {
-  const [r, g, b, a] = await loc.evaluate((el, p) => {
-    const ctx = document.createElement('canvas').getContext('2d')!;
-    ctx.fillStyle = getComputedStyle(el)[p as 'backgroundColor'];
-    ctx.fillRect(0, 0, 1, 1);
-    return Array.from(ctx.getImageData(0, 0, 1, 1).data);
-  }, prop);
-  const base = rgb(ground);
-  const alpha = a / 255;
-  const out = [r, g, b].map((c, i) => Math.round(c * alpha + base[i] * (1 - alpha)));
-  return `rgb(${out.join(', ')})`;
-}
-
 /** One row of screenshot pixels as [r, g, b] triples, decoded in the page. */
 async function pixelRow(page: Page, y: number, width: number): Promise<number[][]> {
   const png = await page.screenshot({ clip: { x: 0, y, width, height: 1 } });
@@ -120,20 +99,135 @@ async function open(page: Page) {
 
 const withPanel = (page: Page) => page.getByTestId('hero-band-with-panel');
 const bandOf = (loc: Locator) => loc.locator('.aec-hero-band');
+const boneBand = (page: Page) => page.getByTestId('bone-band').locator('.aec-bone-band');
 
 test.describe('hero band rendered (AECI-1766)', () => {
-  test('meets the header on one flat Forest ground, no hairline', async ({ page }) => {
+  // AECI-2027: the 1280px reads share one load, one step per check. The read-only
+  // steps run first. Each hover step starts with the pointer at (0, 0) and
+  // nothing focused, so no state from an earlier step leaks in.
+  test('the hero band and the Bone band at 1280px', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await open(page);
-    const header = await style(page.locator('header').first());
-    const band = await style(bandOf(withPanel(page)));
-    expect(band.background).toBe(FOREST);
-    expect(header.background).toBe(band.background);
-    expect(header.borderBottom).toBe(0);
-    expect(band.borderTop).toBe(0);
-    // The glow is two radial gradients and nothing else.
-    expect(band.backgroundImage.match(/radial-gradient/g)).toHaveLength(2);
-    expect(band.backgroundImage).not.toMatch(/linear-gradient|blur/);
+
+    await test.step('meets the header on one flat Forest ground, no hairline', async () => {
+      const header = await style(page.locator('header').first());
+      const band = await style(bandOf(withPanel(page)));
+      expect(band.background).toBe(FOREST);
+      expect(header.background).toBe(band.background);
+      expect(header.borderBottom).toBe(0);
+      expect(band.borderTop).toBe(0);
+      // The glow is two radial gradients and nothing else.
+      expect(band.backgroundImage.match(/radial-gradient/g)).toHaveLength(2);
+      expect(band.backgroundImage).not.toMatch(/linear-gradient|blur/);
+    });
+
+    await test.step('renders no panel and no gap when nothing is projected', async () => {
+      const panel = page.getByTestId('hero-band-plain').locator('.aec-hero-panel');
+      await expect(panel).toBeHidden();
+      const grid = await page
+        .getByTestId('hero-band-plain')
+        .getByTestId('hero-band-grid')
+        .evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length);
+      expect(grid).toBe(1);
+    });
+
+    await test.step('keeps Bone and secondary ink above 4.5:1 on the band ground', async () => {
+      const band = await style(bandOf(withPanel(page)));
+      const title = await style(withPanel(page).locator('h1 span').first());
+      const lede = await style(withPanel(page).getByText('One line about what'));
+      const panelText = await style(withPanel(page).getByText('The hero panel sits'));
+      const panel = await style(withPanel(page).locator('.aec-hero-panel'));
+      expect(contrast(title.color, band.background)).toBeGreaterThan(11);
+      expect(contrast(lede.color, band.background)).toBeGreaterThan(7);
+      expect(contrast(panelText.color, panel.background)).toBeGreaterThan(6);
+    });
+
+    await test.step('meets the Forest footer with a flat edge and no gap', async () => {
+      const band = await style(boneBand(page));
+      const footer = await style(page.locator('footer').last());
+      expect(Math.abs(footer.top - band.bottom)).toBeLessThanOrEqual(1);
+      expect(footer.background).not.toBe(BONE);
+      expect(contrast(footer.background, BONE)).toBeGreaterThan(13);
+    });
+
+    await test.step('draws a Bone ring, 3px at 3px, on a plain link, an aecButton and a chip in the band', async () => {
+      const cases = {
+        'plain link': withPanel(page).getByTestId('hero-plain-link'),
+        'main aecButton': withPanel(page).getByTestId('hero-main-action'),
+        'secondary aecButton': withPanel(page).getByTestId('hero-second-action'),
+        chip: withPanel(page).getByTestId('hero-chip').locator('a.aec-chip'),
+      };
+      for (const [name, target] of Object.entries(cases)) {
+        await keyboardFocus(page, target);
+        await expect.poll(async () => (await style(target)).outlineColor, name).toBe(BONE);
+        const ring = await style(target);
+        expect(ring.outlineWidth, name).toBe('3px');
+        expect(ring.outlineOffset, name).toBe('3px');
+        expect(ring.outlineStyle, name).toBe('solid');
+        // The ring on the flat Forest ground. The glow lightest point is 7.75:1.
+        expect(contrast(ring.outlineColor, FOREST), name).toBeGreaterThan(11);
+      }
+    });
+
+    await test.step('a button on a white card inside the band keeps a Forest ring from its own utility', async () => {
+      const button = withPanel(page).getByTestId('hero-white-card-button');
+      await keyboardFocus(page, button);
+      await expect.poll(async () => (await style(button)).outlineColor).toBe(FOREST);
+      const ring = await style(button);
+      expect(ring.outlineWidth).toBe('3px');
+      expect(ring.outlineOffset).toBe('3px');
+      expect(contrast(ring.outlineColor, 'rgb(255, 255, 255)')).toBeGreaterThan(12);
+    });
+
+    await test.step('a classless link in the band is Bone, and hover underlines it', async () => {
+      // Clear the hover and the focus left by the step before.
+      await page.mouse.move(0, 0);
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+      const link = withPanel(page).getByTestId('hero-plain-link');
+      expect((await style(link)).color).toBe(BONE);
+      expect(contrast((await style(link)).color, FOREST)).toBeGreaterThan(11);
+      expect(await link.evaluate((el) => getComputedStyle(el).textDecorationLine)).not.toContain(
+        'underline',
+      );
+      await link.hover();
+      await expect
+        .poll(() => link.evaluate((el) => getComputedStyle(el).textDecorationLine))
+        .toContain('underline');
+      expect((await style(link)).color).toBe(BONE);
+    });
+
+    await test.step('keeps text and controls legible on Bone', async () => {
+      // Clear the hover and the focus left by the step before.
+      await page.mouse.move(0, 0);
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+      const ground = (await style(boneBand(page))).background;
+      const heading = await style(page.getByRole('heading', { name: 'The one Bone band' }));
+      const body = await style(page.getByText('Secondary text on Bone'));
+      expect(contrast(heading.color, ground)).toBeGreaterThan(17);
+      expect(contrast(body.color, ground)).toBeGreaterThan(6.9);
+      const input = await style(page.getByTestId('bone-input'));
+      expect(input.borderColor).toBe(FIELD_EDGE);
+      expect(contrast(input.borderColor, ground)).toBeGreaterThan(3.3);
+      const primary = await style(page.getByTestId('bone-primary'));
+      expect(contrast(primary.color, primary.background)).toBeGreaterThan(11);
+      // A secondary button brings its own fill. Its text is readable on that fill
+      // and on the hover fill. Its edge on Bone is 1.32:1, which DESIGN.md flags.
+      const secondary = page.getByTestId('bone-secondary');
+      const rest = await style(secondary);
+      expect(contrast(rest.color, rest.background)).toBeGreaterThan(18);
+      await secondary.hover();
+      await expect
+        .poll(async () => {
+          const hover = await style(secondary);
+          return contrast(hover.color, hover.background);
+        })
+        .toBeGreaterThan(11);
+      const ghost = page.getByTestId('bone-ghost');
+      await ghost.hover();
+      await expect
+        .poll(async () => contrast((await style(ghost)).color, ground))
+        .toBeGreaterThan(11);
+    });
   });
 
   // AECI-1720 restore: below md the title steps to --t-statement, and below 360px to
@@ -188,18 +282,6 @@ test.describe('hero band rendered (AECI-1766)', () => {
     expect((await style(panel)).width).toBe(540);
   });
 
-  test('renders no panel and no gap when nothing is projected', async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await open(page);
-    const panel = page.getByTestId('hero-band-plain').locator('.aec-hero-panel');
-    await expect(panel).toBeHidden();
-    const grid = await page
-      .getByTestId('hero-band-plain')
-      .getByTestId('hero-band-grid')
-      .evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length);
-    expect(grid).toBe(1);
-  });
-
   /** Focus an element with the keyboard, so `:focus-visible` matches. */
   async function keyboardFocus(page: Page, target: Locator) {
     await target.focus();
@@ -207,59 +289,6 @@ test.describe('hero band rendered (AECI-1766)', () => {
     await page.keyboard.press('Tab');
     await expect(target).toBeFocused();
   }
-
-  test('draws a Bone ring, 3px at 3px, on a plain link, an aecButton and a chip in the band', async ({
-    page,
-  }) => {
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await open(page);
-    const cases = {
-      'plain link': withPanel(page).getByTestId('hero-plain-link'),
-      'main aecButton': withPanel(page).getByTestId('hero-main-action'),
-      'secondary aecButton': withPanel(page).getByTestId('hero-second-action'),
-      chip: withPanel(page).getByTestId('hero-chip').locator('a.aec-chip'),
-    };
-    for (const [name, target] of Object.entries(cases)) {
-      await keyboardFocus(page, target);
-      await expect.poll(async () => (await style(target)).outlineColor, name).toBe(BONE);
-      const ring = await style(target);
-      expect(ring.outlineWidth, name).toBe('3px');
-      expect(ring.outlineOffset, name).toBe('3px');
-      expect(ring.outlineStyle, name).toBe('solid');
-      // The ring on the flat Forest ground. The glow lightest point is 7.75:1.
-      expect(contrast(ring.outlineColor, FOREST), name).toBeGreaterThan(11);
-    }
-  });
-
-  test('a button on a white card inside the band keeps a Forest ring from its own utility', async ({
-    page,
-  }) => {
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await open(page);
-    const button = withPanel(page).getByTestId('hero-white-card-button');
-    await keyboardFocus(page, button);
-    await expect.poll(async () => (await style(button)).outlineColor).toBe(FOREST);
-    const ring = await style(button);
-    expect(ring.outlineWidth).toBe('3px');
-    expect(ring.outlineOffset).toBe('3px');
-    expect(contrast(ring.outlineColor, 'rgb(255, 255, 255)')).toBeGreaterThan(12);
-  });
-
-  test('a classless link in the band is Bone, and hover underlines it', async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await open(page);
-    const link = withPanel(page).getByTestId('hero-plain-link');
-    expect((await style(link)).color).toBe(BONE);
-    expect(contrast((await style(link)).color, FOREST)).toBeGreaterThan(11);
-    expect(await link.evaluate((el) => getComputedStyle(el).textDecorationLine)).not.toContain(
-      'underline',
-    );
-    await link.hover();
-    await expect
-      .poll(() => link.evaluate((el) => getComputedStyle(el).textDecorationLine))
-      .toContain('underline');
-    expect((await style(link)).color).toBe(BONE);
-  });
 
   test('sizes the mark 104px, 68px below md, and follows mock-up 6 spacing', async ({ page }) => {
     for (const [width, mark, gap, below] of [
@@ -293,32 +322,6 @@ test.describe('hero band rendered (AECI-1766)', () => {
         return `${s.marginTop} ${s.rowGap} ${s.flexWrap} ${s.flexDirection}`;
       }),
     ).toBe('24px 12px wrap row');
-  });
-
-  test('draws the on-brand secondary button: wash fill, 3:1 edge, hover wash, Bone label', async ({
-    page,
-  }) => {
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await open(page);
-    const button = page.getByTestId('btn-on-brand-secondary');
-    const rest = await style(button);
-    expect(rest.height).toBe(44);
-    expect(rest.color).toBe(BONE);
-    expect(rest.borderColor).not.toBe('transparent');
-    // Bone at 10% over Forest. `style()` drops alpha, so composite the wash here.
-    const wash = await paintOver(button, 'backgroundColor', FOREST);
-    expect(contrast(wash, FOREST)).toBeGreaterThan(1.1);
-    expect(contrast(rest.color, wash)).toBeGreaterThan(8);
-    // The edge is Bone at 50% over Forest: 4.01:1 against the ground (the 3:1 edge).
-    const edge = await paintOver(button, 'borderTopColor', FOREST);
-    expect(contrast(edge, FOREST)).toBeGreaterThan(3.9);
-    await button.hover();
-    await expect.poll(async () => paintOver(button, 'backgroundColor', FOREST)).not.toBe(wash);
-    const hoverWash = await paintOver(button, 'backgroundColor', FOREST);
-    // 6.94:1 exactly. The canvas read quantises a 16% alpha, so leave 0.1 of room.
-    expect(contrast(rest.color, hoverWash)).toBeGreaterThan(6.8);
-    const disabled = await style(page.getByTestId('btn-on-brand-secondary-disabled'));
-    expect(disabled.opacity).toBe('0.6');
   });
 
   test('is flat against the real header: the band top row equals the header ground', async ({
@@ -368,19 +371,6 @@ test.describe('hero band rendered (AECI-1766)', () => {
         expect(worst, `${label} at ${width}px`).toBeLessThanOrEqual(1);
       }
     }
-  });
-
-  test('keeps Bone and secondary ink above 4.5:1 on the band ground', async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await open(page);
-    const band = await style(bandOf(withPanel(page)));
-    const title = await style(withPanel(page).locator('h1 span').first());
-    const lede = await style(withPanel(page).getByText('One line about what'));
-    const panelText = await style(withPanel(page).getByText('The hero panel sits'));
-    const panel = await style(withPanel(page).locator('.aec-hero-panel'));
-    expect(contrast(title.color, band.background)).toBeGreaterThan(11);
-    expect(contrast(lede.color, band.background)).toBeGreaterThan(7);
-    expect(contrast(panelText.color, panel.background)).toBeGreaterThan(6);
   });
 
   test('has no horizontal overflow at 320px and the actions stack full width', async ({ page }) => {
@@ -465,7 +455,7 @@ test.describe('forced colours (AECI-1766)', () => {
 });
 
 test.describe('bone band rendered (AECI-1766)', () => {
-  const bone = (page: Page) => page.getByTestId('bone-band').locator('.aec-bone-band');
+  // The 1280px Bone band reads are steps in the hero band test at 1280px (AECI-2027).
 
   test('paints Bone with the ruled wrap and rhythm: 96px at 1440, 64px at 320', async ({
     page,
@@ -476,55 +466,15 @@ test.describe('bone band rendered (AECI-1766)', () => {
     ] as const) {
       await page.setViewportSize({ width, height: 900 });
       await open(page);
-      const ground = await style(bone(page));
+      const ground = await style(boneBand(page));
       expect(ground.background).toBe(BONE);
       expect(ground.borderTop).toBe(0);
-      const wrap = await style(bone(page).locator('> div').first());
+      const wrap = await style(boneBand(page).locator('> div').first());
       expect(wrap.paddingTop).toBe(pad);
       expect(wrap.paddingBottom).toBe(pad);
       expect(wrap.paddingLeft).toBe(gutter);
       if (width === 1440) expect(wrap.width).toBe(1328);
     }
-  });
-
-  test('keeps text and controls legible on Bone', async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await open(page);
-    const ground = (await style(bone(page))).background;
-    const heading = await style(page.getByRole('heading', { name: 'The one Bone band' }));
-    const body = await style(page.getByText('Secondary text on Bone'));
-    expect(contrast(heading.color, ground)).toBeGreaterThan(17);
-    expect(contrast(body.color, ground)).toBeGreaterThan(6.9);
-    const input = await style(page.getByTestId('bone-input'));
-    expect(input.borderColor).toBe(FIELD_EDGE);
-    expect(contrast(input.borderColor, ground)).toBeGreaterThan(3.3);
-    const primary = await style(page.getByTestId('bone-primary'));
-    expect(contrast(primary.color, primary.background)).toBeGreaterThan(11);
-    // A secondary button brings its own fill. Its text is readable on that fill
-    // and on the hover fill. Its edge on Bone is 1.32:1, which DESIGN.md flags.
-    const secondary = page.getByTestId('bone-secondary');
-    const rest = await style(secondary);
-    expect(contrast(rest.color, rest.background)).toBeGreaterThan(18);
-    await secondary.hover();
-    await expect
-      .poll(async () => {
-        const hover = await style(secondary);
-        return contrast(hover.color, hover.background);
-      })
-      .toBeGreaterThan(11);
-    const ghost = page.getByTestId('bone-ghost');
-    await ghost.hover();
-    await expect.poll(async () => contrast((await style(ghost)).color, ground)).toBeGreaterThan(11);
-  });
-
-  test('meets the Forest footer with a flat edge and no gap', async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await open(page);
-    const band = await style(bone(page));
-    const footer = await style(page.locator('footer').last());
-    expect(Math.abs(footer.top - band.bottom)).toBeLessThanOrEqual(1);
-    expect(footer.background).not.toBe(BONE);
-    expect(contrast(footer.background, BONE)).toBeGreaterThan(13);
   });
 
   test('is axe clean and has no horizontal overflow at 320px', async ({ page }) => {
@@ -545,7 +495,8 @@ test.describe('bone band rendered (AECI-1766)', () => {
  * empty pair page the wide Statement. Every other page `h1`, About included, keeps the
  * global `h1` size (Headline, `--t-fig`). Each size is read off the rendered page and
  * compared with the token it should resolve to, at the four widths `DESIGN.md` §3
- * tabulates. The pixel table there is the second check.
+ * tabulates. The pixel table there is the second check. The product and vendor
+ * names run at 320px and 768px only (AECI-2027, see the comment on DETAIL_WIDTHS).
  */
 test.describe('hero title sizes, rendered (AECI-1847)', () => {
   const WIDTHS = [320, 768, 1280, 1920] as const;
@@ -635,8 +586,15 @@ test.describe('hero title sizes, rendered (AECI-1847)', () => {
     return slug!;
   }
 
-  async function check(page: Page, path: string, selector: string, token: (w: number) => Token) {
-    for (const [i, w] of WIDTHS.entries()) {
+  async function check(
+    page: Page,
+    path: string,
+    selector: string,
+    token: (w: number) => Token,
+    widths: readonly (typeof WIDTHS)[number][] = WIDTHS,
+  ) {
+    for (const w of widths) {
+      const i = WIDTHS.indexOf(w);
       await page.setViewportSize({ width: w, height: 900 });
       await page.goto(path);
       await expect(page.locator(selector).first()).toBeVisible();
@@ -652,16 +610,23 @@ test.describe('hero title sizes, rendered (AECI-1847)', () => {
     await check(page, '/', '[data-testid="home-hero-title"]', () => '--t-display');
   });
 
+  // AECI-2027: the detail title has no `lg` or `xl` step (`hero-band.ts`), so from md
+  // it always resolves to --t-display. The home hero test above checks the
+  // --t-display pixels at all four widths. 320px covers the Headline step below
+  // 360px, and 768px the Display step from md. No width here falls in the 360 to
+  // 767px band, so the Statement step is not tested on a real product or vendor page.
+  const DETAIL_WIDTHS = [320, 768] as const;
+
   test('the product name renders Display from md, Statement below, Headline below 360px', async ({
     page,
   }) => {
     const slug = await firstSlug(page, 'products');
-    await check(page, `/products/${slug}`, 'aec-hero-band h1 > span', detailToken);
+    await check(page, `/products/${slug}`, 'aec-hero-band h1 > span', detailToken, DETAIL_WIDTHS);
   });
 
   test('the vendor name renders the same steps as the product name', async ({ page }) => {
     const slug = await firstSlug(page, 'vendors');
-    await check(page, `/vendors/${slug}`, 'aec-hero-band h1 > span', detailToken);
+    await check(page, `/vendors/${slug}`, 'aec-hero-band h1 > span', detailToken, DETAIL_WIDTHS);
   });
 
   test('the pair page statement renders Statement', async ({ page }) => {

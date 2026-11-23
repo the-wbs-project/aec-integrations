@@ -7,8 +7,9 @@
  * sets `robots: noindex`. It never mutates on load — it renders a confirm button
  * and only POSTs to the non-cached `/api/unsubscribe` from the click. This pins the
  * 200 + non-cacheable headers, the noindex + self-referential canonical, the
- * SSR-rendered confirm prompt, the confirm → success / invalid-link states (with
- * `/api/unsubscribe` mocked), the token-less guidance, and a clean axe pass.
+ * SSR-rendered confirm prompt, the confirm → success state (with `/api/unsubscribe`
+ * mocked) on a clean console, and a clean axe pass. The invalid-link and token-less
+ * states are pinned in `unsubscribe.component.spec.ts`.
  */
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
@@ -36,21 +37,6 @@ test.describe('/unsubscribe — AECI-537', () => {
     expect(res.headers()['cache-tag']).toBeUndefined();
   });
 
-  test('is noindex with a self-referential (token-stripped) canonical', async ({
-    page,
-    request,
-  }) => {
-    const html = await (await request.get(TOKEN_PATH)).text();
-    expect(html).toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
-
-    await page.goto(TOKEN_PATH);
-    await expect(page).toHaveTitle('Unsubscribe · AEC Integrations');
-    const canonical = page.locator('head link[rel="canonical"]');
-    await expect(canonical).toHaveCount(1);
-    // Canonical drops the per-subscriber token (stripQueryParams).
-    await expect(canonical).toHaveAttribute('href', /\/unsubscribe$/);
-  });
-
   test('SSR-renders the confirm prompt (no auto-unsubscribe) when a token is present', async ({
     request,
   }) => {
@@ -59,35 +45,38 @@ test.describe('/unsubscribe — AECI-537', () => {
     expect(html).toContain('Unsubscribe');
   });
 
-  test('confirming shows the success state on { ok: true }', async ({ page }) => {
+  test('noindex, a clean console, then confirming shows the success state', async ({
+    page,
+    request,
+  }) => {
+    const capture = attachConsoleCapture(page);
     await mockUnsubscribe(page, true);
-    await page.goto(TOKEN_PATH);
-    await expect(page.locator('app-root')).toBeAttached();
-    await waitForHydrationSettle(page);
+    const res = await page.goto(TOKEN_PATH);
 
-    await page.getByRole('button', { name: 'Unsubscribe' }).click();
+    await test.step('is noindex with a self-referential (token-stripped) canonical', async () => {
+      const html = await (await request.get(TOKEN_PATH)).text();
+      expect(html).toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
 
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText(/You've been unsubscribed/);
-    await expect(page.getByRole('button', { name: 'Unsubscribe' })).toHaveCount(0);
-  });
+      await expect(page).toHaveTitle('Unsubscribe · AEC Integrations');
+      const canonical = page.locator('head link[rel="canonical"]');
+      await expect(canonical).toHaveCount(1);
+      // Canonical drops the per-subscriber token (stripQueryParams).
+      await expect(canonical).toHaveAttribute('href', /\/unsubscribe$/);
+    });
 
-  test('confirming shows the invalid-link state on { ok: false }', async ({ page }) => {
-    await mockUnsubscribe(page, false);
-    await page.goto(TOKEN_PATH);
-    await expect(page.locator('app-root')).toBeAttached();
-    await waitForHydrationSettle(page);
+    await test.step('renders with no console errors or page errors', async () => {
+      expect(res?.status()).toBe(200);
+      await expect(page.locator('app-root')).toBeAttached();
+      await waitForHydrationSettle(page);
+      expectConsoleClean(capture, `GET ${TOKEN_PATH}`);
+    });
 
-    await page.getByRole('button', { name: 'Unsubscribe' }).click();
+    await test.step('confirming shows the success state on { ok: true }', async () => {
+      await page.getByRole('button', { name: 'Unsubscribe' }).click();
 
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText(/no longer valid/);
-  });
-
-  test('a token-less visit shows guidance and no confirm button', async ({ page }) => {
-    await page.goto('/unsubscribe');
-    await expect(page.locator('app-root')).toBeAttached();
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Unsubscribe from updates');
-    // No opt-out control — scoped by name so site-chrome buttons don't count.
-    await expect(page.getByRole('button', { name: 'Unsubscribe' })).toHaveCount(0);
+      await expect(page.getByRole('heading', { level: 1 })).toHaveText(/You've been unsubscribed/);
+      await expect(page.getByRole('button', { name: 'Unsubscribe' })).toHaveCount(0);
+    });
   });
 
   test('has zero axe violations at WCAG AA', async ({ page }) => {
@@ -99,14 +88,5 @@ test.describe('/unsubscribe — AECI-537', () => {
       .analyze();
 
     expect(results.violations).toEqual([]);
-  });
-
-  test('renders with no console errors or page errors', async ({ page }) => {
-    const capture = attachConsoleCapture(page);
-    const res = await page.goto(TOKEN_PATH);
-    expect(res?.status()).toBe(200);
-    await expect(page.locator('app-root')).toBeAttached();
-    await waitForHydrationSettle(page);
-    expectConsoleClean(capture, `GET ${TOKEN_PATH}`);
   });
 });

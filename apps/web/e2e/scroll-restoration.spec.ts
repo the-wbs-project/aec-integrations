@@ -3,6 +3,7 @@ import { expect, test, type Page, type Response } from '@playwright/test';
 import { waitForHydrationSettle } from './console-capture';
 import { FAKE_PRODUCTS, FAKE_VENDORS, routeFakeAlgolia } from './fake-algolia';
 import { untilHydrated } from './hydration';
+import { sectionNavProduct } from './section-nav-product';
 
 // Scroll restoration on navigation. A client-side (SPA) navigation is a
 // same-document navigation, so without router scroll restoration the browser
@@ -20,11 +21,13 @@ import { untilHydrated } from './hydration';
 //
 // AECI-1630. A click on an SSR-rendered row link before hydration is not dropped:
 // the browser follows the `href` as a full document load. That load opens at the
-// top on its own, and Back then loads a fresh /products at the top too. So the
-// "opens at the top" test passed without testing anything, and the Back test
+// top on its own, and Back then loads a fresh /products at the top too. So an
+// "opens at the top" check passed without testing anything, and a Back check
 // failed with scrollY 0. `scrollListingThenClickThrough` waits for a quiet network
 // before the click, then checks a window marker survived it. Retrying from `goto`
 // without the wait does not converge under load (TESTING_STRATEGY §14.3 (a)).
+// Its user is "Back after a route change restores the position without
+// animation", which asserts the top on the way in and the restore on Back.
 
 const DOC_MARKER = '__aeciDoc';
 
@@ -168,17 +171,10 @@ async function scrollListingThenClickThrough(page: Page, maxAttempts = 4): Promi
 }
 
 test.describe('scroll restoration on navigation', () => {
-  test('a client-side navigation to a detail page opens at the top', async ({ page }) => {
-    await scrollListingThenClickThrough(page);
-
-    // The fix: the new route opens scrolled to the top, not at the carried offset.
-    await expect
-      .poll(() => page.evaluate(() => Math.round(window.scrollY)), {
-        message: 'detail page must open scrolled to the top',
-      })
-      .toBe(0);
-  });
-
+  // AECI-2027 removed "a client-side navigation to a detail page opens at the
+  // top" and "Back restores the previous page scroll position". Both are asserted
+  // by "Back after a route change restores the position without animation" below.
+  //
   // AECI-1629. Angular's `RouterScroller` skips its scroll reset for every
   // navigation that ends before the app is first stable (its `isHydrating` flag
   // clears on `ApplicationRef.whenStable()`), and any in-flight `httpResource` keeps
@@ -207,6 +203,8 @@ test.describe('scroll restoration on navigation', () => {
     await firstProductLink.waitFor({ state: 'attached', timeout: 15000 }).catch(() => {});
     test.skip((await firstProductLink.count()) === 0, 'no products seeded in this environment');
     // The facets fetch can start a moment after the rows render.
+    // The timeout below is a cap, not a sleep. `facetsHeld` is the condition. The
+    // race only bounds how long the test waits for a fetch that may never start.
     const held = await Promise.race([
       facetsHeld.then(() => true),
       page.waitForTimeout(5000).then(() => false),
@@ -242,25 +240,6 @@ test.describe('scroll restoration on navigation', () => {
     } finally {
       releaseFacets();
     }
-  });
-
-  test('Back restores the previous page scroll position', async ({ page }) => {
-    const saved = await scrollListingThenClickThrough(page);
-    await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBe(0);
-
-    await page.goBack();
-    await expect(page).toHaveURL(/\/products$/, { timeout: 15_000 });
-    // A Back that reloaded the document would open at the top for its own reasons.
-    expect(await documentMarked(page), 'Back must stay in the same document').toBe(true);
-
-    // AECI-1900: the offset the reader left, not just "somewhere below the top".
-    // Before the fix the listing had no rows when the router restored, so the
-    // page was too short and the reader landed elsewhere.
-    const restored = await layoutSettled(page);
-    expect(
-      Math.abs(restored - saved),
-      `Back must restore ${saved}, landed at ${restored}`,
-    ).toBeLessThanOrEqual(RESTORE_TOLERANCE_PX);
   });
 });
 
@@ -492,14 +471,9 @@ function busiest(terms: FacetTerm[]): FacetTerm[] {
 
 type FilteredCase = { name: string; url: (page: Page) => Promise<string | null> };
 
+// AECI-2027 dropped "/products with one filter". The two-filter case runs the same page and
+// store, with a CSV param. The term-page case covers a single-value filter param.
 const FILTERED: FilteredCase[] = [
-  {
-    name: '/products with one filter',
-    url: async (page) => {
-      const [phase] = busiest((await facetCounts(page)).phases);
-      return phase ? `/products?phase_id=${phase.id}` : null;
-    },
-  },
   {
     name: '/products with two filters',
     url: async (page) => {
@@ -585,20 +559,11 @@ test.describe('Back returns the reader to their place in a filtered listing (AEC
 type FilterClick = { group: string; name: string };
 type FilterPlan = { start: string; clicks: FilterClick[]; end: string };
 
+// AECI-2027 dropped "/products with one filter". The two-filter case clicks the same first
+// filter, then a second. The term-page case covers one click. Back across a filter click to
+// bare /products is covered by "/products: Back across a filter click keeps the "Load more"
+// pages" below.
 const FILTER_PLANS: { name: string; plan: (page: Page) => Promise<FilterPlan | null> }[] = [
-  {
-    name: '/products with one filter',
-    plan: async (page) => {
-      const [phase] = busiest((await facetCounts(page)).phases);
-      return phase
-        ? {
-            start: '/products',
-            clicks: [{ group: 'Phases', name: phase.name }],
-            end: `/products?phase_id=${phase.id}`,
-          }
-        : null;
-    },
-  },
   {
     name: '/products with two filters',
     plan: async (page) => {
@@ -969,7 +934,10 @@ test.describe('Back and Forward return the reader to their place on /search', ()
       },
     },
   ]) {
-    for (const where of SEARCH_DEPTHS) {
+    // AECI-2027 kept only the "Load more" depth on the filtered tabs. Back to it also
+    // restores page 1's rows, which come first. A page-1 position is covered by
+    // "/search?q=: Back and Forward restore a position on page 1" above.
+    for (const where of SEARCH_DEPTHS.filter((d) => d.pages === 2)) {
       test(`${tab.name} tab with a filter: Back restores ${where.label}`, async ({ page }) => {
         await routeFakeAlgolia(page, { delayMs: 300 });
         await openSearchFromHeader(page);
@@ -998,54 +966,12 @@ test.describe('Back and Forward return the reader to their place on /search', ()
 // Initial-load fragment scrolling. `withInMemoryScrolling` sets
 // `history.scrollRestoration = 'manual'` (disabling the browser's native fragment
 // scroll) and the router's anchor scrolling does NOT fire on the initial hydration
-// navigation — so a reload or externally-shared deep link to `…#integrations` would
+// navigation — so a reload or externally-shared deep link to a section would
 // land at the top of the page. `InitialFragmentScroller` (app.ts) fixes it by
-// scrolling to the fragment on the first NavigationEnd, honoring the section's
-// `scroll-mt-20` (via `scrollIntoView`).
-test.describe('initial-load fragment scrolling', () => {
-  test('a deep link to #integrations opens scrolled to that section', async ({ page }) => {
-    // Find a real product slug (env-independent — skip if nothing is seeded).
-    await page.goto('/products');
-    await expect(page.locator('app-root')).toBeAttached();
-    const firstProductLink = page.locator('#main a[href^="/products/"]').first();
-    await firstProductLink.waitFor({ state: 'attached', timeout: 15000 }).catch(() => {});
-    test.skip((await firstProductLink.count()) === 0, 'no products seeded in this environment');
-    const href = await firstProductLink.getAttribute('href');
-    test.skip(!href, 'product link has no href');
-
-    // Full-document load of the hashed URL — the reload / external-deep-link case.
-    await page.goto(`${href}#integrations`);
-    await expect(page.locator('aec-product-detail')).toBeVisible();
-
-    const section = page.locator('#integrations');
-    await expect(section).toBeAttached();
-
-    // Only meaningful when the section starts below the fold; a short product
-    // (empty integrations, no description) can render it above the fold already.
-    const absTop = await section.evaluate((el) =>
-      Math.round(el.getBoundingClientRect().top + window.scrollY),
-    );
-    const viewportHeight = page.viewportSize()?.height ?? 0;
-    test.skip(
-      absTop <= viewportHeight,
-      'integrations section is above the fold on this product; deep-link scroll is not observable',
-    );
-
-    // The fix: the page opens scrolled so the section is in view near the top,
-    // its `scroll-mt-20` (5rem/80px) clearing the sticky section-nav.
-    await expect(section).toBeInViewport();
-    await expect
-      .poll(() => page.evaluate(() => Math.round(window.scrollY)), {
-        message: 'deep link to #integrations must scroll down to the section, not stay at the top',
-      })
-      .toBeGreaterThan(0);
-    const sectionViewportTop = await section.evaluate((el) =>
-      Math.round(el.getBoundingClientRect().top),
-    );
-    expect(sectionViewportTop).toBeGreaterThanOrEqual(0);
-    expect(sectionViewportTop).toBeLessThan(160);
-  });
-});
+// scrolling to the fragment on the first NavigationEnd. AECI-2027 removed the
+// `#integrations` deep-link test here. Its cover is `section-nav.spec.ts` "a deep
+// link lands the section below the bar and marks it current", which loads a fresh
+// document at `#reviews` on a product tall enough to scroll.
 
 // In-page section-nav jumps. `SectionNav` renders plain `<a href="{path}#id">`
 // anchors so the browser scrolls natively, honoring each section's `scroll-mt-20`
@@ -1054,18 +980,35 @@ test.describe('initial-load fragment scrolling', () => {
 // same fragment right after. Angular's stock `ViewportScroller.scrollToAnchor()`
 // ignores `scroll-margin-top`, so that second scroll overshot by 80px and parked
 // the section's <h2> underneath the sticky nav. `ScrollMarginViewportScroller`
-// (app.config.ts) now skips it; this asserts the heading stays visible.
+// (app.config.ts) now skips it. "a section-nav click animates and lands the
+// section below the nav" asserts the heading stays clear of the nav. AECI-2027
+// removed the separate test that checked only that.
 //
 // The candidate walk matters: the thin local seed puts short products (no
 // description, no integrations) at the head of the index, and a page that cannot
-// scroll cannot show this defect. Taking `.first()` like the tests above would
+// scroll cannot show this defect. Taking `.first()` from the listing would
 // silently skip on every local run.
 /**
- * Walks the first few seeded products until one renders a section-nav with an
- * Integrations entry on a page tall enough to scroll, and leaves the page open.
- * Skips the test when none does.
+ * Opens the seeded product that `section-nav-product.ts` finds once per worker
+ * (AECI-2027): a section-nav with an Integrations entry, on a page tall enough
+ * to scroll. Skips the test when no product qualifies.
  */
 async function openProductWithIntegrationsJump(page: Page): Promise<string> {
+  const { seeded, path } = await sectionNavProduct(page);
+  test.skip(!seeded, 'no products seeded in this environment');
+  test.skip(!path, 'no seeded product is tall enough to jump to #integrations');
+  await page.goto(path!);
+  await expect(page.locator('aec-product-detail')).toBeVisible();
+  return path!;
+}
+
+/**
+ * The per-test walk, kept for the one case tracked by AECI-2016. Walks the first
+ * few seeded products until one renders a section-nav with an Integrations entry
+ * on a page tall enough to scroll, and leaves the page open. Skips the test when
+ * none does.
+ */
+async function walkToProductWithIntegrationsJump(page: Page): Promise<string> {
   await page.goto('/products');
   await expect(page.locator('app-root')).toBeAttached();
   const productLinks = page.locator('#main a[href^="/products/"]');
@@ -1098,37 +1041,6 @@ async function openProductWithIntegrationsJump(page: Page): Promise<string> {
   test.skip(!usable, 'no seeded product is tall enough to jump to #integrations');
   return usable!;
 }
-
-test.describe('section-nav jumps clear the sticky nav', () => {
-  test('clicking "Integrations" leaves the section heading below the nav', async ({ page }) => {
-    await openProductWithIntegrationsJump(page);
-
-    const nav = page.locator('aec-section-nav');
-    await nav.locator('a[href$="#integrations"]').click();
-    await expect(page).toHaveURL(/#integrations$/);
-
-    const heading = page.locator('#integrations-title');
-    await expect(heading).toBeAttached();
-
-    // The regression: the heading must land BELOW the sticky nav's bottom edge,
-    // not flush with the viewport top where the nav covers it. Angular's stock
-    // scroller overshot by the section's `scroll-mt-20`, putting this at -50.
-    await expect
-      .poll(
-        async () => {
-          const navBottom = await nav.evaluate((el) =>
-            Math.round(el.getBoundingClientRect().bottom),
-          );
-          const headingTop = await heading.evaluate((el) =>
-            Math.round(el.getBoundingClientRect().top),
-          );
-          return headingTop - navBottom;
-        },
-        { message: 'the Integrations heading must not sit underneath the sticky section-nav' },
-      )
-      .toBeGreaterThanOrEqual(0);
-  });
-});
 
 // AECI-1752. Smooth scrolling is scoped to in-page section links (clash 38 of
 // ADR 0059): `html { scroll-behavior: smooth }` is gone, and `InPageSmoothScroll`
@@ -1407,7 +1319,8 @@ test.describe('smooth scrolling is scoped to in-page section links', () => {
 
   test('under reduced motion a section-nav click jumps instantly', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await openProductWithIntegrationsJump(page);
+    // Left on the per-test walk until the flaky-test issue AECI-2016 is closed.
+    await walkToProductWithIntegrationsJump(page);
     const nav = page.locator('aec-section-nav');
     await untilHydrated(nav);
 

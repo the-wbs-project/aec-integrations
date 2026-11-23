@@ -110,24 +110,73 @@ test.describe('vendor dashboard — authed /vendor (AECI-522)', () => {
     await context.addCookies(sessionCookies!);
   });
 
-  test('/vendor redirects to the slugged dashboard and hydrates with no console errors', async ({
+  // One page load for the redirect and the live-region contract (AECI-2027). The console
+  // capture stays on through the section walk, so every section page must be clean too.
+  test('/vendor redirects, hydrates with no console errors, and keeps one live region', async ({
     page,
   }) => {
     const capture = attachConsoleCapture(page);
     const res = await page.goto('/vendor');
-    expect(res?.status()).toBe(200);
-    // Bare `/vendor` resolves the caller's own vendor and redirects, so the
-    // address that ends up in the bar names the vendor and the section. Under
-    // SSR that is a real 302 (Angular emits one when the router's final URL
-    // differs from the requested one), which `page.goto` follows.
-    await expect(page).toHaveURL(/\/vendor\/[a-z0-9-]+\/overview$/);
-    // `aec-vendor-dashboard-tabbed` renders only for an authorized vendor admin;
-    // a non-vendor (401/403) 404s to the not-found shell, failing loudly if the
-    // D1 vendor_admin profile is missing or its vendor_id is null.
-    await expect(page.locator('aec-vendor-page')).toBeAttached();
-    await expect(page.locator('aec-vendor-dashboard-tabbed')).toBeAttached();
-    await waitForHydrationSettle(page);
-    expectConsoleClean(capture, 'GET /vendor');
+    await test.step('/vendor redirects to the slugged dashboard and hydrates with no console errors', async () => {
+      expect(res?.status()).toBe(200);
+      // Bare `/vendor` resolves the caller's own vendor and redirects, so the
+      // address that ends up in the bar names the vendor and the section. Under
+      // SSR that is a real 302 (Angular emits one when the router's final URL
+      // differs from the requested one), which `page.goto` follows.
+      await expect(page).toHaveURL(/\/vendor\/[a-z0-9-]+\/overview$/);
+      // `aec-vendor-dashboard-tabbed` renders only for an authorized vendor admin;
+      // a non-vendor (401/403) 404s to the not-found shell, failing loudly if the
+      // D1 vendor_admin profile is missing or its vendor_id is null.
+      await expect(page.locator('aec-vendor-page')).toBeAttached();
+      await expect(page.locator('aec-vendor-dashboard-tabbed')).toBeAttached();
+      await waitForHydrationSettle(page);
+      expectConsoleClean(capture, 'GET /vendor');
+    });
+
+    // AECI-632: the live surface's a11y contract (§6.3 / §6.6).
+    await test.step('the dashboard shell carries exactly one polite, sr-only live region', async () => {
+      // Present from FIRST PAINT, on the default Vendor Overview section — before any
+      // section fetch has landed. That is what the hoist bought: the region used
+      // to live inside the Integrations tab and only existed once
+      // `GET /api/vendor/integrations` had resolved, so a message fired before
+      // then had nowhere to land.
+      const region = page.locator(ANNOUNCER);
+      await expect(region).toHaveCount(1);
+      await expect(region).toBeAttached();
+
+      // Polite, never assertive: a background revalidation is not an interruption
+      // (§6.3). `role="status"` implies `aria-live="polite"`, so the assertion
+      // that matters is that nothing has overridden it upward.
+      await expect(region).not.toHaveAttribute('aria-live', 'assertive');
+
+      // sr-only is what satisfies the no-layout-shift rule — an announcement
+      // occupies no space, so it can never move a control out from under a
+      // pointer already travelling toward it. Playwright counts the `sr-only`
+      // clip technique (a 1px, clipped, but rendered box) as "visible", so assert
+      // the property that actually matters here: the region collapses to no usable
+      // layout area, and therefore cannot shift anything around it.
+      const box = await region.boundingBox();
+      expect(box?.width ?? 0).toBeLessThanOrEqual(1);
+      expect(box?.height ?? 0).toBeLessThanOrEqual(1);
+
+      // At rest on Vendor Overview, the channel is the ONLY live region on the page:
+      // none of the four conditional `role="status"` paragraphs (§6.5) render
+      // until a save succeeds or a form finds a conflict. A second one here means
+      // someone added a region rather than announcing through the channel.
+      await expect(page.locator('[role="status"]')).toHaveCount(1);
+
+      // The region is in the shell, so it survives every section navigation. A
+      // region that lived in a section would be destroyed mid-announcement when
+      // the outlet swapped — and a duplicate would appear if a section declared
+      // its own. Integrations moved under a product (AECI-666), so it is no longer a
+      // portal section; Messages took its slot. The shell-level invariant this test
+      // guards is unchanged by that move.
+      for (const name of ['Profile', 'Products', 'Messages', 'Seats', 'Vendor Overview']) {
+        await section(page, name).click();
+        await expect(page.locator(ANNOUNCER)).toHaveCount(1);
+      }
+    });
+    expectConsoleClean(capture, 'GET /vendor, then each portal section');
   });
 
   test('editing the vendor profile saves through /api/vendor/profile', async ({ page }) => {
@@ -239,53 +288,5 @@ test.describe('vendor dashboard — authed /vendor (AECI-522)', () => {
     await yes.click();
     await expect(yes).toHaveAttribute('aria-pressed', 'false');
     await expect(page.locator(ANNOUNCER)).toContainText('your answer is cleared');
-  });
-
-  // ─── AECI-632 — the live surface's a11y contract (§6.3 / §6.6) ────────────
-
-  test('the dashboard shell carries exactly one polite, sr-only live region', async ({ page }) => {
-    await page.goto('/vendor');
-    await expect(page.locator('aec-vendor-dashboard-tabbed')).toBeAttached();
-
-    // Present from FIRST PAINT, on the default Vendor Overview section — before any
-    // section fetch has landed. That is what the hoist bought: the region used
-    // to live inside the Integrations tab and only existed once
-    // `GET /api/vendor/integrations` had resolved, so a message fired before
-    // then had nowhere to land.
-    const region = page.locator(ANNOUNCER);
-    await expect(region).toHaveCount(1);
-    await expect(region).toBeAttached();
-
-    // Polite, never assertive: a background revalidation is not an interruption
-    // (§6.3). `role="status"` implies `aria-live="polite"`, so the assertion
-    // that matters is that nothing has overridden it upward.
-    await expect(region).not.toHaveAttribute('aria-live', 'assertive');
-
-    // sr-only is what satisfies the no-layout-shift rule — an announcement
-    // occupies no space, so it can never move a control out from under a
-    // pointer already travelling toward it. Playwright counts the `sr-only`
-    // clip technique (a 1px, clipped, but rendered box) as "visible", so assert
-    // the property that actually matters here: the region collapses to no usable
-    // layout area, and therefore cannot shift anything around it.
-    const box = await region.boundingBox();
-    expect(box?.width ?? 0).toBeLessThanOrEqual(1);
-    expect(box?.height ?? 0).toBeLessThanOrEqual(1);
-
-    // At rest on Vendor Overview, the channel is the ONLY live region on the page:
-    // none of the four conditional `role="status"` paragraphs (§6.5) render
-    // until a save succeeds or a form finds a conflict. A second one here means
-    // someone added a region rather than announcing through the channel.
-    await expect(page.locator('[role="status"]')).toHaveCount(1);
-
-    // The region is in the shell, so it survives every section navigation. A
-    // region that lived in a section would be destroyed mid-announcement when
-    // the outlet swapped — and a duplicate would appear if a section declared
-    // its own. Integrations moved under a product (AECI-666), so it is no longer a
-    // portal section; Messages took its slot. The shell-level invariant this test
-    // guards is unchanged by that move.
-    for (const name of ['Profile', 'Products', 'Messages', 'Seats', 'Vendor Overview']) {
-      await section(page, name).click();
-      await expect(page.locator(ANNOUNCER)).toHaveCount(1);
-    }
   });
 });

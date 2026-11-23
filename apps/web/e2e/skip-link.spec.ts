@@ -8,15 +8,16 @@ import { untilHydrated } from './hydration';
 const PAGES = ['/docs', '/docs/reviewers/requests-and-corrections', '/legal/terms'];
 
 // Listing, pair and search routes keep query params in the SSR href (AECI-1839).
+// One listing case runs (AECI-2027): the utm case below takes the same route and
+// runtime branch, and `skip-link.component.spec.ts` pins the page and sort href.
 const QUERY_CASES: readonly [string, string][] = [
-  ['/products?page=2&sort=name', '/products?page=2&sort=name#main'],
   [
     '/products/revit/integrations/procore?view=basic',
     '/products/revit/integrations/procore?view=basic#main',
   ],
   ['/search?q=x', '/search?q=x#main'],
-  // AECI-1848 — an email token page is never cached, so the token survives the SSR href.
-  ['/unsubscribe?token=x', '/unsubscribe?token=x#main'],
+  // AECI-1848: the /unsubscribe token case is pinned by the Enter test below, which follows
+  // the SSR href with JavaScript off and lands on ?token=x#main.
   // AECI-1848 review — /contact is not edge-cached, so its 200 render keeps the topic.
   ['/contact?topic=add-product', '/contact?topic=add-product#main'],
   ['/products?utm_source=x&page=2', '/products?page=2#main'],
@@ -83,6 +84,29 @@ test.describe('skip link (AECI-1839)', () => {
 
       await page.keyboard.press('Tab');
       await expect(link).toBeFocused();
+
+      // AECI-1777, folded in here for /docs (AECI-2027): the focused skip link is a 44px
+      // target with the 12px control radius and a 3px ring at a 3px offset.
+      if (target === '/docs') {
+        await test.step('is 44px high with a 12px radius and a 3px ring when focused', async () => {
+          const style = await link.evaluate((el) => {
+            const s = getComputedStyle(el);
+            return {
+              height: el.getBoundingClientRect().height,
+              radius: s.borderTopLeftRadius,
+              outlineWidth: s.outlineWidth,
+              outlineStyle: s.outlineStyle,
+              outlineOffset: s.outlineOffset,
+            };
+          });
+          expect(style.height).toBe(44);
+          expect(style.radius).toBe('12px');
+          expect(style.outlineStyle).toBe('solid');
+          expect(style.outlineWidth).toBe('3px');
+          expect(style.outlineOffset).toBe('3px');
+        });
+      }
+
       await page.keyboard.press('Enter');
 
       await expect(page.locator('main#main')).toBeFocused();
@@ -93,30 +117,6 @@ test.describe('skip link (AECI-1839)', () => {
       expect(documentLoads).toBe(0);
     });
   }
-
-  // AECI-1777: the focused skip link is a 44px target with the 12px control radius and a
-  // 3px ring at a 3px offset.
-  test('is 44px high with a 12px radius and a 3px ring when focused', async ({ page }) => {
-    await page.goto('/docs');
-    const link = page.getByRole('link', { name: 'Skip to main content' });
-    await page.keyboard.press('Tab');
-    await expect(link).toBeFocused();
-    const style = await link.evaluate((el) => {
-      const s = getComputedStyle(el);
-      return {
-        height: el.getBoundingClientRect().height,
-        radius: s.borderTopLeftRadius,
-        outlineWidth: s.outlineWidth,
-        outlineStyle: s.outlineStyle,
-        outlineOffset: s.outlineOffset,
-      };
-    });
-    expect(style.height).toBe(44);
-    expect(style.radius).toBe('12px');
-    expect(style.outlineStyle).toBe('solid');
-    expect(style.outlineWidth).toBe('3px');
-    expect(style.outlineOffset).toBe('3px');
-  });
 
   test('still correct after a client-side navigation', async ({ page, request }) => {
     const product = await firstProductPath(request);

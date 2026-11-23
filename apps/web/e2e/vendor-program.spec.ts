@@ -95,23 +95,6 @@ test.describe('/vendor-program — AECI-1283 to 1287', () => {
     expect(res.headers()['location'] ?? '').toMatch(/\/products$/);
   });
 
-  test('one h1, then one h2 per section in the section 3 order', async ({ page }) => {
-    await page.goto('/vendor-program');
-    const headings = await page
-      .locator('main h1, main h2')
-      .evaluateAll((all) => all.map((h) => `${h.tagName}:${h.textContent?.trim()}`));
-    expect(headings).toEqual([
-      'H1:Your products may already be listed here. Make sure buyers read your version.',
-      'H2:What changes when you claim',
-      'H2:What a free claim gets you',
-      'H2:What Managed adds',
-      'H2:Free and Managed',
-      'H2:How listings are sorted',
-      'H2:Questions vendors ask',
-      'H2:Tell the full story of your product',
-    ]);
-  });
-
   test('the hero pair sits on the first screen at 375px and at desktop', async ({ page }) => {
     for (const size of [
       { width: 375, height: 667 },
@@ -126,26 +109,6 @@ test.describe('/vendor-program — AECI-1283 to 1287', () => {
       });
       await expect(hero.getByRole('link', { name: 'Contact us' })).toHaveCount(0);
     }
-  });
-
-  // AECI-1293: the hero claim opens the claim dialog in place. Its href is the
-  // no-JS target, the search page (2026-10-12, when Find your product was removed).
-  test('the hero claim opens the claim dialog, with the search page as its no-JS target', async ({
-    page,
-  }) => {
-    await page.goto('/vendor-program');
-    await waitForHydrationSettle(page);
-    const claim = page
-      .locator('aec-plan-cta-actions')
-      .getByRole('link', { name: 'Claim your listing' });
-    await expect(claim).toHaveAttribute('href', '/search');
-    await expect(async () => {
-      await claim.click();
-      await expect(page.getByRole('dialog', { name: 'Claim your company' })).toBeVisible({
-        timeout: 2000,
-      });
-    }).toPass();
-    await expect(page).toHaveURL(/\/vendor-program$/);
   });
 
   // AECI-1285's e2e: the phone bar hides while a full call to action is on screen
@@ -206,8 +169,10 @@ test.describe('/vendor-program — AECI-1283 to 1287', () => {
   });
 
   // Full width at desktop (spec section 11, 2026-10-12): no rail, and no section
-  // leaves the right half of the container blank.
-  for (const width of [1024, 1280, 1440]) {
+  // leaves the right half of the container blank. 1024px starts the `lg` band, where
+  // the split layouts begin and the room is tightest. 1440px is past the 1328px page
+  // wrap, the widest layout. 1280px sits inside the same band and proved nothing new.
+  for (const width of [1024, 1440]) {
     test(`at ${width}px every section reaches the right half, with no rail`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await page.goto('/vendor-program');
@@ -252,53 +217,115 @@ test.describe('/vendor-program — AECI-1283 to 1287', () => {
     });
   }
 
-  // Ruling 2026-10-12: a docs link opens a new tab on the real docs page, and its
-  // href survives <base href>. The claim links stay in this tab.
-  test('docs links open the docs in a new tab', async ({ page, context }) => {
-    await page.goto('/vendor-program');
-    await waitForHydrationSettle(page);
-    const link = page.locator('#vp-sorting').getByRole('link', { name: /How ranking works/ });
-    await expect(link).toHaveAttribute('href', '/docs/trust/how-ranking-works');
-    const [tab] = await Promise.all([context.waitForEvent('page'), link.click()]);
-    await tab.waitForLoadState();
-    expect(new URL(tab.url()).pathname).toBe('/docs/trust/how-ranking-works');
-    await expect(page).toHaveURL(/\/vendor-program$/);
-    await tab.close();
-  });
-
-  // Ruling A7 (2026-11-16): the plan cards take the shared card frame. The Managed
-  // card keeps its 2px Forest border, and the buttons stay one width and one line.
-  test('the plan cards are the shared card, the Managed one with a 2px Forest border', async ({
+  // One desktop page load serves five checks. The hero claim runs last because it
+  // opens the claim dialog over the page.
+  test('at desktop: headings, plan cards, closing panel, docs link, then the hero claim', async ({
     page,
+    context,
   }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto('/vendor-program');
-    await page.waitForFunction(() => document.getAnimations().length === 0);
-    const frame = (plan: string) =>
-      page.locator(`aec-plan-cards [data-plan-card="${plan}"]`).evaluate((e) => {
-        const c = getComputedStyle(e);
-        return {
-          radius: c.borderTopLeftRadius,
-          border: c.borderTopWidth,
-          shadow: c.boxShadow !== 'none',
-        };
+    await waitForHydrationSettle(page);
+
+    await test.step('one h1, then one h2 per section in the section 3 order', async () => {
+      const headings = await page
+        .locator('main h1, main h2')
+        .evaluateAll((all) => all.map((h) => `${h.tagName}:${h.textContent?.trim()}`));
+      expect(headings).toEqual([
+        'H1:Your products may already be listed here. Make sure buyers read your version.',
+        'H2:What changes when you claim',
+        'H2:What a free claim gets you',
+        'H2:What Managed adds',
+        'H2:Free and Managed',
+        'H2:How listings are sorted',
+        'H2:Questions vendors ask',
+        'H2:Tell the full story of your product',
+      ]);
+    });
+
+    // Ruling A7 (2026-11-16): the plan cards take the shared card frame. The Managed
+    // card keeps its 2px Forest border, and the buttons stay one width and one line.
+    await test.step('the plan cards are the shared card, the Managed one with a 2px Forest border', async () => {
+      await page.waitForFunction(() => document.getAnimations().length === 0);
+      const frame = (plan: string) =>
+        page.locator(`aec-plan-cards [data-plan-card="${plan}"]`).evaluate((e) => {
+          const c = getComputedStyle(e);
+          return {
+            radius: c.borderTopLeftRadius,
+            border: c.borderTopWidth,
+            shadow: c.boxShadow !== 'none',
+          };
+        });
+      expect(await frame('free')).toEqual({ radius: '24px', border: '1px', shadow: true });
+      expect(await frame('managed')).toEqual({ radius: '24px', border: '2px', shadow: true });
+      const managedColor = await page
+        .locator('aec-plan-cards [data-plan-card="managed"]')
+        .evaluate((e) => {
+          const ctx = document.createElement('canvas').getContext('2d')!;
+          ctx.fillStyle = getComputedStyle(e).borderTopColor;
+          ctx.fillRect(0, 0, 1, 1);
+          return [...ctx.getImageData(0, 0, 1, 1).data.slice(0, 3)].join(',');
+        });
+      expect(managedColor).toBe('30,58,47');
+      const buttons = page.locator('aec-plan-cards [data-plan-card] a[aecButton]');
+      const [a, b] = [(await buttons.nth(0).boundingBox())!, (await buttons.nth(1).boundingBox())!];
+      expect(a.width).toBe(b.width);
+      expect(a.y).toBe(b.y);
+    });
+
+    await test.step('the closing panel is the one Forest card, in Bone ink', async () => {
+      const panel = page.locator('aec-plan-cta-panel section');
+      const [ground, ink, radius] = await panel.evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return [cs.backgroundColor, cs.color, cs.borderTopLeftRadius];
       });
-    expect(await frame('free')).toEqual({ radius: '24px', border: '1px', shadow: true });
-    expect(await frame('managed')).toEqual({ radius: '24px', border: '2px', shadow: true });
-    const managedColor = await page
-      .locator('aec-plan-cards [data-plan-card="managed"]')
-      .evaluate((e) => {
-        const ctx = document.createElement('canvas').getContext('2d')!;
-        ctx.fillStyle = getComputedStyle(e).borderTopColor;
-        ctx.fillRect(0, 0, 1, 1);
-        return [...ctx.getImageData(0, 0, 1, 1).data.slice(0, 3)].join(',');
-      });
-    expect(managedColor).toBe('30,58,47');
-    const buttons = page.locator('aec-plan-cards [data-plan-card] a[aecButton]');
-    const [a, b] = [(await buttons.nth(0).boundingBox())!, (await buttons.nth(1).boundingBox())!];
-    expect(a.width).toBe(b.width);
-    expect(a.y).toBe(b.y);
+      const token = (name: string) =>
+        page.evaluate((n) => {
+          const probe = document.createElement('div');
+          probe.style.color = `var(${n})`;
+          document.body.appendChild(probe);
+          const value = getComputedStyle(probe).color;
+          probe.remove();
+          return value;
+        }, name);
+      expect(ground).toBe(await token('--accent-primary'));
+      expect(ink).toBe(await token('--text-on-brand'));
+      expect(radius).toBe('24px');
+      const heading = page.locator('#plans-cta-heading');
+      expect(await heading.evaluate((el) => getComputedStyle(el).color)).toBe(
+        await token('--text-on-brand'),
+      );
+    });
+
+    // Ruling 2026-10-12: a docs link opens a new tab on the real docs page, and its
+    // href survives <base href>. The claim links stay in this tab.
+    await test.step('docs links open the docs in a new tab', async () => {
+      const link = page.locator('#vp-sorting').getByRole('link', { name: /How ranking works/ });
+      await expect(link).toHaveAttribute('href', '/docs/trust/how-ranking-works');
+      const [tab] = await Promise.all([context.waitForEvent('page'), link.click()]);
+      await tab.waitForLoadState();
+      expect(new URL(tab.url()).pathname).toBe('/docs/trust/how-ranking-works');
+      await expect(page).toHaveURL(/\/vendor-program$/);
+      await tab.close();
+    });
+
+    // AECI-1293: the hero claim opens the claim dialog in place. Its href is the
+    // no-JS target, the search page (2026-10-12, when Find your product was removed).
+    await test.step('the hero claim opens the claim dialog, with the search page as its no-JS target', async () => {
+      const claim = page
+        .locator('aec-plan-cta-actions')
+        .getByRole('link', { name: 'Claim your listing' });
+      await expect(claim).toHaveAttribute('href', '/search');
+      await expect(async () => {
+        await claim.click();
+        await expect(page.getByRole('dialog', { name: 'Claim your company' })).toBeVisible({
+          timeout: 2000,
+        });
+      }).toPass();
+      await expect(page).toHaveURL(/\/vendor-program$/);
+    });
   });
+
   // AECI-1802: the /about recipe. One Bone band (the hero), one Forest feature card
   // (the closing panel), and nothing scrolls sideways on a phone. The listing request
   // page has no Bone band since the AECI-1720 layout pass: its form comes first.
@@ -306,42 +333,16 @@ test.describe('/vendor-program — AECI-1283 to 1287', () => {
     ['/vendor-program', 1],
     ['/vendor-program/list-your-product', 0],
   ] as const) {
-    for (const width of [320, 390]) {
-      test(`${path} has ${bands} Bone band and fits at ${width}px`, async ({ page }) => {
-        await page.setViewportSize({ width, height: 900 });
-        await page.goto(path);
-        await waitForHydrationSettle(page);
-        await expect(page.locator('.aec-bone-band')).toHaveCount(bands);
-        await expect(page.locator('h1')).toHaveCount(1);
-        await expect(page.locator('aec-bone-band h1')).toHaveCount(bands);
-        await expectNoSidewaysScroll(page);
-      });
-    }
-  }
-
-  test('the closing panel is the one Forest card, in Bone ink', async ({ page }) => {
-    await page.goto('/vendor-program');
-    await waitForHydrationSettle(page);
-    const panel = page.locator('aec-plan-cta-panel section');
-    const [ground, ink, radius] = await panel.evaluate((el) => {
-      const cs = getComputedStyle(el);
-      return [cs.backgroundColor, cs.color, cs.borderTopLeftRadius];
+    // 320px only: no breakpoint sits between 320 and 390, and the band count does not
+    // depend on width.
+    test(`${path} has ${bands} Bone band and fits at 320px`, async ({ page }) => {
+      await page.setViewportSize({ width: 320, height: 900 });
+      await page.goto(path);
+      await waitForHydrationSettle(page);
+      await expect(page.locator('.aec-bone-band')).toHaveCount(bands);
+      await expect(page.locator('h1')).toHaveCount(1);
+      await expect(page.locator('aec-bone-band h1')).toHaveCount(bands);
+      await expectNoSidewaysScroll(page);
     });
-    const token = (name: string) =>
-      page.evaluate((n) => {
-        const probe = document.createElement('div');
-        probe.style.color = `var(${n})`;
-        document.body.appendChild(probe);
-        const value = getComputedStyle(probe).color;
-        probe.remove();
-        return value;
-      }, name);
-    expect(ground).toBe(await token('--accent-primary'));
-    expect(ink).toBe(await token('--text-on-brand'));
-    expect(radius).toBe('24px');
-    const heading = page.locator('#plans-cta-heading');
-    expect(await heading.evaluate((el) => getComputedStyle(el).color)).toBe(
-      await token('--text-on-brand'),
-    );
-  });
+  }
 });

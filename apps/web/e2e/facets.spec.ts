@@ -177,6 +177,9 @@ test.describe('/products — facet sidebar interaction (AECI-143 / AECI-145 / AE
     await expect(clear).toHaveCount(0);
   });
 
+  // AECI-2027 folded the AC2 count test into this one. Both loaded /products and
+  // clicked the same first facet. One click now feeds the count checks first,
+  // then the card click, which navigates away and so runs last.
   test('criterion #1: facet refine → result click lands on the product detail page', async ({
     page,
   }) => {
@@ -187,18 +190,22 @@ test.describe('/products — facet sidebar interaction (AECI-143 / AECI-145 / AE
     test.skip(first === null, 'no facet data seeded in this environment');
     const { group, param } = first!;
 
-    // The term's facet count N is the same oracle AC2 uses: the facets endpoint
-    // computes each dimension's counts with every active filter EXCEPT its own,
-    // so refining by this term must produce exactly N grid matches. Read it
-    // BEFORE the click, while no refetch is in flight.
-    const checkbox = group.locator('input[type="checkbox"]').first();
+    // Pre-click snapshots (safe: no refetch in flight). The first term's facet
+    // count N is the deterministic oracle: the facets endpoint computes each
+    // dimension's counts with every active filter EXCEPT its own, so refining
+    // by this term must produce exactly N grid matches — and leave the own
+    // group's item set (rendered at count>0) unchanged.
+    const checkboxes = group.locator('input[type="checkbox"]');
+    const checkbox = checkboxes.first();
+    const itemsBefore = await checkboxes.count();
     const countText = (await group.locator('span.tabular-nums').first().textContent()) ?? '';
     const n = Number(countText.match(/\d+/)?.[0] ?? '');
     expect(n, `first facet count must be a positive number, got "${countText}"`).toBeGreaterThan(0);
 
-    // Register the refine refetch BEFORE the click (per the discipline note
-    // above) so the response can't be missed.
-    const refine = apiResponse(page, '/api/products', (sp) => sp.has(param));
+    // Register both refine refetches BEFORE the click (per the discipline note
+    // above) so neither response can be missed.
+    const gridWait = apiResponse(page, '/api/products', (sp) => sp.has(param));
+    const facetsWait = apiResponse(page, '/api/products/facets', (sp) => sp.has(param));
 
     // Click once, after hydration. `app-root` being attached is satisfied by the
     // SSR HTML alone. A click before hydration is not dropped: the event-replay
@@ -209,48 +216,94 @@ test.describe('/products — facet sidebar interaction (AECI-143 / AECI-145 / AE
     await untilHydrated(checkbox);
     await checkbox.click();
     await expect(page).toHaveURL(FACET_PARAM);
-    await refine;
+    const [gridResp, facetsResp] = await Promise.all([gridWait, facetsWait]);
 
-    // `waitForResponse` resolves when the response ARRIVES, not when Angular has
-    // applied it — so the grid can still be showing pre-refine data here. Gate
-    // on the DOM instead: the footer and the grid are driven by the same
-    // `httpResource` value, so a footer reading N proves the rendered grid is the
-    // FINAL, refined one. Without this the snapshot below reads the stale first
-    // card and the click then navigates to the refined one (read "Fixture
-    // Procore", landed on "ConEst IntelliBid").
-    await expect(page.locator('aec-pagination-footer').getByText(FOOTER_TOTAL)).toHaveText(
-      footerTotal(n),
-    );
+    await test.step('refining filters the grid to the term and rescopes sibling counts disjunctively (AECI-189 AC2)', async () => {
+      expect(gridResp.status()).toBe(200);
+      expect(facetsResp.status()).toBe(200);
 
-    // AECI-190: the default view is the card grid, so select the product link
-    // view-agnostically within #main rather than via the table-row selector.
-    const firstCard = page.locator('#main a[href^="/products/"]').first();
-    await firstCard.waitFor({ timeout: 8000 }).catch(() => {});
-    test.skip((await firstCard.count()) === 0, 'no product rows after refine in this environment');
+      // AC2 (grid filters): API truth first — the filtered total IS the term's
+      // facet count — then the DOM agrees (retrying through the refetch window).
+      // The intercepted responses prove the refetch fired with the right params;
+      // their BODIES are re-fetched through the request fixture because Chromium
+      // releases page-initiated fetch bodies once the app consumes them
+      // (`Network.getResponseBody: No data found` flake). Same URL + read-only DB
+      // ⇒ identical payload.
+      const gridBody = (await (await page.request.get(gridResp.url())).json()) as {
+        total: number;
+      };
+      expect(gridBody.total).toBe(n);
+      // `waitForResponse` resolves when the response ARRIVES, not when Angular
+      // has applied it — so the grid can still be showing pre-refine data here.
+      // The footer and the grid are driven by the same `httpResource` value, so
+      // a footer reading N proves the rendered grid is the FINAL, refined one.
+      // The card snapshot below depends on this gate: without it the snapshot
+      // reads the stale first card and the click then navigates to the refined
+      // one (read "Fixture Procore", landed on "ConEst IntelliBid").
+      await expect(page.locator('aec-pagination-footer').getByText(FOOTER_TOTAL)).toHaveText(
+        footerTotal(n),
+      );
+      if (n <= 24) {
+        // One page of results (perPage=24) — every match is exactly one card link.
+        await expect(page.locator('aec-product-card-grid a[href^="/products/"]')).toHaveCount(n);
+      }
 
-    // Snapshot the href and the name in ONE evaluation so they cannot describe
-    // two different products. The whole card is the link, so its textContent is
-    // the full tile (name + vendor + chips + count); the product name itself is
-    // the card's display heading — the only `p.font-display` in the tile (the
-    // integration-stat figure is a <span>).
-    const card = await firstCard.evaluate((el) => ({
-      href: el.getAttribute('href') ?? '',
-      name: el.querySelector('p.font-display')?.textContent?.trim() ?? '',
-    }));
-    await firstCard.click();
-    await expect(page).toHaveURL(/\/products\/[^/?#]+$/);
-    // Landing anywhere other than the snapshotted card means the grid swapped
-    // under us — fail on the URL, which names the cause, rather than on the <h1>.
-    expect(new URL(page.url()).pathname).toBe(card.href);
+      // AC2 (disjunctive rescope): the clicked term's own count is computed
+      // WITHOUT its own filter (still N), while every other dimension's counts
+      // scope to the N filtered products.
+      const termId = new URL(gridResp.url()).searchParams.get(param)!;
+      const facetsBody = (await (await page.request.get(facetsResp.url())).json()) as FacetsBody;
+      const ownKey = PARAM_RESPONSE_KEY[param];
+      const clicked = facetsBody[ownKey].find((t) => t.id === termId);
+      expect(clicked?.product_count, 'own-dimension count must ignore its own filter').toBe(n);
+      for (const [key, terms] of Object.entries(facetsBody)) {
+        if (key === ownKey) continue;
+        for (const term of terms) {
+          expect(
+            term.product_count,
+            `${key}/"${term.slug}" count must rescope to the ${n} filtered products`,
+          ).toBeLessThanOrEqual(n);
+        }
+      }
+      // DOM proof of the unchanged own group: identical counts ⇒ no sibling
+      // collapsed out of the count>0 render filter.
+      await expect(checkboxes).toHaveCount(itemsBefore);
+    });
 
-    // Proof we landed on the CORRECT detail page: the <h1> is the product name.
-    const heading = page.getByRole('heading', { level: 1 }).first();
-    await expect(heading).toBeVisible();
-    if (card.name) {
-      await expect(heading).toHaveText(card.name);
-    } else {
-      await expect(heading).not.toHaveText('');
-    }
+    await test.step('facet refine → result click lands on the product detail page', async () => {
+      // AECI-190: the default view is the card grid, so select the product link
+      // view-agnostically within #main rather than via the table-row selector.
+      const firstCard = page.locator('#main a[href^="/products/"]').first();
+      await firstCard.waitFor({ timeout: 8000 }).catch(() => {});
+      test.skip(
+        (await firstCard.count()) === 0,
+        'no product rows after refine in this environment',
+      );
+
+      // Snapshot the href and the name in ONE evaluation so they cannot describe
+      // two different products. The whole card is the link, so its textContent is
+      // the full tile (name + vendor + chips + count); the product name itself is
+      // the card's display heading — the only `p.font-display` in the tile (the
+      // integration-stat figure is a <span>).
+      const card = await firstCard.evaluate((el) => ({
+        href: el.getAttribute('href') ?? '',
+        name: el.querySelector('p.font-display')?.textContent?.trim() ?? '',
+      }));
+      await firstCard.click();
+      await expect(page).toHaveURL(/\/products\/[^/?#]+$/);
+      // Landing anywhere other than the snapshotted card means the grid swapped
+      // under us — fail on the URL, which names the cause, rather than on the <h1>.
+      expect(new URL(page.url()).pathname).toBe(card.href);
+
+      // Proof we landed on the CORRECT detail page: the <h1> is the product name.
+      const heading = page.getByRole('heading', { level: 1 }).first();
+      await expect(heading).toBeVisible();
+      if (card.name) {
+        await expect(heading).toHaveText(card.name);
+      } else {
+        await expect(heading).not.toHaveText('');
+      }
+    });
   });
 
   test('distinct facet URLs are independently cacheable with an identical Cache-Tag', async ({
@@ -284,73 +337,6 @@ test.describe('/products — facet sidebar interaction (AECI-143 / AECI-145 / AE
     // NOT the tag — so every facet combination shares one purge tag.
     expect(tags[0]).toBe(tags[1]);
     expect(tags[1]).toBe(tags[2]);
-  });
-
-  test('refining filters the grid to the term and rescopes sibling counts disjunctively (AECI-189 AC2)', async ({
-    page,
-  }) => {
-    await page.goto('/products');
-    await expect(page.locator('app-root')).toBeAttached();
-
-    const first = await firstFacetGroup(page);
-    test.skip(first === null, 'no facet data seeded in this environment');
-    const { group, param } = first!;
-
-    // Pre-click snapshots (safe: no refetch in flight). The first term's facet
-    // count N is the deterministic oracle: the facets endpoint computes each
-    // dimension's counts with every active filter EXCEPT its own, so refining
-    // by this term must produce exactly N grid matches — and leave the own
-    // group's item set (rendered at count>0) unchanged.
-    const checkboxes = group.locator('input[type="checkbox"]');
-    const itemsBefore = await checkboxes.count();
-    const countText = (await group.locator('span.tabular-nums').first().textContent()) ?? '';
-    const n = Number(countText.match(/\d+/)?.[0] ?? '');
-    expect(n, `first facet count must be a positive number, got "${countText}"`).toBeGreaterThan(0);
-
-    const gridWait = apiResponse(page, '/api/products', (sp) => sp.has(param));
-    const facetsWait = apiResponse(page, '/api/products/facets', (sp) => sp.has(param));
-    await checkboxes.first().click();
-    const [gridResp, facetsResp] = await Promise.all([gridWait, facetsWait]);
-    expect(gridResp.status()).toBe(200);
-    expect(facetsResp.status()).toBe(200);
-
-    // AC2 (grid filters): API truth first — the filtered total IS the term's
-    // facet count — then the DOM agrees (retrying through the refetch window).
-    // The intercepted responses prove the refetch fired with the right params;
-    // their BODIES are re-fetched through the request fixture because Chromium
-    // releases page-initiated fetch bodies once the app consumes them
-    // (`Network.getResponseBody: No data found` flake). Same URL + read-only DB
-    // ⇒ identical payload.
-    const gridBody = (await (await page.request.get(gridResp.url())).json()) as { total: number };
-    expect(gridBody.total).toBe(n);
-    await expect(page.locator('aec-pagination-footer').getByText(FOOTER_TOTAL)).toHaveText(
-      footerTotal(n),
-    );
-    if (n <= 24) {
-      // One page of results (perPage=24) — every match is exactly one card link.
-      await expect(page.locator('aec-product-card-grid a[href^="/products/"]')).toHaveCount(n);
-    }
-
-    // AC2 (disjunctive rescope): the clicked term's own count is computed
-    // WITHOUT its own filter (still N), while every other dimension's counts
-    // scope to the N filtered products.
-    const termId = new URL(gridResp.url()).searchParams.get(param)!;
-    const facetsBody = (await (await page.request.get(facetsResp.url())).json()) as FacetsBody;
-    const ownKey = PARAM_RESPONSE_KEY[param];
-    const clicked = facetsBody[ownKey].find((t) => t.id === termId);
-    expect(clicked?.product_count, 'own-dimension count must ignore its own filter').toBe(n);
-    for (const [key, terms] of Object.entries(facetsBody)) {
-      if (key === ownKey) continue;
-      for (const term of terms) {
-        expect(
-          term.product_count,
-          `${key}/"${term.slug}" count must rescope to the ${n} filtered products`,
-        ).toBeLessThanOrEqual(n);
-      }
-    }
-    // DOM proof of the unchanged own group: identical counts ⇒ no sibling
-    // collapsed out of the count>0 render filter.
-    await expect(checkboxes).toHaveCount(itemsBefore);
   });
 
   test('multi-select semantics: a sibling click APPENDS (both stay selected); re-clicking a term removes just it (AECI-223)', async ({

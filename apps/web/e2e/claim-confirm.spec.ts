@@ -67,31 +67,4 @@ test.describe('/claims/confirm — AECI-1435', () => {
       result.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious'),
     ).toEqual([]);
   });
-
-  test('an expired link says so and offers to start again', async ({ page }) => {
-    await page.route('**/api/requests/confirm', async (route) => {
-      await route.fulfill({
-        status: 422,
-        json: {
-          error: {
-            code: 'INVALID_STATE_TRANSITION',
-            message: 'This link has expired',
-            details: { reason: 'expired' },
-          },
-        },
-      });
-    });
-    await page.goto(TOKEN_PATH);
-    const button = page.getByRole('button', { name: 'Confirm and send' });
-    await expect(async () => {
-      await button.click();
-      await expect(page.getByRole('heading', { name: 'This link has expired' })).toBeVisible({
-        timeout: 1_000,
-      });
-    }).toPass({ timeout: 15_000 });
-    await expect(page.getByRole('link', { name: 'Start again' })).toHaveAttribute(
-      'href',
-      '/vendor-program',
-    );
-  });
 });

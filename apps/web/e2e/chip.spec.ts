@@ -10,42 +10,45 @@
 import { expect, test } from '@playwright/test';
 
 test.describe('aec-chip (AECI-1763)', () => {
-  test('a static chip on a product card shows the link pointer', async ({ page }) => {
+  // AECI-2027: both /products reads share one load, one step each.
+  test('a chip on /products shows the link pointer and is a pill with no shadow', async ({
+    page,
+  }) => {
     await page.goto('/products');
-    // Hydration keeps the server-rendered card grid (AECI-1863), so the chip
+    // Hydration keeps the server-rendered card grid (AECI-1863), so the chips
     // read here stays attached. No wait for the network to go idle.
-    const chip = page.locator('.aec-card span.aec-chip').first();
-    await expect(chip).toBeVisible();
-    await chip.scrollIntoViewIfNeeded();
-    const probe = await chip.evaluate((el) => {
-      const r = el.getBoundingClientRect();
-      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-      return {
-        own: getComputedStyle(el).cursor,
-        onTop: top ? getComputedStyle(top).cursor : null,
-        onTopIsLink: !!top?.closest('a[href^="/products/"]'),
-      };
-    });
-    // The chip never forces an arrow, and the stretched card link is what a
-    // pointer meets there.
-    expect(probe.own).not.toBe('default');
-    expect(probe.onTopIsLink).toBe(true);
-    expect(probe.onTop).toBe('pointer');
-  });
 
-  test('a chip is a pill with no shadow', async ({ page }) => {
-    await page.goto('/products');
-    // Hydration keeps the server-rendered card grid (AECI-1863), so the chip
-    // read here stays attached. No wait for the network to go idle.
-    const style = await page
-      .locator('.aec-chip')
-      .first()
-      .evaluate((el) => {
-        const cs = getComputedStyle(el);
-        return { radius: cs.borderTopLeftRadius, shadow: cs.boxShadow };
+    await test.step('a static chip on a product card shows the link pointer', async () => {
+      const chip = page.locator('.aec-card span.aec-chip').first();
+      await expect(chip).toBeVisible();
+      await chip.scrollIntoViewIfNeeded();
+      const probe = await chip.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return {
+          own: getComputedStyle(el).cursor,
+          onTop: top ? getComputedStyle(top).cursor : null,
+          onTopIsLink: !!top?.closest('a[href^="/products/"]'),
+        };
       });
-    expect(parseFloat(style.radius)).toBeGreaterThan(100);
-    expect(style.shadow).toBe('none');
+      // The chip never forces an arrow, and the stretched card link is what a
+      // pointer meets there.
+      expect(probe.own).not.toBe('default');
+      expect(probe.onTopIsLink).toBe(true);
+      expect(probe.onTop).toBe('pointer');
+    });
+
+    await test.step('a chip is a pill with no shadow', async () => {
+      const style = await page
+        .locator('.aec-chip')
+        .first()
+        .evaluate((el) => {
+          const cs = getComputedStyle(el);
+          return { radius: cs.borderTopLeftRadius, shadow: cs.boxShadow };
+        });
+      expect(parseFloat(style.radius)).toBeGreaterThan(100);
+      expect(style.shadow).toBe('none');
+    });
   });
 
   test('a taxonomy link chip shows a 3px focus ring at 3px offset', async ({ page }) => {

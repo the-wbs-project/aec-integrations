@@ -6,13 +6,13 @@ import { chooseSort, chooseView } from './listing-toolbar';
 // AECI-58 / Phase 2.12 — paginated product index at /products. Redesigned in
 // AECI-190: a buyer-facing card grid (default) + a table view, switched by a
 // toolbar toggle, with a sort dropdown. Verifies the page renders SSR-side with
-// the right title, breadcrumbs, cache headers, and toolbar; that the sort, view,
-// and pagination controls update the URL; and that a product link resolves to a
-// /products/:slug URL.
+// the right title, breadcrumbs, and toolbar, and that the sort, view, and
+// pagination controls update the URL. The cache headers live in facets.spec.ts
+// and the product click-through in client-nav-detail.spec.ts.
 //
 // The spec is resilient to a populated or empty local DB. Sort/view URL behavior
-// is exercised even when no products are seeded; link navigation and the table
-// render are only asserted when at least one product is present.
+// is exercised even when no products are seeded; the table render is only
+// asserted when at least one product is present.
 
 test.describe('/products — product index (AECI-58)', () => {
   test('renders SSR HTML with title, breadcrumbs, and the view toolbar', async ({ request }) => {
@@ -73,28 +73,9 @@ test.describe('/products — product index (AECI-58)', () => {
     );
   });
 
-  test('emits §8.3 cache headers — s-maxage=300, max-age=0, Cache-Tag for /products', async ({
-    request,
-  }) => {
-    const res = await request.get('/products');
-    expect(res.status()).toBe(200);
-
-    const cacheControl = res.headers()['cache-control'] ?? '';
-    expect(cacheControl, `Cache-Control must include s-maxage=300; got: ${cacheControl}`).toContain(
-      's-maxage=300',
-    );
-    expect(cacheControl, `Cache-Control must include max-age=0; got: ${cacheControl}`).toContain(
-      'max-age=0',
-    );
-
-    const cacheTag = res.headers()['cache-tag'] ?? '';
-    expect(cacheTag, `Cache-Tag must include route:index; got: ${cacheTag}`).toContain(
-      'route:index',
-    );
-    expect(cacheTag, `Cache-Tag must include index:products; got: ${cacheTag}`).toContain(
-      'index:products',
-    );
-  });
+  // The §8.3 cache headers on bare /products are asserted by facets.spec.ts
+  // "distinct facet URLs are independently cacheable with an identical Cache-Tag"
+  // (AECI-2027 removed the copy that lived here).
 
   test('has zero axe AA violations', async ({ page }) => {
     await page.goto('/products');
@@ -107,26 +88,25 @@ test.describe('/products — product index (AECI-58)', () => {
     expect(results.violations, formatViolations(results.violations)).toEqual([]);
   });
 
+  // AECI-2027 merged the sort and view tests. Both loaded /products and only
+  // drove the toolbar. The sort runs first, then the view toggle.
   test('the sort dropdown updates ?sort= in the URL and reflects the choice', async ({ page }) => {
     await page.goto('/products');
     await expect(page.locator('app-root')).toBeAttached();
 
     await chooseSort(page, 'name');
-  });
 
-  test('the view toggle switches between cards and table and reflects ?view=', async ({ page }) => {
-    await page.goto('/products');
-    await expect(page.locator('app-root')).toBeAttached();
+    await test.step('the view toggle switches between cards and table and reflects ?view=', async () => {
+      await chooseView(page, 'Table');
+      // The table only renders when products are present; assert it when there is data.
+      const hasProducts = (await page.locator('#main a[href^="/products/"]').count()) > 0;
+      if (hasProducts) {
+        await expect(page.locator('table[aria-label="Products"]')).toBeVisible();
+      }
 
-    await chooseView(page, 'Table');
-    // The table only renders when products are present; assert it when there is data.
-    const hasProducts = (await page.locator('#main a[href^="/products/"]').count()) > 0;
-    if (hasProducts) {
-      await expect(page.locator('table[aria-label="Products"]')).toBeVisible();
-    }
-
-    await chooseView(page, 'Cards');
-    await expect(page.locator('table[aria-label="Products"]')).toHaveCount(0);
+      await chooseView(page, 'Cards');
+      await expect(page.locator('table[aria-label="Products"]')).toHaveCount(0);
+    });
   });
 
   test("Pagination footer 'Load more' is the no-JS page-2 floor and appends in place (AECI-328)", async ({
@@ -158,19 +138,9 @@ test.describe('/products — product index (AECI-58)', () => {
       .toBeGreaterThan(before);
   });
 
-  test('clicking a product card navigates to /products/:slug', async ({ page }) => {
-    await page.goto('/products');
-    await expect(page.locator('app-root')).toBeAttached();
-
-    const firstProductLink = page.locator('#main a[href^="/products/"]').first();
-    const exists = (await firstProductLink.count()) > 0;
-    test.skip(!exists, 'no products seeded in this environment');
-
-    const href = await firstProductLink.getAttribute('href');
-    expect(href, 'product link must point at /products/:slug').toMatch(/^\/products\/[^/]+$/);
-    await firstProductLink.click();
-    await expect(page).toHaveURL(/\/products\/[^/]+$/);
-  });
+  // The product-card click-through to /products/:slug is asserted by
+  // client-nav-detail.spec.ts "clicking through product → vendor renders the vendor,
+  // not the 404 shell" (AECI-2027 removed the copy that lived here).
 });
 
 function formatViolations(

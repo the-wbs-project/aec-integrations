@@ -7,8 +7,10 @@
  *   - SSR auth gate: a logged-out visitor (no `sb-…-auth-token` cookie) is
  *     303-redirected to `/auth/login?return=/account` (`private, no-store`).
  *     Needs no fixture — the gate fires before SSR.
- *   - Authenticated render + a11y: with a session cookie present and a stubbed
- *     `GET /api/account`, the page renders identity; axe (WCAG-AA) is clean.
+ *   - Authenticated a11y: with a session cookie present and a stubbed
+ *     `GET /api/account`, axe (WCAG-AA) is clean on the profile and on the
+ *     AECI-225 own-reviews list. What the page renders is pinned in
+ *     `account.component.spec.ts`.
  *   - Delete flow: opening the confirmation dialog and confirming calls the
  *     stubbed `DELETE /api/account` and redirects home.
  *
@@ -74,16 +76,17 @@ async function addAuthCookie(context: BrowserContext): Promise<void> {
 /** Stub the auth-enforced account endpoints (GET identity + DELETE erasure +
  *  the AECI-225 own-reviews list). The reviews route is a separate, disjoint
  *  glob (`/api/account/reviews` doesn't match the `/api/account` glob). */
-async function stubAccountApi(
-  page: Page,
-  onDelete?: () => void,
-  reviews: typeof ACCOUNT_REVIEWS = ACCOUNT_REVIEWS,
-): Promise<void> {
+async function stubAccountApi(page: Page, onDelete?: () => void): Promise<void> {
   await page.route('**/api/account/reviews**', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ data: reviews, page: 1, perPage: 24, total: reviews.length }),
+      body: JSON.stringify({
+        data: ACCOUNT_REVIEWS,
+        page: 1,
+        perPage: 24,
+        total: ACCOUNT_REVIEWS.length,
+      }),
     });
   });
   await page.route('**/api/account', async (route) => {
@@ -123,16 +126,6 @@ test.describe('/account — SSR auth gate (AECI-202)', () => {
 });
 
 test.describe('/account — authenticated (AECI-202)', () => {
-  test('renders the read-only email and the editable display name', async ({ page, context }) => {
-    await addAuthCookie(context);
-    await stubAccountApi(page);
-    await page.goto(ACCOUNT_PATH);
-
-    await expect(page.getByText(PROFILE.email)).toBeVisible();
-    await expect(page.locator('#account-display-name')).toHaveValue(PROFILE.display_name);
-    await expect(page.getByRole('button', { name: 'Delete account' })).toBeVisible();
-  });
-
   test('has zero axe (WCAG-AA) violations', async ({ page, context }) => {
     await addAuthCookie(context);
     await stubAccountApi(page);
@@ -165,36 +158,6 @@ test.describe('/account — authenticated (AECI-202)', () => {
 });
 
 test.describe('/account — own reviews list (AECI-225)', () => {
-  test('renders the user’s reviews with product links and per-review status badges', async ({
-    page,
-    context,
-  }) => {
-    await addAuthCookie(context);
-    await stubAccountApi(page);
-    await page.goto(ACCOUNT_PATH);
-
-    // Each review links to its product detail page.
-    await expect(page.getByRole('link', { name: 'Procore' })).toHaveAttribute(
-      'href',
-      '/products/procore',
-    );
-    await expect(page.getByRole('link', { name: 'Revit' })).toBeVisible();
-    // Per-review status badges.
-    await expect(page.getByText('Approved', { exact: true })).toBeVisible();
-    await expect(page.getByText('Not published', { exact: true })).toBeVisible();
-    // The rejected review surfaces its reason.
-    await expect(page.getByText('Off-topic — not about the product.')).toBeVisible();
-  });
-
-  test('shows the empty state when the user has no reviews', async ({ page, context }) => {
-    await addAuthCookie(context);
-    await stubAccountApi(page, undefined, []);
-    await page.goto(ACCOUNT_PATH);
-
-    await expect(page.locator('#account-display-name')).toBeVisible();
-    await expect(page.getByText("You haven't submitted any reviews yet.")).toBeVisible();
-  });
-
   test('the reviews list is axe (WCAG-AA) clean', async ({ page, context }) => {
     await addAuthCookie(context);
     await stubAccountApi(page);

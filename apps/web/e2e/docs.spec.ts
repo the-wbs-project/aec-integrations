@@ -342,8 +342,8 @@ test.describe('/docs shell — AECI-1248', () => {
 });
 
 // AECI-1803, AECI-1804: the help center and the legal pages in the new language.
-// Every docs control is a 44px target, no page scrolls sideways from 320 to
-// 1440px, the prose sits on the type ramp, and the headings never skip a level.
+// Every docs control is a 44px target, no page scrolls sideways at the first
+// width of each breakpoint band from 320 to 1280px, the prose sits on the type ramp, and the headings never skip a level.
 test.describe('/docs and /legal in the new language — AECI-1803, AECI-1804', () => {
   const PATHS = [
     '/docs',
@@ -354,7 +354,10 @@ test.describe('/docs and /legal in the new language — AECI-1803, AECI-1804', (
     '/legal/terms',
   ];
 
-  for (const width of [320, 390, 768, 1024, 1280, 1440]) {
+  // The first width of each band the docs components use: base, md, lg and xl
+  // (AECI-2027). 390 and 1440 sat inside the base and xl bands, so they proved
+  // what 320 and 1280 already prove. No width in the sm band (640 to 767) runs.
+  for (const width of [320, 768, 1024, 1280]) {
     test(`no page scrolls sideways at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       for (const path of PATHS) {
@@ -380,7 +383,9 @@ test.describe('/docs and /legal in the new language — AECI-1803, AECI-1804', (
     '/methodology',
   ];
 
-  for (const width of [320, 390]) {
+  // 320 only (AECI-2027). 390 is in the same band, and the narrower width is the
+  // stricter case for a table that has to scroll in its own box.
+  for (const width of [320]) {
     test(`no page with a prose table scrolls sideways at ${width}px (AECI-1918)`, async ({
       page,
     }) => {

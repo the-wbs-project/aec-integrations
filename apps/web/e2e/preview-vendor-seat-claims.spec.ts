@@ -5,10 +5,14 @@ import { expect, test } from '@playwright/test';
  * AECI-1368 — "Wants to join" on the vendor Seats page, driven on the ungated dev
  * preview (`/preview/vendor-dashboard/seats`).
  *
- * The real `/vendor/:slug/seats` needs a vendor session CI does not have. The preview
- * mounts the same section route over a fixture-backed `VendorApi` whose seat read
- * carries one claim routed to the owners (`VENDOR_PENDING_SEAT_CLAIMS_FIXTURE`), and
- * whose accept echoes an invite.
+ * The real `/vendor/:slug/seats` needs a minted vendor session, and its path has a
+ * `/vendor/` segment the zone WAF refuses. The preview mounts the same section route
+ * over a fixture-backed `VendorApi` whose seat read carries one claim routed to the
+ * owners (`VENDOR_PENDING_SEAT_CLAIMS_FIXTURE`).
+ *
+ * Accepting a claim and announcing the invite in the status region is covered by
+ * `vendor-seat-roster.component.spec.ts` ("accepts, announces the invite in the
+ * status region and re-reads the list"), so it has no E2E test here (AECI-2027).
  *
  * The roster loads in `afterNextRender`, so the claim being visible is also the
  * hydration signal.
@@ -34,16 +38,5 @@ test.describe('wants to join (preview)', () => {
       (v) => v.impact === 'critical' || v.impact === 'serious',
     );
     expect(serious).toEqual([]);
-  });
-
-  test('announces an accept in the status region', async ({ page }) => {
-    await page.goto(PATH);
-    const accept = page.getByRole('button', { name: 'Accept Riley Chen' });
-    await expect(accept).toBeVisible({ timeout: 15_000 });
-
-    await accept.click();
-    await expect(
-      page.getByRole('status').filter({ hasText: 'A seat invite was sent to' }),
-    ).toBeVisible();
   });
 });

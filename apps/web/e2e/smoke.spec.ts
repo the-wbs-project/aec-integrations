@@ -1,6 +1,8 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
+import { untilAppStable } from './hydration';
+
 // Smoke spec for AECI-33 / Phase 1.19, extended for AECI-36 Phase 1.21
 // (validate SSR + cache plumbing end-to-end on apps/web/).
 // Guards: the SSR Worker boots, the Angular shell mounts at `/`, axe-core
@@ -49,10 +51,9 @@ test.describe('home page (smoke)', () => {
 
     await page.goto('/');
     await expect(page.locator('app-root')).toBeAttached();
-    // Give Angular hydration + any provideAppInitializer hooks a beat to settle.
-    // 200ms is enough for hydration on a warm dev server; anything emitted
-    // after that is treated as runtime noise, not bootstrap.
-    await page.waitForTimeout(200);
+    // Wait until the app is stable after hydration, so hydration, the
+    // provideAppInitializer hooks and the boot fetches have all run.
+    await untilAppStable(page);
 
     expect(pageErrors, `unhandled page errors: ${pageErrors.join(' | ')}`).toEqual([]);
     expect(consoleErrors, `console errors: ${consoleErrors.join(' | ')}`).toEqual([]);

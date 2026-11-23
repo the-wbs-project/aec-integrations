@@ -11,6 +11,8 @@ import { untilHydrated } from './hydration';
 // product table), the §4 browse cache headers/tags (route:browse + {type}:{slug}
 // + embedded product: tags), product-row navigation, accessibility, and a real
 // HTTP 404 for an unknown slug.
+// The toolbar, empty-panel and row-click tests drive shared components, so
+// each runs for one kind only (AECI-2027). The comment on each says which.
 //
 // Valid slugs are discovered from GET /api/taxonomy (proxied to the API via the
 // SSR Worker service binding), so the spec stays seed-agnostic: render/nav
@@ -89,6 +91,15 @@ for (const { kind, segment, listKey } of KINDS) {
       expect(html, 'sort dropdown must render').toMatch(/<button[^>]+id="aec-listing-sort-0"/);
       expect(html, 'view toggle must render (aria-pressed)').toMatch(/aria-pressed/);
       expect(html, 'card grid is the default view').toMatch(/<aec-product-card-grid/);
+
+      // AECI-636 PR-B retired "Most integrations". An old link carrying it must render
+      // the page, never an error. One kind is enough: the four routes share the
+      // component, and the fallback to the default sort is pinned in
+      // `taxonomy-browse.component.spec.ts` (AECI-2027).
+      if (kind === 'category') {
+        const retired = await request.get(`/${segment}/${term!.slug}?sort=integrations`);
+        expect(retired.status(), 'a retired ?sort=integrations still renders').toBe(200);
+      }
     });
 
     // AECI-657 — the table is still the other half of the toggle; ?view=table is
@@ -108,70 +119,73 @@ for (const { kind, segment, listKey } of KINDS) {
       );
     });
 
-    // The §4.5 gap this issue closed: the page had no sort control at all.
-    test('the sort dropdown updates ?sort= and reflects the choice', async ({ page, request }) => {
-      const term = await firstTerm(request, listKey);
-      test.skip(term === null, `no ${kind} terms seeded in this environment`);
+    // The sort control is the shared listing toolbar, so one kind drives it
+    // (AECI-2027). `products-index.spec.ts` drives the same combobox, and
+    // `taxonomy-browse.component.spec.ts` pins ?sort= reaching the API.
+    if (segment === 'categories') {
+      // The §4.5 gap this issue closed: the page had no sort control at all.
+      test('the sort dropdown updates ?sort= and reflects the choice', async ({
+        page,
+        request,
+      }) => {
+        const term = await firstTerm(request, listKey);
+        test.skip(term === null, `no ${kind} terms seeded in this environment`);
 
-      await page.goto(`/${segment}/${term!.slug}`);
-      await expect(page.locator('app-root')).toBeAttached();
+        await page.goto(`/${segment}/${term!.slug}`);
+        await expect(page.locator('app-root')).toBeAttached();
 
-      await chooseSort(page, 'reviews');
-    });
+        await chooseSort(page, 'reviews');
+      });
+    }
 
-    // AECI-636 PR-B retired "Most integrations". An old link carrying it must
-    // render the page on the default sort, never an error.
-    test('a retired ?sort=integrations falls back to the default sort', async ({
-      page,
-      request,
-    }) => {
-      const term = await firstTerm(request, listKey);
-      test.skip(term === null, `no ${kind} terms seeded in this environment`);
+    // The view toggle is shared, so one kind drives it (AECI-2027). Trades has the
+    // sparsest data. The ?view=table SSR test above still runs for every kind, and
+    // `taxonomy-browse.component.spec.ts` pins ?view= on the URL.
+    if (segment === 'trades') {
+      test('the view toggle switches cards ↔ table and reflects ?view=', async ({
+        page,
+        request,
+      }) => {
+        const term = await firstTerm(request, listKey);
+        test.skip(term === null, `no ${kind} terms seeded in this environment`);
+        test.skip(term!.product_count === 0, `${kind} "${term?.slug}" has no products`);
 
-      const res = await page.goto(`/${segment}/${term!.slug}?sort=integrations`);
-      expect(res?.status()).toBe(200);
-      await expect(page.locator('app-root')).toBeAttached();
-      await expect(page.locator('option[value="integrations"]')).toHaveCount(0);
-    });
+        await page.goto(`/${segment}/${term!.slug}`);
+        await expect(page.locator('app-root')).toBeAttached();
 
-    test('the view toggle switches cards ↔ table and reflects ?view=', async ({
-      page,
-      request,
-    }) => {
-      const term = await firstTerm(request, listKey);
-      test.skip(term === null, `no ${kind} terms seeded in this environment`);
-      test.skip(term!.product_count === 0, `${kind} "${term?.slug}" has no products`);
+        await chooseView(page, 'Table');
+        await expect(page.locator('table[aria-label="Products"]')).toBeVisible();
 
-      await page.goto(`/${segment}/${term!.slug}`);
-      await expect(page.locator('app-root')).toBeAttached();
+        await chooseView(page, 'Cards');
+        await expect(page.locator('table[aria-label="Products"]')).toHaveCount(0);
+      });
+    }
 
-      await chooseView(page, 'Table');
-      await expect(page.locator('table[aria-label="Products"]')).toBeVisible();
+    // One kind is enough for the empty panel (AECI-2027): the component is
+    // shared, and trades is where an empty term is most reachable.
+    // `taxonomy-browse.component.spec.ts` pins the empty state's words and link.
+    if (segment === 'trades') {
+      test('a term with no products renders the empty panel, not an empty table', async ({
+        page,
+        request,
+      }) => {
+        // AECI-544 — "No products match these filters" is a lie when no filter is
+        // applied, and filter chrome over an empty set is noise. Most reachable on
+        // trades; the assertion is kind-agnostic.
+        const term = await emptyTerm(request, listKey);
+        test.skip(term === null, `no empty ${kind} term seeded in this environment`);
 
-      await chooseView(page, 'Cards');
-      await expect(page.locator('table[aria-label="Products"]')).toHaveCount(0);
-    });
+        await page.goto(`/${segment}/${term!.slug}`);
+        await expect(page.locator('app-root')).toBeAttached();
 
-    test('a term with no products renders the empty panel, not an empty table', async ({
-      page,
-      request,
-    }) => {
-      // AECI-544 — "No products match these filters" is a lie when no filter is
-      // applied, and filter chrome over an empty set is noise. Most reachable on
-      // trades; the assertion is kind-agnostic.
-      const term = await emptyTerm(request, listKey);
-      test.skip(term === null, `no empty ${kind} term seeded in this environment`);
-
-      await page.goto(`/${segment}/${term!.slug}`);
-      await expect(page.locator('app-root')).toBeAttached();
-
-      await expect(page.getByText(`No products are tagged ${term!.name} yet.`)).toBeVisible();
-      await expect(page.locator('#main table')).toHaveCount(0);
-      await expect(page.locator('aec-facet-sidebar')).toHaveCount(0);
-      await expect(
-        page.locator('#main').getByRole('link', { name: 'Browse all products' }),
-      ).toBeVisible();
-    });
+        await expect(page.getByText(`No products are tagged ${term!.name} yet.`)).toBeVisible();
+        await expect(page.locator('#main table')).toHaveCount(0);
+        await expect(page.locator('aec-facet-sidebar')).toHaveCount(0);
+        await expect(
+          page.locator('#main').getByRole('link', { name: 'Browse all products' }),
+        ).toBeVisible();
+      });
+    }
 
     test('emits §4 browse cache headers — s-maxage=300, max-age=0, route:browse + entity tag', async ({
       request,
@@ -195,25 +209,29 @@ for (const { kind, segment, listKey } of KINDS) {
       }
     });
 
-    test('clicking a product row navigates to /products/:slug', async ({ page, request }) => {
-      const term = await firstTerm(request, listKey);
-      test.skip(term === null, `no ${kind} terms seeded in this environment`);
-      test.skip(term!.product_count === 0, `${kind} "${term?.slug}" has no products`);
+    // The row component is shared, so one kind clicks a row (AECI-2027). The
+    // ?view=table SSR test above still runs for every kind.
+    if (segment === 'phases') {
+      test('clicking a product row navigates to /products/:slug', async ({ page, request }) => {
+        const term = await firstTerm(request, listKey);
+        test.skip(term === null, `no ${kind} terms seeded in this environment`);
+        test.skip(term!.product_count === 0, `${kind} "${term?.slug}" has no products`);
 
-      // Pinned to the table view: the row component only renders there now that
-      // cards is the default (AECI-657).
-      await page.goto(`/${segment}/${term!.slug}?view=table`);
-      await expect(page.locator('app-root')).toBeAttached();
+        // Pinned to the table view: the row component only renders there now that
+        // cards is the default (AECI-657).
+        await page.goto(`/${segment}/${term!.slug}?view=table`);
+        await expect(page.locator('app-root')).toBeAttached();
 
-      const firstProduct = page.locator('tr[aec-product-card] a[href^="/products/"]').first();
-      test.skip((await firstProduct.count()) === 0, 'no product rows rendered');
+        const firstProduct = page.locator('tr[aec-product-card] a[href^="/products/"]').first();
+        test.skip((await firstProduct.count()) === 0, 'no product rows rendered');
 
-      const href = await firstProduct.getAttribute('href');
-      expect(href).toMatch(/^\/products\/[^/]+$/);
-      await untilHydrated(firstProduct);
-      await firstProduct.click();
-      await expect(page).toHaveURL(/\/products\/[^/]+$/);
-    });
+        const href = await firstProduct.getAttribute('href');
+        expect(href).toMatch(/^\/products\/[^/]+$/);
+        await untilHydrated(firstProduct);
+        await firstProduct.click();
+        await expect(page).toHaveURL(/\/products\/[^/]+$/);
+      });
+    }
 
     // AECI-657 — BOTH views are scanned. The toggle made the table a state a
     // reader reaches by choice rather than the only rendering, and a violation

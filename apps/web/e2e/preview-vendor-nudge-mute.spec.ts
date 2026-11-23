@@ -5,9 +5,10 @@ import { expect, test } from '@playwright/test';
  * AECI-1204 — the daily reminder email switch on the vendor Messages page, driven
  * on the ungated dev preview (`/preview/vendor-dashboard/messages`).
  *
- * The real `/vendor/:slug/messages` needs a vendor session CI does not have. The
- * preview mounts the same section route over a fixture-backed `VendorApi`, whose
- * preference fake keeps state in memory, so the toggle round-trips here.
+ * The real `/vendor/:slug/messages` needs a minted vendor session, and its path has a
+ * `/vendor/` segment the zone WAF refuses. The preview mounts the same section route
+ * over a fixture-backed `VendorApi`, whose preference fake keeps state in memory, so
+ * the toggle round-trips here.
  *
  * The switch is not rendered until its preference has loaded, which happens in
  * `afterNextRender`, so "visible" is also the hydration signal. A toggle cannot use

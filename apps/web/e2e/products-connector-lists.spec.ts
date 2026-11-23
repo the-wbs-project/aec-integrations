@@ -260,92 +260,90 @@ for (const slug of ['fixture-connector-hub', 'fixture-hybrid-via']) {
       expect(body).toContain('aria-label="Choose a view"');
     });
 
-    test('Table shows the same rows in the same order, named by each hub', async ({ page }) => {
-      await page.goto(`/products/${slug}`);
-      await untilHydrated(page.locator('#powers-filter'));
-      const cards = await cardNames(page);
-      expect(cards.length).toBeGreaterThan(0);
-      await expect(viewButton(page, 'Cards')).toHaveAttribute('aria-pressed', 'true');
-
-      const table = viewButton(page, 'Table');
-      await table.click();
-      await expect(table).toHaveAttribute('aria-pressed', 'true');
-      await expect(table).toBeFocused();
-      await expect(page.locator(`${section} a[data-testid="powered-table-link"]`)).toHaveCount(
-        cards.length,
-      );
-      expect(await tableNames(page)).toEqual(cards);
-      await expect(page.locator(`${section} a[data-testid="powered-card"]`)).toHaveCount(0);
-
-      // One table per group card, named by that card's heading (the hub).
-      const tables = page.locator(`${section} table`);
-      const n = await tables.count();
-      expect(n).toBeGreaterThan(0);
-      for (let i = 0; i < n; i++) {
-        const id = (await tables.nth(i).getAttribute('aria-labelledby'))!;
-        const heading = page.locator(`[id="${id}"]`);
-        await expect(heading).toHaveCount(1);
-        // The heading's accessible name, as the browser computes it.
-        const snapshot = await heading.ariaSnapshot();
-        const name = /"([^"]+)"/.exec(snapshot)?.[1] ?? '';
-        expect(name.length, snapshot).toBeGreaterThan(0);
-        await expect(tables.nth(i)).toHaveAccessibleName(name);
-      }
-      expect(await duplicateIds(page)).toEqual([]);
-
-      // Back to cards: the same rows again, and focus stays on the toggle.
-      const cardsButton = viewButton(page, 'Cards');
-      await cardsButton.click();
-      await expect(cardsButton).toBeFocused();
-      await expect(page.locator(`${section} a[data-testid="powered-card"]`)).toHaveCount(
-        cards.length,
-      );
-      expect(await cardNames(page)).toEqual(cards);
-    });
-
-    test('the filter and "Showing n of m" are the same in both views', async ({ page }) => {
+    // One page load for both checks. The first step ends back on Cards with no filter,
+    // which is the state a fresh load starts in.
+    test('Table matches the cards, and the filter is the same in both views', async ({ page }) => {
       await page.goto(`/products/${slug}`);
       const search = page.locator('#powers-filter');
       await untilHydrated(search);
-      const word = (
-        (await page.locator(`${section} [data-testid="powered-card-name"]`).last().textContent()) ??
-        ''
-      ).trim();
-      expect(word.length).toBeGreaterThan(0);
-      await search.fill(word);
-      const shownInCards = await shownCount(page, section);
-      const cards = await cardNames(page);
-      expect(cards).toHaveLength(shownInCards);
 
-      await viewButton(page, 'Table').click();
-      await expect(page.locator(`${section} a[data-testid="powered-table-link"]`)).toHaveCount(
-        shownInCards,
-      );
-      expect(await shownCount(page, section)).toBe(shownInCards);
-      expect(await tableNames(page)).toEqual(cards);
+      await test.step('Table shows the same rows in the same order, named by each hub', async () => {
+        const cards = await cardNames(page);
+        expect(cards.length).toBeGreaterThan(0);
+        await expect(viewButton(page, 'Cards')).toHaveAttribute('aria-pressed', 'true');
 
-      // Clearing the filter in the table brings every row back, still as a table.
-      await page.getByTestId('powers-filter-clear').click();
-      await expect(search).toBeFocused();
-      await expect(page.locator(`${section} a[data-testid="powered-table-link"]`)).not.toHaveCount(
-        shownInCards,
-      );
-      await expect(page.locator(`${section} a[data-testid="powered-card"]`)).toHaveCount(0);
+        const table = viewButton(page, 'Table');
+        await table.click();
+        await expect(table).toHaveAttribute('aria-pressed', 'true');
+        await expect(table).toBeFocused();
+        await expect(page.locator(`${section} a[data-testid="powered-table-link"]`)).toHaveCount(
+          cards.length,
+        );
+        expect(await tableNames(page)).toEqual(cards);
+        await expect(page.locator(`${section} a[data-testid="powered-card"]`)).toHaveCount(0);
+
+        // One table per group card, named by that card's heading (the hub).
+        const tables = page.locator(`${section} table`);
+        const n = await tables.count();
+        expect(n).toBeGreaterThan(0);
+        for (let i = 0; i < n; i++) {
+          const id = (await tables.nth(i).getAttribute('aria-labelledby'))!;
+          const heading = page.locator(`[id="${id}"]`);
+          await expect(heading).toHaveCount(1);
+          // The heading's accessible name, as the browser computes it.
+          const snapshot = await heading.ariaSnapshot();
+          const name = /"([^"]+)"/.exec(snapshot)?.[1] ?? '';
+          expect(name.length, snapshot).toBeGreaterThan(0);
+          await expect(tables.nth(i)).toHaveAccessibleName(name);
+        }
+        expect(await duplicateIds(page)).toEqual([]);
+
+        // Back to cards: the same rows again, and focus stays on the toggle.
+        const cardsButton = viewButton(page, 'Cards');
+        await cardsButton.click();
+        await expect(cardsButton).toBeFocused();
+        await expect(page.locator(`${section} a[data-testid="powered-card"]`)).toHaveCount(
+          cards.length,
+        );
+        expect(await cardNames(page)).toEqual(cards);
+      });
+
+      await test.step('the filter and "Showing n of m" are the same in both views', async () => {
+        const word = (
+          (await page
+            .locator(`${section} [data-testid="powered-card-name"]`)
+            .last()
+            .textContent()) ?? ''
+        ).trim();
+        expect(word.length).toBeGreaterThan(0);
+        await search.fill(word);
+        const shownInCards = await shownCount(page, section);
+        const cards = await cardNames(page);
+        expect(cards).toHaveLength(shownInCards);
+
+        await viewButton(page, 'Table').click();
+        await expect(page.locator(`${section} a[data-testid="powered-table-link"]`)).toHaveCount(
+          shownInCards,
+        );
+        expect(await shownCount(page, section)).toBe(shownInCards);
+        expect(await tableNames(page)).toEqual(cards);
+
+        // Clearing the filter in the table brings every row back, still as a table.
+        await page.getByTestId('powers-filter-clear').click();
+        await expect(search).toBeFocused();
+        await expect(
+          page.locator(`${section} a[data-testid="powered-table-link"]`),
+        ).not.toHaveCount(shownInCards);
+        await expect(page.locator(`${section} a[data-testid="powered-card"]`)).toHaveCount(0);
+      });
     });
 
-    for (const width of [320, 390]) {
-      test(`the table never scrolls the page sideways at ${width}px`, async ({ page }) => {
-        await page.setViewportSize({ width, height: 900 });
-        await page.goto(`/products/${slug}`);
-        await untilHydrated(page.locator('#powers-filter'));
-        await viewButton(page, 'Table').click();
-        await expect(page.locator(`${section} table`).first()).toBeVisible();
-        await expectNoSidewaysScroll(page, `${slug} table at ${width}px`);
-      });
-    }
-
     // Chris, 2026-11-19: no curved header inside a square card, and more columns.
-    for (const width of [1440, 768, 390, 320]) {
+    // One width per column band of the table: 1440 (five columns, from lg), 768 (four,
+    // from md) and 320 (two, below md). The table has no breakpoint below md, so 390
+    // showed the same two columns as 320. At 320 this is also the check that the table
+    // never scrolls the page sideways: it opens the table and ends with that check.
+    for (const width of [1440, 768, 320]) {
       test(`the hub table has square corners inside its card at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 900 });
         await page.goto(`/products/${slug}`);

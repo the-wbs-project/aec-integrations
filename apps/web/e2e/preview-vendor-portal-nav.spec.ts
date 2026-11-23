@@ -6,11 +6,12 @@ import { expect, test } from '@playwright/test';
  * ungated dev preview.
  *
  * ── WHY HERE AND NOT IN `vendor-dashboard.spec.ts` ──────────────────────────
- * That spec covers the real `/vendor/:vendorSlug` surface and skips entirely
- * without `SUPABASE_VENDOR_TEST_USER_*`, which CI does not set — so it is
- * executable documentation, not a gate. `/preview/vendor-dashboard` mounts the
- * SAME shell and the SAME section routes with a fixture-backed API and no
- * session, so this file actually runs. It also sidesteps the zone WAF, which
+ * That spec covers the real `/vendor/:vendorSlug` surface and needs a minted
+ * vendor session. CI's E2E step passes `SUPABASE_VENDOR_TEST_USER_*` from repo
+ * secrets (`deploy.yml`). Without them the spec skips, as it does on most local
+ * runs. `/preview/vendor-dashboard` mounts the SAME shell and the SAME section
+ * routes with a fixture-backed API and no session, so this file runs everywhere,
+ * credentials or not. It also sidesteps the zone WAF, which
  * 403s any path containing `/vendor/`; this path has no such segment.
  *
  * §6.11: opening a product swaps the whole header to that product. The vendor
@@ -54,40 +55,41 @@ async function axeSerious(page: import('@playwright/test').Page) {
 }
 
 test.describe('vendor portal nav (preview)', () => {
-  test('is one horizontal row of nine section links (the preview seat is an owner) under a vendor breadcrumb', async ({
+  // One page load for both checks. The row is read at rest before the Profile click.
+  test('the vendor row: nine links under a breadcrumb, and a section click moves aria-current', async ({
     page,
   }) => {
     const res = await page.goto(`${PATH}/overview`);
-    expect(res?.status(), `GET ${PATH}/overview must return 200`).toBe(200);
+    await test.step('is one horizontal row of nine section links (the preview seat is an owner) under a vendor breadcrumb', async () => {
+      expect(res?.status(), `GET ${PATH}/overview must return 200`).toBe(200);
 
-    // Exactly one row: a `md:hidden` mobile duplicate would double every item
-    // in a screen reader's link list.
-    await expect(nav(page)).toHaveCount(1);
-    // Seven sections, Conversations included (AECI-1551), plus the owner-only
-    // Billing and Proposed products (AECI-1390, AECI-1417).
-    await expect(nav(page).getByRole('link')).toHaveCount(9);
-    await expect(
-      nav(page).getByRole('link', { name: 'Proposed products', exact: true }),
-    ).toHaveCount(1);
-    await expect(nav(page).getByRole('link', { name: 'Vendor Overview' })).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
-    // Vendor portal › Company. The separators are aria-hidden, so they are not list items.
-    await expect(breadcrumb(page).getByRole('listitem')).toHaveCount(2);
-  });
+      // Exactly one row: a `md:hidden` mobile duplicate would double every item
+      // in a screen reader's link list.
+      await expect(nav(page)).toHaveCount(1);
+      // Seven sections, Conversations included (AECI-1551), plus the owner-only
+      // Billing and Proposed products (AECI-1390, AECI-1417).
+      await expect(nav(page).getByRole('link')).toHaveCount(9);
+      await expect(
+        nav(page).getByRole('link', { name: 'Proposed products', exact: true }),
+      ).toHaveCount(1);
+      await expect(nav(page).getByRole('link', { name: 'Vendor Overview' })).toHaveAttribute(
+        'aria-current',
+        'page',
+      );
+      // Vendor portal › Company. The separators are aria-hidden, so they are not list items.
+      await expect(breadcrumb(page).getByRole('listitem')).toHaveCount(2);
+    });
 
-  test('navigating a section keeps one live region and moves aria-current', async ({ page }) => {
-    await page.goto(`${PATH}/overview`);
-
-    await clickUntil(nav(page).getByRole('link', { name: 'Profile', exact: true }), () =>
-      expect(page).toHaveURL(new RegExp(`${PATH}/profile$`), { timeout: 1_000 }),
-    );
-    await expect(nav(page).getByRole('link', { name: 'Profile', exact: true })).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
-    await expect(page.locator('[role="status"].sr-only')).toHaveCount(1);
+    await test.step('navigating a section keeps one live region and moves aria-current', async () => {
+      await clickUntil(nav(page).getByRole('link', { name: 'Profile', exact: true }), () =>
+        expect(page).toHaveURL(new RegExp(`${PATH}/profile$`), { timeout: 1_000 }),
+      );
+      await expect(nav(page).getByRole('link', { name: 'Profile', exact: true })).toHaveAttribute(
+        'aria-current',
+        'page',
+      );
+      await expect(page.locator('[role="status"].sr-only')).toHaveCount(1);
+    });
   });
 
   test('Products opens the product list, and a product takes over the header', async ({ page }) => {

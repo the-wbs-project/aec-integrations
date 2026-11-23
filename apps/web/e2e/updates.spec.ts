@@ -49,22 +49,32 @@ test.describe(`${PATH} — AECI-536`, () => {
     expect(html).toContain('id="updates-email"');
   });
 
-  test('is indexable — self-referential canonical, no noindex robots meta', async ({
-    page,
-    request,
-  }) => {
-    const html = await (await request.get(PATH)).text();
-    expect(html).not.toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
+  // One page load for both checks (AECI-2027). Console capture is attached before
+  // the load, and the console check runs last, after hydration.
+  test('is indexable and renders console-clean', async ({ page, request }) => {
+    const capture = attachConsoleCapture(page);
 
-    await page.goto(PATH);
-    await expect(page).toHaveTitle(TITLE);
-    const canonical = page.locator('head link[rel="canonical"]');
-    await expect(canonical).toHaveCount(1);
-    await expect(canonical).toHaveAttribute('href', new RegExp(`${PATH}$`));
-    await expect(page.locator('head meta[property="og:type"]')).toHaveAttribute(
-      'content',
-      'website',
-    );
+    await test.step('is indexable — self-referential canonical, no noindex robots meta', async () => {
+      const html = await (await request.get(PATH)).text();
+      expect(html).not.toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
+
+      const res = await page.goto(PATH);
+      expect(res?.status()).toBe(200);
+      await expect(page).toHaveTitle(TITLE);
+      const canonical = page.locator('head link[rel="canonical"]');
+      await expect(canonical).toHaveCount(1);
+      await expect(canonical).toHaveAttribute('href', new RegExp(`${PATH}$`));
+      await expect(page.locator('head meta[property="og:type"]')).toHaveAttribute(
+        'content',
+        'website',
+      );
+    });
+
+    await test.step('renders with no console errors or page errors', async () => {
+      await expect(page.locator('app-root')).toBeAttached();
+      await waitForHydrationSettle(page);
+      expectConsoleClean(capture, `GET ${PATH}`);
+    });
   });
 
   test('is reachable from the footer Company column', async ({ page }) => {
@@ -161,14 +171,5 @@ test.describe(`${PATH} — AECI-536`, () => {
       .analyze();
 
     expect(results.violations).toEqual([]);
-  });
-
-  test('renders with no console errors or page errors', async ({ page }) => {
-    const capture = attachConsoleCapture(page);
-    const res = await page.goto(PATH);
-    expect(res?.status()).toBe(200);
-    await expect(page.locator('app-root')).toBeAttached();
-    await waitForHydrationSettle(page);
-    expectConsoleClean(capture, `GET ${PATH}`);
   });
 });

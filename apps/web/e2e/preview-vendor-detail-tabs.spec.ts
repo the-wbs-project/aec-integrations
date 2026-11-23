@@ -20,69 +20,69 @@ const OVERVIEW_MARKER = '#company-card-title'; // <h2> "Company" — overview pa
 const PRODUCTS_MARKER = 'button[aria-label*="category rankings"]'; // info popover — products panel only
 
 test.describe('preview vendor-detail tabs (Angular Aria pilot)', () => {
-  test('returns 200 with the Overview panel selected by default', async ({ page }) => {
+  // One page load for the three checks, in this order. Each step ends on Overview,
+  // the tab the next step starts from.
+  test('the tabs start on Overview and switch by keyboard and by pointer', async ({ page }) => {
     const res = await page.goto(PATH);
-    expect(res?.status(), `GET ${PATH} must return 200`).toBe(200);
+    await test.step('returns 200 with the Overview panel selected by default', async () => {
+      expect(res?.status(), `GET ${PATH} must return 200`).toBe(200);
 
-    const overviewTab = page.getByRole('tab', { name: 'Overview' });
-    const productsTab = page.getByRole('tab', { name: /Products/ });
+      const overviewTab = page.getByRole('tab', { name: 'Overview' });
+      const productsTab = page.getByRole('tab', { name: /Products/ });
 
-    await expect(overviewTab).toHaveAttribute('aria-selected', 'true');
-    await expect(productsTab).not.toHaveAttribute('aria-selected', 'true');
+      await expect(overviewTab).toHaveAttribute('aria-selected', 'true');
+      await expect(productsTab).not.toHaveAttribute('aria-selected', 'true');
 
-    await expect(page.locator(OVERVIEW_MARKER)).toBeVisible();
-    await expect(page.locator(PRODUCTS_MARKER).first()).toBeHidden();
-  });
+      await expect(page.locator(OVERVIEW_MARKER)).toBeVisible();
+      await expect(page.locator(PRODUCTS_MARKER).first()).toBeHidden();
+    });
 
-  test('keyboard navigation (arrows, Home/End) moves selection and panels', async ({ page }) => {
-    await page.goto(PATH);
+    await test.step('keyboard navigation (arrows, Home/End) moves selection and panels', async () => {
+      const overviewTab = page.getByRole('tab', { name: 'Overview' });
+      const productsTab = page.getByRole('tab', { name: /Products/ });
 
-    const overviewTab = page.getByRole('tab', { name: 'Overview' });
-    const productsTab = page.getByRole('tab', { name: /Products/ });
+      await overviewTab.focus();
+      await expect(overviewTab).toBeFocused();
 
-    await overviewTab.focus();
-    await expect(overviewTab).toBeFocused();
+      // ArrowRight → Products (follow mode activates on navigation).
+      await page.keyboard.press('ArrowRight');
+      await expect(productsTab).toBeFocused();
+      await expect(productsTab).toHaveAttribute('aria-selected', 'true');
+      await expect(page.locator(PRODUCTS_MARKER).first()).toBeVisible();
+      await expect(page.locator(OVERVIEW_MARKER)).toBeHidden();
 
-    // ArrowRight → Products (follow mode activates on navigation).
-    await page.keyboard.press('ArrowRight');
-    await expect(productsTab).toBeFocused();
-    await expect(productsTab).toHaveAttribute('aria-selected', 'true');
-    await expect(page.locator(PRODUCTS_MARKER).first()).toBeVisible();
-    await expect(page.locator(OVERVIEW_MARKER)).toBeHidden();
+      // ArrowLeft → back to Overview.
+      await page.keyboard.press('ArrowLeft');
+      await expect(overviewTab).toHaveAttribute('aria-selected', 'true');
+      await expect(page.locator(OVERVIEW_MARKER)).toBeVisible();
 
-    // ArrowLeft → back to Overview.
-    await page.keyboard.press('ArrowLeft');
-    await expect(overviewTab).toHaveAttribute('aria-selected', 'true');
-    await expect(page.locator(OVERVIEW_MARKER)).toBeVisible();
+      // End → last tab (Products); Home → first tab (Overview).
+      await page.keyboard.press('End');
+      await expect(productsTab).toHaveAttribute('aria-selected', 'true');
+      await page.keyboard.press('Home');
+      await expect(overviewTab).toHaveAttribute('aria-selected', 'true');
+    });
 
-    // End → last tab (Products); Home → first tab (Overview).
-    await page.keyboard.press('End');
-    await expect(productsTab).toHaveAttribute('aria-selected', 'true');
-    await page.keyboard.press('Home');
-    await expect(overviewTab).toHaveAttribute('aria-selected', 'true');
-  });
+    await test.step('pointer + Enter/Space activation switches panels', async () => {
+      const overviewTab = page.getByRole('tab', { name: 'Overview' });
+      const productsTab = page.getByRole('tab', { name: /Products/ });
 
-  test('pointer + Enter/Space activation switches panels', async ({ page }) => {
-    await page.goto(PATH);
+      // Pointer activation.
+      await productsTab.click();
+      await expect(productsTab).toHaveAttribute('aria-selected', 'true');
+      await expect(page.locator(PRODUCTS_MARKER).first()).toBeVisible();
 
-    const overviewTab = page.getByRole('tab', { name: 'Overview' });
-    const productsTab = page.getByRole('tab', { name: /Products/ });
+      await overviewTab.click();
+      await expect(overviewTab).toHaveAttribute('aria-selected', 'true');
+      await expect(page.locator(OVERVIEW_MARKER)).toBeVisible();
 
-    // Pointer activation.
-    await productsTab.click();
-    await expect(productsTab).toHaveAttribute('aria-selected', 'true');
-    await expect(page.locator(PRODUCTS_MARKER).first()).toBeVisible();
-
-    await overviewTab.click();
-    await expect(overviewTab).toHaveAttribute('aria-selected', 'true');
-    await expect(page.locator(OVERVIEW_MARKER)).toBeVisible();
-
-    // Activation keys on a focused tab keep it selected (no regression).
-    await overviewTab.focus();
-    await page.keyboard.press('Enter');
-    await expect(overviewTab).toHaveAttribute('aria-selected', 'true');
-    await page.keyboard.press('Space');
-    await expect(overviewTab).toHaveAttribute('aria-selected', 'true');
+      // Activation keys on a focused tab keep it selected (no regression).
+      await overviewTab.focus();
+      await page.keyboard.press('Enter');
+      await expect(overviewTab).toHaveAttribute('aria-selected', 'true');
+      await page.keyboard.press('Space');
+      await expect(overviewTab).toHaveAttribute('aria-selected', 'true');
+    });
   });
 
   // Axe scope: the ported tab CONTROLS (`[role="tablist"]` + its tabs). The rest

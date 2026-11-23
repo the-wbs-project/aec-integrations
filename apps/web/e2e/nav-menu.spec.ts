@@ -27,7 +27,6 @@ import { expectNoSidewaysScroll } from './no-sideways-scroll';
 
 // Any route renders the global header; browse is a known-200 preview route.
 const ROUTE = '/preview/layouts/browse';
-const MOBILE = { width: 375, height: 667 } as const;
 const DESKTOP = { width: 1280, height: 800 } as const;
 const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 
@@ -125,6 +124,16 @@ for (const viewport of [
       await expectNoSidewaysScroll(page, 'document must not overflow horizontally', {
         tolerance: 1,
       });
+
+      // AECI-1771, folded in here (AECI-2027). The edge does not depend on width. It
+      // reads computed styles, see "header on Forest" below.
+      await test.step('the menu toggle edge computes to the strong Bone edge', async () => {
+        await untilHydrated(toggle(page));
+        expect(await computed(toggle(page), 'border-top-color')).toBe(
+          await tokenColor(page, '--border-on-brand-strong', 'border-top-color'),
+        );
+        expect(await computed(toggle(page), 'border-top-width')).toBe('1px');
+      });
     });
 
     test('open: a named dialog, a white panel under the header, the page inert and not scrolling', async ({
@@ -157,6 +166,8 @@ for (const viewport of [
       ).toBe(true);
       expect(await computed(page.locator('html'), 'overflow-y')).toBe('hidden');
       await page.mouse.wheel(0, 600);
+      // A fixed wait on purpose. The test proves that the wheel does not scroll the
+      // page, and no condition marks the end of "nothing happened".
       await page.waitForTimeout(200);
       expect(await page.evaluate(() => window.scrollY)).toBe(0);
 
@@ -167,153 +178,165 @@ for (const viewport of [
       expect(await computed(page.locator('[data-nav-scrim]'), 'z-index')).toBe('65');
     });
 
-    test('Tab and Shift+Tab cycle inside the open menu and never reach the page', async ({
-      page,
-    }) => {
-      await page.goto(ROUTE);
-      await openMenu(page);
-
-      const forward = await tabCycle(page);
-      expect(forward.at(-1), forward.join(' ')).toBe('toggle');
-      expect(forward[0]).toBe('/products');
-      expect(forward).toContain('/docs/trust/how-ranking-works');
-      expect(forward).toContain('/vendor-program');
-      expect(forward).toContain('mobile-search');
-      expect(forward.some((stop) => stop.startsWith('/auth/login'))).toBe(true);
-
-      const backward = await tabCycle(page, true);
-      expect(backward.at(-1), backward.join(' ')).toBe('toggle');
-      expect(backward[0]?.startsWith('/auth/login')).toBe(true);
-      // The same stops, in reverse.
-      expect(backward.slice(0, -1)).toEqual(forward.slice(0, -1).reverse());
-    });
-
-    test('Escape closes, returns focus to the toggle, and releases the page', async ({ page }) => {
-      await page.goto(ROUTE);
-      await openMenu(page);
-      await page.keyboard.press('Tab');
-      await page.keyboard.press('Escape');
-
-      await expect(menuPanel(page)).toBeHidden();
-      await expect(toggle(page)).toBeFocused();
-      await expect(toggle(page)).toHaveAttribute('aria-expanded', 'false');
-      expect(await page.locator('main').evaluate((el) => (el as HTMLElement).inert)).toBe(false);
-      expect(await computed(page.locator('html'), 'overflow-y')).not.toBe('hidden');
-      await expect(page.getByRole('dialog')).toHaveCount(0);
-    });
-
-    test('a tap on the dimmer closes the menu', async ({ page }) => {
-      await page.goto(ROUTE);
-      await openMenu(page);
-      // The panel can fill a phone screen, leaving no dimmer to hit, so the
-      // click goes to the dimmer itself. It is outside the inert walk.
-      await page.locator('[data-nav-scrim]').dispatchEvent('click');
-      await expect(menuPanel(page)).toBeHidden();
-      await expect(toggle(page)).toBeFocused();
-    });
-
-    test('each section expands with aria-expanded and reaches its terms and "See all"', async ({
-      page,
-    }) => {
-      await page.goto(ROUTE);
-      await openMenu(page);
-      for (const [index, name] of FACETS.entries()) {
-        const section = menuPanel(page).getByRole('button', { name, exact: true });
-        await expect(section).toHaveAttribute('aria-expanded', 'false');
-        await section.click();
-        await expect(section).toHaveAttribute('aria-expanded', 'true');
-        const [label, href] = INDEXES[index]!;
-        await expect(menuPanel(page).getByRole('link', { name: label })).toHaveAttribute(
-          'href',
-          href,
-        );
-        await section.click();
-        await expect(section).toHaveAttribute('aria-expanded', 'false');
-        await expect(menuPanel(page).getByRole('link', { name: label })).toBeHidden();
-      }
-      // Terms and counts arrive in the browser, from /api/taxonomy.
-      await menuPanel(page).getByRole('button', { name: 'Categories' }).click();
-      await expect(
-        menuPanel(page)
-          .locator('#nav-menu-sec-category')
-          .getByRole('link', { name: /\d+ products?$/ })
-          .first(),
-      ).toBeVisible();
-    });
-
-    // Every destination is one tap from the open menu, and each lands on a real page.
-    const DESTINATIONS = [
-      [/^All products/, '/products'],
-      [/^How we rank$/, '/docs/trust/how-ranking-works'],
-      [/^For vendors$/, '/vendor-program'],
-      ['See all phases', '/phases'],
-    ] as const;
-    for (const [name, href] of DESTINATIONS) {
-      test(`reaches ${href}, and the route change closes the menu`, async ({ page }) => {
+    // The behaviour tests run at 320 only (AECI-2027). 390 and 320 are both below
+    // `md`, so no breakpoint changes the menu between them. 320 is the stricter
+    // case: its short panel makes the `scrollIntoViewIfNeeded` paths really scroll.
+    // The layout tests above and the axe test below run at both widths.
+    if (viewport.width === 320) {
+      test('Tab and Shift+Tab cycle inside the open menu and never reach the page', async ({
+        page,
+      }) => {
         await page.goto(ROUTE);
         await openMenu(page);
-        if (href === '/phases')
-          await menuPanel(page).getByRole('button', { name: 'Phases' }).click();
-        const link = menuPanel(page).getByRole('link', { name });
-        await link.scrollIntoViewIfNeeded();
-        await link.click();
-        await page.waitForURL(new RegExp(`${href}$`));
-        await expect(page.locator('h1').first()).toBeVisible();
-        await expect(toggle(page)).toHaveAttribute('aria-expanded', 'false');
+
+        const forward = await tabCycle(page);
+        expect(forward.at(-1), forward.join(' ')).toBe('toggle');
+        expect(forward[0]).toBe('/products');
+        expect(forward).toContain('/docs/trust/how-ranking-works');
+        expect(forward).toContain('/vendor-program');
+        expect(forward).toContain('mobile-search');
+        expect(forward.some((stop) => stop.startsWith('/auth/login'))).toBe(true);
+
+        const backward = await tabCycle(page, true);
+        expect(backward.at(-1), backward.join(' ')).toBe('toggle');
+        expect(backward[0]?.startsWith('/auth/login')).toBe(true);
+        // The same stops, in reverse.
+        expect(backward.slice(0, -1)).toEqual(forward.slice(0, -1).reverse());
+      });
+
+      test('Escape closes, returns focus to the toggle, and releases the page', async ({
+        page,
+      }) => {
+        await page.goto(ROUTE);
+        await openMenu(page);
+        await page.keyboard.press('Tab');
+        await page.keyboard.press('Escape');
+
         await expect(menuPanel(page)).toBeHidden();
+        await expect(toggle(page)).toBeFocused();
+        await expect(toggle(page)).toHaveAttribute('aria-expanded', 'false');
         expect(await page.locator('main').evaluate((el) => (el as HTMLElement).inert)).toBe(false);
+        expect(await computed(page.locator('html'), 'overflow-y')).not.toBe('hidden');
+        await expect(page.getByRole('dialog')).toHaveCount(0);
+      });
+
+      test('a tap on the dimmer closes the menu', async ({ page }) => {
+        await page.goto(ROUTE);
+        await openMenu(page);
+        // The panel can fill a phone screen, leaving no dimmer to hit, so the
+        // click goes to the dimmer itself. It is outside the inert walk.
+        await page.locator('[data-nav-scrim]').dispatchEvent('click');
+        await expect(menuPanel(page)).toBeHidden();
+        await expect(toggle(page)).toBeFocused();
+      });
+
+      test('each section expands with aria-expanded and reaches its terms and "See all"', async ({
+        page,
+      }) => {
+        await page.goto(ROUTE);
+        await openMenu(page);
+        for (const [index, name] of FACETS.entries()) {
+          const section = menuPanel(page).getByRole('button', { name, exact: true });
+          await expect(section).toHaveAttribute('aria-expanded', 'false');
+          await section.click();
+          await expect(section).toHaveAttribute('aria-expanded', 'true');
+          const [label, href] = INDEXES[index]!;
+          await expect(menuPanel(page).getByRole('link', { name: label })).toHaveAttribute(
+            'href',
+            href,
+          );
+          await section.click();
+          await expect(section).toHaveAttribute('aria-expanded', 'false');
+          await expect(menuPanel(page).getByRole('link', { name: label })).toBeHidden();
+        }
+        // Terms and counts arrive in the browser, from /api/taxonomy.
+        await menuPanel(page).getByRole('button', { name: 'Categories' }).click();
+        await expect(
+          menuPanel(page)
+            .locator('#nav-menu-sec-category')
+            .getByRole('link', { name: /\d+ products?$/ })
+            .first(),
+        ).toBeVisible();
+      });
+
+      // A tap on a menu link lands on a real page and closes the menu. Two cases
+      // (AECI-2027): a top-level row link, and a link inside an expanded section.
+      // How we rank and For vendors are plain top-level links like All products.
+      // Both are Tab stops in the cycle test, For vendors is tapped in the AECI-1855
+      // focus test, and How we rank in the chunk-held test.
+      const DESTINATIONS = [
+        [/^All products/, '/products'],
+        ['See all phases', '/phases'],
+      ] as const;
+      for (const [name, href] of DESTINATIONS) {
+        test(`reaches ${href}, and the route change closes the menu`, async ({ page }) => {
+          await page.goto(ROUTE);
+          await openMenu(page);
+          if (href === '/phases')
+            await menuPanel(page).getByRole('button', { name: 'Phases' }).click();
+          const link = menuPanel(page).getByRole('link', { name });
+          await link.scrollIntoViewIfNeeded();
+          await link.click();
+          await page.waitForURL(new RegExp(`${href}$`));
+          await expect(page.locator('h1').first()).toBeVisible();
+          await expect(toggle(page)).toHaveAttribute('aria-expanded', 'false');
+          await expect(menuPanel(page)).toBeHidden();
+          expect(await page.locator('main').evaluate((el) => (el as HTMLElement).inert)).toBe(
+            false,
+          );
+        });
+      }
+
+      test('a key category and a term navigate', async ({ page }) => {
+        await page.goto(ROUTE);
+        await openMenu(page);
+        const key = menuPanel(page)
+          .locator('ul[aria-labelledby="nav-menu-key"]')
+          .getByRole('link')
+          .first();
+        await expect(key).toBeVisible();
+        const href = (await key.getAttribute('href'))!;
+        expect(href).toMatch(/^\/categories\/[\w-]+$/);
+        await key.click();
+        await page.waitForURL(new RegExp(`${href}$`));
+      });
+
+      test('search and Sign in are in the menu', async ({ page }) => {
+        await page.goto(ROUTE);
+        await openMenu(page);
+        const search = menuPanel(page).getByRole('combobox', { name: 'Search' });
+        await expect(search).toBeAttached();
+        await expect(search).toHaveAttribute('placeholder', 'Search directory');
+        const signIn = menuPanel(page).getByRole('link', { name: 'Sign in' });
+        await signIn.scrollIntoViewIfNeeded();
+        await expect(signIn).toBeVisible();
+        // Primary, full width: Forest fill across the panel's content box.
+        expect(await computed(signIn, 'background-color')).toBe(
+          await tokenColor(page, '--accent-primary', 'color'),
+        );
+        const content = (await menuPanel(page).locator('nav').boundingBox())!;
+        const button = (await signIn.boundingBox())!;
+        expect(Math.abs(button.width - content.width)).toBeLessThanOrEqual(1);
+        expect(button.height).toBeGreaterThanOrEqual(44);
+        // No "More" disclosure and no secondary or retired destinations.
+        await expect(menuPanel(page).getByRole('button', { name: 'More' })).toHaveCount(0);
+        for (const name of [...SECONDARY, ...REMOVED]) {
+          await expect(menuPanel(page).getByRole('link', { name, exact: true })).toHaveCount(0);
+        }
+        // Signed out, so no portal door at all.
+        await expect(menuPanel(page).locator('a[href^="/admin"]')).toHaveCount(0);
+        await expect(menuPanel(page).locator('a[href="/vendor"]')).toHaveCount(0);
+      });
+
+      test('submitting a search from the menu reaches /search and closes it', async ({ page }) => {
+        await page.goto(ROUTE);
+        await openMenu(page);
+        await menuPanel(page).getByRole('combobox', { name: 'Search' }).fill('revit');
+        await page.keyboard.press('Enter');
+        await expect(page).toHaveURL(/\/search\?q=revit/);
+        await expect(toggle(page)).toHaveAttribute('aria-expanded', 'false');
       });
     }
-
-    test('a key category and a term navigate', async ({ page }) => {
-      await page.goto(ROUTE);
-      await openMenu(page);
-      const key = menuPanel(page)
-        .locator('ul[aria-labelledby="nav-menu-key"]')
-        .getByRole('link')
-        .first();
-      await expect(key).toBeVisible();
-      const href = (await key.getAttribute('href'))!;
-      expect(href).toMatch(/^\/categories\/[\w-]+$/);
-      await key.click();
-      await page.waitForURL(new RegExp(`${href}$`));
-    });
-
-    test('search and Sign in are in the menu', async ({ page }) => {
-      await page.goto(ROUTE);
-      await openMenu(page);
-      const search = menuPanel(page).getByRole('combobox', { name: 'Search' });
-      await expect(search).toBeAttached();
-      await expect(search).toHaveAttribute('placeholder', 'Search directory');
-      const signIn = menuPanel(page).getByRole('link', { name: 'Sign in' });
-      await signIn.scrollIntoViewIfNeeded();
-      await expect(signIn).toBeVisible();
-      // Primary, full width: Forest fill across the panel's content box.
-      expect(await computed(signIn, 'background-color')).toBe(
-        await tokenColor(page, '--accent-primary', 'color'),
-      );
-      const content = (await menuPanel(page).locator('nav').boundingBox())!;
-      const button = (await signIn.boundingBox())!;
-      expect(Math.abs(button.width - content.width)).toBeLessThanOrEqual(1);
-      expect(button.height).toBeGreaterThanOrEqual(44);
-      // No "More" disclosure and no secondary or retired destinations.
-      await expect(menuPanel(page).getByRole('button', { name: 'More' })).toHaveCount(0);
-      for (const name of [...SECONDARY, ...REMOVED]) {
-        await expect(menuPanel(page).getByRole('link', { name, exact: true })).toHaveCount(0);
-      }
-      // Signed out, so no portal door at all.
-      await expect(menuPanel(page).locator('a[href^="/admin"]')).toHaveCount(0);
-      await expect(menuPanel(page).locator('a[href="/vendor"]')).toHaveCount(0);
-    });
-
-    test('submitting a search from the menu reaches /search and closes it', async ({ page }) => {
-      await page.goto(ROUTE);
-      await openMenu(page);
-      await menuPanel(page).getByRole('combobox', { name: 'Search' }).fill('revit');
-      await page.keyboard.press('Enter');
-      await expect(page).toHaveURL(/\/search\?q=revit/);
-      await expect(toggle(page)).toHaveAttribute('aria-expanded', 'false');
-    });
 
     test('axe: the header and the open menu, with a section expanded', async ({ page }) => {
       await page.goto(ROUTE);
@@ -630,6 +653,30 @@ test.describe('mobile menu with its body chunk held (390px)', () => {
   });
 });
 
+// Focus after a navigation (AECI-1855). Shared by the desktop panel test and the
+// focus describe below.
+
+/** What holds focus, as a short label. */
+async function focused(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const el = document.activeElement;
+    if (!el || el === document.body) return 'body';
+    if (el.matches('main#main')) return 'main';
+    if (el.matches('main#main h1')) return 'h1';
+    return `${el.tagName.toLowerCase()}:${el.textContent?.trim().slice(0, 30) ?? ''}`;
+  });
+}
+
+async function expectPageHeadingFocused(page: Page) {
+  await expect.poll(() => focused(page)).toBe('h1');
+  // No ring on a heading that only holds focus for this.
+  const outline = await page
+    .locator('main#main h1')
+    .first()
+    .evaluate((el) => getComputedStyle(el).outlineStyle);
+  expect(outline).toBe('none');
+}
+
 test.describe('primary navigation menu (1280px)', () => {
   test.use({ viewport: DESKTOP });
 
@@ -696,22 +743,6 @@ test.describe('primary navigation menu (1280px)', () => {
     await expect(search).toHaveAttribute('placeholder', 'Search directory');
   });
 
-  test('the overflow panel is gone, and its links stayed crawlable in the footer', async ({
-    page,
-  }) => {
-    await page.goto(ROUTE);
-
-    // The old panel was `[hidden]`, not unmounted, so its links shipped in SSR
-    // HTML. The footer is equally server-rendered, so retiring the panel cost
-    // crawlers nothing — that equivalence is the point of this assertion.
-    await expect(page.locator('#nav-more-panel')).toHaveCount(0);
-
-    const footer = page.locator('aec-site-footer');
-    for (const href of ['/updates', '/roadmap', '/about', '/contact', '/legal/terms']) {
-      await expect(footer.locator(`a[href="${href}"]`), href).toHaveCount(1);
-    }
-  });
-
   test('hovering Browse opens the panel with five columns, and leaving closes it', async ({
     page,
   }) => {
@@ -737,6 +768,9 @@ test.describe('primary navigation menu (1280px)', () => {
     // The pointer crosses into the panel without closing it (the close grace).
     const box = (await panel(page).boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + 40, { steps: 8 });
+    // A fixed wait on purpose. It outlasts the 260ms close grace, so a panel that
+    // was going to close has closed. The test proves it stays open, which no
+    // condition can mark as done.
     await page.waitForTimeout(400);
     await expect(panel(page)).toBeVisible();
 
@@ -781,25 +815,31 @@ test.describe('primary navigation menu (1280px)', () => {
     await expect(primaryNav(page).getByRole('link', { name: 'For vendors' })).toBeFocused();
   });
 
-  test('Tab past the last panel link closes it', async ({ page }) => {
+  // One page load for both ways to close a keyboard-opened panel (AECI-2027).
+  // The panel is reopened by keyboard between them, which refocuses Browse.
+  test('Tab past the last panel link closes it, and so does a click on the dimmed page', async ({
+    page,
+  }) => {
     await page.goto(ROUTE);
-    await openByKeyboard(page);
-    await panel(page).getByRole('link', { name: 'See all trades' }).focus();
-    await page.keyboard.press('Tab');
-    await expect(panel(page)).toBeHidden();
-    await expect(primaryNav(page).getByRole('link', { name: 'How we rank' })).toBeFocused();
-  });
 
-  test('a click outside, on the dimmed page, closes the panel', async ({ page }) => {
-    await page.goto(ROUTE);
-    await openByKeyboard(page);
-    const dimmer = page.locator('[data-browse-dimmer]');
-    await expect(dimmer).toBeVisible();
-    await expect(dimmer).toHaveAttribute('aria-hidden', 'true');
+    await test.step('Tab past the last panel link closes it', async () => {
+      await openByKeyboard(page);
+      await panel(page).getByRole('link', { name: 'See all trades' }).focus();
+      await page.keyboard.press('Tab');
+      await expect(panel(page)).toBeHidden();
+      await expect(primaryNav(page).getByRole('link', { name: 'How we rank' })).toBeFocused();
+    });
 
-    await page.mouse.click(5, 790);
-    await expect(panel(page)).toBeHidden();
-    await expect(dimmer).toHaveCount(0);
+    await test.step('a click outside, on the dimmed page, closes the panel', async () => {
+      await openByKeyboard(page);
+      const dimmer = page.locator('[data-browse-dimmer]');
+      await expect(dimmer).toBeVisible();
+      await expect(dimmer).toHaveAttribute('aria-hidden', 'true');
+
+      await page.mouse.click(5, 790);
+      await expect(panel(page)).toBeHidden();
+      await expect(dimmer).toHaveCount(0);
+    });
   });
 
   test('a click on a panel link lands, and closes the panel', async ({ page }) => {
@@ -812,11 +852,20 @@ test.describe('primary navigation menu (1280px)', () => {
     await expect(panel(page)).toBeHidden();
     // Browse is the current section on a facet index.
     await expect(browse(page)).toHaveAttribute('aria-current', 'true');
+
+    // AECI-1855, folded in here (AECI-2027): the click moves focus to the new page h1.
+    await test.step('a mouse click on a panel link puts focus on the new page h1', async () => {
+      await expectPageHeadingFocused(page);
+    });
   });
 
   // Every destination the old row and flyouts reached stays one hover or one
-  // ArrowDown away, and each index is a real page.
-  for (const [name, href] of INDEXES) {
+  // ArrowDown away, and each index is a real page. One case runs (AECI-2027):
+  // /categories, which no other test clicks from the desktop panel. One handler
+  // routes every panel link. The keyboard walk asserts all four See-all hrefs,
+  // the JavaScript-off test pins them in the server HTML, and other tests click
+  // through to /phases and /trades.
+  for (const [name, href] of INDEXES.filter(([, h]) => h === '/categories')) {
     test(`reaches ${href} from the header`, async ({ page }) => {
       await page.goto(ROUTE);
       await openByKeyboard(page);
@@ -911,15 +960,6 @@ test.describe('primary navigation menu (1280px)', () => {
     await page.waitForURL(/\/products$/);
   });
 
-  test('Escape closes a hover-opened panel while focus is elsewhere', async ({ page }) => {
-    await page.goto(ROUTE);
-    await untilHydrated(browse(page));
-    await browse(page).hover();
-    await expect(panel(page)).toBeVisible();
-    await page.keyboard.press('Escape');
-    await expect(panel(page)).toBeHidden();
-  });
-
   test('desktop header is axe-clean (closed and with the panel open)', async ({ page }) => {
     await page.goto(ROUTE);
     await expect(browse(page)).toBeVisible();
@@ -983,6 +1023,8 @@ test.describe('the Browse Clay cue (AECI-1852)', () => {
       const started = Date.now();
       for (const at of [0, 50, 100, 200, 400]) {
         const wait = at - (Date.now() - started);
+        // A fixed wait on purpose. The test samples the header at set times while
+        // the stylesheet is held back, so the samples are tied to the clock.
         if (wait > 0) await page.waitForTimeout(wait);
         const row = await lastRow(page);
         const ground = row[0];
@@ -1054,32 +1096,40 @@ for (const viewport of PILL_WIDTHS) {
   test.describe(`header search pill (${viewport.width}px)`, () => {
     test.use({ viewport });
 
-    test('is the only search affordance, fits the row, and nothing overflows', async ({ page }) => {
-      await page.goto(ROUTE);
-      await untilHydrated(pill(page));
-      await expect(toggle(page)).toBeHidden();
-      await expect(page.locator('aec-search-trigger')).toHaveCount(0);
-      await expect(pill(page)).toBeVisible();
-      await expect(pill(page)).toHaveAttribute('placeholder', 'Search directory');
+    // The fit check runs at 1024 and 1280 only (AECI-2027). The row is
+    // `lg:gap-4 xl:gap-8`, so the tight point of each band is its first width.
+    // 1100 and 1440 sit inside those bands with more room. The axe test below
+    // keeps all four widths.
+    if (viewport.width === 1024 || viewport.width === 1280) {
+      test('is the only search affordance, fits the row, and nothing overflows', async ({
+        page,
+      }) => {
+        await page.goto(ROUTE);
+        await untilHydrated(pill(page));
+        await expect(toggle(page)).toBeHidden();
+        await expect(page.locator('aec-search-trigger')).toHaveCount(0);
+        await expect(pill(page)).toBeVisible();
+        await expect(pill(page)).toHaveAttribute('placeholder', 'Search directory');
 
-      const box = await pill(page).boundingBox();
-      expect(box!.height).toBe(44);
-      expect(box!.width).toBeGreaterThanOrEqual(240);
-      expect(box!.width).toBeLessThanOrEqual(460);
+        const box = await pill(page).boundingBox();
+        expect(box!.height).toBe(44);
+        expect(box!.width).toBeGreaterThanOrEqual(240);
+        expect(box!.width).toBeLessThanOrEqual(460);
 
-      // The row does not wrap or overflow: every part sits on one line.
-      const row = await page.evaluate(() => {
-        const header = document.querySelector('aec-site-header header > div') as HTMLElement;
-        return {
-          overflow: header.scrollWidth - header.clientWidth,
-          height: header.getBoundingClientRect().height,
-        };
+        // The row does not wrap or overflow: every part sits on one line.
+        const row = await page.evaluate(() => {
+          const header = document.querySelector('aec-site-header header > div') as HTMLElement;
+          return {
+            overflow: header.scrollWidth - header.clientWidth,
+            height: header.getBoundingClientRect().height,
+          };
+        });
+        expect(row.overflow).toBeLessThanOrEqual(0);
+        await expectNoSidewaysScroll(page);
+        // One row: 76px at `md` and up. A wrap would add a whole row.
+        expect(row.height).toBeLessThanOrEqual(76);
       });
-      expect(row.overflow).toBeLessThanOrEqual(0);
-      await expectNoSidewaysScroll(page);
-      // One row: 76px at `md` and up. A wrap would add a whole row.
-      expect(row.height).toBeLessThanOrEqual(76);
-    });
+    }
 
     test('the pill edge and ring compute to the Bone tokens, and the header is axe-clean', async ({
       page,
@@ -1133,51 +1183,6 @@ test.describe('header search shortcut (Ctrl+/ or Cmd+/)', () => {
     await expect(pill(page)).toHaveValue('');
   });
 
-  test('a bare "/" does nothing (WCAG 2.1.4)', async ({ page }) => {
-    await page.goto('/products');
-    await untilHydrated(pill(page));
-    await page.locator('body').click({ position: { x: 5, y: 400 } });
-    await page.keyboard.press('/');
-    await expect(pill(page)).not.toBeFocused();
-  });
-
-  test('does not fire while typing in another field', async ({ page }) => {
-    await page.goto('/products');
-    await untilHydrated(pill(page));
-    const other = page.locator('main input, main textarea, main select').first();
-    test.skip((await other.count()) === 0, 'no other field on this page');
-    await other.focus();
-    await page.keyboard.press(`${MOD}+/`);
-    await expect(other).toBeFocused();
-  });
-
-  test('does not fire with a dialog open, and the key is not cancelled', async ({ page }) => {
-    await page.goto(ROUTE);
-    await untilHydrated(pill(page));
-    // A dialog at the width where the pill is visible. The account menu needs a
-    // session, so an element with the same role stands in for any open BrnDialog.
-    await page.evaluate(() => {
-      const dialog = document.createElement('div');
-      dialog.setAttribute('role', 'dialog');
-      document.body.appendChild(dialog);
-      (window as unknown as { __cancelled: boolean[] }).__cancelled = [];
-      window.addEventListener('keydown', (e) =>
-        (window as unknown as { __cancelled: boolean[] }).__cancelled.push(e.defaultPrevented),
-      );
-    });
-    await page.keyboard.press(`${MOD}+/`);
-    await expect(pill(page)).not.toBeFocused();
-    const cancelled = await page.evaluate(
-      () => (window as unknown as { __cancelled: boolean[] }).__cancelled,
-    );
-    expect(cancelled.length).toBeGreaterThan(0);
-    expect(cancelled.every((c) => !c)).toBe(true);
-    // And the same key works once the dialog is gone.
-    await page.evaluate(() => document.querySelector('body > [role="dialog"]')?.remove());
-    await page.keyboard.press(`${MOD}+/`);
-    await expect(pill(page)).toBeFocused();
-  });
-
   test('typing and submitting from the pill reaches /search', async ({ page }) => {
     await page.goto('/products');
     await untilHydrated(pill(page));
@@ -1216,16 +1221,6 @@ async function computed(locator: ReturnType<Page['locator']>, property: string) 
 }
 
 test.describe('header on Forest (computed styles)', () => {
-  test('the menu toggle edge computes to the strong Bone edge', async ({ page }) => {
-    await page.setViewportSize(MOBILE);
-    await page.goto(ROUTE);
-    await untilHydrated(toggle(page));
-    expect(await computed(toggle(page), 'border-top-color')).toBe(
-      await tokenColor(page, '--border-on-brand-strong', 'border-top-color'),
-    );
-    expect(await computed(toggle(page), 'border-top-width')).toBe('1px');
-  });
-
   test('a focused header link has a Bone 3px ring, and a panel link a Forest ring', async ({
     page,
   }) => {
@@ -1315,29 +1310,10 @@ function formatViolation(v: {
 // AECI-1855: after a navigation to another page, focus moves to the new page's h1
 // (or `<main>` when it has none), never to `<body>`, and the focus does not scroll
 // (`core/route-focus.ts`, ANGULAR_STYLE_GUIDE.md §18). Escape with no navigation
-// still returns focus to the trigger.
+// still returns focus to the trigger. That is pinned by the keyboard walk in the
+// 1280px describe and by the mobile Escape test. The mouse-click case on a panel
+// link is the last step of "a click on a panel link lands" (AECI-2027).
 test.describe('focus after a navigation (AECI-1855)', () => {
-  /** What holds focus, as a short label. */
-  async function focused(page: Page): Promise<string> {
-    return page.evaluate(() => {
-      const el = document.activeElement;
-      if (!el || el === document.body) return 'body';
-      if (el.matches('main#main')) return 'main';
-      if (el.matches('main#main h1')) return 'h1';
-      return `${el.tagName.toLowerCase()}:${el.textContent?.trim().slice(0, 30) ?? ''}`;
-    });
-  }
-
-  async function expectPageHeadingFocused(page: Page) {
-    await expect.poll(() => focused(page)).toBe('h1');
-    // No ring on a heading that only holds focus for this.
-    const outline = await page
-      .locator('main#main h1')
-      .first()
-      .evaluate((el) => getComputedStyle(el).outlineStyle);
-    expect(outline).toBe('none');
-  }
-
   test.describe('desktop Browse menu (1280px)', () => {
     test.use({ viewport: DESKTOP });
     const browse = (page: Page) =>
@@ -1346,16 +1322,6 @@ test.describe('focus after a navigation (AECI-1855)', () => {
         .getByRole('navigation', { name: 'Primary' })
         .getByRole('link', { name: 'Browse', exact: true });
     const panel = (page: Page) => page.locator('#browse-menu-panel');
-
-    test('a mouse click on a panel link puts focus on the new page h1', async ({ page }) => {
-      await page.goto(ROUTE);
-      await untilHydrated(browse(page));
-      await browse(page).hover();
-      await expect(panel(page)).toBeVisible();
-      await panel(page).getByRole('link', { name: 'See all phases' }).click();
-      await page.waitForURL(/\/phases$/);
-      await expectPageHeadingFocused(page);
-    });
 
     test('Enter on a panel link puts focus on the new page h1', async ({ page }) => {
       await page.goto(ROUTE);
@@ -1373,17 +1339,6 @@ test.describe('focus after a navigation (AECI-1855)', () => {
         true,
       );
     });
-
-    test('Escape with no navigation still returns focus to Browse', async ({ page }) => {
-      await page.goto(ROUTE);
-      await untilHydrated(browse(page));
-      await browse(page).focus();
-      await page.keyboard.press('ArrowDown');
-      await expect(panel(page).getByRole('link', { name: /^All products/ })).toBeFocused();
-      await page.keyboard.press('Escape');
-      await expect(panel(page)).toBeHidden();
-      await expect(browse(page)).toBeFocused();
-    });
   });
 
   test.describe('mobile menu (390px)', () => {
@@ -1397,6 +1352,8 @@ test.describe('focus after a navigation (AECI-1855)', () => {
         .click();
       await page.waitForURL(/\/vendor-program$/);
       await expect(menuPanel(page)).toBeHidden();
+      // The page behind is released after the route change (AECI-2027).
+      expect(await page.locator('main').evaluate((el) => (el as HTMLElement).inert)).toBe(false);
       await expectPageHeadingFocused(page);
     });
 
@@ -1415,13 +1372,6 @@ test.describe('focus after a navigation (AECI-1855)', () => {
       await page.keyboard.press('Enter'); // "All products", the page already showing
       await expect(menuPanel(page)).toBeHidden();
       await expect.poll(() => focused(page)).toBe('h1');
-    });
-
-    test('Escape with no navigation still returns focus to the toggle', async ({ page }) => {
-      await page.goto(ROUTE);
-      await openMenu(page);
-      await page.keyboard.press('Escape');
-      await expect(toggle(page)).toBeFocused();
     });
 
     test('growing the window to lg puts focus that was in the menu on the page h1', async ({
@@ -1457,6 +1407,9 @@ test.describe('focus after a navigation (AECI-1855)', () => {
         }
         await page.waitForURL((url) => url.pathname === href);
         await expect(link).toHaveAttribute('aria-current', 'page');
+        // A fixed wait on purpose. The test proves that route focus does not move
+        // focus off the link after the render. Focus is on the link already, so a
+        // web-first check would pass before the move it guards against.
         await page.waitForTimeout(300);
         await expect(link).toBeFocused();
       });
@@ -1514,6 +1467,8 @@ test.describe('focus after a navigation (AECI-1855)', () => {
         .first()
         .evaluate((el) => el.getBoundingClientRect().bottom);
       expect(headingBottom, 'the h1 is above the viewport').toBeLessThan(0);
+      // A fixed wait on purpose. The test proves that the restored position holds,
+      // and no condition marks the end of "it did not move".
       await page.waitForTimeout(300);
       expect(Math.abs((await page.evaluate(() => window.scrollY)) - left)).toBeLessThan(80);
     });

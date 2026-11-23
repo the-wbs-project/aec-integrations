@@ -111,31 +111,38 @@ test.describe('vendor reply under its review (AECI-1178)', () => {
  * hold the four build conditions that keep that sentence true in the browser.
  */
 test.describe('the reply panel keeps the Review Guidelines promise (AECI-1872)', () => {
-  test('(a) the review text comes first and the reply is outside it', async ({ page }) => {
+  // (a) runs on the 1440px load that (b) makes first, so it costs no page load of its own.
+  // It used the default desktop viewport before. 1440 is in the same layout band.
+  test('(a) the review text comes first, and (b) the label and the date are visible', async ({
+    page,
+  }) => {
     test.skip(!seeded, 'review-response fixtures not seeded');
-    await page.goto(PATH);
     const article = page.getByRole('article', { name: PUBLISHED_REVIEW_TITLE });
-    const original = article.locator('[data-testid="review-original"]');
     const reply = article.locator('[data-testid="vendor-response"]');
-    await expect(original).toBeVisible();
-    await expect(original).not.toContainText(PUBLISHED_REPLY);
-    const [o, r] = [await original.boundingBox(), await reply.boundingBox()];
-    expect(o && r && r.y >= o.y + o.height).toBe(true);
-  });
-
-  test('(b) the label and the date are visible whenever the reply is', async ({ page }) => {
-    test.skip(!seeded, 'review-response fixtures not seeded');
-    for (const width of [1440, 390]) {
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto(PATH);
-      const reply = page
-        .getByRole('article', { name: PUBLISHED_REVIEW_TITLE })
-        .locator('[data-testid="vendor-response"]');
+    const labelAndDate = async () => {
       await reply.scrollIntoViewIfNeeded();
       await expect(reply.getByText('Response from Autodesk', { exact: true })).toBeVisible();
       await expect(reply.locator('time')).toBeVisible();
       await expect(reply.locator('time')).not.toBeEmpty();
-    }
+    };
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(PATH);
+
+    await test.step('(a) the review text comes first and the reply is outside it', async () => {
+      const original = article.locator('[data-testid="review-original"]');
+      await expect(original).toBeVisible();
+      await expect(original).not.toContainText(PUBLISHED_REPLY);
+      const [o, r] = [await original.boundingBox(), await reply.boundingBox()];
+      expect(o && r && r.y >= o.y + o.height).toBe(true);
+    });
+
+    await test.step('(b) the label and the date are visible whenever the reply is', async () => {
+      await labelAndDate();
+      await page.setViewportSize({ width: 390, height: 900 });
+      await page.goto(PATH);
+      await labelAndDate();
+    });
   });
 
   test('(c) in forced-colors mode the panel keeps an edge and its label', async ({ browser }) => {

@@ -65,18 +65,6 @@ test.describe('product page: long integration lists (AECI-1783)', () => {
     test.skip(!seeded, 'fixture-long-list is not seeded here (a deployed tier, not the e2e seed)');
   });
 
-  test('the fixture prints its four groups with their card counts', async ({ page }) => {
-    await page.goto(`/products/${target.slug}`);
-    const groups = page.locator('section[aec-product-integration-category-group]');
-    await expect(groups).toHaveCount(Object.keys(FIXTURE.groups).length);
-    const seen: Record<string, number> = {};
-    for (const group of await groups.all()) {
-      const name = (await group.locator('h3').first().textContent())!.trim();
-      seen[name] = await group.locator(':scope > ul > li').count();
-    }
-    expect(seen).toEqual(FIXTURE.groups);
-  });
-
   test('every row is a crawlable pair-page link in the raw server HTML', async ({ request }) => {
     const { slug, rows } = target;
     const html = await (await request.get(`/products/${slug}`)).text();
@@ -93,45 +81,63 @@ test.describe('product page: long integration lists (AECI-1783)', () => {
     expect(html).toContain('data-testid="integrations-rail"');
   });
 
-  test('rail, group heading and chip counts agree; a rail link focuses its heading', async ({
+  // One page load: the group read runs first, before the rail click moves focus.
+  test('the fixture prints its groups, and the rail, heading and chip counts agree', async ({
     page,
   }) => {
     await page.goto(`/products/${target.slug}`);
-    const rail = page.getByTestId('integrations-rail-link');
-    await untilHydrated(rail.nth(1));
-
     const groups = page.locator('section[aec-product-integration-category-group]');
-    const count = await groups.count();
-    expect(count).toBeGreaterThan(1);
-    for (let i = 0; i < count; i++) {
-      const group = groups.nth(i);
-      const name = (await group.locator('h3').first().textContent())!.trim();
-      const heading = (await group
-        .getByTestId('integration-category-group-count')
-        .locator('[aria-hidden]')
-        .textContent())!.trim();
-      const railCount = (await rail.nth(i).locator('[aria-hidden]').textContent())!.trim();
-      expect(railCount, name).toBe(heading);
-      const chip = page
-        .locator('[aria-labelledby="integrations-filter-categories"] button')
-        .filter({ hasText: name });
-      if ((await chip.count()) === 1) {
-        expect(
-          (await chip.getByTestId('integrations-chip-count').textContent())!.trim(),
-          name,
-        ).toBe(heading);
-      }
-    }
 
-    await rail.nth(1).click();
-    await expect
-      .poll(() => page.evaluate(() => document.activeElement?.id ?? ''))
-      .toMatch(/^integrations-(cat-.+|uncategorised)-title$/);
-    const focused = await page.evaluate(() => document.activeElement!.id);
-    await expect(page.locator(`#${focused}`)).toBeInViewport();
+    await test.step('the fixture prints its four groups with their card counts', async () => {
+      await expect(groups).toHaveCount(Object.keys(FIXTURE.groups).length);
+      const seen: Record<string, number> = {};
+      for (const group of await groups.all()) {
+        const name = (await group.locator('h3').first().textContent())!.trim();
+        seen[name] = await group.locator(':scope > ul > li').count();
+      }
+      expect(seen).toEqual(FIXTURE.groups);
+    });
+
+    await test.step('rail, group heading and chip counts agree; a rail link focuses its heading', async () => {
+      const rail = page.getByTestId('integrations-rail-link');
+      await untilHydrated(rail.nth(1));
+
+      const count = await groups.count();
+      expect(count).toBeGreaterThan(1);
+      for (let i = 0; i < count; i++) {
+        const group = groups.nth(i);
+        const name = (await group.locator('h3').first().textContent())!.trim();
+        const heading = (await group
+          .getByTestId('integration-category-group-count')
+          .locator('[aria-hidden]')
+          .textContent())!.trim();
+        const railCount = (await rail.nth(i).locator('[aria-hidden]').textContent())!.trim();
+        expect(railCount, name).toBe(heading);
+        const chip = page
+          .locator('[aria-labelledby="integrations-filter-categories"] button')
+          .filter({ hasText: name });
+        if ((await chip.count()) === 1) {
+          expect(
+            (await chip.getByTestId('integrations-chip-count').textContent())!.trim(),
+            name,
+          ).toBe(heading);
+        }
+      }
+
+      await rail.nth(1).click();
+      await expect
+        .poll(() => page.evaluate(() => document.activeElement?.id ?? ''))
+        .toMatch(/^integrations-(cat-.+|uncategorised)-title$/);
+      const focused = await page.evaluate(() => document.activeElement!.id);
+      await expect(page.locator(`#${focused}`)).toBeInViewport();
+    });
   });
 
-  test('"Show more" reveals rows already in the DOM, without a request', async ({ page }) => {
+  // One page load for both "Show more" checks. The first step opens the group, so the
+  // test closes it again before the keyboard step opens it a second time.
+  test('"Show more" reveals rows without a request, and moves focus to the first one', async ({
+    page,
+  }) => {
     await page.goto(`/products/${target.slug}`);
     const group = page
       .locator('section[aec-product-integration-category-group]')
@@ -141,16 +147,33 @@ test.describe('product page: long integration lists (AECI-1783)', () => {
     const toggle = group.getByTestId('integration-category-group-toggle');
     await untilHydrated(toggle);
     const hiddenBefore = await group.locator('ul > li[hidden]').count();
-    expect(hiddenBefore).toBeGreaterThan(0);
 
-    const requests: string[] = [];
-    page.on('request', (r) => {
-      if (r.url().includes('/api/')) requests.push(r.url());
+    await test.step('"Show more" reveals rows already in the DOM, without a request', async () => {
+      expect(hiddenBefore).toBeGreaterThan(0);
+      const requests: string[] = [];
+      const onRequest = (r: { url(): string }) => {
+        if (r.url().includes('/api/')) requests.push(r.url());
+      };
+      page.on('request', onRequest);
+      await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      await expect(group.locator('ul > li[hidden]')).toHaveCount(0);
+      page.off('request', onRequest);
+      expect(requests).toEqual([]);
     });
+
+    // Reset: close the group so the next step starts from the state a fresh load has.
     await toggle.click();
-    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    await expect(group.locator('ul > li[hidden]')).toHaveCount(0);
-    expect(requests).toEqual([]);
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(group.locator('ul > li[hidden]')).toHaveCount(hiddenBefore);
+
+    await test.step('"Show more" moves focus to the first card it revealed', async () => {
+      await toggle.focus();
+      await page.keyboard.press('Enter');
+      const revealed = group.locator(':scope > ul > li').nth(6).locator('.aec-partner-link');
+      await expect(revealed).toBeFocused();
+      await expect(revealed).toBeInViewport();
+    });
   });
 
   test('"One list" shows 12, and "Load more" adds 12', async ({ page }) => {
@@ -255,22 +278,6 @@ test.describe('product page: long integration lists (AECI-1783)', () => {
     await expect(page.locator(`#${focused}`)).toBeInViewport();
   });
 
-  test('"Show more" moves focus to the first card it revealed', async ({ page }) => {
-    await page.goto(`/products/${target.slug}`);
-    const group = page
-      .locator('section[aec-product-integration-category-group]')
-      .filter({ has: page.getByTestId('integration-category-group-toggle') })
-      .first();
-    await expect(group, 'the Alpha group is longer than its peek').toHaveCount(1);
-    const toggle = group.getByTestId('integration-category-group-toggle');
-    await untilHydrated(toggle);
-    await toggle.focus();
-    await page.keyboard.press('Enter');
-    const revealed = group.locator(':scope > ul > li').nth(6).locator('.aec-partner-link');
-    await expect(revealed).toBeFocused();
-    await expect(revealed).toBeInViewport();
-  });
-
   test('a text-fragment link to a hidden card opens its group, and it stays open', async ({
     page,
   }) => {
@@ -308,6 +315,8 @@ test.describe('product page: long integration lists (AECI-1783)', () => {
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
     await expect(group.locator(':scope > ul > li[hidden]')).toHaveCount(0);
     // Still open once everything has settled: hydration does not hide it again.
+    // A fixed wait on purpose. The test proves that the group does not close again,
+    // and no condition marks the end of "nothing happened".
     await page.waitForTimeout(1000);
     await expect(group.locator(':scope > ul > li[hidden]')).toHaveCount(0);
   });

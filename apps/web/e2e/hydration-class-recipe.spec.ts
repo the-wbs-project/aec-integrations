@@ -70,6 +70,8 @@ async function settle(page: Page): Promise<void> {
     const busy = await page.locator('[aria-busy="true"]').count();
     quiet = pending === last && busy === 0 ? quiet + 1 : 0;
     last = pending;
+    // A fixed interval on purpose. "Quiet" means the same counts on three samples
+    // taken apart in time, so the samples need a gap between them.
     await page.waitForTimeout(150);
   }
   await page.evaluate(

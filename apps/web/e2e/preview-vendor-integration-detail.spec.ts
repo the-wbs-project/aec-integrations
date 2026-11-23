@@ -8,7 +8,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
  * Here and not in `vendor-dashboard.spec.ts` for the reason
  * `preview-vendor-portal-nav.spec.ts` gives: that spec skips without a vendor
  * session, and `/preview/vendor-dashboard` mounts the same shell and routes over a
- * fixture-backed API, so this file actually runs in CI.
+ * fixture-backed API, so this file runs with or without vendor credentials.
  *
  * Covers: a list row opens its page; a deep link with a fragment lands on the
  * section; the section nav is native anchors that move focus; "Things that need
@@ -72,34 +72,39 @@ test.describe('integration detail page (preview)', () => {
     await expect(page.locator('#change-requests')).toBeInViewport();
   });
 
-  test('the section nav is native anchors that move focus to the heading', async ({ page }) => {
+  // One page load for both jumps. The nav step leaves the page at #settings, and the
+  // "Things that need you" button scrolls into view on its own.
+  test('the section nav and "Things that need you" both move focus where they point', async ({
+    page,
+  }) => {
     await openPage(page, PROCORE);
-    const nav = page.getByRole('navigation', { name: 'Integration sections' });
-    await expect(nav.getByRole('link')).toHaveCount(5);
-    await expect(nav.getByRole('link', { name: 'Overview' })).toHaveAttribute(
-      'aria-current',
-      'location',
-    );
-    const settings = nav.getByRole('link', { name: 'Settings' });
-    await expect(settings).toHaveAttribute(
-      'href',
-      new RegExp(`/integrations/${PROCORE}#settings$`),
-    );
-    await clickUntil(settings, () =>
-      expect(page.locator('#settings-heading')).toBeFocused({ timeout: 1_000 }),
-    );
-    await expect(page).toHaveURL(/#settings$/);
-    await expect(page.getByTestId('integration-sticky-bar')).toBeVisible();
-  });
+    await test.step('the section nav is native anchors that move focus to the heading', async () => {
+      const nav = page.getByRole('navigation', { name: 'Integration sections' });
+      await expect(nav.getByRole('link')).toHaveCount(5);
+      await expect(nav.getByRole('link', { name: 'Overview' })).toHaveAttribute(
+        'aria-current',
+        'location',
+      );
+      const settings = nav.getByRole('link', { name: 'Settings' });
+      await expect(settings).toHaveAttribute(
+        'href',
+        new RegExp(`/integrations/${PROCORE}#settings$`),
+      );
+      await clickUntil(settings, () =>
+        expect(page.locator('#settings-heading')).toBeFocused({ timeout: 1_000 }),
+      );
+      await expect(page).toHaveURL(/#settings$/);
+      await expect(page.getByTestId('integration-sticky-bar')).toBeVisible();
+    });
 
-  test('"Things that need you" jumps to the item it names', async ({ page }) => {
-    await openPage(page, PROCORE);
-    const item = page
-      .getByTestId('integration-needs')
-      .getByRole('button', { name: /added Documents/ });
-    await clickUntil(item, () =>
-      expect(page.locator('[id^="added-"]:focus')).toHaveCount(1, { timeout: 1_000 }),
-    );
+    await test.step('"Things that need you" jumps to the item it names', async () => {
+      const item = page
+        .getByTestId('integration-needs')
+        .getByRole('button', { name: /added Documents/ });
+      await clickUntil(item, () =>
+        expect(page.locator('[id^="added-"]:focus')).toHaveCount(1, { timeout: 1_000 }),
+      );
+    });
   });
 
   test('Yes saves at once and announces; No asks for a reason', async ({ page }) => {

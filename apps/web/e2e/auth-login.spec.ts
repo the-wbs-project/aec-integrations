@@ -99,31 +99,6 @@ test.describe('/auth/login — login page (AECI-194)', () => {
     await expect(email).toBeFocused();
   });
 
-  // AECI-831 A6: the submit stays in the tab order with an empty email. It is
-  // disabled only until hydration and while a request is in flight.
-  test('an empty email: Tab reaches the submit, and pressing it focuses the field', async ({
-    page,
-  }) => {
-    await page.addInitScript(() => {
-      (window as unknown as { __AECI_SUPABASE__: unknown }).__AECI_SUPABASE__ = {
-        url: 'https://stub.supabase.test',
-        anonKey: 'e2e-anon-key',
-      };
-    });
-    await page.goto('/auth/login');
-    const email = page.locator('#login-email');
-    const submit = page.getByRole('button', { name: 'Email me a sign-in link' });
-    await expect(submit).toBeEnabled({ timeout: 15000 });
-
-    await email.focus();
-    await page.keyboard.press('Tab');
-    await expect(submit).toBeFocused();
-    await page.keyboard.press('Enter');
-
-    await expect(email).toBeFocused();
-    await expect(page.locator('#login-email-error')).toBeVisible();
-  });
-
   test('has zero axe AA violations', async ({ page }) => {
     await page.goto('/auth/login');
     await expect(page.locator('aec-login-page')).toBeAttached();
@@ -135,51 +110,58 @@ test.describe('/auth/login — login page (AECI-194)', () => {
   // AECI-1805: inside the card at 320px, "Continue with Google" broke onto two lines away
   // from its G mark. The web fonts are blocked and a wide face is forced, so the check
   // holds whatever font the runner falls back to (Verdana is the widest common sans; the
-  // generic families cover a runner that has none of the named ones).
-  for (const face of ['Verdana', 'DejaVu Sans', 'Arial', 'sans-serif']) {
-    test(`at 320px "Continue with Google" stays one 44px line beside its mark (${face})`, async ({
-      page,
-    }) => {
-      await page.route('**/fonts/**', (route) => route.abort());
-      await page.setViewportSize({ width: 320, height: 800 });
-      await page.goto('/auth/login');
-      await page.addStyleTag({
-        content: `body, body * { font-family: "${face}", sans-serif !important; }`,
-      });
-      const google = page.getByRole('button', { name: 'Continue with Google' });
-      await expect(google).toBeVisible();
+  // generic families cover a runner that has none of the named ones). One page load
+  // serves every face: each step removes the previous face's style tag first.
+  const FACES = ['Verdana', 'DejaVu Sans', 'Arial', 'sans-serif'];
+  test('at 320px "Continue with Google" stays one 44px line beside its mark, in every forced font', async ({
+    page,
+  }) => {
+    await page.route('**/fonts/**', (route) => route.abort());
+    await page.setViewportSize({ width: 320, height: 800 });
+    await page.goto('/auth/login');
+    let faceStyle: Awaited<ReturnType<Page['addStyleTag']>> | null = null;
 
-      const m = await google.evaluate((button) => {
-        const label = [...button.querySelectorAll('span')].find((s) =>
-          s.textContent?.includes('Google'),
-        ) as HTMLElement;
-        const mark = button.querySelector('svg') as SVGElement;
-        const b = button.getBoundingClientRect();
-        const l = label.getBoundingClientRect();
-        const g = mark.getBoundingClientRect();
-        return {
-          buttonH: b.height,
-          buttonW: b.width,
-          parentW: (button.parentElement as HTMLElement).getBoundingClientRect().width,
-          labelH: l.height,
-          lineH: parseFloat(getComputedStyle(label).lineHeight),
-          labelInside: l.left >= b.left && l.right <= b.right,
-          markBesideLabel: g.right <= l.left && g.top < l.bottom && g.bottom > l.top,
-        };
-      });
-      expect(m.labelH, 'the label is one line').toBeLessThanOrEqual(m.lineH + 1);
-      expect(m.buttonH).toBeGreaterThanOrEqual(44);
-      expect(m.buttonH).toBeLessThanOrEqual(46);
-      expect(m.buttonW, 'the button is full width').toBeCloseTo(m.parentW, 0);
-      expect(m.labelInside, 'the label stays inside the button').toBe(true);
-      expect(m.markBesideLabel, 'the G mark sits beside the label').toBe(true);
-      await expectNoSidewaysScroll(page);
+    for (const face of FACES) {
+      await test.step(`at 320px "Continue with Google" stays one 44px line beside its mark (${face})`, async () => {
+        await faceStyle?.evaluate((el) => (el as Element).remove());
+        faceStyle = await page.addStyleTag({
+          content: `body, body * { font-family: "${face}", sans-serif !important; }`,
+        });
+        const google = page.getByRole('button', { name: 'Continue with Google' });
+        await expect(google).toBeVisible();
 
-      const termsLine = page.getByTestId('login-terms-line');
-      await expect(termsLine.getByRole('link', { name: 'Terms of Service' })).toBeVisible();
-      await expect(termsLine.getByRole('link', { name: 'Privacy Policy' })).toBeVisible();
-    });
-  }
+        const m = await google.evaluate((button) => {
+          const label = [...button.querySelectorAll('span')].find((s) =>
+            s.textContent?.includes('Google'),
+          ) as HTMLElement;
+          const mark = button.querySelector('svg') as SVGElement;
+          const b = button.getBoundingClientRect();
+          const l = label.getBoundingClientRect();
+          const g = mark.getBoundingClientRect();
+          return {
+            buttonH: b.height,
+            buttonW: b.width,
+            parentW: (button.parentElement as HTMLElement).getBoundingClientRect().width,
+            labelH: l.height,
+            lineH: parseFloat(getComputedStyle(label).lineHeight),
+            labelInside: l.left >= b.left && l.right <= b.right,
+            markBesideLabel: g.right <= l.left && g.top < l.bottom && g.bottom > l.top,
+          };
+        });
+        expect(m.labelH, 'the label is one line').toBeLessThanOrEqual(m.lineH + 1);
+        expect(m.buttonH).toBeGreaterThanOrEqual(44);
+        expect(m.buttonH).toBeLessThanOrEqual(46);
+        expect(m.buttonW, 'the button is full width').toBeCloseTo(m.parentW, 0);
+        expect(m.labelInside, 'the label stays inside the button').toBe(true);
+        expect(m.markBesideLabel, 'the G mark sits beside the label').toBe(true);
+        await expectNoSidewaysScroll(page);
+
+        const termsLine = page.getByTestId('login-terms-line');
+        await expect(termsLine.getByRole('link', { name: 'Terms of Service' })).toBeVisible();
+        await expect(termsLine.getByRole('link', { name: 'Privacy Policy' })).toBeVisible();
+      });
+    }
+  });
 
   for (const width of [320, 390]) {
     test(`has zero axe AA violations at ${width}px`, async ({ page }) => {

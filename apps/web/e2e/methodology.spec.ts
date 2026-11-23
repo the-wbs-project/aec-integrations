@@ -48,22 +48,54 @@ test.describe('/methodology — AECI-804', () => {
     expect(html).toContain('Confirmed by both companies');
   });
 
-  test('is indexable — self-referential canonical, no noindex robots meta', async ({
+  // One page load for three read-only checks (AECI-2027). Console capture is
+  // attached before the load, and the console check runs last, after hydration.
+  test('is indexable, its footer Help links resolve, and it renders console-clean', async ({
     page,
     request,
   }) => {
-    const html = await (await request.get('/methodology')).text();
-    expect(html).not.toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
+    const capture = attachConsoleCapture(page);
 
-    await page.goto('/methodology');
-    await expect(page).toHaveTitle('How we research listings · AEC Integrations');
-    const canonical = page.locator('head link[rel="canonical"]');
-    await expect(canonical).toHaveCount(1);
-    await expect(canonical).toHaveAttribute('href', /\/methodology$/);
-    await expect(page.locator('head meta[property="og:type"]')).toHaveAttribute(
-      'content',
-      'website',
-    );
+    await test.step('is indexable — self-referential canonical, no noindex robots meta', async () => {
+      const html = await (await request.get('/methodology')).text();
+      expect(html).not.toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
+
+      const res = await page.goto('/methodology');
+      expect(res?.status()).toBe(200);
+      await expect(page).toHaveTitle('How we research listings · AEC Integrations');
+      const canonical = page.locator('head link[rel="canonical"]');
+      await expect(canonical).toHaveCount(1);
+      await expect(canonical).toHaveAttribute('href', /\/methodology$/);
+      await expect(page.locator('head meta[property="og:type"]')).toHaveAttribute(
+        'content',
+        'website',
+      );
+    });
+
+    await test.step('footer Help links resolve to /docs pages (AECI-1252, AECI-1253)', async () => {
+      await expect(page.locator('app-root')).toBeAttached();
+
+      const help = page.getByRole('navigation', { name: 'Help' });
+      const hrefs = await help
+        .getByRole('link')
+        .evaluateAll((links) => links.map((a) => a.getAttribute('href')));
+      expect(hrefs).toEqual([
+        '/docs',
+        '/docs/getting-started',
+        '/docs/trust/how-ranking-works',
+        '/docs/vendors/overview',
+      ]);
+
+      for (const href of hrefs) {
+        const res = await request.get(href!, { maxRedirects: 0 });
+        expect(res.status(), href!).toBe(200);
+      }
+    });
+
+    await test.step('renders with no console errors or page errors', async () => {
+      await waitForHydrationSettle(page);
+      expectConsoleClean(capture, 'GET /methodology');
+    });
   });
 
   test('is reachable from the footer Company nav', async ({ page }) => {
@@ -90,30 +122,6 @@ test.describe('/methodology — AECI-804', () => {
     }
   });
 
-  test('footer Help links resolve to /docs pages (AECI-1252, AECI-1253)', async ({
-    page,
-    request,
-  }) => {
-    await page.goto('/methodology');
-    await expect(page.locator('app-root')).toBeAttached();
-
-    const help = page.getByRole('navigation', { name: 'Help' });
-    const hrefs = await help
-      .getByRole('link')
-      .evaluateAll((links) => links.map((a) => a.getAttribute('href')));
-    expect(hrefs).toEqual([
-      '/docs',
-      '/docs/getting-started',
-      '/docs/trust/how-ranking-works',
-      '/docs/vendors/overview',
-    ]);
-
-    for (const href of hrefs) {
-      const res = await request.get(href!, { maxRedirects: 0 });
-      expect(res.status(), href!).toBe(200);
-    }
-  });
-
   test('has zero axe violations at WCAG AA', async ({ page }) => {
     await page.goto('/methodology');
     await expect(page.locator('app-root')).toBeAttached();
@@ -123,14 +131,5 @@ test.describe('/methodology — AECI-804', () => {
       .analyze();
 
     expect(results.violations).toEqual([]);
-  });
-
-  test('renders with no console errors or page errors', async ({ page }) => {
-    const capture = attachConsoleCapture(page);
-    const res = await page.goto('/methodology');
-    expect(res?.status()).toBe(200);
-    await expect(page.locator('app-root')).toBeAttached();
-    await waitForHydrationSettle(page);
-    expectConsoleClean(capture, 'GET /methodology');
   });
 });

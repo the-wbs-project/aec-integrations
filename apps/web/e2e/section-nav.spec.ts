@@ -2,45 +2,28 @@ import { expect, test, type Page } from '@playwright/test';
 import { expectNoSidewaysScroll } from './no-sideways-scroll';
 
 import { untilHydrated } from './hydration';
+import { sectionNavProduct } from './section-nav-product';
 
 /**
  * AECI-1768: the sticky section bar (`shared/section-nav/section-nav.ts`), and AECI-1843: its
  * links keep the query string, so a click is never a page load.
  *
  * Each test opens a seeded product whose page has an Integrations entry and is tall enough to
- * scroll. The walk matters: the thin local seed puts short products first.
+ * scroll. The walk matters: the thin local seed puts short products first. It runs once per
+ * worker in `section-nav-product.ts` (AECI-2027), and each test reuses the path it found.
  */
+async function productPath(page: Page): Promise<string> {
+  const { seeded, path } = await sectionNavProduct(page);
+  test.skip(!seeded, 'no products seeded in this environment');
+  test.skip(!path, 'no seeded product is tall enough for the section nav');
+  return path!;
+}
+
 async function openProduct(page: Page, query = ''): Promise<string> {
-  await page.goto('/products');
-  const rows = page.locator('#main a[href^="/products/"]');
-  await rows
-    .first()
-    .waitFor({ state: 'attached', timeout: 15_000 })
-    .catch(() => {});
-  test.skip((await rows.count()) === 0, 'no products seeded in this environment');
-  const hrefs = (
-    await rows.evaluateAll((els) =>
-      els.map((el) => el.getAttribute('href')).filter((h): h is string => !!h && !h.includes('#')),
-    )
-  ).slice(0, 10);
-  // Prefer a page with four or more sections, so the row can overflow on a phone.
-  let fallback: string | null = null;
-  for (const href of [...new Set(hrefs)]) {
-    await page.goto(`${href}${query}`);
-    await expect(page.locator('aec-product-detail')).toBeVisible();
-    if ((await page.locator('aec-section-nav a[data-section-id="integrations"]').count()) === 0) {
-      continue;
-    }
-    const tall = await page.evaluate(
-      () => document.documentElement.scrollHeight > window.innerHeight * 1.6,
-    );
-    if (!tall) continue;
-    if ((await page.locator('aec-section-nav nav a').count()) >= 4) return href;
-    fallback ??= href;
-  }
-  test.skip(!fallback, 'no seeded product is tall enough for the section nav');
-  await page.goto(`${fallback}${query}`);
-  return fallback!;
+  const path = await productPath(page);
+  await page.goto(`${path}${query}`);
+  await expect(page.locator('aec-product-detail')).toBeVisible();
+  return path;
 }
 
 /** Waits for hydration and for the hydrated hrefs (the server drops the query). */
@@ -128,10 +111,13 @@ const navBottom = (page: Page) =>
   page.evaluate(() => document.querySelector('aec-section-nav')!.getBoundingClientRect().bottom);
 
 test.describe('section nav (AECI-1768, AECI-1843)', () => {
-  for (const query of ['', '?utm_source=e2e&utm_campaign=nov']) {
-    test(`a click animates in place with no page load${query ? ', query kept' : ''}`, async ({
-      page,
-    }) => {
+  // AECI-2027 kept only the query case. It makes every check the bare-path case made, and
+  // also proves the query is kept. The bare path is covered in scroll-restoration.spec.ts:
+  // "a section-nav click animates and lands the section below the nav" (animates, heading
+  // below the bar) and "a second section link clicked mid-glide lands on the second
+  // section" (same document).
+  for (const query of ['?utm_source=e2e&utm_campaign=nov']) {
+    test(`a click animates in place with no page load, query kept`, async ({ page }) => {
       const path = await openProduct(page, query);
       await hydrated(page, path, query);
       await page.evaluate(() => {
@@ -231,6 +217,11 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
         ),
       )
       .toBeGreaterThanOrEqual(0);
+    // Near the top too, not just somewhere below the bar (the bound the removed
+    // scroll-restoration `#integrations` deep-link test held, AECI-2027).
+    expect(
+      await page.locator('#reviews').evaluate((el) => el.getBoundingClientRect().top),
+    ).toBeLessThan(160);
     await expect(page.locator('aec-section-nav a[aria-current="location"]')).toHaveAttribute(
       'data-section-id',
       'reviews',
@@ -253,6 +244,9 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
 
     await page.goBack();
     await expect(page).toHaveURL(path);
+    // A fixed wait on purpose. Where Back lands is recorded, not asserted, because
+    // it is wrong today (AECI-1849). With no right value to wait for, the pause
+    // only lets the scroll restore finish.
     await page.waitForTimeout(500);
     const back = await page.evaluate(() => Math.round(window.scrollY));
     test.info().annotations.push({
@@ -324,6 +318,9 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
         window.scrollTo({ top: top - 20, behavior: 'instant' });
       });
     await placeUnderBar();
+    // A fixed wait on purpose. The deferred blocks that render as they scroll in give
+    // no signal the test can name, so the pause lets them render before the second
+    // placement.
     await page.waitForTimeout(500);
     await placeUnderBar();
     // Stuck, and covering the target.
@@ -360,6 +357,8 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
   test('the stuck bar leads with our wordmark, is solid, and never shows a vendor logo', async ({
     page,
   }) => {
+    // 1280x900: the width and height the AECI-1778 band-shell step was written at.
+    await page.setViewportSize({ width: 1280, height: 900 });
     const path = await openProduct(page);
     await hydrated(page, path);
     const nav = page.locator('aec-section-nav');
@@ -445,6 +444,66 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
     await expect(nav).not.toHaveAttribute('data-stuck', '');
     await expect(brand).toHaveCount(0);
+
+    // AECI-1778: on the product band shell the bar is clear at rest, so the Bone band runs
+    // through it, and solid white with its hairline once stuck. Only colours change, so nothing
+    // moves. AECI-2027 folded this check in from its own test, which opened the same product at
+    // the same width. It sets its own scroll positions, so it runs last.
+    await test.step('is clear on Bone at rest and solid white with a hairline when stuck', async () => {
+      await expect(nav).toHaveAttribute('data-rest', 'clear');
+      await page.evaluate(() => {
+        const n = document.querySelector('aec-section-nav')!;
+        window.scrollTo({
+          top: n.getBoundingClientRect().top + scrollY - 200,
+          behavior: 'instant',
+        });
+      });
+      await expect(nav).not.toHaveAttribute('data-stuck', '');
+      await animationsSettled(page);
+      const read = () =>
+        nav.evaluate((el) => {
+          // Computed colours can come back as oklch(); paint each onto a canvas to read sRGB.
+          const ctx = document.createElement('canvas').getContext('2d')!;
+          const rgb = (c: string) => {
+            ctx.clearRect(0, 0, 1, 1);
+            ctx.fillStyle = c;
+            ctx.fillRect(0, 0, 1, 1);
+            const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+            return a === 0 ? 'rgba(0, 0, 0, 0)' : `rgb(${r}, ${g}, ${b})`;
+          };
+          const s = getComputedStyle(el);
+          // The colour behind the bar: its parent's ground.
+          const ground = getComputedStyle(el.parentElement!).backgroundColor;
+          const link = el.querySelector('nav a:not([aria-current])') ?? el.querySelector('nav a')!;
+          return {
+            bg: rgb(s.backgroundColor),
+            edge: rgb(s.borderBottomColor),
+            edgeWidth: s.borderBottomWidth,
+            ground: rgb(ground),
+            link: rgb(getComputedStyle(link).color),
+            height: el.getBoundingClientRect().height,
+          };
+        });
+      const rest = await read();
+      expect(rest.bg).toBe('rgba(0, 0, 0, 0)');
+      expect(rest.edge).toBe('rgba(0, 0, 0, 0)');
+      expect(rest.ground).toBe('rgb(245, 242, 234)');
+      expect(contrastOf(rest.link, rest.ground)).toBeGreaterThan(6.5);
+      // The Forest focus ring on Bone.
+      expect(contrastOf('rgb(30, 58, 47)', rest.ground)).toBeGreaterThan(11);
+
+      await page.evaluate(() =>
+        document.getElementById('reviews')!.scrollIntoView({ behavior: 'instant' }),
+      );
+      await expect(nav).toHaveAttribute('data-stuck', '');
+      await animationsSettled(page);
+      const stuck = await read();
+      expect(stuck.bg).toBe('rgb(255, 255, 255)');
+      expect(stuck.edge).not.toBe('rgba(0, 0, 0, 0)');
+      // Same border width and height at rest and stuck: the swap moves nothing.
+      expect(stuck.edgeWidth).toBe(rest.edgeWidth);
+      expect(stuck.height).toBe(rest.height);
+    });
   });
 
   test('on a 390px phone the row scrolls sideways inside the bar, and the page does not', async ({
@@ -526,7 +585,7 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
     page,
     request,
   }) => {
-    const path = await openProduct(page);
+    const path = await productPath(page);
     const navOf = async (url: string, headers: Record<string, string> = {}) => {
       const html = await (await request.get(url, { headers })).text();
       const m = html.match(/<aec-section-nav[\s\S]*?<\/aec-section-nav>/);
@@ -564,6 +623,8 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
         window.scrollTo({ top: 0, behavior: 'instant' });
         await step();
       });
+      // A fixed wait on purpose. The deferred blocks give no signal the test can
+      // name, so the pause lets the last of them render before the observer starts.
       await page.waitForTimeout(500);
       await page.evaluate(() => {
         const w = window as unknown as { __cls: number };
@@ -578,6 +639,8 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
       for (let pass = 0; pass < 2; pass++) {
         for (const y of [stickAt - 120, stickAt + 40, stickAt + 300, stickAt + 40, stickAt - 120]) {
           await page.evaluate((top) => window.scrollTo({ top, behavior: 'instant' }), y);
+          // A fixed wait on purpose. The test proves that sticking causes no layout
+          // shift, so each position needs a window for a shift to show up in.
           await page.waitForTimeout(250);
           if (y === stickAt + 300) {
             await expect(page.locator('aec-section-nav')).toHaveAttribute('data-stuck', '');
@@ -623,27 +686,29 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
         for (let i = 0; i < count; i++) {
           if (i > 0) await page.keyboard.press('Tab');
           await expect(links.nth(i)).toBeFocused();
-          await page.waitForTimeout(50);
-          const fit = await links.nth(i).evaluate((a) => {
-            const row = a.closest('.aec-section-nav-row')!;
-            const r = a.getBoundingClientRect();
-            const box = row.getBoundingClientRect();
-            const brand = document.querySelector('[data-testid="section-nav-brand"]');
-            const start = Math.max(
-              box.left,
-              brand ? brand.getBoundingClientRect().right : box.left,
-            );
-            // A fade is drawn only when the row's mask is on (it steps aside under focus).
-            const masked = getComputedStyle(row).maskImage !== 'none';
-            const fadeStart = masked && row.classList.contains('aec-fade-start') ? 40 : 0;
-            const fadeEnd = masked && row.classList.contains('aec-fade-end') ? 40 : 0;
-            return {
-              left: Math.round(r.left - (start + fadeStart)),
-              right: Math.round(box.right - fadeEnd - r.right),
-            };
-          });
-          expect(fit.left, `link ${i} clears the start edge`).toBeGreaterThanOrEqual(-1);
-          expect(fit.right, `link ${i} clears the end edge`).toBeGreaterThanOrEqual(-1);
+          // The row scrolls the focused link into view. Retry the read until it has.
+          await expect(async () => {
+            const fit = await links.nth(i).evaluate((a) => {
+              const row = a.closest('.aec-section-nav-row')!;
+              const r = a.getBoundingClientRect();
+              const box = row.getBoundingClientRect();
+              const brand = document.querySelector('[data-testid="section-nav-brand"]');
+              const start = Math.max(
+                box.left,
+                brand ? brand.getBoundingClientRect().right : box.left,
+              );
+              // A fade is drawn only when the row's mask is on (it steps aside under focus).
+              const masked = getComputedStyle(row).maskImage !== 'none';
+              const fadeStart = masked && row.classList.contains('aec-fade-start') ? 40 : 0;
+              const fadeEnd = masked && row.classList.contains('aec-fade-end') ? 40 : 0;
+              return {
+                left: Math.round(r.left - (start + fadeStart)),
+                right: Math.round(box.right - fadeEnd - r.right),
+              };
+            });
+            expect(fit.left, `link ${i} clears the start edge`).toBeGreaterThanOrEqual(-1);
+            expect(fit.right, `link ${i} clears the end edge`).toBeGreaterThanOrEqual(-1);
+          }).toPass({ timeout: 5_000 });
         }
       });
     }
@@ -668,67 +733,6 @@ test.describe('section nav (AECI-1768, AECI-1843)', () => {
   });
 });
 
-// AECI-1778: on the product band shell the bar is clear at rest, so the Bone band runs through
-// it, and solid white with its hairline once stuck. Only colours change, so nothing moves.
-test.describe('section nav at rest on the band shell (AECI-1778)', () => {
-  test('is clear on Bone at rest and solid white with a hairline when stuck', async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 900 });
-    const path = await openProduct(page);
-    await hydrated(page, path);
-    const nav = page.locator('aec-section-nav');
-    await expect(nav).toHaveAttribute('data-rest', 'clear');
-    await page.evaluate(() => {
-      const n = document.querySelector('aec-section-nav')!;
-      window.scrollTo({ top: n.getBoundingClientRect().top + scrollY - 200, behavior: 'instant' });
-    });
-    await expect(nav).not.toHaveAttribute('data-stuck', '');
-    await animationsSettled(page);
-    const read = () =>
-      nav.evaluate((el) => {
-        // Computed colours can come back as oklch(); paint each onto a canvas to read sRGB.
-        const ctx = document.createElement('canvas').getContext('2d')!;
-        const rgb = (c: string) => {
-          ctx.clearRect(0, 0, 1, 1);
-          ctx.fillStyle = c;
-          ctx.fillRect(0, 0, 1, 1);
-          const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
-          return a === 0 ? 'rgba(0, 0, 0, 0)' : `rgb(${r}, ${g}, ${b})`;
-        };
-        const s = getComputedStyle(el);
-        // The colour behind the bar: its parent's ground.
-        const ground = getComputedStyle(el.parentElement!).backgroundColor;
-        const link = el.querySelector('nav a:not([aria-current])') ?? el.querySelector('nav a')!;
-        return {
-          bg: rgb(s.backgroundColor),
-          edge: rgb(s.borderBottomColor),
-          edgeWidth: s.borderBottomWidth,
-          ground: rgb(ground),
-          link: rgb(getComputedStyle(link).color),
-          height: el.getBoundingClientRect().height,
-        };
-      });
-    const rest = await read();
-    expect(rest.bg).toBe('rgba(0, 0, 0, 0)');
-    expect(rest.edge).toBe('rgba(0, 0, 0, 0)');
-    expect(rest.ground).toBe('rgb(245, 242, 234)');
-    expect(contrastOf(rest.link, rest.ground)).toBeGreaterThan(6.5);
-    // The Forest focus ring on Bone.
-    expect(contrastOf('rgb(30, 58, 47)', rest.ground)).toBeGreaterThan(11);
-
-    await page.evaluate(() =>
-      document.getElementById('reviews')!.scrollIntoView({ behavior: 'instant' }),
-    );
-    await expect(nav).toHaveAttribute('data-stuck', '');
-    await animationsSettled(page);
-    const stuck = await read();
-    expect(stuck.bg).toBe('rgb(255, 255, 255)');
-    expect(stuck.edge).not.toBe('rgba(0, 0, 0, 0)');
-    // Same border width and height at rest and stuck: the swap moves nothing.
-    expect(stuck.edgeWidth).toBe(rest.edgeWidth);
-    expect(stuck.height).toBe(rest.height);
-  });
-});
-
 function contrastOf(a: string, b: string): number {
   const lum = (c: string) => {
     const [r, g, bl] = c
@@ -749,6 +753,12 @@ function contrastOf(a: string, b: string): number {
  * AECI-2012 (Chris, 2026-11-23): the ruling 41 trial tag is out of the stuck bar. On an
  * unclaimed listing and a claimed one alike, the stuck bar shows our wordmark and the name from
  * md, our monogram below it, and never "Unclaimed". The hero keeps the Unclaimed note.
+ *
+ * AECI-2027 cut the matrix to `revit` at 768 and 320, the first width of md and the narrowest
+ * width below it. Those two pin the name shown from md and hidden below it. The other cases
+ * repeated cover elsewhere. `products-detail.spec.ts` sticks the bar for revit and the claimed
+ * fixture-procore at 1440 and 390 and asserts no tag, no "Unclaimed" text and no sideways
+ * scroll. The bar heights are asserted at 1280 and 390 earlier in this file.
  */
 test.describe('no Unclaimed tag in the stuck bar (AECI-2012)', () => {
   const UNCLAIMED = 'revit';
@@ -772,28 +782,24 @@ test.describe('no Unclaimed tag in the stuck bar (AECI-2012)', () => {
     );
   });
 
-  for (const slug of [UNCLAIMED, CLAIMED]) {
-    for (const width of [1440, 768, 390, 320]) {
-      test(`${slug}: the stuck bar has no tag at ${width}px`, async ({ page }) => {
-        await page.setViewportSize({ width, height: 900 });
-        await page.goto(`/products/${slug}`);
-        const nav = page.locator('aec-section-nav');
-        await untilHydrated(nav);
-        await page.evaluate(() =>
-          document.getElementById('integrations')!.scrollIntoView({ behavior: 'instant' }),
-        );
-        await expect(nav).toHaveAttribute('data-stuck', '');
-        await expect(nav.getByTestId('section-nav-unclaimed')).toHaveCount(0);
-        expect(await nav.evaluate((el) => (el as HTMLElement).innerText)).not.toContain(
-          'Unclaimed',
-        );
-        const name = nav.getByTestId('section-nav-name');
-        if (width >= 768) await expect(name).toBeVisible();
-        else await expect(name).toBeHidden();
-        await expectNoSidewaysScroll(page);
-        expect(Math.round(await navBottom(page))).toBe(width >= 768 ? 73 : 65);
-      });
-    }
+  for (const width of [768, 320]) {
+    test(`${UNCLAIMED}: the stuck bar has no tag at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/products/${UNCLAIMED}`);
+      const nav = page.locator('aec-section-nav');
+      await untilHydrated(nav);
+      await page.evaluate(() =>
+        document.getElementById('integrations')!.scrollIntoView({ behavior: 'instant' }),
+      );
+      await expect(nav).toHaveAttribute('data-stuck', '');
+      await expect(nav.getByTestId('section-nav-unclaimed')).toHaveCount(0);
+      expect(await nav.evaluate((el) => (el as HTMLElement).innerText)).not.toContain('Unclaimed');
+      const name = nav.getByTestId('section-nav-name');
+      if (width >= 768) await expect(name).toBeVisible();
+      else await expect(name).toBeHidden();
+      await expectNoSidewaysScroll(page);
+      expect(Math.round(await navBottom(page))).toBe(width >= 768 ? 73 : 65);
+    });
   }
 
   test('the server HTML carries no tag, so the cached page is the same for every visitor', async ({

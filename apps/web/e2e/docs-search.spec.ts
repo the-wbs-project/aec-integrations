@@ -2,8 +2,9 @@
  * AECI-1270 — the per-guide docs search box, against a live docs index.
  *
  * Needs `window.__AECI_ALGOLIA__` with a `docsIndex`, and that index pushed
- * (`scripts/algolia/push-docs.mjs`). Each test skips, saying why, when there is
- * no config (CI's dev:bound) or the index answers nothing (not pushed yet, or a
+ * (`scripts/algolia/push-docs.mjs`). The file skips before any page load when the
+ * server injects no docs config (CI's dev:bound). Each test skips, saying why, when
+ * the index answers nothing (not pushed yet, or a
  * key that does not reach it, as on a local run before the first push). Run it by hand against staging after the first
  * push:
  *
@@ -51,6 +52,15 @@ const CASES = [
 ] as const;
 
 test.describe('/docs search box — AECI-1270 (requires a pushed docs index)', () => {
+  // Skip the whole file before any page load when the server injects no docs
+  // search config, as in CI (AECI-2027). The config ships inline in the SSR HTML,
+  // so one request reads it. The per-test check below still covers an index that
+  // is configured but empty or unreadable, which needs the browser to query it.
+  test.beforeAll(async ({ request }) => {
+    const html = await (await request.get('/docs')).text();
+    test.skip(!/__AECI_ALGOLIA__=[^<]*"docsIndex":"[^"]+"/.test(html), 'no docs search config');
+  });
+
   for (const { start, label, query, prefix } of CASES) {
     test(`${label} finds pages in its own guide only`, async ({ page }) => {
       await page.goto(start);

@@ -84,6 +84,7 @@ import { chromium, expect, test, type APIRequestContext, type Page } from '@play
 
 import { isIgnorableConsole, waitForHydrationSettle } from './console-capture';
 import { E2E_BASE_URL as BASE_URL } from './base-url';
+import { untilAppStable } from './hydration';
 
 // `beforeAll` hooks don't receive the test-scoped fixtures, so the crawl takes
 // the origin from `./base-url` (the same source as the config) and launches its
@@ -509,6 +510,8 @@ async function gotoStatus(page: Page, url: string): Promise<number> {
       return res?.status() ?? 0;
     } catch {
       if (attempt >= 1) return 0;
+      // A fixed back-off on purpose. The goto threw, so there is no page state to
+      // wait on. The pause only spaces the retry from the transient failure.
       await page.waitForTimeout(500);
     }
   }
@@ -564,13 +567,16 @@ async function sweepStatuses(
  * naïve poll breaks during loading, before the rows paint. Instead we break only
  * once **no loading indicator remains AND the link set is stable** for two
  * consecutive polls. SSR-complete pages (home, detail, browse-via-resolver,
- * `/categories`) have no `aria-busy`, so they settle in ~2 polls; the leading
- * 400 ms lets hydration set `aria-busy` on client-list pages before we poll
- * (caps at ~9.5 s for a page whose data never arrives).
+ * `/categories`) have no `aria-busy`, so they settle in ~2 polls. The leading
+ * `untilAppStable` waits for the app's boot fetches before we poll
+ * (caps at ~10 s + 9 s for a page whose data never arrives).
  */
 async function harvestHydratedHrefs(page: Page): Promise<string[]> {
   await page.waitForLoadState('load').catch(() => undefined);
-  await page.waitForTimeout(400);
+  // The app is stable once its boot fetches have landed, so a client-list page has
+  // set and cleared `aria-busy` by then. A page that never settles falls through
+  // to the poll below, which caps the wait.
+  await untilAppStable(page, 10_000).catch(() => undefined);
   let prev = -1;
   let stable = 0;
   let hrefs: string[] = [];
@@ -585,6 +591,8 @@ async function harvestHydratedHrefs(page: Page): Promise<string[]> {
       stable = 0;
     }
     prev = hrefs.length;
+    // A fixed interval on purpose. "The link set is stable" means the same count on
+    // two samples taken apart in time, so the samples need a gap between them.
     await page.waitForTimeout(300);
   }
   return hrefs;

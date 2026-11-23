@@ -14,11 +14,10 @@
  *
  * `pnpm-workspace.yaml` pins beasties 0.5.5 and patches the second defect. This
  * spec guards both. The first test parses the inlined CSS the way the browser
- * does. The rest render the server HTML with scripts off, once with the full
- * stylesheet blocked and once with it loaded. The header, the first heading, the
- * first button and the header search field must paint the same in both. Content
- * that only appears after hydration is out of scope here: its rules are never in
- * the critical CSS. Rule for authors: `ANGULAR_STYLE_GUIDE.md`
+ * does. The next renders the server HTML with scripts off, once with the full
+ * stylesheet blocked and once with it loaded. Every element must paint the same
+ * in both. Content that only appears after hydration is out of scope here: its
+ * rules are never in the critical CSS. Rule for authors: `ANGULAR_STYLE_GUIDE.md`
  * "First paint and critical CSS".
  *
  * Paths are `baseURL`-relative: never hardcode a port.
@@ -103,50 +102,35 @@ test.describe('the inlined critical CSS (AECI-1854)', () => {
   });
 });
 
-interface Paint {
-  background: string;
-  color: string;
-  radius: string;
-  box: number[];
+/**
+ * The whole page (AECI-1854 audit). Scripts off, so both runs hold exactly the
+ * server HTML. Every element must keep its box, display, visibility, opacity,
+ * transform, background, colour and corner radius, and a screenshot of the first
+ * screen must match, up to raster noise (see RASTER_NOISE_PIXELS), whether or not
+ * the full stylesheet has loaded. Content that renders only after hydration (the
+ * consent banner) is not in this DOM: its rules come from the full stylesheet alone.
+ *
+ * Each run first proves its stylesheet state. Without that check a renamed
+ * stylesheet would slip past the block, and the test would compare a loaded page
+ * with a loaded page and pass. AECI-2027 folded the old four-element test into
+ * this one: its stylesheet check, its corner radius and its header and heading
+ * check now live here.
+ */
+interface ElementPaint {
+  d: string;
+  v: string;
 }
 
-/** The elements a visitor sees first, read the same way in both runs. */
-async function readPaint(page: Page): Promise<Record<string, Paint>> {
-  return page.evaluate(() => {
-    const visible = (el: Element | null): el is HTMLElement => {
-      if (!el) return false;
-      const r = el.getBoundingClientRect();
-      return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden';
-    };
-    const targets: Record<string, Element | null> = {
-      header: document.querySelector('aec-site-header header'),
-      heading: document.querySelector('main h1'),
-      button: Array.from(document.querySelectorAll('.aec-btn')).find(visible) ?? null,
-      // The field itself, not its host element (both can carry the id).
-      search: document.querySelector('input#header-search, #header-search input'),
-    };
-    const out: Record<string, Paint> = {};
-    for (const [name, el] of Object.entries(targets)) {
-      if (!visible(el)) continue;
-      const s = getComputedStyle(el);
-      const r = el.getBoundingClientRect();
-      out[name] = {
-        background: s.backgroundColor,
-        color: s.color,
-        radius: s.borderTopLeftRadius,
-        box: [r.x, r.y + scrollY, r.width, r.height].map((v) => Math.round(v)),
-      };
-    }
-    return out;
-  });
-}
-
-async function paintAt(
+async function wholePage(
   browser: Browser,
   url: string,
   width: number,
   stylesheet: 'blocked' | 'loaded',
-): Promise<Record<string, Paint>> {
+): Promise<{
+  elements: ElementPaint[];
+  shot: Buffer;
+  shown: { header: boolean; heading: boolean };
+}> {
   // Scripts off in both runs, so the DOM is exactly the server HTML: no
   // hydration, no client-only content. The full stylesheet then arrives through
   // the `<noscript>` link, which is what a visitor's browser applies once the
@@ -180,70 +164,6 @@ async function paintAt(
       .filter((a) => a.effect?.getComputedTiming().endTime !== Infinity);
     await Promise.all(finite.map((a) => a.finished.catch(() => undefined)));
   });
-  const paint = await readPaint(page);
-  await context.close();
-  return paint;
-}
-
-test.describe('first paint equals the final paint (AECI-1854)', () => {
-  for (const path of PAGES) {
-    for (const width of [1440, 390]) {
-      test(`${path} at ${width}px`, async ({ browser, baseURL }) => {
-        const url = `${baseURL}${path}`;
-        const first = await paintAt(browser, url, width, 'blocked');
-        const final = await paintAt(browser, url, width, 'loaded');
-        expect(Object.keys(final), 'the header and heading render').toEqual(
-          expect.arrayContaining(['header', 'heading']),
-        );
-        for (const [name, want] of Object.entries(final)) {
-          const got = first[name];
-          expect(got, `${name} paints before the stylesheet loads`).toBeTruthy();
-          expect(got.background, `${name} background`).toBe(want.background);
-          expect(got.color, `${name} colour`).toBe(want.color);
-          expect(got.radius, `${name} corner radius`).toBe(want.radius);
-          got.box.forEach((v, i) =>
-            expect(Math.abs(v - want.box[i]), `${name} box [x,y,w,h][${i}]`).toBeLessThanOrEqual(1),
-          );
-        }
-      });
-    }
-  }
-});
-
-/**
- * The whole page, not four elements (AECI-1854 audit). Scripts off, so both runs
- * hold exactly the server HTML. Every element must keep its box, display,
- * visibility, opacity, transform, background and colour, and a screenshot of the
- * first screen must match, up to raster noise (see RASTER_NOISE_PIXELS), whether or not the full stylesheet
- * has loaded. Content that renders only after hydration (the consent banner) is
- * not in this DOM: its rules come from the full stylesheet alone.
- */
-interface ElementPaint {
-  d: string;
-  v: string;
-}
-
-async function wholePage(
-  browser: Browser,
-  url: string,
-  width: number,
-  stylesheet: 'blocked' | 'loaded',
-): Promise<{ elements: ElementPaint[]; shot: Buffer }> {
-  const context = await browser.newContext({
-    viewport: { width, height: 900 },
-    javaScriptEnabled: false,
-  });
-  const page = await context.newPage();
-  if (stylesheet === 'blocked') await page.route(STYLESHEET, (route) => route.abort());
-  await page.goto(url, { waitUntil: 'load' });
-  await page.evaluate(async () => {
-    await document.fonts.ready;
-    // An infinite animation (a spinner, a pulse) never finishes, so it is not waited on.
-    const finite = document
-      .getAnimations()
-      .filter((a) => a.effect?.getComputedTiming().endTime !== Infinity);
-    await Promise.all(finite.map((a) => a.finished.catch(() => undefined)));
-  });
   const elements = await page.evaluate(() =>
     Array.from(document.body.querySelectorAll('*')).map((el) => {
       const s = getComputedStyle(el);
@@ -259,13 +179,26 @@ async function wholePage(
           s.transform,
           s.backgroundColor,
           s.color,
+          s.borderTopLeftRadius,
         ].join(' | '),
       };
     }),
   );
+  // The header and the first heading render, so the comparison is never empty.
+  const shown = await page.evaluate(() => {
+    const visible = (el: Element | null) => {
+      if (!el) return false;
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden';
+    };
+    return {
+      header: visible(document.querySelector('aec-site-header header')),
+      heading: visible(document.querySelector('main h1')),
+    };
+  });
   const shot = await page.screenshot();
   await context.close();
-  return { elements, shot };
+  return { elements, shot, shown };
 }
 
 /**
@@ -356,6 +289,10 @@ test.describe('the whole server-rendered page paints the same before the stylesh
         const url = `${baseURL}${path}`;
         const first = await wholePage(browser, url, width, 'blocked');
         const final = await wholePage(browser, url, width, 'loaded');
+        expect(final.shown, 'the header and heading render').toEqual({
+          header: true,
+          heading: true,
+        });
         expect(first.elements.length, 'the same server HTML in both runs').toBe(
           final.elements.length,
         );
@@ -408,6 +345,8 @@ test.describe('the whole server-rendered page paints the same before the stylesh
  * inlined CSS. The home "Most viewed" row was a data shift: it filled in after
  * hydration. AECI-1792 put it in the server HTML with a height floor. The
  * `/products` grid is kept by hydration since #1344. Both stay at no shift.
+ * This is the only layout-shift check on `/`. AECI-2027 removed the looser one in
+ * `home.spec.ts`.
  */
 test.describe('no layout shift while the stylesheet is late (AECI-1854)', () => {
   for (const path of ['/', '/products']) {
@@ -444,6 +383,8 @@ test.describe('no layout shift while the stylesheet is late (AECI-1854)', () => 
             ),
           )
           .toBe(true);
+        // A fixed wait on purpose. The test proves that the late stylesheet causes no
+        // layout shift, so the observer needs a window after it applies.
         await page.waitForTimeout(500);
         const cls = await page.evaluate(() => (window as unknown as { __cls: number }).__cls);
         expect(cls, 'cumulative layout shift').toBeLessThan(0.01);

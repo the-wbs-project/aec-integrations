@@ -360,34 +360,37 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
     expect(sent.claim[0]).toMatchObject({ accepted_terms: true });
   });
 
-  test('Back, Escape and focus return', async ({ page }) => {
+  // E8.1 (2026-10-19): the plan inquiry dialog is gone. "Questions? Contact us" is a
+  // plain link to /contact, with no topic, and opens no dialog. It runs after focus
+  // returns, so the dialog is already closed when the link is pressed.
+  test('Back, Escape and focus return, then the contact link goes to /contact', async ({
+    page,
+  }) => {
     await mockSearch(page);
     await page.goto('/vendor-program');
     await waitForHydrationSettle(page);
 
-    const dialog = await openFromManagedCard(page);
-    await dialog.getByRole('button', { name: 'Ask us to add it' }).click();
-    await expect(dialog.getByRole('button', { name: 'Back' })).toBeVisible();
-    await dialog.getByRole('button', { name: 'Back' }).click();
-    await expect(dialog.getByRole('heading', { name: 'Find your listing' })).toBeVisible();
+    await test.step('Back, Escape and focus return', async () => {
+      const dialog = await openFromManagedCard(page);
+      await dialog.getByRole('button', { name: 'Ask us to add it' }).click();
+      await expect(dialog.getByRole('button', { name: 'Back' })).toBeVisible();
+      await dialog.getByRole('button', { name: 'Back' }).click();
+      await expect(dialog.getByRole('heading', { name: 'Find your listing' })).toBeVisible();
 
-    await page.keyboard.press('Escape');
-    await expect(dialog).toBeHidden();
-    await expect(managedCardClaim(page)).toBeFocused();
-  });
+      await page.keyboard.press('Escape');
+      await expect(dialog).toBeHidden();
+      await expect(managedCardClaim(page)).toBeFocused();
+    });
 
-  // E8.1 (2026-10-19): the plan inquiry dialog is gone. "Questions? Contact us" is a
-  // plain link to /contact, with no topic, and opens no dialog.
-  test('the contact link goes to /contact', async ({ page }) => {
-    await page.goto('/vendor-program');
-    await waitForHydrationSettle(page);
-    const contact = page.locator('aec-plan-cta-panel').getByRole('link', { name: 'Contact us' });
-    await expect(contact).toHaveAttribute('href', '/contact');
-    await expect(async () => {
-      await contact.click();
-      await expect(page).toHaveURL(/\/contact$/, { timeout: 2000 });
-    }).toPass();
-    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await test.step('the contact link goes to /contact', async () => {
+      const contact = page.locator('aec-plan-cta-panel').getByRole('link', { name: 'Contact us' });
+      await expect(contact).toHaveAttribute('href', '/contact');
+      await expect(async () => {
+        await contact.click();
+        await expect(page).toHaveURL(/\/contact$/, { timeout: 2000 });
+      }).toPass();
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+    });
   });
 });
 

@@ -87,15 +87,27 @@ const axeOn = async (page: Page, selector: string) => {
 test.describe('overlay surfaces (AECI-1770)', () => {
   test.use({ viewport: { width: 1280, height: 900 } });
 
+  // AECI-2027: the scrim fade read shares this test's dialog open, as a step.
   test('a dialog is 24px round, shadowed, white, on the 50% scrim', async ({ page }) => {
     const { dialog } = await openClaimDialog(page);
-    const panel = dialog.locator('.aec-dialog').first();
-    const s = await panel.evaluate(surface);
-    expect(s.radiusTL).toBe('24px');
-    expect(s.width).toBe('1px');
-    expect(s.shadow.endsWith(MODAL_SHADOW)).toBe(true);
-    expect(s.bg).toMatch(WHITE);
-    expect(await backdropColor(page)).toBe('rgba(0, 0, 0, 0.5)');
+
+    await test.step('a dialog is 24px round, shadowed, white, on the 50% scrim', async () => {
+      const panel = dialog.locator('.aec-dialog').first();
+      const s = await panel.evaluate(surface);
+      expect(s.radiusTL).toBe('24px');
+      expect(s.width).toBe('1px');
+      expect(s.shadow.endsWith(MODAL_SHADOW)).toBe(true);
+      expect(s.bg).toMatch(WHITE);
+      expect(await backdropColor(page)).toBe('rgba(0, 0, 0, 0.5)');
+    });
+
+    await test.step('the scrim fade takes the slow step', async () => {
+      const ms = await page
+        .locator('.cdk-overlay-backdrop-showing')
+        .last()
+        .evaluate((el) => parseFloat(getComputedStyle(el).transitionDuration) * 1000);
+      expect(ms).toBe(280);
+    });
   });
 
   test('a dialog traps focus, closes on Escape and returns focus; axe is clean', async ({
@@ -204,7 +216,9 @@ test.describe('overlay surfaces (AECI-1770)', () => {
     expect(b).toBeLessThan(1);
   });
 
-  test('the open Browse menu dims the page at 40%, a dialog backdrop at 50%', async ({ page }) => {
+  // The dialog backdrop at 50% is checked by "a dialog is 24px round, shadowed, white,
+  // on the 50% scrim" above (AECI-2027).
+  test('the open Browse menu dims the page at 40%', async ({ page }) => {
     await page.goto('/preview/layouts/browse');
     const browse = page
       .locator('aec-site-header')
@@ -219,16 +233,5 @@ test.describe('overlay surfaces (AECI-1770)', () => {
     expect(await dimmer.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(
       'rgba(0, 0, 0, 0.4)',
     );
-    await openClaimDialog(page);
-    expect(await backdropColor(page)).toBe('rgba(0, 0, 0, 0.5)');
-  });
-
-  test('the scrim fade takes the slow step', async ({ page }) => {
-    await openClaimDialog(page);
-    const ms = await page
-      .locator('.cdk-overlay-backdrop-showing')
-      .last()
-      .evaluate((el) => parseFloat(getComputedStyle(el).transitionDuration) * 1000);
-    expect(ms).toBe(280);
   });
 });

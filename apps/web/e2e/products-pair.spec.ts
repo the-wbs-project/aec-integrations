@@ -211,6 +211,8 @@ test.describe('product-PAIR page — version selection interaction (AECI-303)', 
     // selector-only precisely so `?view=` stays a client-side disclosure.
     const beforeView = apiCalls.length;
     await page.locator('[role="group"][aria-label="Choose a view"] button').first().click();
+    // A fixed wait on purpose. The test proves that the toggle sends no request, and
+    // no condition marks the end of "nothing happened".
     await page.waitForTimeout(400);
     expect(apiCalls.length, '?view= must not re-run the resolver').toBe(beforeView);
 
@@ -234,6 +236,8 @@ test.describe('product-PAIR page — version selection interaction (AECI-303)', 
     await page.goto(`/products/${pair!.context}/integrations/${pair!.other}`);
     await page.locator('aec-claim-provenance button').last().click();
     await expect(page.getByText('Sources', { exact: true })).toBeVisible();
+    // A fixed wait on purpose. The test proves that opening the popover fetches
+    // nothing, and no condition marks the end of "nothing happened".
     await page.waitForTimeout(300);
     // The pair page no longer renders the History section, so it never calls the
     // timeline endpoint.
@@ -400,7 +404,8 @@ test.describe('product-PAIR page — the empty pair (AECI-1827)', () => {
     }
   });
 
-  test('renders What you would be moving and the closest matches on the server (AECI-1829, AECI-1830)', async ({
+  // One JavaScript-off page load for both server-HTML checks.
+  test('with JavaScript off, the server renders the matches and the four legal-reviewed strings', async ({
     browser,
     request,
   }) => {
@@ -410,97 +415,68 @@ test.describe('product-PAIR page — the empty pair (AECI-1827)', () => {
     const context = await browser.newContext({ javaScriptEnabled: false });
     const page = await context.newPage();
     await page.goto(`/products/${pair!.context}/integrations/${pair!.other}`);
-    await expect(page.getByTestId('pair-empty-moving').locator('h2')).toHaveText(
-      'The data each product already exchanges',
-    );
-    await expect(page.getByTestId('pair-empty-matches').locator('h2')).toHaveText(
-      'Keep one product and swap the other',
-    );
-    await expect(page.getByTestId('pair-matches-keep-context')).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
-    await expect(page.getByTestId('pair-matches-order')).toContainText(
-      'Products run A to Z by name.',
-    );
-    // AECI-1894: the ranking page's words on the page too, in the server HTML.
-    await expect(page.getByTestId('pair-matches-order')).toContainText(
-      'Searching narrows the list. It does not change the order.',
-    );
-    await expect(page.getByTestId('pair-matches-order')).toContainText(
-      "The order never reads a vendor's plan.",
-    );
-    await expect(page.getByTestId('pair-matches-order')).not.toContainText(
-      'Plan or license status has no effect',
-    );
-    await expect(page.getByTestId('pair-matches-order')).toContainText(
-      'No vendor pays for a position in this list.',
-    );
-    await context.close();
-  });
-
-  test('the keep toggle switches the lane after hydration and the count is announced', async ({
-    page,
-    request,
-  }) => {
-    const pair = await findEmptyPair(request);
-    test.skip(pair === null, 'no empty pair in the local catalog');
-
-    await page.goto(`/products/${pair!.context}/integrations/${pair!.other}`, {
-      waitUntil: 'networkidle',
+    await test.step('renders What you would be moving and the closest matches on the server (AECI-1829, AECI-1830)', async () => {
+      await expect(page.getByTestId('pair-empty-moving').locator('h2')).toHaveText(
+        'The data each product already exchanges',
+      );
+      await expect(page.getByTestId('pair-empty-matches').locator('h2')).toHaveText(
+        'Keep one product and swap the other',
+      );
+      await expect(page.getByTestId('pair-matches-keep-context')).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+      await expect(page.getByTestId('pair-matches-order')).toContainText(
+        'Products run A to Z by name.',
+      );
+      // AECI-1894: the ranking page's words on the page too, in the server HTML.
+      await expect(page.getByTestId('pair-matches-order')).toContainText(
+        'Searching narrows the list. It does not change the order.',
+      );
+      await expect(page.getByTestId('pair-matches-order')).toContainText(
+        "The order never reads a vendor's plan.",
+      );
+      await expect(page.getByTestId('pair-matches-order')).not.toContainText(
+        'Plan or license status has no effect',
+      );
+      await expect(page.getByTestId('pair-matches-order')).toContainText(
+        'No vendor pays for a position in this list.',
+      );
     });
-    await expect(page.getByTestId('pair-matches-count')).toHaveAttribute('aria-live', 'polite');
-    const other = page.getByTestId('pair-matches-keep-other');
-    await expect(async () => {
-      await other.click();
-      await expect(other).toHaveAttribute('aria-pressed', 'true', { timeout: 1000 });
-    }).toPass();
-    await expect(page.getByTestId('pair-matches-keep-context')).toHaveAttribute(
-      'aria-pressed',
-      'false',
-    );
-  });
-
-  test('server-renders the four legal-reviewed strings with JavaScript off', async ({
-    browser,
-    request,
-  }) => {
-    const pair = await findEmptyPair(request);
-    test.skip(pair === null, 'no empty pair in the local catalog');
-
-    const context = await browser.newContext({ javaScriptEnabled: false });
-    const page = await context.newPage();
-    await page.goto(`/products/${pair!.context}/integrations/${pair!.other}`);
-    await expect(page.getByTestId('pair-empty-status')).toHaveText('Not on record');
-    await expect(page.locator('h1')).toHaveText(
-      /^\s*We have no integration between .+ and .+ on record\.\s*$/,
-    );
-    await expect(page.getByTestId('pair-empty-caveat')).toHaveText(CAVEAT);
-    await expect(page.getByTestId('pair-empty-look-it-up-intro')).toHaveText(INTRO);
-    // Ruling 98: no "Integration" overline above the statement. AECI-1666 retired the
-    // header chip: "About this listing" ends the last band instead (§4.5.8).
-    await expect(page.locator('[heroKicker] .aec-overline')).toHaveCount(0);
-    await expect(page.locator('[heroKicker] aec-maintenance-marker')).toHaveCount(0);
-    await expect(
-      page.getByTestId('pair-empty-look-it-up').getByTestId('listing-provenance'),
-    ).toContainText('AEC Integrations maintained');
-    // Ruling 96: the integrations row never shows a bare 0.
-    for (const cell of await page
-      .getByTestId('pair-empty-facts-integrations')
-      .locator('[role="cell"]')
-      .all()) {
-      await expect(cell).not.toHaveText(/^\s*0\s*$/);
-    }
-    // AECI-1835: mock-up 5's diagram and correction entry are in the server HTML.
-    await expect(page.getByTestId('pair-empty-medallion')).toHaveText('No integration on record');
-    await expect(
-      page.getByTestId('pair-empty-stage').locator('svg[viewBox="0 0 540 270"]'),
-    ).toHaveAttribute('aria-hidden', 'true');
-    await expect(page.getByTestId('pair-empty-correction')).toHaveText(/It does exist/);
+    await test.step('server-renders the four legal-reviewed strings with JavaScript off', async () => {
+      await expect(page.getByTestId('pair-empty-status')).toHaveText('Not on record');
+      await expect(page.locator('h1')).toHaveText(
+        /^\s*We have no integration between .+ and .+ on record\.\s*$/,
+      );
+      await expect(page.getByTestId('pair-empty-caveat')).toHaveText(CAVEAT);
+      await expect(page.getByTestId('pair-empty-look-it-up-intro')).toHaveText(INTRO);
+      // Ruling 98: no "Integration" overline above the statement. AECI-1666 retired the
+      // header chip: "About this listing" ends the last band instead (§4.5.8).
+      await expect(page.locator('[heroKicker] .aec-overline')).toHaveCount(0);
+      await expect(page.locator('[heroKicker] aec-maintenance-marker')).toHaveCount(0);
+      await expect(
+        page.getByTestId('pair-empty-look-it-up').getByTestId('listing-provenance'),
+      ).toContainText('AEC Integrations maintained');
+      // Ruling 96: the integrations row never shows a bare 0.
+      for (const cell of await page
+        .getByTestId('pair-empty-facts-integrations')
+        .locator('[role="cell"]')
+        .all()) {
+        await expect(cell).not.toHaveText(/^\s*0\s*$/);
+      }
+      // AECI-1835: mock-up 5's diagram and correction entry are in the server HTML.
+      await expect(page.getByTestId('pair-empty-medallion')).toHaveText('No integration on record');
+      await expect(
+        page.getByTestId('pair-empty-stage').locator('svg[viewBox="0 0 540 270"]'),
+      ).toHaveAttribute('aria-hidden', 'true');
+      await expect(page.getByTestId('pair-empty-correction')).toHaveText(/It does exist/);
+    });
     await context.close();
   });
 
-  test('"It does exist" opens the correction drawer with an editable prefill and sends nothing', async ({
+  // One hydrated page load for both checks. The keep toggle runs first. The drawer
+  // step does not read the lane, and the write watch covers the whole test.
+  test('the keep toggle switches the lane, and "It does exist" opens the drawer and sends nothing', async ({
     page,
     request,
   }) => {
@@ -511,25 +487,46 @@ test.describe('product-PAIR page — the empty pair (AECI-1827)', () => {
     page.on('request', (r) => {
       if (r.method() !== 'GET' && r.url().includes('/api/')) writes.push(r.url());
     });
-    await page.goto(`/products/${pair!.context}/integrations/${pair!.other}`);
-    const button = page.getByTestId('pair-empty-correction');
-    await untilHydrated(button);
-    await button.click();
-    // The page hosts the drawer: without it the trigger cancels the click and nothing opens.
-    const body = page.getByRole('dialog').getByRole('textbox', { name: 'What should we fix?' });
-    await expect(body).toBeVisible();
-    // The reader's own words to change: the pair named, no claim that one exists.
-    await expect(body).toHaveValue(/^An integration between .+ and .+\. Where I saw it: $/);
-    await body.fill('My own words');
-    await expect(body).toHaveValue('My own words');
-    expect(writes, 'nothing is sent before the reader submits').toEqual([]);
+    await page.goto(`/products/${pair!.context}/integrations/${pair!.other}`, {
+      waitUntil: 'networkidle',
+    });
+    await test.step('the keep toggle switches the lane after hydration and the count is announced', async () => {
+      await expect(page.getByTestId('pair-matches-count')).toHaveAttribute('aria-live', 'polite');
+      const other = page.getByTestId('pair-matches-keep-other');
+      await expect(async () => {
+        await other.click();
+        await expect(other).toHaveAttribute('aria-pressed', 'true', { timeout: 1000 });
+      }).toPass();
+      await expect(page.getByTestId('pair-matches-keep-context')).toHaveAttribute(
+        'aria-pressed',
+        'false',
+      );
+    });
+
+    await test.step('"It does exist" opens the correction drawer with an editable prefill and sends nothing', async () => {
+      const button = page.getByTestId('pair-empty-correction');
+      await untilHydrated(button);
+      await button.click();
+      // The page hosts the drawer: without it the trigger cancels the click and nothing opens.
+      const body = page.getByRole('dialog').getByRole('textbox', { name: 'What should we fix?' });
+      await expect(body).toBeVisible();
+      // The reader's own words to change: the pair named, no claim that one exists.
+      await expect(body).toHaveValue(/^An integration between .+ and .+\. Where I saw it: $/);
+      await body.fill('My own words');
+      await expect(body).toHaveValue('My own words');
+      expect(writes, 'nothing is sent before the reader submits').toEqual([]);
+    });
   });
 
-  test('does not scroll sideways at 320, 390, 768, 1024 and 1440', async ({ page, request }) => {
+  // One width per layout band of the empty pair page. 320 is the narrowest one-column
+  // layout (below sm and md). 768 is md, where the sections go multi-column. 1440 is
+  // past 1040px, where the hero puts the 540px diagram beside the statement. 390 and
+  // 1024 sat in the same bands as 320 and 768 for anything that changes width.
+  test('does not scroll sideways at 320, 768 and 1440', async ({ page, request }) => {
     const pair = await findEmptyPair(request);
     test.skip(pair === null, 'no empty pair in the local catalog');
 
-    for (const width of [320, 390, 768, 1024, 1440]) {
+    for (const width of [320, 768, 1440]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`/products/${pair!.context}/integrations/${pair!.other}`);
       await expectNoSidewaysScroll(page, `the empty pair page at ${width}px`);

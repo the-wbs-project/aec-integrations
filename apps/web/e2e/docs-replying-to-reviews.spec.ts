@@ -32,14 +32,26 @@ test.describe('/docs/vendors/replying-to-reviews — AECI-1181', () => {
     expect(html).not.toMatch(/<meta[^>]+name="robots"/);
   });
 
-  test('renders one h1 and marks the page current in the sidebar', async ({ page }) => {
-    await page.goto(PATH);
-    await expect(page.locator('app-root')).toBeAttached();
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Replying to reviews');
-    // AECI-1265: a vendor guide page shows the vendor guide's own tree.
-    await expect(
-      page.getByRole('navigation', { name: 'Vendor guide' }).locator('a[aria-current="page"]'),
-    ).toHaveText(/Replying to reviews/);
+  // One page load for both checks (AECI-2027). Console capture is attached before
+  // the load, and the console check runs last, after hydration.
+  test('renders one h1, marks the page current, and renders console-clean', async ({ page }) => {
+    const capture = attachConsoleCapture(page);
+
+    await test.step('renders one h1 and marks the page current in the sidebar', async () => {
+      const res = await page.goto(PATH);
+      expect(res?.status()).toBe(200);
+      await expect(page.locator('app-root')).toBeAttached();
+      await expect(page.getByRole('heading', { level: 1 })).toHaveText('Replying to reviews');
+      // AECI-1265: a vendor guide page shows the vendor guide's own tree.
+      await expect(
+        page.getByRole('navigation', { name: 'Vendor guide' }).locator('a[aria-current="page"]'),
+      ).toHaveText(/Replying to reviews/);
+    });
+
+    await test.step('renders with no console errors or page errors', async () => {
+      await waitForHydrationSettle(page);
+      expectConsoleClean(capture, `GET ${PATH}`);
+    });
   });
 
   test('has zero axe violations at WCAG AA', async ({ page }) => {
@@ -51,14 +63,5 @@ test.describe('/docs/vendors/replying-to-reviews — AECI-1181', () => {
       .analyze();
 
     expect(results.violations).toEqual([]);
-  });
-
-  test('renders with no console errors or page errors', async ({ page }) => {
-    const capture = attachConsoleCapture(page);
-    const res = await page.goto(PATH);
-    expect(res?.status()).toBe(200);
-    await expect(page.locator('app-root')).toBeAttached();
-    await waitForHydrationSettle(page);
-    expectConsoleClean(capture, `GET ${PATH}`);
   });
 });

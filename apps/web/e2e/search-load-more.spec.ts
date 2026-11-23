@@ -7,8 +7,13 @@ import { untilHydrated } from './hydration';
 // was still in flight asked for page 2 of the NEW filter state before its page 1
 // landed. InstantSearch caches a page only when no other search is pending, so
 // page 1 was never kept and the reader saw filtered rows 25 to 48 under
-// "Showing 24 of 70". Every answer here is held back 1.5 s by the fixed
-// catalogue in `fake-algolia.ts`, so the race happens on every run.
+// "Showing 24 of 70". Once the first page is in and hydrated, every answer is
+// held back 1.5 s by the fixed catalogue in `fake-algolia.ts`, so the race
+// happens on every run. The first load is not held back (AECI-2027): the helper
+// reads `delayMs` on each request, so the test turns it on before its clicks.
+
+/** Read on each request, so a test can turn the delay on after the first load. */
+type FakeAlgoliaOptions = NonNullable<Parameters<typeof routeFakeAlgolia>[1]>;
 
 const DELAY_MS = 1_500;
 /**
@@ -58,8 +63,8 @@ test.describe('/search: Load more during a pending search (AECI-1906)', () => {
     page,
   }) => {
     const filteredPages: number[] = [];
-    await routeFakeAlgolia(page, {
-      delayMs: DELAY_MS,
+    const fake: FakeAlgoliaOptions = {
+      delayMs: 0,
       onQuery: (q) => {
         const filtered = q.facetFilters.some((g) =>
           (Array.isArray(g) ? g : [g]).includes(`categories:${FILTER}`),
@@ -68,19 +73,23 @@ test.describe('/search: Load more during a pending search (AECI-1906)', () => {
           filteredPages.push(q.page);
         }
       },
-    });
+    };
+    await routeFakeAlgolia(page, fake);
     await page.goto('/search');
     await expect(cards(page)).toHaveCount(24, { timeout: 15_000 });
 
     const box = filterBox(page, 'Categories', FILTER);
     await untilHydrated(box);
     await untilHydrated(loadMore(page));
+    fake.delayMs = DELAY_MS;
     await box.click();
     await loadMore(page).click({ timeout: SECOND_CLICK_MS });
 
     // Before the filtered page 1 lands, no later page of the new state is asked for.
     // A page-2 request would leave on the click itself; 100 ms is ample, and
     // still well before the filtered answer (and any legitimate sentinel load).
+    // A fixed wait on purpose. The test proves that no page-2 request leaves, and
+    // no condition marks the end of "nothing happened".
     await page.waitForTimeout(100);
     expect(
       filteredPages.filter((p) => p > 0),
@@ -99,13 +108,15 @@ test.describe('/search: Load more during a pending search (AECI-1906)', () => {
   test('a filter ticked while a Load more page is in flight still shows the filtered first page', async ({
     page,
   }) => {
-    await routeFakeAlgolia(page, { delayMs: DELAY_MS });
+    const fake: FakeAlgoliaOptions = { delayMs: 0 };
+    await routeFakeAlgolia(page, fake);
     await page.goto('/search');
     await expect(cards(page)).toHaveCount(24, { timeout: 15_000 });
 
     const box = filterBox(page, 'Categories', FILTER);
     await untilHydrated(box);
     await untilHydrated(loadMore(page));
+    fake.delayMs = DELAY_MS;
     await loadMore(page).click();
     await box.click({ timeout: SECOND_CLICK_MS });
 

@@ -358,6 +358,11 @@ to skip themselves in the lite lane.
 > | `e2e-and-integration` | `E2E + axe + edge-cache (local)` | The gate. Same `if:` as the shards, plus `!cancelled()`. Fails unless the shards' result is `success`. `deploy-staging` needs this job |
 > | `e2e-report` | `E2E report (merge shards)` | Merges the blobs into one HTML report, uploaded as `playwright-report`. Nothing needs it, and the gate does not wait for it |
 >
+> **AECI-2027 (2026-11): the suite itself got smaller.** An audit cut redundant and misplaced
+> tests, from 1,083 tests to 838. The first sharded run on `main` (run `45148898743`) spent
+> 1,052 s of test time across the four shards. That run is the baseline to compare against.
+> The rules that keep the suite small are in `TESTING_STRATEGY.md` §7.3.
+>
 > Playwright deals out single tests by count (`fullyParallel`), not by time, so one shard can run
 > longer than the rest. The crawl assertions in `internal-link-graph.spec.ts` run as a serial
 > group on one shard, but Playwright picks which. Only that shard uploads its
