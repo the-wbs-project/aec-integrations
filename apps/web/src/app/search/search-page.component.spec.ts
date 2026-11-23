@@ -66,6 +66,7 @@ function makeFakeEngine(): SearchEngine & {
   const options: Parameters<InstantSearchLib['instantsearch']>[0][] = [];
   let searchBoxRender: ((state: unknown, first: boolean) => void) | null = null;
   const instance = {
+    status: 'idle' as const,
     addWidgets: () => instance,
     start: () => searchBoxRender?.({ query: '', refine, isSearchStalled: false }, true),
     dispose: () => {},
