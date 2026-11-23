@@ -10,6 +10,7 @@ import { InPageSmoothScroll } from './core/in-page-smooth-scroll';
 import { InitialFragmentScroller } from './core/initial-fragment-scroller';
 import { PageViewTracker } from './core/page-view-tracker';
 import { PreStableScrollReset } from './core/pre-stable-scroll-reset';
+import { RouteFocus } from './core/route-focus';
 import { ScrollBehaviorManager } from './core/scroll-behavior-manager';
 import { LegalNoticeBand } from './legal/legal-notice-band';
 import { SiteFooter } from './layout/site-footer';
@@ -53,6 +54,7 @@ export class App {
   private readonly inPageSmoothScroll = inject(InPageSmoothScroll);
   private readonly initialFragmentScroller = inject(InitialFragmentScroller);
   private readonly preStableScrollReset = inject(PreStableScrollReset);
+  private readonly routeFocus = inject(RouteFocus);
   private readonly arrivalCapture = inject(ArrivalCaptureService);
   private readonly appUpdate = inject(AppUpdateService);
   private readonly appRef = inject(ApplicationRef);
@@ -88,6 +90,11 @@ export class App {
     // still loading). This performs that reset only when the router stayed silent.
     // No-op on the server. See the service.
     this.preStableScrollReset.start();
+
+    // AECI-1855 — after a navigation to another page, focus moves to the new page's
+    // h1 (or <main>) without scrolling, so a keyboard or screen-reader user starts at
+    // the content. No-op on the server. See the service.
+    this.routeFocus.start();
 
     // AECI-1208 — report the landing URL's `utm_source` / `utm_campaign` / `n`
     // once the visitor is signed in, for the daily activity row. Browser-only,
