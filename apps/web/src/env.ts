@@ -231,9 +231,9 @@ export type WebEnv = {
    * The browser report's per-tier switch (AECI-1714, epic AECI-1711). `"true"` injects
    * `window.__AECI_BROWSER_EVIDENCE__ = { enabled: true }`, and the tracker then posts
    * `ran` and `interacted` to `POST /api/page-views/browser-evidence`. Anything else is
-   * off. A committed var in every `apps/web/wrangler.jsonc` block: `"true"` for local,
-   * staging and demo, `"false"` for production until Privacy Policy 1.1 is in force
-   * (AECI-1715). `src/browser-evidence-enabled.spec.ts` pins the values.
+   * off. A committed var in every `apps/web/wrangler.jsonc` block, `"true"` in all four.
+   * Production turned on once Privacy Policy 1.1 was in force (AECI-1715).
+   * `src/browser-evidence-enabled.spec.ts` pins the values.
    */
   BROWSER_EVIDENCE_ENABLED?: string;
 };

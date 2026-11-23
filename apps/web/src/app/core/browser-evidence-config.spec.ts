@@ -37,7 +37,7 @@ describe('browserEvidenceEnabled (AECI-1714)', () => {
     expect(browserEvidenceEnabled()).toBe(true);
   });
 
-  it('sends nothing with no flag (the production state until AECI-1715)', () => {
+  it('sends nothing with no flag (an off tier, as production was until AECI-1715)', () => {
     turnOn();
     delete (globalThis as G).__AECI_BROWSER_EVIDENCE__;
     expect(browserEvidenceEnabled()).toBe(false);

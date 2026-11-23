@@ -6,8 +6,8 @@
  * only when the page carries `window.__AECI_BROWSER_EVIDENCE__ = { enabled: true }`.
  * The switch is the per-tier wrangler var `BROWSER_EVIDENCE_ENABLED`: `"true"` turns
  * it on, anything else (including unset) leaves the page without the script, so the
- * tracker sends nothing. Production ships `"false"` until Privacy Policy 1.1 is in
- * force (AECI-1715). A sibling of `window.__AECI_TURNSTILE__` rather than a field on
+ * tracker sends nothing. Every tier ships `"true"`. Production turned on once Privacy
+ * Policy 1.1 was in force (AECI-1715). A sibling of `window.__AECI_TURNSTILE__` rather than a field on
  * it, because that object exists only on a tier with a Turnstile site key.
  *
  * Caching note: like `turnstile-bootstrap-inject.ts`, this runs in `Renderer`, so the

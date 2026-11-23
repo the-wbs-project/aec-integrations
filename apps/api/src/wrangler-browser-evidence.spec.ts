@@ -8,9 +8,9 @@ import { describe, expect, it } from 'vitest';
  * this tier. Wrangler vars are not inherited across environments, so a block that loses
  * the var silently reads as off, and the check goes quiet on exactly the tier it guards.
  *
- * Production stays "false" until Privacy Policy 1.1 is in force (epic AECI-1711). The
- * deploy that turns production capture on flips this block and the web Worker's var in
- * the same change, and edits this spec.
+ * All four blocks are "true". Production turned on only once Privacy Policy 1.1 was in
+ * force (epic AECI-1711), in the same change as the web Worker's var. Turning a tier off
+ * again flips both Workers' vars together and edits this spec.
  */
 type Block = { vars?: Record<string, string> };
 type Config = Block & { env: Record<string, Block> };
@@ -56,7 +56,7 @@ const EXPECTED = {
   root: 'true',
   staging: 'true',
   demo: 'true',
-  production: 'false',
+  production: 'true',
 } as const;
 
 const blockOf = (config: Config, name: string): Block | undefined =>

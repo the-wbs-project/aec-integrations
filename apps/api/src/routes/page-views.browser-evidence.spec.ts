@@ -8,8 +8,8 @@
  * ever moves a row forward: NULL to `ran` to `interacted`.
  *
  * Both writers run only while `BROWSER_EVIDENCE_ENABLED` is `"true"`, so every spec
- * here runs on `ON_ENV` unless it is the off-tier case at the end. Production holds
- * the var at `"false"` until Privacy Policy 1.1 is in force.
+ * here runs on `ON_ENV` unless it is the off-tier case at the end. Every tier sets
+ * the var to `"true"` since AECI-1715 turned production on.
  *
  * `submitCount` and `logToPosthog` are mocked so the metric and the warn can be
  * asserted.

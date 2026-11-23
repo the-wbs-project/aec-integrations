@@ -1369,8 +1369,12 @@ to fit it.
 | `BROWSER_EVIDENCE_COVERAGE_MIN_ROWS` | `20` | Below this many rows, "nothing to measure" and a pass |
 
 **Not applicable.** On a tier whose API var `BROWSER_EVIDENCE_ENABLED` is not `"true"`, the check
-reports *Skipped*. Production reads *Skipped* until Privacy Policy 1.1 is in force and capture is
-switched on (`docs/environments.md` "Browser report check per tier").
+reports *Skipped*. Every tier captures since AECI-1715, so *Skipped* on any tier now means its var
+was lost or changed (`docs/environments.md` "Browser report check per tier"). Production read
+*Skipped* until capture turned on there on PENDING-1.1-EFFECTIVE-DATE. The first 04:00 run after that
+deploy reads the deploy day itself. Rows from before the deploy are all NULL, so that reading can
+fire with nothing broken. Ignore it. The first full day is read at 04:00 UTC the second morning after
+the deploy.
 
 **What a firing means.** Pages loaded and Turnstile passed, but the report did not land on the row.
 Something on the report path is broken. Look at these first, in this order:

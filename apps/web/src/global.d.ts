@@ -46,8 +46,8 @@ declare global {
     /**
      * The browser report's per-tier switch (`browser-evidence-bootstrap-inject.ts`,
      * AECI-1714). Read at start-up by `app/core/browser-evidence-config.ts`. Absent
-     * on a tier whose `BROWSER_EVIDENCE_ENABLED` is not `"true"` (production until
-     * AECI-1715); the tracker then sends no report.
+     * on a tier whose `BROWSER_EVIDENCE_ENABLED` is not `"true"`. The tracker then
+     * sends no report. Every tier is `"true"` since AECI-1715.
      */
     __AECI_BROWSER_EVIDENCE__?: BrowserEvidencePublicConfig;
   }
