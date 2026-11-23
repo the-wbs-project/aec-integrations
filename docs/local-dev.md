@@ -103,6 +103,8 @@ re-scans from the next pair up, and relaunches without rebuilding.
 - The full output of the current attempt is also in `.wrangler/dev-launch.log`.
 - Stopping the launcher stops the whole stack. It forwards Ctrl-C and `SIGTERM` to every
   `workerd` it started.
+- `scripts/dev-launch.test.mjs` covers the scan, the retry, the bound, the pinned case and
+  teardown, with fake `pnpm` and `lsof`. It runs in `pnpm test:scripts`.
 
 The port override is plumbed through `AECI_WEB_PORT` and `AECI_API_PORT`. Each app's
 `dev:preview` and `playwright.config.ts` honor them. Both default to `8788/8787`, so direct
