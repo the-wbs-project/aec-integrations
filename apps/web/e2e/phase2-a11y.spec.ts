@@ -155,9 +155,12 @@ test.describe('Phase 2 page types — axe (WCAG AA)', () => {
     test(`product detail integration rows meet WCAG 2.2 target size at ${width}px`, async ({
       page,
     }) => {
-      test.skip(!fixturesPresent, 'fixtures not seeded — see beforeAll warning');
+      // AECI-2021: a one-row section has no Cards/Table toggle, and the fixture product
+      // has one row, so this case reads the hybrid fixture's 25 rows instead
+      // (seed/connector-lists-fixtures.sql). Its lane cards cover the nested cards too.
       await page.setViewportSize({ width, height: 900 });
-      await page.goto(`/products/${FIXTURE.productSlug}`);
+      const res = await page.goto('/products/fixture-hybrid-via');
+      test.skip(!res?.ok(), 'fixture-hybrid-via not seeded — run db:seed:connector-lists:local');
       // AECI-1782: cards are the default view and the table is one toggle away. Both run.
       await expect(
         page.locator('#integrations li[aec-product-integration-card]').first(),

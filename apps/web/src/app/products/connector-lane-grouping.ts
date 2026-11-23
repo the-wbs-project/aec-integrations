@@ -309,6 +309,18 @@ export function splitIntegrationLanes(
 }
 
 /**
+ * The agreement label a product-page card or table row shows, or `null` for none
+ * (AECI-2021, ruled 2026-11-23). `unverified`, "Listed by AEC Integrations", is the
+ * state of most rows, so the product page leaves it off and shows every other state.
+ * The pair page renders `aec-agreement-badge` directly and keeps all of them.
+ */
+export function visibleAgreement(
+  agreement: AgreementState | null | undefined,
+): Exclude<AgreementState, 'unverified'> | null {
+  return !agreement || agreement === 'unverified' ? null : agreement;
+}
+
+/**
  * The fields a row marks "Under review" (AECI-1238, §11d.7). `ProductIntegrationRow`
  * and `ProductIntegrationCard` each mount one `aec-under-review` per entry, so {@link countLaneUnderReview} reads the same
  * list. A collapsed Via row renders its representative edge only.

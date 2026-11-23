@@ -71,7 +71,7 @@ test.describe('product page: long integration lists (AECI-1783)', () => {
     await expect(groups).toHaveCount(Object.keys(FIXTURE.groups).length);
     const seen: Record<string, number> = {};
     for (const group of await groups.all()) {
-      const name = (await group.locator('h4').textContent())!.trim();
+      const name = (await group.locator('h3').first().textContent())!.trim();
       seen[name] = await group.locator(':scope > ul > li').count();
     }
     expect(seen).toEqual(FIXTURE.groups);
@@ -105,7 +105,7 @@ test.describe('product page: long integration lists (AECI-1783)', () => {
     expect(count).toBeGreaterThan(1);
     for (let i = 0; i < count; i++) {
       const group = groups.nth(i);
-      const name = (await group.locator('h4').textContent())!.trim();
+      const name = (await group.locator('h3').first().textContent())!.trim();
       const heading = (await group
         .getByTestId('integration-category-group-count')
         .locator('[aria-hidden]')
@@ -178,7 +178,8 @@ test.describe('product page: long integration lists (AECI-1783)', () => {
       const groups = page.locator('section[aec-product-integration-category-group]');
       // By the group heading: a card's category chips name other groups too.
       const group = (name: string) =>
-        groups.filter({ has: page.getByRole('heading', { name, level: 4, exact: true }) });
+        // The group heading is an h3 since AECI-2021 removed the list heading above it.
+        groups.filter({ has: page.getByRole('heading', { name, level: 3, exact: true }) });
       const alpha = group('Zz Fixture Category Alpha');
       const beta = group('Zz Fixture Category Beta');
       const cards = (g: typeof alpha) => g.locator('li[aec-product-integration-card]');

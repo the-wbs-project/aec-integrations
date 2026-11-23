@@ -96,6 +96,8 @@ describe('ProductIntegrationRow', () => {
     expect(pair).not.toBeNull();
     // Named for assistive tech; it is the row's one link to the pair page.
     expect(pair?.getAttribute('aria-label')).toContain('Autodesk BIM 360');
+    // AECI-2021 changed the card's hint to "View details", not this chevron's name.
+    expect(pair?.getAttribute('aria-label')).toBe('View the Autodesk BIM 360 integration');
     const cells = el.querySelectorAll('td');
     expect(pair!.closest('td')).toBe(cells[cells.length - 1]);
   });
@@ -211,6 +213,25 @@ describe('ProductIntegrationRow', () => {
     expect(cells[2]!.querySelector('aec-agreement-badge')?.textContent).toContain(
       'Confirmed by both companies',
     );
+  });
+
+  // AECI-2021 (ruled 2026-11-23): "Listed by AEC Integrations" is the state of most
+  // rows, so the product page leaves it off. Every other state still renders.
+  it('renders no "Listed by AEC Integrations" label, and every other agreement state', () => {
+    const { el } = setup({
+      integration: signal({ ...baseIntegration, agreement: 'unverified' as const }),
+    });
+    expect(el.querySelector('aec-agreement-badge')).toBeNull();
+    expect(el.textContent).not.toContain('Listed by AEC Integrations');
+    for (const [agreement, label] of [
+      ['confirmed', 'Confirmed by both companies'],
+      ['single_source', 'Confirmed by one company'],
+      ['conflict', 'Companies disagree'],
+    ] as const) {
+      TestBed.resetTestingModule();
+      const { el: row } = setup({ integration: signal({ ...baseIntegration, agreement }) });
+      expect(row.querySelector('aec-agreement-badge')?.textContent, agreement).toContain(label);
+    }
   });
 
   it('says a partner has no category in words for assistive tech, and drops a missing vendor line', () => {

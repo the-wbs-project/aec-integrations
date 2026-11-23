@@ -18,8 +18,7 @@ import { AgreementBadge } from './agreement-badge';
 import {
   MATCH_CARD_BLOCK_CLASS,
   MATCH_CARD_BODY_CLASS,
-  MATCH_CARD_FOOT_CLASS,
-  MATCH_CARD_GO_CLASS,
+  MATCH_CARD_HEAD_LINK_CLASS,
   MATCH_CARD_NAME_TEXT_CLASS,
   MATCH_CHIP_CLASS,
   MATCH_CHIP_ICON_CLASS,
@@ -29,6 +28,7 @@ import {
 import {
   routeIntegrationLane,
   rowUnderReviewFields,
+  visibleAgreement,
   type IntegrationLaneRow,
 } from './connector-lane-grouping';
 
@@ -36,28 +36,34 @@ import {
  * AECI-1782: one integration as a card, the default view of the product page's
  * Integrations section (PLAN.md §5.2, clash 24 "blend"). AECI-1720 restored mock-up
  * 6's card body (`.card`): a 48px mark, the partner's vendor under its name, a
- * "What moves" block (the direction, then the types of data), a "How it connects"
- * block (the mechanism), and the pair-page link at the foot.
+ * "What moves" block (the direction, then the types of data), and a "How it connects"
+ * block (the mechanism). The pair-page link sits in the head row, at the end of the
+ * name row, as a short muted "View details" with a 16px chevron, since AECI-2021 (ruled
+ * 2026-11-23), so the card is shorter than with a foot.
  *
  * The card says what the table row says, and a little more the row has no room
  * for. Content parity with `ProductIntegrationRow` is the rule: the partner and its
  * link, the direction with its "Direction:" prefix, the mechanism kinds and name,
- * the "Under review" markers, and the
- * pair-page link with the same words. What the card adds is data the API
+ * the "Under review" markers, and the pair-page link, whose accessible name holds the
+ * row chevron's words. What the card adds is data the API
  * already sends (AECI-1781, AECI-1720): the partner's vendor and categories, the
  * names of the data objects the integration moves, and the agreement state.
  *
  * **The agreement state is a label only** (ruling R1, PLAN.md §7.7). It renders
  * through the shared `aec-agreement-badge`, unattributed, so a `single_source` row
  * reads "Confirmed by one company" (ruling on AECI-1781, 2026-11-14). Nothing sorts,
- * filters, counts or features by it.
+ * filters, counts or features by it. The `unverified` state, "Listed by AEC
+ * Integrations", does not render on this page's cards or table rows (AECI-2021, ruled
+ * 2026-11-23): it is the state of most rows, so it said nothing about any one of them.
+ * Every other state still renders. The pair page keeps the label.
  *
  * **Two links, no nesting.** The partner name links to the partner's own page, as
- * on the row. The pair-page link at the foot reads "View the {partner} integration",
- * the row chevron's accessible name, now visible, and is stretched over the whole
- * card (`after:absolute after:inset-0`), so a click anywhere on the card opens the
- * pair page. Every other interactive element sits above the stretched layer with
- * `relative z-10`, so it keeps its own destination.
+ * on the row. The pair-page link in the head row shows "View details" and is named
+ * "View details for the {partner} integration": the visible words start the name, with
+ * the rest visually hidden, so WCAG 2.5.3 (label in name) holds and a screen reader
+ * still hears which integration. It is stretched over the whole card
+ * (`after:absolute after:inset-0`), so a click anywhere on the card opens the pair page. Every other interactive element sits above the stretched layer
+ * with `relative z-10`, so it keeps its own destination.
  *
  * Attribute selector on `<li>`: the lane renders its cards as one named list, the
  * card view's version of §13.3's one table per lane.
@@ -65,8 +71,9 @@ import {
  * **The integration card recipe** (`match-card-recipe.ts`, DESIGN.md "The integration
  * card"), shared with the empty pair page's closest-match card since AECI-1720: 24px
  * padding on a phone and 32px from md, 20px between blocks, the name at the Title
- * role, the recipe's 31px chips with a glyph where the icon map has one, and the 34px
- * round button with the chevron at the foot.
+ * role, and the recipe's 31px chips with a glyph where the icon map has one. The pair
+ * link takes the recipe's head-row hint (`MATCH_CARD_HEAD_LINK_CLASS`): 13px, secondary
+ * text, a 16px chevron, no round button. The closest-match card keeps the foot link.
  */
 @Component({
   // eslint-disable-next-line @angular-eslint/component-selector
@@ -90,46 +97,72 @@ import {
       data-testid="integration-card"
     >
       <!-- Mock-up 6, .card .top: a 48px mark beside the partner name, with the
-           partner's vendor under it. -->
-      <div class="flex items-center gap-4">
-        <aec-logo-or-initial
-          class="shrink-0"
-          [claimStatus]="'server-filtered'"
-          [src]="row().other.logo_url"
-          [name]="row().other.name"
-          size="md"
-        />
-        <!-- The heading level follows the section: h4 under a one-lane page's list
-             heading or a lane card's h3, h5 under a category group's h4. The size sits
-             on the link, not on the heading, because the unlayered heading rules beat
-             a text-* utility on the heading itself (the Unlayered-Heading Rule). -->
-        <div class="min-w-0 flex-1">
-          @switch (headingLevel()) {
-            @case (3) {
+           partner's vendor under it, and the short pair-page hint at the end of the same
+           row (AECI-2021, ruled 2026-11-23). The hint never wraps or shrinks, and the name
+           block wraps its own text. The hint drops under the name only when the mark and
+           the name would have less than 12rem beside it, at any card width, so a narrow
+           card (a phone, or a lane card in two columns) never squeezes the name to a
+           sliver. -->
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-2" data-testid="integration-card-head">
+        <div class="flex min-w-0 flex-[1_1_12rem] items-center gap-4">
+          <aec-logo-or-initial
+            class="shrink-0"
+            [claimStatus]="'server-filtered'"
+            [src]="row().other.logo_url"
+            [name]="row().other.name"
+            size="md"
+          />
+          <!-- The heading level follows the section: h3 under the section h2 on a
+               one-lane page, h4 under a lane card's h3 or a category group's h3. The
+               size sits on the link, not on the heading, because the unlayered heading
+               rules beat a text-* utility on the heading itself (the Unlayered-Heading
+               Rule). -->
+          <div class="min-w-0 flex-1">
+            @if (headingLevel() === 3) {
               <h3 class="break-words">
                 <ng-container [ngTemplateOutlet]="partnerLink" />
               </h3>
-            }
-            @case (5) {
-              <h5 class="break-words">
-                <ng-container [ngTemplateOutlet]="partnerLink" />
-              </h5>
-            }
-            @default {
+            } @else {
               <h4 class="break-words">
                 <ng-container [ngTemplateOutlet]="partnerLink" />
               </h4>
             }
-          }
-          @if (vendorLine(); as line) {
-            <p
-              class="mt-1 break-words text-t-13 text-(--text-secondary)"
-              data-testid="integration-card-vendor"
-            >
-              {{ line }}
-            </p>
-          }
+            @if (vendorLine(); as line) {
+              <p
+                class="mt-1 break-words text-t-13 text-(--text-secondary)"
+                data-testid="integration-card-vendor"
+              >
+                {{ line }}
+              </p>
+            }
+          </div>
         </div>
+
+        <!-- The pair-page link (mock-up 6, .card .go), a short muted hint (AECI-2021).
+             Visible "View details", then visually hidden "for the {partner} integration",
+             so the visible words start the accessible name (WCAG 2.5.3) and the name
+             still says which integration. Stretched over the card, so a click anywhere
+             on it opens the pair page. The glyph is a chevron, never an arrow: an arrow
+             on this page means data-flow direction (the Arrow Rule). -->
+        <a
+          [routerLink]="pairLink()"
+          [class]="pairLinkClass"
+          data-testid="integration-card-pair-link"
+        >
+          <span
+            >{{ viewDetailsLabel
+            }}<span class="sr-only" data-testid="integration-card-pair-link-rest"
+              >&#32;{{ pairNameRest() }}</span
+            ></span
+          >
+          <aec-icon
+            name="chevron-right"
+            decorative
+            [size]="4"
+            [mirrorRtl]="true"
+            data-testid="integration-card-go"
+          />
+        </a>
       </div>
 
       <!-- Each chip row carries a small visible label (approved 2026-11-16). The list
@@ -241,7 +274,8 @@ import {
         </div>
       </div>
 
-      @if (row().agreement; as agreement) {
+      <!-- No "Listed by AEC Integrations" here (AECI-2021): see shownAgreement. -->
+      @if (shownAgreement(); as agreement) {
         <div>
           <aec-agreement-badge [agreement]="agreement" />
         </div>
@@ -257,18 +291,6 @@ import {
           }
         </div>
       }
-
-      <!-- The pair-page link at the foot (mock-up 6, .card .go). Its words are the row
-           chevron's accessible name, "View the {partner} integration", now visible, so
-           the name and the label match (WCAG 2.5.3). Stretched over the card, so a click
-           anywhere on it opens the pair page. The glyph is a chevron, never an arrow:
-           an arrow on this page means data-flow direction (the Arrow Rule). -->
-      <a [routerLink]="pairLink()" [class]="footClass" data-testid="integration-card-pair-link">
-        <span class="min-w-0 break-words">{{ pairLabel() }}</span>
-        <span [class]="goClass" aria-hidden="true" data-testid="integration-card-go">
-          <aec-icon name="chevron-right" decorative [size]="4" [mirrorRtl]="true" />
-        </span>
-      </a>
     </article>
 
     <ng-template #partnerLink>
@@ -289,10 +311,10 @@ export class ProductIntegrationCard {
   /** This page's product slug; the pair-page context. */
   readonly contextSlug = input.required<string>();
   /**
-   * 4 under a one-lane page's list heading (`h3`) or inside a lane card, 5 under a
-   * category group's `h4`. 3 is kept for a caller with no heading above the list.
+   * 3 on a one-lane page, under the section `<h2>`. 4 inside a lane card or a category
+   * group, under its `<h3>` (AECI-2021 removed the list heading, so every level moved up).
    */
-  readonly headingLevel = input<3 | 4 | 5>(4);
+  readonly headingLevel = input<3 | 4>(3);
   /** Inside a lane card: the nested card surface (tint, no shadow). */
   readonly nested = input(false);
 
@@ -303,8 +325,7 @@ export class ProductIntegrationCard {
   protected readonly chipRowClass = MATCH_CHIP_ROW_CLASS;
   protected readonly chipClass = MATCH_CHIP_CLASS;
   protected readonly chipIconClass = MATCH_CHIP_ICON_CLASS;
-  protected readonly footClass = `${MATCH_CARD_FOOT_CLASS} focus-visible:outline-0`;
-  protected readonly goClass = MATCH_CARD_GO_CLASS;
+  protected readonly pairLinkClass = `${MATCH_CARD_HEAD_LINK_CLASS} focus-visible:outline-0`;
   protected readonly partnerLinkClass = `aec-partner-link relative z-10 -my-0.5 inline-block rounded-mark py-0.5 ${MATCH_CARD_NAME_TEXT_CLASS} transition-colors hover:text-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)`;
   protected readonly icon = matchChipIcon;
 
@@ -343,6 +364,13 @@ export class ProductIntegrationCard {
       : null;
   });
 
+  /**
+   * The agreement label, except `unverified` (AECI-2021, ruled 2026-11-23): "Listed by
+   * AEC Integrations" is the state of most rows, so the product page leaves it off.
+   * `null` when nothing renders. The pair page still shows every state.
+   */
+  protected readonly shownAgreement = computed(() => visibleAgreement(this.row().agreement));
+
   protected readonly dataObjectLabel = computed(() =>
     dataObjectCountLabel(this.row().dataObjectSlugs.length),
   );
@@ -362,10 +390,16 @@ export class ProductIntegrationCard {
     })),
   );
 
-  // Built in TS, as on the row. The same message id as the row's chevron name, so the
-  // two links read alike. On the card it is the link's visible text.
-  protected readonly pairLabel = computed(
+  /** The hint's visible words (AECI-2021): the start of the link's accessible name. */
+  protected readonly viewDetailsLabel = $localize`:@@products.detail.integrations.card.viewDetails:View details`;
+
+  /**
+   * The rest of the link's accessible name, visually hidden after "View details", so a
+   * screen reader hears "View details for the {partner} integration" (AECI-2021). The
+   * table row's chevron keeps its own name, "View the {partner} integration".
+   */
+  protected readonly pairNameRest = computed(
     () =>
-      $localize`:@@products.detail.integrations.row.aria:View the ${this.row().other.name}:PARTNER: integration`,
+      $localize`:@@products.detail.integrations.card.viewDetails.rest:for the ${this.row().other.name}:PARTNER: integration`,
   );
 }

@@ -153,7 +153,11 @@ describe('ProductIntegrationsSection table shape', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   it('keeps every lane table at or under the 38rem the lg dock allows', () => {
-    const { fixture, el } = setup([edge(link('acumatica', 'Acumatica'))]);
+    // Two rows: one row has no Cards/Table toggle (AECI-2021).
+    const { fixture, el } = setup([
+      edge(link('acumatica', 'Acumatica')),
+      edge(link('bluebeam', 'Bluebeam')),
+    ]);
     showTable(fixture, el);
     const tables = [...el.querySelectorAll('table')];
     expect(tables.length).toBeGreaterThan(0);
@@ -164,7 +168,10 @@ describe('ProductIntegrationsSection table shape', () => {
   });
 
   it('renders the partner, categories and connection columns and the trailing arrow, with Direction folded away', () => {
-    const { fixture, el } = setup([edge(link('acumatica', 'Acumatica'))]);
+    const { fixture, el } = setup([
+      edge(link('acumatica', 'Acumatica')),
+      edge(link('bluebeam', 'Bluebeam')),
+    ]);
     showTable(fixture, el);
     const headers = [...el.querySelectorAll('thead th')].map((h) => h.textContent?.trim());
     // AECI-1720 restored mock-up 6's categories column, shown from lg.
@@ -176,13 +183,16 @@ describe('ProductIntegrationsSection table shape', () => {
 describe('ProductIntegrationsSection filter box', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
-  // There is no row threshold: a section with rows has a filter. This section
-  // and #powered-integrations sit next to each other on a connector page, and
-  // the same control over one and not the other reads as a bug.
-  it('is present on a short section', () => {
-    const { el } = setup([edge(link('acumatica', 'Acumatica'))]);
-    expect(rowCount(el)).toBe(1);
-    expect(filterInput(el)).not.toBeNull();
+  // AECI-2021 (ruled 2026-11-23): the search box needs five rows. A shorter list is
+  // read at a glance. This reverses AECI-848 for this section only.
+  it('is absent under five rows and present at five', () => {
+    const { el } = setup(NINE.slice(0, 4));
+    expect(rowCount(el)).toBe(4);
+    expect(filterInput(el)).toBeNull();
+    TestBed.resetTestingModule();
+    const five = setup(NINE.slice(0, 5));
+    expect(rowCount(five.el)).toBe(5);
+    expect(filterInput(five.el)).not.toBeNull();
   });
 
   it('is present on a long one', () => {
@@ -272,7 +282,10 @@ describe('ProductIntegrationsSection collapsible lanes', () => {
   ];
 
   it('renders NO lane card on a single-lane page, per §13.3', () => {
-    const { fixture, el } = setup([edge(link('acumatica', 'Acumatica'))]);
+    const { fixture, el } = setup([
+      edge(link('acumatica', 'Acumatica')),
+      edge(link('bluebeam', 'Bluebeam')),
+    ]);
     expect(el.querySelector('aec-integration-group-card')).toBeNull();
     expect(
       el
@@ -370,10 +383,15 @@ describe('ProductIntegrationsSection collapsible lanes', () => {
     expect(card.querySelector('.aec-partner-link')!.className).toContain('text-t-24');
     // The recipe's chips, not the dense chip.
     expect(card.querySelector('aec-chip')).toBeNull();
-    // The 34px round button with the chevron at the foot.
-    const go = card.querySelector('[data-testid="integration-card-go"]')!;
-    expect(go.className).toContain('size-8.5');
-    expect(go.className).toContain('rounded-full');
+    // AECI-2021: the pair link is a short muted hint with a 16px chevron, no round
+    // button. The closest-match card keeps the recipe's foot button.
+    const pair = card.querySelector('[data-testid="integration-card-pair-link"]')!;
+    expect(pair.classList).toContain('text-t-13');
+    expect(pair.classList).toContain('text-(--text-secondary)');
+    expect(pair.classList).toContain('whitespace-nowrap');
+    expect(pair.classList).toContain('shrink-0');
+    expect(card.querySelector('.size-8\\.5')).toBeNull();
+    expect(pair.querySelector('aec-icon[data-testid="integration-card-go"]')).not.toBeNull();
     // Both lists use the integration card grid, not the product card grid.
     const lists = [...el.querySelectorAll('#integrations [data-testid="integration-cards"]')];
     for (const list of lists) {
@@ -418,17 +436,20 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
     }),
     edge(link('xero', 'Xero'), { context_direction: 'both', partner_categories: [ACC, FIELD] }),
     edge(link('vista', 'Vista'), { context_direction: null }),
+    // A fifth row, so the search box shows (AECI-2021: five rows or more).
+    edge(link('zeta', 'Zeta'), { context_direction: null }),
   ];
 
+  // AECI-2021: a one-lane page's cards are h3 under the section h2.
   const cardNames = (el: HTMLElement) =>
-    [...el.querySelectorAll('li[aec-product-integration-card] h4')].map((h) =>
+    [...el.querySelectorAll('li[aec-product-integration-card] h3')].map((h) =>
       h.textContent?.trim(),
     );
 
   it('renders cards by default, every row, in the lane order', () => {
     const { el } = setup(rows());
     expect(el.querySelector('table')).toBeNull();
-    expect(cardNames(el)).toEqual(['Fieldwire', 'Sage', 'Vista', 'Xero']);
+    expect(cardNames(el)).toEqual(['Fieldwire', 'Sage', 'Vista', 'Xero', 'Zeta']);
   });
 
   it('switches to the table and back without changing the rows or their order', () => {
@@ -442,6 +463,7 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
       '/products/sage',
       '/products/vista',
       '/products/xero',
+      '/products/zeta',
     ]);
     const toggle = [...el.querySelectorAll('aec-listing-view-toggle button')];
     expect(toggle.map((b) => b.getAttribute('aria-pressed'))).toEqual(['false', 'true']);
@@ -463,10 +485,32 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
     expect(text).toContain('Confirmed by one company');
     expect(sage.querySelector('a[href="/products/sage"]')).not.toBeNull();
     const pair = sage.querySelector('a[href="/products/procore/integrations/sage"]')!;
-    // AECI-1720: the pair link's words are visible at the card's foot, so its name is
-    // its text, with no aria-label to drift from it.
-    expect(pair.textContent!.trim()).toBe('View the Sage integration');
+    // AECI-2021: the visible hint "View details" starts the link's accessible name, and
+    // the rest is visually hidden, so the name still says which integration (WCAG 2.5.3).
+    // The name comes from the text, with no aria-label to drift from it.
+    expect(pair.textContent!.replace(/\s+/g, ' ').trim()).toBe(
+      'View details for the Sage integration',
+    );
+    const rest = pair.querySelector('[data-testid="integration-card-pair-link-rest"]')!;
+    expect(rest.classList).toContain('sr-only');
+    expect(rest.textContent!.trim()).toBe('for the Sage integration');
+    expect(pair.textContent!.trim().startsWith('View details')).toBe(true);
     expect(pair.hasAttribute('aria-label')).toBe(false);
+    const head = sage.querySelector('[data-testid="integration-card-head"]')!;
+    expect(head.contains(pair)).toBe(true);
+    expect(head.querySelector('h3 a[href="/products/sage"]')).not.toBeNull();
+    // Still stretched over the card, the partner link above it, the chevron kept.
+    expect(pair.className).toContain('after:absolute');
+    expect(pair.className).toContain('after:inset-0');
+    // The name block keeps 12rem with its mark before the hint drops under it.
+    expect(head.firstElementChild!.classList).toContain('flex-[1_1_12rem]');
+    const partner = sage.querySelector('a[href="/products/sage"]')!;
+    expect(partner.classList).toContain('relative');
+    expect(partner.classList).toContain('z-10');
+    expect(pair.querySelector('aec-icon[data-testid="integration-card-go"]')).not.toBeNull();
+    // Nothing follows the blocks at the foot: the pair link is the head's last child.
+    // The table row keeps its chevron name "View the {partner} integration".
+    expect(head.lastElementChild).toBe(pair);
     // Mock-up 6's labels over the flow and the mechanism.
     expect(text).toContain('What moves');
     expect(text).toContain('How it connects');
@@ -481,8 +525,9 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
     expect(vista.textContent).toContain('–');
   });
 
-  // AECI-1720: mock-up 6's head, list row and card byline.
-  it('opens with the kicker as a paragraph, and the list heading follows the filter', () => {
+  // AECI-1720: mock-up 6's head, list row and card byline. AECI-2021 removed the list
+  // heading: the section h2 heads the list, and the list row keeps the status.
+  it('opens with the kicker as a paragraph, and has no list heading of its own', () => {
     const { fixture, el } = setup(rows());
     const kicker = el.querySelector('[data-testid="integrations-kicker"]')!;
     expect(kicker.tagName).toBe('P');
@@ -493,13 +538,19 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
     // which can differ from the facts card's figure (ruled 2026-11-16).
     expect(el.querySelector('[data-testid="integrations-count-badge"]')).toBeNull();
     expect(el.textContent).not.toContain('integrations shown');
-    const heading = () =>
-      el.querySelector('[data-testid="integrations-list-heading"]')!.textContent!.trim();
-    expect(el.querySelector('[data-testid="integrations-list-heading"]')!.tagName).toBe('H3');
-    expect(heading()).toBe('All integrations on record');
+    expect(el.querySelector('[data-testid="integrations-list-heading"]')).toBeNull();
+    expect(el.textContent).not.toContain('All integrations on record');
+    // Idle, the list row is visually hidden: it holds only the empty status.
+    const row = el.querySelector('[data-testid="integrations-list-row"]')!;
+    expect(row.className).toBe('sr-only');
     pressChip(fixture, el, 'Enscape sends');
-    expect(heading()).toBe('Integrations that match these filters');
-    expect(el.querySelector('[role="status"]')!.textContent!.trim()).toBe('Showing 1 of 4');
+    expect(el.textContent).not.toContain('Integrations that match these filters');
+    expect(row.className).not.toBe('sr-only');
+    expect(el.querySelector('[role="status"]')!.textContent!.trim()).toBe('Showing 1 of 5');
+    // The cards list keeps its accessible name with no heading over it.
+    expect(el.querySelector('[data-testid="integration-cards"]')!.getAttribute('aria-label')).toBe(
+      'Integrations',
+    );
   });
 
   it('labels the search box, lays the panel out in rows, and names the category row', () => {
@@ -556,7 +607,7 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
     // AECI-1720 restore C (mock-up 6): "Any direction" first, pressed while no direction
     // chip is, counting every row the other filters keep. Then the page product's words.
     expect(chips(groups[0]!)).toEqual([
-      'Any direction 4',
+      'Any direction 5',
       '→ Enscape sends 1',
       '← Enscape receives 1',
       '⇄ Both ways 1',
@@ -579,7 +630,7 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
     expect(status.textContent?.trim()).toBe('');
     pressChip(fixture, el, 'Enscape sends');
     expect(cardNames(el)).toEqual(['Sage']);
-    expect(status.textContent).toContain('Showing 1 of 4');
+    expect(status.textContent).toContain('Showing 1 of 5');
     // The heading carries no count (ruled 2026-11-16).
     expect(el.querySelector('#integrations-title')!.textContent!.trim()).toBe('Integrations');
     const chip = [...el.querySelectorAll('aec-chip button[aria-pressed="true"]')];
@@ -611,12 +662,12 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
     expect(clear()).not.toBeNull();
     clear()!.click();
     fixture.detectChanges();
-    expect(cardNames(el)).toEqual(['Fieldwire', 'Sage', 'Vista', 'Xero']);
+    expect(cardNames(el)).toEqual(['Fieldwire', 'Sage', 'Vista', 'Xero', 'Zeta']);
     expect(filterInput(el)!.value).toBe('');
     // Only "Any direction" stays pressed: it is the no-direction-chosen state.
     const pressed = [...el.querySelectorAll('aec-chip button[aria-pressed="true"]')];
     expect(pressed.map((b) => b.textContent!.replace(/\s+/g, ' ').trim())).toEqual([
-      'Any direction 4',
+      'Any direction 5',
     ]);
     expect(clear()).toBeNull();
     // The button removed itself, so focus moved to the search field (AECI-1788).
@@ -624,7 +675,10 @@ describe('ProductIntegrationsSection cards and the filter panel (AECI-1782)', ()
   });
 
   it('renders no direction or category group when no row has one', () => {
-    const { el } = setup([edge(link('acumatica', 'Acumatica'))]);
+    const { el } = setup([
+      edge(link('acumatica', 'Acumatica')),
+      edge(link('bluebeam', 'Bluebeam')),
+    ]);
     const panel = el.querySelector('[data-testid="integrations-filter-panel"]')!;
     expect(panel.querySelectorAll('[role="group"][aria-labelledby]')).toHaveLength(0);
     expect(panel.textContent).not.toContain('Direction');
@@ -681,18 +735,32 @@ describe('ProductIntegrationsSection approved copy (AECI-1783, 2026-11-16)', () 
       data_object_slugs: ['invoice'],
     }),
     edge(link('xero', 'Xero'), { context_direction: 'inbound' }),
+    // Two more rows with nothing on record, so the search box shows (AECI-2021).
+    edge(link('yard', 'Yard')),
+    edge(link('zeta', 'Zeta')),
   ];
   const text = (e: Element) => e.textContent!.replace(/\s+/g, ' ').trim();
   const cardNames = (el: HTMLElement) =>
-    [...el.querySelectorAll('li[aec-product-integration-card] h4')].map(text);
+    [...el.querySelectorAll('li[aec-product-integration-card] h3')].map(text);
   const dataGroup = (el: HTMLElement) =>
     el.querySelector<HTMLElement>('[aria-labelledby="integrations-filter-data"]')!;
 
-  it('says "A to Z by partner name." under the heading on a page with no Via lane', () => {
+  // AECI-2021 (ruled 2026-11-23): the rows sort by the partner product's name, so the
+  // line says "product", and one row has no order to state.
+  it('says "A to Z by product name." under the heading on a page with no Via lane', () => {
     const { el } = setup(rows());
     expect(text(el.querySelector('[data-testid="integrations-order"]')!)).toBe(
-      'A to Z by partner name.',
+      'A to Z by product name.',
     );
+  });
+
+  it('drops the order line on a page with one row', () => {
+    const { el } = setup(rows().slice(0, 1));
+    expect(el.querySelector('[data-testid="integrations-order"]')).toBeNull();
+    TestBed.resetTestingModule();
+    expect(
+      setup(rows().slice(0, 2)).el.querySelector('[data-testid="integrations-order"]'),
+    ).not.toBeNull();
   });
 
   it('drops the order line on a page with a Via lane, whose groups go by row count', () => {
@@ -778,6 +846,159 @@ describe('ProductIntegrationsSection approved copy (AECI-1783, 2026-11-16)', () 
   });
 });
 
+describe('ProductIntegrationsSection controls that can change the list (AECI-2021)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const ACC = { slug: 'accounting', name: 'Accounting' };
+  const FIELD = { slug: 'field-management', name: 'Field management' };
+  const INV = { slug: 'invoice', name: 'Invoices' };
+  const RFI = { slug: 'rfi', name: 'RFIs' };
+  const text = (e: Element) => e.textContent!.replace(/\s+/g, ' ').trim();
+  const panel = (el: HTMLElement) => el.querySelector('[data-testid="integrations-filter-panel"]');
+  const chipTexts = (el: HTMLElement, group: string) =>
+    [...el.querySelectorAll(`[aria-labelledby="${group}"] button[aria-pressed]`)].map(text);
+
+  it('has no panel, no list row and no toggle with one row', () => {
+    const { el } = setup([
+      edge(link('sage', 'Sage'), {
+        context_direction: 'outbound',
+        partner_categories: [ACC],
+        data_objects: [INV],
+        data_object_slugs: ['invoice'],
+      }),
+    ]);
+    expect(rowCount(el)).toBe(1);
+    expect(panel(el)).toBeNull();
+    expect(el.querySelector('aec-listing-view-toggle')).toBeNull();
+    expect(el.querySelector('[data-testid="integrations-list-row"]')).toBeNull();
+    expect(filterInput(el)).toBeNull();
+  });
+
+  it('shows Cards and Table from two rows, with no search box under five', () => {
+    const { el } = setup([edge(link('sage', 'Sage')), edge(link('vista', 'Vista'))]);
+    expect(panel(el)).not.toBeNull();
+    expect(el.querySelector('aec-listing-view-toggle')).not.toBeNull();
+    expect(filterInput(el)).toBeNull();
+    expect(el.querySelector('[data-testid="integrations-filter-search"]')).toBeNull();
+  });
+
+  it('hides a chip whose count equals the row total, and keeps one that would hide a row', () => {
+    const { el } = setup([
+      edge(link('sage', 'Sage'), {
+        context_direction: 'outbound',
+        partner_categories: [ACC],
+        data_objects: [INV, RFI],
+        data_object_slugs: ['invoice', 'rfi'],
+      }),
+      edge(link('vista', 'Vista'), {
+        context_direction: 'outbound',
+        partner_categories: [ACC, FIELD],
+        data_objects: [INV],
+        data_object_slugs: ['invoice'],
+      }),
+      edge(link('xero', 'Xero'), {
+        context_direction: 'outbound',
+        partner_categories: [ACC],
+        data_objects: [INV],
+        data_object_slugs: ['invoice'],
+      }),
+    ]);
+    // Every row is in Accounting and moves Invoices, so neither chip can hide a row.
+    expect(chipTexts(el, 'integrations-filter-categories')).toEqual(['Field management 1']);
+    expect(chipTexts(el, 'integrations-filter-data')).toEqual(['RFIs 1']);
+    // Every row flows outbound: no direction chip can narrow, so the whole group goes,
+    // "Any direction" with it.
+    expect(el.querySelector('[data-testid="integrations-filter-direction"]')).toBeNull();
+    expect(el.textContent).not.toContain('Any direction');
+  });
+
+  it('drops a chip row and its label when no chip in it can narrow the list', () => {
+    const { el } = setup([
+      edge(link('sage', 'Sage'), { context_direction: 'outbound', partner_categories: [ACC] }),
+      edge(link('vista', 'Vista'), { context_direction: 'inbound', partner_categories: [ACC] }),
+    ]);
+    expect(el.querySelector('#integrations-filter-categories')).toBeNull();
+    expect(el.querySelector('[data-testid="integrations-filter-categories"]')).toBeNull();
+    expect(chipTexts(el, 'integrations-filter-direction')).toEqual([
+      'Any direction 2',
+      '→ Enscape sends 1',
+      '← Enscape receives 1',
+    ]);
+  });
+
+  it('judges a chip on the unfiltered rows, so filtering never hides it', () => {
+    const { fixture, el } = setup([
+      edge(link('sage', 'Sage'), { context_direction: 'outbound', partner_categories: [ACC] }),
+      edge(link('vista', 'Vista'), { context_direction: 'inbound', partner_categories: [FIELD] }),
+      edge(link('xero', 'Xero'), { context_direction: 'outbound', partner_categories: [ACC] }),
+    ]);
+    pressChip(fixture, el, 'Enscape sends');
+    // Filtered, every row left is in Accounting, but the chip still shows.
+    expect(chipTexts(el, 'integrations-filter-categories')).toEqual([
+      'Accounting 2',
+      'Field management 0',
+    ]);
+  });
+
+  it('never hides a pressed chip, so the reader can always release it', () => {
+    const { fixture, el } = setup([
+      edge(link('sage', 'Sage'), { partner_categories: [ACC] }),
+      edge(link('vista', 'Vista'), { partner_categories: [FIELD] }),
+    ]);
+    pressChip(fixture, el, 'Field management');
+    // The rows change under the pressed chip: now every row is in Field management.
+    fixture.componentInstance.asSource.set([
+      edge(link('sage', 'Sage'), { partner_categories: [FIELD] }),
+      edge(link('vista', 'Vista'), { partner_categories: [FIELD] }),
+    ]);
+    fixture.detectChanges();
+    const chips = el.querySelectorAll<HTMLButtonElement>(
+      '[aria-labelledby="integrations-filter-categories"] button[aria-pressed]',
+    );
+    expect([...chips].map(text)).toEqual(['Field management 2']);
+    expect(chips[0]!.getAttribute('aria-pressed')).toBe('true');
+    chips[0]!.click();
+    fixture.detectChanges();
+    expect(el.querySelector('#integrations-filter-categories')).toBeNull();
+  });
+
+  it('"Clear filters" hands focus to the panel when it has no search box', () => {
+    const { fixture, el } = setup([
+      edge(link('sage', 'Sage'), { partner_categories: [ACC] }),
+      edge(link('vista', 'Vista'), { partner_categories: [FIELD] }),
+    ]);
+    document.body.appendChild(el);
+    pressChip(fixture, el, 'Accounting');
+    el.querySelector<HTMLButtonElement>('[data-testid="integrations-filter-clear"]')!.click();
+    fixture.detectChanges();
+    expect(panel(el)!.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(document.body);
+    el.remove();
+  });
+
+  it('shows no "Listed by AEC Integrations" label on a card or a table row, and every other state', () => {
+    const rows = [
+      edge(link('acumatica', 'Acumatica'), { agreement: 'unverified' }),
+      edge(link('bluebeam', 'Bluebeam'), { agreement: 'confirmed' }),
+      edge(link('cmic', 'CMiC'), { agreement: 'single_source' }),
+      edge(link('deltek', 'Deltek'), { agreement: 'conflict' }),
+    ];
+    const { fixture, el } = setup(rows);
+    const check = (selector: string) => {
+      const items = [...el.querySelectorAll(selector)];
+      expect(items).toHaveLength(4);
+      expect(items[0]!.querySelector('aec-agreement-badge')).toBeNull();
+      expect(text(items[0]!)).not.toContain('Listed by AEC Integrations');
+      expect(text(items[1]!)).toContain('Confirmed by both companies');
+      expect(text(items[2]!)).toContain('Confirmed by one company');
+      expect(text(items[3]!)).toContain('Companies disagree');
+    };
+    check('li[aec-product-integration-card]');
+    showTable(fixture, el);
+    check('tr[aec-product-integration-row]');
+  });
+});
+
 describe('ProductIntegrationsSection long lists (AECI-1783)', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
@@ -819,14 +1040,17 @@ describe('ProductIntegrationsSection long lists (AECI-1783)', () => {
 
   it('a list of 13 groups A to Z by category, with the uncategorised rows last', () => {
     const { el } = setup(rows(13));
-    expect(groups(el).map((g) => text(g.querySelector('h4')!))).toEqual([
+    expect(groups(el).map((g) => text(g.querySelector('h3')!))).toEqual([
       'Accounting',
       'BIM',
       'Scheduling',
       'No category on record',
     ]);
-    // Rows keep the lane order inside a group, and the cards are h5 under the group h4.
-    const acc = [...groups(el)[0]!.querySelectorAll('li[aec-product-integration-card] h5')];
+    // Rows keep the lane order inside a group, and the cards are h4 under the group h3
+    // (AECI-2021: the section h2 is the group heading's parent, no level skipped).
+    const acc = [...groups(el)[0]!.querySelectorAll('li[aec-product-integration-card] h4')];
+    expect(acc.length).toBeGreaterThan(0);
+    expect(el.querySelector('li[aec-product-integration-card] h5')).toBeNull();
     const names = acc.map(text);
     expect(names).toEqual([...names].sort());
   });
@@ -835,7 +1059,7 @@ describe('ProductIntegrationsSection long lists (AECI-1783)', () => {
     const { fixture, el } = setup(rows(58));
     const check = () => {
       for (const group of groups(el)) {
-        const name = text(group.querySelector('h4')!);
+        const name = text(group.querySelector('h3')!);
         const heading = text(
           group.querySelector('[data-testid="integration-category-group-count"] [aria-hidden]')!,
         );
@@ -854,7 +1078,7 @@ describe('ProductIntegrationsSection long lists (AECI-1783)', () => {
     pressChip(fixture, el, 'Enscape receives');
     check();
     pressChip(fixture, el, 'Scheduling');
-    expect(groups(el).map((g) => text(g.querySelector('h4')!))).toEqual(['Scheduling']);
+    expect(groups(el).map((g) => text(g.querySelector('h3')!))).toEqual(['Scheduling']);
     check();
   });
 
@@ -887,7 +1111,7 @@ describe('ProductIntegrationsSection long lists (AECI-1783)', () => {
       ...button.querySelectorAll('[data-testid="integration-stack"] aec-logo-or-initial'),
     ].map(text);
     expect(stack).toEqual(
-      cards.slice(6, 11).map((c) => text(c.querySelector('h5')!).charAt(0).toUpperCase()),
+      cards.slice(6, 11).map((c) => text(c.querySelector('h4')!).charAt(0).toUpperCase()),
     );
     button.click();
     fixture.detectChanges();
@@ -976,7 +1200,7 @@ describe('ProductIntegrationsSection long lists (AECI-1783)', () => {
     const list = el.querySelector('aec-product-integration-one-list')!;
     const visible = () =>
       [...list.querySelectorAll(':scope > ul > li')].filter((li) => !li.hasAttribute('hidden'));
-    expect(visible().map((li) => text(li.querySelector('h4')!))).toEqual(
+    expect(visible().map((li) => text(li.querySelector('h3')!))).toEqual(
       Array.from({ length: 12 }, (_, i) => `Partner ${String(i).padStart(2, '0')}`),
     );
     expect(list.querySelectorAll(':scope > ul > li')).toHaveLength(30);

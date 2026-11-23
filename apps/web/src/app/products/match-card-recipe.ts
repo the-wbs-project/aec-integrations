@@ -6,7 +6,8 @@ import type { AecIconName } from '../shared/icon/icon-registry';
  * one integration, from mock-ups 5 and 6 (`.card`), given more room after the owner's
  * reviews of 2026-11-18. Two users: the empty pair page's closest-match card (AECI-1835)
  * and the product page's integration card (AECI-1720), with the connector page's hub
- * cards on its compact variant. Class strings only, like `integration-filter-recipe.ts`,
+ * cards on its compact variant. The closest-match card ends in the foot link, and the
+ * product page's card carries a short "View details" hint in its head row (AECI-2021). Class strings only, like `integration-filter-recipe.ts`,
  * because the cards' contents differ (a lane row, Via rows, under-review markers).
  *
  * Light only. No new token, size or radius.
@@ -71,6 +72,16 @@ export const MATCH_CHIP_ROW_CLASS = 'flex flex-wrap gap-2';
 /** The foot: the pair link, its stretched target the whole card, 4px above. */
 export const MATCH_CARD_FOOT_CLASS =
   'mt-auto flex items-center justify-between gap-3 pt-1 text-t-14 font-semibold text-(--text-secondary) no-underline transition-colors after:absolute after:inset-0 after:rounded-card group-hover/card:text-(--text-primary)';
+
+/**
+ * The pair link in the head row (AECI-2021, ruled 2026-11-23): the product page's
+ * integration card puts a short muted hint, "View details" with a 16px chevron, at the
+ * end of the name row instead of a link at the foot, so the card is shorter. 13px,
+ * secondary text, no round button, never wrapping and never shrinking. Its stretched
+ * target is the whole card, as the foot's is. The closest-match card keeps the foot.
+ */
+export const MATCH_CARD_HEAD_LINK_CLASS =
+  'ms-auto inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-t-13 font-semibold text-(--text-secondary) no-underline transition-colors after:absolute after:inset-0 after:rounded-card group-hover/card:text-(--text-primary)';
 
 /** The foot's 34px round button. It holds a chevron, never an arrow (the Arrow Rule). */
 export const MATCH_CARD_GO_CLASS =

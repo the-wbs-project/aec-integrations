@@ -4,7 +4,11 @@ import type { ProductIntegrationItem, ProductLink } from '@aeci/shared';
 
 import { splitIntegrationLanes } from './connector-lane-grouping';
 import {
+  INTEGRATION_SEARCH_MIN_ROWS,
+  INTEGRATION_VIEW_TOGGLE_MIN_ROWS,
   NO_INTEGRATION_FILTER,
+  chipNarrowsList,
+  chipsThatNarrow,
   dataObjectOptions,
   directionOptions,
   filterIntegrationLanes,
@@ -425,5 +429,30 @@ describe('the reader filter state (AECI-1782)', () => {
   it('toggleFacetValue adds and removes without reordering the rest', () => {
     expect(toggleFacetValue(['a', 'b'], 'c')).toEqual(['a', 'b', 'c']);
     expect(toggleFacetValue(['a', 'b', 'c'], 'b')).toEqual(['a', 'c']);
+  });
+});
+
+describe('the Integrations panel thresholds (AECI-2021, ruled 2026-11-23)', () => {
+  it('shows the search box from five rows and the Cards/Table toggle from two', () => {
+    expect(INTEGRATION_SEARCH_MIN_ROWS).toBe(5);
+    expect(INTEGRATION_VIEW_TOGGLE_MIN_ROWS).toBe(2);
+  });
+
+  it('a chip narrows the list only when fewer rows than the total carry it', () => {
+    expect(chipNarrowsList(3, 3)).toBe(false);
+    expect(chipNarrowsList(2, 3)).toBe(true);
+    expect(chipNarrowsList(1, 1)).toBe(false);
+  });
+
+  it('keeps the chips that narrow, and a pressed one whatever its count, in their order', () => {
+    const counts: Record<string, number> = { a: 3, b: 1, c: 3, d: 2 };
+    expect(
+      chipsThatNarrow(
+        ['a', 'b', 'c', 'd'],
+        3,
+        (o) => counts[o]!,
+        (o) => o === 'c',
+      ),
+    ).toEqual(['b', 'c', 'd']);
   });
 });

@@ -28,16 +28,16 @@ import type { PoweredHubGroup, PoweredHubView } from './powered-hub-grouping';
  * cache entry per keystroke against a page whose HTML does not vary with it.
  * The query lives in component state and dies with the page.
  *
- * **There is no row threshold (AECI-848), which is why this module exports no
- * constant for one.** A section renders its filter whenever it renders any rows
- * at all. AECI-841 shipped an `INTEGRATION_FILTER_MIN_ROWS = 10` gate on the
- * argument that a filter over a short list is chrome; reader feedback rejected
- * it. The two sections sit next to each other on a connector page, and the same
- * control appearing over one and not the other reads as a bug rather than as
- * restraint — a reader who learns the box exists on Procore should not have to
- * relearn whether the next page earned one. The filter now lives in the section
- * heading row, right-aligned opposite the `<h2>`, so an idle one costs no
- * vertical space at all, which is the only cost the threshold was buying back.
+ * **The Integrations section shows a control only when it can change the list
+ * (AECI-2021, ruled by Chris 2026-11-23).** The search box needs
+ * {@link INTEGRATION_SEARCH_MIN_ROWS} rows, the Cards/Table toggle
+ * {@link INTEGRATION_VIEW_TOGGLE_MIN_ROWS}, and a chip shows only while it would hide
+ * a row ({@link chipNarrowsList}). This reverses AECI-848 for that section only.
+ * AECI-848 had removed AECI-841's ten-row gate because the two sections sit next to
+ * each other on a connector page, and one control over one and not the other read as
+ * a bug. Chris ruled the Same-Behavior Rule for the Integrations panel on 2026-11-23:
+ * a control that cannot change the list is chrome. "Integrations it powers" keeps its
+ * search box and toggle on every list, as before.
  *
  * **It matches the mechanism label as well as the product name (AECI-966).** It
  * originally matched names alone, which broke its own promise against text the
@@ -78,6 +78,42 @@ export function normalizeFilterText(value: string): string {
     .replace(/\p{Diacritic}/gu, '')
     .toLocaleLowerCase(TEXT_SORT_LOCALE)
     .trim();
+}
+
+/**
+ * AECI-2021 (ruled 2026-11-23): the Integrations section's search box shows from this
+ * many rows. A shorter list is read at a glance.
+ */
+export const INTEGRATION_SEARCH_MIN_ROWS = 5;
+
+/** AECI-2021: the Cards/Table toggle shows from this many rows. One row has one look. */
+export const INTEGRATION_VIEW_TOGGLE_MIN_ROWS = 2;
+
+/**
+ * AECI-2021: whether a chip can change the list. It can when fewer rows than the whole
+ * section carry its value, so pressing it would hide at least one row. The caller
+ * passes the UNFILTERED count and total, so a chip never comes and goes as the reader
+ * filters, and keeps a pressed chip whatever this says, so it can be released.
+ */
+export function chipNarrowsList(unfilteredCount: number, total: number): boolean {
+  return unfilteredCount < total;
+}
+
+/**
+ * AECI-2021: the chip options a panel shows, in their own order. An option stays when
+ * {@link chipNarrowsList} says it can change the list, or when the reader has pressed
+ * it. `unfilteredCount` reads the section's UNFILTERED rows, never the filtered view.
+ * Chip options only: it never filters rows.
+ */
+export function chipsThatNarrow<T>(
+  options: readonly T[],
+  total: number,
+  unfilteredCount: (option: T) => number,
+  selected: (option: T) => boolean,
+): T[] {
+  return options.filter(
+    (option) => selected(option) || chipNarrowsList(unfilteredCount(option), total),
+  );
 }
 
 /** Whether a raw input string is a filter at all. Whitespace is not a query. */

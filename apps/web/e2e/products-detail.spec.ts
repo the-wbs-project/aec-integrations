@@ -197,13 +197,20 @@ test.describe('product detail — "How teams use it" usefulness section (AECI-17
 
 test.describe('product detail — table names and section-nav location (AECI-831)', () => {
   const SLUG = 'fixture-procore';
+  // AECI-2021 (ruled 2026-11-23): a one-row section has no filter panel and no Cards/Table
+  // toggle, and fixture-procore has one row. The list cases use the hybrid fixture: 25 rows
+  // across a direct lane and Via lanes (seed/connector-lists-fixtures.sql).
+  const LIST_SLUG = 'fixture-hybrid-via';
   let seeded = false;
+  let listSeeded = false;
 
   test.beforeAll(async () => {
     const ctx = await playwrightRequest.newContext({ baseURL: BASE_URL });
     try {
       const res = await ctx.get(`/api/products/${SLUG}`, { maxRedirects: 0 });
       seeded = res.ok();
+      const list = await ctx.get(`/api/products/${LIST_SLUG}`, { maxRedirects: 0 });
+      listSeeded = list.ok();
     } finally {
       await ctx.dispose();
     }
@@ -220,7 +227,8 @@ test.describe('product detail — table names and section-nav location (AECI-831
   test('every integrations lane list and table has a non-empty accessible name (A7)', async ({
     page,
   }) => {
-    await page.goto(`/products/${SLUG}`);
+    test.skip(!listSeeded, `${LIST_SLUG} not seeded — run db:seed:connector-lists:local`);
+    await page.goto(`/products/${LIST_SLUG}`);
     const lists = page.locator(
       'aec-product-integration-cards > ul[data-testid="integration-cards"]',
     );
@@ -247,20 +255,21 @@ test.describe('product detail — table names and section-nav location (AECI-831
     page,
     request,
   }) => {
-    const api = await (await request.get(`/api/products/${SLUG}`)).json();
+    test.skip(!listSeeded, `${LIST_SLUG} not seeded — run db:seed:connector-lists:local`);
+    const api = await (await request.get(`/api/products/${LIST_SLUG}`)).json();
     const rows = [...api.integrations_as_source, ...api.integrations_as_target] as {
       source: { slug: string };
       target: { slug: string };
       context_direction: string | null;
     }[];
-    const html = await (await request.get(`/products/${SLUG}`)).text();
+    const html = await (await request.get(`/products/${LIST_SLUG}`)).text();
     for (const row of rows) {
-      const other = row.source.slug === SLUG ? row.target.slug : row.source.slug;
-      expect(html).toContain(`/products/${SLUG}/integrations/${other}`);
+      const other = row.source.slug === LIST_SLUG ? row.target.slug : row.source.slug;
+      expect(html).toContain(`/products/${LIST_SLUG}/integrations/${other}`);
     }
     expect(html).toContain('data-testid="integrations-filter-panel"');
 
-    await page.goto(`/products/${SLUG}`);
+    await page.goto(`/products/${LIST_SLUG}`);
     // Idle, the status is empty (AECI-1720 kept it so): a row count beside the heading
     // can differ from the facts card's figure, which the 2026-11-16 ruling closed.
     const status = page.locator('#integrations [role="status"]');

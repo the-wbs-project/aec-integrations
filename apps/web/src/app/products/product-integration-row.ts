@@ -21,7 +21,11 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { forwardRowClick } from '../shared/row-link/row-link-click';
 
 import { AgreementBadge } from './agreement-badge';
-import { routeIntegrationLane, rowUnderReviewFields } from './connector-lane-grouping';
+import {
+  routeIntegrationLane,
+  rowUnderReviewFields,
+  visibleAgreement,
+} from './connector-lane-grouping';
 import { AecIcon } from '../shared/icon/icon';
 import { Chip } from '../shared/chip/chip';
 
@@ -256,7 +260,8 @@ import { Chip } from '../shared/chip/chip';
         @if (mechanism().name; as name) {
           <span class="text-xs text-(--text-secondary)">{{ name }}</span>
         }
-        <!-- AECI-1720: the row's agreement state, the card's label (a label only, R1). -->
+        <!-- AECI-1720: the row's agreement state, the card's label (a label only, R1).
+             AECI-2021: never "Listed by AEC Integrations" on this page. -->
         @if (rowAgreement(); as agreement) {
           <aec-agreement-badge class="mt-1" [agreement]="agreement" />
         }
@@ -313,10 +318,13 @@ export class ProductIntegrationRow {
   /** The collapsed edges' agreement (`IntegrationLaneRow.agreement`). Same sentinel. */
   readonly mergedAgreement = input<AgreementState | null | undefined>(undefined);
 
-  /** The agreement label the card shows for the same row. */
+  /**
+   * The agreement label the card shows for the same row: every state except
+   * `unverified` (AECI-2021, ruled 2026-11-23, `visibleAgreement`).
+   */
   protected readonly rowAgreement = computed(() => {
     const merged = this.mergedAgreement();
-    return merged === undefined ? this.integration().agreement : merged;
+    return visibleAgreement(merged === undefined ? this.integration().agreement : merged);
   });
 
   /** RouterLink to the product-PAIR page, this product as the context slug. */

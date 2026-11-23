@@ -58,14 +58,15 @@ import { ProductIntegrationCard } from './product-integration-card';
     <div class="flex flex-wrap items-center gap-x-4 gap-y-2 border-b pb-4">
       <!-- The size sits on the span: the unlayered heading rules beat a text-* utility
            on the heading itself. -->
-      <!-- An h4 under the list's h3 "All integrations on record" (AECI-1720). -->
-      <h4
+      <!-- An h3 under the section h2 "Integrations": AECI-2021 (ruled 2026-11-23) removed
+           the list heading that sat between them. Its cards are h4. -->
+      <h3
         [id]="headingId()"
         tabindex="-1"
         class="rounded-mark text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
       >
         <span class="font-display text-t-24 leading-tight font-semibold">{{ name() }}</span>
-      </h4>
+      </h3>
       <span
         class="relative rounded-pill bg-(--surface-sunken) px-3 py-0.5 text-t-13 font-semibold text-(--text-secondary) tabular-nums"
         data-testid="integration-category-group-count"
@@ -89,7 +90,7 @@ import { ProductIntegrationCard } from './product-integration-card';
           aec-product-integration-card
           [row]="row"
           [contextSlug]="contextSlug()"
-          [headingLevel]="5"
+          [headingLevel]="4"
           [attr.hidden]="!isOpen() && i >= peekSize ? 'until-found' : null"
           [attr.data-phone-extra]="!isOpen() && i >= phonePeekSize && i < peekSize ? '' : null"
           (beforematch)="open.set(true)"
