@@ -1,6 +1,9 @@
 import { NgOptimizedImage } from '@angular/common';
-import { Component, input } from '@angular/core';
+import { Component, computed, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
+
+/** Which wordmark file the logo draws. `on-dark` is for a Forest ground. */
+export type BrandLogoTone = 'default' | 'on-dark';
 
 /**
  * AEC Integrations primary wordmark: "AEC" in semibold and "Integrations" in
@@ -14,6 +17,12 @@ import { RouterLink } from '@angular/router';
  * crawler both. The SVG bakes Forest `#1E3A2F` and Clay `#E89668` as hex, the
  * same values as `--accent-primary` / `--accent-secondary`. The site is light
  * only (AECI-226), so the tokens never resolve to anything else.
+ *
+ * `tone="on-dark"` swaps in `/branding/wordmark-on-dark.svg`: the same outlines
+ * with Bone type and the Clay connector on a transparent field, for a Forest
+ * header or footer (AECI-1754). Clay does not flip. Forest and Bone swap. Both
+ * files share one 196x30 viewBox, so the layout never shifts. The default tone
+ * renders exactly as before.
  *
  * Cache-neutral: the markup is identical for every visitor (§9.1a).
  *
@@ -38,21 +47,22 @@ import { RouterLink } from '@angular/router';
   // host's text baseline and the line-box strut would reserve ~7px of descent
   // *below* it, inflating the host box and floating the wordmark above its own
   // centre — which knocked it ~4px out of vertical alignment with the adjacent
-  // hamburger button in the `items-center` header row. Flex layout drops the
+  // menu toggle in the `items-center` header row. Flex layout drops the
   // strut so the host box hugs the wordmark exactly.
   host: { class: 'inline-flex items-center' },
   imports: [RouterLink, NgOptimizedImage],
   template: `
     <a
       routerLink="/"
-      class="inline-flex items-center rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-      [style.height.px]="height()"
+      class="inline-flex items-center rounded-md"
+      [class]="ringClass() + ' ' + sizeClass()"
+      [style.height.px]="responsive() ? null : height()"
       i18n-aria-label="@@app.brand.aria"
       aria-label="AEC Integrations home"
     >
       <img
         class="block h-full w-auto"
-        ngSrc="/branding/wordmark.svg"
+        [ngSrc]="src()"
         [priority]="priority()"
         width="196"
         height="30"
@@ -67,8 +77,36 @@ export class BrandLogo {
   readonly height = input(32);
 
   /**
+   * Size by class instead of `height`: 28px below `md`, 32px from `md` (the
+   * header's wordmark, DESIGN.md §5). Off by default, so every other caller keeps
+   * its px height.
+   */
+  readonly responsive = input(false);
+
+  /**
    * Loads the image eagerly at high fetch priority. True for the header, where
    * the wordmark is above the fold. The footer passes `false`.
    */
   readonly priority = input(true);
+
+  /** Which wordmark file to draw. The default is the Forest-on-light mark. */
+  readonly tone = input<BrandLogoTone>('default');
+
+  /**
+   * The focus ring follows the ground (DESIGN.md §4 "Focus ring"). A Forest ring
+   * on a Forest ground is invisible, so the on-dark tone takes the Bone ring at
+   * 3px with a 3px offset. A plain utility works because the global focus colour
+   * sits in `@layer base` (AECI-1845). The default tone is unchanged.
+   */
+  protected readonly ringClass = computed(() =>
+    this.tone() === 'on-dark'
+      ? 'focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--focus-ring-on-brand)'
+      : 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)',
+  );
+
+  protected readonly sizeClass = computed(() => (this.responsive() ? 'h-7 md:h-8' : ''));
+
+  protected readonly src = computed(() =>
+    this.tone() === 'on-dark' ? '/branding/wordmark-on-dark.svg' : '/branding/wordmark.svg',
+  );
 }

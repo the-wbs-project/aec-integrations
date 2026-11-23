@@ -23,6 +23,7 @@ import {
   lockedField,
   type LockedField,
   type ProductUsefulness,
+  type TaxonomyFacetKey,
   type TaxonomyResponse,
   type TaxonomyTermWithCount,
   type UpdateVendorProductInput,
@@ -46,7 +47,7 @@ type NarrativeFacet = 'audiences' | 'phases';
 
 interface FacetConfig {
   readonly slugKey: SlugKey;
-  readonly vocabulary: keyof TaxonomyResponse;
+  readonly vocabulary: TaxonomyFacetKey;
   readonly legend: string;
   readonly hint: string;
   /** Set for the two facets that carry "How teams use it" points. */
@@ -161,7 +162,7 @@ interface PendingRemoval {
     BrnDialogDescription,
   ],
   template: `
-    <form class="space-y-5" novalidate (submit)="onFormSubmit($event)">
+    <form method="dialog" class="space-y-5" novalidate (submit)="onFormSubmit($event)">
       <div class="space-y-2">
         @if (headingLevel() === 2) {
           <h2 [id]="headingId()" class="font-display text-lg font-semibold text-(--text-primary)">
@@ -539,7 +540,7 @@ export class VendorProductFacetEditor {
 
   private readonly vocabulary = computed<readonly TaxonomyTermWithCount[]>(() => {
     const t = this.taxonomy();
-    return t ? (t[this.config().vocabulary] as readonly TaxonomyTermWithCount[]) : [];
+    return t ? t[this.config().vocabulary] : [];
   });
 
   /**
@@ -767,8 +768,8 @@ export class VendorProductFacetEditor {
     void this.store.reload('products');
   }
 
-  /** The form's submit. Returns early on a replayed early submit, which the
-   *  browser already ran natively (`core/event-replay.ts`). */
+  /** The form's submit. Drops a replayed early submit. The form is `method="dialog"`,
+   *  so the native submit did nothing (AECI-1919, `core/event-replay.ts`). */
   protected onFormSubmit(event: Event): void {
     if (isReplayedEvent(event)) return;
     event.preventDefault();

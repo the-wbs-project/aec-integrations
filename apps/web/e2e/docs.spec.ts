@@ -15,6 +15,8 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
+import { expectNoSidewaysScroll } from './no-sideways-scroll';
+
 import {
   attachConsoleCapture,
   expectConsoleClean,
@@ -336,5 +338,148 @@ test.describe('/docs shell — AECI-1248', () => {
       expect(results.violations).toEqual([]);
       expectConsoleClean(capture, `GET ${path}`);
     });
+  }
+});
+
+// AECI-1803, AECI-1804: the help center and the legal pages in the new language.
+// Every docs control is a 44px target, no page scrolls sideways from 320 to
+// 1440px, the prose sits on the type ramp, and the headings never skip a level.
+test.describe('/docs and /legal in the new language — AECI-1803, AECI-1804', () => {
+  const PATHS = [
+    '/docs',
+    '/docs/reviewers',
+    '/docs/vendors',
+    '/docs/trust/how-ranking-works',
+    '/docs/vendors/plans',
+    '/legal/terms',
+  ];
+
+  for (const width of [320, 390, 768, 1024, 1280, 1440]) {
+    test(`no page scrolls sideways at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      for (const path of PATHS) {
+        await page.goto(path);
+        await expect(page.locator('h1')).toBeVisible();
+        await expectNoSidewaysScroll(page, `${path} at ${width}px`);
+      }
+    });
+  }
+
+  // AECI-1918: a table wider than a phone scrolls in its own box, never the page.
+  // Every page whose Markdown holds a table: the six live docs articles, the two
+  // recorded Plans versions and the methodology page. A new table page joins here.
+  const TABLE_PATHS = [
+    '/docs/getting-started/checking-before-you-buy',
+    '/docs/getting-started/taxonomy',
+    '/docs/vendors/editing-profile-and-products',
+    '/docs/vendors/notifications-and-messages',
+    '/docs/vendors/confirming-integration-data',
+    '/docs/vendors/owning-an-integration',
+    '/docs/vendors/plans/v1.0',
+    '/docs/vendors/plans/v1.1',
+    '/methodology',
+  ];
+
+  for (const width of [320, 390]) {
+    test(`no page with a prose table scrolls sideways at ${width}px (AECI-1918)`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      for (const path of TABLE_PATHS) {
+        await page.goto(path);
+        await expect(page.locator('.aec-prose table').first(), path).toBeVisible();
+        await expectNoSidewaysScroll(page, `${path} at ${width}px`);
+      }
+    });
+  }
+
+  test('a wide prose table stays a table, in a named scroll box that is a stop only while it overflows (AECI-1918)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 320, height: 900 });
+    await page.goto('/docs/getting-started/checking-before-you-buy');
+    const box = page.locator('.aec-prose-table-scroll').first();
+    const table = box.locator('table');
+    // Still a table to assistive tech: never `display: block`.
+    await expect(table).toHaveCSS('display', 'table');
+    await expect(page.getByRole('table')).toHaveCount(1);
+    // It overflows at 320px, so the box is a named keyboard stop.
+    await expect(box).toHaveAttribute('tabindex', '0');
+    await expect(box).toHaveAttribute('role', 'region');
+    const name = await box.getAttribute('aria-label');
+    expect(name?.trim()).toBeTruthy();
+    await expect(page.getByRole('region', { name: name! }).getByRole('table')).toHaveCount(1);
+    // A keyboard reader can reach it and scroll it, and sees the ring.
+    await box.focus();
+    await expect(box).toBeFocused();
+    await expect(box).toHaveCSS('outline-style', 'solid');
+    await expect(box).toHaveCSS('outline-width', '3px');
+    await page.keyboard.press('ArrowRight');
+    await expect.poll(() => box.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+    // Wide enough to fit, it is no stop and no landmark.
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect(box).not.toHaveAttribute('tabindex', /.*/);
+    await expect(box).not.toHaveAttribute('role', /.*/);
+    await expect(box).not.toHaveAttribute('aria-label', /.*/);
+  });
+
+  test('every sidebar, guide and index link is at least 44px tall at 1280px', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    for (const path of ['/docs', '/docs/reviewers']) {
+      await page.goto(path);
+      const links = page.locator(
+        '#docs-nav-panel nav a, [data-testid="docs-audiences"] a, [data-testid="docs-all-sections"] a, [data-testid="docs-section-pages"] a',
+      );
+      const heights = await links.evaluateAll((els) =>
+        els.map((el) => [el.textContent?.trim(), el.getBoundingClientRect().height] as const),
+      );
+      expect(heights.length, path).toBeGreaterThan(5);
+      for (const [label, height] of heights) {
+        expect(height, `${path}: ${label}`).toBeGreaterThanOrEqual(44);
+      }
+    }
+  });
+
+  test('sets the prose body at 16px and its h2 on the ramp', async ({ page }) => {
+    await page.goto('/docs/trust/how-ranking-works');
+    await expect(page.locator('article .aec-prose p').first()).toHaveCSS('font-size', '16px');
+    await expect(page.locator('article .aec-prose h2').first()).toHaveCSS('font-size', '24px');
+    await page.goto('/legal/terms');
+    await expect(page.locator('article.aec-prose p').first()).toHaveCSS('font-size', '16px');
+    await expect(page.locator('article.aec-prose h2').first()).toHaveCSS('font-size', '24px');
+  });
+
+  test('never skips a heading level', async ({ page }) => {
+    for (const path of PATHS) {
+      await page.goto(path);
+      const levels = await page
+        .locator('main :is(h1, h2, h3, h4, h5, h6)')
+        .evaluateAll((els) => els.map((el) => Number(el.tagName[1])));
+      expect(levels[0], path).toBe(1);
+      for (let i = 1; i < levels.length; i++) {
+        expect(
+          levels[i] - levels[i - 1],
+          `${path}: h${levels[i - 1]} then h${levels[i]}`,
+        ).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+});
+
+// AECI-1720 layout pass: the tree rows touch. Every link is still a 44px target, with
+// no gap between rows or between sections.
+test('the docs tree rows are 44px targets with no gap between them', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/docs/vendors/claiming-your-listing');
+  const tops = await page.locator('#docs-nav-panel nav[data-guide] a').evaluateAll((els) =>
+    els.map((a) => {
+      const r = a.getBoundingClientRect();
+      return { top: r.top, height: r.height };
+    }),
+  );
+  expect(tops.length).toBeGreaterThan(5);
+  for (let i = 1; i < tops.length; i++) {
+    expect(tops[i - 1].height).toBeGreaterThanOrEqual(44);
+    expect(tops[i].top - (tops[i - 1].top + tops[i - 1].height)).toBeLessThan(1);
   }
 });

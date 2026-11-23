@@ -56,6 +56,12 @@ test.describe('/claims/confirm — AECI-1435', () => {
     // The token left the address bar.
     expect(page.url()).not.toContain('token=');
 
+    // AECI-1808: the receipt's lone "How claims work" link is a 44px target, not its
+    // 20px line box (WCAG 2.5.8 asks 24px; the site's own floor is 44px).
+    const docsLink = page.getByRole('link', { name: 'How claims work' });
+    const box = await docsLink.boundingBox();
+    expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+
     const result = await axe(page);
     expect(
       result.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious'),

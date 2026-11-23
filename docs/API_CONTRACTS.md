@@ -228,7 +228,7 @@ Per-detail hydration rules:
 |---|---|---|
 | `ProductDetail` | `vendor` | `VendorLink` |
 | `ProductDetail` | `categories` / `audiences` / `phases` / `trades` | `LinkRef[]`, sorted by the API (AECI-1242): audiences A to Z, the other three by `display_order` then name. `trades` (AECI-541) is **sparse by design**: most products carry zero trade tags, so `[]` is the common, correct value, not missing data (`STAGE_1_SPEC.md` §5.5a). |
-| `ProductDetail` | `integrations_as_source` / `integrations_as_target` | `ProductIntegrationItem[]` (= `IntegrationListItem` + `context_direction` + `powered_by_product` + `data_object_slugs`). **Each array spans BOTH delivered-tier tables** (AECI-713 / `STAGE_1_5_SPEC.md` §13.1) — an edge in `integrations`, or a `connector_evidenced_pairs` row on which this product is an endpoint, discriminated by `via`. An evidenced pair is filed by its **oriented** source/target, never by which of `product_a` / `product_b` matched: the canonical order is a storage detail and carries no orientation meaning. **Both arrays are unordered** — deliberately. The rendered table interleaves them into one list sorted alphabetically by partner name (`STAGE_1_5_SPEC.md` §7.1), which SQL cannot express here: the relations can only `ORDER BY` columns of `integrations`, while the partner name lives on the joined product. Do not add an `orderBy` and assume the client inherits it. |
+| `ProductDetail` | `integrations_as_source` / `integrations_as_target` | `ProductIntegrationItem[]` (= `IntegrationListItem` + `context_direction` + `powered_by_product` + `data_object_slugs` + `data_objects` + `partner_categories` + `agreement`). **Each array spans BOTH delivered-tier tables** (AECI-713 / `STAGE_1_5_SPEC.md` §13.1) — an edge in `integrations`, or a `connector_evidenced_pairs` row on which this product is an endpoint, discriminated by `via`. An evidenced pair is filed by its **oriented** source/target, never by which of `product_a` / `product_b` matched: the canonical order is a storage detail and carries no orientation meaning. **Both arrays are unordered** — deliberately. The rendered table interleaves them into one list sorted alphabetically by partner name (`STAGE_1_5_SPEC.md` §7.1), which SQL cannot express here: the relations can only `ORDER BY` columns of `integrations`, while the partner name lives on the joined product. Do not add an `orderBy` and assume the client inherits it. |
 | `ProductDetail` | `integrations_as_connector` | `PoweredIntegrationItem[]` (= `IntegrationListItem` + `data_object_slugs`) — edges this product **powers** as the mechanism (`powered_by_product_id`), not as an endpoint (Stage 1.5 Addendum B). No `context_direction` **by design**: the page product is neither endpoint, so it has no frame to be relative to. `data_object_slugs` (AECI-1080) means what it means on `ProductIntegrationItem`, on both arms (`integrations` and `connector_evidenced_pairs`). The hub unions it per collapsed pair row. `/api/integrations` does not carry it. |
 | `ProductDetail` | `related_products` | `ProductListItem[]` |
 | `ProductDetail` | `extension_of` / `extensions` | `ProductListItem[]`, both defaulted to `[]` (AECI-710 / `STAGE_1_5_SPEC.md` §13.3b). `extension_of` is the hosts this product is built **within**; `extensions` is the products built within it. Read from `product_extensions` by `productExtensionQueries` (`apps/api/src/lib/product-extensions.ts`), two statements of the detail read's one `db.batch` (AECI-1507), each sorted by `textAsc(name)` then `id`, unbounded. **Not integrations**: never in `integrations_as_*`, never in `integration_count`, never a §13.5 lockstep site. |
@@ -237,6 +237,11 @@ Per-detail hydration rules:
 | `IntegrationDetail` | `built_by_vendor` | `VendorLink \| null` |
 | `IntegrationDetail` / `ProductIntegrationItem` | `powered_by_product` | `ProductLink \| null` |
 | `ProductIntegrationItem` | `data_object_slugs` | `string[]` — the distinct `data_object` slugs the edge's claims cover (AECI-711, the depth axis). Counted by `distinctDataObjectSlugs`, the AECI-1042 rule `computeSyncHeadline` uses. `[]` when the edge has no claims, and the row then renders nothing (no "not specified" marker). Slugs, not a count, so a collapsed Via row can take the union across its edges. An unbacked vendor-added claim is excluded here and from `context_direction` (AECI-1314). That is a claim with `origin = 'vendor'`, no live `aeci` attestation and no live affirming vendor vote (`isClaimPubliclyBacked`). The pair read drops the same claims, so the row and the pair card still agree. A refuted claim (every voting vendor denies it, `isClaimRefuted`) is also excluded here, as from the pair `sync_headline` (AECI-1140). |
+| `ProductIntegrationItem` | `data_objects` | `{ slug, name }[]` (AECI-1781): the objects in `data_object_slugs`, with their names from `taxonomy_data_objects`, the source the pair page reads. Same claim filter, so the same set. Sorted as the pair page sorts the same objects (`compareClaims`): curated `display_order`, NULLs last, then name, then slug (`compareTermsByDisplayOrder`). One object keeps one place on both pages. `display_order` is set only by AECi seeds, never by a plan, and term chips are not the product or integration lists PLAN.md §7.8 governs. Resolved on the server so the browser does not carry the vocabulary. |
+| `ProductIntegrationItem` | `partner_categories` | `{ slug, name }[]` (AECI-1781): the categories of the partner, the endpoint that is not the page product. Sorted as a product's own `categories` are (AECI-1242): curated `display_order`, NULLs last, then name, then slug (`compareTermsByDisplayOrder`), so a category chip reads the same on the partner's page and on this row. `display_order` is set only by AECi seeds. `[]` for a partner with none. Read through a nested relation on the partner slot only, so a product with 58 rows still runs one statement for them. |
+| `ProductIntegrationItem` | `partner_vendor_name` | `string \| null`, optional (AECI-1720): the company name of the partner's primary vendor, picked as the product list card picks its vendor (`pickPrimaryVendorRow`: `is_primary`, else the first). Printed as the card's and the table row's "by {vendor}" line. `null` for a partner with no vendor on record, and absent from an API that predates the field, so a client reads both as no line. Row data only: classified as a payload field by the ordering firewall, so no order, filter or count reads it. Read through the same partner-slot relation as `partner_categories`. |
+| `ProductIntegrationItem` | `partner_vendor_slug` | `string \| null`, optional (AECI-1720): the same vendor's slug. Not rendered. The product detail resolver pushes `vendor:{slug}` for it, because a vendor rename purges only that tag and the row prints the name (`CACHE_STRATEGY.md` §3). `null` with no vendor on record. Classified as a payload field by the ordering firewall. |
+| `ProductIntegrationItem` | `agreement` | `'unverified' \| 'single_source' \| 'confirmed' \| 'conflict' \| null` (AECI-1781). Ruling 2026-11-14 (Chris, asked on AECI-1781): "A", the weakest flow decides. The row's claims are rolled up by `integrationAgreement` (`packages/shared/src/agreement.ts`). Any `conflict` wins. Otherwise the weakest claim's state, in `unverified < single_source < confirmed`, so `confirmed` means every listed flow is confirmed by two companies. It covers the claims `data_objects` lists: public, not refuted. A claim marked `removed` on a versioned pair still counts, as in `data_object_slugs` since AECI-711. `null` when there are none. A flow every voting company denied is left out of the roll-up. A rolled-up `single_source` names no vendor, so its card says "Confirmed by one company". Row data only. No server order reads it, and a client sort or filter on it would be placement (`docs/design/mockups/redesign-2026-11/PLAN.md` §7.7). |
 | `CategoryDetail` / `AudienceDetail` / `PhaseDetail` / `TradeDetail` | `products` | `ProductListItem[]` |
 
 Each list endpoint returns the lean `*ListItem` shape; the corresponding `*Detail` shape (returned only by the `:slug` / `:id` endpoint) extends it with the heavier hydration.
@@ -675,6 +680,16 @@ export const ProductIntegrationItemSchema = IntegrationListItemSchema.extend({
   // (`distinctDataObjectSlugs`, the AECI-1042 rule). Slugs rather than a count so
   // the Via lane can union a collapsed row's edges. `[]` = no claims = no chip.
   data_object_slugs: z.array(z.string()).default([]),
+  // AECI-1781. The same objects, named, in the pair page's `display_order`. The
+  // partner's categories, in the sidebar's `display_order` (AECI-1242). The row's
+  // agreement, ruled 2026-11-14 ("A"): `integrationAgreement`, or null.
+  // IntegrationTermSchema = z.object({ slug: z.string(), name: z.string() }).
+  data_objects: z.array(IntegrationTermSchema).default([]),
+  partner_categories: z.array(IntegrationTermSchema).default([]),
+  // AECI-1720: the partner's primary vendor name, for the "by {vendor}" line.
+  partner_vendor_name: z.string().nullable().optional(),
+  partner_vendor_slug: z.string().nullable().optional(),
+  agreement: z.enum(AGREEMENT_STATES).nullable().default(null),
 });
 
 export const IntegrationDetailSchema = IntegrationListItemSchema.extend({
@@ -841,7 +856,7 @@ export type ProductDetail = z.infer<typeof ProductDetailSchema>;
 
 Errors: `NOT_FOUND` if no product matches the slug.
 
-**`claim_status` (AECI-1618, 2026-11-05).** `ProductDetail` carries `claim_status: 'claimed' | 'unclaimed'`, default `claimed` so an SSR Worker on this schema can parse an older API response. A product is claimed when any joined vendor is: `owned_at IS NOT NULL AND claim_ended_at IS NULL` (ADR 0051). The page's own `logo_url` is returned either way, and the page shows counsel's wording beside it when unclaimed. Every other product or vendor in a public response (`related_products`, vendor and product links, list cards, search records) returns `logo_url: null` while unclaimed, so the client shows the initial tile. The portal and admin reads keep the stored value. No label says Claimed.
+**`claim_status` (AECI-1618, 2026-11-05).** `ProductDetail` carries `claim_status: 'claimed' | 'unclaimed'`. It is required, with no default (AECI-1851). The API always sends it, and the web never Zod-parses this response, so the old `claimed` default only hid a missing field. A client that meets a missing `claim_status` treats it as not claimed for the logo: no subject logo, no share-card logo. A product is claimed when any joined vendor is: `owned_at IS NOT NULL AND claim_ended_at IS NULL` (ADR 0051). The page's own `logo_url` is returned either way, and the page shows counsel's wording beside it when unclaimed. Every other product or vendor in a public response (`related_products`, vendor and product links, list cards, search records) returns `logo_url: null` while unclaimed, so the client shows the initial tile. The portal and admin reads keep the stored value, by an explicit choice: they map product links with `toOwnedProductLink`. The public `toProductLink` shows a logo only when the row carries a truthy `claimed`, so a public read that forgets that column hides the logo (AECI-1851). No label says Claimed. Any client that renders `ProductDetail.logo_url` off the product's own page must apply `claim_status` and show the initial tile while unclaimed, as the review form rail does (AECI-1769, `aec-logo-or-initial` `claimStatus`).
 
 **Reads (AECI-1507).** The handler makes one D1 round trip: a single `db.batch` of eight
 statements. Every statement keys on the scalar subquery `(SELECT id FROM products WHERE slug = ?)`,
@@ -849,8 +864,10 @@ so none waits on another's result. The statements are the product (the relationa
 `productDetailConfig` shape), related products, the first review page, the published vendor replies
 for that page (`IN` a subquery of the same page), the reach count, both extension directions, and
 every phase's `display_order`. An unknown slug makes the subquery `NULL`, every keyed read comes back
-empty, and the handler returns `NOT_FOUND` from the product row. `related_products` is the latest 6
-products sharing a category, ordered `created_at DESC, id ASC`, self excluded.
+empty, and the handler returns `NOT_FOUND` from the product row. `related_products` is the first 6
+products sharing a category, A to Z by name, case folded (`textAsc`), then `id ASC`, self excluded.
+The order changed from newest first in AECI-1785, which first renders the list ("Similar products").
+Ruling R1 (AECI-1732) makes a list new to a page A to Z.
 
 #### `GET /api/products/:slug/reviews`
 
@@ -898,7 +915,7 @@ export type VendorDetail = z.infer<typeof VendorDetailSchema>;
 
 Errors: `NOT_FOUND`.
 
-**`claim_status` (AECI-1618, 2026-11-05).** `VendorDetail` carries `claim_status: 'claimed' | 'unclaimed'`, default `claimed`. A vendor is claimed while `owned_at IS NOT NULL AND claim_ended_at IS NULL`. The page's own `logo_url` is returned either way, with counsel's wording beside it when unclaimed (ADR 0051).
+**`claim_status` (AECI-1618, 2026-11-05).** `VendorDetail` carries `claim_status: 'claimed' | 'unclaimed'`, required, with no default (AECI-1851, as for `ProductDetail`). A vendor is claimed while `owned_at IS NOT NULL AND claim_ended_at IS NULL`. The page's own `logo_url` is returned either way, with counsel's wording beside it when unclaimed (ADR 0051).
 
 ### 6.2a Slug redirects (AECI-978)
 
@@ -1042,7 +1059,18 @@ The route is unfiltered on `retired_at` so a legacy link to a retired row still 
 
 The **product-PAIR read**. Consolidates every integration between two products into one context-oriented view (Stage 1.5 §7–§8). `:slug` is the **context** product; `:otherSlug` the other. Query resolves the unordered pair (matches integrations in either source/target orientation). Layer B (AECI-300) hydrates each mechanism's `data_object` claims + attestations and fills the `sync_headline`. The whole read is **one D1 round trip** (AECI-1506): the two product lookups, both anchor tables, the version rows and the `moved_to` lookup run as six statements in one `db.batch`. Both anchor tables and the version rows key on the slugs through `(SELECT id FROM products WHERE slug = ?)`. The `moved_to` lookup needs no id: `integration_endpoint_moves` is keyed on the old pair's slugs. The product lookups stay separate statements, so a missing slug is still a `NOT_FOUND` and never an empty pair.
 
-**`claim_status` on both subjects (AECI-1618, 2026-11-05).** `context_product` and `other_product` each carry `claim_status` and keep their own `logo_url`. The page shows the wording beside each subject's logo when it is unclaimed. Products elsewhere on the page, such as the rail and the integration rows, return `logo_url: null` while unclaimed.
+**`claim_status` on both subjects (AECI-1618, 2026-11-05).** `context_product` and `other_product` each carry `claim_status` and keep their own `logo_url`. It is required, with no default (AECI-1851, as for `ProductDetail`). The page shows the wording beside each subject's logo when it is unclaimed. Products elsewhere on the page, such as the rail and the integration rows, return `logo_url: null` while unclaimed.
+
+**Taxonomy and links on both subjects (AECI-1822, 2026-11-14).** `context_product` and `other_product` each also carry `categories`, `audiences`, `phases` and `trades` (`LinkRef[]`), plus `api_docs_url` and `tool_integrations_url` (`string | null`). They feed the empty pair page's cards and its "look it up yourself" row (`PLAN.md` §6.1). They are the same facts `GET /api/products/:slug` returns. Four differences from that read:
+
+- **Order.** The same as the product page, from the same comparators (AECI-1242, `taxonomy-order.ts`). Categories, phases and trades follow the curated `display_order`, NULLs last, then name. Audiences go by name. PLAN §7.8's A to Z rule governs lists of products and integrations, not one product's own terms. A test asserts the pair order equals the product page order for the same product.
+- **One read.** The terms hydrate through `productPairSubjectConfig`, inside the same `db.batch` as the two product lookups, so no round trip is added.
+- **Hidden links are masked.** `tool_integrations_url` and `api_docs_url` are in `PRODUCT_HIDE_FIELDS`. While AECi has either hidden on a product, that subject's value is `null`, as on the product page (AECI-1238, `maskPairResponse`). Since AECI-1827 the subject names each hidden field in `under_review`, as `ProductDetail` does, and its "Corrected by" entry is dropped. The empty pair page shows "Under review" in the link's slot. The product hides ride in the same `db.batch` (`productHidesQuery`). The other four fields have no hide.
+
+**`listed_integration_count` on both subjects (AECI-1827, ruling 96, 2026-11-17).** The number of rows the product's own page lists under "Integrations" and "Integrations it powers", counted by `countListedIntegrationRows` (`packages/shared`): one row per direct edge, one per (connector, partner) for Via edges, and one per distinct endpoint pair it powers. The product page's facts card prints this figure when the stored `integration_count` is 0, because that column can lag. The empty pair page applies the same rule through the same web helper (`integrationsOnRecordCount`), so the two pages print the same number. The rows load as slugs only, through the same six relations and live filters as `productDetailConfig`, inside each subject's own statement: no statement and no round trip is added. Required, with no default.
+
+**Captions on both subjects (AECI-1827, 2026-11-17).** `context_product` and `other_product` each carry an optional `captions: { managed, corrections }` (`PairSubjectCaptionsSchema`). `managed` is the product's "Maintained by" line for the Managed group (the two links, audiences, phases and trades), built by `productGroupCaptions` exactly as for `ProductDetail.captions.managed`. `corrections` are AECi's live corrections on the product, as `ProductDetail.captions.corrections` carries them, so a corrected link reads "Corrected by" and a removed one "Removed by". They come from `productCorrectionsQuery` on both product ids, in the same `db.batch`: twelve statements now. No description, profile or usefulness caption, because the pair page shows none of those fields. Optional for deploy skew: absent reads as no caption.
+- **Cache.** No new tag. The page already carries `product:{slug}` for both products, so a promote or vendor edit that changes either product's terms purges it. A rename of a term itself repaints on the TTL, exactly as on the product page, which does not tag `taxonomy` either (`CACHE_STRATEGY.md` rule 2).
 
 **Query params (AECI-303 / `STAGE_2_ATTESTATIONS_SPEC.md` §9):**
 
@@ -1165,8 +1193,8 @@ export const SyncHeadlineSchema = z.object({
 });
 
 export const ProductPairResponseSchema = z.object({
-  context_product: ProductListItemSchema,   // both products hydrate as ProductListItem (vendor + review recap)
-  other_product: ProductListItemSchema,
+  context_product: ProductPairSubjectSchema, // ProductListItem + claim_status + the six AECI-1822 fields
+  other_product: ProductPairSubjectSchema,
   mechanisms: z.array(ProductPairMechanismSchema),
   sync_headline: SyncHeadlineSchema,
   // The page-header maintenance marker (AECI-616), folded across all mechanisms by
@@ -1231,6 +1259,35 @@ export type ProductPairResponse = z.infer<typeof ProductPairResponseSchema>;
 - **`connector_vendor_id`** (AECI-933) is the primary vendor of the mechanism's connector product: `powered_by_product` on an `integrations` row, `via` on a connector-evidenced pair. It is `null` when there is no connector or the connector has no vendor. "Primary" is `pickPrimaryVendor`, the rule behind `ProductListItem.vendor`. It has one reader, the pair page's outbound-click analytics. A curated `listing_url` / `docs_url` click on a row with no `built_by_vendor` is owned by this vendor (`VENDOR_PERFORMANCE_SPEC.md` §3.2). It is a new field rather than a vendor on `ProductLinkSchema`, which many responses share. Additive and `.optional()`, absent meaning `null`. The join is on the pair read only: `connectorEvidencedPairListConfig`, which other reads spread, stays bare.
 - **Errors / status:** `NOT_FOUND` when either slug is unknown **or the two slugs are equal**. Since AECI-991 the SSR resolver turns that 404 into a **301** when either slug is mapped in `slug_redirects` — the API itself is unchanged and still answers `NOT_FOUND`. A valid-but-unconnected pair (both products exist, no integration between them) is a **200** with `mechanisms: []` — and, since AECI-953, possibly a non-null `moved_to` the SSR layer renders as a 301. The API itself never redirects. A bad `context_version` / `other_version` is **not** an error — see the degrade rule above.
 - SSR caching (pair page): detail TTL, `Cache-Tag: route:detail,pair:{min}__{max},product:{slug}×2` (see `CACHE_STRATEGY.md`). The selector params are in `PAIR_PAGE_CACHE_KEY_PARAMS` in `apps/web/src/app/core/route-cache-key.ts` (`CACHE_STRATEGY.md` §4a), and a non-default selection is `noindex` with the canonical pointing at the default pair URL (§7.2). A `moved_to` 301 is the one response on this route that carries neither — it sets its own `public, max-age=3600, s-maxage=86400` and the **old** pair's tag, because `withCacheHeaders` applies a route TTL and a path-derived tag to 2xx and 404 only. The AECI-991 retired-endpoint 301 does the same with four tags (both pair tags plus `product:` per changed slug — `CACHE_STRATEGY.md` §3 rule 6).
+
+#### `GET /api/products/:slug/integrations/:otherSlug/alternatives` (AECI-341 · AECI-1829 · AECI-1830)
+
+The empty pair page's "What you would be moving" and closest matches (`STAGE_1_5_SPEC.md` §11.3 and §11.4). Public, no session. Source of truth: `packages/shared/src/api/pair-alternatives.ts` (`PairAlternativesSchema`), `createPairAlternativesHandler` in `apps/api/src/routes/integrations.ts`, `toPairAlternatives` in `apps/api/src/lib/drizzle-helpers.ts`.
+
+```typescript
+PairAlternatives = {
+  moving: { context_only: IntegrationTerm[]; both: IntegrationTerm[]; other_only: IntegrationTerm[] };
+  lanes: { context: PairAlternativeLane; other: PairAlternativeLane };
+};
+PairAlternativeLane = { anchors: LinkRef[]; matches: PairAlternativeMatch[] };
+PairAlternativeMatch = {
+  product: ProductLink; // logo withheld while unclaimed
+  vendor_name: string | null;
+  review_count: number;
+  rating_overall_avg: number | null; // null under five reviews
+  rating_onboarding_avg: number | null;
+  shared_categories: IntegrationTerm[]; // the match's categories the other product carries
+  data_objects: IntegrationTerm[]; // on the kept product's integrations with the match
+  direction: 'outbound' | 'inbound' | 'both' | null; // from the kept product's side
+  confirmed: boolean; // a label only (ruling R1)
+};
+```
+
+- **One round trip.** One statement per product, through the product page's own endpoint relations and live filters (`pairAlternativesConfig`). A match is exactly a partner the kept product's page lists.
+- **`moving`.** Each product's distinct data objects across its integrations on record, public and not refuted, as the product page lists them. Three groups, each in the data-object vocabulary's order (`display_order`, nulls last, then name). It orders nothing.
+- **A lane.** Keep one product. `anchors` are the other product's categories in its own order. A match has an integration on record with the kept product and shares at least one anchor. Neither of the pair's products is a match. Edges to one partner collapse into one match.
+- **Order (ruling R1).** Matches run A to Z by name with `compareText`, the id breaking a tie. Nothing else. No plan, license or paid input is read; the on-page ordering firewall registers it as `pair-page-closest-matches`.
+- The SSR resolver calls it for an empty pair only and embeds every match's `product:` cache tag. Errors: `NOT_FOUND` (404, either slug unknown or hidden, or the two equal), `VALIDATION_FAILED` (400, a missing slug).
 
 #### `GET /api/products/:slug/integrations/:otherSlug/timeline` (Stage 2 · AECI-303)
 
@@ -1335,10 +1392,18 @@ export const TaxonomyResponseSchema = z.object({
   audiences: z.array(TaxonomyTermWithCountSchema),
   phases: z.array(TaxonomyTermWithCountSchema),
   trades: z.array(TaxonomyTermWithCountSchema),    // AECI-541
+  total_products: z.number().int().min(0),         // AECI-1773
 });
 ```
 
 Used by the SSR Worker to populate nav, footer, and the `/categories` flat list.
+
+`total_products` (AECI-1773) feeds the Browse menu's "All products" line. It uses the same visibility
+rule as `home.total_products` on `GET /api/stats/home` (`computeTotalProducts`: hidden listings are
+not counted). The two may differ briefly while either cache refreshes: this one is computed live inside
+the KV read-through and is at most 5 minutes stale, the home stat updates daily and after each promote.
+A client must treat `total_products` as possibly absent while an older API Worker is still serving. A cached KV value written before this field fails `safeParse` and is
+refetched. This is a read and carries no rate limit.
 
 ### 6.5 Stats
 
@@ -1364,7 +1429,7 @@ suppresses each at `0` (no "0 reviews", no "0 contributing firms").
 
 The home renders the coverage counts, `integrations_added_30d` (the credibility
 row's "+{n} in the last 30 days" note) and `popular_products` (the hero's
-"Popular:" row, AECI-1572). `trending_products`, `recently_added_products`,
+"Most viewed" row, AECI-1572). `trending_products`, `recently_added_products`,
 `most_integrated_product` and `most_active_category` are still computed and
 returned, but nothing on the home renders them (AECI-1573).
 
@@ -1396,7 +1461,7 @@ export type HomeStatsResponse = {
   } | null;                              // null when the cache key is absent
   trending_products: Product[];          // top 5, each ≥ TRENDING_MIN_VIEWS (3) page-views in 7d (AECI-280 floor); not rendered
   recently_added_products: Product[];   // last 10; not rendered
-  popular_products?: Product[];          // top 5 by non-internal views classified person or unresolved in 30d, same floor (AECI-1572, AECI-1586); the hero "Popular:" row
+  popular_products?: Product[];          // top 5 by non-internal views classified person or unresolved in 30d, same floor (AECI-1572, AECI-1586); the hero "Most viewed" row
 };
 ```
 
@@ -1601,11 +1666,14 @@ export const ClaimTargetResponseSchema = z.object({
 export const CorrectionRequestSchema = CorrectionFormSchema.extend({
   target_type: z.enum(['product', 'vendor']),
   slug: z.string().min(1),
+  pair_slug: z.string().min(1).optional(), // AECI-1828
 });
 // CorrectionFormSchema = { body (20–2000),
 //                          source_url ('' or a valid URL ≤500),
 //                          submitter_email (email, ≤200) }
 ```
+
+**`pair_slug` (AECI-1828, `STAGE_1_5_SPEC.md` §11.5).** The empty pair page's "It does exist" sends the pair's other product. On a product target the request records both products: the target, and this one in `vendor_requests.context_product_id`. The audit row carries `pair_product_id` and `pair_product_slug`, and the Linear issue reads "Pair with". A slug that resolves to no listed product, or equals the target, records a plain correction. `GET /api/admin/requests` returns it as `pair_product`.
 
 Both return `RequestSubmitResponse` (`{ request_id: string; message: string; confirmation_required: boolean }`) with HTTP `201`. A correction never waits on a link, so its `confirmation_required` is always `false` (AECI-1435). Errors: `VALIDATION_FAILED` (400), `NOT_FOUND` (404 — `(target_type, slug)` did not resolve), `MALFORMED_REQUEST` (400 — body is not JSON).
 
@@ -2428,7 +2496,7 @@ Errors: `NOT_FOUND`; `INVALID_STATE_TRANSITION` (422) if the review is not in th
 
 #### `GET /api/admin/requests`
 
-Lists vendor requests (claims and corrections). Implemented in AECI-216 (Phase 6.9).
+Lists vendor requests (claims and corrections). Implemented in AECI-216 (Phase 6.9). Since AECI-1828 each row carries `pair_product: LinkRef | null`: on a correction sent from an empty pair page, the pair's other product, shown as "Pair with"; `null` on every other row.
 Source of truth: `packages/shared/src/api/admin-requests.ts` (Zod), `apps/api/src/routes/admin-requests.ts` (handlers).
 
 ```typescript

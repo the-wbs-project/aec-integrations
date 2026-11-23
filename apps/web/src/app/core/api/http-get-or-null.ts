@@ -45,3 +45,26 @@ export async function httpGetOrNull<T>(http: HttpClient, path: string): Promise<
     throw err;
   }
 }
+
+/**
+ * Decode a canonical `NOT_FOUND` envelope (AECI-1823). `null` when the error is
+ * anything else. Otherwise `{ slug }`, the slug the envelope names in
+ * `error.details.slug` or `null` when it names none. The pair read names whichever
+ * of its two slugs is missing.
+ */
+export function decodeNotFound(err: unknown): { slug: string | null } | null {
+  if (!(err instanceof HttpErrorResponse) || err.status !== 404 || !isNotFoundEnvelope(err)) {
+    return null;
+  }
+  let parsed: unknown = err.error;
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      return { slug: null };
+    }
+  }
+  const slug = (parsed as { error?: { details?: { slug?: unknown } } } | null)?.error?.details
+    ?.slug;
+  return { slug: typeof slug === 'string' ? slug : null };
+}

@@ -165,7 +165,7 @@ Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344,
 
 ## 3. The process
 
-1. **Claim.** Vendor clicks "Claim <Company>" on a company or product page. Form: name, title (it replaced role, AECI-1649),
+1. **Claim.** Vendor clicks "Claim Vendor" on a company or product page (it read "Claim <Company>" until AECI-1925). Form: name, title (it replaced role, AECI-1649),
    company legal name, work email, LinkedIn (optional), note (optional), the terms box. On send: on-screen receipt,
    email receipt, alert to AECi. Record: claim request plus terms acceptance.
    *As built 2026-10-21 (AECI-1435):* unless the vendor is signed in with the typed address, the
@@ -442,6 +442,16 @@ exists yet to accept the terms for. It shows no box and writes no acceptance. Th
 the terms when they claim the listing we add. The rows written by listing requests before the
 change stay, because `agreement_acceptances` is append-only. The listing request form asks for a
 required "Company country" (ISO 3166-1 alpha-2) instead, to help us check the company is real.
+
+*As built, AECI-1720 (2026-11-20).* The box cannot be ticked before the page can take the
+tick. The routed claim pages are server-rendered, so a vendor on a slow phone can reach the form
+before the scripts load. The box is `disabled` in the server HTML until the app is live
+(`AecConsentBox`, `shared/form-field/consent-box.ts`), so it looks inert and cannot untick itself.
+No tick is ever carried across hydration: no checkbox is restored, whoever or whatever ticked it.
+Typed answers are carried (`AecEarlyInput`). The box also unticks, and asks for a fresh tick, if
+the policy version line beside it changes after it was ticked (`LegalInForceClient.refresh()`), so
+a tick always sits beside the versions on screen. The `/auth/terms` box waits the same way for its summary of changes (`[aecConsent]="settled()"`). `e2e/forms-early-input.spec.ts` and
+`early-input.component.spec.ts` pin this.
 
 *As built, AECI-1435 (2026-10-21).* For an anonymous claim the acceptance row is written when the
 emailed link is confirmed, not at submit. It carries the version shown, the IP and the user agent of

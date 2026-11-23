@@ -34,7 +34,7 @@ import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
           target="_blank"
           rel="noopener"
           data-testid="vp-learn-more"
-          class="inline-flex items-center gap-1.5 rounded-(--radius-sm) font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          class="inline-flex items-center gap-2 rounded-mark font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
           ><span i18n="@@vendorProgram.benefit.learnMore"
             >Learn more<span class="sr-only">: {{ benefitTitle() }}</span></span
           ><aec-new-tab-icon

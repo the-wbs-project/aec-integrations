@@ -1874,3 +1874,53 @@ describe('POST /api/requests/claim → an address that already manages another c
     expect(row?.status).toBe('open');
   });
 });
+
+// AECI-1828: "It does exist" on an empty pair page records both products.
+describe('POST /api/requests/correction with pair_slug (AECI-1828)', () => {
+  const pairBody = {
+    target_type: 'product',
+    slug: 'acme-build',
+    pair_slug: 'other-tool',
+    body: 'An integration between Acme Build and Other Tool. Where I saw it: their docs.',
+    source_url: 'https://example.com/integration',
+    submitter_email: 'reporter@example.com',
+  };
+  const OTHER_ID = '33333333-3333-4333-8333-333333333333';
+
+  it('stores the other product on the correction and in its audit row', async () => {
+    await seedProduct({ slug: 'acme-build' });
+    await seedProduct({ slug: 'other-tool', id: OTHER_ID });
+    const res = await submitCorrection(pairBody);
+    expect(res.status).toBe(201);
+    const { row } = await createdRow(res);
+    expect(row).toMatchObject({
+      kind: 'correction',
+      targetId: PRODUCT_ID,
+      contextProductId: OTHER_ID,
+    });
+    const [audit] = await t.db.select().from(auditLog);
+    expect(audit!.metadata).toMatchObject({
+      pair_product_id: OTHER_ID,
+      pair_product_slug: 'other-tool',
+    });
+  });
+
+  it('records a plain correction when the pair slug does not resolve or is the target', async () => {
+    await seedProduct({ slug: 'acme-build' });
+    for (const pair_slug of ['no-such-product', 'acme-build']) {
+      const res = await submitCorrection({ ...pairBody, pair_slug });
+      expect(res.status).toBe(201);
+      const { row } = await createdRow(res);
+      expect(row?.contextProductId).toBeNull();
+    }
+  });
+
+  it('leaves a correction without the key as before', async () => {
+    await seedProduct({ slug: 'acme-build' });
+    const { pair_slug: _drop, ...plain } = pairBody;
+    const { row } = await createdRow(await submitCorrection(plain));
+    expect(row?.contextProductId).toBeNull();
+    const [audit] = await t.db.select().from(auditLog);
+    expect(audit!.metadata).not.toHaveProperty('pair_product_id');
+  });
+});

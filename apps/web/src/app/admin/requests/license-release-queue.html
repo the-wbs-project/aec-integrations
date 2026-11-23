@@ -129,6 +129,7 @@
         </p>
         } @else if (openId() === r.id && decision(); as kind) {
         <form
+          method="dialog"
           class="mt-5 space-y-3 border-t border-(--border-default) pt-4"
           novalidate
           (submit)="submit($event, r)"

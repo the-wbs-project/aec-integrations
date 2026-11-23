@@ -1,14 +1,32 @@
-import { httpResource } from '@angular/common/http';
-import { Component, computed, inject, input, linkedSignal } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, Router } from '@angular/router';
+import { isPlatformBrowser } from '@angular/common';
+import { HttpParams, httpResource } from '@angular/common/http';
+import {
+  Component,
+  DestroyRef,
+  PLATFORM_ID,
+  computed,
+  inject,
+  input,
+  linkedSignal,
+  untracked,
+} from '@angular/core';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, NavigationStart, Router } from '@angular/router';
+import { filter } from 'rxjs';
 
 import type { ProductFacetsResponse } from '@aeci/shared';
 
 import { SearchRefinementList } from '../../search/widgets/search-refinement-list';
+import {
+  FacetHistoryStore,
+  HistoryTraversal,
+  listingHistoryKey,
+  listingPath,
+} from '../paginated-index/listing-history-store';
 import type { TaxonomyKind } from '../taxonomy-badge/taxonomy-badge';
 
 import { FacetPanel } from './facet-panel';
+import { FILTER_LINK_CLASS } from './filter-row';
 import type { RefinementItem } from './refinement-item';
 
 /**
@@ -50,7 +68,7 @@ import type { RefinementItem } from './refinement-item';
   selector: 'aec-facet-sidebar',
   imports: [FacetPanel, SearchRefinementList],
   template: `
-    <aec-facet-panel [activeCount]="activeFilterCount()">
+    <aec-facet-panel [activeCount]="activeFilterCount()" [orderNote]="orderNote()">
       @for (group of groups(); track group.kind) {
         <aec-search-refinement-list
           [label]="group.label"
@@ -62,7 +80,7 @@ import type { RefinementItem } from './refinement-item';
       @if (hasActiveFilters()) {
         <button
           type="button"
-          class="rounded-(--radius-sm) text-sm text-(--accent-primary) underline-offset-2 transition-colors hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          [class]="clearClass"
           (click)="clearFilters()"
           i18n="@@listing.filters.clear"
         >
@@ -74,6 +92,9 @@ import type { RefinementItem } from './refinement-item';
 })
 export class FacetSidebar {
   private readonly route = inject(ActivatedRoute);
+
+  protected readonly clearClass = FILTER_LINK_CLASS;
+
   private readonly router = inject(Router);
 
   /** Browse pages lock (and hide) their own dimension; `/products` passes none. */
@@ -119,13 +140,55 @@ export class FacetSidebar {
     { equal: shallowEqualParams },
   );
 
+  /** The counts request line, `null` while there is no request. Part of the store key. */
+  private readonly facetLine = computed<string | null>(() => {
+    const params = this.facetParams();
+    return params === null ? null : facetRequestLine(params);
+  });
+
+  // AECI-1900: on Back or Forward, the counts this panel showed when the reader
+  // left. Browser only: the server has no history and never touches the store.
+  private readonly history = isPlatformBrowser(inject(PLATFORM_ID))
+    ? inject(FacetHistoryStore)
+    : null;
+  private readonly traversal = this.history ? inject(HistoryTraversal) : null;
+
+  /**
+   * The stored counts on a Back or Forward, so the panel renders at full height
+   * in its first frame and the router's restore can reach the saved position.
+   * Read for the first counts request (the inputs that lock a term page are set
+   * by then) and for each later change of filters, because a Back or Forward
+   * between two filter states on one page keeps this panel. A filter click is
+   * not a Back, finds nothing, and the resource fetches.
+   */
+  private readonly restored = linkedSignal<
+    string | null,
+    { line: string; body: ProductFacetsResponse } | null
+  >({
+    source: this.facetLine,
+    // Untracked: `isTraversal` reads `router.currentNavigation()`, a signal.
+    // Tracked, every later navigation would re-run this, drop the restored
+    // counts as the reader leaves, and fire a counts request on the way out.
+    computation: (line) =>
+      untracked(() => {
+        const traversal = this.traversal;
+        if (line === null || !this.history || !traversal?.isTraversal()) return null;
+        const body = this.history.read<ProductFacetsResponse>(
+          this.historyKey(line),
+          traversal.restoredEntryId(),
+        );
+        return body ? { line, body } : null;
+      }),
+  });
+
   /**
    * Scoped facet counts from `GET /api/products/facets`. Runs during SSR
    * (transfer-cache captured) and re-fetches only when `facetParams` changes.
+   * Asks for nothing while restored counts stand in for the request.
    */
   private readonly facets = httpResource<ProductFacetsResponse>(() => {
     const params = this.facetParams();
-    if (params === null) return undefined;
+    if (params === null || this.restored() !== null) return undefined;
     return { url: '/api/products/facets', params };
   });
 
@@ -140,9 +203,46 @@ export class FacetSidebar {
     ProductFacetsResponse | undefined,
     ProductFacetsResponse | null
   >({
-    source: () => (this.facets.hasValue() ? this.facets.value() : undefined),
+    source: () => (this.facets.hasValue() ? this.facets.value() : this.restored()?.body),
     computation: (current, previous) => current ?? previous?.value ?? null,
   });
+
+  private readonly destroyRef = inject(DestroyRef);
+
+  constructor() {
+    // Keep the counts on screen for a later Back or Forward to this history
+    // entry: as the reader leaves it (a filter click keeps this panel, so that
+    // is a `NavigationStart`), and at teardown.
+    if (this.history) {
+      this.router.events
+        .pipe(
+          filter((e) => e instanceof NavigationStart),
+          takeUntilDestroyed(this.destroyRef),
+        )
+        .subscribe(() => this.saveForHistory());
+      this.destroyRef.onDestroy(() => this.saveForHistory());
+    }
+  }
+
+  private historyKey(line: string): string {
+    return listingHistoryKey(listingPath(this.route.snapshot), line);
+  }
+
+  private saveForHistory(): void {
+    const line = this.facetLine();
+    if (!this.history || line === null) return;
+    // Only counts that answer `line`. `retainedFacets` keeps the previous
+    // filter state's counts on screen while the new request is in flight or
+    // after it failed. Stored under this line, a later Back would show them as
+    // this state's counts and never fetch.
+    const restored = this.restored();
+    const counts =
+      restored?.line === line ? restored.body : this.facets.hasValue() ? this.facets.value() : null;
+    if (counts === null) return;
+    // Entries under the id this entry carried before a Back or Forward are dead.
+    this.history.retire(this.traversal?.retiredEntryId() ?? null);
+    this.history.write(this.historyKey(line), this.traversal?.currentEntryId() ?? null, counts);
+  }
 
   /** One render group per non-locked dimension, terms mapped to refinement items. */
   protected readonly groups = computed<
@@ -177,6 +277,34 @@ export class FacetSidebar {
         .filter((item) => item.count > 0 || item.isRefined);
       return { kind: d.kind, label: this.groupLabel(d.kind), items };
     });
+  });
+
+  /**
+   * How the terms are ordered, stated under the panel (rulings 5 and 6 of
+   * 2026-11-16). True of `GET /api/products/facets`: phases by `display_order`
+   * (project order), categories and trades by `display_order`, which is A to Z
+   * (held by `apps/api/src/lib/taxonomy-a-to-z.spec.ts`), audiences by name.
+   *
+   * The caption names only groups the reader can see (AECI-1794). A phase term
+   * page locks and hides the Phases group, and a group with no terms left under
+   * the active filters renders nothing. With no Phases group on screen, every
+   * group shown is A to Z, so the caption says only that. Before the counts
+   * load there are no groups, and the caption follows the lock alone. The
+   * server renders with the counts, but the first client render runs before
+   * `httpResource` hands them back. So on a filtered URL that leaves no phase
+   * term, the caption reads the long form for one render after hydration
+   * (about 20ms), then the short form again. It is not a live region and does
+   * not move the layout.
+   */
+  protected readonly orderNote = computed(() => {
+    const groups = this.groups();
+    const phasesShown =
+      groups.length === 0
+        ? this.lockedKind() !== 'phase'
+        : groups.some((g) => g.kind === 'phase' && g.items.length > 0);
+    return phasesShown
+      ? $localize`:@@listing.filters.order.directory:Phases in project order. Other terms A to Z.`
+      : $localize`:@@listing.filters.order.directoryNoPhases:Terms A to Z.`;
   });
 
   /** True when any non-locked dimension filter is active in the URL. */
@@ -258,6 +386,15 @@ export class FacetSidebar {
 /** Decode a (possibly null) `{kind}_id` CSV param into its set of selected ids. */
 function parseIds(raw: string | null): Set<string> {
   return new Set((raw ?? '').split(',').filter((id) => id.length > 0));
+}
+
+/**
+ * The counts request line, as `HttpRequest.urlWithParams` builds it for the
+ * resource: every filter and the locked term, in `facetParams` order.
+ */
+function facetRequestLine(params: Record<string, string>): string {
+  const query = new HttpParams({ fromObject: params }).toString();
+  return query.length === 0 ? '/api/products/facets' : `/api/products/facets?${query}`;
 }
 
 /** Shallow record equality — lets `facetParams` ignore `page`/`sort`-only navs. */

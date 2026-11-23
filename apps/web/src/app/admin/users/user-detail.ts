@@ -35,6 +35,7 @@ import {
   COMPANY_TYPE_OPTIONS,
   labelFor,
 } from '../../account/profile-details/profile-details-model';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 /**
  * `/admin/users/:id` — the operator's user page (AECI-692 /
@@ -85,7 +86,7 @@ import {
  */
 @Component({
   selector: 'aec-user-detail',
-  imports: [AuditTrail, RouterLink, DatePipe, SortHeader],
+  imports: [AecFormSubmit, AuditTrail, RouterLink, DatePipe, SortHeader],
   templateUrl: './user-detail.html',
 })
 export class UserDetail {

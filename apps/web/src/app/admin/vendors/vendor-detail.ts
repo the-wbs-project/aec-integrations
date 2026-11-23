@@ -55,6 +55,7 @@ import { VendorSuspensionSection } from './vendor-suspension-section';
 import { productRolesLabel } from '../product-roles/product-roles-label';
 import { seatEmailText, seatLabel } from '../seat-label';
 import { ownedIntegrationsLabel } from '../product-roles/owned-integrations-label';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 const AUDIT_PAGE_SIZE = 25;
 const PRODUCTS_PAGE_SIZE = 25;
@@ -135,6 +136,7 @@ const ADMIN_VENDOR_TABS: readonly AdminVendorTab[] = [
 @Component({
   selector: 'aec-vendor-detail',
   imports: [
+    AecFormSubmit,
     AdminLogoEditor,
     AdminFieldCorrections,
     AdminFieldHides,

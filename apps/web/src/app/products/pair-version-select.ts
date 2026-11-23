@@ -10,6 +10,8 @@ import {
   output,
   signal,
 } from '@angular/core';
+import { FIELD_LABEL_CLASS } from '../shared/form-field/form-field-classes';
+import { AecIcon } from '../shared/icon/icon';
 
 /** One selectable release. `released_at` is display-only — never an ordering input. */
 export interface PairVersionOption {
@@ -52,10 +54,12 @@ export interface PairVersionOption {
 @Component({
   selector: 'aec-pair-version-select',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [Combobox, ComboboxPopup, ComboboxWidget, Listbox, Option, OverlayModule],
+  imports: [AecIcon, Combobox, ComboboxPopup, ComboboxWidget, Listbox, Option, OverlayModule],
   template: `
-    <div class="inline-flex items-center gap-2">
-      <span [id]="labelId()" class="aec-overline text-(--text-secondary)">{{ label() }}</span>
+    <!-- AECI-1798: the label sits above the field, and the trigger is the shared form
+         control (.aec-field-control): the 3:1 field edge, the control radius, 44px tall. -->
+    <div class="flex flex-col items-start gap-2">
+      <span [id]="labelId()" [class]="labelClass">{{ label() }}</span>
       <div #origin class="relative">
         <button
           ngCombobox
@@ -64,24 +68,13 @@ export interface PairVersionOption {
           type="button"
           [(expanded)]="expanded"
           [attr.aria-labelledby]="labelId() + ' ' + triggerId()"
-          class="flex min-w-[6rem] items-center justify-between gap-2 rounded-(--radius-md)
-            border border-(--border-default) bg-(--surface-base) py-1.5 ps-3 pe-2 text-sm
-            text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2
+          class="aec-field-control flex min-w-[10rem] cursor-pointer items-center justify-between
+            gap-2 border bg-(--surface-base) py-2 ps-4 pe-3 text-t-14 text-(--text-primary)
+            focus-visible:outline-3 focus-visible:outline-offset-3
             focus-visible:outline-(--accent-primary)"
         >
           <span>{{ triggerLabel() }}</span>
-          <svg
-            class="h-4 w-4 shrink-0 text-(--text-secondary)"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="m6 9 6 6 6-6" />
-          </svg>
+          <aec-icon class="text-(--text-secondary)" name="chevron-down" decorative [size]="4" />
         </button>
 
         <!--
@@ -104,9 +97,8 @@ export interface PairVersionOption {
               focusMode="activedescendant"
               selectionMode="explicit"
               [attr.aria-label]="label()"
-              class="z-50 flex max-h-[18rem] min-w-[10rem] list-none flex-col gap-0.5
-                overflow-y-auto rounded-(--radius-md) border border-(--border-default)
-                bg-(--surface-raised) p-1.5 shadow-lg"
+              class="aec-popover z-50 flex max-h-[18rem] min-w-[10rem] list-none flex-col gap-1
+                overflow-y-auto p-2"
             >
               @for (opt of newestFirst(); track opt.label) {
                 <li
@@ -114,7 +106,7 @@ export interface PairVersionOption {
                   [value]="opt"
                   [label]="opt.label"
                   class="flex cursor-pointer items-center justify-between gap-3
-                    rounded-(--radius-sm) px-3 py-2 text-sm text-(--text-primary)
+                    rounded-mark px-3 py-2 text-sm text-(--text-primary)
                     data-[active=true]:bg-(--surface-sunken)"
                 >
                   <span>{{ opt.label }}</span>
@@ -147,6 +139,8 @@ export class PairVersionSelect {
   readonly value = input.required<string | null>();
   readonly changed = output<string>();
 
+  /** A form field label: the Label role, not the overline (AECI-1850). */
+  protected readonly labelClass = FIELD_LABEL_CLASS;
   protected readonly labelId = computed(() => `pair-version-label-${this.side()}`);
   protected readonly triggerId = computed(() => `pair-version-trigger-${this.side()}`);
 

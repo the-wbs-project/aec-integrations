@@ -1,3 +1,4 @@
+import { DOCUMENT } from '@angular/common';
 import {
   Component,
   DestroyRef,
@@ -13,6 +14,7 @@ import { NavigationEnd, Router, RouterLink } from '@angular/router';
 import { filter } from 'rxjs';
 
 import { ConsentService } from './consent';
+import { AecButton } from '../shared/button/button';
 
 /**
  * Analytics consent banner (AECI-239 / Phase 7.4).
@@ -32,7 +34,9 @@ import { ConsentService } from './consent';
  * swallow a click on the page underneath. While the banner shows, an in-flow
  * spacer (the last child of the app shell's column, after the footer) is sized
  * to the banner's measured height, so the footer's bottom row can scroll clear
- * of it. No global scroll offset is involved.
+ * of it. No global scroll offset is involved. The same height also becomes a
+ * `scroll-margin-bottom` on every focusable element (AECI-1818, WCAG 2.4.11), so
+ * a Tab never leaves the focused control hidden under the banner.
  *
  * Held off `/auth/terms` (AECI-1637, legal agent 2026-11-20): that page has one decision and
  * one "Accept", the Terms tick box, so a second "Accept" for cookies could be taken for it.
@@ -47,7 +51,7 @@ export function bannerHeldOn(url: string): boolean {
 
 @Component({
   selector: 'aec-consent-banner',
-  imports: [RouterLink],
+  imports: [AecButton, RouterLink],
   template: `
     @if (visible()) {
       <div aria-hidden="true" [style.height.px]="reserve()"></div>
@@ -59,17 +63,16 @@ export function bannerHeldOn(url: string): boolean {
         i18n-aria-label="@@analytics.consent.regionLabel"
       >
         <div
-          class="pointer-events-auto mx-auto flex max-w-3xl flex-col gap-4 rounded-(--radius-lg)
-            border border-(--border-default) bg-(--surface-raised) p-5 shadow-lg
+          class="aec-popover pointer-events-auto mx-auto flex max-w-3xl flex-col gap-4 p-5
             sm:flex-row sm:items-center sm:justify-between"
         >
-          <p class="text-sm/6 text-(--text-secondary)">
+          <p class="text-t-14 leading-6 text-(--text-secondary)">
             <span i18n="@@analytics.consent.message"
               >We use privacy-friendly product analytics to understand how the directory is used and
               make it better. No ads, and we never sell your data.</span
             >&ngsp;<a
               routerLink="/legal/privacy"
-              class="font-medium text-(--accent-primary) underline underline-offset-2
+              class="text-(--accent-primary) underline underline-offset-2
                 hover:text-(--accent-primary-hover)"
               i18n="@@analytics.consent.privacyLink"
               >Read our Privacy Policy</a
@@ -77,29 +80,20 @@ export function bannerHeldOn(url: string): boolean {
           </p>
           <div class="flex shrink-0 gap-3">
             <button
+              aecButton
+              variant="secondary"
               id="consent-decline"
               type="button"
               (click)="decline()"
-              class="inline-flex items-center justify-center rounded-(--radius-md)
-                border border-(--border-default) bg-(--surface-base) px-4 py-2 text-sm
-                font-medium text-(--text-primary) transition-colors
-                hover:border-(--border-strong) focus-visible:outline-none
-                focus-visible:ring-2 focus-visible:ring-(--accent-primary)
-                focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-raised)"
               i18n="@@analytics.consent.decline"
             >
               Decline
             </button>
             <button
+              aecButton
               id="consent-accept"
               type="button"
               (click)="accept()"
-              class="inline-flex items-center justify-center rounded-(--radius-md)
-                border border-(--border-strong) bg-(--accent-primary) px-4 py-2 text-sm
-                font-bold text-(--surface-base) transition-colors
-                hover:bg-(--accent-primary-hover) focus-visible:outline-none
-                focus-visible:ring-2 focus-visible:ring-(--accent-primary)
-                focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-raised)"
               i18n="@@analytics.consent.accept"
             >
               Accept
@@ -113,6 +107,7 @@ export function bannerHeldOn(url: string): boolean {
 export class ConsentBanner {
   private readonly consent = inject(ConsentService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly document = inject(DOCUMENT);
 
   private readonly router = inject(Router);
 
@@ -131,6 +126,26 @@ export class ConsentBanner {
   private readonly region = viewChild<ElementRef<HTMLElement>>('region');
 
   constructor() {
+    // WCAG 2.4.11 (AECI-1818): while the banner shows, publish its height on <html> so the
+    // unlayered `html[data-consent-reserve]` rule in styles.css gives every focusable
+    // element a matching `scroll-margin-bottom`. A control reached by Tab then scrolls
+    // clear of the banner instead of landing under it. Removed when the banner goes.
+    const root = this.document.documentElement;
+    effect(() => {
+      const height = this.visible() ? this.reserve() : 0;
+      if (height > 0) {
+        root.setAttribute('data-consent-reserve', '');
+        root.style.setProperty('--aec-consent-reserve', `${height}px`);
+      } else {
+        root.removeAttribute('data-consent-reserve');
+        root.style.removeProperty('--aec-consent-reserve');
+      }
+    });
+    this.destroyRef.onDestroy(() => {
+      root.removeAttribute('data-consent-reserve');
+      root.style.removeProperty('--aec-consent-reserve');
+    });
+
     // Track the fixed region's rendered height (it changes at the sm breakpoint
     // and with text wrapping). The region only exists in the browser, after
     // reconciliation, so ResizeObserver is never touched during SSR.

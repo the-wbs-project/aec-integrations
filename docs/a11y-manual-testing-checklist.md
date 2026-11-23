@@ -169,6 +169,7 @@ mode where quick-nav keys work, and the mode most users spend most of their time
 | N8 | `/products/:slug/review` | `F` repeatedly, then `Tab` | Does NVDA switch cleanly between browse and forms mode on each control? Are the star ratings usable with arrows? | ☐ |
 | N9 | `/products/:slug/review` | Submit *(local only)* | Is "Review received" spoken? *(A2.)* | ☐ |
 | N10 | `/account` | `Return` on "Delete account", then `Escape` | Focus enters the dialog, `Tab` cycles inside it, `Escape` returns focus to the button. *(Run **locally**.)* | ☐ |
+| N11 | `/products` | Open "Browse" with `↓`, `Return` on a link; then the mobile menu at 390px | NVDA speaks the new page's `h1` and the next `Tab` starts in the content, not at the top of the page. In a persistent section row (the vendor portal, admin) `Return` on a section link keeps focus on that link, now announced as current page. *(AECI-1855.)* | ☐ |
 
 **Record every ❌ in `docs/ACCESSIBILITY_AUDIT.md` §3 with the tool, the browser and what was actually
 spoken.** An announcement that differs between VoiceOver and NVDA is itself a finding worth writing

@@ -16,6 +16,7 @@ import {
 import type { AdminReturnRecordsResponse } from '@aeci/shared';
 
 import { AdminVendorsApi } from './admin-vendors-api';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 /** `AdminReasonSchema`'s cap, mirrored so the field stops an over-long reason. */
 const REASON_MAX_LENGTH = 1000;
@@ -41,7 +42,7 @@ const REASON_MAX_LENGTH = 1000;
  */
 @Component({
   selector: 'aec-return-records-control',
-  imports: [DatePipe],
+  imports: [AecFormSubmit, DatePipe],
   templateUrl: './return-records-control.html',
 })
 export class ReturnRecordsControl {

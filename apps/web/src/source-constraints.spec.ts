@@ -8,8 +8,9 @@ import {
   HEX_COLOR,
   NAMED_COLOR_CLASS,
   TAILWIND_PALETTE,
+  COLOR_OPACITY_MODIFIER,
 } from '../../../eslint.color-patterns.mjs';
-import { RULES, scanFile } from '../scripts/check-source-constraints.mjs';
+import { RULES, TAG_RULES, scanFile } from '../scripts/check-source-constraints.mjs';
 
 /**
  * AECI-597 — the first test the line scanner has ever had.
@@ -45,7 +46,7 @@ const HTML = 'apps/web/src/app/some/component.html';
 const CSS = 'apps/web/src/app/some/component.css';
 
 describe('rule table', () => {
-  it('declares the seven rules by stable id', () => {
+  it('declares the nine rules by stable id', () => {
     expect(RULES.map((r) => r.id)).toEqual([
       'logical-properties',
       'no-dark-variant',
@@ -54,6 +55,8 @@ describe('rule table', () => {
       'no-color-function',
       'no-tailwind-palette',
       'no-named-color-class',
+      'no-color-opacity-modifier',
+      'no-smooth-scroll',
     ]);
   });
 
@@ -134,7 +137,8 @@ describe('colour rules stay quiet on the near-misses that deferred them', () => 
     expect(hits(HTML, '<p class="bg-(--surface-raised) text-(--text-secondary)">x</p>')).toEqual(
       [],
     );
-    expect(hits(HTML, '<p class="text-(--surface-base)/80">x</p>')).toEqual([]);
+    expect(hits(HTML, '<p class="text-(--text-on-brand-secondary)">x</p>')).toEqual([]);
+    expect(hits(HTML, '<p class="text-sm/6 text-base/7 text-[13px]/6 w-1/2">x</p>')).toEqual([]);
     expect(hits(HTML, '<p class="border border-transparent bg-transparent">x</p>')).toEqual([]);
     expect(hits(HTML, '<svg stroke="currentColor" fill="none"></svg>')).toEqual([]);
     expect(hits(HTML, '<a href="#main" class="text-3xl">Skip to content</a>')).toEqual([]);
@@ -217,6 +221,71 @@ describe('pre-existing rules (back-filled coverage — these had no test before)
   });
 });
 
+describe('no-smooth-scroll (AECI-1752)', () => {
+  const TS = 'apps/web/src/app/some/component.ts';
+  const rule = RULES.find((r) => r.id === 'no-smooth-scroll')!;
+
+  it('catches every other way to turn smooth scrolling on', () => {
+    // The fixtures below name the banned forms, so each needs the escape hatch.
+    // constraints-guard-allow-next-line: fixture must contain the banned form
+    expect(hits(CSS, 'html { scroll-behavior: smooth; }')).toContain('no-smooth-scroll');
+    // constraints-guard-allow-next-line: fixture must contain the banned form
+    expect(hits(HTML, '<div class="md:scroll-smooth"></div>')).toContain('no-smooth-scroll');
+    // constraints-guard-allow-next-line: fixture must contain the banned form
+    expect(hits(TS, "root.style.scrollBehavior = 'smooth';")).toContain('no-smooth-scroll');
+    // constraints-guard-allow-next-line: fixture must contain the banned form
+    expect(hits(TS, "el.scrollIntoView({ behavior: 'smooth' });")).toContain('no-smooth-scroll');
+  });
+
+  it('catches the binding, quoted-key, setProperty, split-line and switch-class forms', () => {
+    // constraints-guard-allow-next-line: fixture must contain the banned form
+    expect(hits(HTML, '<main [class.scroll-smooth]="on"></main>')).toContain('no-smooth-scroll');
+    // constraints-guard-allow-next-line: fixture must contain the banned form
+    expect(hits(HTML, '<div [style.scroll-behavior]="mode"></div>')).toContain('no-smooth-scroll');
+    // constraints-guard-allow-next-line: fixture must contain the banned form
+    expect(hits(TS, "window.scrollTo({ top: 0, 'behavior': 'smooth' });")).toContain(
+      'no-smooth-scroll',
+    );
+    expect(
+      // constraints-guard-allow-next-line: fixture must contain the banned form
+      hits(TS, "root.style.setProperty('scroll-behavior', 'smooth');"),
+    ).toContain('no-smooth-scroll');
+    // A `behavior` value split across two lines is reported once, on the key line.
+    const split = scanFile(
+      TS,
+      ['el.scrollIntoView({', '  behavior:', "    'smooth',", '});'].join('\n'),
+    );
+    expect(split.map((v) => [v.ruleId, v.line])).toEqual([['no-smooth-scroll', 2]]);
+    // constraints-guard-allow-next-line: fixture must contain the banned form
+    expect(hits(TS, "root.classList.add('aeci-smooth-scroll');")).toContain('no-smooth-scroll');
+  });
+
+  it('leaves instant scrolls and the inline auto reset alone', () => {
+    expect(hits(TS, "el.scrollIntoView({ block: 'start', behavior: 'instant' });")).toEqual([]);
+    expect(hits(TS, "root.style.scrollBehavior = 'auto';")).toEqual([]);
+    expect(hits(TS, 'turns smooth scrolling on for the span of the jump')).toEqual([]);
+    expect(
+      scanFile(TS, ["el.scrollIntoView({ block: 'start',", "  behavior: 'instant' });"].join('\n')),
+    ).toEqual([]);
+  });
+
+  it('allow-lists the CSS rule, the one service and the switch site, and all still need it', () => {
+    expect(rule.allow).toEqual([
+      'apps/web/src/styles.css',
+      'apps/web/src/app/core/in-page-smooth-scroll.ts',
+      'apps/web/src/index.html',
+    ]);
+    for (const path of rule.allow ?? []) {
+      const full = join(REPO_ROOT, path);
+      expect(existsSync(full), `missing allow-listed file: ${path}`).toBe(true);
+      expect(
+        rule.pattern.test(readFileSync(full, 'utf8')),
+        `${path} no longer needs its no-smooth-scroll exemption — remove it`,
+      ).toBe(true);
+    }
+  });
+});
+
 describe('escape hatch', () => {
   it('suppresses the following line only', () => {
     const file = [
@@ -229,6 +298,24 @@ describe('escape hatch', () => {
   });
 });
 
+describe('no-color-opacity-modifier (AECI-1747)', () => {
+  it('flags an opacity modifier on a colour utility, in html and css', () => {
+    for (const c of [
+      'text-(--surface-base)/70',
+      'bg-(--accent-primary)/40',
+      'bg-forest/40',
+      'hover:bg-(--surface-base)/85',
+    ]) {
+      expect(hits(HTML, `<p class="${c}">x</p>`), c).toContain('no-color-opacity-modifier');
+    }
+    expect(hits(CSS, '@apply bg-(--surface-base)/70;')).toContain('no-color-opacity-modifier');
+    expect(hits(HTML, '<p [class.bg-(--accent-primary)/40]="on">x</p>')).toContain(
+      'no-color-opacity-modifier',
+    );
+    expect(hits(HTML, '<p [class.text-(--text-primary)]="on">x</p>')).toEqual([]);
+  });
+});
+
 describe('pattern exports stay in sync with the rule table', () => {
   it('each colour rule uses the shared pattern, not a local copy', () => {
     const byId = Object.fromEntries(RULES.map((r) => [r.id, r.pattern.source]));
@@ -236,5 +323,67 @@ describe('pattern exports stay in sync with the rule table', () => {
     expect(byId['no-color-function']).toBe(new RegExp(COLOR_FUNCTION).source);
     expect(byId['no-tailwind-palette']).toBe(new RegExp(TAILWIND_PALETTE).source);
     expect(byId['no-named-color-class']).toBe(new RegExp(NAMED_COLOR_CLASS).source);
+    expect(byId['no-color-opacity-modifier']).toBe(new RegExp(COLOR_OPACITY_MODIFIER).source);
+  });
+});
+
+describe('form-declares-method (AECI-1919)', () => {
+  const TS = 'apps/web/src/app/some/component.ts';
+
+  it('is the one tag rule', () => {
+    expect(TAG_RULES.map((r) => r.id)).toEqual(['form-declares-method']);
+  });
+
+  it('flags a form with no method, on one line or across several', () => {
+    expect(hits(HTML, '<form novalidate (submit)="save($event)">')).toEqual([
+      'form-declares-method',
+    ]);
+    expect(hits(HTML, '<form>')).toEqual(['form-declares-method']);
+    const split = '<div>\n  <form\n    novalidate\n    (submit)="a > b && save()"\n  >\n</div>';
+    expect(scanFile(TS, split)).toEqual([
+      expect.objectContaining({ ruleId: 'form-declares-method', line: 2 }),
+    ]);
+  });
+
+  it('accepts the two shapes, wherever the attributes sit in the tag', () => {
+    expect(hits(HTML, '<form method="dialog" novalidate (aecSubmit)="save()">')).toEqual([]);
+    expect(hits(HTML, "<form novalidate method='dialog'>")).toEqual([]);
+    const search = '<form\n  role="search"\n  action="/search"\n  method="get"\n>';
+    expect(scanFile(TS, search)).toEqual([]);
+    expect(scanFile(HTML, search)).toEqual([]);
+  });
+
+  /** Each case as an inline `.ts` template and as an external `.html` file. */
+  const BAD_FORMS = [
+    ['a GET to the page itself', '<form method="get" novalidate>'],
+    ['a GET to another page', '<form method="get" action="/products">'],
+    ['an empty method', '<form method="" novalidate>'],
+    ['a POST', '<form method="post" (submit)="save($event)">'],
+    ['method= inside another attribute', '<form (submit)="x; method=1" novalidate>'],
+    ['method="dialog" inside another attribute', '<form data-x=\'method="dialog"\'>'],
+    ['a bound method', '<form [attr.method]="m">'],
+    ['a /search action with no GET', '<form action="/search">'],
+  ] as const;
+
+  for (const [label, tag] of BAD_FORMS) {
+    it(`flags ${label}, in .ts and in .html`, () => {
+      expect(hits(TS, tag), `${label} (.ts)`).toEqual(['form-declares-method']);
+      expect(hits(HTML, tag), `${label} (.html)`).toEqual(['form-declares-method']);
+      const split = tag.replace('<form ', '<form\n  ');
+      expect(scanFile(TS, `<div>\n  ${split}\n</div>`)).toEqual([
+        expect.objectContaining({ ruleId: 'form-declares-method', line: 2 }),
+      ]);
+    });
+  }
+
+  it('ignores forms named in comments, other tags and spec templates', () => {
+    expect(hits(HTML, '<!-- the SSR <form> has no action -->')).toEqual([]);
+    expect(scanFile(TS, '/**\n * a native `<form action="/search">`\n */')).toEqual([]);
+    expect(hits(HTML, '<formfield></formfield><aec-form-row>')).toEqual([]);
+    expect(hits('apps/web/src/app/some/component.spec.ts', '<form (submit)="x()">')).toEqual([]);
+  });
+
+  it('honours the escape hatch on the line before the tag', () => {
+    expect(hits(HTML, '<!-- constraints-guard-allow-next-line -->\n<form>')).toEqual([]);
   });
 });

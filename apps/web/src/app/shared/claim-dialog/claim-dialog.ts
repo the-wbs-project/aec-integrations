@@ -7,8 +7,10 @@ import {
   BrnDialogTitle,
 } from '@spartan-ng/brain/dialog';
 
+import { AecButton } from '../button/button';
 import { ClaimDialogFlow } from './claim-dialog-flow';
 import { ClaimDialogService } from './claim-dialog.service';
+import { AecIcon } from '../icon/icon';
 
 /**
  * The claim dialog (AECI-1293, `docs/VENDOR_PROGRAM_PAGE_SPEC.md` §15.2): a BrnDialog
@@ -34,6 +36,8 @@ import { ClaimDialogService } from './claim-dialog.service';
   selector: 'aec-claim-dialog',
   host: { class: 'contents' },
   imports: [
+    AecButton,
+    AecIcon,
     BrnDialog,
     BrnDialogContent,
     BrnDialogClose,
@@ -45,7 +49,7 @@ import { ClaimDialogService } from './claim-dialog.service';
     <brn-dialog (closed)="dialog.close()">
       <ng-template brnDialogContent let-ctx>
         <div
-          class="flex h-dvh w-screen flex-col bg-(--surface-base) text-(--text-primary) sm:h-auto sm:max-h-[85vh] sm:w-[min(92vw,36rem)] sm:rounded-(--radius-lg) sm:border sm:border-(--border-default)"
+          class="aec-dialog max-sm:rounded-none max-sm:border-0 max-sm:shadow-none flex h-dvh w-screen flex-col sm:h-auto sm:max-h-[85vh] sm:w-[min(92vw,36rem)]"
           data-testid="claim-dialog"
         >
           <div class="flex items-start justify-between gap-4 px-6 pt-6 pb-3">
@@ -54,7 +58,7 @@ import { ClaimDialogService } from './claim-dialog.service';
                    AECI-1705: the typed-in path is a request to be listed, not a claim. -->
               <h2
                 brnDialogTitle
-                class="font-display text-2xl font-normal leading-[1.15] tracking-[-0.01em] text-(--text-primary)"
+                class="font-display text-(--text-primary)"
                 data-testid="claim-dialog-title"
               >
                 @if (dialog.typed()) {
@@ -88,24 +92,16 @@ import { ClaimDialogService } from './claim-dialog.service';
               </p>
             </div>
             <button
+              aecButton
+              variant="ghost"
+              iconOnly
               brnDialogClose
               type="button"
-              class="-me-1 -mt-1 inline-flex size-11 shrink-0 items-center justify-center rounded-(--radius-sm) text-(--text-secondary) transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              class="-me-1 -mt-1"
               i18n-aria-label="@@claimDialog.close"
               aria-label="Close"
             >
-              <svg
-                class="size-5"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M18 6 6 18M6 6l12 12" />
-              </svg>
+              <aec-icon name="x" decorative [size]="5" />
             </button>
           </div>
 

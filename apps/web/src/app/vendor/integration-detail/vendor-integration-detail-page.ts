@@ -15,10 +15,11 @@ import {
   viewChildren,
 } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, NavigationEnd, Router, RouterLink } from '@angular/router';
-import { filter, map } from 'rxjs';
+import { ActivatedRoute, RouterLink } from '@angular/router';
+import { map } from 'rxjs';
 
 import { LogoOrInitial } from '../../shared/logo-or-initial/logo-or-initial';
+import { injectInPageHrefFor } from '../../shared/in-page-href';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { VendorDocsLink } from '../components/vendor-docs-link';
 import { vendorProductContext } from '../sections/vendor-product-context';
@@ -123,12 +124,14 @@ const SPY_TOP_PX = 80;
           <div class="mx-auto flex h-14 max-w-7xl items-center gap-3 px-6 md:px-8">
             <span aria-hidden="true" class="hidden shrink-0 items-center sm:flex">
               <aec-logo-or-initial
+                [claimStatus]="'stored'"
                 [src]="i.context_product.logo_url"
                 [name]="i.context_product.name"
                 size="sm"
               />
               <span class="h-px w-3 bg-(--border-strong)"></span>
               <aec-logo-or-initial
+                [claimStatus]="'stored'"
                 [src]="i.other_product.logo_url"
                 [name]="i.other_product.name"
                 size="sm"
@@ -162,12 +165,14 @@ const SPY_TOP_PX = 80;
         <div class="flex min-w-0 items-start gap-4">
           <span aria-hidden="true" class="flex shrink-0 items-center pt-0.5">
             <aec-logo-or-initial
+              [claimStatus]="'stored'"
               [src]="i.context_product.logo_url"
               [name]="i.context_product.name"
               size="sm"
             />
             <span class="h-px w-3 bg-(--border-strong)"></span>
             <aec-logo-or-initial
+              [claimStatus]="'stored'"
               [src]="i.other_product.logo_url"
               [name]="i.other_product.name"
               size="sm"
@@ -256,7 +261,8 @@ const SPY_TOP_PX = 80;
             @for (item of navItems; track item.id) {
               <li>
                 <a
-                  [href]="pagePath() + '#' + item.id"
+                  [href]="hrefFor()(item.id)"
+                  data-smooth-scroll
                   class="id-navlink block rounded-e-(--radius-sm) px-3 py-2 text-sm text-(--text-secondary) no-underline hover:bg-(--surface-sunken) hover:text-(--text-primary) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--accent-primary)"
                   [attr.aria-current]="active() === item.id ? 'location' : null"
                   [attr.data-testid]="'section-nav-' + item.id"
@@ -377,7 +383,6 @@ export class VendorIntegrationDetailPage {
   private readonly store = inject(VendorPortalStore);
   private readonly state = inject(IntegrationDetailState);
   private readonly route = inject(ActivatedRoute);
-  private readonly router = inject(Router);
   private readonly document = inject(DOCUMENT);
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
@@ -407,14 +412,13 @@ export class VendorIntegrationDetailPage {
   protected readonly failed = this.store.integrationsFailed;
   protected readonly productPossessive = computed(() => possessive(this.ctx.product()?.name ?? ''));
 
-  /** The path without query or fragment, for the native section anchors. */
-  protected readonly pagePath = toSignal(
-    this.router.events.pipe(
-      filter((e) => e instanceof NavigationEnd),
-      map(() => pathOnly(this.router.url)),
-    ),
-    { initialValue: pathOnly(this.router.url) },
-  );
+  /**
+   * `{path}?{query}#id` for the native section anchors (AECI-1843). It keeps the query, so a
+   * click on a URL with one is a same-document jump and not a page load, and it reads
+   * `Location`, so the first render already has the real path (`router.url` reads `/` until
+   * the first navigation ends). `/vendor` is never edge-cached, so the server keeps the query too.
+   */
+  protected readonly hrefFor = injectInPageHrefFor();
 
   protected readonly title = computed(() => {
     const i = this.integration();
@@ -709,10 +713,6 @@ function sectionAtBar(sections: readonly HTMLElement[], lastInFullView: boolean)
     if (el.getBoundingClientRect().top <= SPY_TOP_PX + 1) current = el;
   }
   return keyOf(current);
-}
-
-function pathOnly(url: string): string {
-  return url.split(/[?#]/)[0] ?? url;
 }
 
 function safeDecode(value: string): string {

@@ -49,6 +49,22 @@ describe('UnsubscribePage', () => {
   });
   afterEach(() => TestBed.inject(HttpTestingController).verify());
 
+  it('is a focused flow: a narrow white column, one shared card, no Bone band (AECI-1808)', () => {
+    const { el } = setup('tok-123');
+    const host = el;
+    const column = host.firstElementChild as HTMLElement;
+    expect(column.classList).toContain('max-w-2xl');
+    expect(column.classList).toContain('mx-auto');
+    expect(host.querySelector('[class*="accent-warm"]')).toBeNull();
+    const cards = host.querySelectorAll('.aec-card');
+    expect(cards.length).toBe(1);
+    expect(cards[0].classList).toContain('shadow-card');
+    // One h1, inside the card, sized by the global h1 rule (no dead size utility).
+    expect(host.querySelectorAll('h1').length).toBe(1);
+    expect(cards[0].contains(host.querySelector('h1'))).toBe(true);
+    expect(host.querySelector('h1')?.className).not.toMatch(/text-\dxl|font-display/);
+  });
+
   it('renders the confirm prompt (not a result) when a token is present, and does not auto-POST', () => {
     const { el, httpMock } = setup('tok-123');
     const h1 = el.querySelector('h1');

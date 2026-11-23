@@ -125,7 +125,7 @@ interface FieldConfig {
         </p>
       </div>
 
-      <form class="space-y-6" novalidate (submit)="onFormSubmit($event)">
+      <form method="dialog" class="space-y-6" novalidate (submit)="onFormSubmit($event)">
         @if (updatedElsewhere()) {
           <div
             class="flex flex-wrap items-center gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
@@ -574,8 +574,8 @@ export class VendorProductForm {
     this.saved.set(false);
   }
 
-  /** The form's submit. Returns early on a replayed early submit, which the
-   *  browser already ran natively (`core/event-replay.ts`). */
+  /** The form's submit. Drops a replayed early submit. The form is `method="dialog"`,
+   *  so the native submit did nothing (AECI-1919, `core/event-replay.ts`). */
   protected onFormSubmit(event: Event): void {
     if (isReplayedEvent(event)) return;
     event.preventDefault();

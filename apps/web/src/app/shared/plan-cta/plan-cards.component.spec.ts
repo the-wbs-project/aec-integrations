@@ -28,7 +28,7 @@ function render(inputs: Record<string, unknown>) {
   for (const [name, value] of Object.entries(inputs)) fixture.componentRef.setInput(name, value);
   fixture.detectChanges();
   const host = fixture.nativeElement as HTMLElement;
-  const cards = host.querySelectorAll('.aec-plan-card');
+  const cards = host.querySelectorAll('[data-plan-card]');
   return { host, cards, planCtaClicked, claimDialog };
 }
 
@@ -44,6 +44,18 @@ describe('PlanCardsComponent', () => {
     expect(cards[1].textContent).toContain('$25');
     // E8.1: the inquiry's reply promise went with the inquiry.
     expect(cards[1].textContent).not.toContain('We reply to most messages');
+  });
+
+  // Ruling A7 (2026-11-16): both cards are the shared card frame. Only Managed is featured.
+  it('frames both cards with the shared card, and features only Managed', () => {
+    const { cards } = render({ page: 'docs_plans' });
+    for (const card of cards) {
+      for (const cls of ['aec-card', 'rounded-card', 'shadow-card']) {
+        expect(card.classList).toContain(cls);
+      }
+      expect(card.classList).not.toContain('aec-plan-card');
+    }
+    expect(cards[0].classList).not.toContain('aec-plan-card-featured');
   });
 
   const click = (link: HTMLElement): boolean => {

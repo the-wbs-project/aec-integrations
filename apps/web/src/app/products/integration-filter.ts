@@ -1,4 +1,5 @@
-import { TEXT_SORT_LOCALE } from '@aeci/shared/text-sort';
+import type { ContextDirection, IntegrationTerm } from '@aeci/shared';
+import { TEXT_SORT_LOCALE, compareText } from '@aeci/shared/text-sort';
 
 import type {
   ConnectorLaneGroup,
@@ -127,33 +128,113 @@ function matchesRow(row: IntegrationLaneRow, needle: string): boolean {
 }
 
 /**
+ * AECI-1782: the reader's whole filter on the endpoint section, as one value.
+ *
+ * Every field is a choice the READER makes. Nothing here has a default other than
+ * "no filter", and no field may be set from anything a paid plan can change: a
+ * default filter on a plan input is placement (`PLAN.md` §7.7, the AECI-1814
+ * firewall). The agreement state is deliberately absent. "Confirmed by both
+ * companies" is a row label only (ruling R1).
+ *
+ * The state lives in component memory, never in the URL, for the AECI-841 reason:
+ * `/products/:slug` is cached by URL, and a filtered URL would mint a cache entry
+ * for HTML that does not vary with it. The server always renders the unfiltered
+ * section, so every row is in the server HTML.
+ */
+export interface IntegrationFilterState {
+  /** The free-text name filter. */
+  readonly query: string;
+  /** Context-relative directions. A row matches ANY of them. */
+  readonly directions: readonly ContextDirection[];
+  /**
+   * Data-object slugs. A row must move EVERY one ("must move invoices and RFIs").
+   * A row with no data object on record never matches a data-object filter. About a
+   * third of live integrations have none (AECI-1816), so whatever renders this
+   * filter must say those rows are left out, not that they do not move the object.
+   */
+  readonly dataObjects: readonly string[];
+  /** Partner category slugs. A row matches when its partner is in ANY of them. */
+  readonly partnerCategories: readonly string[];
+}
+
+/** No filter: the section as the data has it. */
+export const NO_INTEGRATION_FILTER: IntegrationFilterState = {
+  query: '',
+  directions: [],
+  dataObjects: [],
+  partnerCategories: [],
+};
+
+function toState(filter: IntegrationFilterState | string): IntegrationFilterState {
+  return typeof filter === 'string' ? { ...NO_INTEGRATION_FILTER, query: filter } : filter;
+}
+
+/** Whether a filter state narrows anything. Whitespace alone is not a query. */
+export function isIntegrationFilterActive(filter: IntegrationFilterState): boolean {
+  return (
+    isFilterActive(filter.query) ||
+    filter.directions.length > 0 ||
+    filter.dataObjects.length > 0 ||
+    filter.partnerCategories.length > 0
+  );
+}
+
+/**
+ * The non-text half of a row test: direction, data objects and partner category.
+ * AND across the three ("Outbound" AND "Accounting").
+ */
+function matchesFacets(row: IntegrationLaneRow, filter: IntegrationFilterState): boolean {
+  if (filter.directions.length > 0) {
+    if (row.direction === null || !filter.directions.includes(row.direction)) return false;
+  }
+  if (filter.dataObjects.length > 0) {
+    const moved = new Set(row.dataObjectSlugs);
+    if (!filter.dataObjects.every((slug) => moved.has(slug))) return false;
+  }
+  if (filter.partnerCategories.length > 0) {
+    const categories = row.integration.partner_categories ?? [];
+    if (!categories.some((c) => filter.partnerCategories.includes(c.slug))) return false;
+  }
+  return true;
+}
+
+/**
  * Filter the endpoint Integrations section (§13.3's two lanes).
  *
- * **A group whose own name matches keeps every row.** Typing `agave` on an
- * endpoint page is a request for the Agave lane, not for a partner that happens
- * to be called Agave — the connector name is the group's subject, so matching it
- * matches everything filed under it. A group with no name (§13.2(c)'s unnamed
- * bucket) can only be reached through its rows, which is correct: it has no
- * subject to name.
+ * Takes the reader's whole filter state (AECI-1782). A bare string is still
+ * accepted as a query-only state, so the name-filter cases read as they did.
+ *
+ * **A group whose own name matches the query keeps every row the other filters
+ * keep.** Typing `agave` on an endpoint page is a request for the Agave lane, not
+ * for a partner that happens to be called Agave. The connector name is the group's
+ * subject, so matching it matches everything filed under it. A group with no name
+ * (§13.2(c)'s unnamed bucket) can only be reached through its rows, which is
+ * correct: it has no subject to name.
  *
  * Group order, row order and the `via`-after-`direct` lane order are untouched.
- * Filtering removes; it never reorders.
+ * Filtering removes; it never reorders. A state that filters nothing returns the
+ * input view by identity.
  */
 export function filterIntegrationLanes(
   view: IntegrationLaneView,
-  query: string,
+  filter: IntegrationFilterState | string,
 ): IntegrationLaneView {
-  const needle = normalizeFilterText(query);
-  if (needle === '') return view;
+  const state = toState(filter);
+  if (!isIntegrationFilterActive(state)) return view;
+  const needle = normalizeFilterText(state.query);
 
-  const direct = view.direct.filter((row) => matchesRow(row, needle));
+  const keep = (row: IntegrationLaneRow, groupMatched: boolean): boolean =>
+    (needle === '' || groupMatched || matchesRow(row, needle)) && matchesFacets(row, state);
+
+  const direct = view.direct.filter((row) => keep(row, false));
 
   const via: ConnectorLaneGroup[] = [];
   for (const group of view.via) {
-    const groupMatched = group.connector !== null && matches(group.connector.name, needle);
-    const rows = groupMatched ? group.rows : group.rows.filter((row) => matchesRow(row, needle));
+    const groupMatched =
+      needle !== '' && group.connector !== null && matches(group.connector.name, needle);
+    const rows = group.rows.filter((row) => keep(row, groupMatched));
     if (rows.length === 0) continue;
-    via.push(rows === group.rows ? group : { ...group, rows });
+    via.push(rows.length === group.rows.length ? group : { ...group, rows });
   }
 
   return {
@@ -161,6 +242,101 @@ export function filterIntegrationLanes(
     via,
     rowCount: direct.length + via.reduce((total, group) => total + group.rows.length, 0),
   };
+}
+
+/** Every row of a lane view, in render order. */
+export function allRows(view: IntegrationLaneView): IntegrationLaneRow[] {
+  return [...view.direct, ...view.via.flatMap((group) => [...group.rows])];
+}
+
+/** A chip facet whose count leaves its own choices out. */
+export type CountedFacet = 'directions' | 'partnerCategories';
+
+/**
+ * AECI-1783: the rows a chip of one facet counts. Every other filter applies, the
+ * facet's own choices do not, because a row matches ANY chip within a facet. So a
+ * chip's count is how many rows the list shows once that chip is the facet's only
+ * choice, whatever else the reader pressed in the same facet. In render order.
+ */
+export function rowsForFacetCount(
+  view: IntegrationLaneView,
+  filter: IntegrationFilterState,
+  facet: CountedFacet,
+): IntegrationLaneRow[] {
+  return allRows(filterIntegrationLanes(view, { ...filter, [facet]: [] }));
+}
+
+/**
+ * How many of `rows` move one data object: a data chip's count (AECI-1783). Data chips
+ * AND together, so the caller passes the rows every filter keeps, and the count is the
+ * rows the list would show with this chip pressed as well.
+ */
+export function countRowsMovingDataObject(
+  rows: readonly IntegrationLaneRow[],
+  slug: string,
+): number {
+  return rows.reduce((total, row) => total + (row.dataObjectSlugs.includes(slug) ? 1 : 0), 0);
+}
+
+/** How many of `rows` flow in one direction: a direction chip's count. */
+export function countRowsWithDirection(
+  rows: readonly IntegrationLaneRow[],
+  direction: ContextDirection,
+): number {
+  return rows.reduce((total, row) => total + (row.direction === direction ? 1 : 0), 0);
+}
+
+/** Slug order for a tie on name. Slugs are lowercase ASCII, so a code-unit compare is total. */
+function compareSlug(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/**
+ * The chip options for a term facet, built from the rows (AECI-1782).
+ *
+ * A chip list is a NEW on-page list, so it is A to Z by name with the slug as the
+ * tie-break (ruling R1). The wire carries each row's terms in curated
+ * `display_order`, but not the order value itself, so a merged list across rows
+ * cannot recover it. Never by count: how many rows carry a term is not an order
+ * input.
+ */
+function termOptions(terms: Iterable<IntegrationTerm>): IntegrationTerm[] {
+  const bySlug = new Map<string, IntegrationTerm>();
+  for (const term of terms) if (!bySlug.has(term.slug)) bySlug.set(term.slug, term);
+  return [...bySlug.values()].sort(
+    (a, b) => compareText(a.name, b.name) || compareSlug(a.slug, b.slug),
+  );
+}
+
+/** The partner categories on the section's rows, A to Z. */
+export function partnerCategoryOptions(view: IntegrationLaneView): IntegrationTerm[] {
+  return termOptions(allRows(view).flatMap((row) => row.integration.partner_categories ?? []));
+}
+
+/** The data objects the section's rows move, A to Z. */
+export function dataObjectOptions(view: IntegrationLaneView): IntegrationTerm[] {
+  return termOptions(allRows(view).flatMap((row) => [...row.dataObjects]));
+}
+
+/** The fixed order of the direction chips: the `ContextDirection` vocabulary's own. */
+const DIRECTION_ORDER: readonly ContextDirection[] = ['outbound', 'inbound', 'both'];
+
+/** The directions present on the section's rows, in vocabulary order. A row with
+ *  no direction on record offers no chip. */
+export function directionOptions(view: IntegrationLaneView): ContextDirection[] {
+  const present = new Set(allRows(view).map((row) => row.direction));
+  return DIRECTION_ORDER.filter((direction) => present.has(direction));
+}
+
+/** Rows with no data object on record. A data-object filter leaves every one out,
+ *  and the copy that renders that filter has to say so (AECI-1816). */
+export function rowsWithoutDataObjects(view: IntegrationLaneView): number {
+  return allRows(view).filter((row) => row.dataObjectSlugs.length === 0).length;
+}
+
+/** Add a value to a facet if absent, or remove it if present. Keeps first-chosen order. */
+export function toggleFacetValue<T>(values: readonly T[], value: T): T[] {
+  return values.includes(value) ? values.filter((v) => v !== value) : [...values, value];
 }
 
 /**

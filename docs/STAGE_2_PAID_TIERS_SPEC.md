@@ -261,6 +261,60 @@ for (const banned of ['verified', 'tier', 'entitlement', 'status', 'paid', 'plan
 
 7. **A company fact never reaches a ranking input (added 2026-11-05, AECI-1310, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.23).** Size, funding and ownership describe a vendor and must not rank small vendors down. Block 7 asserts that no `INDEX_SETTINGS` attribute, Algolia record field, public `?sort=` key or `listing_tier` input names a company fact or its provenance. `headquarters` and `founded_year` predate the rule and keep their existing search roles.
 
+8. **No on-page order reads an input a paid plan can change (added 2026-11-14, AECI-1814).** The first seven assertions cover search attributes, sort keys and `listing_tier` inputs. This one covers the order of lists on a page. No on-page sort, default order or featured subset may read an input that only a capability outside `TIER_CAPABILITIES.unclaimed` can change. The tests are `apps/api/src/lib/on-page-ordering-firewall.spec.ts`, `apps/web/src/app/products/on-page-ordering-firewall.spec.ts` and `apps/web/src/app/products/on-page-ordering-firewall.component.spec.ts`.
+
+   **A registry scan guards the registry (AECI-1841).** The registry of ordered surfaces is hand-written, so the API spec also counts `orderBy`, `.sort(`, `.toSorted(` and `resolve*OrderBy` / `resolve*Sort` definitions in the public read paths. It compares each file's count with `ORDER_SITES`, where every order is either registered in `SURFACES` or allowed with a stated reason. A new order fails the test until someone classifies it. **This is a tripwire, not a proof.** It sees tokens, not meaning, and it skips `lib/` files that are not in its list. The behavioural cases stay the proof.
+
+   **The rule is ruling R1** (Chris, 2026-11-14, AECI-1732): "Maintain orders as they are. If its a new feature a to z". As applied:
+   - Every new on-page list is A to Z by name, with the id as the tie-break.
+   - The via-lane groups and the powered-hub groups keep their count order.
+   - The pair page keeps integrations first, then evidenced pairs.
+   - "Confirmed by both companies" is a row label only. It is never a filter or a sort.
+
+   **The Managed-only inputs are derived from the registry.** The test computes the Managed-only capabilities as `CAPABILITIES` less the Free set, and fails if one has no declared inputs.
+
+   | Capability | What a vendor can change that a page could order by |
+   |---|---|
+   | `product.edit` | `tool_integrations_url`, `api_docs_url` (from `PRODUCT_FIELD_CAPABILITIES`) |
+   | `product.taxonomy.edit` | `audience_slugs`, `phase_slugs`, `trade_slugs`, so each term's product count |
+   | `product.usefulness.edit` | `usefulness` |
+   | `attestation.author` | Claim agreement ("confirmed by both companies"). A denial, which can refute a claim and lower the data-flow count. Vendor-added data objects, which raise it. Deleting or withdrawing an added object, which lowers it. Product versions and the version stamps on a claim. The maintenance stamps an attestation write moves |
+   | `integration.version_diff` | The depth of the pair page version diff |
+   | `analytics.view`, `profile.rich_fields` | Nothing public today |
+
+   Plan state itself is set too: a live license, the `vendors.verified` mirror, and the plan-end mirrors and edit stamps.
+
+   **How each surface is tested.** Every behavioural case runs in two directions, so an order that rewards a plan and one that punishes it both disagree with today's order in at least one run. Every fixture holds a real tie at each comparator level, so the tie-breaks run too.
+
+   | Surface | Order | How |
+   |---|---|---|
+   | Product page, direct lane | Partner name, edge name, id | Behavioural. Every non-order row field is set rising and falling along the fixture. Each partner in turn also gets every paid input at once |
+   | Product page, "Via" groups | Row count, connector name, unnamed last. Rows A to Z | Same, and each group in turn gets every paid input |
+   | Product page, the reader's filter | Removes rows. Never reorders | Same, with no query and with one |
+   | Product page, rows above the `@defer` cut | The first `INTEGRATIONS_ABOVE_FOLD` (20) rows of the two orders above | Same, with cuts that split a lane and the real 20-row cut over 32 rows |
+   | Product page, the section component | Split, then filter, then cut | Rendered in a component spec. The rendered row order and row set do not move when the paid inputs change, rising, falling or loaded onto one row. With no filter selected every row renders, up to the cut, so a default filter on a paid input fails. A filter the reader types keeps the same rows whatever the paid inputs. A structural check also bans any comparator, `.filter(`, `.slice(` or `.splice(` in the component: a reader-chosen filter belongs in `integration-filter.ts` |
+   | Connector page, powered hubs | Partner count, hub name. Partners and flat pairs A to Z | Behavioural, as above, with the filter |
+   | Pair page mechanisms and claims | Integrations A to Z then id, then evidenced pairs A to Z then id. Claims by the data object vocabulary, nulls last | Behavioural over the D1 harness: a free database and two paid ones. One paid database loads the rows and claims that sort last and denies those that sort first. The other does the opposite. The loaded rows carry every version stamp, and each lowered row carries one, on its last claim. The two rows that tie on name under NOCASE get different paid inputs and vote counts in each paid database |
+   | `related_products` | A to Z by name, case folded, id tie-break, six shown (R1, AECI-1785) | Behavioural, two paid databases. Four products share one name under NOCASE across the sixth place, in four spellings. The page product carries every paid input too, so an order matching the page's own tags would fire |
+   | Product page, Similar products | The API order. No sort, filter or cut of its own | Rendered in a component spec. The card order and set do not move when every non-order field rises, falls or is loaded onto one card, over a fixture with a NOCASE name tie |
+
+   Every row field of `ProductIntegrationItemSchema` and `PoweredIntegrationItemSchema` is classified as an order input or a payload field. A new field fails until it is classified. AECI-1781's `agreement`, `data_objects` and `partner_categories` are payload fields.
+
+   **Why the count orders pass.** Via-group and powered-hub counts change only through promote, the vendor integration create, and the shared retire and restore write. A source scan finds those three writers. It reads aliased and namespace imports of the two row tables, and flags any `.set(` it cannot read. It asserts that none of these calls a plan check: the three writers, the three files whose `.set(` it cannot read, every caller of `anchorUpdate` (derived, today `vendor-contests.ts` and `admin-contests.ts`), and the routes that rename a row. A plan check is a capability gate, `productTier`, `hasActiveEntitlement`, `assertFieldsEntitled` or `entitlementRequired`. It is a tripwire, not a proof. A write through a generic table variable would pass unseen. A vendor create cannot make a via-lane row at all: its body has no `powered_by` field and refuses `iPaaS`.
+
+   **The surface list is hand-written.** A surface is covered only once it is registered. Surfaces not built yet are pending entries, each owned by the issue that builds it, and they show as `todo` in the test run. None is pending today: closest matches (AECI-1829) is covered as `pair-page-closest-matches`. Similar products (AECI-1785) and the hero's category hub (AECI-1787) are covered. The hub is A to Z by name, and its count never orders it. The redesigned product page integrations list (AECI-1782) is covered: cards and table render the same rows in the same order when only the paid inputs change, flipped both ways and with ties, with no filter and under the reader's direction, category and name filters. Its filter chips are A to Z by name with the slug last. AECI-1783 adds the long-list grouping to the same entry. Since AECI-1841 a scan fails on an unregistered `orderBy`, `.sort(`, `.toSorted(` or sort resolver in the public read paths (`TESTING_STRATEGY.md` §3.6).
+
+   **Accepted exception: taxonomy term counts.** The header's Browse menu (its Audiences and Trades columns, AECI-1774), the home page, the `/search` facets and the taxonomy index's "Most products" sort rank audience and trade terms by product count. The facet sidebar on browse pages, and the Browse menu, hide terms with no matching products. The Browse menu's key categories are a fixed editorial list and its Categories column counts Free tags, so neither is part of the exception (`browse-menu-term-order`, covered). The `/trades` publish floor cuts on the same count. Tagging a product with an audience, phase or trade needs `product.taxonomy.edit`, which only a Managed plan holds. So a Managed vendor can move a term up, or publish a trade. It is one named exception, `taxonomy-term-product-count`, because it orders terms, not vendors, and R1 keeps existing orders. **Accepted by Chris on 2026-11-14, by Slack: "A, create a ticket to address later".** **Ruled again on 2026-11-20 (ruling 63, AECI-1836): leave it as it is, option 1.** The ranking page rewording under counsel's ruling 52 is the disclosure. It is revisited if counsel objects to that wording, or when a Managed vendor's tags first move a term into or out of a top list. The `/trades/:slug` noindex rule reads the same floor. It is an indexing decision, not an order, and the entry records it separately.
+
+   How the exception is kept narrow:
+   - `topByCount` is tested behaviourally. Every field but `product_count` is set rising and falling, on terms that tie on count, and the order and the top-N cut do not move.
+   - The taxonomy index's "Most products" sort is tested behaviourally in a component spec. Its declared inputs are the count, then the term's integration count, then the name. The fixture ties on all three, two terms sharing a name, and every other field is set rising and falling: a tie-break on the description, its length or the display order moves the order. The integration count moves with the same tags and with seat-gated integration writes, so it adds no new Managed-only input.
+   - Phases never order by count: the nav uses display order, and `/search` re-sorts phases into lifecycle order. Both are tested behaviourally.
+   - The `/search` audience and trade facet order is Algolia's own count order. It is pinned by source only.
+   - A source scan of the public pages in `apps/web` (not the admin console, the vendor portal or previews) lists every `topByCount` call, every count read (`product_count`, `.count` or `topByCount`'s `SORT_KEY`) inside a `.sort(` or `.toSorted(` call, helper arguments included, every subtraction of one count from another anywhere, every `product_count` compared with a number, every `.filter` that compares an item's `.count` with a number, and every use of the trade publish floor. It fails on any site the entry does not name. It is a tripwire, not a proof: a count reached without naming `product_count`, `.count` or `SORT_KEY` would pass. That covers a destructured field, a computed key, and a helper handed the whole term.
+
+   The Browse menu (AECI-1774) orders its audience and trade columns the same way, so it inherits the accepted count order. Its entry `browse-menu-term-order` is covered.
+
 **Plan-change snapshots are evidence, not an input (AECI-1621, ADR 0056).** The seven assertions prove that a plan cannot reach a ranking. Counsel's Q23 answer also asks for records made at the time that show it did not. So when a live subscription reaches or leaves a product, the license write adds two `plan_change_snapshots` rows in its own batch (`DATABASE_SCHEMA.md` §9.16). A 15-minute sweep turns each row into a JSON snapshot in R2: the product's `listing_tier` and its inputs, its search record, and its position in `/products`, each taxonomy page and the home "most integrated" list. One is taken at the event and one 30 days later. A snapshot records `plan_now` beside the positions, so it reads plan state by design. That is why its modules (`lib/plan-change-ledger.ts`, `lib/plan-change-evidence.ts`, `lib/plan-snapshot-sweep.ts`) are named outside the `rank`, `listing`, `sort` and `search` patterns that `apps/api/src/lib/ranking-firewall.spec.ts` scans. The same spec forbids every firewalled module from naming `plan_change_snapshots`, so nothing that ranks can read a snapshot back. Nothing in the seven assertions moves. `SEARCH_RANKING.md` §7a lists every record this evidence sits beside.
 
 **Search-engine submission is external discovery, not a ranking input (AECI-1186).** Since 2026-10-02 a vendor write buffers its changed URLs for IndexNow and the Google worklist only when the vendor holds a live subscription (§3.3(d), §13.1a). Since 2026-10-14 (AECI-1355) a write on a product also needs that product to hold the vendor's own live subscription. That gate tells Bing, Yandex and an operator that a page changed. It feeds nothing into Algolia, `listing_tier`, `customRanking` or any sort on our own pages, so none of the seven assertions above moves. It does not change where anything ranks on AECi. What a search engine does with a submitted URL is outside our control and outside this firewall.
@@ -854,13 +908,14 @@ Land last, once §2–§8 have settled the details. Each doc gets the sections n
 
 ## 10. Testing contract
 
-The three tests below are **invariant tests** — they encode decisions, not behaviour, and must not be deleted without reopening this spec.
+The four tests below are **invariant tests** — they encode decisions, not behaviour, and must not be deleted without reopening this spec.
 
 | Test | Owner | Asserts |
 |---|---|---|
 | Mirror sole-writer | §2 | `grantSeatStatements` (and every route handler) emits no statement touching `vendors.verified`. Only `lib/license.ts` does, and never without the subscription statement in the same batch. **Live**: Guard 1 plus `apps/api/src/lib/vendor-grant.spec.ts`, which AECI-612 created |
 | Ranking disjointness | §3 | the capability vocabulary and the union of `INDEX_SETTINGS` searchable/facet/customRanking attributes are disjoint sets (§3.2) — **live** in `packages/shared/src/entitlements.spec.ts` |
 | Reads are never gated | §4 | `GET /api/vendor/me` returns 200 for a vendor whose only subscription ended, `revoked` or `expired`, with the downgraded `entitlement` block. **Live** in `apps/api/src/routes/vendor.entitlement.spec.ts` |
+| On-page ordering | §3.2 assertion 8 | The registered on-page sorts, default orders and featured subsets do not move when any Managed-only input changes, except the one accepted exception named there. **Live** in `apps/api/src/lib/on-page-ordering-firewall.spec.ts`, `apps/web/src/app/products/on-page-ordering-firewall.spec.ts` and its `.component.spec.ts` (AECI-1814) |
 
 > **Correction:** this table originally implied `vendor-grant.spec.ts` already existed and merely gained an assertion. **It never did** — `git log --all --diff-filter=A` finds no such file on any branch before AECI-612, and `grantSeatStatements` was covered only indirectly through `admin-claims.spec.ts`. AECI-612 created it.
 

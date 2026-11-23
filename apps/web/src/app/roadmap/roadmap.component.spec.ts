@@ -49,6 +49,32 @@ describe('RoadmapPage', () => {
     expect(host.querySelector('aec-mailing-list-signup')).not.toBeNull();
   });
 
+  // AECI-1801: one Bone band per page. The hero is the band, and the signup takes its
+  // white ground, as on the product and vendor pages.
+  it('has one Bone band, the hero, and the signup on its white ground', () => {
+    const { host } = setup();
+    expect(host.querySelectorAll('.aec-bone-band')).toHaveLength(1);
+    const band = host.querySelector('aec-bone-band')!;
+    expect(band.querySelector('h1')).not.toBeNull();
+    const signup = host.querySelector('aec-mailing-list-signup section')!;
+    expect(signup.classList).not.toContain('aec-bone-band');
+    expect(signup.classList).toContain('bg-(--surface-base)');
+  });
+
+  it('puts the section heading at the Section role on an inner span, over its prose', () => {
+    const { host } = setup();
+    const h2 = [...host.querySelectorAll('h2')].find((h) =>
+      h.textContent?.includes('In the meantime'),
+    )!;
+    expect(h2.querySelector('span')!.className).toContain('text-t-36');
+    // One block (AECI-1720 layout pass): the heading sits over its text, never in a
+    // split that leaves the short heading far from its two lines.
+    const section = h2.parentElement!;
+    expect(section.className).not.toContain('lg:grid-cols');
+    expect(section.className).toContain('max-w-[70ch]');
+    expect(h2.nextElementSibling?.tagName).toBe('P');
+  });
+
   it('is noindex — a placeholder must not compete in the index', () => {
     const { title } = setup();
     expect(title.getTitle()).toBe('Roadmap · AEC Integrations');

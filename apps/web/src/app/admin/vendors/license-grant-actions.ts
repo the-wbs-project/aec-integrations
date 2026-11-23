@@ -18,6 +18,7 @@ import {
 } from '@aeci/shared';
 
 import { AdminLicensesApi } from './admin-licenses-api';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 /**
  * The Withdraw action on a pending grant row of the admin Billing tab (AECI-1615;
@@ -40,6 +41,7 @@ import { AdminLicensesApi } from './admin-licenses-api';
  */
 @Component({
   selector: 'aec-license-grant-actions',
+  imports: [AecFormSubmit],
   template: `
     @if (grant().status !== 'pending_acceptance') {
       <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
@@ -59,9 +61,10 @@ import { AdminLicensesApi } from './admin-licenses-api';
       </button>
     } @else {
       <form
+        method="dialog"
         novalidate
         class="ms-auto w-80 rounded-(--radius-md) bg-(--surface-sunken) p-3 text-start"
-        (submit)="$event.preventDefault(); submit()"
+        (aecSubmit)="submit()"
         data-testid="grant-withdraw-form"
       >
         <p class="text-sm text-(--text-primary)" i18n="@@admin.vendors.billing.grants.confirm">

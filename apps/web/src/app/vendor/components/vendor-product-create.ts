@@ -29,6 +29,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
 
 import { VENDOR_CREATE_FORM_START_OPEN } from './vendor-integration-create';
 import { VendorLogoField, type SaveLogo } from './vendor-logo-field';
+import { isReplayedEvent } from '../../core/event-replay';
 import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
 
 /** The text fields, in form order. The logo and categories have their own controls. */
@@ -147,6 +148,7 @@ export type ProductCreateNotice = { kind: 'notOwned' } | { kind: 'text'; text: s
           data-testid="product-create-panel"
         >
           <form
+            method="dialog"
             class="space-y-5"
             novalidate
             (submit)="onSubmit($event)"
@@ -510,6 +512,7 @@ export class VendorProductCreate implements OnInit {
   }
 
   protected async onSubmit(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.saving()) return;
     this.attempted.set(true);

@@ -157,7 +157,9 @@ describe('PreStableScrollReset', () => {
     navigate('/products/procore#integrations');
     await settle();
 
-    expect(scroller.scrollToAnchor).toHaveBeenCalledExactlyOnceWith('integrations');
+    expect(scroller.scrollToAnchor).toHaveBeenCalledExactlyOnceWith('integrations', {
+      behavior: 'instant',
+    });
     expect(scroller.scrollToPosition).not.toHaveBeenCalled();
   });
 

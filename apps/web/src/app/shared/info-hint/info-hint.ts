@@ -1,5 +1,6 @@
 import { OverlayModule, type ConnectedPosition } from '@angular/cdk/overlay';
 import { Component, DestroyRef, inject, input, signal } from '@angular/core';
+import { AecIcon } from '../icon/icon';
 
 /**
  * A small "i" control that reveals a sentence or two of explanatory text
@@ -34,7 +35,7 @@ import { Component, DestroyRef, inject, input, signal } from '@angular/core';
  */
 @Component({
   selector: 'aec-info-hint',
-  imports: [OverlayModule],
+  imports: [AecIcon, OverlayModule],
   templateUrl: './info-hint.html',
   host: { class: 'inline-flex' },
 })
@@ -74,8 +75,7 @@ export class InfoHint {
   }
 
   protected panelClass(): string {
-    const base =
-      'rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-3 py-2 text-xs leading-relaxed text-(--text-primary) shadow-lg';
+    const base = 'aec-popover px-3 py-2 text-xs leading-relaxed';
     return this.width() === 'wide' ? `${base} max-w-sm` : `${base} max-w-xs`;
   }
 

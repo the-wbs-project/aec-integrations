@@ -27,16 +27,17 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
+import { AecProseTableScroll } from '../shared/prose-blocks/prose-table-scroll';
 import { type DocsBlock, type DocsSection, getDocsSection } from './docs-content';
 import { pathForcesNoindex } from './docs-indexing';
 
 @Component({
   selector: 'app-docs-section',
-  imports: [RouterLink],
+  imports: [RouterLink, AecProseTableScroll],
   template: `
     <!-- AECI-987: the index takes the docs content column. The header and the
          intro prose keep the 42rem measure. From lg the page list runs two columns. -->
-    <div class="px-4 pt-8 pb-14 md:px-6 lg:px-8 lg:pt-10" data-testid="page-canvas">
+    <div class="px-4 pt-8 pb-16 md:px-6 lg:px-8 lg:pt-12" data-testid="page-canvas">
       <div class="mx-auto max-w-6xl">
         <header class="max-w-[42rem]">
           <h1 class="aec-docs-title text-(--text-primary)">{{ section.label }}</h1>
@@ -44,7 +45,7 @@ import { pathForcesNoindex } from './docs-indexing';
         </header>
 
         @if (lead.length > 0) {
-          <div class="aec-prose aec-docs-prose mt-6 max-w-[42rem]" data-intro="lead">
+          <div class="aec-prose mt-6 max-w-[42rem]" data-intro="lead" aecProseTableScroll>
             @for (block of lead; track $index) {
               <div class="contents" [innerHTML]="block.html"></div>
             }
@@ -56,15 +57,15 @@ import { pathForcesNoindex } from './docs-indexing';
           data-testid="docs-section-pages"
         >
           @for (page of section.pages; track page.slug) {
-            <li class="border-b border-(--border-default) py-4">
+            <li class="border-b border-(--border-default) py-3">
               <h2 class="aec-docs-subhead">
                 <a
                   [routerLink]="page.path"
-                  class="rounded-sm text-(--accent-primary) underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                  class="inline-flex min-h-11 items-center rounded-mark text-(--accent-primary) underline-offset-4 hover:underline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
                   >{{ page.title }}</a
                 >
               </h2>
-              <p class="mt-1 max-w-[36rem] text-sm leading-relaxed text-(--text-secondary)">
+              <p class="max-w-[36rem] text-t-14 leading-relaxed text-(--text-secondary)">
                 {{ page.description }}
               </p>
             </li>
@@ -72,7 +73,7 @@ import { pathForcesNoindex } from './docs-indexing';
         </ol>
 
         @if (rest.length > 0) {
-          <div class="aec-prose aec-docs-prose mt-10 max-w-[42rem]" data-intro="rest">
+          <div class="aec-prose mt-12 max-w-[42rem]" data-intro="rest" aecProseTableScroll>
             @for (block of rest; track $index) {
               @if (block.heading; as heading) {
                 @if (heading.level === 2) {

@@ -33,6 +33,7 @@ import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { licenseActionErrorMessage, licenseActionIsStale } from './vendor-license-action-errors';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /** When the license comes off its product. */
 type ReleaseTiming = 'renewal' | 'now';
@@ -200,7 +201,7 @@ type MenuAction = 'release' | 'keep';
             {{ description() }}
           </p>
 
-          <form class="mt-6 space-y-5" (submit)="submit($event)" novalidate>
+          <form method="dialog" class="mt-6 space-y-5" (submit)="submit($event)" novalidate>
             <fieldset class="space-y-3">
               <legend class="sr-only" i18n="@@vendor.billing.release.when">
                 When should the subscription come off?
@@ -409,6 +410,7 @@ export class VendorLicenseActions {
   }
 
   protected async submit(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.busy()) return;
     if (this.timing() === 'now') await this.requestNow();

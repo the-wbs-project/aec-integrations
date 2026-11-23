@@ -7,7 +7,7 @@
 import { Component, provideZonelessChangeDetection, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ConsentService, type ConsentState } from './consent';
 import { ConsentBanner, bannerHeldOn } from './consent-banner';
@@ -89,6 +89,65 @@ describe('ConsentBanner', () => {
     const spacer = region.previousElementSibling as HTMLElement;
     expect(spacer.getAttribute('aria-hidden')).toBe('true');
     expect(spacer.style.height).toBe(`${region.offsetHeight}px`);
+  });
+
+  // AECI-1818 (WCAG 2.4.11): the banner publishes its height on <html> so the unlayered
+  // `html[data-consent-reserve]` rule in styles.css keeps a focused control clear of it.
+  // jsdom has no layout and no ResizeObserver, so both are stubbed with a 120px banner.
+  describe('focus is not hidden under the banner', () => {
+    const root = document.documentElement;
+
+    function withLayout(): void {
+      vi.stubGlobal(
+        'ResizeObserver',
+        class {
+          observe(): void {}
+          disconnect(): void {}
+        },
+      );
+      vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(120);
+    }
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+      root.removeAttribute('data-consent-reserve');
+      root.style.removeProperty('--aec-consent-reserve');
+    });
+
+    it('publishes its height on <html> while it shows', async () => {
+      withLayout();
+      const { fixture } = create('unknown');
+      await hydrate(fixture);
+      expect(root.hasAttribute('data-consent-reserve')).toBe(true);
+      expect(root.style.getPropertyValue('--aec-consent-reserve')).toBe('120px');
+    });
+
+    it('clears it when the visitor decides', async () => {
+      withLayout();
+      const { fixture, el } = create('unknown');
+      await hydrate(fixture);
+      (el.querySelector('#consent-accept') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(root.hasAttribute('data-consent-reserve')).toBe(false);
+      expect(root.style.getPropertyValue('--aec-consent-reserve')).toBe('');
+    });
+
+    it('never sets it when a decision was already made', async () => {
+      withLayout();
+      const { fixture } = create('denied');
+      await hydrate(fixture);
+      expect(root.hasAttribute('data-consent-reserve')).toBe(false);
+    });
+
+    it('clears it when the banner is destroyed', async () => {
+      withLayout();
+      const { fixture } = create('unknown');
+      await hydrate(fixture);
+      fixture.destroy();
+      expect(root.hasAttribute('data-consent-reserve')).toBe(false);
+    });
   });
 
   // AECI-1637 (legal agent 2026-11-20): one "Accept" on the Terms tick-box page.

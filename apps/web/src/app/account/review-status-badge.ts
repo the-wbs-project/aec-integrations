@@ -2,13 +2,15 @@ import { ChangeDetectionStrategy, Component, computed, input } from '@angular/co
 
 import type { ReviewStatus, ReviewUpdateStatus } from '@aeci/shared';
 
+import { Chip, type ChipTone } from '../shared/chip/chip';
+
 /**
  * Status pill for a review in the signed-in user's own list (`/account`,
  * AECI-225). Communicates where each review stands in moderation: `pending`
  * (awaiting review), `approved` (live), `rejected` (declined — paired with the
  * reason in the parent card).
  *
- * Bordered chip, not a fill (DESIGN.md "Borders-Not-Shadows"); sentence case.
+ * A dense `aec-chip` (AECI-1763). Bordered, not a fill (DESIGN.md "Borders-Not-Shadows"); sentence case.
  * Status is conveyed by a tinted border + text token AND the text label itself —
  * never colour alone (WCAG 1.4.1). Light theme only (Stage 1 / AECI-226). The
  * accent ramp carries `approved`; `rejected` borrows the same danger treatment
@@ -22,13 +24,8 @@ import type { ReviewStatus, ReviewUpdateStatus } from '@aeci/shared';
 @Component({
   selector: 'aec-review-status-badge',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `
-    <span
-      class="inline-flex items-center rounded-(--radius-sm) border px-2 py-0.5 text-xs font-semibold tracking-[0.01em]"
-      [class]="toneClass()"
-      >{{ label() }}</span
-    >
-  `,
+  imports: [Chip],
+  template: ` <aec-chip density="dense" [tone]="tone()">{{ label() }}</aec-chip> `,
 })
 export class ReviewStatusBadge {
   readonly status = input.required<ReviewStatus | ReviewUpdateStatus>();
@@ -46,15 +43,15 @@ export class ReviewStatusBadge {
     }
   });
 
-  protected readonly toneClass = computed<string>(() => {
+  protected readonly tone = computed<ChipTone>(() => {
     switch (this.status()) {
       case 'approved':
-        return 'border-(--accent-primary) bg-(--surface-raised) text-(--accent-primary)';
+        return 'forest';
       case 'rejected':
       case 'removed':
-        return 'border-(--border-strong) bg-(--surface-raised) text-(--text-primary)';
+        return 'strong';
       default:
-        return 'border-(--border-default) bg-(--surface-sunken) text-(--text-secondary)';
+        return 'sunken';
     }
   });
 }

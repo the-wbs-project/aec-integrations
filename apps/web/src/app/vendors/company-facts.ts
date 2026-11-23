@@ -36,8 +36,9 @@ export const COMPANY_FACT_FIELDS = [
 export type CompanyFactField = (typeof COMPANY_FACT_FIELDS)[number];
 
 /**
- * `CompanyFacts` (AECI-1310, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.23): the vendor page's
- * facts panel. The API has already applied the display rule, so a null fact is simply
+ * `CompanyFacts` (AECI-1310, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.23): the Company facts
+ * cell of the vendor page's facts card (AECI-1797). The API has already applied the
+ * display rule, so a null fact is simply
  * not a row. With no facts at all the panel renders nothing: blank is a normal state,
  * never "Unknown".
  *
@@ -59,26 +60,30 @@ export type CompanyFactField = (typeof COMPANY_FACT_FIELDS)[number];
         >
           Company facts
         </h2>
-        <dl class="space-y-3">
+        <!-- Two columns where the facts card gives the cell its width (mock-up 11). Every
+             line is 20px high, so the web font swap does not resize a row. -->
+        <dl class="grid gap-4 xl:grid-cols-2 xl:gap-x-8">
           @for (row of rows(); track row.key) {
             <div>
-              <dt class="text-xs text-(--text-secondary)">{{ row.label }}</dt>
+              <dt class="text-xs leading-5 text-(--text-secondary)">{{ row.label }}</dt>
               @if (row.value === null) {
-                <dd class="mt-0.5" [attr.data-testid]="'company-fact-under-review-' + row.key">
+                <dd class="mt-1" [attr.data-testid]="'company-fact-under-review-' + row.key">
                   <aec-under-review />
                 </dd>
               } @else {
-                <dd class="mt-0.5 break-words text-sm font-medium text-(--text-primary)">
+                <dd class="mt-1 break-words text-sm leading-5 font-semibold text-(--text-primary)">
                   {{ row.value }}
                 </dd>
-                <dd class="mt-0.5 text-xs text-(--text-secondary)">
+                <!-- "Source" and its icon wrap as one, so the fallback font cannot leave the
+                     icon alone on a second line that the web font then removes. -->
+                <dd class="mt-1 text-xs leading-5 text-(--text-secondary)">
                   {{ row.note }}
                   @if (row.url; as url) {
                     <a
                       [href]="url"
                       target="_blank"
                       rel="noopener nofollow"
-                      class="rounded-(--radius-sm) text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) [&_svg]:inline"
+                      class="whitespace-nowrap rounded-mark text-xs font-semibold text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) [&_svg]:inline"
                     >
                       <span i18n="@@vendors.detail.companyFacts.source">Source</span>
                       <span class="sr-only">: {{ row.label }}</span>

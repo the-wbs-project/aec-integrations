@@ -12,7 +12,7 @@
  *  - `mobile_bar` a slim bar fixed to the bottom of the screen below `lg`
  *                 (`PlanCtaMobileBarComponent`). It shows only once the top pair has
  *                 scrolled away, and hides while a full call to action is on screen.
- *  - `bottom`     a full-width Forest panel (`PlanCtaPanelComponent`).
+ *  - `bottom`     the Forest feature card (`PlanCtaPanelComponent`).
  *
  * **One claim workflow (AECI-1293, §15.1).** Every main control opens the claim
  * dialog (`shared/claim-dialog/`), and every one reads "Claim your listing": the hero,
@@ -60,6 +60,7 @@ import { RouterLink } from '@angular/router';
 
 import { Analytics, type PlanCtaPage, type PlanCtaPlacement } from '../../analytics/analytics';
 import { planLabel } from '../../vendor/vendor-plan';
+import { AecButton } from '../button/button';
 import { ClaimDialogTrigger } from '../claim-dialog/claim-dialog-trigger';
 import { CLAIM_DIALOG_FALLBACK_HREF } from '../claim-dialog/claim-dialog.service';
 import { managedPriceLine, planCtaPanelCopy } from './plan-cta-copy';
@@ -118,7 +119,7 @@ abstract class PlanCta {
   template: `
     <p
       [class]="
-        tone() === 'inverse' ? 'text-sm text-(--surface-base)' : 'text-sm text-(--text-secondary)'
+        tone() === 'inverse' ? 'text-sm text-(--text-on-brand)' : 'text-sm text-(--text-secondary)'
       "
     >
       <span i18n="@@planCta.contact.lead">Questions?</span>
@@ -127,8 +128,8 @@ abstract class PlanCta {
         routerLink="/contact"
         [class]="
           tone() === 'inverse'
-            ? 'font-semibold text-(--surface-base) underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--surface-base)'
-            : 'font-semibold text-(--accent-primary) underline underline-offset-4 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)'
+            ? 'rounded-mark font-semibold text-(--text-on-brand) underline underline-offset-4 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--focus-ring-on-brand)'
+            : 'rounded-mark font-semibold text-(--accent-primary) underline underline-offset-4 hover:text-(--accent-primary-hover) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)'
         "
         i18n="@@planCta.contact.link"
         >Contact us</a
@@ -144,24 +145,19 @@ export class PlanContactLinkComponent {
 /** The hero button: under the docs intro, in the vendor program hero (`placement: top`). */
 @Component({
   selector: 'aec-plan-cta-actions',
-  imports: [RouterLink, ClaimDialogTrigger],
+  imports: [AecButton, RouterLink, ClaimDialogTrigger],
   host: { class: 'block', 'data-plans-cta': 'top' },
   template: `
     <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-6">
       @if (portal()) {
-        <a
-          [routerLink]="portalPath"
-          class="inline-flex items-center justify-center rounded-(--radius-md) bg-(--accent-primary) px-5 py-3 text-base font-semibold text-(--surface-base) no-underline hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          i18n="@@planCta.portal"
-          >Go to your portal</a
-        >
+        <a aecButton [routerLink]="portalPath" i18n="@@planCta.portal">Go to your portal</a>
       } @else {
         <a
+          aecButton
           [href]="claimHref"
           aecClaimDialogTrigger="top"
           [aecClaimDialogPage]="page()"
           (click)="track('free', 'top')"
-          class="inline-flex items-center justify-center rounded-(--radius-md) bg-(--accent-primary) px-5 py-3 text-base font-semibold text-(--surface-base) no-underline hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           i18n="@@planCta.claim"
           >Claim your listing</a
         >
@@ -172,23 +168,23 @@ export class PlanContactLinkComponent {
 export class PlanCtaActionsComponent extends PlanCta {}
 
 /**
- * The full-width Forest panel that closes a page (`placement: bottom`). On the
+ * The Forest feature card that closes a page (`placement: bottom`, AECI-1802: the
+ * home card recipe, Bone ink and the Bone main button). On the
  * docs page it sits in "Getting Managed" under an `h2`, so its heading is an
  * `h3`. A page that gives it its own section passes `headingLevel` 2.
  */
 @Component({
   selector: 'aec-plan-cta-panel',
-  imports: [RouterLink, ClaimDialogTrigger, PlanContactLinkComponent],
+  imports: [AecButton, RouterLink, ClaimDialogTrigger, PlanContactLinkComponent],
   host: { class: 'block', 'data-plans-cta': 'bottom' },
   template: `
     <section
-      class="rounded-(--radius-lg) bg-(--accent-primary) px-6 py-7 text-(--surface-base) sm:px-8"
+      class="aec-card rounded-card border bg-(--accent-primary) p-8 text-(--text-on-brand) shadow-card"
       [class.lg:grid]="split()"
       [class.lg:grid-cols-12]="split()"
       [class.lg:items-center]="split()"
       [class.lg:gap-x-12]="split()"
-      [class.lg:px-10]="split()"
-      [class.lg:py-10]="split()"
+      [class.lg:p-12]="split()"
       aria-labelledby="plans-cta-heading"
     >
       <div [class.lg:col-span-6]="split()" [class.xl:col-span-7]="split()">
@@ -207,7 +203,7 @@ export class PlanCtaActionsComponent extends PlanCta {}
       </div>
       <div [class.lg:col-span-6]="split()" [class.xl:col-span-5]="split()">
         <div
-          class="mt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-6"
+          class="mt-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-6"
           [class.lg:mt-0]="split()"
           [class.lg:flex-col]="split()"
           [class.lg:items-start]="split()"
@@ -215,7 +211,12 @@ export class PlanCtaActionsComponent extends PlanCta {}
           [class.xl:items-center]="split()"
         >
           @if (portal()) {
-            <a [routerLink]="portalPath" [class]="panelButtonClass" i18n="@@planCta.portal"
+            <a
+              [routerLink]="portalPath"
+              aecButton
+              variant="on-brand"
+              class="w-full sm:w-auto"
+              i18n="@@planCta.portal"
               >Go to your portal</a
             >
           } @else {
@@ -224,7 +225,9 @@ export class PlanCtaActionsComponent extends PlanCta {}
               aecClaimDialogTrigger="bottom"
               [aecClaimDialogPage]="page()"
               (click)="track('free', 'bottom')"
-              [class]="panelButtonClass"
+              aecButton
+              variant="on-brand"
+              class="w-full sm:w-auto"
               i18n="@@planCta.claim"
               >Claim your listing</a
             >
@@ -234,7 +237,7 @@ export class PlanCtaActionsComponent extends PlanCta {}
           }
         </div>
         @if (!portal() && !hideManaged()) {
-          <ol class="mt-5 space-y-1.5 text-sm">
+          <ol class="mt-6 space-y-2 text-sm">
             <li class="flex gap-2">
               <span class="font-semibold" aria-hidden="true">1.</span>
               <span>{{ copy.steps[0] }}</span>
@@ -252,8 +255,6 @@ export class PlanCtaActionsComponent extends PlanCta {}
 export class PlanCtaPanelComponent extends PlanCta {
   /** Every statement in the panel (`plan-cta-copy.ts`), shared with the Plans snapshot. */
   protected readonly copy = planCtaPanelCopy(inject(LOCALE_ID));
-  protected readonly panelButtonClass =
-    'inline-flex w-full items-center justify-center rounded-(--radius-md) bg-(--surface-base) px-6 py-3.5 text-base font-semibold text-(--accent-primary) no-underline hover:bg-(--accent-warm) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--surface-base) sm:w-auto';
   /** `h3` under a page section (the docs page), `h2` as its own section. */
   readonly headingLevel = input<2 | 3>(3);
   /**
@@ -273,7 +274,7 @@ export class PlanCtaPanelComponent extends PlanCta {
 /** The small sticky card beside the article (`placement: rail`). */
 @Component({
   selector: 'aec-plan-cta-rail',
-  imports: [RouterLink, ClaimDialogTrigger],
+  imports: [AecButton, RouterLink, ClaimDialogTrigger],
   host: { class: 'block' },
   template: `
     @if (!hideManaged()) {
@@ -283,7 +284,7 @@ export class PlanCtaPanelComponent extends PlanCta {
         </p>
         <p class="mt-1 text-xs leading-snug text-(--text-secondary)">{{ price }}</p>
         @if (portal()) {
-          <a [routerLink]="portalPath" [class]="railButtonClass" i18n="@@planCta.portal"
+          <a [routerLink]="portalPath" aecButton class="mt-3 w-full" i18n="@@planCta.portal"
             >Go to your portal</a
           >
         } @else {
@@ -292,7 +293,8 @@ export class PlanCtaPanelComponent extends PlanCta {
             aecClaimDialogTrigger="rail"
             [aecClaimDialogPage]="page()"
             (click)="track('managed', 'rail')"
-            [class]="railButtonClass"
+            aecButton
+            class="mt-3 w-full"
             i18n="@@planCta.claim"
             >Claim your listing</a
           >
@@ -304,8 +306,6 @@ export class PlanCtaPanelComponent extends PlanCta {
 export class PlanCtaRailComponent extends PlanCta {
   protected readonly managedName = planLabel('managed');
   protected readonly price = managedPriceLine(inject(LOCALE_ID));
-  protected readonly railButtonClass =
-    'mt-3 flex items-center justify-center rounded-(--radius-md) bg-(--accent-primary) px-3 py-2 text-center text-sm font-semibold text-(--surface-base) no-underline hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
   /** A Managed company: render nothing (spec §5). */
   readonly hideManaged = input(false);
 }
@@ -320,7 +320,7 @@ export class PlanCtaRailComponent extends PlanCta {
  */
 @Component({
   selector: 'aec-plan-cta-mobile-bar',
-  imports: [RouterLink, ClaimDialogTrigger],
+  imports: [AecButton, RouterLink, ClaimDialogTrigger],
   host: { class: 'lg:hidden' },
   template: `
     @if (visible()) {
@@ -336,7 +336,7 @@ export class PlanCtaRailComponent extends PlanCta {
             <span class="text-(--text-secondary)"> · {{ price }}</span>
           </p>
           @if (portal()) {
-            <a [routerLink]="portalPath" [class]="barButtonClass" i18n="@@planCta.portal"
+            <a [routerLink]="portalPath" aecButton compact class="shrink-0" i18n="@@planCta.portal"
               >Go to your portal</a
             >
           } @else {
@@ -345,7 +345,9 @@ export class PlanCtaRailComponent extends PlanCta {
               aecClaimDialogTrigger="mobile_bar"
               [aecClaimDialogPage]="page()"
               (click)="track('managed', 'mobile_bar')"
-              [class]="barButtonClass"
+              aecButton
+              compact
+              class="shrink-0"
               i18n="@@planCta.claim"
               >Claim your listing</a
             >
@@ -360,8 +362,6 @@ export class PlanCtaMobileBarComponent extends PlanCta {
   protected readonly managedName = planLabel('managed');
   protected readonly price = managedPriceLine(inject(LOCALE_ID));
   protected readonly visible = signal(false);
-  protected readonly barButtonClass =
-    'shrink-0 rounded-(--radius-md) bg-(--accent-primary) px-4 py-2.5 text-sm font-semibold text-(--surface-base) no-underline hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
   /** A Managed company: never show, never reserve height (spec §5). */
   readonly hideManaged = input(false);
 

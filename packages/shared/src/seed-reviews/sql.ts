@@ -39,12 +39,20 @@ export const REVIEW_COLUMNS = [
   'locale',
   'created_at',
   'updated_at',
+  'anonymized_at',
 ] as const;
 
 /** Ordered cell VALUES for a planned review, matching `REVIEW_COLUMNS`. Returns
  * raw JS values: the Worker binds them as D1 parameters; `reviewValuesRow`
  * renders them as SQL literals for the CLI's `.sql` file. `reviewer_id` is always
- * NULL (anonymous); `updated_at` mirrors `moderated_at` (last touched at moderation). */
+ * NULL (anonymous); `updated_at` mirrors `moderated_at` (last touched at moderation).
+ *
+ * AECI-1936: `anonymized_at` is stamped at the moderation time. A review with no
+ * reviewer and no stamp is what the error-severity `reviews_missing_anonymized_at`
+ * check reports, because an account deletion nulls the reviewer and stamps it in
+ * one statement. The seed keeps its `reviewer_firm`, which a deletion would also
+ * null, so the public cards still show a firm. The seed files got the same stamp
+ * in AECI-1920. */
 export function reviewCells(rv: PlannedReview): Array<string | number | null> {
   const createdIso = rv.createdAt.toISOString();
   const moderatedIso = rv.moderatedAt.toISOString();
@@ -65,6 +73,7 @@ export function reviewCells(rv: PlannedReview): Array<string | number | null> {
     rv.locale,
     createdIso,
     moderatedIso, // updated_at — last touched at moderation
+    moderatedIso, // anonymized_at — keeps reviews_missing_anonymized_at at zero (AECI-1936)
   ];
 }
 

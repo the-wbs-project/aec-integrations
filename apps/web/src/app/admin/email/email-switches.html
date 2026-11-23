@@ -292,7 +292,7 @@
         </p>
         } }
 
-        <form novalidate (submit)="$event.preventDefault(); confirmChange()" class="mt-5 space-y-2">
+        <form method="dialog" novalidate (aecSubmit)="confirmChange()" class="mt-5 space-y-2">
           <label
             for="admin-email-switch-reason"
             class="block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"

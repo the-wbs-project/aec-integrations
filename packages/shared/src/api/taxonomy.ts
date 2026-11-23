@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { LinkRefSchema } from './common';
 import { ProductListItemSchema } from './products';
 
+export { isPublishedTrade, TRADE_PUBLISH_MIN_PRODUCTS } from './trade-publish';
+
 /**
  * A taxonomy term (category / audience / phase / trade) with the counts of
  * products tagged with it and integrations reachable through those products.
@@ -40,45 +42,6 @@ export function taxonomyIntegrationCount(term: { integration_count?: number | un
 }
 
 /**
- * Minimum promoted products a trade needs before it is **published** —
- * `TRADES_VOCABULARY.md` §6, launch-tunable. Trades are the only facet with a
- * publication floor, because the vocabulary is a closed 34-term list seeded up
- * front rather than grown from the catalog: without a floor, every term that
- * nobody has tagged yet would still ship an empty `/trades/:slug` page.
- *
- * At **1** the floor still does that job — it withholds the terms carrying no
- * promoted product at all, which after the AECI-547 backfill is 27 of the 34 —
- * but a term is published the moment any product genuinely carries it. That
- * deliberately admits single-product pages: a page with one honestly-tagged
- * product answers "what understands MY work" for that trade, which is the §1.1
- * test, and it is a truthful page rather than a thin one. Lowered from 3 on
- * 2026-08-14 once the backfill showed the real tagging distribution.
- *
- * The API deliberately does not apply it (see `TaxonomyResponseSchema` below);
- * it lives here so every consumer that *can* apply it uses one value. Consumers
- * today: the `/trades` index grid and the primary-nav flyout (AECI-544); the XML
- * sitemap, each term page's `noindex` decision, and the IndexNow / Google
- * Indexing submit set (AECI-546).
- *
- * Not applied by the facet sidebar, whose rule is its own — show a term when its
- * **scoped** disjunctive count is `> 0`, or when it is currently refined. That
- * rule is floor-independent by design: a scoped count is not a global one, so
- * gating it on an unscoped floor would hide published terms under an active
- * filter. Not applied to product-detail trade chips either: the tag is true even
- * when the page isn't promoted. Both carve-outs are recorded in
- * `TRADES_VOCABULARY.md` §6.
- */
-export const TRADE_PUBLISH_MIN_PRODUCTS = 1;
-
-/**
- * Whether a trade term clears the publication floor. Takes the count alone so
- * callers can pass a term, a facet entry, or a raw number.
- */
-export function isPublishedTrade(term: { product_count: number }): boolean {
-  return term.product_count >= TRADE_PUBLISH_MIN_PRODUCTS;
-}
-
-/**
  * Full taxonomy fetch returned by `GET /api/taxonomy` — the lookup the SSR
  * Worker uses to render nav, footer, and the `/categories` flat list. All
  * four lists hydrate as `TaxonomyTermWithCount[]` so callers don't need a
@@ -89,15 +52,23 @@ export function isPublishedTrade(term: { product_count: number }): boolean {
  * including terms below the `TRADE_PUBLISH_MIN_PRODUCTS` floor exported above.
  * Each surface applies the floor itself (`TRADES_VOCABULARY.md` §6) so the gate
  * is tunable without an API deploy.
+ *
+ * `total_products` (AECI-1773) is the count behind the Browse menu's "All
+ * products" line. It uses the same visibility rule as `home.total_products`
+ * (`computeTotalProducts`), so a hidden listing counts nowhere public.
  */
 export const TaxonomyResponseSchema = z.object({
   categories: z.array(TaxonomyTermWithCountSchema),
   audiences: z.array(TaxonomyTermWithCountSchema),
   phases: z.array(TaxonomyTermWithCountSchema),
   trades: z.array(TaxonomyTermWithCountSchema),
+  total_products: z.number().int().min(0),
 });
 
 export type TaxonomyResponse = z.infer<typeof TaxonomyResponseSchema>;
+
+/** The four term-list keys of {@link TaxonomyResponse}, excluding the `total_products` scalar. */
+export type TaxonomyFacetKey = 'categories' | 'audiences' | 'phases' | 'trades';
 
 /**
  * Response for the flat taxonomy list endpoints — `GET /api/categories`,

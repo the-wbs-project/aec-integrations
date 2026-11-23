@@ -1,10 +1,11 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, computed, inject, input } from '@angular/core';
+import { Component, computed, effect, inject, input, untracked } from '@angular/core';
 import { type FieldTree, FormField } from '@angular/forms/signals';
 
 import { LegalInForceClient } from '../legal/legal-in-force-client';
 import { legalPath } from '../legal/legal-slugs';
 import { CHOICE_INPUT_CLASS, FIELD_ERROR_CLASS } from '../shared/form-field/form-field-classes';
+import { AecConsentBox } from '../shared/form-field/consent-box';
 
 /**
  * The vendor terms box on every claim form (AECI-1366, `docs/VENDOR_SIGNUP_PROCESS.md`
@@ -18,6 +19,13 @@ import { CHOICE_INPUT_CLASS, FIELD_ERROR_CLASS } from '../shared/form-field/form
  *
  * Rendered by the claim dialog's You step, the routed claim pages and the claim drawer
  * (`RequestFormBody`), on both the found and the typed-in path. The host owns the model.
+ *
+ * Before hydration the box is disabled (`aecConsent`, AECI-1720), so it cannot be ticked
+ * before the form can take the tick, and no tick is ever carried across hydration
+ * (`shared/form-field/early-input.ts`). If the policy version line changes after the box
+ * was ticked (`LegalInForceClient.refresh()` replaced the build's versions), the box is
+ * unticked and marked touched, so its error asks for a fresh tick against the line now
+ * shown.
  *
  * The error shows once the box was touched and left unchecked, or when the server
  * refused the submit on `accepted_terms` (`rejected`, a stale bundle). It is tied to the
@@ -34,8 +42,8 @@ import { CHOICE_INPUT_CLASS, FIELD_ERROR_CLASS } from '../shared/form-field/form
  */
 @Component({
   selector: 'aec-vendor-terms-box',
-  imports: [FormField],
-  host: { class: 'block space-y-1.5' },
+  imports: [FormField, AecConsentBox],
+  host: { class: 'block space-y-2' },
   template: `
     <p
       [id]="shortFormId()"
@@ -59,10 +67,11 @@ import { CHOICE_INPUT_CLASS, FIELD_ERROR_CLASS } from '../shared/form-field/form
       <input
         [id]="inputId()"
         type="checkbox"
+        aecConsent
         [formField]="field()"
         [attr.aria-invalid]="showError() ? 'true' : null"
         [attr.aria-describedby]="describedBy()"
-        [class]="inputClass + ' mt-0.5'"
+        [class]="inputClass + ' mt-1'"
       />
       <label [attr.for]="inputId()" class="text-sm leading-relaxed text-(--text-primary)">
         <span i18n="@@requests.terms.label"
@@ -135,6 +144,22 @@ export class VendorTermsBox {
   constructor() {
     // Browser only, and only while an upcoming entry exists: no read today.
     void this.inForce.refresh();
+    // AECI-1720: a tick given beside one version line is not a tick for another.
+    let shown: string | null = null;
+    effect(() => {
+      const { listing_accuracy, review_guidelines } = this.policyVersions();
+      const line = `${listing_accuracy}|${review_guidelines}`;
+      if (shown !== null && line !== shown) {
+        untracked(() => {
+          const state = this.field()();
+          if (state.value()) {
+            state.value.set(false);
+            state.markAsTouched();
+          }
+        });
+      }
+      shown = line;
+    });
   }
 
   protected readonly showError = computed(() => {

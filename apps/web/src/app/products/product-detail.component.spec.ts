@@ -21,6 +21,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { ActivatedRoute, provideRouter } from '@angular/router';
 import { of } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -37,7 +38,10 @@ import { AccountApi } from '../account/account-api';
 import { Analytics } from '../analytics/analytics';
 import { AuthService } from '../auth/auth.service';
 
+import { SectionNav } from '../shared/section-nav/section-nav';
+
 import { ProductDetailPage } from './product-detail';
+import { trail } from '../shared/breadcrumb/breadcrumb-trail.harness';
 
 function buildProduct(overrides: Partial<ProductDetail> = {}): ProductDetail {
   return {
@@ -456,13 +460,13 @@ describe('ProductDetailPage powered-integrations hub', () => {
     // Each row has a real accessible name naming BOTH endpoints, and (AECI-1117)
     // restating the direction and mechanism the aria-label would otherwise hide.
     expect(rows[0]!.getAttribute('aria-label')).toBe(
-      'View the Procore and Acumatica integration, direction Outbound, iPaaS',
+      'View the Procore and Acumatica integration, direction Sends to Acumatica, iPaaS',
     );
-    expect(rows[1]!.getAttribute('aria-label')).toContain('direction Both');
+    expect(rows[1]!.getAttribute('aria-label')).toContain('direction Syncs both ways');
     // Direction is framed relative to the hub, and the mechanism is shown —
     // the same vocabulary the sibling endpoint table uses.
-    expect(rows[0]!.textContent).toContain('Outbound');
-    expect(rows[1]!.textContent).toContain('Both');
+    expect(rows[0]!.textContent).toContain('Sends to Acumatica');
+    expect(rows[1]!.textContent).toContain('Syncs both ways');
     expect(rows[0]!.textContent).toContain('iPaaS');
   });
 
@@ -568,6 +572,9 @@ describe('ProductDetailPage powered-integrations hub', () => {
             context_direction: null,
             powered_by_product: null,
             data_object_slugs: [],
+            data_objects: [],
+            partner_categories: [],
+            agreement: null,
           },
         ],
         integrations_as_connector: [edge(procore, acumatica), edge(sage, procore)],
@@ -610,10 +617,9 @@ describe('ProductDetailPage powered-integrations hub', () => {
 
     TestBed.resetTestingModule();
     const plain = setup(buildProduct());
-    // The badge component self-hides for `application` — it renders no chip.
-    expect(
-      plain.el.querySelector('[slot="hero"]')!.querySelector('aec-role-badge')!.textContent!.trim(),
-    ).toBe('');
+    // An application has no role chip, and since AECI-1666 retired the maintenance chip
+    // that shared its row, the hero renders no kicker row for it at all.
+    expect(plain.el.querySelector('[slot="hero"]')!.querySelector('aec-role-badge')).toBeNull();
   });
 });
 
@@ -635,6 +641,9 @@ describe('ProductDetailPage integrations table order', () => {
     context_direction: null,
     powered_by_product: null,
     data_object_slugs: [],
+    data_objects: [],
+    partner_categories: [],
+    agreement: null,
   });
 
   /**
@@ -645,10 +654,11 @@ describe('ProductDetailPage integrations table order', () => {
    */
   const partnerOrder = (el: HTMLElement) =>
     [
-      ...el.querySelectorAll<HTMLTableRowElement>(
-        // Attribute-selected component, so the `@defer` placeholder row (a bare
-        // `<tr aria-hidden>` skeleton, no links) can't be mistaken for a result.
-        '#integrations tbody tr[aec-product-integration-row]',
+      ...el.querySelectorAll<HTMLElement>(
+        // Attribute-selected components, so the `@defer` placeholder (a bare
+        // skeleton, no links) can't be mistaken for a result. Cards are the
+        // default view since AECI-1782; a table row reads the same way.
+        '#integrations tbody tr[aec-product-integration-row], #integrations li[aec-product-integration-card]',
       ),
     ].map((row) => {
       const partner = [...row.querySelectorAll('a')].find(
@@ -702,7 +712,7 @@ describe('ProductDetailPage integrations table order', () => {
     expect(partnerOrder(el)).toEqual(['Acumatica', 'Acumatica', 'Sage Intacct']);
     // Partner name and pair link are identical on both Acumatica rows, so the
     // mechanism is the only visible discriminator: `A — native` must lead.
-    const rows = el.querySelectorAll('#integrations tbody tr[aec-product-integration-row]');
+    const rows = el.querySelectorAll('#integrations li[aec-product-integration-card]');
     expect(rows[0]!.textContent).toContain('Native link');
     expect(rows[1]!.textContent).toContain('REST bridge');
   });
@@ -731,11 +741,17 @@ describe('ProductDetailPage integrations table order', () => {
       ),
     );
 
-    const { el } = setup(
+    const { fixture, el } = setup(
       buildProduct({
         integrations_as_source: partners.map((partner) => endpointEdge(procore, partner)),
       }),
     );
+    // AECI-1783: the card view groups a list this long, so the lane cut is read in the
+    // table, which keeps it.
+    [...el.querySelectorAll<HTMLButtonElement>('aec-listing-view-toggle button')]
+      .find((b) => b.textContent?.includes('Table'))!
+      .click();
+    fixture.detectChanges();
 
     // Only the undeferred head renders here — `@defer (on viewport)` never
     // triggers in this harness — which is exactly the boundary under test.
@@ -767,11 +783,18 @@ describe('ProductDetailPage integrations lanes (§13.3)', () => {
     context_direction: null,
     powered_by_product: null,
     data_object_slugs: [],
+    data_objects: [],
+    partner_categories: [],
+    agreement: null,
     ...overrides,
   });
 
+  /** One named container per lane: a card list in the default view (AECI-1782), a
+   *  table in the table view. The naming rule is the same for both. */
   const tables = (el: HTMLElement) => [
-    ...el.querySelectorAll<HTMLTableElement>('#integrations table'),
+    ...el.querySelectorAll<HTMLElement>(
+      '#integrations table, #integrations [data-testid="integration-cards"]',
+    ),
   ];
 
   it('renders ONE unheaded table when nothing is connector-delivered', () => {
@@ -785,7 +808,8 @@ describe('ProductDetailPage integrations lanes (§13.3)', () => {
     const rendered = tables(el);
     expect(rendered).toHaveLength(1);
     expect(rendered[0]!.getAttribute('aria-label')).toBe('Integrations');
-    expect(el.querySelectorAll('#integrations h3')).toHaveLength(0);
+    // No lane heading: the cards' own h3s are the partners, not lanes (AECI-1782).
+    expect(el.querySelectorAll('#integrations aec-integration-group-card')).toHaveLength(0);
   });
 
   it('renders one table PER LANE, direct first, each with an accessible name', () => {
@@ -867,7 +891,7 @@ describe('ProductDetailPage integrations lanes (§13.3)', () => {
     );
 
     expect(tables(el)).toHaveLength(1);
-    expect(el.querySelectorAll('#integrations h3')).toHaveLength(0);
+    expect(el.querySelectorAll('#integrations aec-integration-group-card')).toHaveLength(0);
   });
 
   it('sums the sub-counts to the section heading count', () => {
@@ -881,7 +905,8 @@ describe('ProductDetailPage integrations lanes (§13.3)', () => {
       }),
     );
 
-    expect(el.querySelector('#integrations-title')!.textContent).toContain('Integrations (3)');
+    // The heading carries no count (ruled 2026-11-16).
+    expect(el.querySelector('#integrations-title')!.textContent!.trim()).toBe('Integrations');
     expect(el.querySelector('#integrations-direct')!.textContent).toContain('2 integrations');
     expect(el.querySelector('#integrations-via-agave-erp-sync')!.textContent).toContain(
       '1 integration',
@@ -900,10 +925,13 @@ describe('ProductDetailPage integrations lanes (§13.3)', () => {
       }),
     );
 
-    expect(el.querySelector('#integrations-title')!.textContent).toContain('Integrations (1)');
-    expect(el.querySelectorAll('#integrations tbody tr[aec-product-integration-row]')).toHaveLength(
-      1,
-    );
+    // The heading carries no count (ruled 2026-11-16).
+    expect(el.querySelector('#integrations-title')!.textContent!.trim()).toBe('Integrations');
+    expect(
+      el.querySelectorAll(
+        '#integrations tbody tr[aec-product-integration-row], #integrations li[aec-product-integration-card]',
+      ),
+    ).toHaveLength(1);
   });
 
   it('renders the §12.7 catalog-scope note ONCE, not once per lane', () => {
@@ -977,7 +1005,7 @@ describe('ProductDetailPage taxonomy chips (AECI-544)', () => {
 
 /**
  * The Actions-sidebar claim CTA is stateless (AECI-1266). Every listing reads
- * "Claim <Company>" (AECI-1365: a claim is on the company) with no note, whatever plan the built-by vendor holds: a
+ * "Claim Vendor" (AECI-1925; the company name visually hidden after it, AECI-1365: a claim is on the company) with no note, whatever plan the built-by vendor holds: a
  * state-dependent wording told visitors which vendors pay. It opens the same
  * `kind:'claim'` request for a first claim and for a colleague joining an account
  * someone already holds. Seats are admin-granted and multi-seat
@@ -988,13 +1016,18 @@ describe('ProductDetailPage claim CTA', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   const actions = (el: HTMLElement) =>
-    el.querySelector('section[aria-labelledby="actions-label"]') as HTMLElement;
+    el.querySelector('[data-testid="product-facts-actions"]') as HTMLElement;
 
   it("always offers to claim the product's company, with no note", () => {
     const { el } = setup(buildProduct());
     const section = actions(el);
 
-    expect(section.textContent).toContain('Claim Procore Technologies');
+    expect(section.textContent?.replace(/\s+/g, ' ')).toContain(
+      'Claim Vendor Procore Technologies',
+    );
+    expect(
+      section.querySelector('a[href="/products/procore/claim"] .sr-only')?.textContent?.trim(),
+    ).toBe('Procore Technologies');
     expect(section.textContent).not.toContain('Claim this listing');
     expect(section.textContent).not.toContain('Request access to this listing');
     expect(section.textContent).not.toContain('Already managed through an active vendor account');
@@ -1180,18 +1213,27 @@ describe('ProductDetailPage self-exclusion (§13.4(2))', () => {
             context_direction: null,
             powered_by_product: agave,
             data_object_slugs: [],
+            data_objects: [],
+            partner_categories: [],
+            agreement: null,
           },
           {
             ...selfEdge(acumatica, agave),
             context_direction: null,
             powered_by_product: agave,
             data_object_slugs: [],
+            data_objects: [],
+            partner_categories: [],
+            agreement: null,
           },
           {
             ...selfEdge(sage, agave),
             context_direction: null,
             powered_by_product: agave,
             data_object_slugs: [],
+            data_objects: [],
+            partner_categories: [],
+            agreement: null,
           },
         ],
       }),
@@ -1204,9 +1246,10 @@ describe('ProductDetailPage self-exclusion (§13.4(2))', () => {
     );
     // The endpoint table carries every one of those edges, so the page still
     // answers "what does this connect".
-    expect(el.querySelector('#integrations')!.querySelector('h2')!.textContent).toContain(
-      'Integrations (3)',
+    expect(el.querySelector('#integrations')!.querySelector('h2')!.textContent!.trim()).toBe(
+      'Integrations',
     );
+    expect(el.querySelectorAll('#integrations li[aec-product-integration-card]')).toHaveLength(3);
   });
 
   it('keeps the empty state for a connector that genuinely powers nothing', () => {
@@ -1272,7 +1315,8 @@ describe('ProductDetailPage hero reach line (§13.6)', () => {
   it('renders nothing at zero, on a connector or an application', () => {
     for (const product of [connector(), buildProduct()]) {
       const { el } = setup(product);
-      expect(el.querySelector('[slot="hero"]')!.textContent).not.toContain('Connects');
+      // The pair finder's "Connects to" label (AECI-1787) is not the reach line.
+      expect(el.querySelector('[slot="hero"]')!.textContent).not.toMatch(/Connects \d/);
       TestBed.resetTestingModule();
     }
   });
@@ -1288,14 +1332,17 @@ describe('ProductDetailPage extensions (§13.3b / AECI-710)', () => {
     name,
   });
 
-  it('puts "Built within" in the metadata sidebar, directly under Vendor', () => {
+  it('puts "Built within" in the facts card, directly under Vendor', () => {
     const { el } = setup(buildProduct({ extension_of: [listItem('salesforce', 'Salesforce')] }));
     const metadata = el.querySelector('[slot="metadata"]')!;
-    const groups = [...metadata.querySelectorAll(':scope > section')].map((s) =>
+    // AECI-1779: Vendor and Built within share the card's vendor column, in that order.
+    const groups = [...metadata.querySelectorAll('section[aria-labelledby]')].map((s) =>
       s.getAttribute('aria-labelledby'),
     );
 
     expect(groups.slice(0, 2)).toEqual(['vendor-card-title', 'built-within-title']);
+    const vendor = metadata.querySelector('[aria-labelledby="vendor-card-title"]')!;
+    expect(vendor.nextElementSibling?.getAttribute('aria-labelledby')).toBe('built-within-title');
     expect(el.querySelector('[slot="body"] [aec-product-built-within]')).toBeNull();
   });
 
@@ -1359,6 +1406,19 @@ describe('ProductDetailPage unclaimed wording (AECI-1618)', () => {
     expect(logo?.querySelector('img')?.getAttribute('width')).toBe('32');
   });
 
+  // AECI-1769: the subject's logo renders once, in the slot beside the note, and the
+  // claimed-only 64px slot never shows it.
+  it('renders an unclaimed product logo only beside the note', () => {
+    const LOGO = 'https://cdn.example.com/a.png';
+    const { fixture } = setup(buildProduct({ claim_status: 'unclaimed', logo_url: LOGO }));
+    const el = fixture.nativeElement as HTMLElement;
+    const imgs = [...el.querySelectorAll('img')].filter((i) => i.getAttribute('src') === LOGO);
+    expect(imgs).toHaveLength(1);
+    expect(imgs[0]!.closest('aec-logo-or-initial')?.nextElementSibling?.tagName).toBe(
+      'AEC-UNCLAIMED-NOTE',
+    );
+  });
+
   it('shows the wording with no logo', () => {
     const { fixture } = setup(buildProduct({ claim_status: 'unclaimed', logo_url: null }));
     expect(
@@ -1366,13 +1426,66 @@ describe('ProductDetailPage unclaimed wording (AECI-1618)', () => {
     ).toContain(WORDING);
   });
 
-  it('keeps the 64px logo and adds no wording on a claimed listing', () => {
+  // AECI-1778: the claimed logo moved into the hero band's 104px mark slot.
+  it('keeps the hero logo and adds no wording on a claimed listing', () => {
     const { fixture } = setup(
       buildProduct({ claim_status: 'claimed', logo_url: 'https://cdn.example.com/a.png' }),
     );
     const el = fixture.nativeElement as HTMLElement;
     expect(el.querySelector('aec-unclaimed-note')).toBeNull();
-    expect(el.querySelector('aec-logo-or-initial img')?.getAttribute('width')).toBe('64');
+    const mark = el.querySelector('[data-testid=product-hero-mark]');
+    expect(mark?.closest('.aec-hero-band')).not.toBeNull();
+    expect(mark?.querySelector('img')?.getAttribute('width')).toBe('104');
+  });
+
+  // AECI-1778 with the logo rule (AECI-1769): the 104px mark is the initial tile for an
+  // unclaimed product, even when the payload holds its logo. The note keeps its words.
+  it('shows the initial tile in the hero mark for an unclaimed listing', () => {
+    const { fixture } = setup(
+      buildProduct({ claim_status: 'unclaimed', logo_url: 'https://cdn.example.com/a.png' }),
+    );
+    const el = fixture.nativeElement as HTMLElement;
+    const mark = el.querySelector('[data-testid=product-hero-mark]')!;
+    expect(mark.querySelector('img')).toBeNull();
+    expect(mark.querySelector('span[aria-hidden=true]')?.textContent?.trim()).toBe('P');
+    const note = el.querySelector('.aec-hero-band aec-unclaimed-note')!;
+    expect(note.textContent?.trim()).toBe(WORDING);
+    // Bone-secondary on Forest, never the light-ground grey.
+    expect(note.classList.contains('text-(--text-on-brand-secondary)')).toBe(true);
+    expect(note.classList.contains('text-(--text-secondary)')).toBe(false);
+  });
+});
+
+// AECI-2012 (Chris, 2026-11-23): the ruling 41 trial tag is out of the sticky bar. The page no
+// longer hands the bar a claim status. An unclaimed listing keeps the full Unclaimed note in the
+// hero, under the name. A claimed listing shows neither.
+describe('ProductDetailPage Unclaimed marking: the hero note, never the bar (AECI-2012)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const marking = (product: ProductDetail) => {
+    const { fixture, el } = setup(product);
+    const nav = fixture.debugElement.query(By.directive(SectionNav));
+    expect(nav).not.toBeNull();
+    const navEl = nav.nativeElement as HTMLElement;
+    return {
+      barTakesClaim: 'claimStatus' in (nav.componentInstance as object),
+      barSaysUnclaimed: (navEl.textContent ?? '').includes('Unclaimed'),
+      heroNote: el.querySelector('aec-unclaimed-note') !== null,
+    };
+  };
+
+  it('an unclaimed listing shows the note in the hero and nothing in the bar', () => {
+    const r = marking(
+      buildProduct({ claim_status: 'unclaimed', description: 'Construction management.' }),
+    );
+    expect(r).toEqual({ barTakesClaim: false, barSaysUnclaimed: false, heroNote: true });
+  });
+
+  it('a claimed listing shows no Unclaimed marking anywhere', () => {
+    const r = marking(
+      buildProduct({ claim_status: 'claimed', description: 'Construction management.' }),
+    );
+    expect(r).toEqual({ barTakesClaim: false, barSaysUnclaimed: false, heroNote: false });
   });
 });
 
@@ -1409,18 +1522,23 @@ describe('ProductDetailPage provenance panel (AECI-1666)', () => {
     );
   const panel = (el: HTMLElement) => el.querySelector('[data-testid="listing-provenance"]')!;
 
-  it('mounts one card in the sidebar and one disclosure in the body, one test id', () => {
+  // The band shell has no sidebar (AECI-1778), so both copies sit in the last body band:
+  // the card from lg, the closed disclosure below it. Neither is in the facts card.
+  it('mounts one card and one disclosure as the last body band, one test id', () => {
     const { el } = setup(
       buildProduct({ captions: { ...CAPTIONS, description: updated('Procore Technologies') } }),
     );
     const copies = el.querySelectorAll('aec-listing-provenance');
     expect(copies).toHaveLength(2);
     expect(el.querySelectorAll('[data-testid="listing-provenance"]')).toHaveLength(1);
-    expect(panel(el).closest('aside')).not.toBeNull();
+    const band = el.querySelector('[data-testid="listing-provenance-band"]')!;
+    expect(band.parentElement?.lastElementChild).toBe(band);
+    expect(band.closest('[data-testid="product-body-bands"]')).not.toBeNull();
+    expect(panel(el).closest('aside')).toBeNull();
     expect(panel(el).querySelector('h2')?.textContent?.trim()).toBe('About this listing');
     const disclosure = Array.from(copies).find((c) => c !== panel(el))!;
     expect(disclosure.querySelector('details')?.hasAttribute('open')).toBe(false);
-    expect(disclosure.closest('aside')).toBeNull();
+    expect(disclosure.closest('[data-testid="listing-provenance-band"]')).toBe(band);
   });
 
   it('renders no inline caption anywhere outside the panel', () => {
@@ -1565,6 +1683,10 @@ describe('ProductDetailPage provenance panel (AECI-1666)', () => {
       mechanism_kind: 'native',
       context_direction: null,
       powered_by_product: null,
+      data_object_slugs: [],
+      data_objects: [],
+      partner_categories: [],
+      agreement: null,
       ...extra,
     });
     const agave = link('agave-erp-sync', 'Agave ERP Sync');
@@ -1608,8 +1730,11 @@ describe('ProductDetailPage provenance panel (AECI-1666)', () => {
           ],
         }),
       );
+      // Cards are the default view since AECI-1782. A collapsed Via row is one card.
       expect(
-        el.querySelectorAll('#integrations tbody tr[aec-product-integration-row]'),
+        el.querySelectorAll(
+          '#integrations tbody tr[aec-product-integration-row], #integrations li[aec-product-integration-card]',
+        ),
       ).toHaveLength(1);
       expect(markers(el)).toBe(1);
       expect(count(el)).toEqual(['1 value on this page is under review.']);
@@ -1643,6 +1768,10 @@ describe('ProductDetailPage provenance panel (AECI-1666)', () => {
       mechanism_kind: 'native',
       context_direction: null,
       powered_by_product: null,
+      data_object_slugs: [],
+      data_objects: [],
+      partner_categories: [],
+      agreement: null,
       ...extra,
     });
     const withNote = setup(
@@ -1690,5 +1819,600 @@ describe('ProductDetailPage values under review (AECI-1238)', () => {
   it('renders no marker when nothing is under review', () => {
     const { el } = setup(buildProduct({}));
     expect(markers(el)).toEqual([]);
+  });
+});
+
+// AECI-1778: the page sits on DetailLayout's band shell, with the Forest hero band.
+describe('ProductDetailPage band shell and hero (AECI-1778)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('renders exactly one h1, inside the hero band, holding only the product name', () => {
+    const { el } = setup(buildProduct());
+    const h1s = el.querySelectorAll('h1');
+    expect(h1s).toHaveLength(1);
+    expect(h1s[0]!.closest('.aec-hero-band')).not.toBeNull();
+    expect(h1s[0]!.textContent?.trim()).toBe('Procore');
+  });
+
+  it('mounts the band shell, with the facts card after the hero and before the nav', () => {
+    const { el } = setup(buildProduct({ description: 'A construction platform.' }));
+    expect(el.querySelector('[data-shell=bands]')).not.toBeNull();
+    const facts = el.querySelector('[data-testid=product-facts]')!;
+    expect(facts.hasAttribute('aeccard')).toBe(true);
+    const order = [
+      el.querySelector('aec-product-hero'),
+      facts,
+      el.querySelector('aec-section-nav'),
+      el.querySelector('#about'),
+      el.querySelector('#integrations'),
+    ];
+    for (let i = 1; i < order.length; i++) {
+      expect(
+        order[i - 1]!.compareDocumentPosition(order[i]!) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+  });
+
+  it('names the vendor in the hero byline, linked to its page', () => {
+    const { el } = setup(buildProduct());
+    const byline = el.querySelector('[data-testid=product-hero-vendor]')!;
+    expect(byline.textContent?.replace(/\s+/g, ' ').trim()).toBe('by Procore Technologies');
+    expect(byline.querySelector('a')?.getAttribute('href')).toBe('/vendors/procore');
+  });
+
+  it('shows no byline for a product with no vendor', () => {
+    const { el } = setup(buildProduct({ vendor: null }));
+    expect(el.querySelector('[data-testid=product-hero-vendor]')).toBeNull();
+  });
+
+  it('makes "Visit website" the one Bone button and "Write a review" the secondary', () => {
+    const { el } = setup(buildProduct());
+    const band = el.querySelector('.aec-hero-band')!;
+    const visit = band.querySelector('a[href="https://www.procore.com"]')!;
+    expect(visit.getAttribute('data-variant')).toBe('on-brand');
+    expect(visit.getAttribute('rel')).toBe('noopener nofollow');
+    expect(visit.getAttribute('target')).toBe('_blank');
+    expect(band.querySelector('aec-review-cta a')?.getAttribute('data-variant')).toBe(
+      'on-brand-secondary',
+    );
+    expect(band.querySelectorAll('[data-variant=on-brand]')).toHaveLength(1);
+    expect(band.querySelector('[data-variant=ghost]')).toBeNull();
+  });
+
+  // AECI-1720 restore C (mock-up 6, .lede): the description's first paragraph under the
+  // name, two lines at most, hidden from assistive tech because About reads it in full.
+  it('prints the description first paragraph as a two-line lede, and nothing without one', () => {
+    const { el } = setup(
+      buildProduct({ description: 'Construction management platform.\n\nA second paragraph.' }),
+    );
+    const lede = el.querySelector<HTMLElement>('[data-testid=product-hero-lede]')!;
+    expect(lede.textContent!.trim()).toBe('Construction management platform.');
+    expect(lede.className).toContain('line-clamp-2');
+    expect(lede.getAttribute('aria-hidden')).toBe('true');
+    expect(lede.closest('aec-hero-band')).not.toBeNull();
+  });
+
+  it('prints no lede without a description', () => {
+    const { el } = setup(buildProduct({ description: null }));
+    expect(el.querySelector('[data-testid=product-hero-lede]')).toBeNull();
+  });
+
+  it('pins the product hero text column to the top beside the panel (mock-up 6)', () => {
+    const { el } = setup(buildProduct());
+    const text = el.querySelector('aec-hero-band [data-testid=hero-band-text]')!;
+    expect(text.classList).toContain('lg:self-start');
+  });
+
+  it('keeps the two averages apart, each at one decimal, and the count', () => {
+    const { el } = setup(
+      buildProduct({ review_count: 12, rating_overall_avg: 4.25, rating_onboarding_avg: 3 }),
+    );
+    const ratings = el.querySelector('[data-testid=product-hero-ratings]')!;
+    const text = ratings.textContent!.replace(/\s+/g, ' ');
+    expect(text).toContain('4.3');
+    // Mock-up 6's names (AECI-1720 restore C), one name on every public page.
+    expect(text).toContain('Product quality');
+    expect(text).not.toContain('Overall');
+    expect(text).toContain('3.0');
+    expect(text).toContain('Onboarding experience');
+    expect(text).toContain('12 reviews');
+    const stars = ratings.querySelectorAll('aec-review-stars');
+    expect(stars).toHaveLength(2);
+  });
+
+  it('puts the review count in its own cell with a down arrow, a full row below sm (AECI-1720)', () => {
+    const { el } = setup(
+      buildProduct({ review_count: 12, rating_overall_avg: 4.25, rating_onboarding_avg: 3 }),
+    );
+    const ratings = el.querySelector('[data-testid=product-hero-ratings]')!;
+    // Two scores side by side on a phone, the count on its own row under a rule.
+    expect(ratings.classList).toContain('grid-cols-2');
+    expect(ratings.querySelectorAll('[data-testid=product-hero-rating-cell]')).toHaveLength(2);
+    const count = ratings.querySelector('[data-testid=product-hero-review-count]')!;
+    expect(count.classList).toContain('col-span-2');
+    expect(count.classList).toContain('border-t');
+    const link = count.querySelector('a')!;
+    expect(link.getAttribute('href')).toBe('/products/procore#reviews');
+    expect(link.querySelector('svg')).not.toBeNull();
+  });
+
+  it('fills the hero panel slot with the visual of ruling R3 (AECI-1787)', () => {
+    const { el } = setup(buildProduct());
+    const panel = el.querySelector('.aec-hero-panel')!;
+    expect(panel.querySelector('[data-testid="product-hero-visual"]')).not.toBeNull();
+    expect(panel.querySelector('[data-testid="product-pair-finder"]')).not.toBeNull();
+  });
+
+  it('puts the mailing-list band on white, so the page keeps one Bone band', () => {
+    const { el } = setup(buildProduct());
+    const section = el.querySelector('aec-mailing-list-signup section')!;
+    expect(section.classList.contains('bg-(--surface-base)')).toBe(true);
+    expect(section.classList.contains('bg-(--accent-warm)')).toBe(false);
+  });
+});
+
+describe('ProductDetailPage About band (AECI-1780)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const t = (slug: string, name = slug) => ({ id: `id-${slug}`, slug, name });
+
+  it('puts the description and "Who it is for" in #about, on the Bone lead band', () => {
+    const { el } = setup(
+      buildProduct({
+        audiences: [t('architects', 'Architects')],
+        trades: [t('electrical', 'Electrical')],
+        phases: [t('design', 'Design'), t('construction', 'Construction')],
+      }),
+    );
+    const about = el.querySelector('#about')!;
+    expect(about.closest('[slot="body-lead"]')).not.toBeNull();
+    expect(about.querySelector('[data-testid=product-description]')?.textContent?.trim()).toBe(
+      'Construction management platform.',
+    );
+    const panel = about.querySelector('[data-testid=product-who-it-is-for]')!;
+    expect(panel.querySelector('h3')?.textContent?.trim()).toBe('Who it is for');
+    // Group order is the facet sidebar's, and terms keep the API's order (phases in
+    // lifecycle order), each a chip link to its term page.
+    expect(Array.from(panel.querySelectorAll('h4')).map((h) => h.textContent?.trim())).toEqual([
+      'Audiences',
+      'Trades',
+      'Project phases',
+    ]);
+    const phases = panel.querySelector('[aria-labelledby=phases-label]')!;
+    expect(
+      Array.from(phases.querySelectorAll('a.aec-chip')).map((a) => a.getAttribute('href')),
+    ).toEqual(['/phases/design', '/phases/construction']);
+    // The facts card no longer carries any of the three groups.
+    const facts = el.querySelector('aec-product-facts-card')!;
+    for (const id of ['audiences-label', 'trades-label', 'phases-label']) {
+      expect(facts.querySelector(`#${id}`), id).toBeNull();
+    }
+  });
+
+  it('heads About with the hidden label and "About {product}", and keeps paragraph breaks (AECI-1720)', () => {
+    const { el } = setup(
+      buildProduct({
+        description:
+          'First paragraph.\n\nSecond paragraph,\nwith a line break.\n \nThird <b>x</b>.',
+        audiences: [t('a')],
+      }),
+    );
+    const about = el.querySelector('#about')!;
+    const h2 = about.querySelector('h2#description-title')!;
+    expect(h2.textContent?.trim()).toBe('About Procore');
+    const kicker = h2.previousElementSibling!;
+    expect(kicker.getAttribute('aria-hidden')).toBe('true');
+    expect(kicker.textContent?.trim()).toBe('About');
+    const paragraphs = Array.from(
+      about.querySelectorAll('[data-testid=product-description] > p'),
+    ) as HTMLElement[];
+    expect(paragraphs.map((p) => p.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
+      'First paragraph.',
+      'Second paragraph, with a line break.',
+      'Third <b>x</b>.',
+    ]);
+    // The first is the serif lead, the rest the smaller secondary size.
+    expect(paragraphs[0]!.getAttribute('data-testid')).toBe('product-description-lead');
+    expect(paragraphs[0]!.className).toContain('text-t-24');
+    expect(paragraphs[1]!.className).toContain('text-t-16');
+    // A single line break is a <br>, and stored markup stays text.
+    expect(paragraphs[1]!.querySelectorAll('br')).toHaveLength(1);
+    expect(paragraphs[2]!.querySelector('b')).toBeNull();
+    // "Who it is for" carries its intro line and a glyph on each chip.
+    const panel = about.querySelector('[data-testid=product-who-it-is-for]')!;
+    expect(panel.textContent).toContain('The teams, project phases and trades it is listed for.');
+    expect(panel.querySelector('a.aec-chip svg')).not.toBeNull();
+  });
+
+  it('keeps heading order h2, h3, h4 inside About (axe heading-order)', () => {
+    const { el } = setup(buildProduct({ audiences: [t('a')] }));
+    const tags = Array.from(el.querySelectorAll('#about h2, #about h3, #about h4')).map(
+      (h) => h.tagName,
+    );
+    expect(tags).toEqual(['H2', 'H3', 'H4']);
+  });
+
+  it('renders About for facets alone, with no description, and lists it in the nav', () => {
+    const { el } = setup(buildProduct({ description: null, audiences: [t('a')] }));
+    const about = el.querySelector('#about')!;
+    expect(about).not.toBeNull();
+    expect(about.querySelector('[data-testid=product-description]')).toBeNull();
+    expect(about.querySelector('[data-testid=product-who-it-is-for]')).not.toBeNull();
+    expect(navIds(el)[0]).toBe('about');
+  });
+
+  // Ruling 36 (2026-11-16): no empty left column beside "Who it is for".
+  const SPLIT = 'lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]';
+
+  it('gives "Who it is for" the full band width when there is no description', () => {
+    const { el } = setup(buildProduct({ description: null, audiences: [t('a')] }));
+    const about = el.querySelector('#about')!;
+    expect(about.classList).not.toContain(SPLIT);
+    expect(about.classList).toContain('grid');
+    // The heading still comes first, then the card.
+    const heading = about.querySelector('h2#description-title')!;
+    const panel = about.querySelector('[data-testid=product-who-it-is-for]')!;
+    expect(heading.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('keeps the two-column split with a description, or with its under-review line', () => {
+    const withText = setup(buildProduct({ audiences: [t('a')] })).el;
+    expect(withText.querySelector('#about')!.classList).toContain(SPLIT);
+    TestBed.resetTestingModule();
+    const hidden = setup(
+      buildProduct({ description: null, under_review: ['description'], audiences: [t('a')] }),
+    ).el;
+    expect(hidden.querySelector('#about')!.classList).toContain(SPLIT);
+  });
+
+  it('drops a facet emptied by AECi, and lists the removal in the panel', () => {
+    const { el } = setup(
+      buildProduct({
+        description: null,
+        captions: {
+          description: null,
+          profile: null,
+          usefulness: null,
+          managed: null,
+          corrections: [
+            {
+              field: 'trade_slugs',
+              date: '2026-09-15T00:00:00.000Z',
+              source_url: null,
+              cleared: true,
+            },
+          ],
+        },
+      }),
+    );
+    // AECI-1666: a facet a removal emptied disappears, heading and all. With nothing else
+    // in About the band goes too, and the removal is listed in "About this listing".
+    expect(el.querySelector('[aria-labelledby=trades-label]')).toBeNull();
+    expect(el.querySelector('#about')).toBeNull();
+    const provenance = el.querySelector('[data-testid="listing-provenance"]')!;
+    expect(provenance.textContent?.replace(/\s+/g, ' ')).toContain(
+      'Trades: Removed by AEC Integrations on September 15, 2026',
+    );
+  });
+
+  it('drops the band and its nav entry when there is no description and no facet', () => {
+    const { el } = setup(buildProduct({ description: null }));
+    expect(el.querySelector('#about')).toBeNull();
+    expect(el.querySelector('[slot="body-lead"]')).toBeNull();
+    expect(navIds(el)).not.toContain('about');
+  });
+
+  it('shows the description alone, with no empty "Who it is for" card', () => {
+    const { el } = setup(buildProduct());
+    expect(el.querySelector('#about [data-testid=product-description]')).not.toBeNull();
+    expect(el.querySelector('aec-product-who-it-is-for')).toBeNull();
+  });
+});
+
+describe('ProductDetailPage breadcrumb (AECI-1777)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('reads Home, Products, then the product as the current page', () => {
+    const { el } = setup(buildProduct());
+    expect(trail(el)).toEqual([
+      { label: 'Home', href: '/', current: false },
+      { label: 'Products', href: '/products', current: false },
+      { label: 'Procore', href: null, current: true },
+    ]);
+  });
+});
+
+// AECI-1786: a product with no integrations on record (mock-up 8). The section carries the
+// legal-reviewed strings of PLAN.md section 5.2 exactly.
+describe('ProductDetailPage zero-integration state (AECI-1786)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const HEADING = 'We have no integrations for Procore on record';
+  const CAVEAT = 'Not on record means we have not found one. It is not proof that none exists.';
+  const API_NOTE =
+    'An API is not an integration. We list an integration only when we can show that one exists.';
+  const NO_DIRECTORY = 'We have not found an integrations page published by Procore Technologies.';
+
+  const section = (el: HTMLElement) => el.querySelector<HTMLElement>('#integrations')!;
+  const squash = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
+  const directEdge = (source: ProductLink, target: ProductLink): ProductIntegrationItem => ({
+    ...edge(source, target),
+    mechanism_kind: 'native',
+    context_direction: null,
+    powered_by_product: null,
+    data_object_slugs: [],
+    data_objects: [],
+    partner_categories: [],
+    agreement: null,
+  });
+
+  it('names the section with the legal heading and prints the caveat, API note and No directory line', () => {
+    const { el } = setup(buildProduct());
+    const s = section(el);
+
+    expect(squash(s.querySelector('#integrations-title')!.textContent)).toBe(HEADING);
+    expect(s.getAttribute('aria-labelledby')).toBe('integrations-title');
+    expect(squash(s.querySelector('[data-testid=integrations-zero-caveat]')!.textContent)).toBe(
+      CAVEAT,
+    );
+    expect(squash(s.querySelector('[data-testid=integrations-zero-api-note]')!.textContent)).toBe(
+      API_NOTE,
+    );
+    expect(
+      squash(s.querySelector('[data-testid=integrations-zero-no-directory]')!.textContent),
+    ).toBe(NO_DIRECTORY);
+  });
+
+  // AECI-1720: a vendor whose name ends in a full stop ("SiteLedger Inc.") printed
+  // "Inc.." here. The legal-reviewed message is unchanged; the name gives up its stop.
+  it('ends the No directory line in one full stop when the vendor name ends in one', () => {
+    const p = buildProduct();
+    const { el } = setup(buildProduct({ vendor: { ...p.vendor!, name: 'SiteLedger Inc.' } }));
+    const line = squash(
+      section(el).querySelector('[data-testid=integrations-zero-no-directory]')!.textContent,
+    );
+    expect(line).toBe('We have not found an integrations page published by SiteLedger Inc.');
+    expect(line).not.toContain('..');
+  });
+
+  it('carries the kicker over the legal heading, as a paragraph, not a heading (AECI-1720)', () => {
+    const { el } = setup(buildProduct());
+    const kicker = section(el).querySelector('[data-testid=integrations-kicker]')!;
+    expect(kicker.tagName).toBe('P');
+    expect(squash(kicker.textContent)).toBe('Integrations on record');
+  });
+
+  it('heads the vendor card "From {vendor}" with one line on what its links are (AECI-1720)', () => {
+    const { el } = setup(buildProduct({ api_docs_url: 'https://developer.procore.com' }));
+    const vendor = section(el).querySelector('[data-testid=integrations-zero-vendor]')!;
+    expect(squash(vendor.querySelector('#integrations-zero-resources')!.textContent)).toBe(
+      'From Procore Technologies',
+    );
+    expect(
+      squash(vendor.querySelector('[data-testid=integrations-zero-vendor-intro]')!.textContent),
+    ).toBe('What the vendor publishes about connecting to Procore.');
+  });
+
+  it('never says the product "does not integrate"', () => {
+    const { el } = setup(buildProduct());
+    expect(el.textContent).not.toMatch(/does not integrate|doesn.t integrate/i);
+  });
+
+  it('opens the existing correction request from "It does exist"', () => {
+    const { el } = setup(buildProduct());
+    const button = section(el).querySelector<HTMLAnchorElement>(
+      '[data-testid=integrations-zero-correction]',
+    )!;
+
+    expect(squash(button.textContent)).toBe('It does exist');
+    // The routed fallback form is the one every "suggest a correction" link uses.
+    expect(button.getAttribute('href')).toBe('/products/procore/correction');
+  });
+
+  // Ruling 51, option A (2026-11-16): the STAGE_1_5_SPEC.md section 11.4 heading and line
+  // sit directly above the button, in one group, and the line describes the button.
+  it('puts "Know of one?" and its line directly above "It does exist", and the line describes the button', () => {
+    const { el } = setup(buildProduct());
+    const group = section(el).querySelector<HTMLElement>('[data-testid=integrations-zero-know]')!;
+    const children = [...group.children];
+
+    // The button sits in its own wrapper at the card's foot (mock-up 8, .know .acts).
+    expect(children.map((c) => c.tagName)).toEqual(['H3', 'P', 'DIV']);
+    expect(squash(children[0]!.textContent)).toBe('Know of one?');
+    expect(squash(children[1]!.textContent)).toBe(
+      'Tell us where you saw it and we will look at it.',
+    );
+    const button = children[2]!.firstElementChild as HTMLAnchorElement;
+    expect(button.getAttribute('data-testid')).toBe('integrations-zero-correction');
+    const described = el.querySelector('#' + button.getAttribute('aria-describedby'));
+    expect(described).toBe(children[1]);
+    // The label is unchanged: the description adds to the name, it does not replace it.
+    expect(squash(button.textContent)).toBe('It does exist');
+  });
+
+  // AECI-1720 restore C (mock-up 8, .know): the group is the page's one Forest feature
+  // card, with Bone ink and the Bone main button.
+  it('draws "Know of one?" as the one Forest feature card, with the Bone main button', () => {
+    const { el } = setup(buildProduct());
+    const card = section(el).querySelector<HTMLElement>('[data-testid=integrations-zero-know]')!;
+    expect(card.className).toContain('bg-(--accent-primary)');
+    expect(card.className).toContain('text-(--text-on-brand)');
+    expect(card.className).toContain('rounded-card');
+    expect(card.className).toContain('shadow-card');
+    const button = card.querySelector('[data-testid=integrations-zero-correction]')!;
+    expect(button.getAttribute('data-variant')).toBe('on-brand');
+    // One Forest feature card per page: nothing else in the page body takes the fill.
+    const forest = [...el.querySelectorAll<HTMLElement>('[class*="bg-(--accent-primary)"]')].filter(
+      (node) => !node.closest('aec-hero-band') && node.classList.contains('aec-card'),
+    );
+    expect(forest).toEqual([card]);
+  });
+
+  it('keeps the outline: the section h2, then the h3 "Know of one?" before the h3 vendor card', () => {
+    const { el } = setup(buildProduct({ api_docs_url: 'https://developer.procore.com' }));
+    const headings = [...section(el).querySelectorAll('h2, h3')].map(
+      (h) => `${h.tagName} ${squash(h.textContent)}`,
+    );
+    expect(headings).toEqual([
+      'H2 We have no integrations for Procore on record',
+      'H3 Know of one?',
+      'H3 From Procore Technologies',
+    ]);
+  });
+
+  it('drops the filter panel, the Cards or Table toggle, the scope note and the old empty line', () => {
+    const { el } = setup(buildProduct());
+    const s = section(el);
+
+    expect(s.querySelector('[data-testid=integrations-filter-panel]')).toBeNull();
+    expect(s.querySelector('aec-listing-view-toggle')).toBeNull();
+    expect(s.textContent).not.toContain('Only partners listed');
+    expect(s.textContent).not.toContain('No integrations recorded yet');
+    expect(s.textContent).not.toContain('Integrations (0)');
+  });
+
+  it('keeps Integrations in the section nav and drops the absent Extensions entry', () => {
+    const { el } = setup(buildProduct());
+    expect(navIds(el)).toContain('integrations');
+    expect(navIds(el)).not.toContain('extensions');
+  });
+
+  it("lists the vendor's own links with the facts card's labels, and then no No directory line", () => {
+    const { el } = setup(
+      buildProduct({
+        api_docs_url: 'https://developer.procore.com',
+        tool_integrations_url: 'https://marketplace.procore.com',
+      }),
+    );
+    const vendor = section(el).querySelector<HTMLElement>(
+      '[data-testid=integrations-zero-vendor]',
+    )!;
+
+    const links = [...vendor.querySelectorAll<HTMLAnchorElement>('a[target=_blank]')];
+    expect(links.map((a) => a.getAttribute('href'))).toEqual([
+      'https://marketplace.procore.com',
+      'https://developer.procore.com',
+    ]);
+    expect(links.every((a) => a.getAttribute('rel') === 'noopener nofollow')).toBe(true);
+    expect(squash(vendor.textContent)).toContain('Integrations page');
+    expect(squash(vendor.textContent)).toContain('API documentation');
+    expect(vendor.querySelector('[data-testid=integrations-zero-no-directory]')).toBeNull();
+    expect(squash(vendor.textContent)).toContain(API_NOTE);
+  });
+
+  it('shows the No directory line with API docs but no integrations page', () => {
+    const { el } = setup(buildProduct({ api_docs_url: 'https://developer.procore.com' }));
+    expect(squash(section(el).textContent)).toContain(NO_DIRECTORY);
+  });
+
+  it('holds the No directory line while AECi checks a hidden integrations page link', () => {
+    const { el } = setup(buildProduct({ under_review: ['tool_integrations_url'] }));
+    expect(section(el).querySelector('[data-testid=integrations-zero-no-directory]')).toBeNull();
+  });
+
+  it('lists a link AECi corrected in the panel, not in the zero card', () => {
+    const { el } = setup(
+      buildProduct({
+        tool_integrations_url: 'https://marketplace.procore.com',
+        captions: {
+          description: null,
+          profile: null,
+          usefulness: null,
+          managed: null,
+          corrections: [
+            {
+              field: 'tool_integrations_url',
+              date: '2026-09-15T00:00:00.000Z',
+              source_url: null,
+              cleared: false,
+            },
+          ],
+        },
+      }),
+    );
+    const vendor = section(el).querySelector('[data-testid=integrations-zero-vendor]')!;
+    // AECI-1666: the correction line is in "About this listing", not beside the link.
+    expect(vendor.querySelector('[data-testid=field-correction]')).toBeNull();
+    const provenance = el.querySelector('[data-testid="listing-provenance"]')!;
+    expect(
+      squash(provenance.querySelector('[data-testid=field-correction]')?.textContent),
+    ).toContain('Corrected by AEC Integrations');
+    // AECI-1720: a corrected link is AECi's value, so the card does not call its links
+    // the vendor's. It keeps the facts card's "Resources" and drops the vendor line.
+    expect(squash(vendor.querySelector('#integrations-zero-resources')!.textContent)).toBe(
+      'Resources',
+    );
+    expect(vendor.querySelector('[data-testid=integrations-zero-vendor-intro]')).toBeNull();
+    expect(vendor.textContent).not.toContain('What the vendor publishes');
+  });
+
+  it('holds the No directory line when AECi removed the integrations page link', () => {
+    const { el } = setup(
+      buildProduct({
+        captions: {
+          description: null,
+          profile: null,
+          usefulness: null,
+          managed: null,
+          corrections: [
+            {
+              field: 'tool_integrations_url',
+              date: '2026-09-15T00:00:00.000Z',
+              source_url: null,
+              cleared: true,
+            },
+          ],
+        },
+      }),
+    );
+    expect(section(el).querySelector('[data-testid=integrations-zero-no-directory]')).toBeNull();
+    // The heading and caveat still render.
+    expect(section(el).querySelector('[data-testid=integrations-zero-caveat]')).not.toBeNull();
+  });
+
+  it('holds the No directory line when the product has no vendor to name', () => {
+    const { el } = setup(buildProduct({ vendor: null }));
+    expect(section(el).querySelector('[data-testid=integrations-zero-no-directory]')).toBeNull();
+    // The heading and caveat still render.
+    expect(squash(section(el).querySelector('#integrations-title')!.textContent)).toBe(HEADING);
+  });
+
+  it('agrees with the facts card, which keeps its own zero words', () => {
+    const { el } = setup(buildProduct());
+    const card = el.querySelector('[data-testid=product-facts-count]')!;
+    expect(squash(card.textContent)).toContain(HEADING);
+    expect(squash(card.textContent)).toContain(CAVEAT);
+  });
+
+  it('is not the zero state when a stored zero sits over listed rows', () => {
+    const { el } = setup(
+      buildProduct({ integrations_as_source: [directEdge(procore, acumatica)] }),
+    );
+    expect(squash(section(el).querySelector('#integrations-title')!.textContent)).toBe(
+      'Integrations',
+    );
+    expect(section(el).querySelector('[data-testid=integrations-zero-caveat]')).toBeNull();
+  });
+
+  it('is not the zero state on a connector that powers edges', () => {
+    const { el } = setup(connector({ integrations_as_connector: [edge(procore, acumatica)] }));
+    expect(section(el).textContent).not.toContain('We have no integrations for');
+    expect(section(el).textContent).toContain('No integrations recorded yet');
+  });
+
+  it('is not the zero state when the reach line reports pairs reachable via connectors', () => {
+    const { el } = setup(buildProduct({ reachable_pair_count: 2 }));
+    const s = section(el);
+
+    expect(squash(s.querySelector('#integrations-title')!.textContent)).toBe('Integrations');
+    expect(s.querySelector('[data-testid=integrations-zero-caveat]')).toBeNull();
+    expect(s.textContent).not.toContain('We have no integrations for');
+    expect(squash(s.textContent)).toContain('2 pairs reachable via connectors');
+  });
+
+  it('is not the zero state when the stored count is above zero', () => {
+    const { el } = setup(buildProduct({ integration_count: 3 }));
+    expect(section(el).querySelector('[data-testid=integrations-zero-caveat]')).toBeNull();
+    expect(section(el).textContent).toContain('No integrations recorded yet');
   });
 });

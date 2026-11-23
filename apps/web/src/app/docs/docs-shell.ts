@@ -57,6 +57,9 @@ import { filter, map } from 'rxjs';
 
 import { DOCS_SECTIONS, type DocsGuide, type DocsPage, type DocsSection } from './docs-content';
 import { DocsSearchComponent } from './docs-search';
+import { AecButton } from '../shared/button/button';
+import { AecBreadcrumb, type BreadcrumbItem } from '../shared/breadcrumb/breadcrumb';
+import { AecIcon } from '../shared/icon/icon';
 
 export interface Crumb {
   readonly label: string;
@@ -86,26 +89,43 @@ export interface GuideLink {
   readonly label: string;
 }
 
-/** Sidebar link: muted text, a grey pill when current. */
+/**
+ * Sidebar link: muted text, a sunken pill when current. 44px tall at the least
+ * (AECI-1803), `rounded-mark`, weight 400 and 600 only (DESIGN.md §3), and the
+ * 3px Forest ring at a 3px offset. The panel's padding leaves the ring room.
+ * The 44px rows touch: the lists add no gap between rows or between sections
+ * (AECI-1720 layout pass), so the tree is as dense as the target allows.
+ */
 const TREE_LINK =
-  'block rounded-md px-3 py-1.5 text-sm leading-snug text-(--text-secondary) transition-colors ' +
-  'hover:text-(--text-primary) focus-visible:outline-2 focus-visible:-outline-offset-2 ' +
-  'focus-visible:outline-(--accent-primary) aria-[current=page]:bg-(--surface-sunken) ' +
-  'aria-[current=page]:font-medium aria-[current=page]:text-(--text-primary)';
+  'flex min-h-11 items-center rounded-mark px-3 py-2 text-t-14 leading-snug text-(--text-secondary) ' +
+  'transition-colors duration-fast ease-standard hover:text-(--text-primary) ' +
+  'focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary) ' +
+  'aria-[current=page]:bg-(--surface-sunken) aria-[current=page]:font-semibold ' +
+  'aria-[current=page]:text-(--text-primary)';
 
 /**
  * Guide toggle link: the `.aec-nav-tab` underline, which `styles.css` keys off
- * `aria-current` (the global border-color rule beats a utility colour).
+ * `aria-current` (the global border-color rule beats a utility colour). 44px
+ * tall, weight 400 at rest and 600 when current, as the section nav does.
  */
 const GUIDE_LINK =
-  'aec-nav-tab -mb-px block border-b-2 py-2 text-sm font-medium text-(--text-secondary) ' +
-  'transition-colors hover:text-(--text-primary) focus-visible:rounded-sm ' +
-  'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--accent-primary) ' +
+  'aec-nav-tab -mb-px flex min-h-11 items-center border-b-2 text-t-14 text-(--text-secondary) ' +
+  'transition-colors duration-fast ease-standard hover:text-(--text-primary) ' +
+  'focus-visible:rounded-mark focus-visible:outline-3 focus-visible:outline-offset-3 ' +
+  'focus-visible:outline-(--accent-primary) aria-[current=true]:font-semibold ' +
   'aria-[current=true]:text-(--text-primary)';
 
 @Component({
   selector: 'app-docs-shell',
-  imports: [DocsSearchComponent, RouterLink, RouterLinkActive, RouterOutlet],
+  imports: [
+    AecBreadcrumb,
+    AecButton,
+    AecIcon,
+    DocsSearchComponent,
+    RouterLink,
+    RouterLinkActive,
+    RouterOutlet,
+  ],
   host: {
     class: 'block border-t border-(--border-default)',
     // On the host, not the panel: a key handler on a non-focusable element fails
@@ -118,56 +138,26 @@ const GUIDE_LINK =
         class="flex min-h-12 items-center gap-3 border-b border-(--border-default) px-4 py-2 md:px-6 lg:col-start-2 lg:row-start-1 lg:px-8"
       >
         <button
+          aecButton
+          variant="secondary"
+          iconOnly
           #menuButton
           type="button"
-          class="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-md border border-(--border-default) text-(--text-primary) transition-colors hover:bg-(--surface-muted) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) lg:hidden"
+          class="lg:hidden"
           aria-controls="docs-nav-panel"
           [attr.aria-expanded]="menuOpen()"
           i18n-aria-label="@@app.docs.nav.toggle.aria"
           aria-label="Docs menu"
           (click)="menuOpen.set(!menuOpen())"
         >
-          <svg
-            aria-hidden="true"
-            class="h-4.5 w-4.5"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <rect width="18" height="18" x="3" y="3" rx="2" />
-            <path d="M9 3v18" />
-          </svg>
+          <aec-icon name="panel-left" decorative [size]="5" [mirrorRtl]="true" />
         </button>
 
-        <nav class="min-w-0" i18n-aria-label="@@app.docs.breadcrumbs.aria" aria-label="Breadcrumb">
-          <ol class="flex min-w-0 items-center gap-2 text-sm">
-            @for (crumb of location().crumbs; track $index) {
-              <li class="flex min-w-0 items-center gap-2">
-                @if (!$first) {
-                  <span aria-hidden="true" class="text-(--text-tertiary)">/</span>
-                }
-                @if (crumb.path; as path) {
-                  <a
-                    [routerLink]="path"
-                    class="truncate rounded-sm text-(--text-secondary) transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                    >{{ crumb.label }}</a
-                  >
-                } @else {
-                  <span aria-current="page" class="truncate font-medium text-(--text-primary)">{{
-                    crumb.label
-                  }}</span>
-                }
-              </li>
-            }
-          </ol>
-        </nav>
+        <aec-breadcrumb class="min-w-0" [items]="trail()" [truncate]="true" />
 
         @if (location().page; as page) {
           <p
-            class="ms-auto hidden shrink-0 text-sm text-(--text-secondary) sm:block"
+            class="ms-auto hidden shrink-0 text-t-14 text-(--text-secondary) sm:block"
             i18n="@@app.docs.lastUpdated"
           >
             Last updated {{ page.lastUpdated }}
@@ -180,10 +170,10 @@ const GUIDE_LINK =
         class="border-b border-(--border-default) bg-(--surface-raised) lg:col-start-1 lg:row-span-2 lg:row-start-1 lg:block lg:border-e lg:border-b-0"
         [class.hidden]="!menuOpen()"
       >
-        <div class="px-3 py-4 lg:sticky lg:top-0 lg:max-h-dvh lg:overflow-y-auto lg:py-6">
+        <div class="px-4 py-4 lg:sticky lg:top-0 lg:max-h-dvh lg:overflow-y-auto lg:py-6">
           <!-- The guide toggle (AECI-1271). Current guide from the URL alone. -->
           <nav class="mb-4" i18n-aria-label="@@app.docs.guide.aria" aria-label="Guides">
-            <ul class="flex gap-5 border-b border-(--border-default) px-3">
+            <ul class="flex gap-6 border-b border-(--border-default) px-3">
               @for (link of guideLinks; track link.guide) {
                 <li [attr.data-guide-link]="link.guide">
                   <a
@@ -202,7 +192,9 @@ const GUIDE_LINK =
           <!-- Two trees, one per guide, picked from the URL alone (AECI-1265), so
                the SSR HTML is the same for every visitor of a page. -->
           <nav [attr.aria-label]="navLabel()" [attr.data-guide]="location().guide">
-            <ul class="space-y-0.5">
+            <!-- AECI-1720 layout pass: rows touch. Each link is still a 44px target,
+                 with no margin between rows or between sections. -->
+            <ul>
               @if (location().guide === 'help') {
                 <li>
                   <a
@@ -228,9 +220,7 @@ const GUIDE_LINK =
                     >{{ section.label }}</a
                   >
                   @if (entry.children.length > 0) {
-                    <ul
-                      class="ms-3 mt-0.5 mb-2 space-y-0.5 border-s border-(--border-default) ps-2"
-                    >
+                    <ul class="ms-3 border-s border-(--border-default) ps-2">
                       @for (page of entry.children; track page.slug) {
                         <li>
                           <a
@@ -287,6 +277,11 @@ export class DocsShellComponent {
   );
 
   protected readonly location = computed<DocsLocation>(() => locate(this.path()));
+
+  /** The top-bar trail for the shared breadcrumb. A crumb with no path is text. */
+  protected readonly trail = computed<BreadcrumbItem[]>(() =>
+    this.location().crumbs.map((crumb) => ({ label: crumb.label, link: crumb.path })),
+  );
 
   /** The current guide's sections, as sidebar items. */
   protected readonly tree = computed<readonly TreeSection[]>(() =>

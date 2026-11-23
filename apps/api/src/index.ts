@@ -197,6 +197,7 @@ import { createHealthHandler } from './routes/health';
 import {
   createIntegrationDetailHandler,
   createIntegrationsListHandler,
+  createPairAlternativesHandler,
   createPairTimelineHandler,
   createProductPairHandler,
 } from './routes/integrations';
@@ -461,6 +462,12 @@ phase28.get('/api/products/:slug/integrations/:otherSlug', createProductPairHand
 // Lazy and browser-fetched on demand, never by SSR: history is the gateable depth,
 // so it must not land in the pair page's shared edge-cache entry.
 phase28.get('/api/products/:slug/integrations/:otherSlug/timeline', createPairTimelineHandler());
+// AECI-341 / AECI-1829 / AECI-1830: the empty pair page's alternatives (moving, closest
+// matches). SSR fetches it for an empty pair only; it reads no visitor and no plan.
+phase28.get(
+  '/api/products/:slug/integrations/:otherSlug/alternatives',
+  createPairAlternativesHandler(),
+);
 
 phase28.get('/api/vendors', createVendorsListHandler());
 phase28.get('/api/vendors/:slug', createVendorDetailHandler());

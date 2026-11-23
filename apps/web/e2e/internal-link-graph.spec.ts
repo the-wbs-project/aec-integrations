@@ -192,7 +192,7 @@ const ENTITY_BROWSE_TYPES: PageType[] = [
   'category-browse',
   'discipline-browse',
   'phase-browse',
-  // AECI-544. Reachable from the `/trades` index, the nav flyout, and the
+  // AECI-544. Reachable from the `/trades` index, the header Browse menu, and the
   // product-detail trade chips — but ONLY once at least one trade clears the
   // publication floor, so it is asserted alongside the other browse types on a
   // seeded catalog (see `apps/api/seed/catalog.sql`).
@@ -328,7 +328,7 @@ interface SeedInfo {
   audiencesWithProducts: number; // audience terms a product actually links
   phasesWithProducts: number;
   // Trades use the PUBLICATION floor, not `> 0` (AECI-546): a sub-floor term is
-  // absent from the `/trades` grid and the nav flyout, so it is unreachable by
+  // absent from the `/trades` grid and the header Browse menu, so it is unreachable by
   // design. Only a published term is a linkable destination.
   publishedTrades: number;
 }
@@ -404,7 +404,7 @@ function hasData(seed: SeedInfo, type: PageType): boolean {
     case 'phase-browse':
       return seed.products > 0 && seed.phasesWithProducts > 0;
     // AECI-546 — the publication floor, not `> 0`. A sub-floor trade is hidden
-    // from the `/trades` grid and the nav flyout by design, so it is genuinely
+    // from the `/trades` grid and the header Browse menu by design, so it is genuinely
     // unreachable and asserting on it would be wrong. Before this case existed
     // the type fell through to `default: false` and was skipped unconditionally,
     // which silently defeated its own presence in `ENTITY_BROWSE_TYPES`.

@@ -13,11 +13,25 @@
  *
  * **Static + edge-cache / SSR-safe.** No data fetch, no per-visitor state, and no
  * client JS — all three pillars render into cacheable, visitor-state-neutral HTML,
- * identical for every visitor. The hover lift is pure CSS (neutralised under
- * `prefers-reduced-motion` by the global rule in styles.css), so there is no
- * auto-motion and therefore no pause control to reason about. Cards are a real
- * `<ul>`/`<li>` list with a visible `<h3>` each, keeping a valid heading order
- * under the section `<h2>`.
+ * identical for every visitor. Cards are a real `<ul>`/`<li>` list with a visible
+ * `<h3>` each, keeping a valid heading order under the section `<h2>`.
+ *
+ * **Design (AECI-1800).** A bare `<section>`: `/about` owns the white band and the
+ * page wrap around it. Forest may fill only the header, a detail page hero, the
+ * footer and one feature card (DESIGN.md §2), so the band left its mid-page Forest
+ * ground. The head row is the home argument band's 5:7 split (overline and the
+ * Section-role `<h2>` left, the lede right).
+ *
+ * **The page's one Forest feature card (Chris, ruling 2026-11-17).** The three
+ * commitments are the three points of one Forest card, in their shipped order. The
+ * card copies the recipe of the home page's "What we do instead" card in
+ * `home-why.ts` (AECI-1792): `aec-card`, Forest fill, Bone ink, `shadow-card`,
+ * `rounded-card`, 32px padding (48px from `lg`), and the points in columns split by
+ * `aec-on-brand-rule` hairlines. The classes are reused, not extracted: the home
+ * card also carries an icon tile, a card heading and a button, so a shared component
+ * would have to be reshaped around both and the home page would move. The pillars
+ * have no link today, so the card has no button and no focus stop. The closing line
+ * stays on white under the card. The Clay top stripe and the hover lift are gone.
  *
  * Light theme only (Stage 1). Copy is authored with `$localize` so it stays
  * i18n-extractable in one place.
@@ -36,35 +50,50 @@ interface Pillar {
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
-    <section class="border-y border-(--accent-primary-hover) bg-(--accent-primary)">
-      <div class="mx-auto max-w-7xl px-6 py-16 md:px-8 md:py-20">
-        <div class="max-w-2xl">
-          <p class="aec-overline text-(--accent-secondary)" i18n="@@home.trust.eyebrow">
+    <section>
+      <div class="grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-16">
+        <div>
+          <p class="aec-overline text-(--text-secondary)" i18n="@@home.trust.eyebrow">
             Our commitment
           </p>
-          <h2
-            class="mt-3 font-display text-3xl font-normal leading-[1.1] tracking-[-0.01em] text-(--surface-base) md:text-4xl"
-            i18n="@@home.trust.headline"
-          >
-            Trust is the product
+          <h2 class="mt-3 text-(--text-primary)">
+            <span
+              class="block text-t-36 leading-[1.1] tracking-[-0.02em]"
+              i18n="@@home.trust.headline"
+              >Trust is the product</span
+            >
           </h2>
-          <p class="mt-4 text-lg leading-relaxed text-(--surface-base)/80">{{ lede }}</p>
         </div>
+        <p class="max-w-[36em] text-t-20 leading-normal text-(--text-secondary)">
+          {{ lede }}
+        </p>
+      </div>
 
-        <ul class="mt-12 grid gap-4 md:grid-cols-3">
+      <!-- The page's one Forest feature card (ruling 2026-11-17). The recipe of the
+           home page's "What we do instead" card: Forest fill, Bone ink, the card
+           shadow, 24px corners, the points in columns split by on-brand hairlines.
+           It holds no link or button, so it needs no focus ring of its own. -->
+      <div
+        data-testid="about-trust-card"
+        class="aec-card mt-12 rounded-card border bg-(--accent-primary) p-8 text-(--text-on-brand) shadow-card lg:p-12"
+      >
+        <ul class="grid gap-8 md:grid-cols-3">
           @for (p of pillars; track p.id) {
             <li
-              class="relative flex flex-col rounded-(--radius-lg) bg-(--surface-base) p-6 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg"
+              class="aec-on-brand-rule max-md:not-first:border-t max-md:not-first:pt-8 md:not-first:border-s md:not-first:ps-8"
             >
-              <span class="absolute inset-x-0 top-0 h-1 bg-(--accent-secondary)"></span>
-              <h3 class="font-display text-xl leading-snug text-(--text-primary)">{{ p.title }}</h3>
-              <p class="mt-3 text-sm leading-relaxed text-(--text-secondary)">{{ p.body }}</p>
+              <h3 class="text-(--text-on-brand)">{{ p.title }}</h3>
+              <p class="mt-2 text-t-16 leading-relaxed text-(--text-on-brand-secondary)">
+                {{ p.body }}
+              </p>
             </li>
           }
         </ul>
-
-        <p class="mt-8 max-w-3xl text-sm leading-relaxed text-(--surface-base)/70">{{ closing }}</p>
       </div>
+
+      <p class="mt-8 max-w-[70ch] text-t-14 leading-relaxed text-(--text-secondary)">
+        {{ closing }}
+      </p>
     </section>
   `,
 })

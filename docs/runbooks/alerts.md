@@ -533,7 +533,7 @@ Companion signals: `aeci.stats.compute{outcome:success|partial|failed}` (job rol
 07:00 UTC = 02:00 EST) recomputes the eleven `home.*` `stats_cache` rows. Each
 key computes/validates/upserts independently, so a single failed key leaves **that** cached value
 stale (or absent) while the rest refresh — e.g. a failed `home.popular_products` keeps yesterday's
-"Popular:" row. The home page never errors; it just serves the last good numbers. The "not running" freshness
+"Most viewed" row. The home page never errors; it just serves the last good numbers. The "not running" freshness
 alert means no completed run reported in ~26h — a **missed daily run**, so `computed_at` for the
 `home.*` keys is going stale with no page-level symptom.
 
@@ -593,10 +593,10 @@ monitor exists to surface the regression *before* the home page changes. (Distin
 stats compute failed": there the compute job breaks; here the upstream data the compute reads stops
 arriving.)
 
-An empty `home.popular_products` switches the hero's "Popular:" row to the five largest categories
+An empty `home.popular_products` switches the hero's "Most viewed" row to the five largest categories
 (AECI-1572). That happens by design when no product clears the `TRENDING_MIN_VIEWS` floor (currently 3)
 in a low-traffic window, so category links there look the same as a write regression. That is why this write-rate metric, not the home's appearance,
-is the alerting signal. Corollary when triaging: a short "Popular:" row, or one that names categories, is **not** on its own
+is the alerting signal. Corollary when triaging: a short "Most viewed" row, or one that names categories, is **not** on its own
 evidence of a page-views regression; confirm against `aeci.pageviews.write{outcome:failed}`.
 
 **First checks**
@@ -2421,7 +2421,7 @@ production. Each run needs Chris's go-ahead on the day.
 version, unless Chris rules on that bump that it is not needed. The consumer accepts days up to 370
 days old, so "full history" starts at the later of the earliest surviving day and that limit.
 `home.popular_products` counts only views with a row at the current version (AECI-1586). Without a backfill of at least the trailing 30 days,
-the next home stats recompute writes `[]`. The home's "Popular:" row then names categories, and
+the next home stats recompute writes `[]`. The home's "Most viewed" row then names categories, and
 rebuilds from one day of views at a time.
 
 **How it works.** The script sends one `traffic_classify` message carrying

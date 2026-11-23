@@ -277,6 +277,7 @@ import {
                 <li [attr.aria-labelledby]="'group-' + group.key">
                   <div class="flex items-center gap-3 px-5 pt-4 pb-1">
                     <aec-logo-or-initial
+                      [claimStatus]="'stored'"
                       [src]="group.otherProduct.logo_url"
                       [name]="group.otherProduct.name"
                       size="sm"
@@ -316,6 +317,7 @@ import {
       >
         @if (!nested) {
           <aec-logo-or-initial
+            [claimStatus]="'stored'"
             [src]="integration.other_product.logo_url"
             [name]="integration.other_product.name"
             size="sm"

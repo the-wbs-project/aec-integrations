@@ -77,6 +77,46 @@ export async function lookUpRedirect<T>(lookup: () => Promise<T | null>): Promis
 }
 
 /**
+ * The pair-page path a moved pair redirects to. One spelling for both branches, so the
+ * `Location` header and the client-side `navigateByUrl` can never disagree.
+ *
+ * The API has already oriented the two slugs for the requesting URL, so this does NOT
+ * canonicalise them — the endpoint the reader asked for stays in frame, and the new
+ * page's own `<link rel=canonical>` handles the alphabetical rule (§7.1/§11.2).
+ */
+export function movedPairPath(movedTo: { context_slug: string; other_slug: string }): string {
+  return `/products/${movedTo.context_slug}/integrations/${movedTo.other_slug}`;
+}
+
+/**
+ * Apply the retired-slug map to the two slugs of a pair URL (AECI-991).
+ *
+ * `null` when neither slug is mapped (the ordinary case — most pair 404s are junk),
+ * or when the rewrite would name a pair whose two endpoints are the same product.
+ *
+ * Both lookups go out in ONE wave. They are independent, this request has already
+ * decided to 404, and serialising them would double the latency of a page nobody is
+ * being shown.
+ */
+export async function rewriteRetiredPairSlugs(
+  contextSlug: string,
+  otherSlug: string,
+  lookup: (slug: string) => Promise<{ to_slug: string } | null>,
+): Promise<{ context_slug: string; other_slug: string } | null> {
+  const [context, other] = await Promise.all([
+    lookUpRedirect(() => lookup(contextSlug)),
+    lookUpRedirect(() => lookup(otherSlug)),
+  ]);
+  if (!context && !other) return null;
+  const nextContext = context?.to_slug ?? contextSlug;
+  const nextOther = other?.to_slug ?? otherSlug;
+  // A merge whose survivor is the pair's OTHER endpoint — the two products are now
+  // one, there is no pair, and the API 404s equal slugs by definition.
+  if (nextContext === nextOther) return null;
+  return { context_slug: nextContext, other_slug: nextOther };
+}
+
+/**
  * `Cache-Control` for a retired-slug 301 (AECI-978).
  *
  * The same `public, max-age=3600, s-maxage=86400` every other permanent redirect in

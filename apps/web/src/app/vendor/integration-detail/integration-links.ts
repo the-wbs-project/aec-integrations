@@ -58,6 +58,7 @@ import {
   ROW_ACTION,
 } from './integration-detail-styles';
 import { VendorTip } from './vendor-tip';
+import { isReplayedEvent } from '../../core/event-replay';
 
 type RecordField = Extract<OfferedContestField, 'listing_url' | 'docs_url'>;
 
@@ -133,6 +134,7 @@ const PENCIL =
               <dd class="flex min-h-8 min-w-0 flex-wrap items-center gap-2">
                 @if (editing() === 'record:' + field) {
                   <form
+                    method="dialog"
                     class="flex min-w-0 flex-1 flex-wrap items-center gap-2"
                     [attr.aria-label]="editLabel(fieldLabel(field))"
                     (submit)="saveRecord($event, field)"
@@ -367,6 +369,7 @@ const PENCIL =
                   <dd class="flex min-h-8 min-w-0 flex-wrap items-center gap-2">
                     @if (editing() === target) {
                       <form
+                        method="dialog"
                         class="flex min-w-0 flex-1 flex-wrap items-center gap-2"
                         [attr.aria-label]="editForLabel(kind.label, group.product.name)"
                         (submit)="saveSide($event, group, kind.key)"
@@ -697,6 +700,7 @@ export class IntegrationLinksSection {
 
   /** The record links: `PATCH`, one field, the shared edit rule first. */
   protected async saveRecord(event: Event, field: RecordField): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.busy()) return;
     const raw = this.draft().trim();
@@ -748,6 +752,7 @@ export class IntegrationLinksSection {
     group: SideGroup,
     kind: IntegrationLinkKind,
   ): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.busy()) return;
     const value = this.draft().trim();

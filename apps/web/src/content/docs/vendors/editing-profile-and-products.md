@@ -122,7 +122,7 @@ Your headquarters, founded year, company size, ownership, parent company and fun
 
 ## What readers see
 
-Each product page has one "About this listing" panel. It sits in the side column on a wide screen. On a narrow screen it sits at the end of the page, closed until a reader opens it. Its first line reads "AEC Integrations maintained" until you edit the listing or mark it as checked. Then it reads "Vendor maintained · Updated (date)". After it, one line per group of fields says who wrote it:
+Each product page has one "About this listing" panel. It sits at the end of the page. On a narrow screen it is closed until a reader opens it. Its first line reads "AEC Integrations maintained" until you edit the listing or mark it as checked. Then it reads "Vendor maintained · Updated (date)". After it, one line per group of fields says who wrote it:
 
 - **"Maintained by (your company) · updated (date)"** covers your product description, your website and categories, "How teams use it", and the Managed group (trades, audiences, phases and the two links under Resources). Each line names its group. The date is the last time you changed a value in that group. Saving without changing anything does not move it, and neither does "Looks right".
 - **"Maintained by (your company) until (date)"** replaces it on "How teams use it" and the Managed group when the product's subscription ends. Your description, website and categories stay on "updated", because you can still edit them on Free.

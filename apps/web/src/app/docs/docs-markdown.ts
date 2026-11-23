@@ -24,8 +24,18 @@
  * and the page template renders that widget's component in its place. Only ids
  * in `DOCS_WIDGETS` are allowed; any other `docs:` directive throws at module
  * init, so a typo cannot ship as a silent gap.
+ *
+ * **Tables scroll in their own box (AECI-1918).** Each table is wrapped in a
+ * `div.aec-prose-table-scroll`, so a table wider than a phone scrolls inside
+ * the wrapper and the page stays still. The table keeps `display: table`, so a
+ * screen reader still reads it as a table. The wrapper is markup only: the
+ * words, their order and the links do not change. `class` survives Angular's
+ * sanitizer. The keyboard stop and the accessible name are set in the browser,
+ * only when the table overflows (`shared/prose-blocks/prose-table-scroll.ts`).
+ * The wrapping runs on a private `Marked` instance, so the global `marked` that
+ * `legal-render.ts` and the specs compare versions with is untouched.
  */
-import { type Token, type Tokens, marked } from 'marked';
+import { Marked, Renderer, type Token, type Tokens, marked } from 'marked';
 
 /** One heading the page renders itself, with its anchor. */
 export interface DocsHeading {
@@ -126,25 +136,51 @@ function widgetOf(token: Token): DocsWidget | undefined {
   return id as DocsWidget;
 }
 
+/** The class on the scroll box around every prose table (AECI-1918). */
+export const PROSE_TABLE_SCROLL_CLASS = 'aec-prose-table-scroll';
+
+/** The prose parser: `marked` with each table wrapped in its scroll box. */
+const proseMarked = new Marked({
+  gfm: true,
+  async: false,
+  renderer: {
+    table(this: Renderer, token: Tokens.Table): string {
+      const table = Renderer.prototype.table.call(this, token);
+      return `<div class="${PROSE_TABLE_SCROLL_CLASS}">${table}</div>\n`;
+    },
+  },
+});
+
 const escapeHtml = (text: string): string =>
   text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-/** Renders a Markdown body (frontmatter already removed) into blocks. */
-export function renderDocsBody(body: string): DocsBody {
+/**
+ * Renders a Markdown body (frontmatter already removed) into blocks. `reservedIds`
+ * are the ids the page already carries outside the body; a heading slug never
+ * takes one. The `/legal/*` and `/methodology` pages pass their own list
+ * (AECI-1720 layout pass), so their headings get ids too.
+ */
+export function renderDocsBody(
+  body: string,
+  reservedIds: readonly string[] = DOCS_RESERVED_IDS,
+): DocsBody {
   const tokens = marked.lexer(body, { gfm: true });
   const links: string[] = [];
   collectLinks(tokens, links);
-  const used = new Set(DOCS_RESERVED_IDS);
+  const used = new Set(reservedIds);
   const blocks: DocsBlock[] = [];
   const h2s: DocsHeading[] = [];
   let heading: DocsBlock['heading'];
   let run: Token[] = [];
 
-  // `async: false` keeps the body in the first SSR paint; `gfm` renders tables.
+  // `async: false` (set on `proseMarked`) keeps the body in the first SSR
+  // paint; `gfm` renders tables.
   // Reference links were resolved by the lexer, so a slice parses on its own.
   const flush = (): void => {
     if (heading || run.length > 0) {
-      blocks.push({ heading, html: marked.parser(run, { gfm: true, async: false }) });
+      // No options here: an options object passed to `parser` replaces the
+      // instance's renderer, and the table wrapper with it.
+      blocks.push({ heading, html: proseMarked.parser(run) });
     }
     heading = undefined;
     run = [];

@@ -17,7 +17,9 @@ import {
   BrnDialogTitle,
 } from '@spartan-ng/brain/dialog';
 
+import { AecButton } from '../shared/button/button';
 import { HomeFeedbackForm } from './home-feedback-form';
+import { AecIcon } from '../shared/icon/icon';
 
 /**
  * The "suggest a tool / share feedback" modal shell (AECI-275). A thin BrnDialog
@@ -39,6 +41,8 @@ import { HomeFeedbackForm } from './home-feedback-form';
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   imports: [
+    AecButton,
+    AecIcon,
     BrnDialog,
     BrnDialogContent,
     BrnDialogClose,
@@ -49,36 +53,26 @@ import { HomeFeedbackForm } from './home-feedback-form';
   template: `
     <brn-dialog (closed)="onClosed()">
       <ng-template brnDialogContent>
-        <div
-          class="w-[min(92vw,32rem)] max-h-[85vh] overflow-y-auto rounded-(--radius-lg) border border-(--border-default) bg-(--surface-base) p-6 text-(--text-primary) md:p-8"
-        >
+        <div class="aec-dialog w-[min(92vw,32rem)] max-h-[85vh] overflow-y-auto p-6 md:p-8">
           <div class="flex items-start justify-between gap-4">
             <h2
               brnDialogTitle
-              class="font-display text-2xl font-normal leading-[1.15] tracking-[-0.01em] text-(--text-primary)"
+              class="font-display text-(--text-primary)"
               i18n="@@home.feedback.title"
             >
               Suggest a tool or share feedback
             </h2>
             <button
+              aecButton
+              variant="ghost"
+              iconOnly
               brnDialogClose
               type="button"
-              class="-me-1 -mt-1 shrink-0 rounded-(--radius-sm) p-1 text-(--text-secondary) transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              class="-me-1 -mt-1"
               i18n-aria-label="@@home.feedback.close"
               aria-label="Close"
             >
-              <svg
-                class="size-5"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M18 6 6 18M6 6l12 12" />
-              </svg>
+              <aec-icon name="x" decorative [size]="5" />
             </button>
           </div>
 

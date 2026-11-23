@@ -3,10 +3,15 @@ import { FormField, form, submit, validateStandardSchema } from '@angular/forms/
 
 import { SubscribeSubmitSchema, type FoundVia, type SubscribeSubmit } from '@aeci/shared';
 
+import { AecButton } from '../button/button';
+import { BAND_WRAP_CLASS } from '../band-wrap';
+import { AecCard } from '../card/card';
 import { Analytics } from '../../analytics/analytics';
 import { FoundViaField } from '../found-via/found-via-field';
 import { LandingApi, buildAttribution } from '../landing/landing-api';
 import { isReplayedEvent } from '../../core/event-replay';
+import { AecIcon } from '../icon/icon';
+import { AecEarlyInput } from '../form-field/early-input';
 
 interface SubscribeModel {
   email: string;
@@ -16,12 +21,6 @@ interface SubscribeModel {
 }
 
 type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
-
-/** Shared button classes. The confirmed ("Subscribed") state flips the solid
- *  Forest fill to a Forest-soft treatment (Forest-Anchor Rule: no new accent
- *  color) so a completed signup reads unmistakably as done. */
-const BTN_BASE =
-  'inline-flex items-center justify-center gap-1.5 rounded-(--radius-sm) px-5 py-2 font-label transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed';
 
 /**
  * The shared mailing-list signup band (AECI-327). Extracted from the former home
@@ -41,38 +40,68 @@ const BTN_BASE =
  *
  * Design: the chosen concept **b** ("Warm commerce") from
  * `docs/design/unified-home-direction.md` — a full-bleed Bone band
- * (`--accent-warm`) wrapping the form in a bordered `--surface-base` card, Forest
- * subscribe button (Forest-Anchor Rule), borders not shadows.
+ * (`--accent-warm`) wrapping the form in a white card, Forest subscribe button
+ * (Forest-Anchor Rule). The controls take borders, not shadows.
+ *
+ * `ground="white"` is for a page on the detail band shell (AECI-1778, DESIGN.md §4 "The
+ * detail page band shell"), which already has its one Bone band. The band is then white,
+ * with a hairline `border-default` rule above it, and the card is unchanged.
+ *
+ * **Redesign (AECI-1799).** The band sits on the 1328px page wrap (`BAND_WRAP_CLASS`)
+ * with the Bone band's rhythm, 64px above and below, 96px from `md`. The card is the
+ * shared `aecCard` (24px radius, the card shadow, no hairline), with the home closing
+ * card's padding. The headline is the Section role on an inner span, because the
+ * unlayered `h2` rule beats a size utility on the element. The field, the button, the
+ * words, the validation, the POST and the analytics event are unchanged.
+ *
+ * **Two columns (AECI-1720 restore).** From `lg` the card splits: the words on the left,
+ * the form on the right, so the card never leaves its right half blank. The halves are
+ * equal at `lg` and the form takes a 32rem column from `xl`: a 32rem form at 1024px left
+ * the words a 240px column and a three-line headline. Below `lg` they stack as before.
+ * The Subscribe button is enabled until a submit is in flight or done.
  */
 @Component({
   selector: 'aec-mailing-list-signup',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
-  imports: [FormField, FoundViaField],
+  imports: [AecButton, AecCard, AecIcon, FormField, AecEarlyInput, FoundViaField],
   template: `
-    <section class="bg-(--accent-warm)">
-      <div class="mx-auto max-w-7xl px-6 py-16 md:px-8 md:py-20">
+    <section [class]="groundClass()">
+      <div [class]="wrap">
         <div
-          class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-base) p-8 md:p-10"
+          aecCard
+          class="p-8 lg:grid lg:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,32rem)] lg:items-center lg:gap-x-12 lg:p-12"
+          data-testid="mailing-list-card"
         >
-          <p class="aec-overline text-(--text-secondary)" i18n="@@mailing-list-signup.eyebrow">
-            Directory updates
-          </p>
-          <h2
-            class="mt-3 max-w-2xl font-display text-3xl font-normal leading-[1.1] tracking-[-0.01em] text-(--text-primary) md:text-4xl"
-            i18n="@@mailing-list-signup.headline"
-          >
-            Know when new tools and reviews land
-          </h2>
-          <p
-            class="mt-4 max-w-xl text-base leading-relaxed text-(--text-secondary)"
-            i18n="@@mailing-list-signup.body"
-          >
-            AEC Integrations is live and still growing. Add your email for occasional updates as we
-            expand the directory with new tools, integrations, and reviews.
-          </p>
+          <div class="min-w-0">
+            <p class="aec-overline text-(--text-secondary)" i18n="@@mailing-list-signup.eyebrow">
+              Directory updates
+            </p>
+            <h2 class="mt-3 max-w-2xl text-(--text-primary)">
+              <span
+                class="block text-t-36 leading-[1.1] tracking-[-0.02em] text-balance"
+                i18n="@@mailing-list-signup.headline"
+                >Know when new tools and reviews land</span
+              >
+            </h2>
+            <p
+              class="mt-4 max-w-xl text-t-16 leading-relaxed text-(--text-secondary)"
+              i18n="@@mailing-list-signup.body"
+            >
+              AEC Integrations is live and still growing. Add your email for occasional updates as
+              we expand the directory with new tools, integrations, and reviews.
+            </p>
+          </div>
 
-          <form class="mt-8 max-w-xl" novalidate (submit)="onSubmit($event)">
+          <form
+            method="dialog"
+            class="mt-8 max-w-xl min-w-0 lg:mt-0"
+            novalidate
+            (submit)="onSubmit($event)"
+          >
+            <!-- The input keeps a 14rem basis, so on a narrow card the button wraps
+                 under it instead of squeezing it to a few characters (AECI-1720
+                 layout pass: it was 65px wide at 320px). -->
             <div class="flex flex-wrap gap-3">
               <label
                 class="sr-only"
@@ -90,26 +119,16 @@ const BTN_BASE =
                 placeholder="you@yourfirm.com"
                 [attr.aria-invalid]="emailErrorShown() ? 'true' : null"
                 [attr.aria-describedby]="emailErrorShown() ? 'mailing-list-email-error' : null"
-                class="aec-field-control min-w-0 flex-1 rounded-(--radius-sm) border bg-(--surface-base) px-3 py-2 text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                class="aec-field-control min-w-0 flex-[1_1_14rem] rounded-control border bg-(--surface-base) px-4 py-2 text-t-16 text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
               />
               <button
+                aecButton
                 type="submit"
-                [disabled]="submitDisabled() || subscribed()"
-                [class]="buttonClass()"
+                [variant]="subscribed() ? 'secondary' : 'primary'"
+                [disabled]="form().submitting() || subscribed()"
               >
                 @if (subscribed()) {
-                  <svg
-                    class="h-4 w-4"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2.5"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M20 6 9 17l-5-5" />
-                  </svg>
+                  <aec-icon name="check" decorative [size]="4" />
                   <span i18n="@@mailing-list-signup.subscribed">Subscribed</span>
                 } @else if (form().submitting()) {
                   <span i18n="@@mailing-list-signup.subscribing">Subscribing…</span>
@@ -122,7 +141,7 @@ const BTN_BASE =
             @if (emailErrorShown()) {
               <p
                 id="mailing-list-email-error"
-                class="mt-2 text-sm font-medium text-(--text-primary)"
+                class="aec-field-error mt-2 text-t-14 font-semibold text-(--status-error)"
                 role="alert"
                 i18n="@@mailing-list-signup.email.error"
               >
@@ -133,7 +152,7 @@ const BTN_BASE =
             <!-- The optional "How did you find us?" question (AECI-1063). It goes
                  in the same POST as the email and never blocks the submit. -->
             <aec-found-via-field
-              class="mt-5"
+              class="mt-6"
               idPrefix="mailing-list-found-via"
               [value]="form.found_via().value()"
               (valueChange)="form.found_via().value.set($event)"
@@ -149,20 +168,11 @@ const BTN_BASE =
               @switch (status()) {
                 @case ('subscribed') {
                   <p
-                    class="aec-notice-success mt-4 flex items-start gap-2.5 rounded-(--radius-md) border bg-(--accent-primary-soft) px-4 py-3 text-sm font-medium text-(--accent-primary)"
+                    class="aec-notice-success mt-4 flex items-start gap-2 rounded-panel border bg-(--accent-primary-soft) px-4 py-3 text-sm font-semibold text-(--accent-primary)"
                   >
-                    <svg
-                      class="mt-0.5 h-4 w-4 shrink-0"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2.5"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M20 6 9 17l-5-5" />
-                    </svg>
+                    <span class="flex h-5 shrink-0 items-center">
+                      <aec-icon name="check" decorative [size]="4" />
+                    </span>
                     <span i18n="@@mailing-list-signup.status.subscribed"
                       >You're on the list. We'll email when there's something new.</span
                     >
@@ -170,22 +180,11 @@ const BTN_BASE =
                 }
                 @case ('exists') {
                   <p
-                    class="aec-notice-neutral mt-4 flex items-start gap-2.5 rounded-(--radius-md) border bg-(--accent-warm) px-4 py-3 text-sm font-medium text-(--text-primary)"
+                    class="aec-notice-neutral mt-4 flex items-start gap-2 rounded-panel border bg-(--accent-warm) px-4 py-3 text-sm font-semibold text-(--text-primary)"
                   >
-                    <svg
-                      class="mt-0.5 h-4 w-4 shrink-0"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      aria-hidden="true"
-                    >
-                      <circle cx="12" cy="12" r="9" />
-                      <path d="M12 11v5" />
-                      <path d="M12 8h.01" />
-                    </svg>
+                    <span class="flex h-5 shrink-0 items-center">
+                      <aec-icon name="info" decorative [size]="4" />
+                    </span>
                     <span i18n="@@mailing-list-signup.status.exists"
                       >You're already on the list.</span
                     >
@@ -193,22 +192,11 @@ const BTN_BASE =
                 }
                 @case ('error') {
                   <p
-                    class="aec-notice-error mt-4 flex items-start gap-2.5 rounded-(--radius-md) border bg-(--surface-base) px-4 py-3 text-sm font-medium text-(--status-error)"
+                    class="aec-notice-error mt-4 flex items-start gap-2 rounded-panel border bg-(--surface-base) px-4 py-3 text-sm font-semibold text-(--status-error)"
                   >
-                    <svg
-                      class="mt-0.5 h-4 w-4 shrink-0"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      aria-hidden="true"
-                    >
-                      <circle cx="12" cy="12" r="9" />
-                      <path d="M12 7v6" />
-                      <path d="M12 16h.01" />
-                    </svg>
+                    <span class="flex h-5 shrink-0 items-center">
+                      <aec-icon name="alert-circle" decorative [size]="4" />
+                    </span>
                     <span i18n="@@mailing-list-signup.status.error"
                       >Something went wrong. Please try again.</span
                     >
@@ -218,8 +206,11 @@ const BTN_BASE =
             </div>
           </form>
 
-          <!-- Optional trailing content (e.g. the home page's "suggest a tool" prompt). -->
-          <ng-content />
+          <!-- Optional trailing content (e.g. the home page's "suggest a tool" prompt). It
+               spans both columns from lg. -->
+          <div class="empty:hidden lg:col-span-2">
+            <ng-content />
+          </div>
         </div>
       </div>
     </section>
@@ -234,6 +225,24 @@ export class MailingListSignup {
    *  retained value no longer emitted: the home stopped mounting the band in
    *  AECI-1564. */
   readonly source = input('mailing_list_band');
+
+  /** `bone` (default) is the shipped band. `white` keeps a band-shell page to one Bone band. */
+  readonly ground = input<'bone' | 'white'>('bone');
+
+  /**
+   * The band ground. Bone is the shared Bone band's look (`aec-bone-band` is the
+   * unlayered class that gives it an edge under forced colours, as on the detail
+   * layout's lead band). The element is not used, so its one-per-page dev check
+   * keeps counting only real page bands.
+   */
+  protected readonly groundClass = computed(() =>
+    this.ground() === 'white'
+      ? 'block border-t bg-(--surface-base)'
+      : 'aec-bone-band block bg-(--accent-warm)',
+  );
+
+  /** The page wrap and the band rhythm of `aec-bone-band`: 64px, 96px from `md`. */
+  protected readonly wrap = `${BAND_WRAP_CLASS} py-16 md:py-24`;
 
   private readonly model = signal<SubscribeModel>({
     email: '',
@@ -257,47 +266,51 @@ export class MailingListSignup {
     const email = this.form.email();
     return (
       email.touched() &&
-      email.value().trim().length > 0 &&
+      (email.value().trim().length > 0 || this.submitAttempted()) &&
       Boolean(email.getError('standardSchema'))
     );
   });
 
-  protected readonly submitDisabled = computed(
-    () => this.form().invalid() || this.form().submitting(),
-  );
-
-  protected readonly buttonClass = computed(() =>
-    this.subscribed()
-      ? `${BTN_BASE} border border-(--accent-primary) bg-(--accent-primary-soft) text-(--accent-primary)`
-      : `${BTN_BASE} bg-(--accent-primary) text-(--surface-base) hover:bg-(--accent-primary-hover) disabled:opacity-60`,
-  );
+  /**
+   * Set by a submit. The button stays enabled while the email is empty or invalid, so it
+   * never reads as switched off (AECI-1720 restore: the pale disabled button read as
+   * broken). A submit with a bad email shows the inline error and posts nothing.
+   */
+  private readonly submitAttempted = signal(false);
 
   protected async onSubmit(event: Event): Promise<void> {
-    if (isReplayedEvent(event)) return; // the native default already ran
+    if (isReplayedEvent(event)) return; // a replayed early press is dropped (AECI-1919)
     event.preventDefault();
     this.status.set('idle');
-    await submit(this.form, async (f) => {
-      try {
-        const result = await this.api.subscribe(this.buildSubscribe(f().value()));
-        // Keep the entered email in the field. Clearing it to '' would leave the
-        // still-touched field invalid, re-firing the "enter a valid email" error
-        // right next to the success message. The confirmed button + live region
-        // carry the result; onEmailEdit resets the state if the address changes.
-        this.status.set(result.created ? 'subscribed' : 'exists');
-        if (result.created) {
-          // Track the conversion (AECI-326). Consent-gated + fire-and-forget: it
-          // no-ops without consent and never throws into the submit. Only a genuine
-          // new signup counts — an already-listed email (created:false) is not.
-          this.analytics.mailingListSignup({
-            source: this.source(),
-            found_via: f().value().found_via || null,
-          });
+    this.submitAttempted.set(true);
+    await submit(this.form, {
+      // A submit with an empty or invalid email posts nothing. Focus moves to the field,
+      // so a screen reader hears its error through aria-describedby even on a second
+      // try, when the role="alert" line is already on the page and stays silent.
+      onInvalid: (f) => f.email().focusBoundControl(),
+      action: async (f) => {
+        try {
+          const result = await this.api.subscribe(this.buildSubscribe(f().value()));
+          // Keep the entered email in the field. Clearing it to '' would leave the
+          // still-touched field invalid, re-firing the "enter a valid email" error
+          // right next to the success message. The confirmed button + live region
+          // carry the result; onEmailEdit resets the state if the address changes.
+          this.status.set(result.created ? 'subscribed' : 'exists');
+          if (result.created) {
+            // Track the conversion (AECI-326). Consent-gated + fire-and-forget: it
+            // no-ops without consent and never throws into the submit. Only a genuine
+            // new signup counts — an already-listed email (created:false) is not.
+            this.analytics.mailingListSignup({
+              source: this.source(),
+              found_via: f().value().found_via || null,
+            });
+          }
+        } catch {
+          // Retryable notice, not a ValidationError (which would disable submit).
+          this.status.set('error');
         }
-      } catch {
-        // Retryable notice, not a ValidationError (which would disable submit).
-        this.status.set('error');
-      }
-      return undefined;
+        return undefined;
+      },
     });
   }
 
@@ -305,6 +318,7 @@ export class MailingListSignup {
    *  subscribed and the button returns to its default "Subscribe" state. */
   protected onEmailEdit(): void {
     if (this.status() !== 'idle') this.status.set('idle');
+    this.submitAttempted.set(false);
   }
 
   private buildSubscribe(v: SubscribeModel): SubscribeSubmit {

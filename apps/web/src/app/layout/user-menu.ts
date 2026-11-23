@@ -43,8 +43,7 @@
  * visitor-state-dependent beyond that mount, so the cached SSR HTML renders the
  * neutral "Sign in" CTA instead (§8).
  *
- * The dropdown uses `BrnPopover` (extends `BrnDialog`) — the same primitive as
- * `nav-menu.ts`: CDK overlay, focus trap, Escape / outside-click close, focus
+ * The dropdown uses `BrnPopover` (extends `BrnDialog`): CDK overlay, focus trap, Escape / outside-click close, focus
  * return to the trigger, and automatic `aria-haspopup`/`aria-expanded`/
  * `aria-controls` on the trigger. The content (a link + a sign-out button) lives
  * in an `ng-template` that only mounts on click, so SSR renders just the static
@@ -65,10 +64,13 @@ import { signOutAndGoHome } from '../auth/sign-out';
 import { VendorStatus } from '../vendor/vendor-status';
 
 import { AccountIdentity } from './account-identity';
+import { ON_FOREST_FOCUS_RING } from './header-link-classes';
+import { AecIcon } from '../shared/icon/icon';
 
 @Component({
   selector: 'aec-user-menu',
   imports: [
+    AecIcon,
     NgOptimizedImage,
     RouterLink,
     BrnPopover,
@@ -81,7 +83,7 @@ import { AccountIdentity } from './account-identity';
       brnPopoverTrigger
       [brnPopoverTriggerFor]="menu"
       type="button"
-      class="relative inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-(--border-strong) bg-(--surface-raised) text-(--text-primary) transition-colors hover:border-(--accent-primary) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      [class]="triggerClass"
       aria-label="Account menu"
       i18n-aria-label="@@app.header.account.menu.aria"
       [attr.aria-describedby]="showBadge() ? 'aec-user-menu-pending' : null"
@@ -114,23 +116,11 @@ import { AccountIdentity } from './account-identity';
           (error)="photoFailed.set(true)"
         />
       } @else {
-        <svg
-          aria-hidden="true"
-          class="h-5 w-5"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
-          <circle cx="12" cy="7" r="4" />
-        </svg>
+        <aec-icon name="user" decorative [size]="5" />
       }
       @if (showBadge()) {
         <span
-          class="absolute -end-2 -top-2 inline-flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full px-1 text-[0.625rem] font-bold leading-none text-(--surface-base) ring-2 ring-(--surface-base) bg-(--color-status-error)"
+          class="absolute -end-2 -top-2 inline-flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full px-1 text-t-12 font-bold leading-none text-(--surface-base) ring-2 ring-(--text-on-brand) bg-(--color-status-error)"
           aria-hidden="true"
           >{{ badgeText() }}</span
         >
@@ -143,7 +133,7 @@ import { AccountIdentity } from './account-identity';
     <brn-popover #menu="brnPopover" class="contents" align="end" [sideOffset]="8">
       <ng-template brnPopoverContent>
         <div
-          class="w-64 rounded-md border border-(--border-default) bg-(--surface-raised) p-2 text-(--text-primary) shadow-lg"
+          class="aec-popover w-64 p-2"
           i18n-aria-label="@@app.header.account.menu.aria"
           aria-label="Account menu"
         >
@@ -165,7 +155,7 @@ import { AccountIdentity } from './account-identity';
             <a
               routerLink="/account"
               (click)="menu.close()"
-              class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              class="block rounded-mark px-3 py-2 text-sm font-normal text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
               i18n="@@app.header.account"
             >
               Account
@@ -174,7 +164,7 @@ import { AccountIdentity } from './account-identity';
               <a
                 routerLink="/admin"
                 (click)="menu.close()"
-                class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                class="block rounded-mark px-3 py-2 text-sm font-normal text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                 i18n="@@app.header.adminPortal"
               >
                 Admin portal
@@ -184,7 +174,7 @@ import { AccountIdentity } from './account-identity';
               <a
                 routerLink="/vendor"
                 (click)="menu.close()"
-                class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                class="block rounded-mark px-3 py-2 text-sm font-normal text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                 i18n="@@app.header.vendorPortal"
               >
                 Vendor portal
@@ -196,7 +186,7 @@ import { AccountIdentity } from './account-identity';
             <button
               type="button"
               (click)="onSignOut()"
-              class="block w-full cursor-pointer rounded-md px-3 py-2 text-start text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              class="block w-full cursor-pointer rounded-mark px-3 py-2 text-start text-sm font-normal text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
               i18n="@@app.header.signOut"
             >
               Sign out
@@ -247,6 +237,19 @@ export class UserMenu {
    *  console about the identical backlog. 0 until the shared role probe seeds the
    *  store. */
   protected readonly pending = computed(() => this.summaryStore.operationsTotal());
+
+  /**
+   * The trigger on the Forest header (AECI-1771). It stays a circle, because a
+   * person is a circle. A Bone-wash fill with a 1px edge from the unlayered
+   * `.aec-on-brand-edge` class, which computes to `--border-on-brand-strong`
+   * (4.01:1; the wash alone is 1.33:1, no boundary). A `border-(--x)` utility
+   * would lose to the global `*` border-color rule, which is why the class is
+   * used. Bone glyph (8.31:1 on the wash), a deeper wash on hover, and the Bone
+   * focus ring. 44px, the main-control size.
+   */
+  protected readonly triggerClass =
+    'relative inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border aec-on-brand-edge bg-(--surface-on-brand-wash) text-(--text-on-brand) transition-colors hover:bg-(--surface-on-brand-wash-hover) ' +
+    ON_FOREST_FOCUS_RING;
 
   /** The badge shows only for an admin with something waiting. */
   protected readonly showBadge = computed(() => this.adminStatus.isAdmin() && this.pending() > 0);

@@ -3,7 +3,7 @@ title: Replying to reviews
 description: How your company posts a public reply to a review of one of its products, how we check it, and how to edit or withdraw it.
 section: vendors
 order: 10
-last_updated: November 6, 2026
+last_updated: November 17, 2026
 ---
 
 Your company can post one public reply to each published review of a product it owns. The reply shows under the review on the product page. We check every reply before anyone sees it. A reply never changes the review.
@@ -41,7 +41,7 @@ If you fixed a problem the review describes, your reply may say so and invite th
 
 ## What readers see
 
-A published reply sits under its review, never inside it. It is labeled "Response from" your company name, with the date we published it. If more than one company owns the product, each published reply appears in the order it was published.
+A published reply appears after the review text, in its own panel. It is never mixed with the reviewer's words. It is labeled "Response from" your company name, with the date we published it. If more than one company owns the product, each published reply appears in the order it was published.
 
 The review stays exactly as the reviewer wrote it. A reply never changes the review, its rating, the product's review count or average, or where anything ranks. Reviews stay in the same order with or without a reply.
 

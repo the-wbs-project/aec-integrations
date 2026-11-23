@@ -179,4 +179,28 @@ describe('SkipLink', () => {
       expect(href(fixture)).toBe('/vendor/acme?tab=integrations&status=live#main');
     });
   });
+
+  it('shows a Bone fill, Forest text and a Bone ring on focus, so it is visible over the Forest header', () => {
+    const fixture = TestBed.createComponent(SkipLink);
+    fixture.detectChanges();
+
+    const classes = (fixture.nativeElement.querySelector('a') as HTMLElement).className;
+    expect(classes).toContain('focus:bg-(--accent-warm)');
+    expect(classes).toContain('focus:text-(--accent-primary)');
+    expect(classes).toContain('focus:outline-(--focus-ring-on-brand)');
+    expect(classes).not.toContain('focus:bg-(--accent-primary)');
+  });
+
+  // AECI-1777: the 44px target, the 12px radius and the 16px size.
+  it('is a 44px target with the control radius and 16px text on focus', () => {
+    const fixture = TestBed.createComponent(SkipLink);
+    fixture.detectChanges();
+
+    const classes = (fixture.nativeElement.querySelector('a') as HTMLElement).className;
+    expect(classes).toContain('focus:min-h-11');
+    expect(classes).toContain('focus:rounded-control');
+    expect(classes).toContain('focus:text-t-16');
+    expect(classes).toContain('focus:inline-flex');
+    expect(classes).toContain('focus:items-center');
+  });
 });

@@ -80,7 +80,7 @@ describe('planComparisonGroups', () => {
 describe('DocsPlansComparisonComponent', () => {
   it('renders the Free and Managed cards, the Managed one featured', () => {
     const host = render();
-    const cards = host.querySelectorAll('.aec-plan-card');
+    const cards = host.querySelectorAll('[data-plan-card]');
     expect([...cards].map((card) => card.querySelector('h3')?.textContent?.trim())).toEqual([
       'Free',
       'Managed',
@@ -107,7 +107,7 @@ describe('DocsPlansComparisonComponent', () => {
     const fixture = TestBed.createComponent(DocsPlansComparisonComponent);
     fixture.detectChanges();
     const link = (fixture.nativeElement as HTMLElement)
-      .querySelectorAll('.aec-plan-card')[1]
+      .querySelectorAll('[data-plan-card]')[1]
       .querySelector('a')!;
     const event = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
     link.dispatchEvent(event);

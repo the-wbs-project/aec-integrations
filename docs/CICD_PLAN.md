@@ -1283,6 +1283,12 @@ merge. Merge `main` into the batch only when the batch → `main` PR shows a con
 is fine on a batch branch. The final squash flattens it. If `main` gained a migration meanwhile,
 `main` keeps its numbers and the batch renumbers (`docs/migrations.md` §0).
 
+**After any merge of `main` into a long-lived branch** (a batch, or a hold branch such as
+`redesign/on-hold-2026-11-16`), run `pnpm lint` before pushing. `scripts/check-conflict-markers.mjs`
+fails on a conflict left in any tracked file, archives and Markdown included (AECI-1720). Then check
+`git diff origin/main HEAD -- apps/web/src/content/legal/` is empty unless the branch changes legal
+text on purpose.
+
 **What we have not verified.** Linear's GitHub integration also links a PR to an issue by branch
 name, such as `aeci-1234-...`. It may move a sub-issue to Done when its sub-PR merges into the batch
 branch, even without a `Closes` line. If it does, move the issue back to In Review. The fix is a

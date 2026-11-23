@@ -241,9 +241,10 @@
 
     <div class="mt-4 flex flex-wrap items-end gap-3">
       <form
+        method="dialog"
         novalidate
         class="flex items-end gap-2"
-        (submit)="$event.preventDefault(); submitStubSearch()"
+        (aecSubmit)="submitStubSearch()"
       >
         <label
           class="sr-only"

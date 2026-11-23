@@ -23,6 +23,7 @@ import {
 } from '@aeci/shared';
 
 import { AdminLicensesApi } from './admin-licenses-api';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
 
 /**
@@ -175,6 +176,7 @@ export function uncoveredBanTermCandidates(
  */
 @Component({
   selector: 'aec-ban-term-licenses-control',
+  imports: [AecFormSubmit],
   templateUrl: './ban-term-licenses-control.html',
 })
 export class BanTermLicensesControl {

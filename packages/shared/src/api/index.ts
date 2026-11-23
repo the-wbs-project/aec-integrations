@@ -45,6 +45,7 @@ export * from './page-view-turnstile';
 export * from './page-view-browser-evidence';
 export * from './held-region';
 export * from './product-facets';
+export * from './pair-alternatives';
 export * from './product-pairs';
 export * from './product-requests';
 export * from './product-versions';

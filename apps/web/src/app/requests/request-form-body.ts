@@ -43,7 +43,18 @@ import { ClaimantFields } from './claimant-fields';
 import { RequestsApi, type RequestTargetRef } from './requests-api';
 import { VendorTermsBox, isAcceptedTermsRejection } from './vendor-terms-box';
 import { isReplayedEvent } from '../core/event-replay';
-import { FIELD_ERROR_CLASS } from '../shared/form-field/form-field-classes';
+import { AecButton } from '../shared/button/button';
+import { AecCard, FORM_CARD_GAP_CLASS, cardClass } from '../shared/card/card';
+import { AecIcon } from '../shared/icon/icon';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+  FIELD_OPTIONAL_CLASS,
+  FORM_FOOTER_CLASS,
+} from '../shared/form-field/form-field-classes';
+import { AecEarlyInput } from '../shared/form-field/early-input';
 
 type Entity = 'product' | 'vendor';
 type Kind = 'claim' | 'correction';
@@ -112,7 +123,11 @@ interface RequestModel {
 @Component({
   selector: 'aec-request-form-body',
   imports: [
+    AecButton,
+    AecCard,
+    AecIcon,
     FormField,
+    AecEarlyInput,
     RouterLink,
     ClaimantFields,
     ClaimRoutedNotice,
@@ -123,8 +138,6 @@ interface RequestModel {
   templateUrl: './request-form-body.html',
 })
 export class RequestFormBody implements OnInit {
-  /** A field's inline error: the shared recipe (AECI-1984). */
-  protected readonly errorClass = FIELD_ERROR_CLASS;
   private readonly api = inject(RequestsApi);
   private readonly injector = inject(Injector);
   private readonly analytics = inject(Analytics);
@@ -161,6 +174,8 @@ export class RequestFormBody implements OnInit {
    * ships today and stays correct.
    */
   readonly bodyPrefill = input<string | null>(null);
+  /** AECI-1828: the other product of an empty pair, sent as `pair_slug` on a correction. */
+  readonly pairSlug = input<string | null>(null);
 
   /** Emitted from the drawer-variant dismiss actions ("Done", the help link). The
    *  drawer listens to close the overlay; the routed page ignores it. */
@@ -178,6 +193,48 @@ export class RequestFormBody implements OnInit {
   /** AECI-1435: emitted just before `sent`, true when the claim waits on the emailed
    *  link. The drawer swaps its header to "Check your inbox" on it. */
   readonly sentConfirm = output<boolean>();
+
+  // The shared field recipe (`shared/form-field/form-field-classes.ts`), as the claim
+  // dialog, `/welcome` and `/account` use it (AECI-1807).
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly optionalClass = FIELD_OPTIONAL_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  protected readonly errorClass = FIELD_ERROR_CLASS;
+
+  /** AECI-1807: on the routed page the form is the shared card. The drawer panel is
+   *  already the surface, so there the form stays bare. */
+  protected readonly formClass = computed(() =>
+    this.variant() === 'page'
+      ? `${cardClass({ phoneFlush: true })} ${FORM_CARD_GAP_CLASS}`
+      : 'space-y-6',
+  );
+  protected readonly fieldsClass = computed(() =>
+    this.variant() === 'page' ? 'space-y-6 p-6 sm:p-8' : 'space-y-6',
+  );
+  /** The page's form footer, or the drawer's pinned submit bar (AECI-847). */
+  protected readonly footerClass = computed(() =>
+    this.variant() === 'page'
+      ? `${FORM_FOOTER_CLASS} px-6 py-4 sm:px-8`
+      : 'sticky bottom-0 -mx-6 space-y-4 border-t border-(--border-default) bg-(--surface-raised) px-6 pt-4 pb-6',
+  );
+  /** The routed confirmation sits in one shared card, as the claim receipt page does. */
+  protected readonly confirmCardClass = `${cardClass({ phoneFlush: true })} p-6 sm:p-8`;
+  /** A standalone docs link: the in-text link look with a 44px target (AECI-1808). */
+  protected readonly docsLinkClass =
+    'mt-3 inline-flex min-h-11 items-center gap-2 text-t-14 font-semibold text-(--accent-primary) ' +
+    'underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 ' +
+    'focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+
+  /**
+   * False until the browser has hydrated, as on sign-in. The submit stays disabled
+   * until then. Event replay never cancels a native submit. Before AECI-1919 the SSR
+   * form had no method, so an early press or Enter would GET this page with every
+   * answer, the email included, in the query string (AECI-1807 review). The form now
+   * declares `method="dialog"`, whose native submit does nothing, and this gate
+   * stays as the second layer.
+   */
+  protected readonly hydrated = signal(false);
 
   /** The submitted email, for the routed page's confirmation line. */
   protected readonly sentTo = signal('');
@@ -252,6 +309,7 @@ export class RequestFormBody implements OnInit {
   private prefilledEmail = false;
 
   constructor() {
+    afterNextRender(() => this.hydrated.set(true));
     // Don't make a signed-in visitor retype an address we already have.
     // `SessionStatus.email()` is `null` during SSR and until the post-hydration
     // probe resolves (the cache-neutral default, §8), so this only ever fires in
@@ -313,8 +371,8 @@ export class RequestFormBody implements OnInit {
     }
   }
 
-  /** The form's submit. Returns early on a replayed early submit, which the
-   *  browser already ran natively (`core/event-replay.ts`). */
+  /** The form's submit. Drops a replayed early submit. The form is `method="dialog"`,
+   *  so the native submit did nothing (AECI-1919, `core/event-replay.ts`). */
   protected onFormSubmit(event: Event): void {
     if (isReplayedEvent(event)) return;
     event.preventDefault();
@@ -324,75 +382,120 @@ export class RequestFormBody implements OnInit {
   protected async onSubmit(): Promise<void> {
     this.submitFailed.set(false);
     this.termsRejected.set(false);
-    await submit(this.form, async (f) => {
-      const v = f().value();
-      const target = this.target();
-      // The schema already refused an unchecked box; this narrows the type.
-      if (this.kind() === 'claim' && !v.accepted_terms) return undefined;
-      // AECI-1972: read once, before the request. The notice renders on this form
-      // whenever `routed()` is true, so this is "the notice was on screen at submit".
-      const noticeShown = this.kind() === 'claim' && this.routed();
-      try {
-        const res =
-          this.kind() === 'claim'
-            ? await this.api.submitClaim(target, {
-                submitter_name: v.submitter_name,
-                submitter_email: v.submitter_email,
-                submitter_linkedin_url: v.submitter_linkedin_url,
-                submitter_title: v.submitter_title,
-                company_legal_name: v.company_legal_name,
-                body: v.body,
-                accepted_terms: true,
-                found_via: v.found_via,
-                found_via_detail: v.found_via_detail.trim(),
-                routed_notice_shown: noticeShown,
-              })
-            : await this.api.submitCorrection(target, {
+    await submit(this.form, {
+      onInvalid: () => this.focusFirstInvalid(),
+      action: (f) => this.send(f().value()),
+    });
+  }
+
+  /**
+   * Submit stays enabled while an answer is bad (DESIGN.md "Submit stays enabled"),
+   * as on the claim dialog. `submit()` marks every field touched, so each error
+   * shows, and focus moves to the first bad field, top to bottom. The terms box is
+   * the exception: the button stays disabled until it is ticked
+   * (VENDOR_SIGNUP_PROCESS.md section 4), so it is never the first bad field here.
+   */
+  private focusFirstInvalid(): void {
+    const f = this.form;
+    const order =
+      this.kind() === 'claim'
+        ? [
+            f.submitter_name,
+            f.submitter_title,
+            f.submitter_linkedin_url,
+            f.submitter_email,
+            f.company_legal_name,
+            f.body,
+            f.accepted_terms,
+          ]
+        : [f.body, f.source_url, f.submitter_email];
+    const first = order.find((field) => field().invalid());
+    if (!first) return;
+    first().focusBoundControl();
+    // The error renders on the next pass, below its field. Bring it into view too:
+    // in the drawer the pinned submit bar would cover it (the port's scroll padding
+    // keeps it above the bar).
+    afterNextRender(
+      () => {
+        const ids = this.document.activeElement?.getAttribute('aria-describedby')?.split(' ');
+        const error = ids?.length ? this.document.getElementById(ids[ids.length - 1]) : null;
+        error?.scrollIntoView?.({ block: 'nearest' });
+      },
+      { injector: this.injector },
+    );
+  }
+
+  private async send(v: RequestModel): Promise<undefined> {
+    const target = this.target();
+    // The schema already refused an unchecked box; this narrows the type.
+    if (this.kind() === 'claim' && !v.accepted_terms) return undefined;
+    // AECI-1972: read once, before the request. The notice renders on this form
+    // whenever `routed()` is true, so this is "the notice was on screen at submit".
+    const noticeShown = this.kind() === 'claim' && this.routed();
+    try {
+      const res =
+        this.kind() === 'claim'
+          ? await this.api.submitClaim(target, {
+              submitter_name: v.submitter_name,
+              submitter_email: v.submitter_email,
+              submitter_linkedin_url: v.submitter_linkedin_url,
+              submitter_title: v.submitter_title,
+              company_legal_name: v.company_legal_name,
+              body: v.body,
+              accepted_terms: true,
+              found_via: v.found_via,
+              found_via_detail: v.found_via_detail.trim(),
+              routed_notice_shown: noticeShown,
+            })
+          : await this.api.submitCorrection(
+              target,
+              {
                 body: v.body,
                 source_url: v.source_url,
                 submitter_email: v.submitter_email,
-              });
-        this.sentTo.set(v.submitter_email.trim());
-        this.sentAsRouted.set(noticeShown);
-        this.submitted.set(res);
-        this.sentRouted.emit(noticeShown);
-        this.sentConfirm.emit(res.confirmation_required);
-        this.sent.emit(this.sentTo());
-        afterNextRender(() => this.confirmFocus()?.nativeElement.focus(), {
+              },
+              this.pairSlug(),
+            );
+      this.sentTo.set(v.submitter_email.trim());
+      this.sentAsRouted.set(noticeShown);
+      this.submitted.set(res);
+      this.sentRouted.emit(noticeShown);
+      this.sentConfirm.emit(res.confirmation_required);
+      this.sent.emit(this.sentTo());
+      afterNextRender(() => this.confirmFocus()?.nativeElement.focus(), {
+        injector: this.injector,
+      });
+      // §14.1: the form holds only (target_type, slug) — never a UUID — so the
+      // event records that + the returned request_id (consent-gated, no-throw).
+      const payload = {
+        target_type: target.targetType,
+        slug: target.slug,
+        request_id: res.request_id,
+      };
+      if (this.kind() === 'claim') {
+        this.analytics.claimRequested({
+          ...payload,
+          confirmation_required: res.confirmation_required,
+          found_via: v.found_via || null,
+        });
+      } else {
+        this.analytics.correctionRequested(payload);
+      }
+    } catch (err) {
+      // Surface the failure as a notice, not a form error. A `ValidationError`
+      // here would mark the form invalid, so the next press would stop at the
+      // invalid check and never retry the send the message invites.
+      if (this.kind() === 'claim' && isAcceptedTermsRejection(err)) {
+        // AECI-1366: the box's own error, and focus on the box.
+        this.termsRejected.set(true);
+        this.model.update((m) => ({ ...m, accepted_terms: false }));
+        afterNextRender(() => this.document.getElementById('claim-terms')?.focus(), {
           injector: this.injector,
         });
-        // §14.1: the form holds only (target_type, slug) — never a UUID — so the
-        // event records that + the returned request_id (consent-gated, no-throw).
-        const payload = {
-          target_type: target.targetType,
-          slug: target.slug,
-          request_id: res.request_id,
-        };
-        if (this.kind() === 'claim') {
-          this.analytics.claimRequested({
-            ...payload,
-            confirmation_required: res.confirmation_required,
-            found_via: v.found_via || null,
-          });
-        } else {
-          this.analytics.correctionRequested(payload);
-        }
-      } catch (err) {
-        // Surface the failure as a notice, not a form error — returning a
-        // `ValidationError` here would mark the form invalid and disable the
-        // submit button, blocking the retry the message invites.
-        if (this.kind() === 'claim' && isAcceptedTermsRejection(err)) {
-          // AECI-1366: the box's own error, and focus on the box.
-          this.termsRejected.set(true);
-          this.model.update((m) => ({ ...m, accepted_terms: false }));
-          afterNextRender(() => this.document.getElementById('claim-terms')?.focus(), {
-            injector: this.injector,
-          });
-        } else {
-          this.submitFailed.set(true);
-        }
+      } else {
+        this.submitFailed.set(true);
       }
-      return undefined;
-    });
+    }
+    return undefined;
   }
 }

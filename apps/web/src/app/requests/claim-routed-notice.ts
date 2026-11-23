@@ -17,14 +17,19 @@ import { CLAIM_OWNER_REVIEW_DAYS } from '@aeci/shared';
  * that claim goes to AECi instead of the owners. A
  * polite live region, so a notice that appears after the lookup resolves is announced
  * without interrupting.
+ *
+ * While it shows nothing, the host stays in the page (the live region must exist before
+ * the notice arrives) but takes no room: `empty:mb-0` cancels the form's `space-y-6`
+ * gap under it, which had put 24px of blank space above the first field (AECI-1720
+ * layout pass). Angular's `@if` anchor is a comment, and `:empty` ignores comments.
  */
 @Component({
   selector: 'aec-claim-routed-notice',
-  host: { class: 'block', 'aria-live': 'polite' },
+  host: { class: 'block empty:mb-0', 'aria-live': 'polite' },
   template: `
     @if (show()) {
       <p
-        class="rounded-(--radius-md) bg-(--accent-warm) px-3 py-2 text-sm text-(--accent-secondary-deep)"
+        class="rounded-panel bg-(--accent-warm) px-3 py-2 text-sm text-(--accent-secondary-deep)"
         data-testid="claim-routed-notice"
       >
         @if (company(); as name) {

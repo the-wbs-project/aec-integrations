@@ -16,6 +16,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
 import { waitForHydrationSettle } from './console-capture';
+import { expectNoSidewaysScroll } from './no-sideways-scroll';
 
 test.describe('/vendor-program — AECI-1283 to 1287', () => {
   test('GET /vendor-program returns 200 with the static-page cache headers + route:index tag', async ({
@@ -221,9 +222,10 @@ test.describe('/vendor-program — AECI-1283 to 1287', () => {
             '#vp-what-changes, #vp-free, #vp-managed, #vp-plans, #vp-sorting, #vp-faq, aec-plan-cta-panel section',
           ),
         ];
-        const container = hero.querySelector('.max-w-7xl')!.getBoundingClientRect();
-        const left = container.left + 32;
-        const inner = container.width - 64;
+        // AECI-1802: the hero sits in the Bone band's 1328px page wrap, gutters 48px from lg.
+        const container = hero.closest('.max-w-\\[1328px\\]')!.getBoundingClientRect();
+        const left = container.left + 48;
+        const inner = container.width - 96;
         return sections.map((section) => {
           // The right edge of the furthest visible text or control in the section.
           let right = 0;
@@ -262,5 +264,84 @@ test.describe('/vendor-program — AECI-1283 to 1287', () => {
     expect(new URL(tab.url()).pathname).toBe('/docs/trust/how-ranking-works');
     await expect(page).toHaveURL(/\/vendor-program$/);
     await tab.close();
+  });
+
+  // Ruling A7 (2026-11-16): the plan cards take the shared card frame. The Managed
+  // card keeps its 2px Forest border, and the buttons stay one width and one line.
+  test('the plan cards are the shared card, the Managed one with a 2px Forest border', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/vendor-program');
+    await page.waitForFunction(() => document.getAnimations().length === 0);
+    const frame = (plan: string) =>
+      page.locator(`aec-plan-cards [data-plan-card="${plan}"]`).evaluate((e) => {
+        const c = getComputedStyle(e);
+        return {
+          radius: c.borderTopLeftRadius,
+          border: c.borderTopWidth,
+          shadow: c.boxShadow !== 'none',
+        };
+      });
+    expect(await frame('free')).toEqual({ radius: '24px', border: '1px', shadow: true });
+    expect(await frame('managed')).toEqual({ radius: '24px', border: '2px', shadow: true });
+    const managedColor = await page
+      .locator('aec-plan-cards [data-plan-card="managed"]')
+      .evaluate((e) => {
+        const ctx = document.createElement('canvas').getContext('2d')!;
+        ctx.fillStyle = getComputedStyle(e).borderTopColor;
+        ctx.fillRect(0, 0, 1, 1);
+        return [...ctx.getImageData(0, 0, 1, 1).data.slice(0, 3)].join(',');
+      });
+    expect(managedColor).toBe('30,58,47');
+    const buttons = page.locator('aec-plan-cards [data-plan-card] a[aecButton]');
+    const [a, b] = [(await buttons.nth(0).boundingBox())!, (await buttons.nth(1).boundingBox())!];
+    expect(a.width).toBe(b.width);
+    expect(a.y).toBe(b.y);
+  });
+  // AECI-1802: the /about recipe. One Bone band (the hero), one Forest feature card
+  // (the closing panel), and nothing scrolls sideways on a phone. The listing request
+  // page has no Bone band since the AECI-1720 layout pass: its form comes first.
+  for (const [path, bands] of [
+    ['/vendor-program', 1],
+    ['/vendor-program/list-your-product', 0],
+  ] as const) {
+    for (const width of [320, 390]) {
+      test(`${path} has ${bands} Bone band and fits at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(path);
+        await waitForHydrationSettle(page);
+        await expect(page.locator('.aec-bone-band')).toHaveCount(bands);
+        await expect(page.locator('h1')).toHaveCount(1);
+        await expect(page.locator('aec-bone-band h1')).toHaveCount(bands);
+        await expectNoSidewaysScroll(page);
+      });
+    }
+  }
+
+  test('the closing panel is the one Forest card, in Bone ink', async ({ page }) => {
+    await page.goto('/vendor-program');
+    await waitForHydrationSettle(page);
+    const panel = page.locator('aec-plan-cta-panel section');
+    const [ground, ink, radius] = await panel.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return [cs.backgroundColor, cs.color, cs.borderTopLeftRadius];
+    });
+    const token = (name: string) =>
+      page.evaluate((n) => {
+        const probe = document.createElement('div');
+        probe.style.color = `var(${n})`;
+        document.body.appendChild(probe);
+        const value = getComputedStyle(probe).color;
+        probe.remove();
+        return value;
+      }, name);
+    expect(ground).toBe(await token('--accent-primary'));
+    expect(ink).toBe(await token('--text-on-brand'));
+    expect(radius).toBe('24px');
+    const heading = page.locator('#plans-cta-heading');
+    expect(await heading.evaluate((el) => getComputedStyle(el).color)).toBe(
+      await token('--text-on-brand'),
+    );
   });
 });

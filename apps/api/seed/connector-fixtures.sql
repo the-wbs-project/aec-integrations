@@ -38,7 +38,12 @@
 --   * Idempotent: every insert is `ON CONFLICT DO NOTHING`, matching catalog.sql.
 --     ONE exception — the `fx-agave-inc` vendor re-asserts `promotion_status` on
 --     conflict (AECI-592), so a local DB seeded before that fix is repaired rather
---     than left at the 'pending' default that trips the invariant check.
+--     than left at the 'pending' default that trips the invariant check. The
+--     endpoint products re-assert `name` on conflict (AECI-1920): `fx-procore`
+--     and `fx-bluebeam-revu` read "Procore (fixture)" and "Bluebeam Revu
+--     (fixture)", as `fx-mindcloud` does, because a bare "Procore" gave two
+--     indexable product pages one title with catalog.sql's `procore` (the
+--     `duplicate_page_titles` check). The stubs keep the connector's own names.
 --   * `connector_product_id` is NOT NULL, so both catalogues need a promoted
 --     connector-role product; they are created here rather than assumed.
 --   * Ids are the review app's own record ids on all five projected tables
@@ -63,9 +68,9 @@
 -- ---------------------------------------------------------------------------
 
 INSERT INTO products (id, slug, name, description, website, product_role, research_status, promotion_status, created_at, updated_at) VALUES
-  ('00000000-0000-4000-8000-000000000800','fx-procore','Procore','Connector-lane fixture endpoint product.','https://example.com/procore','application','done','promoted','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('00000000-0000-4000-8000-000000000800','fx-procore','Procore (fixture)','Connector-lane fixture endpoint product.','https://example.com/procore','application','done','promoted','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('00000000-0000-4000-8000-000000000801','fx-autodesk-build','Autodesk Build','Connector-lane fixture endpoint product.','https://example.com/autodesk-build','application','done','promoted','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  ('00000000-0000-4000-8000-000000000802','fx-bluebeam-revu','Bluebeam Revu','Connector-lane fixture endpoint product.','https://example.com/bluebeam-revu','application','done','promoted','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('00000000-0000-4000-8000-000000000802','fx-bluebeam-revu','Bluebeam Revu (fixture)','Connector-lane fixture endpoint product.','https://example.com/bluebeam-revu','application','done','promoted','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('00000000-0000-4000-8000-000000000803','fx-sage-intacct','Sage Intacct','Connector-lane fixture endpoint product.','https://example.com/sage-intacct','application','done','promoted','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('00000000-0000-4000-8000-000000000804','fx-quickbooks-online','QuickBooks Online','Connector-lane fixture endpoint product.','https://example.com/quickbooks-online','application','done','promoted','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('00000000-0000-4000-8000-000000000805','fx-viewpoint-vista','Viewpoint Vista','Connector-lane fixture endpoint product.','https://example.com/viewpoint-vista','application','done','promoted','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
@@ -73,7 +78,7 @@ INSERT INTO products (id, slug, name, description, website, product_role, resear
   ('00000000-0000-4000-8000-000000000807','fx-bim-360','BIM 360','Connector-lane fixture endpoint product.','https://example.com/bim-360','application','done','promoted','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('00000000-0000-4000-8000-000000000808','fx-fieldwire','Fieldwire','Connector-lane fixture endpoint product.','https://example.com/fieldwire','application','done','promoted','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('00000000-0000-4000-8000-000000000809','fx-raken','Raken','Connector-lane fixture endpoint product.','https://example.com/raken','application','done','promoted','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-ON CONFLICT (slug) DO NOTHING;
+ON CONFLICT (slug) DO UPDATE SET name = excluded.name;
 
 -- ---------------------------------------------------------------------------
 -- The two connector platforms. `product_role = 'connector'` is what makes them

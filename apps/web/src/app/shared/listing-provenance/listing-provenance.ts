@@ -3,7 +3,9 @@ import { Component, input } from '@angular/core';
 
 import type { FieldCaption, FieldCorrection } from '@aeci/shared';
 
+import { AecCard } from '../card/card';
 import { FieldCaptionLine, type FieldCaptionPage } from '../field-caption/field-caption';
+import { AecIcon } from '../icon/icon';
 import { MaintenanceMarker, type MaintainedBy } from '../maintenance-marker/maintenance-marker';
 
 /** One field group's "Maintained by" caption, named. `label: null` reads the bare form. */
@@ -55,54 +57,52 @@ export type ListingProvenanceVariant = 'card' | 'disclosure';
  */
 @Component({
   selector: 'aec-listing-provenance',
-  imports: [FieldCaptionLine, MaintenanceMarker, NgTemplateOutlet],
+  imports: [AecCard, AecIcon, FieldCaptionLine, MaintenanceMarker, NgTemplateOutlet],
   host: {
     '[class]': "variant() === 'card' ? 'hidden lg:block' : 'block lg:hidden'",
   },
   template: `
+    <!-- The November 2026 language (ADR 0059): an aecCard with the facts card's overline
+         group heading and its 16px glyph. From lg the heading sits left and the lines
+         right, the section row's 5:7 split, so a short panel never leaves the right half
+         of the page blank. Below lg it is a native <details> in the same card. -->
     @if (variant() === 'card') {
-      <section aria-labelledby="listing-provenance-title" class="space-y-3">
-        <h2
-          id="listing-provenance-title"
-          class="aec-overline text-(--text-secondary)"
-          i18n="@@listingProvenance.title"
-        >
-          About this listing
+      <section
+        aecCard
+        aria-labelledby="listing-provenance-title"
+        class="grid gap-4 p-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-16"
+      >
+        <h2 id="listing-provenance-title" class="aec-overline text-(--text-secondary)">
+          <span class="flex items-center gap-2"
+            ><aec-icon name="info" decorative [size]="4" /><span i18n="@@listingProvenance.title"
+              >About this listing</span
+            ></span
+          >
         </h2>
-        <div
-          class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-4"
-        >
+        <div class="min-w-0">
           <ng-container [ngTemplateOutlet]="lines" />
         </div>
       </section>
     } @else {
-      <details
-        class="group rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised)"
-      >
+      <details aecCard class="group">
         <summary
-          class="flex cursor-pointer list-none items-center justify-between gap-4
-            rounded-(--radius-lg) px-4 py-3 focus-visible:outline-2
-            focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)
-            [&::-webkit-details-marker]:hidden"
+          class="flex min-h-11 cursor-pointer list-none items-center justify-between gap-4
+            rounded-card px-6 py-4 text-(--text-secondary) hover:text-(--text-primary)
+            focus-visible:outline-3 focus-visible:outline-offset-3
+            focus-visible:outline-(--accent-primary) [&::-webkit-details-marker]:hidden"
         >
-          <span class="aec-overline text-(--text-secondary)" i18n="@@listingProvenance.title"
-            >About this listing</span
+          <span class="aec-overline flex items-center gap-2"
+            ><aec-icon name="info" decorative [size]="4" /><span i18n="@@listingProvenance.title"
+              >About this listing</span
+            ></span
           >
-          <svg
-            class="size-5 shrink-0 text-(--text-secondary) transition-transform duration-200
-              group-open:rotate-180 motion-reduce:transition-none"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="m6 9 6 6 6-6" />
-          </svg>
+          <span
+            class="inline-flex transition-transform duration-base ease-standard group-open:rotate-180
+              motion-reduce:transition-none"
+            ><aec-icon name="chevron-down" decorative [size]="5"
+          /></span>
         </summary>
-        <div class="border-t border-(--border-default) px-4 py-3">
+        <div class="border-t px-6 pt-4 pb-6">
           <ng-container [ngTemplateOutlet]="lines" />
         </div>
       </details>

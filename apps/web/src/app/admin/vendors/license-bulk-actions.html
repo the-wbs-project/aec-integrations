@@ -29,7 +29,7 @@
   data-testid="license-bulk-form"
 >
   @switch (m) { @case ('extend') {
-  <form novalidate (submit)="$event.preventDefault(); submitExtend()">
+  <form method="dialog" novalidate (aecSubmit)="submitExtend()">
     <label
       [attr.for]="idPrefix() + '-bulk-end'"
       class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
@@ -102,7 +102,7 @@
     </div>
   </form>
   } @case ('revoke') {
-  <form novalidate (submit)="$event.preventDefault(); submitRevoke()">
+  <form method="dialog" novalidate (aecSubmit)="submitRevoke()">
     <p class="text-sm text-(--text-primary)" i18n="@@admin.vendors.licenseBulk.revoke.confirm">
       Revoke {revocable().length, plural, =1 {1 subscription} other {{{revocable().length}}
       subscriptions}}? Each ends now.

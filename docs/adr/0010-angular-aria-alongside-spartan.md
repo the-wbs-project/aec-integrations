@@ -104,7 +104,7 @@ reactively.**
 | Listbox | Yes | none | **Aria** |
 | Radio group | Yes | none | **Aria** |
 | Menu / Menubar (application commands) | Yes | none | **Aria** |
-| Menu-shaped NAVIGATION (a row of router links) | n/a | `layout/nav-flyout-trigger.ts`, `admin/admin-nav-dropdown.ts` | **Disclosure, not `role="menu"`** — see the note below |
+| Menu-shaped NAVIGATION (a row of router links) | n/a | `layout/browse-menu.ts` (was `nav-flyout-trigger.ts` until AECI-1774), `admin/admin-nav-dropdown.ts` | **Disclosure, not `role="menu"`** — see the note below |
 | Toolbar | Yes | none | **Aria** |
 | Tree | Yes | none | **Aria** |
 | Grid (keyboard data grid) | Yes | none | **Aria** |

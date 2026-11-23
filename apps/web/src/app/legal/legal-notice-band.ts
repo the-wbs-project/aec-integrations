@@ -19,6 +19,8 @@ import {
   legalNoticeHref,
   legalNoticeId,
 } from './legal-notices';
+import { AecIcon } from '../shared/icon/icon';
+import { AecButton } from '../shared/button/button';
 
 /** The entries the band reads. A token so specs can set them. */
 export const LEGAL_NOTICES_DATA = new InjectionToken<readonly LegalNotice[]>('LEGAL_NOTICES_DATA', {
@@ -80,7 +82,7 @@ function writeDismissed(ids: readonly string[]): void {
  */
 @Component({
   selector: 'aec-legal-notice-band',
-  imports: [RouterLink],
+  imports: [AecButton, AecIcon, RouterLink],
   template: `
     @for (notice of visible(); track id(notice)) {
       <div
@@ -89,8 +91,10 @@ function writeDismissed(ids: readonly string[]): void {
         class="aec-notice-neutral border-b bg-(--accent-warm)"
         data-testid="legal-notice"
       >
-        <div class="mx-auto flex max-w-7xl items-start justify-between gap-4 px-6 py-3 md:px-8">
-          <p class="min-w-0 text-sm/6 text-(--text-primary)">
+        <div
+          class="mx-auto flex w-full max-w-[1328px] items-start justify-between gap-4 px-6 py-3 md:px-8 lg:px-12"
+        >
+          <p class="min-w-0 text-t-14 leading-6 text-(--text-primary)">
             <span class="font-semibold" i18n="@@legal.notice.lead"
               >Changes to the {{ notice.title }} take effect on
               {{ notice.effectiveDateLabel }}.</span
@@ -98,34 +102,23 @@ function writeDismissed(ids: readonly string[]): void {
             {{ notice.summary }}
             <a
               [routerLink]="href(notice)"
-              class="font-medium text-(--accent-primary) underline underline-offset-2
+              class="text-(--accent-primary) underline underline-offset-2
                 hover:text-(--accent-primary-hover)"
               i18n="@@legal.notice.readNewVersion"
               >Read the new version</a
             >
           </p>
           <button
+            aecButton
+            variant="ghost"
+            iconOnly
             type="button"
             (click)="dismiss(notice)"
             [attr.aria-label]="dismissLabel(notice)"
-            class="-my-1 inline-flex size-8 shrink-0 items-center justify-center
-              rounded-(--radius-md) text-(--text-secondary) transition-colors
-              hover:bg-(--surface-sunken) hover:text-(--text-primary)
-              focus-visible:outline-none focus-visible:ring-2
-              focus-visible:ring-(--accent-primary)"
+            class="-my-2"
             data-testid="legal-notice-dismiss"
           >
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 16 16"
-              class="size-4"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.75"
-              stroke-linecap="round"
-            >
-              <path d="M4 4l8 8M12 4l-8 8" />
-            </svg>
+            <aec-icon name="x" decorative [size]="5" />
           </button>
         </div>
       </div>

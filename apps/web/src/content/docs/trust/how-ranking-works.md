@@ -3,8 +3,8 @@ title: How ranking works
 description: What decides the order of search results and lists on AEC Integrations, what never does, and why no plan can buy a better position.
 section: trust
 order: 1
-version: 1.1
-last_updated: November 18, 2026
+version: 1.2
+last_updated: November 27, 2026
 ---
 
 The order of every list on AEC Integrations comes from fixed rules, applied the same way to every listing. This page names the things that decide the order and says, in words, how much each one counts. It does not publish a formula or any weights.
@@ -48,16 +48,35 @@ Filters change which products you see, not their order.
 
 ## The home page
 
-- **Popular**, under the search box, names up to five products people viewed most over the past thirty days. We count views our traffic classifier judged to be a person, or could not decide about. Views it judged automated, and our own visits, are left out. Classification runs once a day, so a view counts from the next day. A view of a page about two products counts for both. A product needs a few views to be listed. We update it once a day. When no product has enough views, the row names the five categories with the most products instead. That fallback counts products, not views.
+- **Most viewed**, under the search box, names up to five products people viewed most over the past thirty days. We count views our traffic classifier judged to be a person, or could not decide about. Views it judged automated, and our own visits, are left out. Classification runs once a day, so a view counts from the next day. A view of a page about two products counts for both. A product needs a few views to be listed. We update it once a day. When no product has enough views, the row is labelled **Largest categories** and names the five categories with the most products instead. That fallback counts products, not views.
 - **Browse the directory** lists the categories with the most products, the trades with the most products, every project phase in project order, and a fixed list of roles. A trade is listed once at least one product carries it.
+
+## The Browse menu
+
+**Browse**, in the site header, opens a menu of places to start. It names no product and no vendor. It has five columns:
+
+- **Explore** starts with **All products**, then four key categories: AI, Project management, BIM authoring, and Accounting and ERP. We chose these four ourselves. They are an editorial pick, not a ranking, and they are listed in the order we chose.
+- **Categories** lists the seven categories with the most products, leaving out the four key categories.
+- **Phases** lists every project phase, in project order.
+- **Audiences** lists the seven audiences with the most products.
+- **Trades** lists the seven trades with the most products. A trade is listed once at least one product carries it.
+
+When two have the same number of products, they are listed A to Z. A category, audience or trade with no products is not listed. Each of the other four columns ends with a link to its full list. The counts are the products tagged with each one. We set every tag when we list a product. A vendor that has claimed a product can change that product's categories, on any plan. A vendor can change a product's audiences and trades only when that product is on a paid plan. So a vendor's changes can move these counts, and for audiences and trades that takes a paid plan. The counts never move a product in any list.
 
 ## A product page
 
+- **Integrations by partner category**, at the top of a product page, lists every category that the partners in its integrations carry, A to Z by category name. The number beside each category does not change the order.
 - **Integrations** lists the products this one integrates with, A to Z by partner name, ignoring capital letters, then by the integration's name.
 - Integrations that run through a connector tool are grouped by connector. The connector with the most integrations comes first, then A to Z by connector name. Integrations whose connector is not named come last. Inside each group, the order is the same as above.
+- When a product has thirteen or more integrations and no connector group, and their partners fall into fewer categories than half that number, the integrations are grouped by the partner's category. The groups are A to Z by category name. A partner with more than one category appears in each of its groups. Partners with no category on record come last. Inside each group, the order is the same as above. **One list** shows the same integrations in the order above, without groups.
 - **Integrations it powers**, on a connector's own page, groups the pairs it connects around the products they share. The group with the most partners comes first, then A to Z by product name. Partners inside a group, and pairs that share no product, are listed A to Z.
 - **Extensions built within** a product, and the products an extension is **Built within**, are listed A to Z by name.
-- **Categories**, **phases** and **trades** beside the description follow a fixed order we set, the same on every product page. Phases follow project order. Where we have set no order, they are listed A to Z. **Audiences** are listed A to Z.
+- **Categories**, **phases** and **trades** follow a fixed order we set, the same on every product page. Phases follow project order. Where we have set no order, they are listed A to Z. **Audiences** are listed A to Z.
+- **Similar products**, near the end of a product page, lists up to six products that share a category with it, A to Z by name, ignoring capital letters. When more than six do, the first six in that order are shown. A product whose name comes later in that order is not shown.
+
+## A pair page with no integration
+
+- **Closest matches on record**, on a page about two products with no integration on record, keep one product and swap the other. A product appears when it has an integration on record with the product you keep and shares a category you left on with the other product. They are listed A to Z by name, ignoring capital letters. If you pick data, a product must have all of it on record with the product you keep. A search by product or vendor name only narrows the list. It never changes the order. The order never reads a vendor's plan. Who appears depends only on the integrations and data on record. A vendor on a paid plan can add data to its own integrations, so its product can match a data filter it would not match otherwise.
 
 ## What does not count
 
@@ -84,7 +103,8 @@ Anyone can ask us to correct a listing, at no charge. A more complete, accurate 
 
 We record this page as a dated version, because the Terms of Service and the Vendor Terms link it. Each change to this page is a new version.
 
-- [Version 1.1](/docs/trust/how-ranking-works/v1.1) (this version): recorded November 18, 2026. Says what a paid plan does change, and adds the order of each list on a product page.
+- [Version 1.2](/docs/trust/how-ranking-works/v1.2) (this version): recorded November 27, 2026. Adds the Browse menu, the order of the lists the redesigned product page adds and the closest matches on a pair page with no integration, and names the home page row Most viewed and its fallback Largest categories.
+- [Version 1.1](/docs/trust/how-ranking-works/v1.1): recorded November 18, 2026. Says what a paid plan does change, and adds the order of each list on a product page.
 - [Version 1.0](/docs/trust/how-ranking-works/v1.0): recorded November 16, 2026. The first recorded version.
 
 ## Related

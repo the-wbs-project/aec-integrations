@@ -57,7 +57,7 @@ const AUDIENCES: readonly Omit<AudienceGroup, 'sections'>[] = [
   template: `
     <!-- AECI-987: the index takes the docs content column. Measure lives on the
          intro and the summaries. From lg both lists run two columns. -->
-    <div class="px-4 pt-8 pb-14 md:px-6 lg:px-8 lg:pt-10" data-testid="page-canvas">
+    <div class="px-4 pt-8 pb-16 md:px-6 lg:px-8 lg:pt-12" data-testid="page-canvas">
       <div class="mx-auto max-w-6xl">
         <header class="max-w-[42rem]">
           <h1 class="aec-docs-title text-(--text-primary)" i18n="@@app.docs.home.heading">
@@ -83,15 +83,15 @@ const AUDIENCES: readonly Omit<AudienceGroup, 'sections'>[] = [
                 [attr.data-audience]="group.audience"
               >
                 <h3 class="aec-docs-subhead text-(--text-primary)">{{ group.heading }}</h3>
-                <p class="mt-1 max-w-[36rem] text-sm leading-relaxed text-(--text-secondary)">
+                <p class="mt-1 max-w-[36rem] text-t-14 leading-relaxed text-(--text-secondary)">
                   {{ group.summary }}
                 </p>
-                <ul class="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-sm">
+                <ul class="mt-1 flex flex-wrap gap-x-6 text-t-14">
                   @for (section of group.sections; track section.id) {
                     <li>
                       <a
                         [routerLink]="section.path"
-                        class="rounded-sm font-medium text-(--accent-primary) underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                        class="inline-flex min-h-11 items-center rounded-mark font-semibold text-(--accent-primary) underline-offset-4 hover:underline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
                         >{{ section.label }}</a
                       >
                     </li>
@@ -102,7 +102,7 @@ const AUDIENCES: readonly Omit<AudienceGroup, 'sections'>[] = [
           </ul>
         </section>
 
-        <section class="mt-10" aria-labelledby="docs-sections-heading">
+        <section class="mt-12" aria-labelledby="docs-sections-heading">
           <h2
             id="docs-sections-heading"
             class="aec-overline text-(--text-secondary)"
@@ -116,24 +116,24 @@ const AUDIENCES: readonly Omit<AudienceGroup, 'sections'>[] = [
           >
             @for (entry of allSections; track entry.section.id) {
               @let section = entry.section;
-              <div class="border-b border-(--border-default) py-5" [attr.data-section]="section.id">
+              <div class="border-b border-(--border-default) py-4" [attr.data-section]="section.id">
                 <h3 class="aec-docs-subhead">
                   <a
                     [routerLink]="section.path"
-                    class="rounded-sm text-(--text-primary) underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                    class="inline-flex min-h-11 items-center rounded-mark text-(--text-primary) underline-offset-4 hover:underline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
                     >{{ section.label }}</a
                   >
                 </h3>
-                <p class="mt-1 max-w-[36rem] text-sm leading-relaxed text-(--text-secondary)">
+                <p class="mt-1 max-w-[36rem] text-t-14 leading-relaxed text-(--text-secondary)">
                   {{ section.summary }}
                 </p>
                 @if (!section.singlePage) {
-                  <ul class="mt-2.5 space-y-1.5 text-sm">
+                  <ul class="mt-1 text-t-14">
                     @for (page of entry.pages; track page.slug) {
                       <li>
                         <a
                           [routerLink]="page.path"
-                          class="rounded-sm text-(--accent-primary) underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                          class="inline-flex min-h-11 items-center rounded-mark text-(--accent-primary) underline-offset-4 hover:underline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
                           >{{ page.title }}</a
                         >
                       </li>

@@ -1,11 +1,14 @@
 import { MECHANISM_ORDER, mergeContextDirections } from './powered-hub-grouping';
 
 import type {
+  AgreementState,
   ContextDirection,
   IntegrationMechanismKind,
+  IntegrationTerm,
   ProductIntegrationItem,
   ProductLink,
 } from '@aeci/shared';
+import { integrationAgreement } from '@aeci/shared/agreement';
 import { compareText } from '@aeci/shared/text-sort';
 
 /**
@@ -57,6 +60,20 @@ export interface IntegrationLaneRow {
    * once, exactly as the pair page's headline counts it (AECI-1042).
    */
   readonly dataObjectSlugs: readonly string[];
+  /**
+   * The same objects with their names (AECI-1782), for the card's chips. The
+   * representative edge's objects first, in the server's pair-page order, then any
+   * object only another collapsed edge moves, in edge order. Same set as
+   * `dataObjectSlugs` whenever the server sent names for every slug.
+   */
+  readonly dataObjects: readonly IntegrationTerm[];
+  /**
+   * The row's agreement state (AECI-1781). One edge: the server's roll-up. A
+   * collapsed Via row: the same rule over its edges, so the weakest flow decides and
+   * any conflict wins (`integrationAgreement`). `null` when no edge lists a flow. A
+   * label only: no order and no filter reads it (ruling R1).
+   */
+  readonly agreement: AgreementState | null;
   /** Edges collapsed into this row. `> 1` means duplicates or several mechanisms. */
   readonly edgeCount: number;
 }
@@ -154,6 +171,19 @@ interface MutableRow {
   direction: ContextDirection | null;
   dataObjectSlugs: Set<string>;
   edgeCount: number;
+  /** Every collapsed edge, in arrival order. */
+  edges: ProductIntegrationItem[];
+}
+
+/** The representative's objects first, then the rest in edge order, one per slug. */
+function unionDataObjects(row: MutableRow): IntegrationTerm[] {
+  const bySlug = new Map<string, IntegrationTerm>();
+  for (const edge of [row.integration, ...row.edges]) {
+    for (const term of edge.data_objects ?? []) {
+      if (!bySlug.has(term.slug)) bySlug.set(term.slug, term);
+    }
+  }
+  return [...bySlug.values()];
 }
 
 function freeze(row: MutableRow): IntegrationLaneRow {
@@ -164,6 +194,10 @@ function freeze(row: MutableRow): IntegrationLaneRow {
     mechanismKinds: MECHANISM_ORDER.filter((k) => row.mechanismKinds.has(k)),
     direction: row.direction,
     dataObjectSlugs: [...row.dataObjectSlugs],
+    dataObjects: unionDataObjects(row),
+    agreement: integrationAgreement(
+      row.edges.flatMap((edge) => (edge.agreement ? [{ agreement: edge.agreement }] : [])),
+    ),
     edgeCount: row.edgeCount,
   };
 }
@@ -191,6 +225,7 @@ function seed(
     direction: integration.context_direction,
     dataObjectSlugs: new Set(integration.data_object_slugs),
     edgeCount: 1,
+    edges: [integration],
   };
 }
 
@@ -235,6 +270,7 @@ export function splitIntegrationLanes(
     }
     // Collapse: one row per (connector, partner).
     existing.edgeCount += 1;
+    existing.edges.push(integration);
     existing.direction = mergeContextDirections(existing.direction, integration.context_direction);
     if (integration.mechanism_kind) existing.mechanismKinds.add(integration.mechanism_kind);
     for (const slug of integration.data_object_slugs) existing.dataObjectSlugs.add(slug);
@@ -274,7 +310,7 @@ export function splitIntegrationLanes(
 
 /**
  * The fields a row marks "Under review" (AECI-1238, §11d.7). `ProductIntegrationRow`
- * mounts one `aec-under-review` per entry, so {@link countLaneUnderReview} reads the same
+ * and `ProductIntegrationCard` each mount one `aec-under-review` per entry, so {@link countLaneUnderReview} reads the same
  * list. A collapsed Via row renders its representative edge only.
  */
 export function rowUnderReviewFields(integration: ProductIntegrationItem): readonly string[] {

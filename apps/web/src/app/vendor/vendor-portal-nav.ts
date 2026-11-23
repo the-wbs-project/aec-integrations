@@ -61,7 +61,13 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink, RouterLinkActive],
   template: `
-    <nav [attr.aria-label]="ariaLabel()" class="mb-8 border-b border-(--border-default)">
+    <!-- AECI-1855: a persistent section row. A pressed link keeps focus after it
+         navigates (core/route-focus.ts, data-route-focus-keep). -->
+    <nav
+      data-route-focus-keep
+      [attr.aria-label]="ariaLabel()"
+      class="mb-8 border-b border-(--border-default)"
+    >
       <ul
         class="m-0 flex list-none gap-x-6 overflow-x-auto overflow-y-hidden p-0 whitespace-nowrap"
       >

@@ -1,6 +1,8 @@
 import { Component, computed, inject, signal } from '@angular/core';
 
 import { AppUpdateService } from './app-update.service';
+import { AecIcon } from '../../shared/icon/icon';
+import { AecButton } from '../../shared/button/button';
 
 /**
  * "A new version is available" notice (AECI-1493).
@@ -20,6 +22,7 @@ import { AppUpdateService } from './app-update.service';
  */
 @Component({
   selector: 'aec-update-banner',
+  imports: [AecButton, AecIcon],
   template: `
     @if (show()) {
       <div
@@ -29,54 +32,44 @@ import { AppUpdateService } from './app-update.service';
         <div
           role="status"
           aria-live="polite"
-          class="pointer-events-auto flex items-start gap-3 rounded-(--radius-lg) border
-              border-(--border-default) bg-(--surface-raised) p-4 shadow-lg"
+          class="aec-popover pointer-events-auto flex items-start gap-3 p-4"
         >
           <div class="min-w-0 flex-1">
-            <p class="text-sm font-semibold text-(--text-primary)" i18n="@@appUpdate.banner.title">
+            <p
+              class="text-t-14 font-semibold text-(--text-primary)"
+              i18n="@@appUpdate.banner.title"
+            >
               A new version of AEC Integrations is available
             </p>
-            <p class="mt-1 text-sm/6 text-(--text-secondary)" i18n="@@appUpdate.banner.body">
+            <p
+              class="mt-1 text-t-14 leading-6 text-(--text-secondary)"
+              i18n="@@appUpdate.banner.body"
+            >
               Refresh the page to keep browsing.
             </p>
             <button
+              aecButton
               id="app-update-refresh"
               type="button"
               (click)="refresh()"
-              class="mt-3 inline-flex items-center justify-center rounded-(--radius-md) border
-                  border-(--border-strong) bg-(--accent-primary) px-4 py-2 text-sm font-bold
-                  text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover)
-                  focus-visible:outline-none focus-visible:ring-2
-                  focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
-                  focus-visible:ring-offset-(--surface-raised)"
+              class="mt-3"
               i18n="@@appUpdate.banner.refresh"
             >
               Refresh
             </button>
           </div>
           <button
+            aecButton
+            variant="ghost"
+            iconOnly
             id="app-update-dismiss"
             type="button"
             (click)="dismiss()"
             aria-label="Dismiss"
             i18n-aria-label="@@appUpdate.banner.dismiss"
-            class="-m-1 inline-flex size-8 shrink-0 items-center justify-center
-                rounded-(--radius-md) text-(--text-secondary) transition-colors
-                hover:bg-(--surface-sunken) hover:text-(--text-primary)
-                focus-visible:outline-none focus-visible:ring-2
-                focus-visible:ring-(--accent-primary)"
+            class="-m-2"
           >
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 16 16"
-              class="size-4"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.75"
-              stroke-linecap="round"
-            >
-              <path d="M4 4l8 8M12 4l-8 8" />
-            </svg>
+            <aec-icon name="x" decorative [size]="5" />
           </button>
         </div>
       </div>

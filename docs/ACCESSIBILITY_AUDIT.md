@@ -306,6 +306,8 @@ but passes when run alone. It also fails in a full-suite run with one worker. Th
 search-selection timing issue is outside this CSS change; no pair-finder code or assertions
 were changed.
 
+---
+
 ## 10. Ban form and ban-term panel (AECI-1607, 2026-11-20)
 
 **Scope:** `/admin/users/:id` (the ban form on a vendor's last unbanned seat) and
@@ -347,7 +349,170 @@ Cancel. Component specs assert `document.activeElement`. The rules are in `ADMIN
 §5.7. A successful action can still lose focus when the page reloads or the control
 disappears. AECI-2001 tracks that.
 
-## 11. Field error states (AECI-1984, 2026-11-22)
+---
+
+## 11. Redesign accessibility gate (AECI-1818, 2026-11-18)
+
+**Scope:** every public surface the November 2026 redesign rebuilt (AECI-1720), as merged on
+`redesign/on-hold-2026-11-16` at **`42f192752`**. Measured in Chromium against this issue's local
+`pnpm dev:agent` stack on a freshly seeded local D1. Every write and every external host was
+intercepted with `page.route`, so no form, sign-in or email reached a real service.
+**Procedure:** the dev-time axe recipe (`apps/web`, `@playwright/test`, `browser.newContext()`),
+plus real `Tab` walks with Playwright's keyboard. Playwright drives a visible, focused page, so the
+hidden-tab trap of checklist §5 does not apply to this run. **Not a screen-reader run:** see §11.6.
+
+### 11.1 Verdict
+
+**The gate passes on this branch, with two WCAG defects fixed in it.** axe found no error and no
+`serious` violation on any surface, at any width, in any state. The tags were `wcag2a`, `wcag2aa`,
+`wcag21a`, `wcag21aa`, `wcag22aa` and `best-practice`.
+
+The two defects axe cannot see were found by the keyboard pass and are fixed here:
+
+| # | Surface | Finding | SC | Status |
+|---|---|---|---|---|
+| **R1** | Every page on a first visit, worst at 768px and below | The fixed consent banner hid the focused control. A `Tab` scrolled each control only to the viewport's bottom edge, which is under the banner. Measured fully hidden stops: 27 at 320px, 14 at 390px, 4 at 768px, 1 at 1440px (`/products/revit`). | 2.4.11 (AA, 2.2) | **Fixed.** While it shows, the banner publishes its height on `<html>`. An unlayered `scroll-margin-bottom` rule in `styles.css` keeps every focusable element above it. After the fix: 0 hidden and 0 partly hidden stops at every width. The rule skips anything inside a modal (the open mobile menu, and the CDK overlay container's dialogs, drawer and popovers). Those paint above the banner, measured at 844 by 390, 390 by 844 and 320 by 640, so the banner cannot hide their focus. A first version applied inside the menu too. Its last control then asked for more scroll than the panel had, and the browser scrolled the locked page behind the menu by about 120px. CI caught it in `nav-menu.spec.ts` "landscape phone". |
+| **R2** | `/search` | The results tab panel is a Tab stop (`tabindex="0"`) and carried `focus-visible:outline-none`. Focus landed on it with nothing drawn. | 2.4.7 (AA, 2.0) | **Fixed.** The panel takes the standard 3px Forest ring at a 4px offset. |
+| **R3** | `/search` | The page's own `role="search"` form had no name. A landmarks list showed "Site search" and an unnamed "search". The A5 class. | 1.3.1 (A), best-practice | **Fixed.** `aria-labelledby` points at the existing "Search the directory" label. No new words. |
+
+Regression guards: `e2e/accessibility.spec.ts` "redesign accessibility gate (AECI-1818)" tabs
+45 stops at 320px with the banner up. With the fix switched off it failed and listed 16 hidden
+controls. A second case opens the menu at 844 by 390 with the banner up. It tabs 60 stops and asserts none is painted under the banner and the page behind stays at 0. A third asserts the panel ring and the two distinct landmark names. The component specs
+`consent-banner.component.spec.ts` and `search-page.component.spec.ts` pin the attribute, the
+custom property, the label link and the ring classes.
+
+### 11.2 Coverage, per surface
+
+Each row was scanned at 1440, 768, 390 and 320px. "Keys" is a real `Tab` walk at all four
+widths: cycle closed, no trap, no focus on a hidden element, a ring on every stop, and nothing
+fully hidden by the sticky header, the section bar or the banner. "Structure" is one `h1`, no
+skipped level, named landmarks and no image without alt text.
+
+| Surface | axe | Keys | Structure | Reflow 320 | States checked |
+|---|---|---|---|---|---|
+| Home `/` | ✅ | ✅ | ✅ | ✅ | default |
+| `/products` | ✅ | ✅ | ✅ | ✅ | default, filter on (count line announced), sort popup |
+| `/categories`, `/audiences`, `/phases`, `/trades` | ✅ | ✅ | ✅ | ✅ | default |
+| Term `/categories/bim-authoring` | ✅ | ✅ | ✅ | ✅ | default |
+| `/search` | ✅ | ✅ after R2 | ✅ after R3 | ✅ | default, zero results ("0 results" announced once) |
+| Product, many (`fixture-long-list`) | ✅ | ✅ | ✅ | ✅ | default, by-category and one-list views |
+| Product, few (`revit`) / none (`autocad`) | ✅ | ✅ | ✅ | ✅ | default |
+| Product, connector (`fx-agave`) | ✅ | ✅ | ✅ | ✅ | default |
+| Product, hybrid | not tested | not tested | not tested | not tested | no hybrid product is seeded locally |
+| Vendor `/vendors/autodesk` | ✅ | ✅ | ✅ | ✅ | default |
+| Pair `/products/revit/integrations/procore` | ✅ | ✅ | ✅ | ✅ | default |
+| 404 | ✅ | ✅ | ✅ | ✅ | default |
+| `/about`, `/methodology`, `/updates`, `/roadmap`, `/contact` | ✅ | ✅ | ✅ (P5) | ✅ | default |
+| `/vendor-program` | ✅ | ✅ | ✅ | ✅ | claim dialog open |
+| `/vendor-program/list-your-product` | ✅ | ✅ | ✅ | ✅ | errors, country popup, step 2, sent |
+| `/docs`, an article, vendor guide, plans, ranking | ✅ | ✅ | ✅ | ✅ | default |
+| `/legal/terms` | ✅ | ✅ | ✅ | ✅ | default |
+| `/auth/login` | ✅ | ✅ | ✅ | ✅ | error, "Check your email" (focus on the heading) |
+| Claim dialog | ✅ | ✅ trap, Escape, focus back | ✅ | ✅ | open; finder results **not tested** (no rows came back locally) |
+| Routed claim and correction pages | ✅ (P1) | ✅ | ✅ | ✅ | errors (focus to first field), sent (focus on the heading) |
+| Correction drawer | ✅ | ✅ trap, Escape, focus back | ✅ | ✅ | open, errors |
+| Review form | ✅ (P1) | ✅ stars by arrow keys | ✅ | ✅ | errors, received (focus on the heading) |
+| Unsubscribe, mute, claim confirm | ✅ | ✅ | ✅ | ✅ | done state (focus on the heading) |
+| Header, Browse menu (1024px and up) | ✅ | ✅ Escape returns focus | ✅ | n/a | open |
+| Mobile menu (below 1024px) | ✅ | ✅ trap, Escape returns focus | ✅ | ✅ | open, all four sections expanded |
+| Footer | ✅ | ✅ | ✅ | ✅ | default |
+| Consent banner | ✅ | ✅ after R1 | ✅ | ✅ | first visit |
+| `/account`, `/welcome` | not tested | not tested | not tested | not tested | need a session, and no preview route renders them |
+
+Also measured: 200% zoom, using a 640px CSS viewport at device scale 2 as the stand-in for 1280px
+at 200%. Ten pages reflowed with no sideways scroll and no axe finding. Reduced motion:
+`scroll-behavior` resolves to `auto`, an in-page section link jumps at once, no transition or
+animation runs over 200ms, and the Browse menu opens with no animation. The skip link keeps the
+URL path, focuses `<main>`, and the next `Tab` lands inside it. Sign-in needs no cognitive test:
+the email field has `autocomplete="email"` and allows paste (3.3.8).
+
+### 11.3 Contrast, measured
+
+Ratios are WCAG 2, computed in the page after a canvas resolves each token to sRGB. Buttons and
+chips were real `aecButton` and `.aec-chip` elements rendered with the shipped classes.
+
+| Pair | Ratio | Need |
+|---|---|---|
+| Bone on Forest / on the footer ground / on the hero panel | 11.03 / 13.71 / 9.18 | 4.5 |
+| `--text-on-brand-secondary` on Forest / hero panel / footer | 7.96 / 6.62 / 9.89 | 4.5 |
+| `--text-on-footer-secondary` on the footer ground | 8.76 | 4.5 |
+| Clay bar on Forest | 5.29 | 3 |
+| Clay bar on white | **2.33** | 3, met by a second cue (below) |
+| Bone ring on Forest / Forest hover / hero panel / footer | 11.03 / 6.87 / 9.18 / 13.71 | 3 |
+| Forest ring on white / raised / sunken / Bone | 12.34 / 11.82 / 11.23 / 11.03 | 3 |
+| Field edge on white / raised / sunken / Bone / Forest / footer | 3.71 / 3.55 / 3.37 / 3.31 / 3.33 / 4.14 | 3 |
+| Field edge on the hero panel | **2.77** | 3, never used there: controls on it take a fill (DESIGN.md §2) |
+| `--border-on-brand-strong` on Forest / hero panel / footer | 4.01 / 3.58 / 4.49 | 3 |
+| Tertiary text on white / raised | 4.83 / 4.63 | 4.5 |
+| Tertiary text on sunken / Bone | **4.40 / 4.32** | 4.5, never used there (axe found no live instance) |
+| Placeholder, every live field measured (14 pages) | 4.83 to 5.92 | 4.5 |
+
+| `aecButton` variant (its grounds) | Text rest / hover | Ring | Disabled text |
+|---|---|---|---|
+| primary (white, raised, sunken, Bone) | 12.34 / 7.68 | 11.03 to 12.34 | 3.68 to 3.80, exempt |
+| secondary | 18.97 / 11.23 | 11.03 to 12.34 | 5.12 to 5.28 |
+| ghost | 17.70 to 19.80 / 11.03 to 12.34 | 11.03 to 12.34 | 5.06 to 5.25 |
+| danger (white, raised) | 6.54 / 9.11 | 11.82 to 12.34 | 3.04 to 3.06, exempt |
+| on-brand (Forest, hero panel, footer) | 11.03 / 9.46 | 9.18 to 13.71 | 5.01 to 5.18 |
+| on-brand-secondary | 6.90 to 10.17 / 5.88 to 8.53 | 9.18 to 13.71 | 3.75 to 4.90 |
+
+Every chip tone (neutral, quiet, sunken, strong, strong-sunken, forest, wash, error, selected)
+measured 6.54:1 or more at rest and on hover on white, raised and Bone, with the ring at
+11.03:1 or more. Every active state carries a cue besides colour. The section nav and the guide
+tabs change weight. The jump rail fills Forest. The docs "On this page" dash grows from 12px to
+20px. The Browse trigger's Clay bar comes with weight 600.
+
+### 11.4 Open findings (moderate and minor)
+
+None of these is an axe error or `serious` violation. Each needs the owner's decision, words or
+a build.
+
+| # | Surface | Finding | Why it matters | What to do |
+|---|---|---|---|---|
+| **P1** | Review form, routed claim and correction pages | axe `landmark-complementary-is-top-level` (moderate, best-practice): the context rail `<aside data-testid="context-rail">` sits inside `<main>`. Files: `reviews/review-form.html:67`, `requests/request-form.html:30`, `welcome/welcome.ts:111`. | Some screen readers list a nested aside as a second top-level landmark. | Make the rail a named `<section>` (a region), or accept the rule as an exemption. A semantic choice for the owner. |
+| **P2** | `/categories`, `/audiences`, `/phases` | Term descriptions are cut to three lines (`line-clamp-3`). At default spacing 32 of 35 on `/categories` are already cut. The 1.4.12 text-spacing override cuts more (1 to 4 on `/phases`). | 1.4.12 asks that spacing changes lose no content. The full text is one link away, on the term page. | Decide whether the term page counts as the full text. If not, drop the clamp under the spacing override or show the full description. |
+| **P3** | Home at 320px | With the text-spacing override the page is 322px wide, 2px of sideways scroll. No visible box crosses the edge, so the source is not found. | 1.4.10 and 1.4.12 at the 400% zoom width. | Find the 2px source in a follow-up. |
+| **P4** | `/vendor-program` claim dialog | "Ask us to add it" is a 20px-tall text button. It passes 2.5.8 by the spacing exception, and it is inline in a sentence. | The 44px house rule covers buttons. This one is a link-style button. | Owner's call: give it a 44px hit area as the review rail's guide link has, or leave it. |
+| **P5** | `/methodology` | The agreement-state table has no caption or name. It comes from rendered Markdown. | A table list in a screen reader shows it unnamed (the A7 class). | Name it from its heading in the Markdown pipeline, or add a caption. The caption needs the owner's words. |
+| **P6** | Routed claim page | "Send claim" stays natively `disabled` until the Vendor Terms box is ticked (`request-form-body.html:382`, VENDOR_SIGNUP_PROCESS.md §4). It is out of the Tab order until then, and nothing says why. | The A6 class. DESIGN.md "Submit stays enabled" is the house pattern. This one is a documented exception. | Keep, or follow the house pattern. Owner's decision. |
+| **P7** | `/products`, product pages, docs | Some link names repeat with different targets: "Procore" (product and vendor), "About" (section link and footer), "For vendors" (header and docs guide). Each pair sits in a different card or landmark. | 2.4.4 passes in context. A links list shows the pair without that context. | No change needed. Recorded so a re-run does not count it as new. |
+| **P8** | Consent banner | The banner is the last thing in the Tab order: about 70 stops on a product page. | Not a WCAG failure. A keyboard user meets the choice last. | Owner's call. |
+
+### 11.5 Live regions (DOM shape, not speech)
+
+Filter changes update the pagination line, a polite region present from load ("Showing 1 of 1").
+`/search` says "0 results" once through its `role="status"`. The mailing-list signup keeps focus
+on the field and updates one persistent `role="status"`. Every form error pass moves focus to the
+first bad field and ties each message to its field through `aria-describedby`. Each message is a
+`role="alert"` inserted with its text, up to six at once on list-your-product. Whether that burst
+reads as one announcement or six is a question for §11.6.
+
+### 11.6 Not covered, and what a human must still do
+
+1. **No screen reader ran.** No VoiceOver or NVDA speech was observed. The tooling here drives
+   Chrome's accessibility tree, not speech.
+2. **NVDA, in the Parallels Windows VM, Firefox then Chrome:** checklist §7 N1 to N10, plus three
+   new checks. (a) The mobile menu: open it, expand a section, and confirm the dialog, the
+   section's expanded state and the return to "Menu" are spoken. (b) Submit list-your-product
+   empty, and count how many of the six alerts are spoken with the first field's name. (c) Tick a
+   `/products` filter, and confirm "Showing N of N" is spoken once.
+3. **VoiceOver, Safari:** checklist §6 V1 to V15, and the same three checks.
+4. **Safari and Firefox keyboard passes.** This run was Chromium only.
+5. **`/account` and `/welcome`** need a session. Their component specs cover the status regions
+   (§3.1), but no rendered pass ran on the redesigned pages.
+6. **A hybrid product page and the claim finder's results list** could not be reached locally.
+
+**The `/accessibility` statement (hidden until AECI-1687).** Nothing found here makes a sentence
+in it false. R2 was a 2.1 AA failure, and it is fixed on this branch. R1 is WCAG 2.2 only, which
+the statement's 2.1 aim does not cover. One sentence is at risk for this release: "Before major
+releases we also work through a manual keyboard and screen-reader checklist." The redesign is a
+major release, and its screen-reader half (items 2 and 3 above) has not been run. Publish only
+after it has.
+
+Evidence: `.context/for-chris/a11y/` in the workspace holds the screenshots, the focus captures
+and the raw per-surface JSON.
+
+## 12. Field error states (AECI-1984, 2026-11-22)
 
 **Scope:** the shared field-error recipe (`FIELD_ERROR_CLASS`, `CHOICE_CARD_CLASS`, `CHOICE_INPUT_CLASS`) after it gained the `--status-error` icon, the red choice-card edge and the red outline on a bare checkbox. Tags: `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa`, `wcag22aa`. Run against local `pnpm dev:agent`, Chrome via Playwright.
 
@@ -358,4 +523,4 @@ disappears. AECI-2001 tracks that.
 
 **Not reached live:** `/auth/terms`, `/welcome` and the review form need a session, and sign-in does not complete on an agent port. The claim dialog needs a product search to reach its fields. The class wiring on those surfaces is covered by component specs (`terms-accept.component.spec.ts`) and the class-assertion spec (`form-field-classes.spec.ts`).
 
-**Contrast:** `--status-error` is 6.54:1 on white. That is above the 3:1 needed for a non-text boundary or icon (WCAG 1.4.11). The error text stays `--text-primary`.
+**Contrast:** `--status-error` is 6.54:1 on white. That is above the 3:1 needed for a non-text boundary or icon (WCAG 1.4.11). The error text stays `--text-primary` on `main`. On the redesign branch (sync 15) the message keeps the redesign recipe (clash 23): 14px at weight 600 in `--status-error`, 6.54:1 on white.

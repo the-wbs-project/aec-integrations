@@ -3,7 +3,7 @@ title: Reading an integration page
 description: What each part of an integration page tells you, from the two products at the top to the agreement label on each type of data.
 section: getting-started
 order: 2
-last_updated: November 17, 2026
+last_updated: November 18, 2026
 ---
 
 Every pair of products that work together has one integration page. Its heading reads "How (one product) and (the other) exchange data". You reach it from the Integrations section of either product's page.
@@ -32,9 +32,9 @@ A card is one way the two products connect.
 
 **The chips** beside the heading say which way data moves, from the left-hand product's side:
 
-- **Outbound**: it sends data to the other product.
-- **Inbound**: it receives data from the other product.
-- **Both**: data moves both ways.
+- **Sends to**, then the other product's name: it sends data to the other product.
+- **Receives from**, then the other product's name: it receives data from the other product.
+- **Syncs both ways**: data moves both ways.
 
 When a page has more than one card, a chip such as "3 types of data" says how many each card covers.
 
@@ -72,7 +72,7 @@ A card with no line in this panel has no company edit behind it.
 
 ## When there is nothing listed
 
-If no integration is recorded between two products, the page says "We don’t have any integrations documented between these two products yet." If you know of one, tell us. See [Requests and corrections](/docs/reviewers/requests-and-corrections).
+If no integration is recorded between two products, the page says "We have no integration between (one product) and (the other) on record." Under it: "Not on record means we have not found one. It is not proof that none exists." Below that, the page shows the data each product exchanges with its other integrations on record, in three groups: only the first product, both, only the second. Then it lists the closest matches: products that the product you keep has an integration on record with, and that share a category with the other product, A to Z by name. You can switch to the other product's integrations, search by product or vendor name, turn categories off, or pick data. The page then sets the two products side by side. It shows how many integrations each has on record. When either product has reviews, it also shows each one's review count and ratings. A product shows ratings once it has five reviews. Where we list them, it shows who each product is for. Last, it links each vendor's own integrations page and API documentation, where we have the link on record. Those pages are the vendor's words, not ours. When a product has integrations on record, the page also links that product's list here. An API is not an integration. If you know of one, choose "It does exist" under the statement and tell us where you saw it. See [Requests and corrections](/docs/reviewers/requests-and-corrections).
 
 ## On a product's page
 

@@ -161,6 +161,29 @@ describe('Plans calls to action', () => {
     });
   });
 
+  // AECI-1802: the panel is the page's one Forest feature card, on the home card's
+  // recipe: the shared card frame, Bone ink, the Bone main button, the Bone focus ring.
+  it('bottom panel is the Forest feature card with Bone ink and the Bone button', () => {
+    const { host } = render(PlanCtaPanelComponent);
+    const card = host.querySelector('section')!;
+    for (const cls of [
+      'aec-card',
+      'rounded-card',
+      'shadow-card',
+      'bg-(--accent-primary)',
+      'text-(--text-on-brand)',
+      'p-8',
+    ]) {
+      expect(card.classList).toContain(cls);
+    }
+    expect(card.className).not.toContain('text-(--surface-base)');
+    const [claimLink, contact] = [...host.querySelectorAll('a')];
+    expect(claimLink.getAttribute('data-variant')).toBe('on-brand');
+    expect(contact.classList).toContain('text-(--text-on-brand)');
+    expect(contact.classList).toContain('focus-visible:outline-(--focus-ring-on-brand)');
+    expect(contact.classList).toContain('focus-visible:outline-3');
+  });
+
   it('bottom panel as a section: an h2', () => {
     const { host } = render(PlanCtaPanelComponent, true, {
       page: 'vendor_program',

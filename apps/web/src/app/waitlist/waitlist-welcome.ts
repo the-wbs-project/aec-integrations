@@ -1,6 +1,8 @@
 import { Component, afterNextRender, inject, signal } from '@angular/core';
 
 import { WaitlistWelcomeService } from './waitlist-welcome.service';
+import { AecIcon } from '../shared/icon/icon';
+import { AecButton } from '../shared/button/button';
 
 /**
  * Waitlist welcome banner (AECI-243 / Phase 7.9, §11.2).
@@ -22,43 +24,33 @@ import { WaitlistWelcomeService } from './waitlist-welcome.service';
  */
 @Component({
   selector: 'aec-waitlist-welcome',
+  imports: [AecButton, AecIcon],
   template: `
     @if (show()) {
       <aside
-        class="border-b border-(--border-default) bg-(--accent-primary-soft)"
+        class="aec-notice-neutral border-b bg-(--accent-primary-soft)"
         role="region"
         aria-label="Waitlist welcome"
         i18n-aria-label="@@waitlist.welcome.regionLabel"
       >
-        <div class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-8 py-3">
-          <p class="text-sm/6 text-(--text-primary)" i18n="@@waitlist.welcome.message">
+        <div
+          class="mx-auto flex w-full max-w-[1328px] items-center justify-between gap-4 px-6 py-3 md:px-8 lg:px-12"
+        >
+          <p class="text-t-14 leading-6 text-(--text-primary)" i18n="@@waitlist.welcome.message">
             Thanks for waiting. Here's the directory.
           </p>
           <button
+            aecButton
+            variant="ghost"
+            iconOnly
             id="waitlist-dismiss"
             type="button"
             (click)="dismiss()"
-            class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-(--radius-md)
-              border border-(--border-default) bg-(--surface-base) text-(--text-secondary)
-              transition-colors hover:border-(--border-strong) hover:text-(--accent-primary)
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent-primary)
-              focus-visible:ring-offset-2 focus-visible:ring-offset-(--accent-primary-soft)"
+            class="-my-1.5"
             i18n-aria-label="@@waitlist.welcome.dismiss"
             aria-label="Dismiss"
           >
-            <svg
-              aria-hidden="true"
-              class="h-4 w-4"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <path d="M18 6 6 18" />
-              <path d="m6 6 12 12" />
-            </svg>
+            <aec-icon name="x" decorative [size]="5" />
           </button>
         </div>
       </aside>

@@ -40,6 +40,8 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
 import { NudgeMuteApi } from './nudge-mute-api';
+import { AecButton } from '../shared/button/button';
+import { AecCard } from '../shared/card/card';
 
 /**
  * `no-token`: reached without `?token=`. `idle`: awaiting the confirm click.
@@ -48,194 +50,180 @@ import { NudgeMuteApi } from './nudge-mute-api';
  */
 type NudgeMuteStatus = 'no-token' | 'idle' | 'muting' | 'done' | 'invalid' | 'error';
 
-const BTN =
-  'inline-flex items-center justify-center rounded-(--radius-sm) bg-(--accent-primary) px-5 py-2 font-label text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-60';
-
-const HEADLINE =
-  'font-display text-3xl font-normal leading-snug text-(--text-primary) outline-none md:text-4xl';
+/** Size, weight and face come from the unlayered global h1 rule (the Headline role). */
+const HEADLINE = 'text-(--text-primary) outline-none';
 
 @Component({
   selector: 'app-nudge-mute',
-  imports: [RouterLink],
+  imports: [AecButton, AecCard, RouterLink],
   template: `
-    <div class="bg-(--surface-base) text-(--text-primary)">
-      <section class="border-b border-(--border-default) bg-(--accent-warm)">
-        <div class="mx-auto max-w-2xl px-6 py-16 md:px-8 md:py-20">
-          @if (marketing) {
-            <p class="aec-overline text-(--accent-primary)" i18n="@@app.marketingMute.eyebrow">
-              Marketing email
-            </p>
-          } @else {
-            <p class="aec-overline text-(--accent-primary)" i18n="@@app.nudgeMute.eyebrow">
-              Daily reminder email
-            </p>
-          }
+    <!-- A focused flow (DESIGN.md "The Page-Width Rule", AECI-1808): a narrow
+         centred column on white, like the not-found page. No band. -->
+    <div class="mx-auto w-full max-w-2xl px-6 py-16 text-(--text-primary) md:py-24">
+      @if (marketing) {
+        <p class="aec-overline text-(--text-secondary)" i18n="@@app.marketingMute.eyebrow">
+          Marketing email
+        </p>
+      } @else {
+        <p class="aec-overline text-(--text-secondary)" i18n="@@app.nudgeMute.eyebrow">
+          Daily reminder email
+        </p>
+      }
 
-          <div
-            class="mt-4 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-base) p-8 md:p-10"
-          >
-            @switch (status()) {
-              @case ('done') {
-                @if (marketing) {
-                  <h1
-                    #resultHeading
-                    tabindex="-1"
-                    [class]="headline"
-                    i18n="@@app.marketingMute.done.headline"
-                  >
-                    You are unsubscribed from marketing email
-                  </h1>
-                  <p
-                    class="mt-4 text-base leading-relaxed text-(--text-secondary)"
-                    i18n="@@app.marketingMute.done.body"
-                  >
-                    We won't send marketing email to this account. Email about your account, your
-                    reviews and any claim you make still arrives.
-                  </p>
-                } @else {
-                  <h1
-                    #resultHeading
-                    tabindex="-1"
-                    [class]="headline"
-                    i18n="@@app.nudgeMute.done.headline"
-                  >
-                    Daily reminder email muted
-                  </h1>
-                  <p
-                    class="mt-4 text-base leading-relaxed text-(--text-secondary)"
-                    i18n="@@app.nudgeMute.done.body"
-                  >
-                    We won't send the daily reminder email to your seat. Seat invites, claim
-                    decisions and plan notices still arrive. To turn it back on, sign in to your
-                    vendor portal and open Messages.
-                  </p>
-                  <a
-                    routerLink="/vendor"
-                    [class]="btn + ' mt-6'"
-                    i18n="@@app.nudgeMute.done.portal"
-                  >
-                    Open your vendor portal
-                  </a>
-                }
-              }
-              @case ('invalid') {
-                <h1
-                  #resultHeading
-                  tabindex="-1"
-                  [class]="headline"
-                  i18n="@@app.nudgeMute.invalid.headline"
-                >
-                  This link is no longer valid
-                </h1>
-                @if (marketing) {
-                  <p
-                    class="mt-4 text-base leading-relaxed text-(--text-secondary)"
-                    i18n="@@app.marketingMute.invalid.body"
-                  >
-                    Use the unsubscribe link in the most recent marketing email we sent you.
-                  </p>
-                } @else {
-                  <p
-                    class="mt-4 text-base leading-relaxed text-(--text-secondary)"
-                    i18n="@@app.nudgeMute.invalid.body"
-                  >
-                    Use the mute link in your most recent daily reminder email, or sign in to your
-                    vendor portal and turn it off under Messages.
-                  </p>
-                  <a
-                    routerLink="/vendor"
-                    [class]="btn + ' mt-6'"
-                    i18n="@@app.nudgeMute.invalid.portal"
-                  >
-                    Open your vendor portal
-                  </a>
-                }
-              }
-              @case ('no-token') {
-                @if (marketing) {
-                  <h1 [class]="headline" i18n="@@app.marketingMute.noToken.headline">
-                    Unsubscribe from marketing email
-                  </h1>
-                  <p
-                    class="mt-4 text-base leading-relaxed text-(--text-secondary)"
-                    i18n="@@app.marketingMute.noToken.body"
-                  >
-                    To unsubscribe, use the link at the bottom of any marketing email from us. That
-                    link is tied to your account, so we unsubscribe the right one.
-                  </p>
-                } @else {
-                  <h1 [class]="headline" i18n="@@app.nudgeMute.noToken.headline">
-                    Mute the daily reminder email
-                  </h1>
-                  <p
-                    class="mt-4 text-base leading-relaxed text-(--text-secondary)"
-                    i18n="@@app.nudgeMute.noToken.body"
-                  >
-                    To mute it, use the link at the bottom of any daily reminder email. That link is
-                    tied to your seat, so we mute the right one.
-                  </p>
-                }
-              }
-              @default {
-                @if (marketing) {
-                  <h1 [class]="headline" i18n="@@app.marketingMute.confirm.headline">
-                    Unsubscribe from marketing email?
-                  </h1>
-                  <p
-                    class="mt-4 text-base leading-relaxed text-(--text-secondary)"
-                    i18n="@@app.marketingMute.confirm.body"
-                  >
-                    Confirm below and we will stop sending marketing email to this account. Email
-                    about your account, your reviews and any claim you make still arrives.
-                  </p>
-                } @else {
-                  <h1 [class]="headline" i18n="@@app.nudgeMute.confirm.headline">
-                    Mute the daily reminder email?
-                  </h1>
-                  <p
-                    class="mt-4 text-base leading-relaxed text-(--text-secondary)"
-                    i18n="@@app.nudgeMute.confirm.body"
-                  >
-                    Confirm below and we will stop sending the daily reminder email to your seat.
-                    Your colleagues keep theirs. Every reminder still appears under Messages in your
-                    vendor portal.
-                  </p>
-                }
-                <button
-                  type="button"
-                  [disabled]="status() === 'muting'"
-                  [class]="btn + ' mt-6'"
-                  (click)="onConfirm()"
-                >
-                  @if (status() === 'muting') {
-                    @if (marketing) {
-                      <span i18n="@@app.marketingMute.confirm.pending">Unsubscribing…</span>
-                    } @else {
-                      <span i18n="@@app.nudgeMute.confirm.pending">Muting…</span>
-                    }
-                  } @else if (marketing) {
-                    <span i18n="@@app.marketingMute.confirm.action">Unsubscribe</span>
-                  } @else {
-                    <span i18n="@@app.nudgeMute.confirm.action">Mute daily reminder email</span>
-                  }
-                </button>
-
-                @if (status() === 'error') {
-                  <p
-                    #resultHeading
-                    tabindex="-1"
-                    class="mt-4 text-sm font-medium text-(--text-primary) outline-none"
-                    role="alert"
-                    i18n="@@app.nudgeMute.error"
-                  >
-                    Something went wrong. Please try again.
-                  </p>
-                }
-              }
+      <div aecCard class="mt-4 p-6 sm:p-8 md:p-10">
+        @switch (status()) {
+          @case ('done') {
+            @if (marketing) {
+              <h1
+                #resultHeading
+                tabindex="-1"
+                [class]="headline"
+                i18n="@@app.marketingMute.done.headline"
+              >
+                You are unsubscribed from marketing email
+              </h1>
+              <p
+                class="mt-4 text-t-16 leading-relaxed text-(--text-secondary)"
+                i18n="@@app.marketingMute.done.body"
+              >
+                We won't send marketing email to this account. Email about your account, your
+                reviews and any claim you make still arrives.
+              </p>
+            } @else {
+              <h1
+                #resultHeading
+                tabindex="-1"
+                [class]="headline"
+                i18n="@@app.nudgeMute.done.headline"
+              >
+                Daily reminder email muted
+              </h1>
+              <p
+                class="mt-4 text-t-16 leading-relaxed text-(--text-secondary)"
+                i18n="@@app.nudgeMute.done.body"
+              >
+                We won't send the daily reminder email to your seat. Seat invites, claim decisions
+                and plan notices still arrive. To turn it back on, sign in to your vendor portal and
+                open Messages.
+              </p>
+              <a aecButton routerLink="/vendor" class="mt-6" i18n="@@app.nudgeMute.done.portal">
+                Open your vendor portal
+              </a>
             }
-          </div>
-        </div>
-      </section>
+          }
+          @case ('invalid') {
+            <h1
+              #resultHeading
+              tabindex="-1"
+              [class]="headline"
+              i18n="@@app.nudgeMute.invalid.headline"
+            >
+              This link is no longer valid
+            </h1>
+            @if (marketing) {
+              <p
+                class="mt-4 text-t-16 leading-relaxed text-(--text-secondary)"
+                i18n="@@app.marketingMute.invalid.body"
+              >
+                Use the unsubscribe link in the most recent marketing email we sent you.
+              </p>
+            } @else {
+              <p
+                class="mt-4 text-t-16 leading-relaxed text-(--text-secondary)"
+                i18n="@@app.nudgeMute.invalid.body"
+              >
+                Use the mute link in your most recent daily reminder email, or sign in to your
+                vendor portal and turn it off under Messages.
+              </p>
+              <a aecButton routerLink="/vendor" class="mt-6" i18n="@@app.nudgeMute.invalid.portal">
+                Open your vendor portal
+              </a>
+            }
+          }
+          @case ('no-token') {
+            @if (marketing) {
+              <h1 [class]="headline" i18n="@@app.marketingMute.noToken.headline">
+                Unsubscribe from marketing email
+              </h1>
+              <p
+                class="mt-4 text-t-16 leading-relaxed text-(--text-secondary)"
+                i18n="@@app.marketingMute.noToken.body"
+              >
+                To unsubscribe, use the link at the bottom of any marketing email from us. That link
+                is tied to your account, so we unsubscribe the right one.
+              </p>
+            } @else {
+              <h1 [class]="headline" i18n="@@app.nudgeMute.noToken.headline">
+                Mute the daily reminder email
+              </h1>
+              <p
+                class="mt-4 text-t-16 leading-relaxed text-(--text-secondary)"
+                i18n="@@app.nudgeMute.noToken.body"
+              >
+                To mute it, use the link at the bottom of any daily reminder email. That link is
+                tied to your seat, so we mute the right one.
+              </p>
+            }
+          }
+          @default {
+            @if (marketing) {
+              <h1 [class]="headline" i18n="@@app.marketingMute.confirm.headline">
+                Unsubscribe from marketing email?
+              </h1>
+              <p
+                class="mt-4 text-t-16 leading-relaxed text-(--text-secondary)"
+                i18n="@@app.marketingMute.confirm.body"
+              >
+                Confirm below and we will stop sending marketing email to this account. Email about
+                your account, your reviews and any claim you make still arrives.
+              </p>
+            } @else {
+              <h1 [class]="headline" i18n="@@app.nudgeMute.confirm.headline">
+                Mute the daily reminder email?
+              </h1>
+              <p
+                class="mt-4 text-t-16 leading-relaxed text-(--text-secondary)"
+                i18n="@@app.nudgeMute.confirm.body"
+              >
+                Confirm below and we will stop sending the daily reminder email to your seat. Your
+                colleagues keep theirs. Every reminder still appears under Messages in your vendor
+                portal.
+              </p>
+            }
+            <button
+              aecButton
+              type="button"
+              class="mt-6"
+              [disabled]="status() === 'muting'"
+              (click)="onConfirm()"
+            >
+              @if (status() === 'muting') {
+                @if (marketing) {
+                  <span i18n="@@app.marketingMute.confirm.pending">Unsubscribing…</span>
+                } @else {
+                  <span i18n="@@app.nudgeMute.confirm.pending">Muting…</span>
+                }
+              } @else if (marketing) {
+                <span i18n="@@app.marketingMute.confirm.action">Unsubscribe</span>
+              } @else {
+                <span i18n="@@app.nudgeMute.confirm.action">Mute daily reminder email</span>
+              }
+            </button>
+
+            @if (status() === 'error') {
+              <p
+                #resultHeading
+                tabindex="-1"
+                class="mt-4 text-t-14 font-semibold text-(--text-primary) outline-none"
+                role="alert"
+                i18n="@@app.nudgeMute.error"
+              >
+                Something went wrong. Please try again.
+              </p>
+            }
+          }
+        }
+      </div>
     </div>
   `,
 })
@@ -245,7 +233,6 @@ export class NudgeMutePage {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 
-  protected readonly btn = BTN;
   protected readonly headline = HEADLINE;
 
   /** The opaque token from `?token=`, read once from the route snapshot. */

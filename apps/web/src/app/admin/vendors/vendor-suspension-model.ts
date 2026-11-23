@@ -4,6 +4,8 @@
  */
 import type { VendorSuspension } from '@aeci/shared';
 
+import { FIELD_INPUT_CLASS } from '../../shared/form-field/form-field-classes';
+
 /** `AbuseCostEntryRequestSchema` and `TerminateVendorRequestSchema`: the amount cap. */
 const MAX_AMOUNT_CENTS = 100_000_000;
 
@@ -135,5 +137,4 @@ const BUTTON_BASE =
 export const SUSPENSION_BUTTON = `${BUTTON_BASE} border-(--border-default) text-(--text-primary)`;
 /** The confirm step of an action that cannot be undone from this screen. */
 export const SUSPENSION_CONFIRM_BUTTON = `${BUTTON_BASE} border-(--text-primary) bg-(--text-primary) text-(--surface-base)`;
-export const SUSPENSION_INPUT =
-  'mt-2 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) disabled:opacity-50';
+export const SUSPENSION_INPUT = `mt-2 ${FIELD_INPUT_CLASS}`;

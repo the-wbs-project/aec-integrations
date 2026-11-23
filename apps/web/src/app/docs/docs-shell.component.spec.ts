@@ -237,6 +237,28 @@ describe('DocsShellComponent', () => {
     expect(panel.classList).toContain('hidden');
   });
 
+  // AECI-1803: every sidebar control is a 44px target on the shared radius and
+  // weights 400 and 600 only (DESIGN.md §3), and the menu glyph is the registry's.
+  it('gives every tree and guide link a 44px target, 400 and 600 weights only', async () => {
+    const { host } = await renderAt(ARTICLE);
+    const links = [
+      ...Array.from(tree(host).querySelectorAll('a')),
+      ...Array.from(host.querySelectorAll('nav[aria-label="Guides"] a')),
+    ];
+    expect(links.length).toBeGreaterThan(5);
+    for (const link of links) {
+      expect(link.classList, link.textContent ?? '').toContain('min-h-11');
+      expect(link.className).not.toMatch(/font-medium|rounded-md|outline-2/);
+    }
+    expect(tree(host).querySelector('a[aria-current="page"]')?.classList).toContain('rounded-mark');
+    // The fill marks the current page alone: a hover fill would match it.
+    for (const link of Array.from(tree(host).querySelectorAll('a'))) {
+      expect(link.className).not.toContain('hover:bg-');
+    }
+    const button = host.querySelector('button[aria-controls="docs-nav-panel"]')!;
+    expect(button.querySelector('aec-icon')?.getAttribute('name')).toBe('panel-left');
+  });
+
   // Escape is the expected way out of an open disclosure, and focus goes back.
   it('closes the panel on Escape and returns focus to the button', async () => {
     const { host, harness } = await renderAt(ARTICLE);
@@ -311,5 +333,42 @@ describe('DocsShellComponent', () => {
     expect(located.page?.lastUpdated).toBe('October 9, 2026');
     // An unknown path falls back to the home crumb rather than throwing.
     expect(locate('/docs/nope', sections).crumbs).toEqual([{ label: 'Help center' }]);
+  });
+});
+
+// AECI-1777: the top-bar trail on the shared breadcrumb. An article's trail ends on its
+// section link, so no item is current. A section or home page ends on text that is.
+describe('DocsShellComponent breadcrumb (AECI-1777)', () => {
+  const items = (host: HTMLElement) =>
+    Array.from(host.querySelectorAll('nav[aria-label="Breadcrumb"] li')).map((li) => ({
+      label: (
+        li.querySelector('a') ?? li.querySelector('span:not([aria-hidden])')
+      )?.textContent?.trim(),
+      href: li.querySelector('a')?.getAttribute('href') ?? null,
+      current: li.querySelector('[aria-current="page"]') !== null,
+    }));
+
+  it('ends an article on its section link, with no current item', async () => {
+    const { host } = await renderAt(ARTICLE);
+    expect(items(host)).toEqual([
+      { label: 'Help center', href: '/docs', current: false },
+      { label: 'Trust and ranking', href: '/docs/trust', current: false },
+    ]);
+  });
+
+  it('ends a section page on the current text', async () => {
+    const { host } = await renderAt('/docs/trust');
+    expect(items(host)).toEqual([
+      { label: 'Help center', href: '/docs', current: false },
+      { label: 'Trust and ranking', href: null, current: true },
+    ]);
+  });
+
+  it('draws the separator as an aria-hidden ›, never a slash', async () => {
+    const { host } = await renderAt(ARTICLE);
+    const seps = Array.from(
+      host.querySelectorAll('nav[aria-label="Breadcrumb"] [aria-hidden="true"]'),
+    );
+    expect(seps.map((s) => s.textContent)).toEqual(['›']);
   });
 });

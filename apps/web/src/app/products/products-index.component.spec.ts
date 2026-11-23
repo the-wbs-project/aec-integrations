@@ -10,6 +10,7 @@ import {
 } from '../core/testing/index-page.harness';
 
 import { ProductsIndex } from './products-index';
+import { trail } from '../shared/breadcrumb/breadcrumb-trail.harness';
 
 // The seven cases shared with the vendors index live in `index-page.harness.ts`
 // (AECI-113); only the products fixture + config live here.
@@ -125,5 +126,51 @@ describe('ProductsIndex paginated canonical', () => {
 
   it('canonicalises a facet-filtered listing to /products', async () => {
     expect(await canonicalFor('/products?category_id=abc')).toMatch(/\/products$/);
+  });
+});
+
+describe('ProductsIndex breadcrumb (AECI-1777)', () => {
+  it('reads Home, then Products as the current page', async () => {
+    const { httpMock, router } = createIndexSetup(ProductsIndex, 'products');
+    await router.navigateByUrl('/products');
+    const fixture = TestBed.createComponent(ProductsIndex);
+    fixture.detectChanges();
+    expect(trail(fixture.nativeElement as HTMLElement)).toEqual([
+      { label: 'Home', href: '/', current: false },
+      { label: 'Products', href: null, current: true },
+    ]);
+    httpMock.match(() => true);
+  });
+});
+
+describe('ProductsIndex page header (AECI-1794)', () => {
+  it('keeps the lede free of the count, which the footer states (ruling 8)', async () => {
+    const { httpMock, router } = createIndexSetup(ProductsIndex, 'products');
+    await router.navigateByUrl('/products');
+    const fixture = TestBed.createComponent(ProductsIndex);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    const lede = () => root.querySelector('[slot="header"] p')?.textContent?.trim();
+    expect(lede()).toBe('Every AEC software product indexed on AEC Integrations.');
+
+    httpMock.expectOne((r) => r.url === '/api/products').flush({ ...fixtureResponse, total: 445 });
+    await settle();
+    fixture.detectChanges();
+
+    // The loaded total does not reach the lede. It stays the same sentence.
+    expect(lede()).toBe('Every AEC software product indexed on AEC Integrations.');
+    expect(root.querySelector('aec-pagination-footer')?.textContent).toContain('of 445');
+    httpMock.match(() => true);
+  });
+
+  it('puts no size class on the h1, which takes the Headline role from the global rule', async () => {
+    const { httpMock, router } = createIndexSetup(ProductsIndex, 'products');
+    await router.navigateByUrl('/products');
+    const fixture = TestBed.createComponent(ProductsIndex);
+    fixture.detectChanges();
+    const h1 = (fixture.nativeElement as HTMLElement).querySelector('h1')!;
+    expect([...h1.classList].filter((c) => /^(md:)?text-/.test(c))).toEqual([]);
+    expect(h1.nextElementSibling?.classList.contains('text-t-20')).toBe(true);
+    httpMock.match(() => true);
   });
 });

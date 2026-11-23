@@ -60,6 +60,7 @@ import { editFieldLabel } from './vendor-contest-labels';
 import { VendorDocsLink } from './vendor-docs-link';
 import { EDIT_GROUPS } from './vendor-integration-edit-form';
 import { claimErrorMessage, editValueMessage } from './vendor-integration-ownership-labels';
+import { isReplayedEvent } from '../../core/event-replay';
 import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
 
 /**
@@ -362,6 +363,7 @@ function emptyDraft(): Draft {
           } @else if (mode() === 'request') {
             <!-- AECI-1377: the request form swaps in for step 1. -->
             <form
+              method="dialog"
               class="space-y-4"
               novalidate
               (submit)="onRequestSubmit($event)"
@@ -467,6 +469,7 @@ function emptyDraft(): Draft {
             </form>
           } @else if (counterpart(); as chosen) {
             <form
+              method="dialog"
               class="space-y-6"
               novalidate
               (submit)="onSubmit($event)"
@@ -504,6 +507,7 @@ function emptyDraft(): Draft {
                     data-testid="create-counterpart"
                   >
                     <aec-logo-or-initial
+                      [claimStatus]="'stored'"
                       [src]="chosen.logo_url ?? null"
                       [name]="chosen.name"
                       size="sm"
@@ -919,7 +923,12 @@ function emptyDraft(): Draft {
               data-testid="create-own-product"
             >
               @if (contextOwnProduct(); as own) {
-                <aec-logo-or-initial [src]="own.logo_url" [name]="own.name" size="sm" />
+                <aec-logo-or-initial
+                  [claimStatus]="'stored'"
+                  [src]="own.logo_url"
+                  [name]="own.name"
+                  size="sm"
+                />
                 <span
                   id="vendor-create-own-name"
                   class="min-w-0 flex-1 truncate text-sm font-medium text-(--text-primary)"
@@ -1348,6 +1357,7 @@ export class VendorIntegrationCreate implements OnInit {
   }
 
   protected async onRequestSubmit(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.requestSaving()) return;
     this.requestAttempted.set(true);
@@ -1422,6 +1432,7 @@ export class VendorIntegrationCreate implements OnInit {
   }
 
   protected async onSubmit(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.saving() || this.claimingId() !== null) return;
     this.attempted.set(true);

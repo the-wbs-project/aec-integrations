@@ -21,6 +21,7 @@ import {
 } from '@aeci/shared';
 
 import { AdminLegalApi } from './admin-legal-api';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 /** The console's button styles, as the suspension section and the publish form use them. */
 const BUTTON_BASE =
@@ -71,7 +72,7 @@ type Load =
  */
 @Component({
   selector: 'aec-admin-litigation-holds',
-  imports: [DatePipe, RouterLink],
+  imports: [AecFormSubmit, DatePipe, RouterLink],
   host: { class: 'block' },
   templateUrl: './litigation-holds.html',
 })

@@ -424,7 +424,7 @@ interface Numbered {
               <p class="mt-4 max-w-xl text-base leading-relaxed text-(--text-secondary)">
                 {{ cta.body }}
               </p>
-              <form class="mt-8 flex max-w-xl flex-wrap gap-3" novalidate>
+              <form method="dialog" class="mt-8 flex max-w-xl flex-wrap gap-3" novalidate>
                 <label class="sr-only" for="uh-email-a">Email address</label>
                 <input
                   id="uh-email-a"
@@ -457,7 +457,7 @@ interface Numbered {
                 <p class="mt-4 max-w-xl text-base leading-relaxed text-(--text-secondary)">
                   {{ cta.body }}
                 </p>
-                <form class="mt-8 flex max-w-xl flex-wrap gap-3" novalidate>
+                <form method="dialog" class="mt-8 flex max-w-xl flex-wrap gap-3" novalidate>
                   <label class="sr-only" for="uh-email-b">Email address</label>
                   <input
                     id="uh-email-b"
@@ -490,7 +490,7 @@ interface Numbered {
                 <p class="mt-2 text-sm leading-relaxed text-(--text-secondary)">{{ cta.body }}</p>
               </div>
               <div>
-                <form class="flex flex-wrap gap-3" novalidate>
+                <form method="dialog" class="flex flex-wrap gap-3" novalidate>
                   <label class="sr-only" for="uh-email-c">Email address</label>
                   <input
                     id="uh-email-c"

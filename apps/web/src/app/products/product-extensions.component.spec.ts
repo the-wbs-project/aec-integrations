@@ -110,7 +110,7 @@ describe('ProductExtensionsSection', () => {
 
   it('says in plain words that these run inside the host, not connect to it', () => {
     const el = setup([], EXTENSIONS);
-    const lead = el.querySelector('#extensions p')!.textContent!;
+    const lead = el.querySelector('#extensions [data-testid="extensions-lead"]')!.textContent!;
 
     expect(lead).toContain('run inside Autodesk Revit');
     expect(lead).toContain('rather than connecting to it');
@@ -125,6 +125,63 @@ describe('ProductExtensionsSection', () => {
       '/products/ideatura',
     ]);
     expect(links[0]!.textContent).toContain('Augmenta Inc.');
+  });
+
+  it('draws each tile as the shared card, which is itself the link (ruling 35)', () => {
+    const el = setup([], EXTENSIONS);
+    const items = [...el.querySelectorAll<HTMLLIElement>('#extensions ul > li')];
+
+    for (const li of items) {
+      // The lift's hover state sits on the static wrapper (card.ts, THE REQUIRED WRAPPER).
+      expect(li.classList).toContain('group/card');
+      const a = li.querySelector<HTMLAnchorElement>(':scope > a')!;
+      expect(a.classList).toContain('aec-card');
+      expect(a.classList).toContain('shadow-card');
+      expect(a.classList).toContain('rounded-card');
+      // The old surface wash is gone: a tile is never a different fill from its siblings.
+      expect(a.className).not.toContain('surface-sunken');
+      // The logo rule: a tile mark is the 32px size, whatever the claim.
+      expect(li.querySelector('aec-logo-or-initial .h-8.w-8')).not.toBeNull();
+      expect(li.querySelector('aec-logo-or-initial .h-16')).toBeNull();
+    }
+  });
+
+  it.each([
+    [1, '1'],
+    [2, '2'],
+    [3, '3'],
+    [5, '3'],
+  ])('lays %i tiles on the shared card grid with data-columns=%s', (n, columns) => {
+    const list = Array.from({ length: n }, (_, i) => item('ext-' + i, 'Extension ' + i));
+    const el = setup([], list);
+    const ul = el.querySelector('#extensions ul')!;
+
+    expect(ul.classList).toContain('aec-card-grid');
+    expect(ul.getAttribute('data-columns')).toBe(columns);
+    expect(ul.querySelectorAll(':scope > li')).toHaveLength(n);
+  });
+
+  it('labels each tile "by {vendor}" and "Runs inside {host}", with the label hidden from AT (AECI-1720)', () => {
+    const el = setup([], EXTENSIONS);
+    const kicker = el.querySelector('#extensions p[aria-hidden="true"]')!;
+    expect(kicker.textContent!.trim()).toBe('Extensions');
+    expect(kicker.classList).toContain('aec-overline');
+    const first = el.querySelector('#extensions li a')!;
+    expect(first.textContent).toContain('by Augmenta Inc.');
+    expect(first.textContent).toContain('Runs inside Autodesk Revit');
+    // No vendor: no "by" line at all, never "by " over nothing.
+    const second = el.querySelectorAll('#extensions li a')[1]!;
+    expect(second.textContent).not.toContain('by ');
+  });
+
+  it('shows a tile rating only at five reviews or more, the shared card rule', () => {
+    const rated = { ...item('rated', 'Rated', 'V'), review_count: 9, rating_overall_avg: 4.3 };
+    const thin = { ...item('thin', 'Thin', 'V'), review_count: 2, rating_overall_avg: null };
+    const el = setup([], [rated, thin]);
+    const tiles = el.querySelectorAll('#extensions li a');
+    expect(tiles[0]!.querySelector('aec-rating-summary [role="img"]')).not.toBeNull();
+    expect(tiles[0]!.textContent).toContain('4.3');
+    expect(tiles[1]!.querySelector('aec-rating-summary [role="img"]')).toBeNull();
   });
 
   it('is a list of tiles, never a table: an extension is not an integration row', () => {

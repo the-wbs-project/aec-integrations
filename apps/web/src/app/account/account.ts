@@ -34,11 +34,15 @@ import {
 } from './profile-details/profile-details-model';
 import { ReviewStatusBadge } from './review-status-badge';
 import { ReviewUpdatePanel } from './review-update-panel';
+import { AecButton } from '../shared/button/button';
+import { AecCard } from '../shared/card/card';
 import {
-  BUTTON_PRIMARY_CLASS,
-  BUTTON_SECONDARY_CLASS,
   FIELD_ERROR_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
 } from '../shared/form-field/form-field-classes';
+import { AecFormSubmit } from '../shared/form-field/form-submit';
+import { AecEarlyInput } from '../shared/form-field/early-input';
 
 /** Page size for the own-reviews list — matches the API default `perPage`. */
 const REVIEWS_PER_PAGE = 24;
@@ -49,7 +53,7 @@ const REVIEWS_PER_PAGE = 24;
  * user's own reviews list (all statuses, AECI-225), and the GDPR **delete
  * account** flow (a confirmation dialog). Sign-out is deliberately NOT here
  * (AECI-986): it lives in the persistent account menu (desktop
- * `layout/user-menu.ts`, mobile `layout/nav-menu.ts`), both via the shared
+ * `layout/user-menu.ts`, mobile `layout/nav-menu-account.ts`), both via the shared
  * `signOutAndGoHome` helper.
  *
  * Auth + cacheability: the SSR Worker 303s an unauthenticated visitor to
@@ -74,8 +78,12 @@ const REVIEWS_PER_PAGE = 24;
 @Component({
   selector: 'aec-account-page',
   imports: [
+    AecFormSubmit,
+    AecButton,
+    AecCard,
     DatePipe,
     FormField,
+    AecEarlyInput,
     RouterLink,
     ProfileDetailsForm,
     ReviewStatusBadge,
@@ -90,8 +98,6 @@ const REVIEWS_PER_PAGE = 24;
   templateUrl: './account.html',
 })
 export class AccountPage {
-  /** A field's inline error: the shared recipe (AECI-1984). */
-  protected readonly errorClass = FIELD_ERROR_CLASS;
   private readonly api = inject(AccountApi);
   private readonly auth = inject(AuthService);
   private readonly analytics = inject(Analytics);
@@ -141,9 +147,11 @@ export class AccountPage {
   protected readonly aboutStatus = signal('');
   private readonly aboutForm = viewChild(ProfileDetailsForm);
   /** Show the onboarding card while the server still reports `pending`. */
-  // The claim dialog's button recipe (`shared/form-field/form-field-classes.ts`).
-  protected readonly primaryClass = BUTTON_PRIMARY_CLASS;
-  protected readonly secondaryClass = BUTTON_SECONDARY_CLASS;
+  /** The display-name field and its error: the shared field recipe (AECI-1806). */
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly errorClass = FIELD_ERROR_CLASS;
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+
   /** The `lg` section nav's links (AECI-987). Plain anchors with absolute hrefs. */
   protected readonly navLinkClass =
     'block rounded-sm py-1.5 ps-4 font-medium text-(--text-secondary) no-underline ' +
@@ -346,7 +354,7 @@ export class AccountPage {
    *  call, not a `#fragment` link, because `<base href>` breaks bare fragments. */
   protected focusAbout(): void {
     const heading = this.doc.getElementById('account-about-heading');
-    heading?.scrollIntoView({ block: 'start' });
+    heading?.scrollIntoView({ block: 'start', behavior: 'instant' });
     heading?.focus();
   }
 

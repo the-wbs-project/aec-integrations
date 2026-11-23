@@ -11,6 +11,7 @@ import {
 import { Combobox, ComboboxPopup, ComboboxWidget } from '@angular/aria/combobox';
 import { Listbox, Option } from '@angular/aria/listbox';
 import { OverlayModule } from '@angular/cdk/overlay';
+import { AecIcon } from '../icon/icon';
 
 /** One sort choice the control renders. `value` is handed back through
  *  `(sortChange)`: a `?sort=` key on `/products`, an Algolia index name on
@@ -40,7 +41,8 @@ export class ListingSortIds {
 
 /**
  * The sort control on every listing: `/products`, the four taxonomy browse pages
- * (both through `aec-listing-toolbar`) and `/search`. Ruled on 2026-10-26: one
+ * (both through `aec-listing-toolbar`), the four taxonomy index pages (on its
+ * own, AECI-1795) and `/search`. Ruled on 2026-10-26: one
  * control everywhere, the `/search` one (`DESIGN.md` "The Same-Behavior Rule").
  *
  * A non-editable Angular Aria combobox + listbox-in-overlay, the project's
@@ -58,7 +60,7 @@ export class ListingSortIds {
  */
 @Component({
   selector: 'aec-listing-sort-select',
-  imports: [Combobox, ComboboxPopup, ComboboxWidget, Listbox, Option, OverlayModule],
+  imports: [AecIcon, Combobox, ComboboxPopup, ComboboxWidget, Listbox, Option, OverlayModule],
   template: `
     <div class="inline-flex items-center gap-2">
       <span
@@ -68,9 +70,10 @@ export class ListingSortIds {
         >Sort</span
       >
       <div #origin class="relative">
-        <!-- py-2.5 is not arbitrary: it makes the trigger 42px, matching the view
-             toggle beside it (2px border + 8px p-1 + 12px py-1.5 + 20px text-sm
-             line box). Change one side and change the other. -->
+        <!-- The shared field recipe (AECI-1764): 44px, 12px radius, field edge.
+             The view toggle beside it is 44px on the same edge (AECI-1793).
+             176px wide at least, so the trigger does not change width with the
+             chosen sort. -->
         <button
           ngCombobox
           #cb="ngCombobox"
@@ -78,23 +81,12 @@ export class ListingSortIds {
           type="button"
           [(expanded)]="expanded"
           [attr.aria-labelledby]="labelId + ' ' + triggerId"
-          class="flex items-center justify-between gap-2 rounded-(--radius-md) border border-(--border-default)
-            bg-(--surface-base) py-2.5 ps-3 pe-3 text-sm text-(--text-primary)
-            focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          class="aec-field-control flex min-w-44 items-center justify-between gap-3 rounded-control border
+            bg-(--surface-base) py-2 ps-4 pe-3 text-t-16 text-(--text-primary)
+            focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
         >
           <span>{{ triggerLabel() }}</span>
-          <svg
-            class="h-4 w-4 shrink-0 text-(--text-secondary)"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="m6 9 6 6 6-6" />
-          </svg>
+          <aec-icon class="text-(--text-secondary)" name="chevron-down" decorative [size]="4" />
         </button>
 
         <!--
@@ -118,15 +110,14 @@ export class ListingSortIds {
               selectionMode="explicit"
               i18n-aria-label="@@listing.sort.listbox.aria"
               aria-label="Sort"
-              class="z-50 flex min-w-[12rem] list-none flex-col gap-0.5 overflow-y-auto rounded-(--radius-md)
-                border border-(--border-default) bg-(--surface-raised) p-1.5 shadow-lg"
+              class="aec-popover z-50 flex min-w-[12rem] list-none flex-col gap-1 overflow-y-auto p-2"
             >
               @for (opt of options(); track opt.value) {
                 <li
                   ngOption
                   [value]="opt"
                   [label]="opt.label"
-                  class="flex cursor-pointer items-center justify-between rounded-(--radius-sm) px-3 py-2 text-sm
+                  class="flex cursor-pointer items-center justify-between rounded-mark px-3 py-2 text-sm
                     text-(--text-primary) data-[active=true]:bg-(--surface-sunken)"
                 >
                   <span>{{ opt.label }}</span>

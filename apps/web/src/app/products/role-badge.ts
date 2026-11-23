@@ -2,6 +2,8 @@ import { Component, computed, input } from '@angular/core';
 
 import type { ProductRole } from '@aeci/shared';
 
+import { Chip } from '../shared/chip/chip';
+
 /**
  * A small chip for a product's `product_role`, rendered ONLY for `connector` /
  * `hybrid`. The default `application` role renders nothing: most products are
@@ -14,25 +16,16 @@ import type { ProductRole } from '@aeci/shared';
  * product card grid, the `/search` product card (AECI-1086) and the
  * product-detail hero.
  *
- * **Chip metrics are shared, not per-component.** `px-2.5 py-1` / `0.75rem` /
- * `font-medium` / `tracking-[0.01em]` is the same spec `MaintenanceMarker` and
- * `AgreementBadge` use. This badge was `px-2 py-0.5` and
- * rendered **22px tall beside the marker's 29px** in the product-detail hero, two
- * chips in one row at two heights — which reads as "the smaller one is less
- * important" rather than as two peers. The text was never smaller; both are 12px.
- *
- * See `DESIGN.md` §Badges → "One chip spec".
+ * Since AECI-1763 it renders `aec-chip` (default density, quiet tone). Chip metrics
+ * live in the one `.aec-chip` recipe in `styles.css`, not in this component, so the
+ * role chip, the maintenance marker and every other chip share one height.
  */
 @Component({
   selector: 'aec-role-badge',
+  imports: [Chip],
   template: `
     @if (label(); as l) {
-      <span
-        class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default)
-          bg-(--surface-raised) px-2.5 py-1 text-[0.75rem] font-medium tracking-[0.01em]
-          text-(--text-secondary)"
-        >{{ l }}</span
-      >
+      <aec-chip tone="quiet">{{ l }}</aec-chip>
     }
   `,
 })

@@ -419,9 +419,10 @@
     </div>
     } @else {
     <form
+      method="dialog"
       novalidate
       class="space-y-5 border-t border-(--border-default) pt-4"
-      (submit)="$event.preventDefault(); openPublish(entry)"
+      (aecSubmit)="openPublish(entry)"
     >
       @if (isPolicy(entry.document)) {
       <!-- AECI-1969 (ruling 54): no material question. Every policy version is emailed. -->

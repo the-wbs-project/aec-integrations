@@ -69,7 +69,12 @@ import { VendorPortalStore } from '../vendor-portal-store';
                     hover:bg-(--surface-sunken) focus-visible:outline-2
                     focus-visible:-outline-offset-2 focus-visible:outline-(--accent-primary)"
                 >
-                  <aec-logo-or-initial [src]="p.logo_url" [name]="p.name" size="sm" />
+                  <aec-logo-or-initial
+                    [claimStatus]="'stored'"
+                    [src]="p.logo_url"
+                    [name]="p.name"
+                    size="sm"
+                  />
                   <span class="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
                     <span class="min-w-0 font-medium break-words">{{ p.name }}</span>
                     @if (p.is_primary) {

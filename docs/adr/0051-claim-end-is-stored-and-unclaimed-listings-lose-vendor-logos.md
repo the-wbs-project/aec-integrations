@@ -52,3 +52,11 @@ These two were open questions in the first draft. Both are decided and built.
 ### Left as it is
 
 - The home page shows product logos from `stats_cache`. Those values change on the daily home-stats run, which purges `index:home`. So a removed or objected logo can stay on the home page for up to a day. That is inside 14 days, but it is not "at once" for an objection.
+
+## Amended 2026-11-14: the rule fails closed (AECI-1851)
+
+Decision 4 now holds when a read forgets the claim fact. Before, a missing fact showed the logo in two layers. Now it hides it.
+
+- The public `toProductLink` shows a logo only when the row carries a truthy `claimed`. The portal and admin reads map with `toOwnedProductLink`, an explicit choice to keep the stored value. The vendor, list and search mappers already read an absent `owned_at` as unclaimed.
+- `claim_status` on a page subject is required, with no `claimed` default. `shareableLogo` carries a logo only for `'claimed'`.
+- `aec-logo-or-initial` takes a required `claimStatus`. A public list or link payload passes `'server-filtered'`. A portal, admin or avatar surface, and the dev-only preview fixtures, pass `'stored'`. A missing value shows the tile.

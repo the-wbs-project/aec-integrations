@@ -122,7 +122,7 @@ interface FieldConfig {
     VendorLockedNote,
   ],
   template: `
-    <form class="space-y-8" novalidate (submit)="onFormSubmit($event)">
+    <form method="dialog" class="space-y-8" novalidate (submit)="onFormSubmit($event)">
       <!--
         AECI-967 (section 6.9). The product form has always said what to do about
         its AECi-owned identity fields; this form said nothing at all, so a vendor
@@ -703,8 +703,8 @@ export class VendorProfileForm {
     this.saved.set(false);
   }
 
-  /** The form's submit. Returns early on a replayed early submit, which the
-   *  browser already ran natively (`core/event-replay.ts`). */
+  /** The form's submit. Drops a replayed early submit. The form is `method="dialog"`,
+   *  so the native submit did nothing (AECI-1919, `core/event-replay.ts`). */
   protected onFormSubmit(event: Event): void {
     if (isReplayedEvent(event)) return;
     event.preventDefault();

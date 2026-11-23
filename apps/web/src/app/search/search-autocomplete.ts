@@ -69,7 +69,9 @@ import {
   computed,
   DestroyRef,
   effect,
+  ElementRef,
   inject,
+  Injector,
   input,
   output,
   signal,
@@ -77,8 +79,14 @@ import {
 } from '@angular/core';
 import { Combobox, ComboboxPopup, ComboboxWidget } from '@angular/aria/combobox';
 import { Listbox, Option } from '@angular/aria/listbox';
+import {
+  type ConnectedPosition,
+  createRepositionScrollStrategy,
+  OverlayModule,
+  type ScrollStrategy,
+} from '@angular/cdk/overlay';
+import { ScrollDispatcher } from '@angular/cdk/scrolling';
 import { listboxEntry } from '../shared/listbox-entry/listbox-entry';
-import { OverlayModule } from '@angular/cdk/overlay';
 import { NgTemplateOutlet } from '@angular/common';
 
 import { Analytics } from '../analytics/analytics';
@@ -87,6 +95,25 @@ import { AutocompleteController } from './autocomplete-controller';
 import type { AutocompleteSuggestion } from './autocomplete-mapping';
 import { AUTOCOMPLETE_SEARCH_FACTORY } from './autocomplete-search.factory';
 import { isReplayedEvent } from '../core/event-replay';
+import { Chip } from '../shared/chip/chip';
+import { AecIcon } from '../shared/icon/icon';
+
+const DEFAULT_FIELD_CLASS =
+  'rounded-control border border-(--border-default) bg-(--surface-base) px-4 text-sm text-(--text-primary) placeholder:text-(--text-secondary)';
+
+/**
+ * What a pill adds: room for the glyph at the start and the cap at the end, and
+ * no native clear button (it would sit under the cap). `peer` lets the cap follow
+ * the field's hover.
+ */
+const PILL_FIELD_CLASS = 'peer pe-20 ps-12 [&::-webkit-search-cancel-button]:appearance-none';
+
+/** `fitToViewport`: the gap to the field, the margin to the screen edge, the cap. */
+const LIST_GAP = 4;
+const LIST_MARGIN = 8;
+const LIST_MAX = 384;
+/** With less room than this under the field, the list opens above if there is more room there. */
+const LIST_PREFERRED_MIN = 240;
 
 /** The header search landmark's name. Bound, never an interpolated `i18n-*` attribute. */
 const DEFAULT_SEARCH_NAME = $localize`:@@app.search.autocomplete.landmark:Site search`;
@@ -101,6 +128,8 @@ const DEFAULT_SEARCH_NAME = $localize`:@@app.search.autocomplete.landmark:Site s
     NgTemplateOutlet,
     Option,
     OverlayModule,
+    Chip,
+    AecIcon,
   ],
   template: `
     @if (ownForm()) {
@@ -150,9 +179,32 @@ const DEFAULT_SEARCH_NAME = $localize`:@@app.search.autocomplete.landmark:Site s
           inputClass() +
           ' ' +
           inputHeightClass() +
-          ' rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-4 text-sm text-(--text-primary) placeholder:text-(--text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)'
+          ' ' +
+          focusRingClass() +
+          ' ' +
+          fieldClass() +
+          (pill() ? ' ' + pillFieldClass : '')
         "
+        [attr.aria-keyshortcuts]="keyShortcuts() ?? null"
       />
+      @if (pill()) {
+        <!-- The icon host is display: contents, so the wrapper takes the position. -->
+        <span
+          class="pointer-events-none absolute start-4 top-1/2 flex -translate-y-1/2 text-(--text-on-brand-secondary)"
+        >
+          <aec-icon name="search" decorative [size]="5" />
+        </span>
+        @if (shortcutHint(); as hint) {
+          <!-- Decorative: the shortcut is announced once, through aria-keyshortcuts
+               on the field. The cap has no fill (a second wash fails on contrast),
+               only a 1px edge. -->
+          <kbd
+            aria-hidden="true"
+            class="aec-on-brand-keycap pointer-events-none absolute end-3 top-1/2 -translate-y-1/2 rounded-mark border px-2 py-0.5 font-sans text-t-13 text-(--text-on-brand-secondary) transition-colors peer-hover:text-(--text-on-brand)"
+            >{{ hint }}</kbd
+          >
+        }
+      }
 
       <!--
         Aria's ComboboxPopup renders the listbox in-flow (DeferredContent.createEmbeddedView)
@@ -162,7 +214,11 @@ const DEFAULT_SEARCH_NAME = $localize`:@@app.search.autocomplete.landmark:Site s
         w-[min(22rem,…)] (the header input is only w-52, so matchWidth would truncate titles).
       -->
       <ng-template
-        [cdkConnectedOverlay]="{ origin: acOrigin, usePopover: 'inline', matchWidth: false }"
+        [cdkConnectedOverlay]="
+          fitToViewport()
+            ? fitOverlayConfig()
+            : { origin: acOrigin, usePopover: 'inline', matchWidth: false }
+        "
         [cdkConnectedOverlayOpen]="expanded()"
       >
         <ng-template ngComboboxPopup [combobox]="combobox" popupType="listbox">
@@ -187,26 +243,31 @@ const DEFAULT_SEARCH_NAME = $localize`:@@app.search.autocomplete.landmark:Site s
               selectionMode="explicit"
               i18n-aria-label="@@app.search.autocomplete.listbox.aria"
               aria-label="Search suggestions"
-              class="group m-0 flex max-h-[min(24rem,60vh)] w-[min(22rem,calc(100vw-2rem))] list-none flex-col gap-0.5 overflow-y-auto rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1.5 shadow-lg"
+              [style.max-height.px]="listMaxHeight()"
+              class="aec-popover group m-0 flex max-h-[min(24rem,60vh)] w-[min(22rem,calc(100vw-2rem))] list-none flex-col gap-1 overflow-y-auto p-2"
             >
+              <!-- The shared popover surface (.aec-popover, DESIGN.md "Overlays"):
+                   white, 12px radius, a hairline edge and the menu shadow. No
+                   logo on a row, so the logo rule has nothing to hold here. Rows
+                   are at least 44px, the active row on the sunken fill as in every
+                   listbox, 14px name at 600 and a 13px secondary line. -->
               @for (s of suggestions(); track s.objectID) {
                 <li
                   ngOption
                   [value]="s"
                   [label]="s.title"
-                  class="flex cursor-pointer flex-col gap-0.5 rounded-(--radius-sm) px-3 py-2 group-data-[navigated=true]:data-[active=true]:bg-(--surface-sunken)"
+                  class="flex min-h-11 cursor-pointer flex-col justify-center gap-1 rounded-mark px-3 py-2 group-data-[navigated=true]:data-[active=true]:bg-(--surface-sunken)"
                 >
                   <span class="flex items-center justify-between gap-2">
-                    <span class="truncate text-sm font-medium text-(--text-primary)">{{
+                    <span class="truncate text-t-14 font-semibold text-(--text-primary)">{{
                       s.title
                     }}</span>
-                    <span
-                      class="shrink-0 rounded-full border border-(--border-default) px-2 py-0.5 text-[0.65rem] font-medium tracking-wide text-(--text-secondary) uppercase"
-                      >{{ s.kind === 'product' ? productTag : vendorTag }}</span
-                    >
+                    <aec-chip density="dense" tone="quiet" class="shrink-0">{{
+                      s.kind === 'product' ? productTag : vendorTag
+                    }}</aec-chip>
                   </span>
                   @if (s.subtitle) {
-                    <span class="truncate text-xs text-(--text-secondary)">{{ s.subtitle }}</span>
+                    <span class="truncate text-t-13 text-(--text-secondary)">{{ s.subtitle }}</span>
                   }
                 </li>
               }
@@ -222,6 +283,14 @@ export class SearchAutocomplete {
   readonly inputId = input('aec-search-ac');
   /** Tailwind width utility for the input — header `w-52`, mobile `w-full`. */
   readonly inputClass = input('w-52');
+  /**
+   * The input's focus ring, as one complete utility set. The default is the 2px
+   * Forest ring for a light ground. The header on Forest passes the Bone ring, so
+   * the field carries exactly one ring set (AECI-1771).
+   */
+  readonly focusRingClass = input(
+    'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)',
+  );
   /** Optional placeholder override; defaults to the localized house copy. */
   readonly placeholder = input<string | undefined>(undefined);
   /** Optional label text (already localized); defaults to the house "Search". */
@@ -232,6 +301,22 @@ export class SearchAutocomplete {
   readonly labelClass = input('mb-2 block text-sm font-semibold text-(--text-primary)');
   /** Tailwind height utility for the input. The header keeps `h-9`. */
   readonly inputHeightClass = input('h-9');
+  /**
+   * The field's surface: radius, edge, fill, padding, ink. The default is the
+   * white field of a light ground. A mount on another ground passes its own set.
+   */
+  readonly fieldClass = input(DEFAULT_FIELD_CLASS);
+  /**
+   * The header pill on Forest (clash 29): a leading search glyph and room for a
+   * shortcut cap. The caller still passes `fieldClass`, `inputHeightClass` and
+   * `focusRingClass` for the ground it sits on.
+   */
+  readonly pill = input(false);
+  /** The visible shortcut cap inside the pill (already localized). Decorative. */
+  readonly shortcutHint = input<string | undefined>(undefined);
+  /** The `aria-keyshortcuts` value on the field. Unset leaves the attribute off. */
+  readonly keyShortcuts = input<string | undefined>(undefined);
+  protected readonly pillFieldClass = PILL_FIELD_CLASS;
   /**
    * Which suggestion kinds to show. Unset (the default) shows products and
    * vendors, as the header does. The home pair finder passes `['product']`.
@@ -256,6 +341,17 @@ export class SearchAutocomplete {
    * the field must show which product was picked.
    */
   readonly fillOnSelect = input(false);
+  /**
+   * Fit the suggestion list to the visible screen (AECI-1775). Off by default, so
+   * the header pill, the home hero and the claim dialog keep the shipped
+   * placement. The mobile menu sets it: there the field sits low in a panel that
+   * scrolls while the page is locked, so a list that only opens downward runs off
+   * the screen. With it set, the list opens below the field when there is room
+   * and above it when there is more room there, its height is capped to the space
+   * on that side (it scrolls inside), and it follows the field when a
+   * `cdkScrollable` ancestor scrolls.
+   */
+  readonly fitToViewport = input(false);
 
   /** Emitted when Enter is pressed with no suggestion chosen → `/search?q=`. */
   readonly querySubmitted = output<string>();
@@ -283,6 +379,46 @@ export class SearchAutocomplete {
   protected readonly placeholderText = computed(
     () => this.placeholder() ?? this.defaultPlaceholder,
   );
+
+  private readonly injector = inject(Injector);
+  private readonly hostRef = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly scrollDispatcher = inject(ScrollDispatcher);
+  /** The list's height cap while `fitToViewport` is set; null leaves the class cap. */
+  protected readonly listMaxHeight = signal<number | null>(null);
+  /** Open above the field: there is more room above than below. */
+  private readonly listAbove = signal(false);
+  private repositionStrategy: ScrollStrategy | undefined;
+
+  /**
+   * The overlay config for a `fitToViewport` mount. The side with more room comes
+   * first and the other is the fallback. The reposition strategy moves the list
+   * with the field when a registered scroll container scrolls. The default
+   * mounts bind the literal config in the template, unchanged.
+   */
+  protected readonly fitOverlayConfig = computed(() => {
+    this.repositionStrategy ??= createRepositionScrollStrategy(this.injector);
+    const below: ConnectedPosition = {
+      originX: 'start',
+      originY: 'bottom',
+      overlayX: 'start',
+      overlayY: 'top',
+      offsetY: LIST_GAP,
+    };
+    const above: ConnectedPosition = {
+      originX: 'start',
+      originY: 'top',
+      overlayX: 'start',
+      overlayY: 'bottom',
+      offsetY: -LIST_GAP,
+    };
+    return {
+      origin: this.inputEl(),
+      usePopover: 'inline' as const,
+      matchWidth: false,
+      positions: this.listAbove() ? [above, below] : [below, above],
+      scrollStrategy: this.repositionStrategy,
+    };
+  });
 
   private readonly factory = inject(AUTOCOMPLETE_SEARCH_FACTORY);
   private readonly analytics = inject(Analytics);
@@ -353,10 +489,61 @@ export class SearchAutocomplete {
         });
     });
 
+    // fitToViewport: measure the room on each side when the list opens, and again
+    // whenever a scroll container around the field scrolls.
+    effect(() => {
+      if (this.fitToViewport() && this.expanded()) this.fitList();
+    });
+    afterNextRender(() => {
+      if (!this.fitToViewport()) return;
+      const sub = this.scrollDispatcher
+        .ancestorScrolled(this.hostRef, 0)
+        .subscribe(() => this.fitList());
+      this.destroyRef.onDestroy(() => sub.unsubscribe());
+    });
+
     this.destroyRef.onDestroy(() => {
       this.destroyed = true;
       this.controller()?.dispose();
     });
+  }
+
+  private readonly inputEl = viewChild<ElementRef<HTMLInputElement>>('acOrigin');
+
+  /** Move focus to the field. The header shortcut calls this. */
+  focusInput(): void {
+    this.inputEl()?.nativeElement.focus();
+  }
+
+  /** Whether the field is laid out (false while a breakpoint class hides it). */
+  isVisible(): boolean {
+    const el = this.inputEl()?.nativeElement;
+    return !!el && el.getClientRects().length > 0;
+  }
+
+  /** Whether this field is the element holding focus. */
+  isFocused(): boolean {
+    const el = this.inputEl()?.nativeElement;
+    return !!el && el.ownerDocument.activeElement === el;
+  }
+
+  /**
+   * Pick the side with room and cap the list to it. The visible viewport is
+   * used where the browser reports one, so a phone keyboard counts as taken
+   * space. The cap is never above the shipped 24rem.
+   */
+  private fitList(): void {
+    const el = this.inputEl()?.nativeElement;
+    const view = el?.ownerDocument.defaultView;
+    if (!el || !view) return;
+    const rect = el.getBoundingClientRect();
+    const top = view.visualViewport?.offsetTop ?? 0;
+    const bottom = top + (view.visualViewport?.height ?? view.innerHeight);
+    const below = bottom - rect.bottom - LIST_GAP - LIST_MARGIN;
+    const above = rect.top - top - LIST_GAP - LIST_MARGIN;
+    const useAbove = below < LIST_PREFERRED_MIN && above > below;
+    this.listAbove.set(useAbove);
+    this.listMaxHeight.set(Math.max(0, Math.min(LIST_MAX, Math.floor(useAbove ? above : below))));
   }
 
   protected onInput(event: Event): void {

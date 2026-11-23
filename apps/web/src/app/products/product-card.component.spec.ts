@@ -74,10 +74,11 @@ describe('ProductCard', () => {
 
   it('renders an en-dash placeholder when vendor is null (AECI-115, no /vendors/unknown link)', () => {
     const fixture = setupFixture({ ...baseProduct, vendor: null });
-    const placeholder = (fixture.nativeElement as HTMLElement).querySelector(
-      'span[aria-label="No vendor listed"]',
-    );
-    expect(placeholder?.textContent?.trim()).toBe('–');
+    const root = fixture.nativeElement as HTMLElement;
+    // AECI-1793: an aria-hidden dash plus visually hidden words.
+    const vendorCell = root.querySelectorAll('td')[1]!;
+    expect(vendorCell.querySelector('span[aria-hidden="true"]')?.textContent?.trim()).toBe('–');
+    expect(vendorCell.querySelector('span.sr-only')?.textContent?.trim()).toBe('No vendor listed');
     // No vendor link should be rendered.
     expect((fixture.nativeElement as HTMLElement).querySelector('a[href^="/vendors/"]')).toBeNull();
   });
@@ -96,6 +97,15 @@ describe('ProductCard', () => {
     const last = cells[cells.length - 1].textContent ?? '';
     expect(last).not.toContain('0');
     expect(last).toContain('Not yet connected');
+  });
+
+  // AECI-1769: `ProductListItem.logo_url` is null for an unclaimed product (AECI-1618),
+  // so the row shows the tile. A claimed product's logo shows in the same box.
+  it('shows a claimed product logo in the same 32px box as the tile', () => {
+    const fixture = setupFixture({ ...baseProduct, logo_url: 'https://cdn.example.com/p.png' });
+    const img = (fixture.nativeElement as HTMLElement).querySelector('aec-logo-or-initial img');
+    expect(img?.getAttribute('width')).toBe('32');
+    expect(img?.classList.contains('h-8')).toBe(true);
   });
 
   it('renders a monogram fallback in the name cell when logo_url is null', () => {

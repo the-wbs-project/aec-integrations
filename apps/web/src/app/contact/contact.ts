@@ -14,10 +14,18 @@
  * SSR head AND refreshes on an in-app navigation.
  *
  * Voice per `PRODUCT.md`: quiet, functional, sentence case, no exclamation marks.
- * Layout per `DESIGN.md`: warm Bone (`accent-warm`) hero band, body capped at
- * 70ch, Source Serif headings, Atkinson body. Light theme only (Stage 1). All
+ * Light theme only (Stage 1). All
  * strings authored with `i18n`/`$localize`; the email address itself is literal
  * (not translated) and shared between the visible label and the `mailto:` href.
+ *
+ * **Layout (AECI-1801, the `/about` recipe of AECI-1800).** The hero is on
+ * `aec-bone-band`, the page's one Bone band, with the h1 at the Headline role (the
+ * global h1 size). The body is a white band on the 1328px page wrap
+ * (`BAND_WRAP_CLASS`). The add-product panel and the two route cards are the shared
+ * `aecCard`, their headings the Section role on an inner span, and the address a
+ * standalone link (DESIGN.md "The Link Treatment Rule"). Nothing here is a natural
+ * feature card, so the page has no Forest card. The words and their order are
+ * unchanged.
  *
  * **`?topic=add-product`** (`VENDOR_PROGRAM_PAGE_SPEC.md` §6; its in-app link,
  * Find your product, was removed on 2026-10-12, and the topic keeps working for
@@ -39,133 +47,116 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
 import { ADD_PRODUCT_TOPIC } from './contact-topics';
+import { BAND_WRAP_CLASS } from '../shared/band-wrap';
+import { BoneBand } from '../shared/bone-band/bone-band';
+import { AecButton } from '../shared/button/button';
+import { AecCard } from '../shared/card/card';
 
 @Component({
   selector: 'app-contact',
-  imports: [RouterLink],
+  imports: [AecButton, AecCard, BoneBand, RouterLink],
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
-      <section class="border-b border-(--border-default) bg-(--accent-warm)">
-        <div class="mx-auto max-w-7xl px-6 py-16 md:px-8 md:py-20">
-          <div class="max-w-[70ch]">
-            <p class="aec-overline text-(--accent-primary)" i18n="@@app.contact.eyebrow">Contact</p>
-            <h1
-              class="mt-3 font-display text-4xl font-normal leading-[1.1] tracking-[-0.01em] text-(--text-primary) md:text-5xl"
-              i18n="@@app.contact.headline"
-            >
-              Get in touch
-            </h1>
-            <p
-              class="mt-5 text-lg leading-relaxed text-(--text-secondary)"
-              i18n="@@app.contact.lede"
-            >
-              Questions, feedback, corrections, or press: we read everything and reply to most
-              messages within a couple of business days.
-            </p>
-          </div>
+      <!-- 1. Hero: the page's one Bone band, as on /about. -->
+      <aec-bone-band>
+        <div class="max-w-[70ch]">
+          <p class="aec-overline text-(--text-secondary)" i18n="@@app.contact.eyebrow">Contact</p>
+          <h1 class="mt-4 text-(--text-primary)" i18n="@@app.contact.headline">Get in touch</h1>
+          <p
+            class="mt-6 max-w-[36em] text-t-20 leading-normal text-(--text-secondary)"
+            i18n="@@app.contact.lede"
+          >
+            Questions, feedback, corrections, or press: we read everything and reply to most
+            messages within a couple of business days.
+          </p>
         </div>
-      </section>
+      </aec-bone-band>
 
-      <div class="mx-auto max-w-7xl px-6 py-12 md:px-8 md:py-16">
-        @if (addProduct) {
-          <section
-            class="mb-6 max-w-5xl rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-6 md:p-8"
-            data-testid="contact-add-product"
-          >
-            <h2
-              class="font-display text-2xl font-normal leading-snug text-(--text-primary) md:text-3xl"
-              i18n="@@app.contact.addProduct.heading"
-            >
-              Ask us to add your product
-            </h2>
-            <p
-              class="mt-4 max-w-[70ch] text-base leading-relaxed text-(--text-secondary)"
-              i18n="@@app.contact.addProduct.body"
-            >
-              Send us a listing request, and a person on our team reviews it. Or email us the
-              product name, its website, and the products it integrates with. The email opens with
-              these questions filled in.
-            </p>
-            <!-- AECI-1474: the request form first, the email second. -->
-            <div class="mt-6 flex flex-wrap gap-3">
-              <a
-                routerLink="/vendor-program/list-your-product"
-                class="inline-flex items-center justify-center rounded-(--radius-md) bg-(--accent-primary) px-5 py-3 text-sm font-semibold text-(--surface-base) no-underline transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                data-testid="contact-add-product-request"
-                i18n="@@app.contact.addProduct.request"
+      <!-- 2. White: the contact routes as shared cards on the page wrap. -->
+      <div class="py-16 md:py-24">
+        <div [class]="wrap">
+          @if (addProduct) {
+            <section aecCard class="mb-6 p-6 md:p-8" data-testid="contact-add-product">
+              <h2 class="text-(--text-primary)">
+                <span [class]="sectionTitle" i18n="@@app.contact.addProduct.heading"
+                  >Ask us to add your product</span
+                >
+              </h2>
+              <p
+                class="mt-4 max-w-[70ch] text-t-16 leading-relaxed text-(--text-secondary)"
+                i18n="@@app.contact.addProduct.body"
               >
-                Request a listing
-              </a>
+                Send us a listing request, and a person on our team reviews it. Or email us the
+                product name, its website, and the products it integrates with. The email opens with
+                these questions filled in.
+              </p>
+              <!-- AECI-1474: the request form first, the email second. -->
+              <div class="mt-6 flex flex-wrap gap-3">
+                <a
+                  aecButton
+                  routerLink="/vendor-program/list-your-product"
+                  data-testid="contact-add-product-request"
+                  i18n="@@app.contact.addProduct.request"
+                >
+                  Request a listing
+                </a>
+                <a
+                  aecButton
+                  variant="secondary"
+                  [href]="addProductHref"
+                  data-testid="contact-add-product-email"
+                  i18n="@@app.contact.addProduct.cta"
+                >
+                  Email us about your product
+                </a>
+              </div>
+            </section>
+          }
+          <div class="grid gap-6 md:grid-cols-2">
+            <section aecCard class="flex h-full flex-col p-6 md:p-8">
+              <h2 class="text-(--text-primary)">
+                <span [class]="sectionTitle" i18n="@@app.contact.email.heading">Email us</span>
+              </h2>
+              <p [class]="cardBody" i18n="@@app.contact.email.body">
+                The fastest way to reach us is email. Tell us what you are working on and we will
+                route your message to the right person.
+              </p>
+              <!-- A standalone link (DESIGN.md "The Link Treatment Rule"), as on /about.
+                   The negative margin lines its text up with the paragraph above. -->
+              <p class="-mx-3 mt-2 mb-6">
+                <a [href]="mailtoHref" [class]="standaloneLink">{{ email }}</a>
+              </p>
               <a
-                [href]="addProductHref"
-                class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-3 text-sm font-semibold text-(--text-primary) no-underline transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                data-testid="contact-add-product-email"
-                i18n="@@app.contact.addProduct.cta"
-              >
-                Email us about your product
-              </a>
-            </div>
-          </section>
-        }
-        <div class="grid max-w-5xl gap-6 md:grid-cols-2">
-          <section
-            class="flex h-full flex-col rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-6 md:p-8"
-          >
-            <h2
-              class="font-display text-2xl font-normal leading-snug text-(--text-primary) md:text-3xl"
-              i18n="@@app.contact.email.heading"
-            >
-              Email us
-            </h2>
-            <p
-              class="mt-4 text-base leading-relaxed text-(--text-secondary)"
-              i18n="@@app.contact.email.body"
-            >
-              The fastest way to reach us is email. Tell us what you are working on and we will
-              route your message to the right person.
-            </p>
-            <p class="mt-4 text-base">
-              <a
+                aecButton
                 [href]="mailtoHref"
-                class="font-medium text-(--accent-primary) hover:text-(--accent-primary-hover)"
+                class="mt-auto self-start"
+                i18n="@@app.contact.email.cta"
               >
-                {{ email }}
+                Email us
               </a>
-            </p>
-            <a
-              [href]="mailtoHref"
-              class="mt-auto inline-flex items-center justify-center self-start rounded-(--radius-md) bg-(--accent-primary) px-5 py-3 text-sm font-semibold text-(--surface-base) no-underline transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              i18n="@@app.contact.email.cta"
-            >
-              Email us
-            </a>
-          </section>
+            </section>
 
-          <section
-            class="flex h-full flex-col rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-6 md:p-8"
-          >
-            <h2
-              class="font-display text-2xl font-normal leading-snug text-(--text-primary) md:text-3xl"
-              i18n="@@app.contact.corrections.heading"
-            >
-              Corrections to a listing
-            </h2>
-            <p
-              class="mt-4 text-base leading-relaxed text-(--text-secondary)"
-              i18n="@@app.contact.corrections.body"
-            >
-              Spotted something inaccurate on a product or vendor page? Every listing has a way to
-              claim it or suggest a correction. Open the relevant page from the directory, or email
-              us directly and we will make sure it gets reviewed.
-            </p>
-            <a
-              routerLink="/products"
-              class="mt-auto inline-flex items-center justify-center self-start rounded-(--radius-md) bg-(--accent-primary) px-5 py-3 text-sm font-semibold text-(--surface-base) no-underline transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              i18n="@@app.contact.corrections.cta"
-            >
-              Browse listings
-            </a>
-          </section>
+            <section aecCard class="flex h-full flex-col p-6 md:p-8">
+              <h2 class="text-(--text-primary)">
+                <span [class]="sectionTitle" i18n="@@app.contact.corrections.heading"
+                  >Corrections to a listing</span
+                >
+              </h2>
+              <p [class]="cardBody + ' mb-6'" i18n="@@app.contact.corrections.body">
+                Spotted something inaccurate on a product or vendor page? Every listing has a way to
+                claim it or suggest a correction. Open the relevant page from the directory, or
+                email us directly and we will make sure it gets reviewed.
+              </p>
+              <a
+                aecButton
+                routerLink="/products"
+                class="mt-auto self-start"
+                i18n="@@app.contact.corrections.cta"
+              >
+                Browse listings
+              </a>
+            </section>
+          </div>
         </div>
       </div>
     </div>
@@ -173,6 +164,19 @@ import { ADD_PRODUCT_TOPIC } from './contact-topics';
 })
 export class ContactPage {
   private readonly meta = inject(MetaService);
+
+  /** The 1328px page wrap the header, footer and bands share. */
+  protected readonly wrap = BAND_WRAP_CLASS;
+
+  /** The Section role on an inner span, so the unlayered h2 rule cannot beat it. */
+  protected readonly sectionTitle = 'block text-t-36 leading-[1.1] tracking-[-0.02em]';
+
+  /** A card's body at the Body role. */
+  protected readonly cardBody = 'mt-4 text-t-16 leading-relaxed text-(--text-secondary)';
+
+  /** The standalone link recipe (DESIGN.md "The Link Treatment Rule"), as on `/about`. */
+  protected readonly standaloneLink =
+    'inline-block rounded-(--radius-md) px-3 py-2 text-t-14 font-semibold text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 hover:text-(--text-primary)';
 
   private readonly topic = inject(ActivatedRoute).snapshot.queryParamMap.get('topic');
   /** `?topic=add-product`: a product not in the directory (spec §6). */

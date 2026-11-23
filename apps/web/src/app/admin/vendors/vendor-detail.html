@@ -159,7 +159,12 @@
         -->
         <div class="flex min-w-0 items-center gap-4">
           <div class="relative shrink-0">
-            <aec-logo-or-initial [src]="v.logo_url" [name]="v.company_name" size="lg" />
+            <aec-logo-or-initial
+              [claimStatus]="'stored'"
+              [src]="v.logo_url"
+              [name]="v.company_name"
+              size="lg"
+            />
             <button
               type="button"
               (click)="openLogoDialog()"
@@ -635,7 +640,7 @@
           @if (revokeConfirmId() === seat.user_id) {
           <tr class="border-b border-(--border-default)">
             <td colspan="5" class="bg-(--surface-sunken) px-3 py-3">
-              <form novalidate (submit)="$event.preventDefault(); confirmRevoke(seat)">
+              <form method="dialog" novalidate (aecSubmit)="confirmRevoke(seat)">
                 <p
                   class="text-sm text-(--text-primary)"
                   i18n="@@admin.vendors.detail.seats.confirmCopy"

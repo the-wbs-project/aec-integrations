@@ -80,6 +80,7 @@ The `/legal/*` pages are public promises, and the two vendor agreements are acce
 - `.dev.vars` or `.env` files added to commits
 - SQL constructed via string concatenation (use Drizzle's query builder or parameterized `sql` templates, never interpolation)
 - Banned-user enforcement missing on write paths
+- A `<form>` that is not `method="dialog"` or `method="get" action="/search"`, or a form `(submit)` handler that calls `preventDefault` without a replay guard (use `(aecSubmit)`). Before hydration a GET form submits natively and GETs the page with every answer in the address, which the edge log and PostHog keep. A form the component submits takes `method="dialog"`. A no-JS search form takes `method="get" action="/search"`. A new form route gets a line in `e2e/forms-before-hydration.spec.ts` (DESIGN.md "Forms are inert before hydration", AECI-1919). The lint guard `form-declares-method` catches the attribute, not the missing spec line.
 
 ### Authorization model
 
@@ -262,6 +263,7 @@ looks sorted, so nothing but review or a test catches them.
 - State mutations that propagate incorrect data downstream
 - Missing cleanup of subscriptions, timers, observers, or event listeners
 - API request payload that doesn't match the documented contract
+- **A merge left git conflict markers** (AECI-1720). A merge of `main` into a long-lived branch once left them in a published archive of "How ranking works", and no gate read that file. `pnpm lint` now runs `scripts/check-conflict-markers.mjs` over every tracked file. Still check by eye that a PR with a merge commit changes no archived version file (`apps/web/src/content/legal/versions/`, `apps/web/src/content/docs/*/versions/`). The freeze specs hold their hashes, and an edit there is a **BLOCKER**.
 - Promote mappings (review app → D1) that break the overwrite rules in `DATABASE_SCHEMA.md` §13.4. No column is protected by name. A push overwrites a field it sends, leaves an omitted key untouched, and clears on an explicit `null` (`REVIEW_APP_PROMOTE_API.md` §3.1, §5). What protects a value set in D1 is the per-record fences: owned vendors (§4a), claimed and vendor-created integrations (§4b, §4c). Two columns also carry their own fence: `logo_source` and `usefulness_source` (§3.2, §3.3). Flag a change that weakens any of them.
 
 ### AI-authored code red flags

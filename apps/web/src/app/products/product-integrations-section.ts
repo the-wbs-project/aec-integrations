@@ -1,10 +1,29 @@
 import { NgTemplateOutlet } from '@angular/common';
-import { Component, computed, input, signal } from '@angular/core';
+import { Component, ElementRef, computed, input, signal, viewChild } from '@angular/core';
 
-import type { ProductIntegrationItem, ProductListItem } from '@aeci/shared';
+import type {
+  ContextDirection,
+  ProductDetail,
+  ProductIntegrationItem,
+  ProductListItem,
+} from '@aeci/shared';
 
+import type { ExternalLinkContext } from '../analytics/analytics';
+import { ExternalLinkTracker } from '../analytics/external-link-tracker';
 import { formatNameList } from '../core/meta.helpers';
 import { RequestTrigger } from '../requests/request-trigger';
+import { directionFilterLabel } from '../search/mechanism-labels';
+
+import { directionGlyph } from './pair-direction-labels';
+import { AecButton } from '../shared/button/button';
+import { AecCard } from '../shared/card/card';
+import { Chip } from '../shared/chip/chip';
+import { integrationsZeroCaveat, integrationsZeroHeading } from '../shared/figure/figure';
+import { correctionsInSlots } from '../shared/field-caption/field-caption-facts';
+import { AecIcon } from '../shared/icon/icon';
+import type { ListingView } from '../shared/listing-toolbar/listing-toolbar';
+import { ListingViewToggle } from '../shared/listing-toolbar/listing-view-toggle';
+import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 
 import {
   applyDeferCut,
@@ -12,9 +31,46 @@ import {
   splitIntegrationLanes,
   type ConnectorLaneGroup,
 } from './connector-lane-grouping';
-import { filterIntegrationLanes, isFilterActive } from './integration-filter';
+import { IntegrationArrangementToggle } from './integration-arrangement-toggle';
+import {
+  groupRowsByCategory,
+  isLongIntegrationList,
+  ONE_LIST_PAGE_SIZE,
+  rowsInCategory,
+  type IntegrationArrangement,
+} from './integration-category-groups';
+import {
+  allRows,
+  countRowsMovingDataObject,
+  countRowsWithDirection,
+  dataObjectOptions,
+  directionOptions,
+  filterIntegrationLanes,
+  isIntegrationFilterActive,
+  partnerCategoryOptions,
+  rowsForFacetCount,
+  toggleFacetValue,
+  type IntegrationFilterState,
+} from './integration-filter';
+import {
+  INTEGRATION_CLEAR_CLASS,
+  INTEGRATION_FILTER_PANEL_CLASS,
+  INTEGRATION_LIST_HEADING_CLASS,
+  INTEGRATION_LIST_ROW_CLASS,
+  INTEGRATION_LIST_ROW_END_CLASS,
+  INTEGRATION_SEARCH_ICON_CLASS,
+  INTEGRATION_SEARCH_INPUT_CLASS,
+  INTEGRATION_STATUS_CLASS,
+} from './integration-filter-recipe';
 import { IntegrationGroupCard } from './integration-group-card';
-import { IntegrationListFilter } from './integration-list-filter';
+import {
+  hasNoIntegrationsOnRecord,
+  showsNoIntegrationsDirectory,
+  withoutTrailingFullStop,
+} from './integrations-on-record';
+import { ProductIntegrationCards } from './product-integration-cards';
+import { ProductIntegrationGroups } from './product-integration-groups';
+import { ProductIntegrationOneList } from './product-integration-one-list';
 import { ProductIntegrationsTable } from './product-integrations-table';
 
 /**
@@ -57,12 +113,12 @@ import { ProductIntegrationsTable } from './product-integrations-table';
  * One sentence, and every one of its constraints is a prohibition:
  *
  *   - it **names no connector**. A per-connector group is a list, renders a table
- *     row, and enters the `<h2>` count — three of §13.7's three prohibitions —
+ *     row, and enters the section's count — three of §13.7's three prohibitions —
  *     and a "Via {connector}" card that outlives its own delivered row asserts a
  *     delivery the I24 ruling has just said does not exist;
  *   - it is **not a table row** and not a card;
- *   - it **never touches `lanes().rowCount`**, so `Integrations (N)` cannot move.
- *     §13.5 is categorical: reachable never counts, anywhere;
+ *   - it **never touches `lanes().rowCount`**, so the "Showing n of m" total
+ *     cannot move. §13.5 is categorical: reachable never counts, anywhere;
  *   - it is **unlinked at v0**. §13.7 says it links "our filtered view" and no
  *     such route exists; the only lawful target would be the curated pair set,
  *     which would make this line inherit everything publication is gated on. The
@@ -73,16 +129,39 @@ import { ProductIntegrationsTable } from './product-integrations-table';
  * sweep has no lanes left and is precisely the page that must still answer
  * "does X integrate with Y".
  *
- * ── SINGLE-LANE PAGES ARE DELIBERATELY UNCHANGED ────────────────────────────────
+ * ── CARDS, TABLE AND THE FILTER PANEL (AECI-1782) ───────────────────────────────
+ * Cards by default, the table as the alternative (PLAN.md §5.2, clash 24). The
+ * server always renders cards, and every row is a card in the server HTML. The
+ * Cards/Table toggle, the name filter and the direction and partner-category chips
+ * are component state, never the URL, so a cached page is identical for every
+ * visitor. Each lane renders one named list of cards, the card view's version of
+ * one table per lane. The filters sit in one panel of their own under the `<h2>`
+ * (ruling R5). There is no sort control (R5), and no control reads the agreement
+ * state (R1). The order is the lane order below, unchanged: R1 keeps existing
+ * orders, and the direct lane is already A to Z by partner name with the id last.
+ *
+ * ── LONG LISTS (AECI-1783) ───────────────────────────────────────────────────────
+ * A single-lane section of 13 rows or more, with fewer category groups than half its
+ * rows, groups by partner category (ruled 2026-11-16), with a jump
+ * rail and a "Show more" per group (ruling R3 decision 20, ruling R5). The reader can
+ * switch it to one list, 12 at a time. The server always renders the grouped
+ * arrangement, and every row is in its HTML. The grouping rules, the counts and the
+ * cuts live in `integration-category-groups.ts`; this component only wires them. Every
+ * filter chip prints how many rows it would show, and a category chip's number is the
+ * same `rowsInCategory` count the rail and the group heading print. A chip whose count
+ * is 0 is disabled unless it is pressed, so it can always be released (2026-11-16).
+ * A shorter list, a page with a Via lane and the table view render as they did before.
+ *
+ * ── SINGLE-LANE PAGES ────────────────────────────────────────────────────────────
  * A product with no connector-delivered edges — the overwhelming majority —
- * still renders exactly one unheaded table, named by the section `<h2>`. §13.3
+ * still renders exactly one unheaded list, named by the section `<h2>`. §13.3
  * rejected a "Direct integrations" heading over the only table as chrome over a
  * fact the heading already states, and a collapsible card would be that same
- * chrome with a button on it. It still gets the filter when it is long: a
- * 40-row single lane is precisely the list the filter exists for.
+ * chrome with a button on it.
  *
  * ── THE `@defer` CUT ────────────────────────────────────────────────────────────
- * Past 20 rows the remainder ships as deferred `<tr>`s in an
+ * Table view only since AECI-1891: the card view renders every row eagerly (see
+ * `laneCut`). In the table, past 20 rows the remainder ships as deferred `<tr>`s in an
  * `@defer (on viewport; hydrate on viewport)` block, and the budget is spent
  * across the FLATTENED lane order so it lands after 20 visible rows rather than
  * 20 rows into every lane. Under v22 incremental hydration those rows are
@@ -100,73 +179,546 @@ import { ProductIntegrationsTable } from './product-integrations-table';
   // eslint-disable-next-line @angular-eslint/component-selector
   selector: 'section[aec-product-integrations-section]',
   imports: [
+    AecButton,
+    AecCard,
+    AecIcon,
+    Chip,
+    ExternalLinkTracker,
+    IntegrationArrangementToggle,
     IntegrationGroupCard,
-    IntegrationListFilter,
+    ListingViewToggle,
+    NewTabIcon,
     NgTemplateOutlet,
+    ProductIntegrationCards,
+    ProductIntegrationGroups,
+    ProductIntegrationOneList,
     ProductIntegrationsTable,
     RequestTrigger,
   ],
   template: `
-    <!-- Heading row: title left, filter right. The filter lives HERE rather
-         than in a band under the heading so an idle one costs no vertical
-         space, which is what let the ten-row threshold go. -->
-    <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
-      <h2 id="integrations-title" class="font-display text-2xl font-semibold text-(--text-primary)">
-        {{ heading() }}
-      </h2>
-      @if (showFilter()) {
-        <aec-integration-list-filter
-          inputId="integrations-filter"
-          i18n-label="@@products.detail.body.integrations.filter.label"
-          label="Search these integrations"
-          i18n-placeholder="@@products.detail.body.integrations.filter.placeholder"
-          placeholder="Filter by product or connection"
-          [(query)]="query"
-          [shown]="filteredLanes().rowCount"
-          [total]="lanes().rowCount"
-        />
-      }
-    </div>
+    @if (zero(); as p) {
+      <!-- AECI-1786: no integrations on record (mock-up 8). The words are the legal-reviewed
+           strings of PLAN.md section 5.2, used exactly. Text only: no illustration (ruling
+           R5) and no category chart (ruling R3, decision 19). With no rows there is no
+           filter panel, no Cards or Table toggle and no scope note. -->
+      <!-- AECI-1720 (mock-up 8, .band-head): the kicker and the heading on the left, the
+           caveat on the right from lg. The mock-up's third caveat sentence, on when we
+           list an integration, is a promise that waits for Chris, so it is not built. -->
+      <div
+        class="grid gap-x-12 gap-y-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start"
+        data-testid="integrations-zero-head"
+      >
+        <div class="min-w-0">
+          <p
+            class="aec-overline mb-3 text-(--text-secondary)"
+            data-testid="integrations-kicker"
+            i18n="@@products.detail.body.integrations.kicker"
+          >
+            Integrations on record
+          </p>
+          <h2 id="integrations-title" class="text-balance" data-testid="integrations-zero-heading">
+            <span
+              class="font-display text-t-24 leading-tight font-semibold tracking-[-0.02em] text-(--text-primary) md:text-t-36"
+              >{{ zeroHeading() }}</span
+            >
+          </h2>
+        </div>
+        <div class="min-w-0 space-y-4 lg:pt-8">
+          <p
+            class="max-w-prose text-t-16 leading-relaxed text-(--text-primary) md:text-t-20"
+            data-testid="integrations-zero-caveat"
+          >
+            {{ zeroCaveat }}
+          </p>
+          @if (builtWithinLine(); as line) {
+            <p class="max-w-prose text-t-16 text-(--text-secondary)">{{ line }}</p>
+          }
+        </div>
+      </div>
+
+      <div
+        class="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-stretch"
+        data-testid="integrations-zero-grid"
+      >
+        <!-- AECI-1720 restore C (mock-up 8, .know): the page's one Forest feature card
+             (DESIGN.md §2 "A Forest feature card"). A card, never a band: rounded-card,
+             the card shadow, Forest fill, Bone ink, 32px padding (24px below md), and the
+             Bone main button pinned to its foot. No illustration (ruling R5). The product
+             page carries no other Forest feature card, so it stays one per page.
+             Ruling 51, option A (2026-11-16): the heading and the line the legal review
+             relied on sit directly above the button, as one group. The words are the ones
+             STAGE_1_5_SPEC.md section 11.4 approved for the empty pair page. The line is
+             also the button's description, so a screen reader hears what it is for. -->
+        <div
+          class="aec-card flex min-w-0 flex-col gap-4 rounded-card border bg-(--accent-primary) p-6 text-(--text-on-brand) shadow-card md:p-8"
+          data-testid="integrations-zero-know"
+        >
+          <h3 class="text-(--text-on-brand)">
+            <span
+              class="font-display text-t-24 leading-tight font-semibold"
+              i18n="@@products.detail.body.integrations.zero.knowHeading"
+              >Know of one?</span
+            >
+          </h3>
+          <p
+            id="integrations-zero-know-line"
+            class="max-w-[30em] text-t-16 text-(--text-on-brand-secondary)"
+            data-testid="integrations-zero-know-line"
+            i18n="@@products.detail.body.integrations.zero.knowLine"
+          >
+            Tell us where you saw it and we will look at it.
+          </p>
+          <!-- The existing correction request, the same trigger as every "suggest a
+               correction" link: the drawer in the browser, the routed form without
+               JavaScript or on a modified click. -->
+          <div class="mt-auto pt-4">
+            <a
+              aecButton
+              variant="on-brand"
+              aecRequestTrigger
+              class="max-md:w-full"
+              [entity]="'product'"
+              [kind]="'correction'"
+              [slug]="p.slug"
+              [href]="'/products/' + p.slug + '/correction'"
+              aria-describedby="integrations-zero-know-line"
+              data-testid="integrations-zero-correction"
+            >
+              <ng-container i18n="@@products.detail.body.integrations.zero.exists"
+                >It does exist</ng-container
+              >
+              <aec-icon name="arrow-right" class="rtl:-scale-x-100" decorative [size]="4" />
+            </a>
+          </div>
+        </div>
+
+        <!-- The vendor's own links, the same fields and labels as the facts card's
+             Resources group, with the two notes that keep an API from reading as an
+             integration. -->
+        <div aecCard class="min-w-0 space-y-4 p-6" data-testid="integrations-zero-vendor">
+          @if (p.tool_integrations_url || p.api_docs_url) {
+            <!-- AECI-1720 (mock-up 8): "From {vendor}" and one neutral line, only while
+                 both say something true: the product has a vendor and no link shown here
+                 carries AECi's "Corrected by" caption. A corrected link is AECi's value,
+                 not the vendor's. Otherwise the facts card's "Resources". -->
+            <div class="space-y-2">
+              <h3 id="integrations-zero-resources" class="aec-overline text-(--text-secondary)">
+                <span class="flex items-center gap-2">
+                  <aec-icon name="book" decorative [size]="4" />
+                  @if (vendorSourced(p) && p.vendor; as v) {
+                    <span data-testid="integrations-zero-vendor-heading">{{
+                      fromVendorLabel(v.name)
+                    }}</span>
+                  } @else {
+                    <span i18n="@@products.detail.metadata.resources">Resources</span>
+                  }
+                </span>
+              </h3>
+              @if (vendorSourced(p)) {
+                <p
+                  class="text-t-14 text-(--text-secondary)"
+                  data-testid="integrations-zero-vendor-intro"
+                >
+                  {{ vendorPublishesLabel(p.name) }}
+                </p>
+              }
+            </div>
+            <ul class="m-0 grid list-none gap-1 p-0" aria-labelledby="integrations-zero-resources">
+              @if (p.tool_integrations_url) {
+                <li>
+                  <a
+                    [href]="p.tool_integrations_url"
+                    target="_blank"
+                    rel="noopener nofollow"
+                    aecTrackExternalLink="product_detail"
+                    [aecLinkContext]="docsLinkContext(p, 'listing')"
+                    [class]="resourceLinkClass"
+                  >
+                    <span [class]="resourceTileClass"
+                      ><aec-icon name="grid" decorative [size]="4"
+                    /></span>
+                    <span class="min-w-0 flex-1" i18n="@@products.detail.metadata.integrationsPage"
+                      >Integrations page</span
+                    >
+                    <span class="text-(--text-secondary)"><aec-new-tab-icon /></span>
+                  </a>
+                </li>
+              }
+              @if (p.api_docs_url) {
+                <li>
+                  <a
+                    [href]="p.api_docs_url"
+                    target="_blank"
+                    rel="noopener nofollow"
+                    aecTrackExternalLink="product_detail"
+                    [aecLinkContext]="docsLinkContext(p, 'docs')"
+                    [class]="resourceLinkClass"
+                  >
+                    <span [class]="resourceTileClass"
+                      ><aec-icon name="code" decorative [size]="4"
+                    /></span>
+                    <span class="min-w-0 flex-1" i18n="@@products.detail.metadata.apiDocs"
+                      >API documentation</span
+                    >
+                    <span class="text-(--text-secondary)"><aec-new-tab-icon /></span>
+                  </a>
+                </li>
+              }
+            </ul>
+          }
+          <p
+            class="flex gap-2 rounded-panel bg-(--accent-warm) p-4 text-t-14 leading-normal text-(--text-primary)"
+            data-testid="integrations-zero-api-note"
+          >
+            <aec-icon name="info" class="mt-1 shrink-0" decorative [size]="4" />
+            <span i18n="@@products.detail.body.integrations.zero.apiNote"
+              >An API is not an integration. We list an integration only when we can show that one
+              exists.</span
+            >
+          </p>
+          @if (noDirectoryLine(); as line) {
+            <p
+              class="flex gap-2 rounded-panel bg-(--surface-sunken) p-4 text-t-14 leading-normal text-(--text-secondary)"
+              data-testid="integrations-zero-no-directory"
+            >
+              <aec-icon name="info" class="mt-1 shrink-0" decorative [size]="4" />
+              <span>{{ line }}</span>
+            </p>
+          }
+        </div>
+      </div>
+    } @else {
+      <!-- AECI-1720 (mock-up 6, .band-head): the kicker over the heading. The kicker is a
+           paragraph, not a heading. The heading stays "Integrations" with no count (ruled
+           2026-11-16), and the mock-up's "N of N integrations shown" badge is not built:
+           it is the section's row count, which can differ from the facts card's figure
+           (a stored count that lags, a connector's powered edges), the problem the
+           ruling closed. The mock-up's intro line makes a promise about evidence and
+           waits for Chris, so it is not built. -->
+      <div data-testid="integrations-head">
+        <div class="min-w-0">
+          <p
+            class="aec-overline mb-3 text-(--text-secondary)"
+            data-testid="integrations-kicker"
+            i18n="@@products.detail.body.integrations.kicker"
+          >
+            Integrations on record
+          </p>
+          <h2 id="integrations-title" class="text-balance">
+            <span [class]="headingClass">{{ heading() }}</span>
+          </h2>
+          <!-- The order line (approved 2026-11-16). Only where it is true of every row: a
+               page with a Via lane orders its connector groups by row count (R1), so it
+               shows only on a page with no Via lane. Grouped or not, the rows run A to Z by
+               partner. -->
+          @if (lanes().rowCount > 0 && lanes().via.length === 0) {
+            <p
+              class="mt-4 text-t-16 text-(--text-secondary)"
+              data-testid="integrations-order"
+              i18n="@@products.detail.body.integrations.order"
+            >
+              A to Z by partner name.
+            </p>
+          }
+        </div>
+      </div>
+    }
+
+    <!-- The filter panel (AECI-1782). Ruling R5 kept "integration filters in their
+         own panel": one panel of its own, not the shared facet panel. Every control
+         is a choice the reader makes, and the state never reaches the URL, so the
+         server always renders the whole section. The agreement state is not a
+         filter (ruling R1). -->
+    @if (showFilter()) {
+      <!-- AECI-1720 (mock-up 6, .deck): one compact Bone panel. The top row holds the
+           search box, the direction chips and the view toggles. Under it, one row each for
+           the types of data and the partner categories, each label in its own column so
+           wrapped chips line up after it. Below md each chip row is one line that scrolls
+           sideways, as the mock-up does on a phone, instead of wrapping into a tall block.
+           The panel's name "Filters" is kept for assistive tech only: the mock-up shows no
+           heading here. -->
+      <div
+        role="group"
+        aria-labelledby="integrations-filters-title"
+        [class]="panelClass"
+        data-testid="integrations-filter-panel"
+      >
+        <span id="integrations-filters-title" class="sr-only" i18n="@@listing.filters.title"
+          >Filters</span
+        >
+        <div
+          class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-center lg:gap-4"
+          data-testid="integrations-filter-top"
+        >
+          <!-- The search box (mock-up 6, .sfield): the field recipe with a search glyph
+               inside it, filling its column. The status lives in the list row below, so
+               the panel holds no count. "Integrations it powers" uses the same recipe. -->
+          <div class="relative min-w-0" data-testid="integrations-filter-search">
+            <label
+              for="integrations-filter"
+              class="sr-only"
+              i18n="@@products.detail.body.integrations.filter.label"
+              >Search these integrations</label
+            >
+            <span [class]="searchIconClass" aria-hidden="true">
+              <aec-icon name="search" decorative [size]="4" />
+            </span>
+            <input
+              #filterInput
+              id="integrations-filter"
+              type="search"
+              autocomplete="off"
+              [value]="query()"
+              i18n-placeholder="@@products.detail.body.integrations.filter.placeholder"
+              placeholder="Filter by product or connection"
+              (input)="onQuery($event)"
+              [class]="searchInputClass"
+            />
+          </div>
+
+          @if (directionChoices().length > 0) {
+            <!-- AECI-1720 restore C (mock-up 6, #dirSeg): "Any direction" first, then the
+                 page's product's words. Below md the four chips wrap two by two, as the
+                 mock-up's phone layout does, so none hides off the edge. "Any direction"
+                 is pressed while no direction chip is, and pressing it releases them.
+                 Its count is every row the other filters keep, rows with no direction
+                 on record included. -->
+            <div
+              role="group"
+              aria-labelledby="integrations-filter-direction"
+              [class]="directionRowClass"
+              data-testid="integrations-filter-direction"
+            >
+              <span
+                id="integrations-filter-direction"
+                class="sr-only"
+                i18n="@@search.facet.direction"
+                >Direction</span
+              >
+              <aec-chip
+                class="shrink-0"
+                [selected]="directions().length === 0"
+                (activated)="clearDirections()"
+                data-testid="integrations-filter-direction-any"
+              >
+                {{ anyDirectionLabel }}
+                <span class="font-normal tabular-nums" data-testid="integrations-chip-count">{{
+                  directionCountRows().length
+                }}</span>
+              </aec-chip>
+              @for (choice of directionChoices(); track choice.token) {
+                <aec-chip
+                  class="shrink-0"
+                  [selected]="choice.selected"
+                  [disabled]="choice.count === 0 && !choice.selected"
+                  (activated)="toggleDirection(choice.token)"
+                >
+                  <span class="inline-block leading-none rtl:-scale-x-100" aria-hidden="true">{{
+                    choice.glyph
+                  }}</span>
+                  {{ choice.label }}
+                  <span class="font-normal tabular-nums" data-testid="integrations-chip-count">{{
+                    choice.count
+                  }}</span>
+                </aec-chip>
+              }
+            </div>
+          }
+
+          <div class="flex flex-wrap items-center gap-2">
+            @if (long() && view() === 'cards') {
+              <aec-integration-arrangement-toggle
+                [arrangement]="arrangement()"
+                (arrangementChange)="arrangement.set($event)"
+              />
+            }
+            <aec-listing-view-toggle [view]="view()" (viewChange)="view.set($event)" />
+          </div>
+        </div>
+
+        @if (dataChoices().length > 0) {
+          <div [class]="rowClass">
+            <span
+              id="integrations-filter-data"
+              [class]="rowLabelClass"
+              i18n="@@products.detail.body.integrations.dataTypes"
+              >Types of data</span
+            >
+            <div class="min-w-0 space-y-2">
+              <div
+                role="group"
+                aria-labelledby="integrations-filter-data"
+                [attr.aria-describedby]="
+                  dataFilterActive() ? 'integrations-filter-data-note' : null
+                "
+                [class]="chipRowClass"
+                data-testid="integrations-filter-data"
+              >
+                @for (choice of dataChoices(); track choice.slug) {
+                  <aec-chip
+                    class="shrink-0"
+                    [selected]="choice.selected"
+                    [disabled]="choice.count === 0 && !choice.selected"
+                    (activated)="toggleDataObject(choice.slug)"
+                    >{{ choice.name }}
+                    <span class="font-normal tabular-nums" data-testid="integrations-chip-count">{{
+                      choice.count
+                    }}</span></aec-chip
+                  >
+                }
+              </div>
+              <!-- AECI-1816: about a third of live rows have no data object on record, and
+                   a data filter leaves every one of them out. Say so while it is on. The
+                   live region is always present, so the note is announced as it appears.
+                   Empty, it takes no room. -->
+              <p class="text-sm text-(--text-secondary) empty:hidden" aria-live="polite">
+                @if (dataFilterActive()) {
+                  <span
+                    id="integrations-filter-data-note"
+                    data-testid="integrations-filter-data-note"
+                    i18n="@@products.detail.body.integrations.filter.dataTypes.note"
+                    >Integrations with no types of data on record are not shown while this filter is
+                    on.</span
+                  >
+                }
+              </p>
+            </div>
+          </div>
+        }
+
+        @if (categoryChoices().length > 0) {
+          <div [class]="rowClass">
+            <span
+              id="integrations-filter-categories"
+              [class]="rowLabelClass"
+              i18n="@@products.detail.body.integrations.filter.partnerCategory"
+              >Partner category</span
+            >
+            <div
+              role="group"
+              aria-labelledby="integrations-filter-categories"
+              [class]="chipRowClass"
+              data-testid="integrations-filter-categories"
+            >
+              @for (choice of categoryChoices(); track choice.slug) {
+                <aec-chip
+                  class="shrink-0"
+                  [selected]="choice.selected"
+                  [disabled]="choice.count === 0 && !choice.selected"
+                  (activated)="toggleCategory(choice.slug)"
+                  >{{ choice.name }}
+                  <span class="font-normal tabular-nums" data-testid="integrations-chip-count">{{
+                    choice.count
+                  }}</span></aec-chip
+                >
+              }
+            </div>
+          </div>
+        }
+      </div>
+
+      <!-- The list row (mock-up 6, .lane-row): the list's own heading, the view's count
+           as a status message, and "Clear filters" while anything filters. On a page with
+           a Via lane each lane card carries its own heading, so the row keeps only the
+           count. -->
+      <div [class]="listRowClass" data-testid="integrations-list-row">
+        @if (lanes().via.length === 0) {
+          <h3 class="min-w-0" data-testid="integrations-list-heading">
+            <span
+              class="font-display text-t-24 leading-tight font-semibold text-(--text-primary)"
+              >{{ listHeading() }}</span
+            >
+          </h3>
+        }
+        <div [class]="listRowEndClass">
+          <p role="status" [class]="statusClass" data-testid="integrations-status">
+            {{ statusLabel() }}
+          </p>
+          @if (filterActive()) {
+            <button
+              type="button"
+              [class]="clearClass"
+              (click)="clearFilters()"
+              data-testid="integrations-filter-clear"
+            >
+              <aec-icon name="x" decorative [size]="3.5" />
+              <span i18n="@@listing.filters.clear">Clear filters</span>
+            </button>
+          }
+        </div>
+      </div>
+    }
 
     @if (lanes().rowCount === 0) {
-      <div
-        class="space-y-2 rounded-(--radius-lg) border border-dashed border-(--border-default)
+      <!-- With the zero state above this branch is empty. It still serves a section with no
+           endpoint rows on a page that has integrations elsewhere, such as a connector
+           that only powers edges. -->
+      @if (!zero()) {
+        <div
+          class="space-y-2 rounded-panel border border-dashed border-(--border-default)
             bg-(--surface-sunken) p-6 text-sm text-(--text-secondary)"
-      >
-        <!-- §13.3b (AECI-710): an extension usually has no integrations with its
+        >
+          <!-- §13.3b (AECI-710): an extension usually has no integrations with its
              host, because it runs inside it. Say so where the reader is looking,
              in one sentence, and point at the sidebar card that carries the host.
              Only on the EMPTY branch: a populated section needs no excuse. -->
-        @if (builtWithinLine(); as line) {
-          <p>{{ line }}</p>
-        }
-        <p i18n="@@products.detail.body.integrations.empty">
-          No integrations recorded yet. Vendor data is curated; if you know of one,
-          <a
-            aecRequestTrigger
-            [entity]="'product'"
-            [kind]="'correction'"
-            [slug]="slug()"
-            [href]="'/products/' + slug() + '/correction'"
-            class="text-(--accent-primary) underline underline-offset-2"
-            >suggest a correction</a
-          >.
-        </p>
-      </div>
-      <ng-container [ngTemplateOutlet]="reachLine" />
+          @if (builtWithinLine(); as line) {
+            <p>{{ line }}</p>
+          }
+          <p i18n="@@products.detail.body.integrations.empty">
+            No integrations recorded yet. Vendor data is curated; if you know of one,
+            <a
+              aecRequestTrigger
+              [entity]="'product'"
+              [kind]="'correction'"
+              [slug]="slug()"
+              [href]="'/products/' + slug() + '/correction'"
+              class="text-(--accent-primary) underline underline-offset-2"
+              >suggest a correction</a
+            >.
+          </p>
+        </div>
+        <ng-container [ngTemplateOutlet]="reachLine" />
+      }
     } @else {
       <!-- A page with no connector edges renders exactly what it always did:
              one unheaded table, named by the section heading. The lane structure
              appears only when there is a second lane to distinguish. -->
       @if (lanes().via.length === 0) {
         @if (filteredLanes().rowCount > 0) {
-          <aec-product-integrations-table
-            [above]="laneCut().direct.above"
-            [deferred]="laneCut().direct.deferred"
-            [contextSlug]="slug()"
-            i18n-ariaLabel="@@products.detail.body.integrations.table.aria"
-            ariaLabel="Integrations"
-          />
+          @if (view() === 'cards' && long()) {
+            <!-- AECI-1783: a long list, grouped by default, or one list by choice. -->
+            @if (arrangement() === 'grouped') {
+              <aec-product-integration-groups
+                [groups]="categoryGroups()"
+                [contextSlug]="slug()"
+                [forceOpen]="openAllGroups()"
+              />
+            } @else {
+              <aec-product-integration-one-list
+                [rows]="filteredLanes().direct"
+                [contextSlug]="slug()"
+                i18n-ariaLabel="@@products.detail.body.integrations.table.aria"
+                ariaLabel="Integrations"
+              />
+            }
+          } @else if (view() === 'cards') {
+            <aec-product-integration-cards
+              [above]="laneCut().direct.above"
+              [deferred]="laneCut().direct.deferred"
+              [contextSlug]="slug()"
+              i18n-ariaLabel="@@products.detail.body.integrations.table.aria"
+              ariaLabel="Integrations"
+            />
+          } @else {
+            <aec-product-integrations-table
+              [above]="laneCut().direct.above"
+              [deferred]="laneCut().direct.deferred"
+              [contextSlug]="slug()"
+              i18n-ariaLabel="@@products.detail.body.integrations.table.aria"
+              ariaLabel="Integrations"
+            />
+          }
         }
       } @else {
         @if (filteredLanes().direct.length > 0) {
@@ -177,20 +729,40 @@ import { ProductIntegrationsTable } from './product-integrations-table';
             [expanded]="isExpanded('integrations-direct')"
             (toggled)="toggle('integrations-direct')"
           >
-            <aec-product-integrations-table
-              [above]="laneCut().direct.above"
-              [deferred]="laneCut().direct.deferred"
-              [contextSlug]="slug()"
-              ariaLabelledby="integrations-direct"
-            />
+            @if (view() === 'cards') {
+              <aec-product-integration-cards
+                class="p-4 md:p-6"
+                [above]="laneCut().direct.above"
+                [deferred]="laneCut().direct.deferred"
+                [contextSlug]="slug()"
+                ariaLabelledby="integrations-direct"
+                [headingLevel]="4"
+                [nested]="true"
+              />
+            } @else {
+              <aec-product-integrations-table
+                [above]="laneCut().direct.above"
+                [deferred]="laneCut().direct.deferred"
+                [contextSlug]="slug()"
+                ariaLabelledby="integrations-direct"
+                [nested]="true"
+              />
+            }
           </aec-integration-group-card>
         }
         @for (lane of laneCut().via; track lane.lane.key) {
           <aec-integration-group-card
             [headingId]="'integrations-via-' + lane.lane.key"
             [heading]="viaHeading(lane.lane)"
-            [logoSrc]="lane.lane.connector?.logo_url ?? null"
-            [logoName]="lane.lane.connector?.name ?? null"
+            [logo]="
+              lane.lane.connector
+                ? {
+                    src: lane.lane.connector.logo_url,
+                    name: lane.lane.connector.name,
+                    claimStatus: 'server-filtered',
+                  }
+                : null
+            "
             [countLabel]="countLabel(lane.lane.rows.length, viaTotal(lane.lane.key))"
             [link]="viaLink(lane.lane)"
             i18n-linkLabel="@@products.detail.group.link"
@@ -199,23 +771,46 @@ import { ProductIntegrationsTable } from './product-integrations-table';
             [expanded]="isExpanded('integrations-via-' + lane.lane.key)"
             (toggled)="toggle('integrations-via-' + lane.lane.key)"
           >
-            <aec-product-integrations-table
-              [above]="lane.above"
-              [deferred]="lane.deferred"
-              [contextSlug]="slug()"
-              [ariaLabelledby]="'integrations-via-' + lane.lane.key"
-            />
+            @if (view() === 'cards') {
+              <aec-product-integration-cards
+                class="p-4 md:p-6"
+                [above]="lane.above"
+                [deferred]="lane.deferred"
+                [contextSlug]="slug()"
+                [ariaLabelledby]="'integrations-via-' + lane.lane.key"
+                [headingLevel]="4"
+                [nested]="true"
+              />
+            } @else {
+              <aec-product-integrations-table
+                [above]="lane.above"
+                [deferred]="lane.deferred"
+                [contextSlug]="slug()"
+                [ariaLabelledby]="'integrations-via-' + lane.lane.key"
+                [nested]="true"
+              />
+            }
           </aec-integration-group-card>
         }
       }
 
       @if (filteredLanes().rowCount === 0) {
+        <!-- Chips, with or without a search, take the filters message (approved
+             2026-11-16). A search alone keeps the search message. -->
         <p
-          class="rounded-(--radius-lg) border border-dashed border-(--border-default)
+          class="rounded-panel border border-dashed border-(--border-default)
               bg-(--surface-sunken) p-6 text-sm text-(--text-secondary)"
-          i18n="@@products.detail.body.integrations.filter.empty"
+          data-testid="integrations-filter-empty"
         >
-          No integrations match that search.
+          @if (chipFilterActive()) {
+            <span i18n="@@products.detail.body.integrations.filter.empty.chips"
+              >No integrations match these filters.</span
+            >
+          } @else {
+            <span i18n="@@products.detail.body.integrations.filter.empty"
+              >No integrations match that search.</span
+            >
+          }
         </p>
       }
 
@@ -283,6 +878,88 @@ export class ProductIntegrationsSection {
    * pointer to "Built within". Never a lane, never a row, never counted.
    */
   readonly hosts = input<readonly ProductListItem[]>([]);
+  /**
+   * AECI-1786: the whole product, read ONLY to decide and render the zero state (no
+   * integrations on record anywhere on the page) with the vendor's own links. Optional, so
+   * a caller without it keeps the existing empty state.
+   */
+  readonly product = input<ProductDetail | null>(null);
+
+  /**
+   * The product when the page has no integrations on record, else `null`.
+   *
+   * Never while the §13.7 reach line has pairs to report: the legal heading directly
+   * above "N pairs reachable via connectors" reads as a contradiction. That page keeps
+   * the plain empty state with the reach line, as it did before AECI-1786.
+   */
+  protected readonly zero = computed(() => {
+    const p = this.product();
+    if (!p || this.reachableCount() > 0) return null;
+    return hasNoIntegrationsOnRecord(p) ? p : null;
+  });
+
+  /** "We have no integrations for {product} on record", the figure's own message. */
+  protected readonly zeroHeading = computed(() =>
+    integrationsZeroHeading(this.zero()?.name ?? this.productName()),
+  );
+
+  protected readonly zeroCaveat = integrationsZeroCaveat();
+
+  /** "We have not found an integrations page published by {vendor}.", or `null`. */
+  protected readonly noDirectoryLine = computed(() => {
+    const p = this.zero();
+    if (!p?.vendor || !showsNoIntegrationsDirectory(p)) return null;
+    // The sentence ends in its own full stop. A name that already ends in one
+    // ("SiteLedger Inc.") gives that stop to the sentence, so it never prints "Inc..".
+    // The legal-reviewed message is unchanged; only the value put into it is.
+    const vendor = withoutTrailingFullStop(p.vendor.name);
+    return $localize`:@@products.detail.body.integrations.zero.noDirectory:We have not found an integrations page published by ${vendor}:VENDOR:.`;
+  });
+
+  /**
+   * Whether the zero state's link card may say the links come from the vendor
+   * ("From {vendor}", "What the vendor publishes…"): the product has a vendor, and no
+   * link the card shows carries a correction. A corrected link is a value AECi set, and
+   * "About this listing" says so (AECI-1666), so the card must not call it the vendor's.
+   * A link AECi hid for checking or removed is not shown, so it does not count.
+   */
+  protected vendorSourced(p: ProductDetail): boolean {
+    if (!p.vendor) return false;
+    const corrected = correctionsInSlots(p.captions?.corrections, {
+      tool_integrations_url: !!p.tool_integrations_url,
+      api_docs_url: !!p.api_docs_url,
+    }).some((correction) => !correction.cleared);
+    return !corrected;
+  }
+
+  /** "From {vendor}", the zero state's vendor card heading (mock-up 8). */
+  protected fromVendorLabel(vendor: string): string {
+    return $localize`:@@products.detail.body.integrations.zero.fromVendor:From ${vendor}:VENDOR:`;
+  }
+
+  /** The vendor card's line (mock-up 8): what the links under it are. */
+  protected vendorPublishesLabel(name: string): string {
+    const product = withoutTrailingFullStop(name);
+    return $localize`:@@products.detail.body.integrations.zero.vendorPublishes:What the vendor publishes about connecting to ${product}:PRODUCT:.`;
+  }
+
+  /** The facts card's Resources link classes, so the two read as one pattern. */
+  protected readonly resourceLinkClass =
+    '-ms-2 flex items-center gap-3 rounded-control py-2 ps-2 pe-3 text-t-16 font-semibold text-(--text-primary) no-underline transition-colors duration-fast ease-standard hover:bg-(--surface-sunken) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
+
+  protected readonly resourceTileClass =
+    'grid size-8 shrink-0 place-items-center rounded-control bg-(--accent-primary-soft) text-(--accent-primary)';
+
+  /** The same click context as the facts card's Resources links (AECI-1309). */
+  protected docsLinkContext(p: ProductDetail, purpose: 'listing' | 'docs'): ExternalLinkContext {
+    return {
+      owner_vendor_id: p.vendor?.id ?? null,
+      link_origin: 'vendor',
+      source_entity_type: 'product',
+      source_entity_id: p.id,
+      link_purpose: purpose,
+    };
+  }
 
   /** "Enscape runs inside Revit; see Built within." or `null` when there is no host. */
   protected readonly builtWithinLine = computed(() => {
@@ -304,6 +981,23 @@ export class ProductIntegrationsSection {
    */
   protected readonly query = signal('');
 
+  /** The direction chips the reader pressed (AECI-1782). Component-local, like the query. */
+  protected readonly directions = signal<readonly ContextDirection[]>([]);
+
+  /** The partner-category chips the reader pressed (AECI-1782). */
+  private readonly categories = signal<readonly string[]>([]);
+
+  /** The "Types of data" chips the reader pressed (AECI-1783, copy approved 2026-11-16). */
+  private readonly dataObjects = signal<readonly string[]>([]);
+
+  /**
+   * Cards or table (AECI-1782). Cards by default, and the server always renders
+   * cards. Component-local rather than `?view=`, for the query's reason: a view in
+   * the URL would mint a second cache entry and a second crawlable URL for the same
+   * rows.
+   */
+  protected readonly view = signal<ListingView>('cards');
+
   /** Lane card keys the reader has closed. */
   private readonly collapsed = signal<ReadonlySet<string>>(new Set<string>());
 
@@ -312,37 +1006,181 @@ export class ProductIntegrationsSection {
     splitIntegrationLanes(this.asSource(), this.asTarget()),
   );
 
-  /** The same view with the reader's query applied. */
+  /**
+   * The reader's whole filter, as one value. The data-object chips shipped with their
+   * approved copy on 2026-11-16: the label "Types of data" and the note that rows with
+   * no data object are left out (AECI-1816).
+   */
+  protected readonly filterState = computed<IntegrationFilterState>(() => ({
+    query: this.query(),
+    directions: this.directions(),
+    dataObjects: this.dataObjects(),
+    partnerCategories: this.categories(),
+  }));
+
+  /** A data chip is pressed: the note says rows with no data on record are left out. */
+  protected readonly dataFilterActive = computed(() => this.dataObjects().length > 0);
+
+  /** Any chip is pressed, whatever the search box holds. Picks the empty message. */
+  protected readonly chipFilterActive = computed(
+    () =>
+      this.directions().length > 0 || this.categories().length > 0 || this.dataObjects().length > 0,
+  );
+
+  protected readonly filterActive = computed(() => isIntegrationFilterActive(this.filterState()));
+
+  /** The same view with the reader's filter applied. */
   protected readonly filteredLanes = computed(() =>
-    filterIntegrationLanes(this.lanes(), this.query()),
+    filterIntegrationLanes(this.lanes(), this.filterState()),
   );
 
   /**
    * The filtered view with the `@defer (on viewport)` boundary applied, over the
    * FLATTENED render order (§13.3). A filter raises the limit to the whole
    * filtered set — see the class note.
+   *
+   * **The card view has no cut (AECI-1891).** The server always renders cards, and
+   * every card is already in its HTML, so the cut only deferred hydration. A filter
+   * typed before the reader scrolled left the still-dehydrated tail in the DOM: stale
+   * unfiltered cards under the filtered list. AECI-1783 removed the same cut from the
+   * grouped list for the same reason. The table is only ever rendered in the browser,
+   * so it keeps the cut.
    */
   protected readonly laneCut = computed(() => {
     const view = this.filteredLanes();
-    const limit = isFilterActive(this.query()) ? view.rowCount : INTEGRATIONS_ABOVE_FOLD;
+    const whole = this.filterActive() || this.view() === 'cards';
+    const limit = whole ? view.rowCount : INTEGRATIONS_ABOVE_FOLD;
     return applyDeferCut(view, limit);
   });
 
   /**
-   * Section heading with the count inline — "Integrations (10)" — so the total
-   * reads next to the title instead of drifting to the far right where it's
-   * missed.
-   *
-   * Counts the rows the UNFILTERED section renders across both lanes, which
-   * after the Via lane's pair collapse is not the number of edges: §13.3's rule
-   * is that a reader counting rows must never find fewer than the heading
-   * promised. A filter never moves it — the heading is a fact about the product,
-   * and the filter's own "Showing 3 of 12" line reports the view.
+   * AECI-1783: whether the section is long enough to group. Read from the unfiltered
+   * lanes, so a filter never flips the layout.
    */
-  protected readonly heading = computed(() => {
-    const count = this.lanes().rowCount;
-    return $localize`:@@products.detail.body.integrations.heading:Integrations (${count}:count:)`;
+  protected readonly long = computed(() => isLongIntegrationList(this.lanes()));
+
+  /** "By category" (the default, and what the server renders) or "One list". */
+  protected readonly arrangement = signal<IntegrationArrangement>('grouped');
+
+  /** The rows a direction chip counts: every filter except the direction chips. */
+  protected readonly directionCountRows = computed(() =>
+    rowsForFacetCount(this.lanes(), this.filterState(), 'directions'),
+  );
+
+  /**
+   * The rows a category chip counts: every filter except the category chips. The
+   * groups are built from the same rows, so a group heading, its rail link and its
+   * chip print one number.
+   */
+  private readonly categoryCountRows = computed(() =>
+    rowsForFacetCount(this.lanes(), this.filterState(), 'partnerCategories'),
+  );
+
+  /** The long list's groups, A to Z by category name (R1), only the chosen ones when
+   *  the reader pressed category chips. */
+  protected readonly categoryGroups = computed(() =>
+    groupRowsByCategory(this.categoryCountRows(), this.categories()),
+  );
+
+  /** A filter that leaves one page or less opens every group (mock-up 7). */
+  protected readonly openAllGroups = computed(
+    () => this.filterActive() && this.filteredLanes().rowCount <= ONE_LIST_PAGE_SIZE,
+  );
+
+  /**
+   * Direction chips: only directions some row has, in vocabulary order. Each prints
+   * how many rows it would show with the reader's other filters.
+   */
+  protected readonly directionChoices = computed(() => {
+    const chosen = this.directions();
+    const rows = this.directionCountRows();
+    return directionOptions(this.lanes()).map((token) => {
+      return {
+        token,
+        label: directionFilterLabel(token, this.productName()),
+        glyph: directionGlyph(token),
+        selected: chosen.includes(token),
+        count: countRowsWithDirection(rows, token),
+      };
+    });
   });
+
+  /**
+   * "Types of data" chips: the data objects the section's rows move, A to Z by name with
+   * the slug breaking a tie (ruling R1, the chips' shared term order). Data chips AND together, so each
+   * counts the rows the list would show with it pressed too.
+   */
+  protected readonly dataChoices = computed(() => {
+    const chosen = this.dataObjects();
+    const rows = allRows(this.filteredLanes());
+    return dataObjectOptions(this.lanes()).map((term) => ({
+      ...term,
+      selected: chosen.includes(term.slug),
+      count: countRowsMovingDataObject(rows, term.slug),
+    }));
+  });
+
+  /** Partner-category chips: A to Z by name, slug breaking a tie (ruling R1). */
+  protected readonly categoryChoices = computed(() => {
+    const chosen = this.categories();
+    const rows = this.categoryCountRows();
+    return partnerCategoryOptions(this.lanes()).map((term) => ({
+      ...term,
+      selected: chosen.includes(term.slug),
+      count: rowsInCategory(rows, term.slug).length,
+    }));
+  });
+
+  protected onQuery(event: Event): void {
+    this.query.set((event.target as HTMLInputElement).value);
+  }
+
+  protected toggleDirection(token: ContextDirection): void {
+    this.directions.update((current) => toggleFacetValue(current, token));
+  }
+
+  /** The direction filter's first chip (mock-up 6, `#dirSeg`). */
+  protected readonly anyDirectionLabel = $localize`:@@products.detail.integrations.filter.direction.any:Any direction`;
+
+  /** "Any direction": release every direction chip. */
+  protected clearDirections(): void {
+    this.directions.set([]);
+  }
+
+  protected toggleCategory(slug: string): void {
+    this.categories.update((current) => toggleFacetValue(current, slug));
+  }
+
+  protected toggleDataObject(slug: string): void {
+    this.dataObjects.update((current) => toggleFacetValue(current, slug));
+  }
+
+  /** The panel's search field, so "Clear filters" can hand focus back to it. */
+  private readonly filterInput = viewChild<ElementRef<HTMLInputElement>>('filterInput');
+
+  /**
+   * "Clear filters": every facet and the query, back to the whole section. The button
+   * goes with the filter, so focus moves to the search field rather than falling to
+   * the page body (AECI-1788, the same hand-off as "Integrations it powers").
+   */
+  protected clearFilters(): void {
+    this.query.set('');
+    this.directions.set([]);
+    this.categories.set([]);
+    this.dataObjects.set([]);
+    this.filterInput()?.nativeElement.focus();
+  }
+
+  /**
+   * The section heading: the bare word "Integrations", with no count. Ruled by Chris
+   * on 2026-11-16: the facts card already shows the integration count, and on a
+   * connector product the two numbers differ. The same message id as the section nav
+   * link, so the heading and the link read alike. The filter's own "Showing 3 of 12"
+   * line still reports the view, and the group and chip counts are unchanged.
+   */
+  protected readonly heading = computed(
+    () => $localize`:@@products.detail.nav.integrations:Integrations`,
+  );
 
   /**
    * The filter renders whenever the section renders rows — there is no row
@@ -378,6 +1216,64 @@ export class ProductIntegrationsSection {
     () => $localize`:@@products.detail.body.integrations.lane.direct:Direct integrations`,
   );
 
+  // AECI-1720: the filter panel's row recipes (mock-up 6, .deck-row and .deck .lead).
+  /** A labelled chip row: the label above below md, in its own 8.5rem column from md. */
+  // The mock-up 6 recipe, shared with "Integrations it powers" (AECI-1788).
+  protected readonly headingClass = INTEGRATION_LIST_HEADING_CLASS;
+  protected readonly panelClass = INTEGRATION_FILTER_PANEL_CLASS;
+  protected readonly searchIconClass = INTEGRATION_SEARCH_ICON_CLASS;
+  protected readonly searchInputClass = INTEGRATION_SEARCH_INPUT_CLASS;
+  protected readonly listRowClass = INTEGRATION_LIST_ROW_CLASS;
+  protected readonly listRowEndClass = INTEGRATION_LIST_ROW_END_CLASS;
+  protected readonly statusClass = INTEGRATION_STATUS_CLASS;
+  protected readonly clearClass = INTEGRATION_CLEAR_CLASS;
+
+  protected readonly rowClass =
+    'grid gap-2 md:grid-cols-[8.5rem_minmax(0,1fr)] md:items-start md:gap-4';
+  /** The row label: an overline, centred on the first line of 44px chips from md. */
+  protected readonly rowLabelClass = 'aec-overline text-(--text-secondary) md:pt-3';
+  /**
+   * The chips: one line that scrolls sideways below md, wrapping from md. The padding,
+   * cancelled by a negative margin, keeps each chip's 3px focus ring at 3px inside the
+   * scroller, which would otherwise clip it.
+   */
+  /**
+   * The direction chips (AECI-1720 restore C): two by two below md, as mock-up 6 lays out
+   * its four direction choices on a phone, so the row never scrolls a choice out of view.
+   * From md they wrap like the other chip rows.
+   */
+  protected readonly directionRowClass =
+    'grid min-w-0 grid-cols-2 items-center gap-2 md:flex md:flex-wrap';
+
+  protected readonly chipRowClass =
+    '-m-1.5 flex min-w-0 items-center gap-2 overflow-x-auto p-1.5 max-md:flex-nowrap md:flex-wrap md:overflow-visible';
+
+  /**
+   * "Showing 4 of 14", the list row's status while anything filters. The filter box's
+   * own message id and rule: empty while nothing filters, as on "Integrations it
+   * powers" (the Same-Behavior Rule). An idle "Showing 58 of 58" would be
+   * the section's row count, which can differ from the facts card's figure, the count
+   * the heading was ruled not to carry (2026-11-16). The region stays in the DOM so
+   * the first change is announced.
+   */
+  protected readonly statusLabel = computed(() => {
+    if (!this.filterActive()) return '';
+    const shown = this.filteredLanes().rowCount;
+    const total = this.lanes().rowCount;
+    return $localize`:@@products.detail.filter.status:Showing ${shown}:SHOWN: of ${total}:TOTAL:`;
+  });
+
+  /**
+   * The list's heading (mock-up 6, `#laneHeading`): "All integrations on record", or
+   * while anything filters, "Integrations that match these filters", so the heading is
+   * never false of the list under it.
+   */
+  protected readonly listHeading = computed(() =>
+    this.filterActive()
+      ? $localize`:@@products.detail.body.integrations.list.filtered:Integrations that match these filters`
+      : $localize`:@@products.detail.body.integrations.list.all:All integrations on record`,
+  );
+
   /**
    * An active filter opens every surviving card, whatever the reader closed
    * earlier: a search that matched rows inside a collapsed card would report
@@ -385,7 +1281,7 @@ export class ProductIntegrationsSection {
    * reader's own collapsed set rather than discarding it.
    */
   protected isExpanded(key: string): boolean {
-    return isFilterActive(this.query()) || !this.collapsed().has(key);
+    return this.filterActive() || !this.collapsed().has(key);
   }
 
   protected toggle(key: string): void {

@@ -22,7 +22,7 @@
  * can open a second same-origin context and answer for itself. AECI-1716's shadow
  * run checks `interacted` against the other evidence.
  */
-import { isUntrackedRoute } from '@aeci/shared';
+import { isUntrackedRoute } from '@aeci/shared/api/page-view-eager';
 
 /** The one channel name. Same-origin and same storage partition only, by the browser. */
 export const NEW_TAB_CHANNEL_NAME = 'aeci-browser-evidence';

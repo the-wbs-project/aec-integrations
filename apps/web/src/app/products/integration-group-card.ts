@@ -1,7 +1,20 @@
 import { Component, computed, input, output } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
+import { AecCard } from '../shared/card/card';
+import { type LogoClaim, LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
+
+/**
+ * A group card's mark (AECI-1851). The card passes all three to `aec-logo-or-initial`,
+ * so the logo rule decides here as everywhere else. `claimStatus` is required: a public
+ * `ProductLink` payload passes `'server-filtered'`.
+ */
+export interface GroupCardLogo {
+  src: string | null;
+  /** Drives the initial tile. */
+  name: string;
+  claimStatus: LogoClaim;
+}
 
 /**
  * AECI-841 — the collapsible group card both product-detail integration
@@ -60,13 +73,13 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
  */
 @Component({
   selector: 'aec-integration-group-card',
-  imports: [LogoOrInitial, RouterLink],
+  imports: [AecCard, LogoOrInitial, RouterLink],
   // A custom element is `display: inline` by default, so a parent's `space-y-*`
   // margin would land on an inline box and be dropped. Same fix, same reason as
   // `ProductPoweredHub`.
   host: { class: 'block' },
   template: `
-    <section class="overflow-hidden rounded-(--radius-lg) border border-(--border-default)">
+    <section aecCard class="overflow-hidden">
       <!-- The header wraps on its own width, not on a viewport breakpoint
            (AECI-1117). The card sits in the body column, whose width is not the
            viewport's (see the Browse-table container lesson), so a sm: rule would
@@ -85,6 +98,8 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
             [attr.aria-expanded]="expanded()"
             [attr.aria-controls]="panelId()"
             (click)="toggled.emit()"
+            [class.rounded-t-card]="expanded()"
+            [class.rounded-card]="!expanded()"
             class="flex w-full cursor-pointer items-center gap-3 px-4 py-3 text-start
               text-(--text-primary) transition-colors hover:text-(--accent-primary)
               focus-visible:outline-2 focus-visible:-outline-offset-2
@@ -103,12 +118,17 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
             >
               <path d="m6 9 6 6 6-6" />
             </svg>
-            @if (logoName(); as name) {
-              <aec-logo-or-initial [src]="logoSrc()" [name]="name" size="sm" />
+            @if (logo(); as mark) {
+              <aec-logo-or-initial
+                [src]="mark.src"
+                [name]="mark.name"
+                [claimStatus]="mark.claimStatus"
+                size="sm"
+              />
             }
-            <!-- text-lg = 1.125rem, the Serif-Floor Rule's minimum for the display
-                 face (DESIGN.md §3). The size lives on the SPAN because
-                 styles.css declares h3 { font-size: 1.25rem } OUTSIDE any cascade
+            <!-- text-t-20 is the card title role (DESIGN.md §3), with leading-tight
+                 so the line is 25px, not the 31px text-lg gave it. The size lives on the SPAN because
+                 styles.css declares h3 { font-size: var(--t-20) } OUTSIDE any cascade
                  layer, and unlayered rules beat every Tailwind utility, so a
                  text-* utility on the h3 itself is silently dead. See DESIGN.md
                  §3 "The Unlayered-Heading Rule". -->
@@ -119,9 +139,11 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
                  link at desktop widths) and drops under it when both do not fit,
                  so the count never squeezes the name. -->
             <span class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3">
-              <span class="min-w-0 text-lg break-words">{{ heading() }}</span>
+              <span class="min-w-0 text-t-20 leading-tight break-words">{{ heading() }}</span>
               @if (countLabel(); as count) {
-                <span class="shrink-0 text-xs font-normal text-(--text-secondary)">{{
+                <!-- The body face: inside the h3 the count would inherit the serif
+                     at 12px, below the 20px floor (AECI-1928). -->
+                <span class="shrink-0 font-body text-xs font-normal text-(--text-secondary)">{{
                   count
                 }}</span>
               }
@@ -139,7 +161,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
             [routerLink]="target"
             [attr.aria-label]="linkAriaLabel()"
             class="ms-auto inline-flex shrink-0 items-center rounded-(--radius-md) px-3 py-1.5
-              text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong)
+              text-xs font-semibold text-(--text-secondary) underline decoration-(--border-strong)
               underline-offset-4 transition-colors hover:text-(--text-primary)
               focus-visible:outline-2 focus-visible:outline-offset-2
               focus-visible:outline-(--accent-primary)"
@@ -169,11 +191,10 @@ export class IntegrationGroupCard {
   /** The group's subject, as a noun phrase. Named `heading` rather than `title`
    *  so it can never be confused with the native `title` attribute on the host. */
   readonly heading = input.required<string>();
-  /** Logo source for the subject, when it has one. */
-  readonly logoSrc = input<string | null>(null);
-  /** Subject name for the logo's initial fallback. `null` renders no logo at
-   *  all, which is the hubless "Other connections" card. */
-  readonly logoName = input<string | null>(null);
+  /** The subject's mark. `null` renders no mark at all, which is the hubless "Other
+   *  connections" card and the direct lane. Its `claimStatus` is required, so a parent
+   *  cannot hand over a logo without saying where it came from (AECI-1851). */
+  readonly logo = input<GroupCardLogo | null>(null);
   /** Localized group size, e.g. "12 connections" or "3 of 12" under a filter.
    *  Built by the section so the i18n ids stay where the copy is. */
   readonly countLabel = input<string>('');

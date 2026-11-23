@@ -112,7 +112,10 @@ const NAV_ENTRIES: readonly AdminNavEntry[] = ADMIN_NAV_GROUPS.map((group, index
         <header class="mb-8">
           <h1 class="text-2xl font-bold text-(--text-primary)" i18n="@@admin.shell.title">Admin</h1>
 
+          <!-- AECI-1855: a persistent section row. A pressed link keeps focus after it
+               navigates (core/route-focus.ts, data-route-focus-keep). -->
           <nav
+            data-route-focus-keep
             i18n-aria-label="@@admin.shell.nav.aria"
             aria-label="Admin sections"
             class="mt-4 border-b border-(--border-default)"
