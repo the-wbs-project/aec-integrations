@@ -252,55 +252,60 @@ test.describe('early input survives hydration (AECI-1720)', () => {
       expectClean(guard);
     });
 
-    test(`${r.name}: a consent box is never carried, whatever ticks it before hydration`, async ({
-      page,
-      baseURL,
-    }) => {
-      const guard = await holdScripts(page, new URL(baseURL!).origin, '/api/requests/claim');
-      await openHeld(page, r.path, CLAIM_FORM);
+    // Product claim only. The consent box and the recorder that drops it are one code
+    // path on both claim pages, so the vendor claim case proved nothing new. Both cases
+    // of the test above stay: the legal-name prefill can differ by entity.
+    if (r.name === 'product claim') {
+      test(`${r.name}: a consent box is never carried, whatever ticks it before hydration`, async ({
+        page,
+        baseURL,
+      }) => {
+        const guard = await holdScripts(page, new URL(baseURL!).origin, '/api/requests/claim');
+        await openHeld(page, r.path, CLAIM_FORM);
 
-      // What a script can do to the disabled box, measured in Chromium: box.click() and
-      // label.click() do nothing. A dispatched synthetic click still ticks it and fires
-      // input and change with isTrusted true. Once the attribute is stripped, box.click()
-      // ticks it the same way. The recorder cannot tell these from the visitor, so it
-      // keeps no checkbox at all.
-      const before = await page.locator('#claim-terms').evaluate((box: HTMLInputElement) => {
-        const label = document.querySelector<HTMLLabelElement>('label[for="claim-terms"]')!;
-        const trusted: boolean[] = [];
-        box.addEventListener('change', (e) => trusted.push(e.isTrusted));
-        box.click();
-        label.click();
-        const afterClicks = box.checked;
-        box.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-        const afterDispatch = box.checked;
-        box.checked = false;
-        box.removeAttribute('disabled');
-        box.click();
-        return {
-          afterClicks,
-          afterDispatch,
-          afterEnabledClick: box.checked,
-          trustedChange: trusted.length > 0 && trusted.every(Boolean),
-        };
+        // What a script can do to the disabled box, measured in Chromium: box.click() and
+        // label.click() do nothing. A dispatched synthetic click still ticks it and fires
+        // input and change with isTrusted true. Once the attribute is stripped, box.click()
+        // ticks it the same way. The recorder cannot tell these from the visitor, so it
+        // keeps no checkbox at all.
+        const before = await page.locator('#claim-terms').evaluate((box: HTMLInputElement) => {
+          const label = document.querySelector<HTMLLabelElement>('label[for="claim-terms"]')!;
+          const trusted: boolean[] = [];
+          box.addEventListener('change', (e) => trusted.push(e.isTrusted));
+          box.click();
+          label.click();
+          const afterClicks = box.checked;
+          box.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          const afterDispatch = box.checked;
+          box.checked = false;
+          box.removeAttribute('disabled');
+          box.click();
+          return {
+            afterClicks,
+            afterDispatch,
+            afterEnabledClick: box.checked,
+            trustedChange: trusted.length > 0 && trusted.every(Boolean),
+          };
+        });
+        expect(before).toEqual({
+          afterClicks: false,
+          afterDispatch: true,
+          afterEnabledClick: true,
+          trustedChange: true,
+        });
+        // The visitor types an answer and clears it again: the empty value is theirs.
+        await page.locator('#claim-name').fill('Jane');
+        await page.locator('#claim-name').fill('');
+
+        await hydrate(page, guard, CLAIM_FORM);
+
+        await expect(page.locator('#claim-terms'), 'no tick crosses hydration').not.toBeChecked();
+        await expect(page.locator(CLAIM_SUBMIT), 'the box still gates the submit').toBeDisabled();
+        await expect(page.locator('#claim-name')).toHaveValue('');
+        expect(guard.sent).toEqual([]);
+        expectClean(guard);
       });
-      expect(before).toEqual({
-        afterClicks: false,
-        afterDispatch: true,
-        afterEnabledClick: true,
-        trustedChange: true,
-      });
-      // The visitor types an answer and clears it again: the empty value is theirs.
-      await page.locator('#claim-name').fill('Jane');
-      await page.locator('#claim-name').fill('');
-
-      await hydrate(page, guard, CLAIM_FORM);
-
-      await expect(page.locator('#claim-terms'), 'no tick crosses hydration').not.toBeChecked();
-      await expect(page.locator(CLAIM_SUBMIT), 'the box still gates the submit').toBeDisabled();
-      await expect(page.locator('#claim-name')).toHaveValue('');
-      expect(guard.sent).toEqual([]);
-      expectClean(guard);
-    });
+    }
   }
 
   test('/vendor-program/list-your-product: early answers survive and focus stays put', async ({

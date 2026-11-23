@@ -46,6 +46,13 @@ test.describe('product detail — 404 path', () => {
     // AECI-62 AC — single sentinel tag so admin can bulk-purge negative
     // responses after a config fix.
     expect(res.headers()['cache-tag']).toBe('route:404');
+
+    // AECI-2027 reads the noindex meta from this response instead of a second request.
+    await test.step('404 panel carries noindex robots meta in the SSR HTML', async () => {
+      // Stage 1 Spec §9.1b + §20.7 — 404s must not be indexed.
+      const html = await res.text();
+      expect(html).toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
+    });
   });
 
   test('404 body renders the global NotFound shell (i18n copy)', async ({ page }) => {
@@ -79,13 +86,6 @@ test.describe('product detail — 404 path', () => {
     await expect(page.getByRole('link', { name: 'Go home' })).toHaveAttribute('href', '/');
   });
 
-  test('404 panel carries noindex robots meta in the SSR HTML', async ({ request }) => {
-    // Stage 1 Spec §9.1b + §20.7 — 404s must not be indexed.
-    const res = await request.get('/products/no-such-slug-aeci-57');
-    const html = await res.text();
-    expect(html).toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
-  });
-
   test('404 page has zero axe violations at WCAG AA', async ({ page }) => {
     await page.goto('/products/no-such-slug-aeci-57');
     await expect(page.locator('app-root')).toBeAttached();
@@ -99,28 +99,30 @@ test.describe('product detail — 404 path', () => {
 });
 
 test.describe('product detail — claim/correction request forms (AECI-128)', () => {
+  // AECI-2027: each form test reads the noindex meta from its own navigation
+  // response. A second request for the same URL used to do it.
   test('GET /products/<slug>/claim renders the claim form', async ({ page }) => {
-    await page.goto('/products/anything/claim');
+    const res = await page.goto('/products/anything/claim');
     await expect(page.getByRole('heading', { name: 'Claim your company' })).toBeVisible();
     await expect(page.locator('#claim-email')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Send claim' })).toBeVisible();
-  });
 
-  test('GET /products/<slug>/claim ships noindex robots meta', async ({ request }) => {
-    const html = await (await request.get('/products/anything/claim')).text();
-    expect(html).toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
+    await test.step('GET /products/<slug>/claim ships noindex robots meta', async () => {
+      const html = (await res?.text()) ?? '';
+      expect(html).toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
+    });
   });
 
   test('GET /products/<slug>/correction renders the correction form', async ({ page }) => {
-    await page.goto('/products/anything/correction');
+    const res = await page.goto('/products/anything/correction');
     await expect(page.getByRole('heading', { name: 'Suggest a correction' })).toBeVisible();
     await expect(page.locator('#correction-body')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Send correction' })).toBeVisible();
-  });
 
-  test('GET /products/<slug>/correction ships noindex robots meta', async ({ request }) => {
-    const html = await (await request.get('/products/anything/correction')).text();
-    expect(html).toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
+    await test.step('GET /products/<slug>/correction ships noindex robots meta', async () => {
+      const html = (await res?.text()) ?? '';
+      expect(html).toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
+    });
   });
 });
 
@@ -294,14 +296,9 @@ test.describe('product detail — table names and section-nav location (AECI-831
     await expect(status).toHaveText('');
   });
 
-  // A8: the "On this page" nav always names exactly one current section.
-  test('the section nav marks exactly one link aria-current="location" on load (A8)', async ({
-    page,
-  }) => {
-    await page.goto(`/products/${SLUG}`);
-    const nav = page.getByRole('navigation', { name: 'On this page' });
-    await expect(nav.locator('a[aria-current="location"]')).toHaveCount(1);
-  });
+  // A8, exactly one current section on load, is asserted by section-nav.component.spec.ts
+  // "marks the first link current before any interaction (AECI-831)" and, on a hydrated
+  // page, by section-nav.spec.ts "aria-current follows the scroll" (AECI-2027).
 
   // AECI-1856: a click names its own section, even one shorter than the spy's
   // band, where the next section used to take aria-current after the jump.
@@ -317,6 +314,9 @@ test.describe('product detail — table names and section-nav location (AECI-831
       const link = links.nth(i);
       await link.click();
       // Let the smooth scroll and the spy's callbacks finish.
+      // A fixed wait on purpose. The click marks the link current at once, and the
+      // defect moved the mark after the jump. A web-first check would pass on the
+      // click's own state, before the move it guards against.
       await page.waitForTimeout(800);
       await expect(link).toHaveAttribute('aria-current', 'location');
     }

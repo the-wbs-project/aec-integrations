@@ -5,8 +5,8 @@
  * edge), SSR-rendered from Markdown. Per page this pins the real HTTP 200, the §4
  * static-page cache headers (`s-maxage=86400`, `max-age=3600`, `Cache-Tag:
  * route:index`), that the body actually SSR-renders (no empty hydration shell),
- * the self-referential canonical with no noindex, the footer Legal link in, a
- * clean axe pass, and clean hydration. A final test pins that an unknown
+ * the self-referential canonical with no noindex, a clean axe pass, and clean
+ * hydration. The footer Legal link in is clicked for Terms only. A final test pins that an unknown
  * `/legal/*` 404s with NOT_FOUND_TTL + `Cache-Tag: route:404`.
  */
 import AxeBuilder from '@axe-core/playwright';
@@ -101,35 +101,50 @@ for (const pageDef of PAGES) {
       expect(html.toLowerCase()).toContain('pending legal review');
     });
 
-    test('is indexable — self-referential canonical, no noindex robots meta', async ({
-      page,
-      request,
-    }) => {
-      const html = await (await request.get(pageDef.path)).text();
-      expect(html).not.toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
+    // One page load for both checks (AECI-2027). Console capture is attached
+    // before the load, and the console check runs last, after hydration.
+    test('is indexable and renders console-clean', async ({ page, request }) => {
+      const capture = attachConsoleCapture(page);
 
-      await page.goto(pageDef.path);
-      await expect(page).toHaveTitle(pageDef.title);
-      const canonical = page.locator('head link[rel="canonical"]');
-      await expect(canonical).toHaveCount(1);
-      await expect(canonical).toHaveAttribute('href', new RegExp(`${pageDef.path}$`));
-      await expect(page.locator('head meta[property="og:type"]')).toHaveAttribute(
-        'content',
-        'website',
-      );
+      await test.step('is indexable — self-referential canonical, no noindex robots meta', async () => {
+        const html = await (await request.get(pageDef.path)).text();
+        expect(html).not.toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
+
+        const res = await page.goto(pageDef.path);
+        expect(res?.status()).toBe(200);
+        await expect(page).toHaveTitle(pageDef.title);
+        const canonical = page.locator('head link[rel="canonical"]');
+        await expect(canonical).toHaveCount(1);
+        await expect(canonical).toHaveAttribute('href', new RegExp(`${pageDef.path}$`));
+        await expect(page.locator('head meta[property="og:type"]')).toHaveAttribute(
+          'content',
+          'website',
+        );
+      });
+
+      await test.step('renders with no console errors or page errors', async () => {
+        await expect(page.locator('app-root')).toBeAttached();
+        await waitForHydrationSettle(page);
+        expectConsoleClean(capture, `GET ${pageDef.path}`);
+      });
     });
 
-    test('is reachable from the footer Legal nav', async ({ page }) => {
-      await presetConsent(page);
-      await page.goto('/');
-      await expect(page.locator('app-root')).toBeAttached();
+    // One footer click-through is enough (AECI-2027). The six hrefs, in order, are
+    // pinned in `site-footer.component.spec.ts`, and each page's own title is
+    // checked above. Terms stands in for the column.
+    if (pageDef.path === '/legal/terms') {
+      test('is reachable from the footer Legal nav', async ({ page }) => {
+        await presetConsent(page);
+        await page.goto('/');
+        await expect(page.locator('app-root')).toBeAttached();
 
-      const legal = page.getByRole('navigation', { name: 'Legal' });
-      await legal.getByRole('link', { name: pageDef.footerLink, exact: true }).click();
+        const legal = page.getByRole('navigation', { name: 'Legal' });
+        await legal.getByRole('link', { name: pageDef.footerLink, exact: true }).click();
 
-      await expect(page).toHaveURL(new RegExp(`${pageDef.path}$`));
-      await expect(page.getByRole('heading', { level: 1 })).toHaveText(pageDef.heading);
-    });
+        await expect(page).toHaveURL(new RegExp(`${pageDef.path}$`));
+        await expect(page.getByRole('heading', { level: 1 })).toHaveText(pageDef.heading);
+      });
+    }
 
     test('has zero axe violations at WCAG AA', async ({ page }) => {
       await page.goto(pageDef.path);
@@ -140,15 +155,6 @@ for (const pageDef of PAGES) {
         .analyze();
 
       expect(results.violations).toEqual([]);
-    });
-
-    test('renders with no console errors or page errors', async ({ page }) => {
-      const capture = attachConsoleCapture(page);
-      const res = await page.goto(pageDef.path);
-      expect(res?.status()).toBe(200);
-      await expect(page.locator('app-root')).toBeAttached();
-      await waitForHydrationSettle(page);
-      expectConsoleClean(capture, `GET ${pageDef.path}`);
     });
   });
 }

@@ -41,22 +41,69 @@ test.describe('/about — Phase 7.3 (AECI-238)', () => {
     expect(html).toContain('Trust is the product');
   });
 
-  test('is indexable — self-referential canonical, no noindex robots meta', async ({
+  // One page load for three checks (AECI-2027). Console capture is attached
+  // before the load, and the console check runs last, after hydration.
+  test('is indexable, has one Bone band and a Forest card, and renders console-clean', async ({
     page,
     request,
   }) => {
-    const html = await (await request.get('/about')).text();
-    expect(html).not.toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
+    const capture = attachConsoleCapture(page);
 
-    await page.goto('/about');
-    await expect(page).toHaveTitle('About · AEC Integrations');
-    const canonical = page.locator('head link[rel="canonical"]');
-    await expect(canonical).toHaveCount(1);
-    await expect(canonical).toHaveAttribute('href', /\/about$/);
-    await expect(page.locator('head meta[property="og:type"]')).toHaveAttribute(
-      'content',
-      'website',
-    );
+    await test.step('is indexable — self-referential canonical, no noindex robots meta', async () => {
+      const html = await (await request.get('/about')).text();
+      expect(html).not.toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
+
+      const res = await page.goto('/about');
+      expect(res?.status()).toBe(200);
+      await expect(page).toHaveTitle('About · AEC Integrations');
+      const canonical = page.locator('head link[rel="canonical"]');
+      await expect(canonical).toHaveCount(1);
+      await expect(canonical).toHaveAttribute('href', /\/about$/);
+      await expect(page.locator('head meta[property="og:type"]')).toHaveAttribute(
+        'content',
+        'website',
+      );
+    });
+
+    await test.step('one Bone band; the commitments are one Forest card on a white band (AECI-1800)', async () => {
+      await expect(page.locator('aec-bone-band')).toHaveCount(1);
+      await expect(page.locator('aec-bone-band h1')).toHaveCount(1);
+      // Walk up from the commitments to the first painted ground.
+      const ground = await page.locator('aec-home-trust-pillars').evaluate((el) => {
+        let node: Element | null = el;
+        while (node) {
+          const bg = getComputedStyle(node).backgroundColor;
+          if (bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') return bg;
+          node = node.parentElement;
+        }
+        return 'none';
+      });
+      // The page ground is white. Engines may report it as rgb() or oklch(), so
+      // compare against the body's own computed ground rather than a literal.
+      const body = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+      expect(ground).toBe(body);
+
+      // The page's one Forest feature card (ruling 2026-11-17): a card with 24px
+      // corners that holds all three points, never a full-bleed band.
+      const card = page.getByTestId('about-trust-card');
+      await expect(card).toHaveCount(1);
+      await expect(card.locator('li')).toHaveCount(3);
+      const box = await card.evaluate((el) => ({
+        radius: getComputedStyle(el).borderTopLeftRadius,
+        width: el.getBoundingClientRect().width,
+        viewport: document.documentElement.clientWidth,
+        bg: getComputedStyle(el).backgroundColor,
+      }));
+      expect(box.radius).toBe('24px');
+      expect(box.width).toBeLessThan(box.viewport);
+      expect(box.bg).not.toBe(body);
+    });
+
+    await test.step('renders with no console errors or page errors', async () => {
+      await expect(page.locator('app-root')).toBeAttached();
+      await waitForHydrationSettle(page);
+      expectConsoleClean(capture, 'GET /about');
+    });
   });
 
   test('is reachable from the footer Company nav', async ({ page }) => {
@@ -70,43 +117,6 @@ test.describe('/about — Phase 7.3 (AECI-238)', () => {
     await expect(page.getByRole('heading', { level: 1 })).toContainText("couldn't find anywhere");
   });
 
-  test('one Bone band; the commitments are one Forest card on a white band (AECI-1800)', async ({
-    page,
-  }) => {
-    await page.goto('/about');
-    await expect(page.locator('aec-bone-band')).toHaveCount(1);
-    await expect(page.locator('aec-bone-band h1')).toHaveCount(1);
-    // Walk up from the commitments to the first painted ground.
-    const ground = await page.locator('aec-home-trust-pillars').evaluate((el) => {
-      let node: Element | null = el;
-      while (node) {
-        const bg = getComputedStyle(node).backgroundColor;
-        if (bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') return bg;
-        node = node.parentElement;
-      }
-      return 'none';
-    });
-    // The page ground is white. Engines may report it as rgb() or oklch(), so
-    // compare against the body's own computed ground rather than a literal.
-    const body = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-    expect(ground).toBe(body);
-
-    // The page's one Forest feature card (ruling 2026-11-17): a card with 24px
-    // corners that holds all three points, never a full-bleed band.
-    const card = page.getByTestId('about-trust-card');
-    await expect(card).toHaveCount(1);
-    await expect(card.locator('li')).toHaveCount(3);
-    const box = await card.evaluate((el) => ({
-      radius: getComputedStyle(el).borderTopLeftRadius,
-      width: el.getBoundingClientRect().width,
-      viewport: document.documentElement.clientWidth,
-      bg: getComputedStyle(el).backgroundColor,
-    }));
-    expect(box.radius).toBe('24px');
-    expect(box.width).toBeLessThan(box.viewport);
-    expect(box.bg).not.toBe(body);
-  });
-
   test('has zero axe violations at WCAG AA', async ({ page }) => {
     await page.goto('/about');
     await expect(page.locator('app-root')).toBeAttached();
@@ -116,14 +126,5 @@ test.describe('/about — Phase 7.3 (AECI-238)', () => {
       .analyze();
 
     expect(results.violations).toEqual([]);
-  });
-
-  test('renders with no console errors or page errors', async ({ page }) => {
-    const capture = attachConsoleCapture(page);
-    const res = await page.goto('/about');
-    expect(res?.status()).toBe(200);
-    await expect(page.locator('app-root')).toBeAttached();
-    await waitForHydrationSettle(page);
-    expectConsoleClean(capture, 'GET /about');
   });
 });

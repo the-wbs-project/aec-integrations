@@ -91,26 +91,6 @@ async function clientNavigate(page: Page, url: string): Promise<void> {
 }
 
 test.describe('the listing follows ?page= on every navigation (AECI-1902)', () => {
-  test('/products?page=2, then the header "Browse" link: page 1, "Load more", at the top', async ({
-    page,
-  }) => {
-    const one = await apiPage(page, 1);
-    test.skip(one.total <= PER_PAGE, 'the catalogue has no second page in this environment');
-    const two = await apiPage(page, 2);
-
-    await open(page, '/products?page=2');
-    await expectRows(page, two.slugs, 'the server renders page 2');
-    // Scroll down first, so landing at the top is the navigation's doing.
-    await page.evaluate(() => window.scrollTo({ top: 600, behavior: 'instant' as ScrollBehavior }));
-
-    await clickHeaderBrowse(page);
-    await expectRows(page, one.slugs, 'page 1 after the header link');
-    await expect(loadMore(page)).toHaveCount(1);
-    await expect(loadMore(page)).toHaveAttribute('href', /[?&]page=2(?:&|$)/);
-    expect(await page.evaluate(() => Math.round(window.scrollY))).toBe(0);
-    expect(await sameDocument(page), 'the header link is a client navigation').toBe(true);
-  });
-
   test('/products, then a client navigation to ?page=2: page 2 rows', async ({ page }) => {
     const one = await apiPage(page, 1);
     test.skip(one.total <= PER_PAGE, 'the catalogue has no second page in this environment');
@@ -167,6 +147,8 @@ test.describe('the listing follows ?page= on every navigation (AECI-1902)', () =
     expect(await sameDocument(page)).toBe(true);
   });
 
+  // AECI-2027 folded the header "Browse" test into this one. Both opened
+  // ?page=2 and clicked the header link. Its checks run as a step before Back.
   test('Back and Forward between ?page=2 and /products restore the right rows', async ({
     page,
   }) => {
@@ -175,9 +157,18 @@ test.describe('the listing follows ?page= on every navigation (AECI-1902)', () =
     const two = await apiPage(page, 2);
 
     await open(page, '/products?page=2');
-    await expectRows(page, two.slugs, 'page 2');
-    await clickHeaderBrowse(page);
-    await expectRows(page, one.slugs, 'page 1');
+    await expectRows(page, two.slugs, 'the server renders page 2');
+    // Scroll down first, so landing at the top is the navigation's doing.
+    await page.evaluate(() => window.scrollTo({ top: 600, behavior: 'instant' as ScrollBehavior }));
+
+    await test.step('/products?page=2, then the header "Browse" link: page 1, "Load more", at the top', async () => {
+      await clickHeaderBrowse(page);
+      await expectRows(page, one.slugs, 'page 1 after the header link');
+      await expect(loadMore(page)).toHaveCount(1);
+      await expect(loadMore(page)).toHaveAttribute('href', /[?&]page=2(?:&|$)/);
+      expect(await page.evaluate(() => Math.round(window.scrollY))).toBe(0);
+      expect(await sameDocument(page), 'the header link is a client navigation').toBe(true);
+    });
 
     await page.goBack();
     await expect(page).toHaveURL(/\/products\?page=2$/);

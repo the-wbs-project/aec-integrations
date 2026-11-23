@@ -15,8 +15,8 @@
  * the page's own same-origin GETs pass while it loads, then the test arms, and any
  * request at all after that is recorded and aborted. Nothing is ever sent.
  *
- * Adding a form route is one line in `INERT_FORM_ROUTES` (or `SEARCH_FORM_ROUTES` for
- * a no-JS GET search form).
+ * A new form component gets one route in `INERT_FORM_ROUTES` (or `SEARCH_FORM_ROUTES`
+ * for a no-JS GET search form). A new page that reuses a listed component needs none.
  */
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 
@@ -31,24 +31,30 @@ interface FormRoute {
   readonly signedIn?: boolean;
 }
 
-/** Routes whose SSR HTML holds at least one form the component submits. */
+/**
+ * Routes whose SSR HTML holds at least one form the component submits. One route per
+ * distinct form component: a second page that draws the same component proves nothing
+ * new. The lint guard `form-declares-method` already fails any source `<form>` without
+ * a safe `method`, so this list checks the rendered result, not every page.
+ *
+ * Dropped as repeats: the pair page, `/vendors/:slug`, `/categories/:slug`, the
+ * taxonomy index pages (`/categories`, `/audiences`, `/phases`, `/trades`) and
+ * `/roadmap`, whose only SSR form is the mailing list card that `/products` covers.
+ * `/vendors/:slug/claim` and `/products/:slug/correction` draw the same request form
+ * as the two kept request routes: the form switches on its kind, and the entity only
+ * changes copy.
+ */
 const INERT_FORM_ROUTES: readonly FormRoute[] = [
-  // The mailing list card sits in the foot of the listing, detail and pair pages.
+  // The mailing list card.
   { path: '/products' },
+  // The mailing list card plus the product pair finder.
   { path: `/products/${PRODUCT}` },
-  { path: `/products/${PRODUCT}/integrations/fixture-acme-connector` },
-  { path: `/vendors/${VENDOR}` },
-  { path: '/categories/project-management' },
-  { path: '/categories' },
-  { path: '/audiences' },
-  { path: '/phases' },
-  { path: '/trades' },
+  // The search page's own search form plus the mailing list card.
   { path: '/search' },
-  { path: '/roadmap' },
+  // Its own email form, not the shared mailing list card.
   { path: '/updates' },
+  // The request form, claim kind and correction kind.
   { path: `/products/${PRODUCT}/claim` },
-  { path: `/products/${PRODUCT}/correction` },
-  { path: `/vendors/${VENDOR}/claim` },
   { path: `/vendors/${VENDOR}/correction` },
   { path: '/vendor-program/list-your-product' },
   { path: '/auth/login' },
@@ -198,6 +204,8 @@ test.describe('forms before hydration (AECI-1919)', () => {
           const button = form.locator('button[type="submit"]:not([disabled])').first();
           if ((await button.count()) > 0 && (await button.isVisible())) await button.click();
         }
+        // A fixed wait on purpose. The test proves that no navigation and no write
+        // follow the press, and no condition marks the end of "nothing happened".
         await page.waitForTimeout(300);
 
         expect(page.url(), `form ${i} on ${route.path} left the address unchanged`).toBe(address);
@@ -310,11 +318,16 @@ test.describe('a press before hydration is dropped (AECI-1919)', () => {
 
       await fillAll(form);
       await form.locator(TEXT_FIELD).filter({ visible: true }).first().press('Enter');
+      // A fixed wait on purpose. The test proves that the early press does not
+      // navigate, and no condition marks the end of "nothing happened".
       await page.waitForTimeout(300);
       expect(page.url(), 'the early press did not navigate').toBe(address);
 
       release();
       await untilHydrated(form);
+      // A fixed wait on purpose. The replayed press must cause no navigation, no
+      // error and no write. Those are things that do not happen, so a window has
+      // to pass after hydration before the test can say so.
       await page.waitForTimeout(1_000);
 
       expect(page.url(), 'the address is unchanged after the replay').toBe(address);

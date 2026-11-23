@@ -85,7 +85,12 @@ for (const facet of FACETS) {
       expect(cacheTag, `got: ${cacheTag}`).toContain('taxonomy');
     });
 
-    test('lists every term with a product count', async ({ page, request }) => {
+    // One page load for both checks (AECI-2027). The click runs last because it
+    // leaves the page.
+    test('lists every term with a product count, and a card navigates to its browse page', async ({
+      page,
+      request,
+    }) => {
       const taxonomy = (await (await request.get('/api/taxonomy')).json()) as Record<
         string,
         Array<{ slug: string; product_count: number }>
@@ -103,124 +108,131 @@ for (const facet of FACETS) {
       // <header>, which sits outside #main. An unscoped selector would also match
       // those seven menu links and inflate the count (AECI-164).
       const cards = page.locator(`#main a[href^="${path}/"]`);
-      await expect(cards).toHaveCount(terms.length);
-      // `products?` — the card says "1 product" in the singular, so an
-      // environment whose first term happens to carry exactly one would fail a
-      // plural-only match. The count sits on the card, outside the title link
-      // (the card recipe, AECI-1795), so read the card's list item.
-      await expect(cards.first().locator('xpath=ancestor::li[1]')).toContainText(/\bproducts?\b/);
+
+      await test.step('lists every term with a product count', async () => {
+        await expect(cards).toHaveCount(terms.length);
+        // `products?` — the card says "1 product" in the singular, so an
+        // environment whose first term happens to carry exactly one would fail a
+        // plural-only match. The count sits on the card, outside the title link
+        // (the card recipe, AECI-1795), so read the card's list item.
+        await expect(cards.first().locator('xpath=ancestor::li[1]')).toContainText(/\bproducts?\b/);
+      });
+
+      await test.step('clicking a card navigates to the browse page', async () => {
+        const firstCard = cards.first();
+        const href = await firstCard.getAttribute('href');
+        expect(href, `card link must point at ${path}/:slug`).toMatch(
+          new RegExp(`^${path}/[^/]+$`),
+        );
+        await firstCard.click();
+        await expect(page).toHaveURL(new RegExp(`${path}/[^/]+$`));
+      });
     });
 
-    test('clicking a card navigates to the browse page', async ({ page }) => {
-      await page.goto(path);
-      await expect(page.locator('app-root')).toBeAttached();
+    // Two facets drive the sort combobox (AECI-2027). Phases has its own Project
+    // order, and categories stands for the plain A to Z facets. Audiences and
+    // trades take the same modes, pinned in `taxonomy-index.component.spec.ts`,
+    // including the trades publish floor.
+    if (facet.segment === 'phases' || facet.segment === 'categories') {
+      test('sorts the grid by name and by product count without a navigation', async ({
+        page,
+        request,
+      }) => {
+        const taxonomy = (await (await request.get('/api/taxonomy')).json()) as Record<
+          string,
+          Array<{ slug: string; name: string; product_count: number; integration_count?: number }>
+        >;
+        const terms = (taxonomy[facet.apiKey] ?? []).filter(
+          (t) => t.product_count >= facet.publishFloor,
+        );
+        test.skip(terms.length < 2, `needs 2+ listable ${facet.segment} to observe an ordering`);
 
-      // Scope to #main so the header Browse menu's `/{segment}/:slug` links (AECI-1774)
-      // — hidden, outside the content region — can't be `.first()` (AECI-164).
-      const firstCard = page.locator(`#main a[href^="${path}/"]`).first();
-      test.skip((await firstCard.count()) === 0, `no ${facet.segment} seeded in this environment`);
+        await page.goto(path);
+        await expect(page.locator('app-root')).toBeAttached();
 
-      const href = await firstCard.getAttribute('href');
-      expect(href, `card link must point at ${path}/:slug`).toMatch(new RegExp(`^${path}/[^/]+$`));
-      await firstCard.click();
-      await expect(page).toHaveURL(new RegExp(`${path}/[^/]+$`));
-    });
+        const cards = page.locator(`#main a[href^="${path}/"]`);
+        const slugs = async () =>
+          (await cards.evaluateAll((links) =>
+            links.map((l) => l.getAttribute('href')?.split('/').pop() ?? ''),
+          )) as string[];
 
-    test('sorts the grid by name and by product count without a navigation', async ({
-      page,
-      request,
-    }) => {
-      const taxonomy = (await (await request.get('/api/taxonomy')).json()) as Record<
-        string,
-        Array<{ slug: string; name: string; product_count: number; integration_count?: number }>
-      >;
-      const terms = (taxonomy[facet.apiKey] ?? []).filter(
-        (t) => t.product_count >= facet.publishFloor,
-      );
-      test.skip(terms.length < 2, `needs 2+ listable ${facet.segment} to observe an ordering`);
+        // Read through `expect.poll`, never a bare `await slugs()`: a click sets a
+        // signal and Angular reconciles the `@for` asynchronously, so a one-shot
+        // `evaluateAll` can snapshot the grid mid-move and see a short list.
+        // Polling asserts the settled order, which is the actual claim.
+        const expectOrder = async (expected: string[], label: string) =>
+          expect.poll(slugs, { message: `grid must settle into ${label} order` }).toEqual(expected);
 
-      await page.goto(path);
-      await expect(page.locator('app-root')).toBeAttached();
+        const apiOrder = terms.map((t) => t.slug);
+        // Derived from `name`, not from the slug: a slug is a transliteration
+        // (`Punch List & QA/QC` becomes `punch-list-qa-qc`), so slug order and
+        // display-name order are not the same sequence in general.
+        const alphabetical = [...terms]
+          // Through the SAME comparator the component uses (AECI-825), so the
+          // oracle cannot drift from the implementation it is checking.
+          .sort((a, b) => compareText(a.name, b.name))
+          .map((t) => t.slug);
+        const byProducts = [...terms]
+          .sort(
+            (a, b) =>
+              b.product_count - a.product_count ||
+              (b.integration_count ?? 0) - (a.integration_count ?? 0) ||
+              compareText(a.name, b.name),
+          )
+          .map((t) => t.slug);
 
-      const cards = page.locator(`#main a[href^="${path}/"]`);
-      const slugs = async () =>
-        (await cards.evaluateAll((links) =>
-          links.map((l) => l.getAttribute('href')?.split('/').pop() ?? ''),
-        )) as string[];
+        // Each facet's DEFAULT is what SSR emitted: the curated sequence for
+        // phases, A→Z for the other three (which do not offer "Project order" at all).
+        const isPhases = facet.segment === 'phases';
+        await expectOrder(
+          isPhases ? apiOrder : alphabetical,
+          isPhases ? 'the API sequence' : 'A→Z',
+        );
 
-      // Read through `expect.poll`, never a bare `await slugs()`: a click sets a
-      // signal and Angular reconciles the `@for` asynchronously, so a one-shot
-      // `evaluateAll` can snapshot the grid mid-move and see a short list.
-      // Polling asserts the settled order, which is the actual claim.
-      const expectOrder = async (expected: string[], label: string) =>
-        expect.poll(slugs, { message: `grid must settle into ${label} order` }).toEqual(expected);
+        // The shared sort control (ruling 7 of 2026-11-16, AECI-1795): an Aria
+        // combobox whose listbox opens in the top layer.
+        const trigger = page.locator('#main aec-listing-sort-select button[role="combobox"]');
+        await expect(trigger).toHaveText(isPhases ? 'Project order' : 'Name (A–Z)');
+        const choose = async (label: string) => {
+          await untilHydrated(trigger);
+          await expect(async () => {
+            if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
+            await page.getByRole('option', { name: label, exact: true }).click({ timeout: 2_000 });
+            await expect(trigger).toHaveText(label, { timeout: 1_000 });
+          }).toPass({ timeout: 15_000 });
+        };
 
-      const apiOrder = terms.map((t) => t.slug);
-      // Derived from `name`, not from the slug: a slug is a transliteration
-      // (`Punch List & QA/QC` becomes `punch-list-qa-qc`), so slug order and
-      // display-name order are not the same sequence in general.
-      const alphabetical = [...terms]
-        // Through the SAME comparator the component uses (AECI-825), so the
-        // oracle cannot drift from the implementation it is checking.
-        .sort((a, b) => compareText(a.name, b.name))
-        .map((t) => t.slug);
-      const byProducts = [...terms]
-        .sort(
-          (a, b) =>
-            b.product_count - a.product_count ||
-            (b.integration_count ?? 0) - (a.integration_count ?? 0) ||
-            compareText(a.name, b.name),
-        )
-        .map((t) => t.slug);
-
-      // Each facet's DEFAULT is what SSR emitted: the curated sequence for
-      // phases, A→Z for the other three (which do not offer "Project order" at all).
-      const isPhases = facet.segment === 'phases';
-      await expectOrder(isPhases ? apiOrder : alphabetical, isPhases ? 'the API sequence' : 'A→Z');
-
-      // The shared sort control (ruling 7 of 2026-11-16, AECI-1795): an Aria
-      // combobox whose listbox opens in the top layer.
-      const trigger = page.locator('#main aec-listing-sort-select button[role="combobox"]');
-      await expect(trigger).toHaveText(isPhases ? 'Project order' : 'Name (A–Z)');
-      const choose = async (label: string) => {
         await untilHydrated(trigger);
-        await expect(async () => {
-          if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
-          await page.getByRole('option', { name: label, exact: true }).click({ timeout: 2_000 });
-          await expect(trigger).toHaveText(label, { timeout: 1_000 });
-        }).toPass({ timeout: 15_000 });
-      };
+        await trigger.click();
+        // A retrying assertion: the listbox renders after the click. The active
+        // option also carries a decorative tick, so match each label's start.
+        const labels = isPhases
+          ? ['Project order', 'Name (A–Z)', 'Products']
+          : ['Name (A–Z)', 'Products'];
+        await expect(page.getByRole('option')).toHaveText(
+          labels.map((l) => new RegExp(`^${l.replace(/[()]/g, '\\$&')}`)),
+        );
+        await page.keyboard.press('Escape');
 
-      await untilHydrated(trigger);
-      await trigger.click();
-      // A retrying assertion: the listbox renders after the click. The active
-      // option also carries a decorative tick, so match each label's start.
-      const labels = isPhases
-        ? ['Project order', 'Name (A–Z)', 'Products']
-        : ['Name (A–Z)', 'Products'];
-      await expect(page.getByRole('option')).toHaveText(
-        labels.map((l) => new RegExp(`^${l.replace(/[()]/g, '\\$&')}`)),
-      );
-      await page.keyboard.press('Escape');
+        await choose('Products');
+        // Sorting must reorder, never add or drop a card, so the set is invariant.
+        await expect.poll(async () => [...(await slugs())].sort()).toEqual([...apiOrder].sort());
+        await expectOrder(byProducts, 'product count');
 
-      await choose('Products');
-      // Sorting must reorder, never add or drop a card, so the set is invariant.
-      await expect.poll(async () => [...(await slugs())].sort()).toEqual([...apiOrder].sort());
-      await expectOrder(byProducts, 'product count');
+        // Reordering is local: no navigation, so the URL is untouched and the edge
+        // cache key cannot fork on a sort choice.
+        expect(new URL(page.url()).pathname).toBe(path);
+        expect(new URL(page.url()).search).toBe('');
 
-      // Reordering is local: no navigation, so the URL is untouched and the edge
-      // cache key cannot fork on a sort choice.
-      expect(new URL(page.url()).pathname).toBe(path);
-      expect(new URL(page.url()).search).toBe('');
+        await choose('Name (A–Z)');
+        await expectOrder(alphabetical, 'alphabetical');
 
-      await choose('Name (A–Z)');
-      await expectOrder(alphabetical, 'alphabetical');
-
-      if (isPhases) {
-        await choose('Project order');
-        await expectOrder(apiOrder, 'the API sequence again');
-      }
-    });
+        if (isPhases) {
+          await choose('Project order');
+          await expectOrder(apiOrder, 'the API sequence again');
+        }
+      });
+    }
 
     test('has zero axe AA violations', async ({ page }) => {
       await page.goto(path);

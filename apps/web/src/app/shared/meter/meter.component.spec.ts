@@ -81,6 +81,8 @@ describe('AecMeter', () => {
     for (const a of ['aria-valuenow', 'aria-valuemin', 'aria-valuemax', 'aria-valuetext']) {
       expect(el.hasAttribute(a)).toBe(false);
     }
+    // No other ARIA either: a plain meter carries no attribute that starts with `aria-`.
+    expect(el.getAttributeNames().filter((n) => n.startsWith('aria-'))).toEqual([]);
   });
 
   it('exposes the label and the number as text exactly once, and hides the bar', () => {
@@ -165,5 +167,18 @@ describe('AecMeter', () => {
     await update((h) => h.layout.set('stacked'));
     expect(meter().className).toContain('flex-col');
     expect(meter().className).toContain('max-w-[260px]');
+  });
+
+  // Moved from `e2e/meter-figure.spec.ts` (AECI-2027): the load bar keeps its own wording.
+  it('the stacked load bar exposes its label and its caller text, nothing else', async () => {
+    const { meter, update } = setup();
+    await update((h) => {
+      h.layout.set('stacked');
+      h.value.set(24);
+      h.max.set(58);
+      h.text.set('Showing 24 of 58');
+      h.label.set('Products shown');
+    });
+    expect(exposedText(meter())).toBe('Products shown | Showing 24 of 58');
   });
 });

@@ -20,51 +20,54 @@ const PATH = '/preview/search-relevance';
 const TOP_PRODUCT = 'tbody tr:first-child th[scope="row"]';
 
 test.describe('preview search-relevance lab (AECI-286)', () => {
-  test('returns 200 with Baseline selected over the default query', async ({ page }) => {
+  // One page load for the three checks, in this order. The strategy step reads the
+  // Baseline ranking before any other strategy is picked. The slider step starts with
+  // Coverage-weighted selected, which shows no sliders either.
+  test('the lab loads on Baseline, reorders by strategy, and shows the blend sliders', async ({
+    page,
+  }) => {
     const res = await page.goto(PATH);
-    expect(res?.status(), `GET ${PATH} must return 200`).toBe(200);
+    await test.step('returns 200 with Baseline selected over the default query', async () => {
+      expect(res?.status(), `GET ${PATH} must return 200`).toBe(200);
 
-    await expect(page.getByRole('heading', { name: /Search relevance lab/ })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Baseline (today)' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
+      await expect(page.getByRole('heading', { name: /Search relevance lab/ })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Baseline (today)' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
 
-    // Fixtures render for the default query on both zones (cards + table).
-    await expect(page.getByRole('status')).toContainText(/[1-9]\d* results?/);
-    await expect(page.locator(TOP_PRODUCT)).toBeVisible();
-  });
+      // Fixtures render for the default query on both zones (cards + table).
+      await expect(page.getByRole('status')).toContainText(/[1-9]\d* results?/);
+      await expect(page.locator(TOP_PRODUCT)).toBeVisible();
+    });
 
-  test('switching strategy reorders results and shows movement badges', async ({ page }) => {
-    await page.goto(PATH);
+    await test.step('switching strategy reorders results and shows movement badges', async () => {
+      await page.getByRole('button', { name: 'estimating', exact: true }).click();
+      const baselineTop = await page.locator(TOP_PRODUCT).innerText();
 
-    await page.getByRole('button', { name: 'estimating', exact: true }).click();
-    const baselineTop = await page.locator(TOP_PRODUCT).innerText();
+      await page.getByRole('button', { name: 'Coverage-weighted' }).click();
+      await expect(page.getByRole('button', { name: 'Coverage-weighted' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
 
-    await page.getByRole('button', { name: 'Coverage-weighted' }).click();
-    await expect(page.getByRole('button', { name: 'Coverage-weighted' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
+      // Divergent by fixture design (see header comment): the top result changes,
+      // and at least one movement badge (▲/▼) appears vs Baseline.
+      await expect(page.locator(TOP_PRODUCT)).not.toHaveText(baselineTop);
+      await expect(
+        page
+          .locator('tbody')
+          .getByText(/[▲▼]\d/)
+          .first(),
+      ).toBeVisible();
+    });
 
-    // Divergent by fixture design (see header comment): the top result changes,
-    // and at least one movement badge (▲/▼) appears vs Baseline.
-    await expect(page.locator(TOP_PRODUCT)).not.toHaveText(baselineTop);
-    await expect(
-      page
-        .locator('tbody')
-        .getByText(/[▲▼]\d/)
-        .first(),
-    ).toBeVisible();
-  });
-
-  test('Balanced blend exposes the three weight sliders', async ({ page }) => {
-    await page.goto(PATH);
-
-    await expect(page.locator('input[type="range"]')).toHaveCount(0);
-    await page.getByRole('button', { name: 'Balanced blend' }).click();
-    await expect(page.locator('input[type="range"]')).toHaveCount(3);
-    await expect(page.getByRole('button', { name: 'Reset' })).toBeVisible();
+    await test.step('Balanced blend exposes the three weight sliders', async () => {
+      await expect(page.locator('input[type="range"]')).toHaveCount(0);
+      await page.getByRole('button', { name: 'Balanced blend' }).click();
+      await expect(page.locator('input[type="range"]')).toHaveCount(3);
+      await expect(page.getByRole('button', { name: 'Reset' })).toBeVisible();
+    });
   });
 
   test('surface has zero axe violations', async ({ page }) => {

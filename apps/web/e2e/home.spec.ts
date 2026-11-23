@@ -9,8 +9,9 @@ import { expectNoSidewaysScroll } from './no-sideways-scroll';
 // SSR-side). Each chip links to its `/{segment}/:slug` browse page, and each row
 // has a "View all" link to the facet index. Verifies SSR render, the §4 home
 // cache headers/tags (s-maxage=900, route:index + taxonomy), live counts,
-// navigation, and accessibility. The audience row is a curated role list,
-// covered by its own describe block below.
+// navigation, and accessibility. The audience row is a curated role list of nine
+// roles linking to `/audiences/:slug`. A role with no taxonomy term is not listed.
+// Its checks are steps in the merged tests below (AECI-2027).
 //
 // Resilient to a populated or empty local DB: count/navigation assertions only
 // run when at least one term is seeded for that facet.
@@ -39,18 +40,68 @@ const FACETS: Facet[] = [
 ];
 
 test.describe('/ — home browse block', () => {
-  test('SSR-renders one browse block with its four rows', async ({ request }) => {
+  // AECI-2027: one request for the raw server HTML, one step per check. The steps
+  // cover the browse block, the audience row and the home assembly.
+  test('the server HTML of / carries the browse block, the audience row and the assembly', async ({
+    request,
+  }) => {
     const res = await request.get('/');
-    expect(res.status(), 'GET / must return 200').toBe(200);
     const html = await res.text();
-    expect(html, 'browse block heading').toContain('Browse the directory');
-    for (const facet of FACETS) {
-      expect(html, `SSR HTML must include "${facet.viewAll}"`).toContain(facet.viewAll);
-    }
-    expect(html, 'audience row').toContain('View all audiences');
-    // One browse block: the retired per-facet headings and audience band are gone.
-    expect(html).not.toContain('Browse by category');
-    expect(html).not.toContain('Built for the people who choose and use AEC software');
+
+    await test.step('SSR-renders one browse block with its four rows', () => {
+      expect(res.status(), 'GET / must return 200').toBe(200);
+      expect(html, 'browse block heading').toContain('Browse the directory');
+      for (const facet of FACETS) {
+        expect(html, `SSR HTML must include "${facet.viewAll}"`).toContain(facet.viewAll);
+      }
+      expect(html, 'audience row').toContain('View all audiences');
+      // One browse block: the retired per-facet headings and audience band are gone.
+      expect(html).not.toContain('Browse by category');
+      expect(html).not.toContain('Built for the people who choose and use AEC software');
+    });
+
+    await test.step('SSR-renders the audience lede', () => {
+      expect(html).toContain('justifying a decision to a steering committee');
+    });
+
+    await test.step('does not list a role that has no taxonomy term (Technology directors)', () => {
+      expect(html).not.toContain('Technology directors');
+    });
+
+    await test.step('SSR-renders the argument band and none of the retired bands', () => {
+      // The argument is one evidence band (AECI-1558), with the ideas row inside it.
+      expect(html, 'argument band must render').toContain(
+        'The way AEC firms find software is broken',
+      );
+      expect(html, 'ideas row must render').toContain('What we do instead');
+      expect(html, 'merged bands are gone').not.toContain('aec-home-differentiation');
+      expect(html, 'merged bands are gone').not.toContain('aec-home-how-it-works');
+      // The stats cards are gone; the credibility row is the only figure row.
+      expect(html, 'no stats cards').not.toContain('aec-home-stats-cards');
+      // AECI-1573: the recent and trending card bands are gone in every data state.
+      expect(html, 'no recent band').not.toContain('aec-recent-integrations-section');
+      expect(html, 'no trending band').not.toContain('aec-trending-products-section');
+      expect(html, 'no recent heading').not.toContain('Recently added integrations');
+      expect(html, 'no trending heading').not.toContain('Trending products this week');
+      expect(html, 'no recently-added heading').not.toContain('Recently added products');
+    });
+
+    await test.step('stacks the sections directory first, argument after', () => {
+      const order = [
+        'aec-home-hero',
+        'aec-home-credibility-strip',
+        'aec-home-browse-block',
+        'aec-home-why',
+        'aec-home-closing-cta',
+      ].map((tag) => html.indexOf(tag));
+
+      for (const [i, pos] of order.entries()) {
+        expect(pos, `section ${i} must be present in SSR HTML`).toBeGreaterThan(-1);
+        if (i > 0) {
+          expect(pos, `section ${i} must follow section ${i - 1}`).toBeGreaterThan(order[i - 1]);
+        }
+      }
+    });
   });
 
   test('emits §4 home cache headers — public, max-age=300, s-maxage=900, Cache-Tag route:index,index:home,taxonomy', async ({
@@ -70,53 +121,119 @@ test.describe('/ — home browse block', () => {
     expect(cacheTag, `got: ${cacheTag}`).toContain('taxonomy');
   });
 
-  for (const facet of FACETS) {
-    test(`${facet.segment}: renders top chips with live counts linking to browse pages`, async ({
-      page,
-      request,
-    }) => {
-      const taxonomy = (await (await request.get('/api/taxonomy')).json()) as Record<
-        string,
-        Array<{ slug: string; product_count: number }>
-      >;
-      const all = taxonomy[facet.apiKey] ?? [];
-      const terms = facet.publishedOnly ? all.filter((t) => t.product_count >= 1) : all;
-      test.skip(terms.length === 0, `no ${facet.segment} seeded in this environment`);
+  // AECI-2027: one load of `/` at the default viewport, one step per read-only
+  // check. A facet with no seeded terms skips its own step, and the skip shows as
+  // an annotation in the report.
+  test('the hydrated home page carries the browse chips, the audience row, the SEO and the JSON-LD', async ({
+    page,
+    request,
+  }) => {
+    const taxonomy = (await (await request.get('/api/taxonomy')).json()) as Record<
+      string,
+      Array<{ slug: string; product_count: number }>
+    >;
 
-      const expected = facet.cap === null ? terms.length : Math.min(terms.length, facet.cap);
+    await page.goto('/');
+    await expect(page.locator('app-root')).toBeAttached();
 
-      await page.goto('/');
-      await expect(page.locator('app-root')).toBeAttached();
+    for (const facet of FACETS) {
+      await test.step(`${facet.segment}: renders top chips with live counts linking to browse pages`, async (step) => {
+        const all = taxonomy[facet.apiKey] ?? [];
+        const terms = facet.publishedOnly ? all.filter((t) => t.product_count >= 1) : all;
+        if (terms.length === 0) {
+          test.info().annotations.push({
+            type: 'skipped step',
+            description: `no ${facet.segment} seeded in this environment`,
+          });
+        }
+        step.skip(terms.length === 0, `no ${facet.segment} seeded in this environment`);
 
-      // Scope to the browse-grid `<ul>` inside <main id="main">: the chips are
-      // `ul li a`, whereas the same `/{segment}/:slug` links also appear in the
-      // global header flyout (AECI-155, outside #main), which the `#main ul`
-      // scope excludes. The hero "Largest categories" fallback links to
-      // `/categories/:slug` too, but it is a `<p>`, not a `ul`, so it is excluded.
-      // The "View all" link is `/{segment}` (no slug) so it too is excluded.
-      const chips = page.locator(`#main ul a[href^="/${facet.segment}/"]`);
-      await expect(chips).toHaveCount(expected);
-      // A chip prints its count only above zero (§4.1 thin-corpus rule), and phases
-      // keep lifecycle order, so the first chip can be a zero-count term. Check the
-      // largest term: every facet's cap keeps it, and it prints whenever any count does.
-      const largest = terms.reduce((a, b) => (b.product_count > a.product_count ? b : a));
-      if (largest.product_count > 0) {
-        await expect(
-          page.locator(`#main ul a[href="/${facet.segment}/${largest.slug}"]`),
-        ).toContainText(String(largest.product_count));
-      }
+        const expected = facet.cap === null ? terms.length : Math.min(terms.length, facet.cap);
+
+        // Scope to the browse-grid `<ul>` inside <main id="main">: the chips are
+        // `ul li a`, whereas the same `/{segment}/:slug` links also appear in the
+        // global header flyout (AECI-155, outside #main), which the `#main ul`
+        // scope excludes. The hero "Largest categories" fallback links to
+        // `/categories/:slug` too, but it is a `<p>`, not a `ul`, so it is excluded.
+        // The "View all" link is `/{segment}` (no slug) so it too is excluded.
+        const chips = page.locator(`#main ul a[href^="/${facet.segment}/"]`);
+        await expect(chips).toHaveCount(expected);
+        // A chip prints its count only above zero (§4.1 thin-corpus rule), and phases
+        // keep lifecycle order, so the first chip can be a zero-count term. Check the
+        // largest term: every facet's cap keeps it, and it prints whenever any count does.
+        const largest = terms.reduce((a, b) => (b.product_count > a.product_count ? b : a));
+        if (largest.product_count > 0) {
+          await expect(
+            page.locator(`#main ul a[href="/${facet.segment}/${largest.slug}"]`),
+          ).toContainText(String(largest.product_count));
+        }
+      });
+    }
+
+    await test.step('links the nine mapped roles to their /audiences/:slug browse pages', async () => {
+      // Scoped to `#main ul`: the same exclusion as the browse-grid chips (the
+      // header flyout is outside this scope).
+      const chips = page.locator('#main ul a[href^="/audiences/"]');
+      await expect(chips).toHaveCount(9);
     });
 
-    test(`${facet.segment}: "View all" links to the facet index`, async ({ page }) => {
-      await page.goto('/');
-      await expect(page.locator('app-root')).toBeAttached();
+    // AECI-2027: the four "View all" links are checked by href, not clicked. The test
+    // "clicking a chip navigates to its browse page" proves a link in this block
+    // navigates.
+    for (const segment of [...FACETS.map((f) => f.segment), 'audiences']) {
+      await test.step(`${segment}: "View all" links to the facet index`, async () => {
+        await expect(page.locator(`#main a[href="/${segment}"]`)).toHaveCount(1);
+      });
+    }
 
-      const viewAll = page.locator(`#main a[href="/${facet.segment}"]`);
-      await expect(viewAll).toHaveCount(1);
-      await viewAll.click();
-      await expect(page).toHaveURL(new RegExp(`/${facet.segment}$`));
+    await test.step('emits home SEO — title, description, canonical, website OG type', async () => {
+      await expect(page).toHaveTitle(/AEC Integrations/);
+
+      await expect(page.locator('head meta[name="description"]')).toHaveAttribute(
+        'content',
+        /independent directory/,
+      );
+
+      const canonical = page.locator('head link[rel="canonical"]');
+      await expect(canonical).toHaveCount(1);
+      await expect(canonical).toHaveAttribute('href', /\/$/);
+
+      await expect(page.locator('head meta[property="og:type"]')).toHaveAttribute(
+        'content',
+        'website',
+      );
+
+      // The dedicated 1200×630 home share card (AECI-276), not the monogram
+      // fallback. Match by path so the assertion is origin-agnostic across envs.
+      await expect(page.locator('head meta[property="og:image"]')).toHaveAttribute(
+        'content',
+        /\/branding\/home-og\.png$/,
+      );
+      await expect(page.locator('head meta[name="twitter:image"]')).toHaveAttribute(
+        'content',
+        /\/branding\/home-og\.png$/,
+      );
+      await expect(page.locator('head meta[property="og:image:alt"]')).toHaveAttribute(
+        'content',
+        /.+/,
+      );
     });
-  }
+
+    await test.step('emits WebSite (with SearchAction) and publisher Organization JSON-LD', async () => {
+      const website = page.locator('script[data-aeci-jsonld="website"]');
+      await expect(website).toHaveCount(1);
+      const websiteLd = JSON.parse((await website.textContent()) ?? '{}');
+      expect(websiteLd['@type']).toBe('WebSite');
+      expect(websiteLd.potentialAction['@type']).toBe('SearchAction');
+      expect(websiteLd.potentialAction.target).toContain('/search?q={search_term_string}');
+
+      const org = page.locator('script[data-aeci-jsonld="organization"]');
+      await expect(org).toHaveCount(1);
+      const orgLd = JSON.parse((await org.textContent()) ?? '{}');
+      expect(orgLd['@type']).toBe('Organization');
+      expect(orgLd.name).toBe('AEC Integrations');
+    });
+  });
 
   test('clicking a chip navigates to its browse page', async ({ page, request }) => {
     const taxonomy = (await (await request.get('/api/taxonomy')).json()) as Record<
@@ -151,145 +268,20 @@ test.describe('/ — home browse block', () => {
   });
 });
 
-// The audience row of the browse block: a curated list of nine roles, each
-// mapped to an audience term and linking to `/audiences/:slug`. A role with no
-// taxonomy term is not listed. Static + cache-neutral (no client state).
-test.describe('/ — home browse block, audience row', () => {
-  test('SSR-renders the audience lede', async ({ request }) => {
-    const html = await (await request.get('/')).text();
-    expect(html).toContain('justifying a decision to a steering committee');
-  });
-
-  test('links the nine mapped roles to their /audiences/:slug browse pages', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.locator('app-root')).toBeAttached();
-    // Scoped to `#main ul`: the same exclusion as the browse-grid chips (the
-    // header flyout is outside this scope).
-    const chips = page.locator('#main ul a[href^="/audiences/"]');
-    await expect(chips).toHaveCount(9);
-  });
-
-  test('does not list a role that has no taxonomy term (Technology directors)', async ({
-    request,
-  }) => {
-    const html = await (await request.get('/')).text();
-    expect(html).not.toContain('Technology directors');
-  });
-
-  test('"View all audiences" links to the audience index', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.locator('app-root')).toBeAttached();
-    const viewAll = page.locator('#main a[href="/audiences"]');
-    await expect(viewAll).toHaveCount(1);
-    await viewAll.click();
-    await expect(page).toHaveURL(/\/audiences$/);
-  });
-});
-
 // Home assembly. Four bands, directory first: hero + credibility row, browse
-// block, the argument (one evidence band, `aec-home-why`), then the closing CTA. The home SEO (meta + OG/Twitter +
-// WebSite/Organization JSON-LD + canonical) is emitted. The axe coverage above
-// runs against `/`, so it also validates every section; no duplicate axe pass is
-// needed here.
+// block, the argument (one evidence band, `aec-home-why`), then the closing CTA.
+// The band order, the retired bands, the home SEO (meta + OG/Twitter + canonical)
+// and the WebSite/Organization JSON-LD are steps in the merged tests at the top
+// of this file (AECI-2027). The axe coverage above runs against `/`, so it also
+// validates every section; no duplicate axe pass is needed here.
 //
 // Resilient to a populated or empty stats_cache: assertions key off the labels /
 // headings that render in BOTH the data and empty states, never the data itself.
 test.describe('/ — home assembly', () => {
-  test('SSR-renders the argument band and none of the retired bands', async ({ request }) => {
-    const res = await request.get('/');
-    expect(res.status(), 'GET / must return 200').toBe(200);
-    const html = await res.text();
-
-    // The argument is one evidence band (AECI-1558), with the ideas row inside it.
-    expect(html, 'argument band must render').toContain(
-      'The way AEC firms find software is broken',
-    );
-    expect(html, 'ideas row must render').toContain('What we do instead');
-    expect(html, 'merged bands are gone').not.toContain('aec-home-differentiation');
-    expect(html, 'merged bands are gone').not.toContain('aec-home-how-it-works');
-    // The stats cards are gone; the credibility row is the only figure row.
-    expect(html, 'no stats cards').not.toContain('aec-home-stats-cards');
-    // AECI-1573: the recent and trending card bands are gone in every data state.
-    expect(html, 'no recent band').not.toContain('aec-recent-integrations-section');
-    expect(html, 'no trending band').not.toContain('aec-trending-products-section');
-    expect(html, 'no recent heading').not.toContain('Recently added integrations');
-    expect(html, 'no trending heading').not.toContain('Trending products this week');
-    expect(html, 'no recently-added heading').not.toContain('Recently added products');
-  });
-
-  test('stacks the sections directory first, argument after', async ({ request }) => {
-    const html = await (await request.get('/')).text();
-    const order = [
-      'aec-home-hero',
-      'aec-home-credibility-strip',
-      'aec-home-browse-block',
-      'aec-home-why',
-      'aec-home-closing-cta',
-    ].map((tag) => html.indexOf(tag));
-
-    for (const [i, pos] of order.entries()) {
-      expect(pos, `section ${i} must be present in SSR HTML`).toBeGreaterThan(-1);
-      if (i > 0) {
-        expect(pos, `section ${i} must follow section ${i - 1}`).toBeGreaterThan(order[i - 1]);
-      }
-    }
-  });
-
-  test('emits home SEO — title, description, canonical, website OG type', async ({ page }) => {
-    await page.goto('/');
-    await expect(page).toHaveTitle(/AEC Integrations/);
-
-    await expect(page.locator('head meta[name="description"]')).toHaveAttribute(
-      'content',
-      /independent directory/,
-    );
-
-    const canonical = page.locator('head link[rel="canonical"]');
-    await expect(canonical).toHaveCount(1);
-    await expect(canonical).toHaveAttribute('href', /\/$/);
-
-    await expect(page.locator('head meta[property="og:type"]')).toHaveAttribute(
-      'content',
-      'website',
-    );
-
-    // The dedicated 1200×630 home share card (AECI-276), not the monogram
-    // fallback. Match by path so the assertion is origin-agnostic across envs.
-    await expect(page.locator('head meta[property="og:image"]')).toHaveAttribute(
-      'content',
-      /\/branding\/home-og\.png$/,
-    );
-    await expect(page.locator('head meta[name="twitter:image"]')).toHaveAttribute(
-      'content',
-      /\/branding\/home-og\.png$/,
-    );
-    await expect(page.locator('head meta[property="og:image:alt"]')).toHaveAttribute(
-      'content',
-      /.+/,
-    );
-  });
-
   test('serves the home OG share card asset (1200×630 PNG)', async ({ request }) => {
     const res = await request.get('/branding/home-og.png');
     expect(res.status()).toBe(200);
     expect(res.headers()['content-type']).toContain('image/png');
-  });
-
-  test('emits WebSite (with SearchAction) and publisher Organization JSON-LD', async ({ page }) => {
-    await page.goto('/');
-
-    const website = page.locator('script[data-aeci-jsonld="website"]');
-    await expect(website).toHaveCount(1);
-    const websiteLd = JSON.parse((await website.textContent()) ?? '{}');
-    expect(websiteLd['@type']).toBe('WebSite');
-    expect(websiteLd.potentialAction['@type']).toBe('SearchAction');
-    expect(websiteLd.potentialAction.target).toContain('/search?q={search_term_string}');
-
-    const org = page.locator('script[data-aeci-jsonld="organization"]');
-    await expect(org).toHaveCount(1);
-    const orgLd = JSON.parse((await org.textContent()) ?? '{}');
-    expect(orgLd['@type']).toBe('Organization');
-    expect(orgLd.name).toBe('AEC Integrations');
   });
 
   test('fires POST /api/page-views with route "/" on in-app navigation home', async ({ page }) => {
@@ -379,6 +371,9 @@ async function expectCitationInsideViewport(citation: Locator): Promise<void> {
 
 // AECI-1862, AECI-1792: the "Most viewed" row ships in the server HTML whichever
 // list fills it, and its height is reserved, so the page does not move after load.
+// The layout-shift check on `/` is in `first-paint.spec.ts` "no layout shift while
+// the stylesheet is late (AECI-1854)", at 390px and 1440px with a stricter bound
+// (AECI-2027).
 test.describe('/ — the "Most viewed" row holds its place (AECI-1862)', () => {
   test('the server HTML carries the row with a label that states its order', async ({
     request,
@@ -398,29 +393,6 @@ test.describe('/ — the "Most viewed" row holds its place (AECI-1862)', () => {
       expect(html).toContain('Largest categories:');
     }
   });
-
-  for (const width of [1440, 390]) {
-    test(`layout shift after load stays under 0.1 at ${width}px`, async ({ page }) => {
-      await page.setViewportSize({ width, height: 900 });
-      await page.addInitScript(() => {
-        const w = window as unknown as { __cls: number };
-        w.__cls = 0;
-        new PerformanceObserver((list) => {
-          for (const entry of list.getEntries() as unknown as Array<{
-            value: number;
-            hadRecentInput: boolean;
-          }>) {
-            if (!entry.hadRecentInput) w.__cls += entry.value;
-          }
-        }).observe({ type: 'layout-shift', buffered: true });
-      });
-      await page.goto('/', { waitUntil: 'networkidle' });
-      await untilHydrated(page.locator('#hero-search'));
-      await page.waitForTimeout(1000);
-      const cls = await page.evaluate(() => (window as unknown as { __cls: number }).__cls);
-      expect(cls).toBeLessThan(0.1);
-    });
-  }
 });
 
 // AECI-830: a rotor or `NVDA+F7` list strips the surrounding card, so each name
@@ -432,26 +404,29 @@ test.describe('/ — home link and landmark names (AECI-830)', () => {
   // xl, so the header's inline search box renders beside the hero's.
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test('the three source links have distinct names that begin with "Source"', async ({ page }) => {
+  // AECI-2027: one load at 1440px, one step per name check.
+  test('the source links and the search landmarks have distinct names', async ({ page }) => {
     await page.goto('/');
-    const links = page.locator('[data-testid="home-why-figures"] a[target="_blank"]');
-    await expect(links).toHaveCount(3);
-    const names = await accessibleNames(links);
-    for (const name of names) expect(name, 'link name').toMatch(/^Source\b.+/);
-    expect(new Set(names).size, `names: ${JSON.stringify(names)}`).toBe(names.length);
-  });
 
-  test('every search landmark has a non-empty, distinct name', async ({ page }) => {
-    await page.goto('/');
-    const landmarks = page.getByRole('search');
-    const names = await accessibleNames(landmarks);
-    // Header box, hero box, pair finder.
-    expect(names.length, `names: ${JSON.stringify(names)}`).toBeGreaterThanOrEqual(3);
-    for (const name of names) expect(name, 'landmark name').not.toBe('');
-    expect(new Set(names).size, `names: ${JSON.stringify(names)}`).toBe(names.length);
-    expect(names).toEqual(
-      expect.arrayContaining(['Site search', 'Search the directory', 'Do these two connect?']),
-    );
+    await test.step('the three source links have distinct names that begin with "Source"', async () => {
+      const links = page.locator('[data-testid="home-why-figures"] a[target="_blank"]');
+      await expect(links).toHaveCount(3);
+      const names = await accessibleNames(links);
+      for (const name of names) expect(name, 'link name').toMatch(/^Source\b.+/);
+      expect(new Set(names).size, `names: ${JSON.stringify(names)}`).toBe(names.length);
+    });
+
+    await test.step('every search landmark has a non-empty, distinct name', async () => {
+      const landmarks = page.getByRole('search');
+      const names = await accessibleNames(landmarks);
+      // Header box, hero box, pair finder.
+      expect(names.length, `names: ${JSON.stringify(names)}`).toBeGreaterThanOrEqual(3);
+      for (const name of names) expect(name, 'landmark name').not.toBe('');
+      expect(new Set(names).size, `names: ${JSON.stringify(names)}`).toBe(names.length);
+      expect(names).toEqual(
+        expect.arrayContaining(['Site search', 'Search the directory', 'Do these two connect?']),
+      );
+    });
   });
 });
 

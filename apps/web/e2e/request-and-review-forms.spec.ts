@@ -136,6 +136,25 @@ test.describe('request forms (AECI-1807)', () => {
           await page.setViewportSize({ width, height: 900 });
           await expectNoSidewaysScroll(page, `default at ${width}px`);
         }
+        // Measured at 390px in the default state, before the error press below.
+        await test.step('every target in the form and rail is at least 44px tall', async () => {
+          await page.setViewportSize({ width: 390, height: 900 });
+          const heights = await page
+            .locator(
+              '[data-testid="page-canvas"] form button, [data-testid="page-canvas"] form input:not([type="checkbox"]), [data-testid="page-canvas"] form select, [data-testid="context-rail"] a',
+            )
+            .evaluateAll((els) =>
+              els
+                .filter((el) => (el as HTMLElement).offsetParent !== null)
+                .map((el) => ({
+                  id: el.id || el.textContent?.trim(),
+                  h: el.getBoundingClientRect().height,
+                })),
+            );
+          expect(heights.length).toBeGreaterThan(1);
+          for (const { id, h } of heights)
+            expect(h, `${id} is 44px or taller`).toBeGreaterThanOrEqual(44);
+        });
         if (r.kind === 'claim') await page.locator('#claim-terms').check();
         const first = r.kind === 'claim' ? '#claim-name' : '#correction-body';
         await pressUntil(page, submit, async () => {
@@ -193,27 +212,6 @@ test.describe('request forms (AECI-1807)', () => {
         expect(sent).toEqual([`/api/requests/${r.kind}`]);
         expect(await seriousViolations(page)).toEqual([]);
       });
-
-      test('every target in the form and rail is at least 44px tall', async ({ page }) => {
-        await interceptWrites(page);
-        await page.setViewportSize({ width: 390, height: 900 });
-        await openRequest(page, r.path);
-        const heights = await page
-          .locator(
-            '[data-testid="page-canvas"] form button, [data-testid="page-canvas"] form input:not([type="checkbox"]), [data-testid="page-canvas"] form select, [data-testid="context-rail"] a',
-          )
-          .evaluateAll((els) =>
-            els
-              .filter((el) => (el as HTMLElement).offsetParent !== null)
-              .map((el) => ({
-                id: el.id || el.textContent?.trim(),
-                h: el.getBoundingClientRect().height,
-              })),
-          );
-        expect(heights.length).toBeGreaterThan(1);
-        for (const { id, h } of heights)
-          expect(h, `${id} is 44px or taller`).toBeGreaterThanOrEqual(44);
-      });
     });
   }
 });
@@ -223,21 +221,28 @@ test.describe('request forms (AECI-1807)', () => {
  * submit were enabled before hydration, an early press or Enter would GET the page
  * with every answer, the email included, in the query string. With JavaScript off
  * the SSR HTML is all there is, so this pins that the submit waits for hydration.
+ *
+ * One case is enough here. `forms-before-hydration.spec.ts` presses Enter with
+ * JavaScript off on the product claim and vendor correction pages, one per form kind
+ * (the entity only changes copy). `forms-early-input.spec.ts` checks
+ * the SSR claim submit is disabled on both claim pages. This case covers the disabled
+ * correction submit, which both correction pages draw from one template branch.
  */
 test.describe('request forms before hydration (AECI-1807)', () => {
   test.use({ javaScriptEnabled: false });
-  for (const r of REQUEST_PAGES) {
-    test(`${r.name}: the SSR submit is disabled and Enter does not submit`, async ({ page }) => {
-      await page.goto(r.path);
-      const submit = page.locator('[data-testid="page-canvas"] form button[type="submit"]');
-      await expect(submit).toBeDisabled();
-      const email = r.kind === 'claim' ? '#claim-email' : '#correction-email';
-      await page.locator(email).fill('jane@procore.com');
-      await page.locator(email).press('Enter');
-      await page.waitForTimeout(500);
-      expect(new URL(page.url()).search).toBe('');
-    });
-  }
+  const r = REQUEST_PAGES.find((p) => p.name === 'vendor correction')!;
+  test(`${r.name}: the SSR submit is disabled and Enter does not submit`, async ({ page }) => {
+    await page.goto(r.path);
+    const submit = page.locator('[data-testid="page-canvas"] form button[type="submit"]');
+    await expect(submit).toBeDisabled();
+    const email = '#correction-email';
+    await page.locator(email).fill('jane@procore.com');
+    await page.locator(email).press('Enter');
+    // A fixed wait on purpose. The test proves that Enter does not submit, and no
+    // condition marks the end of "nothing happened". The window has to pass.
+    await page.waitForTimeout(500);
+    expect(new URL(page.url()).search).toBe('');
+  });
 });
 
 test.describe('review form (AECI-1807)', () => {
@@ -256,6 +261,25 @@ test.describe('review form (AECI-1807)', () => {
       await page.setViewportSize({ width, height: 900 });
       await expectNoSidewaysScroll(page, `default at ${width}px`);
     }
+    // Measured at 390px in the default state, before the error press below.
+    await test.step('every target in the form and rail is at least 44px tall', async () => {
+      await page.setViewportSize({ width: 390, height: 900 });
+      const heights = await page
+        .locator(
+          '[data-testid="page-canvas"] form button, [data-testid="page-canvas"] form input, [data-testid="page-canvas"] form [role="option"], [data-testid="context-rail"] a',
+        )
+        .evaluateAll((els) =>
+          els.map((el) => ({
+            id: el.getAttribute('aria-label') || el.textContent?.trim() || el.id,
+            h: el.getBoundingClientRect().height,
+          })),
+        );
+      for (const { id, h } of heights) {
+        // A recommend segment is 36px inside its 44px frame (the segmented control recipe).
+        const floor = /^(Yes|No|Maybe)$/.test(id ?? '') ? 36 : 44;
+        expect(h, `${id} is ${floor}px or taller`).toBeGreaterThanOrEqual(floor);
+      }
+    });
     await pressUntil(page, submit, async () => {
       await expect(page.locator('#overall-error')).toBeVisible({ timeout: 1000 });
     });
@@ -316,79 +340,68 @@ test.describe('review form (AECI-1807)', () => {
     expect(sent).toEqual(['/api/reviews']);
     expect(await seriousViolations(page)).toEqual([]);
   });
-
-  test('every target in the form and rail is at least 44px tall', async ({ page }) => {
-    await interceptWrites(page);
-    await page.setViewportSize({ width: 390, height: 900 });
-    await page.goto(REVIEW_PATH);
-    await expect(page.getByRole('button', { name: 'Submit review' })).toBeVisible();
-    const heights = await page
-      .locator(
-        '[data-testid="page-canvas"] form button, [data-testid="page-canvas"] form input, [data-testid="page-canvas"] form [role="option"], [data-testid="context-rail"] a',
-      )
-      .evaluateAll((els) =>
-        els.map((el) => ({
-          id: el.getAttribute('aria-label') || el.textContent?.trim() || el.id,
-          h: el.getBoundingClientRect().height,
-        })),
-      );
-    for (const { id, h } of heights) {
-      // A recommend segment is 36px inside its 44px frame (the segmented control recipe).
-      const floor = /^(Yes|No|Maybe)$/.test(id ?? '') ? 36 : 44;
-      expect(h, `${id} is ${floor}px or taller`).toBeGreaterThanOrEqual(floor);
-    }
-  });
 });
 
 /**
  * With the web fonts blocked and a wide face forced, nothing in the forms wraps out
  * of its box or clips at 320px. Verdana is the widest common sans; the generic family
- * covers a runner that has none of the named ones.
+ * covers a runner that has none of the named ones. Each page loads once and takes
+ * every face in turn: a step removes the previous face's style tag before it adds its own.
  */
+const FACES = ['Verdana', 'DejaVu Sans', 'sans-serif'];
+
 test.describe('wide fallback fonts at 320px (AECI-1807)', () => {
-  for (const face of ['Verdana', 'DejaVu Sans', 'sans-serif']) {
-    test(`claim, correction and review hold in ${face}`, async ({ page, context, baseURL }) => {
-      await interceptWrites(page);
-      await page.route('**/fonts/**', (route) => route.abort());
-      await addAuthCookie(context, baseURL!);
-      await page.setViewportSize({ width: 320, height: 800 });
-      for (const path of [
-        `/products/${PRODUCT_SLUG}/claim`,
-        `/vendors/${VENDOR_SLUG}/correction`,
-        REVIEW_PATH,
-      ]) {
-        await page.goto(path);
-        await page.addStyleTag({
-          content: `body, body * { font-family: "${face}", sans-serif !important; }`,
+  test('claim, correction and review hold in every forced font', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await interceptWrites(page);
+    await page.route('**/fonts/**', (route) => route.abort());
+    await addAuthCookie(context, baseURL!);
+    await page.setViewportSize({ width: 320, height: 800 });
+    for (const path of [
+      `/products/${PRODUCT_SLUG}/claim`,
+      `/vendors/${VENDOR_SLUG}/correction`,
+      REVIEW_PATH,
+    ]) {
+      await page.goto(path);
+      let faceStyle: Awaited<ReturnType<Page['addStyleTag']>> | null = null;
+      for (const face of FACES) {
+        await test.step(`claim, correction and review hold in ${face} (${path})`, async () => {
+          await faceStyle?.evaluate((el) => (el as Element).remove());
+          faceStyle = await page.addStyleTag({
+            content: `body, body * { font-family: "${face}", sans-serif !important; }`,
+          });
+          await expect(
+            page.locator('[data-testid="page-canvas"] form button[type="submit"]'),
+          ).toBeVisible();
+          await expectNoSidewaysScroll(page, `${path} in ${face}`);
+          const clipped = await page
+            .locator(
+              '[data-testid="page-canvas"] label, [data-testid="page-canvas"] button, [data-testid="page-canvas"] a, [data-testid="page-canvas"] [role="option"]',
+            )
+            .evaluateAll((els) =>
+              els
+                .filter((el) => (el as HTMLElement).offsetParent !== null)
+                .filter((el) => el.scrollWidth > el.clientWidth + 1)
+                .map((el) => el.textContent?.trim().slice(0, 40)),
+            );
+          expect(clipped, `${path} in ${face}: nothing overflows its box`).toEqual([]);
+          // The submit stays one 44px line.
+          const submitBox = await page
+            .locator('[data-testid="page-canvas"] form button[type="submit"]')
+            .boundingBox();
+          expect(submitBox!.height).toBeGreaterThanOrEqual(44);
+          expect(submitBox!.height).toBeLessThanOrEqual(46);
+          // The rail's guide link and the claim's terms links stay visible.
+          await expect(page.locator('[data-testid="context-rail"] a')).toBeVisible();
+          if (path.endsWith('/claim')) {
+            await expect(page.getByRole('link', { name: /Vendor Terms/ }).first()).toBeVisible();
+            await expect(page.getByRole('link', { name: /Review Guidelines/ })).toBeVisible();
+          }
         });
-        await expect(
-          page.locator('[data-testid="page-canvas"] form button[type="submit"]'),
-        ).toBeVisible();
-        await expectNoSidewaysScroll(page, `${path} in ${face}`);
-        const clipped = await page
-          .locator(
-            '[data-testid="page-canvas"] label, [data-testid="page-canvas"] button, [data-testid="page-canvas"] a, [data-testid="page-canvas"] [role="option"]',
-          )
-          .evaluateAll((els) =>
-            els
-              .filter((el) => (el as HTMLElement).offsetParent !== null)
-              .filter((el) => el.scrollWidth > el.clientWidth + 1)
-              .map((el) => el.textContent?.trim().slice(0, 40)),
-          );
-        expect(clipped, `${path}: nothing overflows its box`).toEqual([]);
-        // The submit stays one 44px line.
-        const submitBox = await page
-          .locator('[data-testid="page-canvas"] form button[type="submit"]')
-          .boundingBox();
-        expect(submitBox!.height).toBeGreaterThanOrEqual(44);
-        expect(submitBox!.height).toBeLessThanOrEqual(46);
-        // The rail's guide link and the claim's terms links stay visible.
-        await expect(page.locator('[data-testid="context-rail"] a')).toBeVisible();
-        if (path.endsWith('/claim')) {
-          await expect(page.getByRole('link', { name: /Vendor Terms/ }).first()).toBeVisible();
-          await expect(page.getByRole('link', { name: /Review Guidelines/ })).toBeVisible();
-        }
       }
-    });
-  }
+    }
+  });
 });

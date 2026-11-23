@@ -483,7 +483,7 @@ Anything that crosses multiple components or pages is a candidate for E2E.
 
 `cache-key-url.spec.ts` is the same proof for every later content-affecting param, and AECI-303 added the product-PAIR page's two version selectors to it. Two of those cases are worth knowing about because they guard against a *plausible* future change rather than a typo: one asserts that swapping the two values yields a **different** key (the pair is ordered), and one asserts a comma inside a version label survives verbatim — together they fail any attempt to add `context_version`/`other_version` to `MULTI_VALUE_CACHE_KEY_PARAMS` "for consistency", which would corrupt a legitimate `R2024,SP1` label rather than merely fragment the cache.
 
-**The docs search box's e2e** (`apps/web/e2e/docs-search.spec.ts`, AECI-1270) self-skips the same way, and also when the tier's docs index answers nothing (not pushed yet, or a key that does not reach it), saying which. It runs one search per guide and is meant to be run by hand against staging after the first push. The box's wiring (guide filter, keyboard, no-config, highlights as text) is pinned in `docs-search.component.spec.ts`, and the records against the real manifest in `docs-search-records.component.spec.ts`.
+**The docs search box's e2e** (`apps/web/e2e/docs-search.spec.ts`, AECI-1270) self-skips the same way. With no docs config in the SSR HTML it skips in `beforeAll`, before any page load (AECI-2027). It also skips when the tier's docs index answers nothing (not pushed yet, or a key that does not reach it), saying which. It runs one search per guide and is meant to be run by hand against staging after the first push. The box's wiring (guide filter, keyboard, no-config, highlights as text) is pinned in `docs-search.component.spec.ts`, and the records against the real manifest in `docs-search-records.component.spec.ts`.
 
 **The product-PAIR page's own e2e** (`apps/web/e2e/products-pair.spec.ts`, AECI-303) follows the `search.spec.ts` self-skipping shape for the same reason: the §9 selectors only render for a pair with version-stamped attestations, and no environment has one (promote does not ingest versions; the only writer is the Verified-vendor API). The default-path cases run everywhere; the interaction block probes for a non-null `version_diff` and skips when there is none. `pnpm --filter @aeci/api db:seed:version-diff:local` is the reproducible local input that makes it run, and is deliberately **not** part of `db:seed:local` so every other pair page keeps showing the launch-reality default. The pair page also gained its first row in `phase2-a11y.spec.ts` — it had none, which is how the design checklist's axe step went unenforced in CI for the surface that owns the claim lanes.
 
@@ -492,6 +492,40 @@ Anything that crosses multiple components or pages is a candidate for E2E.
 - Things already covered by unit/component tests
 - Edge cases of form validation (use component tests instead)
 - Pure CSS/visual concerns (use visual regression)
+
+**Which lane a check belongs in (AECI-2027).** An E2E test pays for a page load, about half a
+second. A component spec pays milliseconds. Put a check in E2E only when it needs something a
+component spec cannot give it.
+
+A check belongs in E2E when it needs one of these:
+
+- Real layout or the built stylesheet: a box, a resolved colour, a computed font size, sideways
+  scroll, the cascade. jsdom has no layout.
+- The server HTML, hydration, or event replay.
+- Routing, history, scroll position, or focus moving between pages.
+- More than one component working together on a real page.
+- A real key press or pointer the test environment cannot simulate.
+- axe on a rendered page.
+
+A check belongs in a component spec when it reads what one component renders from its inputs:
+text, attributes, ARIA, classes, emitted events, form validation. If a component spec already
+asserts it, do not repeat it in E2E.
+
+Four rules keep the suite cheap:
+
+- **One page load, many checks.** Tests that load the same URL at the same viewport and only
+  read it go in one test, one `test.step` per check. The exception is an axe test, which stays
+  on its own.
+- **A matrix needs a reason per case.** Loop over routes only when each route is a different
+  page or component. Loop over widths only when the behaviour depends on width, and then pick
+  the widths that start a breakpoint band. Two widths inside one band prove the same thing.
+  Say in a comment why each case is there.
+- **Look a fixture up once.** A helper that walks pages to find a suitable product runs once
+  per worker, not once per test. `apps/web/e2e/section-nav-product.ts` is the example. It
+  finds the product the section-nav specs open, in its own browser context, and caches the path.
+- **Removing a test names its cover.** The commit or PR names the test that still asserts the
+  behaviour. An axe test is never removed without Chris's ruling, because the accessibility
+  statement rests on it.
 
 ### 7.4 Pattern
 
@@ -1157,6 +1191,19 @@ the app is left as it is.
   before the tick. Focus on the panel's first link lands after that render, so
   it is a valid gate too. `openMenu` in `e2e/nav-menu.spec.ts` is the worked
   example.
+
+**A fixed sleep needs a written reason (AECI-2027).** A `page.waitForTimeout` is not
+allowed in an E2E spec or helper unless a comment directly above it says why no
+condition can replace it. Wait on a condition instead: a web-first assertion,
+`expect.poll`, `toPass`, `page.waitForResponse`, `untilHydrated`, or
+`untilAppStable` (both in `e2e/hydration.ts`). The suite has five legitimate
+cases. A negative assertion needs a window to pass: no request, no navigation, no
+layout shift, focus or position that does not move. A stability check samples
+over time and needs a gap between samples. A test that samples at set times
+while a resource is held back is tied to the clock. A back-off before a retry
+has no page state to wait on. Work with no signal the test can name, such as
+deferred blocks that render as they scroll in, gets a pause. A sleep that only gives the app "a beat" is none of
+these. Replace it.
 
 
 ---

@@ -5,7 +5,9 @@
  * reveals itself post-hydration when the URL carries `?ref=waitlist`. This spec
  * pins: the banner shows for a tagged arrival, is axe-clean, dismissal persists
  * across a reload (localStorage, not a cookie), the attribution token is POSTed
- * to `/api/page-views` once, and a plain `/` shows nothing.
+ * to `/api/page-views` once. That a visit without `?ref=waitlist` shows nothing is
+ * pinned in `waitlist-welcome.service.component.spec.ts` (a non-waitlist ref) and
+ * `waitlist-welcome.component.spec.ts` (hidden when the service says no).
  */
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
@@ -56,13 +58,6 @@ test.describe('/?ref=waitlist welcome banner — Phase 7.9 (AECI-243)', () => {
 
     // Same tagged URL again — the persisted (localStorage) dismissal keeps it hidden.
     await page.reload();
-    await waitForHydrationSettle(page);
-    await expect(page.locator('#waitlist-dismiss')).toHaveCount(0);
-  });
-
-  test('plain "/" shows no banner', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.locator('app-root')).toBeAttached();
     await waitForHydrationSettle(page);
     await expect(page.locator('#waitlist-dismiss')).toHaveCount(0);
   });

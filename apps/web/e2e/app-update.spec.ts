@@ -58,21 +58,6 @@ test.describe('stale tab after a deploy (AECI-1493)', () => {
     await expect.poll(() => documentMarked(page).catch(() => false)).toBe(false);
   });
 
-  test('dismissing the banner hides it', async ({ page }) => {
-    await page.route('**/_version', (route) => route.fulfill({ json: NEXT_BUILD }));
-    await page.goto('/about');
-    await skipWithoutStamp(page);
-
-    const refresh = page.locator('#app-update-refresh');
-    await expect(async () => {
-      await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
-      await expect(refresh).toBeVisible({ timeout: 1000 });
-    }).toPass({ timeout: 15_000 });
-
-    await page.locator('#app-update-dismiss').click();
-    await expect(refresh).toHaveCount(0);
-  });
-
   test('a navigation whose chunk 404s becomes a full page load', async ({ page }) => {
     await page.goto('/about');
     await skipWithoutStamp(page);

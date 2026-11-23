@@ -33,6 +33,19 @@ test.describe('client-side navigation to detail pages (AECI-151)', () => {
     await firstProductLink.click();
     await expect(page).toHaveURL(/\/products\/[^/]+$/);
 
+    // The product hop is asserted before the vendor-link skip, so a product that
+    // renders the 404 shell fails here instead of skipping.
+    await test.step('clicking a product card renders the product, not the 404 shell', async () => {
+      const spaPreserved = await page.evaluate(
+        () => (window as unknown as Record<string, unknown>)['__aeciSpa'] === true,
+      );
+      expect(spaPreserved, 'navigation must be client-side (no full document reload)').toBe(true);
+
+      await expect(page.locator('aec-not-found')).toHaveCount(0);
+      await expect(page.locator('aec-product-detail')).toBeVisible();
+      await expect(page).not.toHaveTitle(/Not found/i);
+    });
+
     // The product detail links its owning vendor (nullable per AECI-115); skip if
     // this product has none seeded.
     const vendorLink = page.locator('aec-product-detail a[href^="/vendors/"]').first();
@@ -58,29 +71,6 @@ test.describe('client-side navigation to detail pages (AECI-151)', () => {
     // suffix under the 60-character title budget (AECI-1055).
     const vendorName = (await page.locator('aec-vendor-detail h1').first().innerText()).trim();
     expect(await page.title()).toContain(vendorName);
-    await expect(page).not.toHaveTitle(/Not found/i);
-  });
-
-  test('clicking a product card renders the product, not the 404 shell', async ({ page }) => {
-    await page.goto('/products');
-    await expect(page.locator('app-root')).toBeAttached();
-
-    const firstProductLink = page.locator('#main a[href^="/products/"]').first();
-    test.skip((await firstProductLink.count()) === 0, 'no products seeded in this environment');
-
-    await page.evaluate(() => ((window as unknown as Record<string, unknown>)['__aeciSpa'] = true));
-
-    await untilHydrated(firstProductLink);
-    await firstProductLink.click();
-    await expect(page).toHaveURL(/\/products\/[^/]+$/);
-
-    const spaPreserved = await page.evaluate(
-      () => (window as unknown as Record<string, unknown>)['__aeciSpa'] === true,
-    );
-    expect(spaPreserved, 'navigation must be client-side (no full document reload)').toBe(true);
-
-    await expect(page.locator('aec-not-found')).toHaveCount(0);
-    await expect(page.locator('aec-product-detail')).toBeVisible();
     await expect(page).not.toHaveTitle(/Not found/i);
   });
 

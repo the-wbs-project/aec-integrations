@@ -28,37 +28,51 @@ test.describe('product hero category hub (AECI-1787)', () => {
     expect(html).not.toMatch(/data-testid="product-category-hub"[^>]*tabindex/);
   });
 
-  test('reads A to Z with a worded count for each category', async ({ page }) => {
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto(`/products/${WITH_HUB}`);
-    const list = page.getByRole('list', { name: 'Integrations by partner category' });
-    const names = await list
-      .getByRole('listitem')
-      .evaluateAll((items) =>
-        items.map((li) => li.lastElementChild!.firstChild!.textContent!.trim()),
-      );
-    expect(names.length).toBeGreaterThan(0);
-    expect(names).toEqual(
-      [...names].sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' })),
-    );
-    await expect(list.getByRole('listitem').first()).toContainText(/, \d+ integrations?$/);
-  });
-
-  test('from lg the finder sits under the hub; below lg the panel holds the hub alone', async ({
+  // AECI-2027: one load at 1280px for the hub order, the finder layout and the
+  // finder names, one step each. The A to Z read ran at 1440px before. 1280px is in
+  // the same xl band, and the read is DOM text only. The 390px half loads again.
+  test('the hub order, the finder layout and the finder names, from lg and below', async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/products/${WITH_HUB}`);
-    const hub = page.getByTestId('product-category-hub');
-    const finder = page.getByTestId('product-pair-finder');
-    await expect(finder).toBeVisible();
-    const [h, f] = [await hub.boundingBox(), await finder.boundingBox()];
-    expect(f!.y).toBeGreaterThan(h!.y + h!.height);
 
-    await page.setViewportSize({ width: 390, height: 900 });
-    await page.goto(`/products/${WITH_HUB}`);
-    await expect(page.getByTestId('product-category-hub')).toBeVisible();
-    await expect(page.getByTestId('product-pair-finder')).toBeHidden();
+    await test.step('reads A to Z with a worded count for each category', async () => {
+      const list = page.getByRole('list', { name: 'Integrations by partner category' });
+      const names = await list
+        .getByRole('listitem')
+        .evaluateAll((items) =>
+          items.map((li) => li.lastElementChild!.firstChild!.textContent!.trim()),
+        );
+      expect(names.length).toBeGreaterThan(0);
+      expect(names).toEqual(
+        [...names].sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' })),
+      );
+      await expect(list.getByRole('listitem').first()).toContainText(/, \d+ integrations?$/);
+    });
+
+    await test.step('from lg the finder sits under the hub', async () => {
+      const hub = page.getByTestId('product-category-hub');
+      const finder = page.getByTestId('product-pair-finder');
+      await expect(finder).toBeVisible();
+      const [h, f] = [await hub.boundingBox(), await finder.boundingBox()];
+      expect(f!.y).toBeGreaterThan(h!.y + h!.height);
+    });
+
+    await test.step('the finder heading names the product, and names its search landmark (ruling 61)', async () => {
+      const heading = page.getByTestId('product-pair-title');
+      await expect(heading).toHaveText('Does Revit connect to…?');
+      await expect(page.getByRole('search', { name: 'Does Revit connect to…?' })).toHaveCount(1);
+      // With three categories there is no "Show all" control (ruling 59).
+      await expect(page.getByTestId('product-category-hub-toggle')).toHaveCount(0);
+    });
+
+    await test.step('below lg the panel holds the hub alone', async () => {
+      await page.setViewportSize({ width: 390, height: 900 });
+      await page.goto(`/products/${WITH_HUB}`);
+      await expect(page.getByTestId('product-category-hub')).toBeVisible();
+      await expect(page.getByTestId('product-pair-finder')).toBeHidden();
+    });
   });
 
   test('with no integrations the panel holds the finder from lg and is gone below lg', async ({
@@ -71,18 +85,6 @@ test.describe('product hero category hub (AECI-1787)', () => {
     await page.setViewportSize({ width: 390, height: 900 });
     await page.goto(`/products/${ZERO}`);
     await expect(page.locator('.aec-hero-panel')).toBeHidden();
-  });
-
-  test('the finder heading names the product, and names its search landmark (ruling 61)', async ({
-    page,
-  }) => {
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/products/${WITH_HUB}`);
-    const heading = page.getByTestId('product-pair-title');
-    await expect(heading).toHaveText('Does Revit connect to…?');
-    await expect(page.getByRole('search', { name: 'Does Revit connect to…?' })).toHaveCount(1);
-    // With three categories there is no "Show all" control (ruling 59).
-    await expect(page.getByTestId('product-category-hub-toggle')).toHaveCount(0);
   });
 
   test('the finder searches the typed text with no pick, after hydration', async ({ page }) => {
@@ -153,6 +155,8 @@ test.describe('product hero category hub (AECI-1787)', () => {
         }).observe({ type: 'layout-shift', buffered: true });
       });
       await page.goto(`/products/${WITH_HUB}`, { waitUntil: 'networkidle' });
+      // A fixed wait on purpose. The test proves that the hub causes no layout
+      // shift, so the observer needs a window to watch.
       await page.waitForTimeout(600);
       const shift = await page.evaluate(
         () => (window as unknown as { __hubShift: number }).__hubShift,

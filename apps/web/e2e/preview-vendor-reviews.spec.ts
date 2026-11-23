@@ -10,8 +10,8 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
  *     AECI-1590, so Reply shows there too.
  *
  * Why the preview and not `/vendor/:slug`: see `preview-vendor-portal-nav.spec.ts`.
- * `vendor-dashboard.spec.ts` skips without `SUPABASE_VENDOR_TEST_USER_*`, which CI
- * does not set. The preview mounts the same tab against a fixture-backed fake that
+ * `vendor-dashboard.spec.ts` skips without `SUPABASE_VENDOR_TEST_USER_*`, which most
+ * local runs lack. The preview mounts the same tab against a fixture-backed fake that
  * runs the server's state machine, so "reply to one review end to end" runs here.
  */
 const PATH = '/preview/vendor-dashboard/products/summit-model-coordination/reviews';

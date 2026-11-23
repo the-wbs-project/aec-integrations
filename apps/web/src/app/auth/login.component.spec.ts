@@ -216,6 +216,22 @@ describe('LoginPage', () => {
     expect(document.activeElement).toBe(el.querySelector('#login-email'));
   });
 
+  // AECI-831 A6, moved from `auth-login.spec.ts` (AECI-2027): with an empty email the
+  // submit stays in the tab order, and pressing it shows the error and focuses the field.
+  it('keeps submit enabled with an empty email, then pressing it shows the error and focuses the field', async () => {
+    const { fixture, el, auth } = await setup();
+
+    const button = el.querySelector('button[type="submit"]') as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+
+    button.click();
+    await settle();
+    fixture.detectChanges();
+    expect(auth.sendMagicLink).not.toHaveBeenCalled();
+    expect(el.querySelector('#login-email-error')).not.toBeNull();
+    expect(document.activeElement).toBe(el.querySelector('#login-email'));
+  });
+
   it('surfaces the email error once the field is touched', async () => {
     const { fixture, el } = await setup();
     typeEmail(fixture, 'nope');

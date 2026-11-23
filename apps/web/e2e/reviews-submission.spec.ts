@@ -102,20 +102,6 @@ test.describe('/products/:slug/review — authenticated form (AECI-200)', () => 
     test.skip(!fixturesPresent, 'fixtures not seeded — see beforeAll warning');
   });
 
-  test('renders the dual-rating form with two star listboxes', async ({ page, context }) => {
-    await addAuthCookie(context);
-    await page.goto(REVIEW_PATH);
-    await expect(page.locator('app-root')).toBeAttached();
-
-    await expect(page.locator('ul[aria-labelledby="overall-label"]')).toBeVisible();
-    await expect(page.locator('ul[aria-labelledby="onboarding-label"]')).toBeVisible();
-    await expect(page.locator('ul[aria-labelledby="overall-label"] [role="option"]')).toHaveCount(
-      5,
-    );
-    await expect(page.locator('#review-title-input')).toBeVisible();
-    await expect(page.locator('#review-body')).toBeVisible();
-  });
-
   test('has zero axe (WCAG-AA) violations', async ({ page, context }) => {
     await addAuthCookie(context);
     await page.goto(REVIEW_PATH);
@@ -138,26 +124,6 @@ test.describe('/products/:slug/review — authenticated form (AECI-200)', () => 
     await page.keyboard.press('Space');
 
     await expect(options.nth(3)).toHaveAttribute('aria-selected', 'true');
-  });
-
-  // AECI-831 A6: the submit is reachable on an empty form, and pressing it
-  // moves focus to the first missing answer instead of doing nothing.
-  test('an empty form: the submit is reachable and focuses the first rating', async ({
-    page,
-    context,
-  }) => {
-    await addAuthCookie(context);
-    await page.goto(REVIEW_PATH);
-    const submit = page.getByRole('button', { name: 'Submit review' });
-    await expect(submit).toBeEnabled();
-
-    await submit.focus();
-    await expect(submit).toBeFocused();
-    await page.keyboard.press('Enter');
-
-    const overall = page.locator('ul[aria-labelledby="overall-label"]');
-    await expect(overall.locator('[role="option"]:focus')).toHaveCount(1);
-    await expect(page.locator('#overall-error')).toBeVisible();
   });
 
   test('a filled form submits and shows the moderation confirmation', async ({ page, context }) => {

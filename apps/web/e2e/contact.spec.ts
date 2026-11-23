@@ -33,31 +33,42 @@ test.describe('/contact — Phase 7.3 (AECI-238)', () => {
     expect(html).toContain('Get in touch');
   });
 
-  test('is indexable — self-referential canonical, no noindex robots meta', async ({
+  // One page load for three read-only checks (AECI-2027). Console capture is
+  // attached before the load, and the console check runs last, after hydration.
+  test('is indexable, its mailto link is clickable, and it renders console-clean', async ({
     page,
     request,
   }) => {
-    const html = await (await request.get('/contact')).text();
-    expect(html).not.toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
+    const capture = attachConsoleCapture(page);
 
-    await page.goto('/contact');
-    await expect(page).toHaveTitle('Contact · AEC Integrations');
-    const canonical = page.locator('head link[rel="canonical"]');
-    await expect(canonical).toHaveCount(1);
-    await expect(canonical).toHaveAttribute('href', /\/contact$/);
-  });
+    await test.step('is indexable — self-referential canonical, no noindex robots meta', async () => {
+      const html = await (await request.get('/contact')).text();
+      expect(html).not.toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
 
-  test('the mailto link is clickable in the rendered page', async ({ page }) => {
-    await page.goto('/contact');
-    await expect(page.locator('app-root')).toBeAttached();
-    // The email card carries two `mailto:` anchors with the same href: the
-    // visible address line and the "Email us" primary button. Scope by
-    // accessible name so each is asserted unambiguously.
-    await expect(page.getByRole('link', { name: 'support@aecintegrations.com' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Email us' })).toHaveAttribute(
-      'href',
-      'mailto:support@aecintegrations.com',
-    );
+      const res = await page.goto('/contact');
+      expect(res?.status()).toBe(200);
+      await expect(page).toHaveTitle('Contact · AEC Integrations');
+      const canonical = page.locator('head link[rel="canonical"]');
+      await expect(canonical).toHaveCount(1);
+      await expect(canonical).toHaveAttribute('href', /\/contact$/);
+    });
+
+    await test.step('the mailto link is clickable in the rendered page', async () => {
+      await expect(page.locator('app-root')).toBeAttached();
+      // The email card carries two `mailto:` anchors with the same href: the
+      // visible address line and the "Email us" primary button. Scope by
+      // accessible name so each is asserted unambiguously.
+      await expect(page.getByRole('link', { name: 'support@aecintegrations.com' })).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Email us' })).toHaveAttribute(
+        'href',
+        'mailto:support@aecintegrations.com',
+      );
+    });
+
+    await test.step('renders with no console errors or page errors', async () => {
+      await waitForHydrationSettle(page);
+      expectConsoleClean(capture, 'GET /contact');
+    });
   });
 
   // ?topic=add-product (VENDOR_PROGRAM_PAGE_SPEC.md section 6): the support mailto with
@@ -115,14 +126,5 @@ test.describe('/contact — Phase 7.3 (AECI-238)', () => {
       .analyze();
 
     expect(results.violations).toEqual([]);
-  });
-
-  test('renders with no console errors or page errors', async ({ page }) => {
-    const capture = attachConsoleCapture(page);
-    const res = await page.goto('/contact');
-    expect(res?.status()).toBe(200);
-    await expect(page.locator('app-root')).toBeAttached();
-    await waitForHydrationSettle(page);
-    expectConsoleClean(capture, 'GET /contact');
   });
 });

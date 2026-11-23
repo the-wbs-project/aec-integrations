@@ -142,8 +142,10 @@ test.describe('product reviews — reviewer updates (AECI-1613)', () => {
     const loadMore = page.getByRole('button', { name: 'Load more reviews' });
     for (let i = 0; i < 10 && (await review.count()) === 0; i++) {
       if ((await loadMore.count()) === 0) break;
+      const shown = await page.locator('article').count();
       await loadMore.click();
-      await page.waitForTimeout(300);
+      // The next page has rendered once more review cards are on the page.
+      await expect.poll(() => page.locator('article').count()).toBeGreaterThan(shown);
     }
     await expect(review).toHaveCount(1);
 

@@ -15,11 +15,22 @@
  * page unloads (TESTING_STRATEGY §14.3a). An element with no listener never
  * carries the attribute, so the wait returns at once for it.
  */
-import { expect, type Locator } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 
 export async function untilHydrated(locator: Locator, timeout = 15_000): Promise<void> {
   await expect(locator, 'the element is hydrated (its jsaction is gone)').not.toHaveAttribute(
     'jsaction',
     { timeout },
   );
+}
+
+/**
+ * AECI-2027: wait until the app is stable after hydration, on any page with the
+ * site header. The header's home link always carries a listener, so its
+ * `jsaction` goes when `ApplicationRef.whenStable()` resolves. Stability also
+ * waits for pending `HttpClient` requests, so the data the page fetches at boot
+ * has landed by then (TESTING_STRATEGY §14.3a).
+ */
+export async function untilAppStable(page: Page, timeout = 15_000): Promise<void> {
+  await untilHydrated(page.locator('aec-site-header a[href="/"]').first(), timeout);
 }

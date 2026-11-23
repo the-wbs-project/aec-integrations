@@ -151,19 +151,19 @@ test.describe('/search keeps every checked filter on screen (AECI-1899)', () => 
     await expect(page.locator('aec-empty-state')).toBeVisible({ timeout: 15_000 });
   }
 
-  test('both checked filters stay visible and checked when nothing matches', async ({ page }) => {
-    await openEmpty(page);
-    await expect(filterBox(page, 'Trades', 'Roofing')).toBeChecked();
-    await expect(filterBox(page, 'Categories', 'Accounting & ERP')).toBeChecked();
-    await expect(page.locator('aec-search-product-card')).toHaveCount(0);
-  });
-
   for (const { group, value, left, leftGroup } of [
     { group: 'Trades', value: 'Roofing', left: 'Accounting & ERP', leftGroup: 'Categories' },
     { group: 'Categories', value: 'Accounting & ERP', left: 'Roofing', leftGroup: 'Trades' },
   ]) {
+    // AECI-2027 folded the empty-state test into each case. All three loaded the
+    // same URL, so its checks now run first, in both cases.
     test(`unchecking ${value} brings the results back`, async ({ page }) => {
       await openEmpty(page);
+      await test.step('both checked filters stay visible and checked when nothing matches', async () => {
+        await expect(filterBox(page, 'Trades', 'Roofing')).toBeChecked();
+        await expect(filterBox(page, 'Categories', 'Accounting & ERP')).toBeChecked();
+        await expect(page.locator('aec-search-product-card')).toHaveCount(0);
+      });
       const box = filterBox(page, group, value);
       await untilHydrated(box);
       // A click, not `uncheck()` (AECI-1923). `uncheck()` reads the box again

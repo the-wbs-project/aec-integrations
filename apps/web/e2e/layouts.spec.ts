@@ -3,9 +3,10 @@ import { expect, test } from '@playwright/test';
 import { expectNoSidewaysScroll } from './no-sideways-scroll';
 
 // Phase 2.6 (AECI-52). Smoke for the reusable layout shells via their preview
-// routes. Validates: SSR returns 200, slots render, axe-core finds no
-// violations, and the responsive breakpoint behaviour kicks in at the small
-// viewport.
+// routes. Validates: SSR returns 200, axe-core finds no violations, and the
+// responsive breakpoint behaviour kicks in at the small viewport. The slots are
+// checked in `detail-layout.component.spec.ts` and `browse-layout.component.spec.ts`
+// (AECI-2027).
 //
 // Originally three shells. `IndexLayout` was deleted once its last consumer
 // went away: AECI-165 removed the `/vendors` + `/integrations` index pages and
@@ -16,34 +17,15 @@ const LAYOUTS = [
   {
     name: 'detail',
     path: '/preview/layouts/detail',
-    selectors: {
-      hero: 'h1:has-text("Example Product")',
-      sidebar: 'aside[aria-label="Metadata"]',
-      body: 'h2:has-text("Overview")',
-    },
   },
   {
     name: 'browse',
     path: '/preview/layouts/browse',
-    selectors: {
-      hero: 'h1:has-text("Products")',
-      sidebar: 'aside[aria-label="Filters"]',
-      grid: 'section[aria-label="Results"]',
-    },
   },
 ] as const;
 
 test.describe('layout shells (preview routes)', () => {
   for (const layout of LAYOUTS) {
-    test(`${layout.name} layout returns 200 and renders required slots`, async ({ page }) => {
-      const res = await page.goto(layout.path);
-      expect(res?.status(), `GET ${layout.path} must return 200`).toBe(200);
-
-      for (const selector of Object.values(layout.selectors)) {
-        await expect(page.locator(selector).first()).toBeVisible();
-      }
-    });
-
     test(`${layout.name} layout has zero axe violations`, async ({ page }) => {
       await page.goto(layout.path);
       await expect(page.locator('app-root')).toBeAttached();
@@ -62,7 +44,8 @@ test.describe('layout shells (preview routes)', () => {
       page,
     }) => {
       await page.setViewportSize({ width: 375, height: 667 });
-      await page.goto(layout.path);
+      const res = await page.goto(layout.path);
+      expect(res?.status(), `GET ${layout.path} must return 200`).toBe(200);
       await expect(page.locator('app-root')).toBeAttached();
 
       // The page itself must not scroll horizontally; the index layout's

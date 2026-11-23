@@ -47,6 +47,8 @@ async function probe(page: import('@playwright/test').Page, path: string): Promi
   });
   await page.goto(path);
   await untilHydrated(page.locator('aec-listing-toolbar button[role="combobox"]'));
+  // A fixed wait on purpose. The probe records removals that must not happen, so a
+  // window has to pass after hydration before the test can say none did.
   await page.waitForTimeout(1_500);
   return page.evaluate(() => (window as unknown as { __probe: Probe }).__probe);
 }

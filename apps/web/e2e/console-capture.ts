@@ -18,6 +18,8 @@
  */
 import { expect, type Page } from '@playwright/test';
 
+import { untilAppStable } from './hydration';
+
 /**
  * Allowlist hook for genuinely-benign console output. Returns `false` today —
  * matching smoke's no-allowlist posture. On local `dev:bound` there is no
@@ -68,15 +70,18 @@ export function attachConsoleCapture(page: Page): ConsoleCapture {
  * Index/browse pages render their rows client-side from a non-blocking
  * `httpResource` (AECI-126): the SSR shell ships `aria-busy="true"` rows that are
  * replaced ~1s after hydration fetches `/api/*`, so a console error thrown by a
- * rejected resource fires AFTER load. A flat `waitForTimeout` (smoke's 200ms,
- * tuned for the static home page) would miss it. So we wait for load, then poll
+ * rejected resource fires AFTER load. A short flat `waitForTimeout` would miss
+ * it. So we wait for load, then poll
  * until no `aria-busy` remains and that stays stable. SSR-complete pages (detail,
  * 404 shell, browse-via-resolver) have no `aria-busy` and settle in ~2 polls.
- * Caps at ~400ms + 30×300ms ≈ 9.5s for a page whose data never arrives.
+ * The leading `untilAppStable` waits for the app's boot fetches first.
+ * Caps at ~10s + 30×300ms ≈ 19s for a page whose data never arrives.
  */
 export async function waitForHydrationSettle(page: Page): Promise<void> {
   await page.waitForLoadState('load').catch(() => undefined);
-  await page.waitForTimeout(400);
+  // The app is stable once its boot fetches have landed (§14.3a). A page without
+  // the site header, or one that never settles, falls through to the poll below.
+  await untilAppStable(page, 10_000).catch(() => undefined);
   let stable = 0;
   for (let i = 0; i < 30; i++) {
     const busy = await page.locator('[aria-busy="true"]').count();
@@ -85,6 +90,8 @@ export async function waitForHydrationSettle(page: Page): Promise<void> {
     } else {
       stable = 0;
     }
+    // A fixed interval on purpose. "No busy region" must hold on two samples taken
+    // apart in time, so the samples need a gap between them.
     await page.waitForTimeout(300);
   }
 }

@@ -4,12 +4,17 @@
  * measure applies to prose blocks only. `DESIGN.md` §3 "The Page-Width Rule".
  *
  * Geometry only, no pixel baselines (ruled 2026-10-23). For each page:
- *   - at 1280 and 1536 the canvas box is at least 1000px wide;
+ *   - at 1280 the canvas box is at least 1000px wide;
  *   - at 1280 a form's context rail sits beside the form, and a docs index runs
  *     two columns;
  *   - at 1023 and 375 the page is one column with no horizontal page scroll
  *     (1024 is the `lg` boundary, so it is never tested exactly);
  *   - a prose child stays at or under 75ch.
+ *
+ * 1536 is no longer tested, by the owner's ruling on AECI-2027 (2026-11-23). The
+ * canvas is the viewport less its gutters, capped at the max width. A cap that
+ * fails at 1536 fails at 1280 too, unless a `2xl:` rule narrows the canvas, and
+ * none of these pages has one. The 75ch prose cap does not depend on the viewport.
  *
  * `/account` and `/welcome` need a real session, so their layout is covered by
  * `account.component.spec.ts` and `welcome.component.spec.ts`.
@@ -128,23 +133,23 @@ function formPageSuite(name: string, path: string, prose: string, needsSession: 
       await addAuthCookie(context, baseURL!);
     });
 
-    for (const width of [1280, 1536]) {
-      test(`takes the 7xl canvas at ${width}px`, async ({ page }) => {
-        await page.setViewportSize({ width, height: 900 });
-        await page.goto(path);
+    // AECI-2027: the two 1280px checks share one load, one step each.
+    test('takes the 7xl canvas and docks the rail beside the form at 1280px', async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(path);
+
+      await test.step('takes the 7xl canvas at 1280px', async () => {
         await expect(page.locator('[data-testid="context-rail"]')).toBeVisible();
         expect((await box(page, '[data-testid="page-canvas"]')).width).toBeGreaterThanOrEqual(1000);
         await proseWithinMeasure(page, prose);
       });
-    }
 
-    test('docks the rail beside the form at 1280px', async ({ page }) => {
-      await page.setViewportSize({ width: 1280, height: 900 });
-      await page.goto(path);
-      const form = await box(page, '[data-testid="page-canvas"] form');
-      const rail = await box(page, '[data-testid="context-rail"]');
-      expect(rail.x, 'rail starts right of the form').toBeGreaterThanOrEqual(form.x + form.width);
-      expect(rail.y, 'rail starts above the form ends').toBeLessThan(form.y + form.height);
+      await test.step('docks the rail beside the form at 1280px', async () => {
+        const form = await box(page, '[data-testid="page-canvas"] form');
+        const rail = await box(page, '[data-testid="context-rail"]');
+        expect(rail.x, 'rail starts right of the form').toBeGreaterThanOrEqual(form.x + form.width);
+        expect(rail.y, 'rail starts above the form ends').toBeLessThan(form.y + form.height);
+      });
     });
 
     for (const width of [1023, 375]) {
@@ -191,21 +196,23 @@ formPageSuite(
 /** A docs index page: canvas width, two columns from lg, prose measure. */
 function docsIndexSuite(path: string, list: string): void {
   test.describe(path, () => {
-    for (const width of [1280, 1536]) {
-      test(`takes the docs content column at ${width}px`, async ({ page }) => {
-        await page.setViewportSize({ width, height: 900 });
-        await page.goto(path);
+    // AECI-2027: the two 1280px checks share one load, one step each.
+    test('takes the docs content column and runs the list two columns at 1280px', async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(path);
+
+      await test.step('takes the docs content column at 1280px', async () => {
         expect((await box(page, '[data-testid="page-canvas"]')).width).toBeGreaterThanOrEqual(1000);
         await proseWithinMeasure(page, '[data-testid="page-canvas"] header p');
       });
-    }
 
-    test('runs the list two columns at 1280px', async ({ page }) => {
-      await page.setViewportSize({ width: 1280, height: 900 });
-      await page.goto(path);
-      const [first, second] = await firstTwo(page, list);
-      expect(Math.abs(first.y - second.y), 'first two items share a row').toBeLessThan(2);
-      expect(second.x).toBeGreaterThan(first.x + first.width);
+      await test.step('runs the list two columns at 1280px', async () => {
+        const [first, second] = await firstTwo(page, list);
+        expect(Math.abs(first.y - second.y), 'first two items share a row').toBeLessThan(2);
+        expect(second.x).toBeGreaterThan(first.x + first.width);
+      });
     });
 
     for (const width of [1023, 375]) {
@@ -234,7 +241,8 @@ test.describe('/products/:context/integrations/:other', () => {
     }
   };
 
-  for (const width of [1280, 1536]) {
+  // 1280px only: see the file header for why 1536px adds nothing (AECI-2027).
+  for (const width of [1280]) {
     test(`takes the page wrap at ${width}px`, async ({ page, request }) => {
       const path = await findPair(request);
       test.skip(path === null, 'no integration in the local catalog to build a pair from');

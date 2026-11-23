@@ -130,6 +130,8 @@ test.describe('browser report (AECI-1714)', () => {
     });
     await page.locator('h1').first().click();
     await page.keyboard.press('Shift');
+    // A fixed wait on purpose. The test proves that no second post is sent, and no
+    // condition marks the end of "nothing happened". The window has to pass.
     await page.waitForTimeout(500);
     expect(extra).toBe(0);
 
