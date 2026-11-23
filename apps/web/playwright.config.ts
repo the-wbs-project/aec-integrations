@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
-import { E2E_BASE_URL, E2E_WEB_PORT } from './e2e/base-url';
+import { E2E_BASE_URL, E2E_WEB_PORT, RESERVED_WEB_PORT } from './e2e/base-url';
 
 // AECI-235: the Playwright runner process doesn't inherit the Workers' `.dev.vars`,
 // but `authed-console.spec.ts` mints a real Supabase session from `process.env`. For
@@ -37,7 +37,9 @@ loadDevVarsAuthEnv();
 // Playwright config for the SSR Worker (apps/web).
 //
 // Local: launches `pnpm dev:bound` (parallel API + SSR Workers) via `webServer`
-// so the service binding `env.API` resolves end-to-end.
+// so the service binding `env.API` resolves end-to-end. On a non-default
+// `AECI_WEB_PORT` (an agent's `dev:agent` pair) it only reuses a running stack
+// and fails fast when none answers (AECI-1955).
 // CI (preview-URL job): `PLAYWRIGHT_BASE_URL` is set; `webServer` is skipped.
 //
 // Phase 1.19: chromium-only smoke + axe. There is no cross-browser / mobile
@@ -52,6 +54,10 @@ loadDevVarsAuthEnv();
 const WEB_PORT = E2E_WEB_PORT;
 const BASE_URL = E2E_BASE_URL;
 const IS_CI = !!process.env['CI'];
+// AECI-1955: `dev:bound` gives the API Worker the reserved :8787 whatever
+// `AECI_WEB_PORT` says, so on an agent port we never boot it. The guard script
+// prints why and exits 1, which Playwright reports at once.
+const IS_AGENT_PORT = WEB_PORT !== RESERVED_WEB_PORT;
 
 export default defineConfig({
   testDir: './e2e',
@@ -79,8 +85,10 @@ export default defineConfig({
     : {
         // `pnpm dev:bound` boots both API (:8787) and SSR (:8788) Workers in
         // parallel so the SSR Worker's service binding (`env.API`) resolves.
+        // On an agent port the command is the fail-fast guard instead; with
+        // `reuseExistingServer` it only runs when nothing answers on `url`.
         // `cwd: '../..'` is the monorepo root from this config's location.
-        command: 'pnpm dev:bound',
+        command: IS_AGENT_PORT ? 'node apps/web/scripts/e2e-no-local-stack.mjs' : 'pnpm dev:bound',
         cwd: '../..',
         // Probe `/api/health`, NOT the SSR root `/`. The SSR Worker answers `/`
         // with 200 the instant it boots — before the API Worker has registered

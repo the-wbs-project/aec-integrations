@@ -108,6 +108,11 @@ their origin from `apps/web/e2e/base-url.ts`, so none of them falls back to 8788
 not needed, because the specs reach the API through the SSR Worker. Set `PLAYWRIGHT_BASE_URL`
 only to target a deployed tier.
 
+If nothing answers on a non-default `AECI_WEB_PORT`, the run stops at once with a message. It does
+not boot `pnpm dev:bound` itself, because that would put the API Worker on the reserved 8787
+(AECI-1955). Restart `pnpm dev:agent` and use the port it prints. Only the default 8788 lets
+Playwright boot `dev:bound`, as CI does.
+
 **An agent that needs to boot the app in a workspace uses `pnpm dev:agent`.** It does not use
 `pnpm dev:conductor`, `pnpm dev` or `pnpm dev:bound`. Leave the constant pair for the human.
 
