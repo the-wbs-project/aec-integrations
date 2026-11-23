@@ -155,7 +155,14 @@
                 // moved the legal version lists out of the initial bundle (they now
                 // load with the legal page), which offset the rest of its growth.
                 //
-                // AECI-1755: raised 1.08MB -> 1.09MB. Measured with `ng build`:
+                // The next four notes (AECI-1755, AECI-1763, AECI-1764, AECI-1766)
+                // come from the redesign hold branch. There they raised this line in
+                // 10 kB steps, 1.08MB -> 1.11MB. Main's AECI-1932 raise to 1.20MB
+                // reached the branch in a later sync and covers them, so none of
+                // those steps is in the value below. Each note records what its
+                // change added to the initial bundle.
+                //
+                // AECI-1755: added 8,960 B eager. Measured with `ng build`:
                 // base (`batch/redesign-shell`) at 1,072,809 B, this branch at
                 // 1,081,769 B. The growth is the `aec-icon` registry: 8,527 B
                 // minified and 2,970 B gzipped. It was lazy-only; it is now in the
@@ -164,7 +171,7 @@
                 // legal notice band) use four of its icons. The registry is not
                 // split: one object is cheaper than a chunk per icon (ADR 0059).
                 //
-                // AECI-1763: raised 1.09MB -> 1.10MB. Measured with `ng build`
+                // AECI-1763: added 4,580 B eager. Measured with `ng build`
                 // (the budget's own total): base (`batch/redesign-shell`) at
                 // 1,088,350 B, this branch at 1,092,930 B, so +4,580 B (about
                 // +1.2 kB transferred). The growth is the one chip recipe: +2.34 kB
@@ -173,12 +180,11 @@
                 // the search autocomplete tag load eagerly. The chip needs
                 // `AecIcon` for the selected tick, already in the initial bundle.
                 //
-                // AECI-1764: no raise, uses the 1.10MB above. The shared field
-                // recipe adds about 1 kB of eager CSS (`.aec-field-control` edge,
+                // AECI-1764: the shared field recipe adds about 1 kB of eager CSS (`.aec-field-control` edge,
                 // focus, error and disabled rules, the forced-colours rule and
                 // the error glyph mask).
                 //
-                // AECI-1766: raised 1.10MB -> 1.11MB. Measured with `ng build`
+                // AECI-1766: added 2,489 B eager. Measured with `ng build`
                 // (the budget's own total): base (`batch/redesign-shell`) at
                 // 1,098,450 B, this branch at 1,100,939 B, so +2,489 B. All
                 // of it is eager CSS. About 1,000 B is rules in `styles.css`:
