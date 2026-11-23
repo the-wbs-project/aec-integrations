@@ -22,8 +22,10 @@
 # `deploy-staging` is gated on `vars.STAGING_ENABLED == 'true'` (set). Unset, the
 # job is skipped rather than failing, so merges to main stay green.
 #
-# `e2e-and-integration` runs Playwright + axe AND apps/web/scripts/run-extra-tests.sh
-# against one `pnpm dev:bound`, which seeds a LOCAL D1 via db:setup:local.
+# `e2e-shard` runs Playwright + axe as four shards (AECI-2026). Each shard boots its
+# own `pnpm dev:bound`, which seeds a LOCAL D1 via db:setup:local; shard 1 also runs
+# apps/web/scripts/run-extra-tests.sh. `e2e-and-integration` is the gate over the
+# shards that `deploy-staging` needs; `e2e-report` merges their HTML report.
 #
 # The Supabase-Auth JWKS integration spec lives in
 # `.github/workflows/integration-db-tests.yml`: path-gated, nightly backstop,
@@ -578,11 +580,17 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-  e2e-and-integration:
-    name: E2E + axe + edge-cache (local)
+  # AECI-2026: E2E runs as FOUR Playwright shards (`--shard=N/4`). The redesign
+  # (AECI-1720) doubled the suite to about 1,080 tests, and one runner took 21
+  # minutes of Playwright, which held the staging deploy to 25-30 minutes. Each
+  # shard boots its OWN `dev:bound` and local D1, so no two shards share a server
+  # or a database. `e2e-and-integration` below is the gate that keeps the old job
+  # name; `deploy-staging` needs the gate, not the shards.
+  e2e-shard:
+    name: E2E (shard ${{ matrix.shard }}/4)
     # Downloads build-web's `web-dist` artifact rather than rebuilding, boots
-    # dev:bound ONCE, then runs Playwright e2e + the edge-cache extras script
-    # against the same server.
+    # dev:bound ONCE per shard, then runs that shard's Playwright e2e + axe tests
+    # (and, on shard 1, the edge-cache extras script) against the same server.
     runs-on: ubuntu-26.04
     # NON-required job — safe to skip on docs-only PRs. It is gated on the
     # `changes` filter (not a workflow-level `paths-ignore`) so the REQUIRED
@@ -590,21 +598,29 @@ jobs:
     # docs-only PRs' `push` runs via the push `paths` filter; on PRs it
     # always runs, so this job only needs its own `code` guard.
     #
-    # The guard FAILS OPEN (`!= 'false'`, not `== 'true'`) — deliberate. This job
-    # is the last `needs:` between a push to main and `deploy-staging`, so a
-    # `changes` job that errors rather than answering must NOT be able to skip
-    # the staging deploy. Only an explicit `code == 'false'` (a real docs-only
-    # verdict) skips; an empty output from a failed/skipped filter runs the lane.
+    # The guard FAILS OPEN (`!= 'false'`, not `== 'true'`) — deliberate. These
+    # shards and their gate are the last `needs:` between a push to main and
+    # `deploy-staging`, so a `changes` job that errors rather than answering must
+    # NOT be able to skip the staging deploy. Only an explicit `code == 'false'`
+    # (a real docs-only verdict) skips; an empty output from a failed/skipped
+    # filter runs the lane.
     #
     # The lite lane (a PR into `batch/**`, docs/CICD_PLAN.md §10a) skips E2E.
     # The batch → main PR runs it once for the whole batch. The lane comes from
     # `build-web`'s output, which is always set when that job succeeded, and the
     # guard fails open the same way: only an explicit `lite` skips.
+    #
+    # KEEP THIS `if:` IN STEP WITH THE GATE'S `if:` (`e2e-and-integration`).
     needs: [changes, build-web]
     if: ${{ !cancelled() && needs.build-web.result == 'success' && needs.changes.outputs.code != 'false' && needs.build-web.outputs.lane != 'lite' }}
-    # 30, not 20: the redesign's suite runs about 18 minutes of Playwright alone, so
-    # setup plus the report uploads crossed the old 20 minute cap with every test green.
-    timeout-minutes: 30
+    strategy:
+      # A red shard must not cancel its siblings: every shard's failures land.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    # A shard is about 2 minutes of setup plus 5-6 minutes of tests. One that
+    # runs past 15 minutes is stuck, not slow.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
       - name: Install pnpm
@@ -707,35 +723,99 @@ jobs:
           if [ -z "$SUPABASE_VENDOR_TEST_USER_EMAIL" ] || [ -z "$SUPABASE_VENDOR_TEST_USER_PASSWORD" ]; then
             echo "::warning::SUPABASE_VENDOR_TEST_USER_EMAIL/PASSWORD not set — vendor-dashboard.spec.ts (AECI-522) will skip its authed vendor-portal checks."
           fi
-          pnpm --filter @aeci/web run test:e2e
-      # Edge-cache assertions against the same server. `!cancelled()` so it still
-      # runs (and reports) even if the e2e step above failed — both signals land.
+          # `--reporter` replaces the config's CI reporters: `github` for the
+          # annotations, `blob` for `e2e-report` to merge into one HTML report.
+          pnpm --filter @aeci/web exec playwright test --shard=${{ matrix.shard }}/4 --reporter=github,blob
+      # Edge-cache assertions against the same server. It needs a running server
+      # and takes about 2 seconds, so it runs on shard 1 only. `!cancelled()` so it
+      # still runs (and reports) even if the e2e step above failed.
       - name: Edge-cache integration runner
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && matrix.shard == 1 }}
         run: HOST=http://localhost:8788 ./apps/web/scripts/run-extra-tests.sh
-      - name: Upload Playwright report
+      - name: Upload blob report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: blob-e2e-${{ matrix.shard }}
+          path: apps/web/blob-report
+          retention-days: 7
+          if-no-files-found: warn
+      # AECI-64 — the internal-link-graph crawler writes its reachability
+      # snapshot every run (in `beforeAll`, before assertions). Upload it
+      # whenever the job isn't cancelled — the snapshot is most useful exactly
+      # when the crawler fails (a page type went unreachable / a link 404'd).
+      # The spec is serial, so it lands whole on ONE shard, but Playwright picks
+      # which. Every shard tries; only the one that ran it has a file.
+      - name: Upload internal-link-graph report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: internal-link-graph-report-${{ matrix.shard }}
+          path: apps/web/e2e/internal-link-graph-report.md
+          retention-days: 30
+          if-no-files-found: ignore
+      - name: dev:bound logs on failure
         if: failure()
+        run: tail -200 dev-bound.log || true
+
+  # The E2E gate. It keeps the pre-AECI-2026 job name, which `deploy-staging`
+  # needs and `docs/LEGAL_IMPACT_REVIEW.md` §3 relies on: the accessibility
+  # statement says axe runs on each release, and this job is what blocks
+  # staging on a red axe run.
+  #
+  # Its `if:` repeats the shards' guard, so it SKIPS exactly when they skip
+  # (docs-only, lite lane), and a skipped gate skips `deploy-staging` as before.
+  # `!cancelled()` (not the default `success()`) lets it run after a red shard,
+  # so the step can turn that red into a failed gate. It does not wait for
+  # `e2e-report`: the merged report is for reading, not for passing.
+  e2e-and-integration:
+    name: E2E + axe + edge-cache (local)
+    runs-on: ubuntu-26.04
+    needs: [changes, build-web, e2e-shard]
+    if: ${{ !cancelled() && needs.build-web.result == 'success' && needs.changes.outputs.code != 'false' && needs.build-web.outputs.lane != 'lite' }}
+    steps:
+      - name: Require every E2E shard to pass
+        env:
+          SHARDS_RESULT: ${{ needs.e2e-shard.result }}
+        run: |
+          echo "E2E shards: $SHARDS_RESULT"
+          if [ "$SHARDS_RESULT" != "success" ]; then
+            echo "::error::An E2E shard did not succeed. See the E2E (shard N/4) jobs, and the e2e-report artifact."
+            exit 1
+          fi
+
+  # Merges the four shards' blob reports into one HTML report (`playwright-report`
+  # artifact). On a red run it is where to read the failure. On a green run it
+  # lists every test's duration. Nothing needs this job.
+  e2e-report:
+    name: E2E report (merge shards)
+    runs-on: ubuntu-26.04
+    needs: [e2e-shard]
+    if: ${{ !cancelled() && needs.e2e-shard.result != 'skipped' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install pnpm
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: blob-e2e-*
+          path: apps/web/all-blob-reports
+          merge-multiple: true
+      - name: Merge the shard reports into one HTML report
+        run: pnpm --filter @aeci/web exec playwright merge-reports --reporter html ./all-blob-reports
+      - name: Upload Playwright report
         uses: actions/upload-artifact@v6
         with:
           name: playwright-report
           path: apps/web/playwright-report
           retention-days: 7
-          if-no-files-found: ignore
-      # AECI-64 — the internal-link-graph crawler writes its reachability
-      # snapshot every run (in `beforeAll`, before assertions). Upload it
-      # whenever the job isn't cancelled — the snapshot is most useful exactly
-      # when the crawler fails (a page type went unreachable / a link 404'd).
-      - name: Upload internal-link-graph report
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v6
-        with:
-          name: internal-link-graph-report
-          path: apps/web/e2e/internal-link-graph-report.md
-          retention-days: 30
           if-no-files-found: warn
-      - name: dev:bound logs on failure
-        if: failure()
-        run: tail -200 dev-bound.log || true
 
   deploy-staging:
     name: Deploy staging
