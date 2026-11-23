@@ -37,7 +37,8 @@ apps/web dev:preview: The Local Explorer API is available at http://localhost:87
 apps/api dev:preview: The Local Explorer API is available at http://localhost:8789/cdn-cgi/local/explorer/api
 ```
 
-`scripts/dev-launch.sh` also prints the pair on its first line:
+`scripts/dev-launch.sh` also prints the pair it chose. If a port race forced a retry, the last
+such line is the live pair (`docs/local-dev.md` §3.1):
 
 ```
 ▶ dev:agent → SSR http://localhost:8790  ·  API :8789 (proxied via http://localhost:8790/api/*)

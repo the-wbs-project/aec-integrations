@@ -92,6 +92,20 @@ Two scripts split the lanes.
   starting at `8790/8789` (`scripts/dev-launch.sh`), stepping up in twos, so it never touches
   the reserved conductor pair. It prints the URL it chose.
 
+**`dev:agent` retries a lost port race (AECI-2014).** The API runs local migrations for about a
+minute before wrangler binds. A sibling workspace can take the chosen port in that gap. When
+wrangler then fails with `Address already in use`, the launcher prints a `↻ dev:agent` line,
+re-scans from the next pair up, and relaunches without rebuilding.
+
+- It tries at most three times in total. Set `AECI_DEV_RETRIES` to change the bound.
+- A pinned pair (`AECI_WEB_PORT` set by the caller) never retries. It exits with a hint.
+- Read the **last** `▶ dev:agent →` line for the live pair. After a retry, earlier lines are stale.
+- The full output of the current attempt is also in `.wrangler/dev-launch.log`.
+- Stopping the launcher stops the whole stack. It forwards Ctrl-C and `SIGTERM` to every
+  `workerd` it started.
+- `scripts/dev-launch.test.mjs` covers the scan, the retry, the bound, the pinned case and
+  teardown, with fake `pnpm` and `lsof`. It runs in `pnpm test:scripts`.
+
 The port override is plumbed through `AECI_WEB_PORT` and `AECI_API_PORT`. Each app's
 `dev:preview` honors its port; Playwright uses `AECI_WEB_PORT` to find the SSR Worker.
 The ports default to `8788/8787`, and each workspace gets its own registry too.
