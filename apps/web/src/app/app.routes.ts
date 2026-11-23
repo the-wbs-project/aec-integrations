@@ -603,7 +603,9 @@ export const routes: Routes = [
   // tokenized `/unsubscribe?token=…` link. Deliberately NOT cacheable and NOT
   // indexed: the URL carries a per-subscriber token, so it is absent from
   // `ROUTE_CACHE_PATTERNS` + `cacheTagInputsForPath` (fail-closed `private,
-  // no-store`) and the component sets `robots: noindex`. RenderMode.Server (the
+  // no-store`) and the component sets `robots: noindex`. It is also on the
+  // never-cached list (`isNeverCacheablePath`, AECI-1848), so even a 404 is never
+  // edge-cached and the skip link's server-rendered href keeps the token. RenderMode.Server (the
   // `**` default). No resolver — the opt-out POSTs to `/api/unsubscribe` only on
   // the confirm click (a GET must never mutate). Not linked from site nav.
   {
@@ -613,7 +615,8 @@ export const routes: Routes = [
   // AECI-1435 — the confirm page behind the claim-confirm email
   // (`/claims/confirm?token=…`, ADR 0043). Same rules as `/unsubscribe`: NOT
   // cacheable (absent from `ROUTE_CACHE_PATTERNS`, fail-closed `private, no-store`),
-  // noindex, no resolver, and it POSTs to `/api/requests/confirm` only on the confirm
+  // never-cached even on a 404 (AECI-1848), noindex, no resolver, and it POSTs to
+  // `/api/requests/confirm` only on the confirm
   // click, because mail scanners prefetch links. Not linked from nav.
   {
     path: 'claims/confirm',
@@ -622,7 +625,8 @@ export const routes: Routes = [
   // AECI-1204 — the confirm page for the "Mute the daily reminder email" link in the daily
   // attestation digest (`/notifications/mute?token=…`). Same rules as
   // `/unsubscribe`: NOT cacheable (absent from `ROUTE_CACHE_PATTERNS`, fail-closed
-  // `private, no-store`), noindex, no resolver, and it POSTs to
+  // `private, no-store`), never-cached even on a 404 (AECI-1848), noindex, no
+  // resolver, and it POSTs to
   // `/api/notifications/nudges/mute` only on the confirm click. Not linked from nav.
   {
     path: 'notifications/mute',

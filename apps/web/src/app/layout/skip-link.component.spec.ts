@@ -97,6 +97,10 @@ describe('SkipLink', () => {
     it('keeps the whole query on a route the edge never caches', async () => {
       expect(href(await render('/search?q=x&utm_source=y'))).toBe('/search?q=x&utm_source=y#main');
     });
+
+    it('keeps the token on an email token page (AECI-1848)', async () => {
+      expect(href(await render('/unsubscribe?token=x'))).toBe('/unsubscribe?token=x#main');
+    });
   });
 
   describe('when the URL changes without a router navigation', () => {

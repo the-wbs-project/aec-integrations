@@ -1464,6 +1464,10 @@ describe('createApp 404 handling (AC: §9.1b, not the pinned-404 trap)', () => {
     ['/account/missing', false],
     ['/auth/missing', false],
     ['/search', false],
+    // AECI-1848 — the email token pages.
+    ['/unsubscribe', false],
+    ['/claims/confirm', false],
+    ['/notifications/mute', false],
   ])('keeps a 404 on %s private and untagged (AECI-1442)', async (path, needsSession) => {
     const { binding } = recordingApiBinding();
     const app = createApp({
@@ -1557,6 +1561,12 @@ describe('isNeverCacheablePath (AECI-1442)', () => {
     '/vendor/acme',
     '/search',
     '/search/x',
+    '/unsubscribe',
+    '/unsubscribe/x',
+    '/claims/confirm',
+    '/claims/confirm/x',
+    '/notifications/mute',
+    '/notifications/mute/x',
   ])('is true for %s', (path) => {
     expect(isNeverCacheablePath(path)).toBe(true);
   });
@@ -1571,6 +1581,11 @@ describe('isNeverCacheablePath (AECI-1442)', () => {
     '/authors',
     '/accounts',
     '/searching',
+    '/unsubscribed',
+    '/claims',
+    '/claims/confirmation',
+    '/notifications',
+    '/notifications/muted',
     '/this-route-does-not-exist',
   ])('is false for %s', (path) => {
     expect(isNeverCacheablePath(path)).toBe(false);

@@ -65,8 +65,9 @@
  *
  * 404s on a non-cacheable path are the one exception (AECI-62): they get
  * `NOT_FOUND_TTL` + `route:404`. That exception skips `/auth`, `/account`,
- * `/welcome`, `/admin`, `/vendor` and `/search` (`isNeverCacheablePath`,
- * AECI-1442): a 404 there stays `private, no-store`.
+ * `/welcome`, `/admin`, `/vendor`, `/search` and the email token pages
+ * (`isNeverCacheablePath`, AECI-1442, AECI-1848): a 404 there stays
+ * `private, no-store`.
  *
  * Locale prefixes from `LOCALES` are stripped before classification so the
  * matcher table stays single-source as locales are added. The `LOCALES`
@@ -637,8 +638,9 @@ export function isCacheableRoute(url: URL): boolean {
 /**
  * AECI-1442 — paths whose responses must never enter the shared edge cache, at
  * any status. Input is the locale-stripped path (`stripLocalePrefix`). True for
- * `/auth`, `/account`, `/welcome`, `/admin`, `/vendor` and `/search`, each as an
- * exact match or a `prefix/` match. `/vendor` is SINGULAR: the public
+ * `/auth`, `/account`, `/welcome`, `/admin`, `/vendor`, `/search` and the email
+ * token pages `/unsubscribe`, `/claims/confirm` and `/notifications/mute`
+ * (AECI-1848), each as an exact match or a `prefix/` match. `/vendor` is SINGULAR: the public
  * `/vendors/:slug` page and `/vendor-program` are not matched (`isVendorPath`).
  *
  * The non-cacheable branch of `handleSsr` reads this to keep the AECI-62 404

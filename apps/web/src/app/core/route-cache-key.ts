@@ -90,7 +90,8 @@ export function cacheKeyQuery(allowed: readonly string[], source: URLSearchParam
 
 /**
  * Paths whose responses never enter the shared edge cache, at any status (AECI-1442). Input
- * is the locale-stripped path. `/vendor` is SINGULAR: the public `/vendors/:slug` page and
+ * is the locale-stripped path. The email token pages `/unsubscribe`, `/claims/confirm` and
+ * `/notifications/mute` are on it too (AECI-1848). `/vendor` is SINGULAR: the public `/vendors/:slug` page and
  * `/vendor-program` are not matched.
  */
 export function isAdminPath(localePath: string): boolean {
@@ -110,6 +111,11 @@ export function isNeverCacheablePath(localePath: string): boolean {
     underPrefix('/auth') ||
     underPrefix('/account') ||
     underPrefix('/welcome') ||
-    underPrefix('/search')
+    underPrefix('/search') ||
+    // AECI-1848 — the token pages behind email links. The URL carries a per-recipient
+    // token, so no response may be stored, and the skip link keeps the whole query.
+    underPrefix('/unsubscribe') ||
+    underPrefix('/claims/confirm') ||
+    underPrefix('/notifications/mute')
   );
 }
