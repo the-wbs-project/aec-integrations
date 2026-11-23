@@ -1,6 +1,16 @@
 import { DatePipe, formatDate } from '@angular/common';
-import { Component, LOCALE_ID, afterNextRender, computed, inject, signal } from '@angular/core';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import {
+  Component,
+  LOCALE_ID,
+  afterNextRender,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked,
+} from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, type ParamMap, type Params, Router, RouterLink } from '@angular/router';
 
 import {
   ADMIN_USERS_DEFAULT_PER_PAGE,
@@ -44,12 +54,11 @@ type RoleFilter = 'any' | 'reviewer' | 'vendor_admin' | 'admin';
  * `GET /api/admin/users` carries the session cookie for `requireAdmin()` to
  * verify. It never reads cookies or session state directly.
  *
- * **Filters seed from the query string, once, on init.** `/admin/reviewers` now
- * redirects here as `?banned=true`, so that link has to actually arrive filtered.
- * Read-only and one-way: changing a filter does NOT write back to the URL. A
- * two-way binding would put a `Router.navigate` on every dropdown change, and the
- * back button would then walk the operator through their own filter history
- * instead of leaving the screen.
+ * **The URL is the list's state (AECI-1935).** `role`, `banned`, `has_seat`,
+ * `search`, `sort`, `order` and `page` live in the query string, the way
+ * `/admin/vendors` keeps its own (AECI-1934). See {@link queryParams}.
+ * `/admin/reviewers` redirects here as `?banned=true`, so that link arrives
+ * filtered by the same read.
  *
  * **No ban control here.** Ban needs a reason, so an inline control would mean
  * the claim-queue two-step form on every row; and the issue's own premise is that
@@ -81,11 +90,11 @@ type RoleFilter = 'any' | 'reviewer' | 'vendor_admin' | 'admin';
 export class UserList {
   private readonly api = inject(AdminUsersApi);
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly locale = inject(LOCALE_ID);
 
   protected readonly users = signal<readonly AdminUserRow[]>([]);
   protected readonly total = signal(0);
-  protected readonly page = signal(1);
   protected readonly perPage = ADMIN_USERS_DEFAULT_PER_PAGE;
 
   protected readonly loading = signal(true);
@@ -106,25 +115,48 @@ export class UserList {
    *  empty page from a seam-down email search reads as "no such user". */
   protected readonly emailSearch = signal<AdminUsersListResponseEmailSearch>(null);
 
-  /** The committed search term — what was last SENT, not what is being typed.
-   *  A keystroke-per-request search over a `LIKE '%…%'` scan would be a lot of
-   *  scans to answer a question the operator has not finished asking, and each
-   *  one containing `@` would also cost a GoTrue round trip. */
-  protected readonly search = signal('');
+  /**
+   * The list's state lives in the URL (AECI-1935), as on `/admin/vendors`. It is
+   * READ reactively, so reload, Back and a shared link all restore it, and it is
+   * WRITTEN by pushing a navigation. Each change is a history entry, so Back walks
+   * back through the operator's filters and pages. A default is left out, so the
+   * bare `/admin/users` stays canonical. `/admin` is never edge-cached, so no
+   * cache key forks.
+   *
+   * The page is in the URL here and not on `/admin/vendors` because this list
+   * pages with Previous/Next, where the vendor list scrolls.
+   *
+   * A hand-edited junk value reads as the default rather than 400ing the request:
+   * a bad link should narrow nothing, not break the screen.
+   */
+  private readonly queryParams = toSignal(this.route.queryParamMap, {
+    initialValue: this.route.snapshot.queryParamMap,
+  });
+  private readonly urlState = computed(() => readUrlState(this.queryParams()), {
+    equal: (a, b) => JSON.stringify(a) === JSON.stringify(b),
+  });
+
+  /** The committed search term, from the URL: what was last SENT, not what is
+   *  being typed. A keystroke-per-request search over a `LIKE '%…%'` scan would be
+   *  a lot of scans to answer a question the operator has not finished asking,
+   *  and each one containing `@` would also cost a GoTrue round trip. */
+  protected readonly search = computed(() => this.urlState().search);
   protected readonly searchDraft = signal('');
 
-  /** The active sort key. Component state, not a URL parameter: this screen
-   *  already reads its filters from the query string ONE WAY and deliberately
-   *  does not write back, and a sort control is no different. */
-  protected readonly sort = signal<AdminUsersSort>('created');
+  /** The active sort key, from the URL. `created` when absent. */
+  protected readonly sort = computed(() => this.urlState().sort);
 
-  /** Direction for {@link sort}, starting at that key's natural direction so a
-   *  first render matches a bare `?sort=` request. See `vendor-list.ts`, which
-   *  documents the same pair. */
-  protected readonly order = signal<SortOrder>(ADMIN_USER_SORT_DEFAULT_ORDER['created']);
+  /** Direction for {@link sort}. Absent from the URL means the key's natural
+   *  direction, so a first render matches a bare `?sort=` request. See
+   *  `vendor-list.ts`, which documents the same pair. */
+  protected readonly order = computed(() => this.urlState().order);
+
+  /** The page shown, from the URL. 1 when absent. */
+  protected readonly page = computed(() => this.urlState().page);
 
   /** The operator asked for last sign-in and the seam could not answer, so the API
-   *  ordered by `created`. The arrow and `aria-sort` follow what the server did. */
+   *  ordered by `created`. The arrow and `aria-sort` follow what the server did.
+   *  The URL keeps `sort=last_sign_in`: it records what was asked. */
   protected readonly sortFellBack = computed(
     () => this.sort() === 'last_sign_in' && !this.authAvailable(),
   );
@@ -132,9 +164,9 @@ export class UserList {
     this.sortFellBack() ? 'created' : this.sort(),
   );
 
-  protected readonly role = signal<RoleFilter>('any');
-  protected readonly banned = signal<TriFilter>('any');
-  protected readonly hasSeat = signal<TriFilter>('any');
+  protected readonly role = computed(() => this.urlState().role);
+  protected readonly banned = computed(() => this.urlState().banned);
+  protected readonly hasSeat = computed(() => this.urlState().hasSeat);
 
   protected readonly roleOptions: readonly AecSelectOption[] = [
     { value: 'any', label: $localize`:@@admin.users.filter.role.any:Any role` },
@@ -157,29 +189,29 @@ export class UserList {
 
   protected readonly isEmpty = computed(() => !this.loading() && this.users().length === 0);
 
-  constructor() {
-    this.seedFromQueryParams();
-    afterNextRender(() => {
-      void this.load();
-    });
-  }
+  /** False until the browser renders. Nothing is fetched during SSR, because the
+   *  same-origin read needs the browser's session cookie. */
+  private readonly ready = signal(false);
 
-  /** One-way, on construction only. See the class doc for why it does not
-   *  write back. Unknown values fall through to `'any'` rather than 400ing the
-   *  request — a hand-edited URL should narrow nothing, not break the screen. */
-  private seedFromQueryParams(): void {
-    const params = this.route.snapshot.queryParamMap;
-    const banned = params.get('banned');
-    if (banned === 'true' || banned === 'false') this.banned.set(banned);
-    const hasSeat = params.get('has_seat');
-    if (hasSeat === 'true' || hasSeat === 'false') this.hasSeat.set(hasSeat);
-    const role = params.get('role');
-    if (role === 'reviewer' || role === 'vendor_admin' || role === 'admin') this.role.set(role);
-    const search = params.get('search');
-    if (search) {
-      this.search.set(search);
-      this.searchDraft.set(search);
-    }
+  /** Bumped by every load. A response from a superseded load (a fast Back, say)
+   *  is dropped rather than painted over the newer one. */
+  private loadSeq = 0;
+
+  constructor() {
+    afterNextRender(() => this.ready.set(true));
+
+    // The search box follows the URL, so Back restores the text with the rows.
+    effect(() => {
+      const search = this.search();
+      untracked(() => this.searchDraft.set(search));
+    });
+
+    // One load per distinct URL state, including the first.
+    effect(() => {
+      if (!this.ready()) return;
+      this.urlState();
+      untracked(() => void this.load());
+    });
   }
 
   protected onSearchInput(event: Event): void {
@@ -195,14 +227,12 @@ export class UserList {
   }
 
   protected submitSearch(): void {
-    this.search.set(this.searchDraft().trim());
-    this.refilter();
+    this.refilter({ search: this.searchDraft().trim() });
   }
 
   protected clearSearch(): void {
     this.searchDraft.set('');
-    this.search.set('');
-    this.refilter();
+    this.refilter({ search: '' });
   }
 
   /** Live for the active column, natural for the other — read from the SHARED
@@ -213,61 +243,63 @@ export class UserList {
   }
 
   protected onSortChange(change: { key: string; order: 'asc' | 'desc' }): void {
-    this.sort.set(change.key as AdminUsersSort);
-    this.order.set(change.order);
-    this.refilter();
+    const sort = isSortKey(change.key) ? change.key : DEFAULT_SORT;
+    this.refilter({ sort, order: change.order });
   }
 
   protected onRoleChange(value: string | null): void {
-    this.role.set((value as RoleFilter | null) ?? 'any');
-    this.refilter();
+    this.refilter({ role: (value as RoleFilter | null) ?? 'any' });
   }
 
   protected onBannedChange(value: string | null): void {
-    this.banned.set((value as TriFilter | null) ?? 'any');
-    this.refilter();
+    this.refilter({ banned: (value as TriFilter | null) ?? 'any' });
   }
 
   protected onSeatChange(value: string | null): void {
-    this.hasSeat.set((value as TriFilter | null) ?? 'any');
-    this.refilter();
+    this.refilter({ hasSeat: (value as TriFilter | null) ?? 'any' });
   }
 
   protected goToPage(page: number): void {
-    this.page.set(page);
-    void this.load();
+    this.navigate({ ...this.urlState(), page });
   }
 
   protected retry(): void {
     void this.load();
   }
 
-  /** Any filter change: back to page 1, then refetch. Without it, narrowing a
+  /** Any filter, search or sort change: back to page 1. Without it, narrowing a
    *  filter while on page 6 lands the operator on an empty page that looks like
-   *  "no results". */
-  private refilter(): void {
-    this.page.set(1);
-    void this.load();
+   *  "no results". Page 1 is the default, so `page` drops from the URL. */
+  private refilter(change: Partial<UrlState>): void {
+    this.navigate({ ...this.urlState(), ...change, page: 1 });
+  }
+
+  /** Push the new state into the URL, defaults left off. The URL effect in the
+   *  constructor does the fetch, so Back takes the same path. */
+  private navigate(state: UrlState): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: toQueryParams(state),
+    });
   }
 
   private async load(): Promise<void> {
+    const seq = ++this.loadSeq;
     this.loading.set(true);
     this.loadFailed.set(false);
     try {
-      const search = this.search();
-      const role = this.role();
-      const banned = this.banned();
-      const hasSeat = this.hasSeat();
+      const { search, role, banned, hasSeat, sort, order, page } = this.urlState();
       const response = await this.api.listUsers({
-        page: this.page(),
+        page,
         perPage: this.perPage,
-        sort: this.sort(),
-        order: this.order(),
+        sort,
+        order,
         ...(search ? { search } : {}),
         ...(role === 'any' ? {} : { role }),
         ...(banned === 'any' ? {} : { banned }),
         ...(hasSeat === 'any' ? {} : { has_seat: hasSeat }),
       });
+      if (seq !== this.loadSeq) return;
       this.users.set(response.data);
       this.total.set(response.total);
       this.authAvailable.set(response.auth_available);
@@ -276,11 +308,12 @@ export class UserList {
         $localize`:@@admin.users.announce.loaded:${response.total}:COUNT: people match.`,
       );
     } catch {
+      if (seq !== this.loadSeq) return;
       this.loadFailed.set(true);
       this.users.set([]);
       this.total.set(0);
     } finally {
-      this.loading.set(false);
+      if (seq === this.loadSeq) this.loading.set(false);
     }
   }
 
@@ -346,3 +379,69 @@ export class UserList {
 
 /** The response field's type, without importing the whole envelope for one union. */
 type AdminUsersListResponseEmailSearch = 'matched' | 'no_match' | 'unavailable' | null;
+
+// ─── URL state ───────────────────────────────────────────────────────────────
+
+interface UrlState {
+  search: string;
+  role: RoleFilter;
+  banned: TriFilter;
+  hasSeat: TriFilter;
+  sort: AdminUsersSort;
+  order: SortOrder;
+  page: number;
+}
+
+const DEFAULT_SORT: AdminUsersSort = 'created';
+
+function isSortKey(value: string | null): value is AdminUsersSort {
+  return value !== null && Object.hasOwn(ADMIN_USER_SORT_DEFAULT_ORDER, value);
+}
+
+function readTri(value: string | null): TriFilter {
+  return value === 'true' || value === 'false' ? value : 'any';
+}
+
+function readRole(value: string | null): RoleFilter {
+  return value === 'reviewer' || value === 'vendor_admin' || value === 'admin' ? value : 'any';
+}
+
+/** A positive integer, written in plain digits. Anything else is page 1. */
+function readPage(value: string | null): number {
+  if (value === null || !/^\d+$/.test(value)) return 1;
+  const page = Number(value);
+  return Number.isSafeInteger(page) && page >= 1 ? page : 1;
+}
+
+/** The URL, sanitised. A junk value reads as its default. An absent `order`
+ *  is the sort key's natural direction. */
+function readUrlState(params: ParamMap): UrlState {
+  const rawSort = params.get('sort');
+  const sort = isSortKey(rawSort) ? rawSort : DEFAULT_SORT;
+  const rawOrder = params.get('order');
+  const order: SortOrder =
+    rawOrder === 'asc' || rawOrder === 'desc' ? rawOrder : ADMIN_USER_SORT_DEFAULT_ORDER[sort];
+  return {
+    search: params.get('search')?.trim() ?? '',
+    role: readRole(params.get('role')),
+    banned: readTri(params.get('banned')),
+    hasSeat: readTri(params.get('has_seat')),
+    sort,
+    order,
+    page: readPage(params.get('page')),
+  };
+}
+
+/** Every key is written, with `null` for a default, so a default DROPS from the
+ *  URL rather than lingering from the previous state. */
+function toQueryParams(state: UrlState): Params {
+  return {
+    search: state.search || null,
+    role: state.role === 'any' ? null : state.role,
+    banned: state.banned === 'any' ? null : state.banned,
+    has_seat: state.hasSeat === 'any' ? null : state.hasSeat,
+    sort: state.sort === DEFAULT_SORT ? null : state.sort,
+    order: state.order === ADMIN_USER_SORT_DEFAULT_ORDER[state.sort] ? null : state.order,
+    page: state.page === 1 ? null : state.page,
+  };
+}

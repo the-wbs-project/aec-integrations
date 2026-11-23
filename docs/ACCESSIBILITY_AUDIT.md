@@ -339,6 +339,16 @@ message on a refusal. The ban-term date error is now a `role="alert"` live regio
 control beside the panel had the same gaps and got the same fix. Component specs assert
 `document.activeElement` after each step. The rules are in `ADMIN_PANEL_SPEC.md` §5.7 and §5.8.
 
+**Same gap, five more controls (AECI-1994, 2026-11-22; found by reading the code, not yet re-run
+with Playwright).** Five inline controls on the vendor page dropped focus to `<body>` when the API
+refused a submit: the subscription row actions, the bulk subscription actions, the grant
+Withdraw, "Add a seat" and "Return records to AECi". Each refusal message now takes focus
+(`tabindex="-1"`). "Add a seat" now focuses the email field on open and returns focus to its
+button on Cancel. "Return records to AECi" returns focus to its button on
+Cancel. Component specs assert `document.activeElement`. The rules are in `ADMIN_PANEL_SPEC.md`
+§5.7. A successful action can still lose focus when the page reloads or the control
+disappears. AECI-2001 tracks that.
+
 ---
 
 ## 11. Redesign accessibility gate (AECI-1818, 2026-11-18)
@@ -501,3 +511,16 @@ after it has.
 
 Evidence: `.context/for-chris/a11y/` in the workspace holds the screenshots, the focus captures
 and the raw per-surface JSON.
+
+## 12. Field error states (AECI-1984, 2026-11-22)
+
+**Scope:** the shared field-error recipe (`FIELD_ERROR_CLASS`, `CHOICE_CARD_CLASS`, `CHOICE_INPUT_CLASS`) after it gained the `--status-error` icon, the red choice-card edge and the red outline on a bare checkbox. Tags: `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa`, `wcag22aa`. Run against local `pnpm dev:agent`, Chrome via Playwright.
+
+| Surface, error state showing | axe violations | Notes |
+|---|---|---|
+| `/auth/login`, invalid email (live page) | 0 | Icon shows. The input border stays grey because the login input is not on `.aec-field-control` yet. AECI-1850 owns that. |
+| Recipe harness: text field, choice card, bare checkbox, valid card | 0 | Rendered on the compiled stylesheet. The computed card border, checkbox outline and icon colour are all `--status-error`. A focused bare checkbox shows the Forest ring, not the red outline. |
+
+**Not reached live:** `/auth/terms`, `/welcome` and the review form need a session, and sign-in does not complete on an agent port. The claim dialog needs a product search to reach its fields. The class wiring on those surfaces is covered by component specs (`terms-accept.component.spec.ts`) and the class-assertion spec (`form-field-classes.spec.ts`).
+
+**Contrast:** `--status-error` is 6.54:1 on white. That is above the 3:1 needed for a non-text boundary or icon (WCAG 1.4.11). The error text stays `--text-primary` on `main`. On the redesign branch (sync 15) the message keeps the redesign recipe (clash 23): 14px at weight 600 in `--status-error`, 6.54:1 on white.

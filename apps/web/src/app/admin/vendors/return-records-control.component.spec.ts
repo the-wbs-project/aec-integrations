@@ -8,7 +8,8 @@
  *  3. the confirm step requires a reason before it calls the API;
  *  4. a success emits the result and announces through the host;
  *  5. a `VENDOR_HAS_SEATS` refusal is shown in its own words;
- *  6. the confirm step names the open product proposals the return discards (AECI-1416).
+ *  6. the confirm step names the open product proposals the return discards (AECI-1416);
+ *  7. open, Cancel and a refusal each move focus on purpose (AECI-1994).
  */
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, provideZonelessChangeDetection, signal } from '@angular/core';
@@ -160,6 +161,21 @@ describe('ReturnRecordsControl', () => {
     expect(el.querySelector('[role="alert"]')?.textContent).toContain(
       'This vendor still has a seat.',
     );
+    // AECI-1994: the disabled confirm dropped focus, so the refusal takes it.
+    expect(document.activeElement?.getAttribute('role')).toBe('alert');
+    expect(document.activeElement?.textContent).toContain('This vendor still has a seat.');
+  });
+
+  it('focuses the reason on open, and Cancel returns focus to the button (AECI-1994)', async () => {
+    const { el, refresh, button } = await setup(vi.fn());
+    button('Return records to AECi')!.click();
+    await refresh();
+    expect(document.activeElement).toBe(el.querySelector('#host-return-reason'));
+
+    button('Cancel')!.click();
+    await refresh();
+    expect(el.querySelector('#host-return-reason')).toBeNull();
+    expect(document.activeElement).toBe(button('Return records to AECi'));
   });
 
   it('names the open product proposals the return discards (AECI-1416)', async () => {

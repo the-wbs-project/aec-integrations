@@ -122,7 +122,7 @@ function cursorParam(params: ParamMap, key: string): string | undefined {
 
 /**
  * Read the URL. Anything the server would refuse is dropped rather than sent,
- * the same rule as `user-list.ts` `seedFromQueryParams`: a hand-edited URL
+ * the same rule as `user-list.ts` `readUrlState`: a hand-edited URL
  * should narrow nothing, not break the screen.
  *
  *  - an `entity_id` with no `entity_type` is dropped;

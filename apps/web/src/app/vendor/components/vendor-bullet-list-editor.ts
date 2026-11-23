@@ -10,6 +10,7 @@ import {
 } from '@angular/core';
 
 import { VendorPortalAnnouncer } from '../vendor-announcer';
+import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
 
 /** One bullet in a draft list. `id` is a client-only key so a row keeps its DOM
  *  node (and its focus) across a reorder; it never reaches the wire. */
@@ -85,10 +86,7 @@ export function newBullet(text = ''): BulletDraft {
                   (keydown.enter)="onEnter($event, last)"
                 />
                 @if (tooLong(bullet)) {
-                  <p
-                    [id]="inputId(bullet.id) + '-error'"
-                    class="mt-1 text-xs font-medium text-(--text-primary)"
-                  >
+                  <p [id]="inputId(bullet.id) + '-error'" [class]="'mt-1 ' + errorClass">
                     {{ tooLongMessage(bullet) }}
                   </p>
                 }
@@ -194,6 +192,8 @@ export function newBullet(text = ''): BulletDraft {
   styles: [':host { display: block; }'],
 })
 export class VendorBulletListEditor {
+  /** A field's inline error: the shared recipe (AECI-1984). */
+  protected readonly errorClass = FIELD_ERROR_CLASS;
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly announcer = inject(VendorPortalAnnouncer);
   private readonly injector = inject(Injector);

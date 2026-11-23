@@ -24,6 +24,7 @@ import {
 
 import { AdminLicensesApi } from './admin-licenses-api';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
 
 /**
  * The API's rule for a ban-term `ends_at` (`createBanTermLicensesHandler`): the value
@@ -179,6 +180,8 @@ export function uncoveredBanTermCandidates(
   templateUrl: './ban-term-licenses-control.html',
 })
 export class BanTermLicensesControl {
+  /** A field's inline error: the shared recipe (AECI-1984). */
+  protected readonly errorClass = FIELD_ERROR_CLASS;
   private readonly api = inject(AdminLicensesApi);
 
   readonly vendorId = input.required<string>();

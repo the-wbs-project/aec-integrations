@@ -30,6 +30,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
 import { VENDOR_CREATE_FORM_START_OPEN } from './vendor-integration-create';
 import { VendorLogoField, type SaveLogo } from './vendor-logo-field';
 import { isReplayedEvent } from '../../core/event-replay';
+import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
 
 /** The text fields, in form order. The logo and categories have their own controls. */
 const TEXT_FIELDS = ['name', 'description', 'website'] as const;
@@ -611,7 +612,7 @@ export class VendorProductCreate implements OnInit {
     'block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase';
   protected readonly inputClass =
     'w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly errorClass = 'max-w-prose text-xs font-medium text-(--text-primary)';
+  protected readonly errorClass = `max-w-prose ${FIELD_ERROR_CLASS}`;
   protected readonly linkClass =
     'inline-block rounded-(--radius-sm) text-sm font-medium text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
   protected readonly primaryButtonClass =

@@ -37,6 +37,7 @@ import {
 } from './vendor-contest-labels';
 import { VendorDocsLink } from './vendor-docs-link';
 import { isReplayedEvent } from '../../core/event-replay';
+import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
 
 /** The owner picker's value for "neither endpoint vendor". Never a UUID, so it
  *  can never collide with a vendor id. It becomes `null` on the wire. */
@@ -201,7 +202,7 @@ interface SelectOption {
               </svg>
             </div>
             @if (attempted() && field() === null) {
-              <p role="alert" class="text-xs font-medium text-(--text-primary)">
+              <p role="alert" [class]="errorClass">
                 {{ fieldRequiredMessage }}
               </p>
             }
@@ -297,11 +298,7 @@ interface SelectOption {
                 }
               }
               @if (showValueError()) {
-                <p
-                  [id]="fieldId('value') + '-error'"
-                  role="alert"
-                  class="text-xs font-medium text-(--text-primary)"
-                >
+                <p [id]="fieldId('value') + '-error'" role="alert" [class]="errorClass">
                   {{ valueError() }}
                 </p>
               }
@@ -347,11 +344,7 @@ interface SelectOption {
               Required. Link to a source if you have one, such as your own documentation.
             </p>
             @if (showReasonError()) {
-              <p
-                [id]="fieldId('reason') + '-error'"
-                role="alert"
-                class="text-xs font-medium text-(--text-primary)"
-              >
+              <p [id]="fieldId('reason') + '-error'" role="alert" [class]="errorClass">
                 {{ reasonRequiredMessage }}
               </p>
             }
@@ -385,6 +378,8 @@ interface SelectOption {
   `,
 })
 export class VendorContestForm {
+  /** A field's inline error: the shared recipe (AECI-1984). */
+  protected readonly errorClass = FIELD_ERROR_CLASS;
   private readonly api = inject(VendorApi);
   private readonly store = inject(VendorPortalStore);
   private readonly announcer = inject(VendorPortalAnnouncer);
