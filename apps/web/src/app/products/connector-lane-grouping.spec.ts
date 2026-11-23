@@ -37,6 +37,9 @@ const edge = (
   via: null,
   powered_by_product: null,
   data_object_slugs: [],
+  data_objects: [],
+  partner_categories: [],
+  agreement: null,
   created_at: '2026-01-01T00:00:00.000Z',
   updated_at: '2026-01-01T00:00:00.000Z',
   ...partial,
@@ -388,5 +391,65 @@ describe('countLaneUnderReview (AECI-1666)', () => {
     );
     expect(view.rowCount).toBe(1);
     expect(countLaneUnderReview(view)).toBe(1);
+  });
+});
+
+describe('splitIntegrationLanes — card facts (AECI-1782)', () => {
+  const invoice = { slug: 'invoice', name: 'Invoices' };
+  const rfi = { slug: 'rfi', name: 'RFIs' };
+
+  it('a one-edge row carries the server agreement and data-object names as sent', () => {
+    const row = splitIntegrationLanes(
+      [
+        edge({
+          source: procore,
+          target: sage,
+          agreement: 'single_source',
+          data_objects: [rfi, invoice],
+          data_object_slugs: ['rfi', 'invoice'],
+        }),
+      ],
+      [],
+    ).direct[0]!;
+    expect(row.agreement).toBe('single_source');
+    expect(row.dataObjects).toEqual([rfi, invoice]);
+  });
+
+  it('a collapsed Via row: the weakest flow decides, any conflict wins, names union once', () => {
+    const viaRow = (agreements: ProductIntegrationItem['agreement'][]) =>
+      splitIntegrationLanes(
+        agreements.map((agreement, i) =>
+          edge({
+            source: procore,
+            target: sage,
+            via: agave,
+            name: `edge ${i}`,
+            agreement,
+            data_objects: i === 0 ? [invoice] : [invoice, rfi],
+            data_object_slugs: i === 0 ? ['invoice'] : ['invoice', 'rfi'],
+          }),
+        ),
+        [],
+      ).via[0]!.rows[0]!;
+    expect(viaRow(['confirmed', 'single_source']).agreement).toBe('single_source');
+    expect(viaRow(['confirmed', 'conflict', 'unverified']).agreement).toBe('conflict');
+    expect(viaRow(['confirmed', null]).agreement).toBe('confirmed');
+    expect(viaRow([null, null]).agreement).toBeNull();
+    expect(viaRow(['confirmed', 'confirmed']).dataObjects).toEqual([invoice, rfi]);
+  });
+
+  it('a collapsed Via row never overstates: two one-company edges stay one company, mixed reads the weaker', () => {
+    const viaRow = (agreements: ProductIntegrationItem['agreement'][]) =>
+      splitIntegrationLanes(
+        agreements.map((agreement, i) =>
+          edge({ source: procore, target: sage, via: agave, name: `edge ${i}`, agreement }),
+        ),
+        [],
+      ).via[0]!.rows[0]!;
+    expect(viaRow(['single_source', 'single_source']).agreement).toBe('single_source');
+    expect(viaRow(['confirmed', 'unverified']).agreement).toBe('unverified');
+    expect(viaRow(['unverified', 'confirmed']).agreement).toBe('unverified');
+    expect(viaRow(['single_source', 'confirmed', 'confirmed']).agreement).toBe('single_source');
+    expect(viaRow(['confirmed', 'confirmed']).agreement).toBe('confirmed');
   });
 });

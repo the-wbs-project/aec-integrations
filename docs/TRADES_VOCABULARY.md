@@ -341,7 +341,7 @@ floor.
 | `/trades/:slug` page | 200, indexable | 200, `noindex` |
 | XML sitemap | Included | **Excluded** |
 | IndexNow submit set, and the Google worklist | Buffered for the drain, queued at tier 3 for Google | **Neither** (AECI-546) |
-| Primary-nav flyout (`TaxonomyNavStore.tradesTop10`) | Offered | **Hidden** |
+| Header Browse menu, Trades column (`TaxonomyNavStore.browse`, AECI-1774) | Offered | **Hidden** |
 | Home browse block, trade row (top 10 by `product_count`) | Listed | **Hidden** (AECI-1573) |
 | Facet sidebar (`aec-facet-sidebar`) | Offered as a filter | **Also offered** — the floor does NOT apply; see below |
 | Product-detail trade chips | Rendered + linked | Rendered + linked (the tag is true; the *page* is just not promoted) |
@@ -423,7 +423,7 @@ consumers, and where each applies the floor:
 | Consumer | Where |
 |---|---|
 | `/trades` index grid | `apps/web/src/app/taxonomy/taxonomy-index.ts` (AECI-544) |
-| Primary-nav flyout | `apps/web/src/app/core/taxonomy/taxonomy-nav.store.ts` (AECI-544) |
+| Header Browse menu, Trades column | `apps/web/src/app/core/taxonomy/browse-menu-model.ts` (AECI-544, AECI-1774) |
 | Home browse block, trade row | `apps/web/src/app/home/home.ts` → `topTrades` (AECI-1573) |
 | XML sitemap | `apps/api/src/lib/sitemap-build.ts` (AECI-546 floor, applied in the API build job since AECI-1505) |
 | `<meta name="robots">` on a term page | `apps/web/src/app/taxonomy/taxonomy-browse.resolver.ts` → `applyBrowseMeta` (AECI-546) |

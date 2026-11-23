@@ -125,19 +125,29 @@ import {
 } from '@angular/core';
 import { ResolveFn, Router } from '@angular/router';
 
-import { orderedPairSlugs, type ProductPairResponse } from '@aeci/shared';
+import { orderedPairSlugs, type PairAlternatives, type ProductPairResponse } from '@aeci/shared';
 import { CONTEXT_VERSION_PARAM, OTHER_VERSION_PARAM } from '@aeci/shared/version-diff';
 
 import type { AeciRequestContext } from '../../server/request-context';
 import {
+  fetchPairAlternatives,
   fetchProductPair,
+  pairAlternativesPath,
   pairPath,
+  type PairPageData,
   type PairVersionSelectionParams,
 } from '../core/api/product-pairs';
 import { httpGetOrNull } from '../core/api/http-get-or-null';
-import { fetchSlugRedirect, httpGetSlugRedirect, lookUpRedirect } from '../core/api/slug-redirects';
+import {
+  fetchSlugRedirect,
+  httpGetSlugRedirect,
+  movedPairPath,
+  rewriteRetiredPairSlugs,
+} from '../core/api/slug-redirects';
 import { canonicalUrl } from '../core/canonical';
+import { META_DESCRIPTION_MAX } from '../core/meta.helpers';
 import { MetaService } from '../core/meta.service';
+import { integrationsZeroCaveat } from '../shared/figure/figure';
 
 /**
  * `Cache-Control` for the moved-pair 301 (AECI-953).
@@ -153,46 +163,6 @@ import { MetaService } from '../core/meta.service';
  * app code cannot import (it pulls in the Worker `Bindings` types).
  */
 const MOVED_PAIR_CACHE_CONTROL = 'public, max-age=3600, s-maxage=86400';
-
-/**
- * The pair-page path a moved pair redirects to. One spelling for both branches, so the
- * `Location` header and the client-side `navigateByUrl` can never disagree.
- *
- * The API has already oriented the two slugs for the requesting URL, so this does NOT
- * canonicalise them — the endpoint the reader asked for stays in frame, and the new
- * page's own `<link rel=canonical>` handles the alphabetical rule (§7.1/§11.2).
- */
-function movedPairPath(movedTo: { context_slug: string; other_slug: string }): string {
-  return `/products/${movedTo.context_slug}/integrations/${movedTo.other_slug}`;
-}
-
-/**
- * Apply the retired-slug map to the two slugs of a pair URL (AECI-991).
- *
- * `null` when neither slug is mapped (the ordinary case — most pair 404s are junk),
- * or when the rewrite would name a pair whose two endpoints are the same product.
- *
- * Both lookups go out in ONE wave. They are independent, this request has already
- * decided to 404, and serialising them would double the latency of a page nobody is
- * being shown.
- */
-async function rewriteRetiredPairSlugs(
-  contextSlug: string,
-  otherSlug: string,
-  lookup: (slug: string) => Promise<{ to_slug: string } | null>,
-): Promise<{ context_slug: string; other_slug: string } | null> {
-  const [context, other] = await Promise.all([
-    lookUpRedirect(() => lookup(contextSlug)),
-    lookUpRedirect(() => lookup(otherSlug)),
-  ]);
-  if (!context && !other) return null;
-  const nextContext = context?.to_slug ?? contextSlug;
-  const nextOther = other?.to_slug ?? otherSlug;
-  // A merge whose survivor is the pair's OTHER endpoint — the two products are now
-  // one, there is no pair, and the API 404s equal slugs by definition.
-  if (nextContext === nextOther) return null;
-  return { context_slug: nextContext, other_slug: nextOther };
-}
 
 /**
  * `Cache-Tag` for a retired-endpoint pair 301 (AECI-991), per `CACHE_STRATEGY.md`
@@ -263,6 +233,38 @@ function pairMetaDescription(pair: ProductPairResponse): string {
   return $localize`:@@pair.meta.description:How ${context}:context: and ${other}:other: exchange data across their integrations.`;
 }
 
+/**
+ * AECI-1827: the empty pair's `<title>` (legal review item 1, `STAGE_1_5_SPEC.md` §11.4:
+ * the caveat goes wherever the statement appears, the title included). Ruling 97: the
+ * two names, then the caveat word for word. Truncation only ever cuts from the end, so a
+ * cut title still reads "{A} and {B}: Not on record…" and never a bare "no integration".
+ * It is longer than the 60-character budget on purpose: `fitTitle` emits its last rung
+ * whole, the page is `noindex`, and the app cuts nothing. No brand suffix, because the
+ * caveat must come before anything else.
+ */
+export function emptyPairMetaTitle(pair: ProductPairResponse): string {
+  const context = pair.context_product.name;
+  const other = pair.other_product.name;
+  const caveat = integrationsZeroCaveat();
+  return $localize`:@@pair.empty.meta.title:${context}:context: and ${other}:other:: ${caveat}:caveat:`;
+}
+
+/**
+ * AECI-1827: the empty pair's meta description, which `og:description` and
+ * `twitter:description` copy. The statement and the caveat, word for word, while both
+ * fit the 155-character budget. When long names push past it, the title's form (names,
+ * then the caveat), and as a last rung the caveat alone. Each rung fits whole, so
+ * `truncateAtWordBoundary` never cuts it and the statement never shows without the caveat.
+ */
+export function emptyPairMetaDescription(pair: ProductPairResponse): string {
+  const context = pair.context_product.name;
+  const other = pair.other_product.name;
+  const caveat = integrationsZeroCaveat();
+  const statement = $localize`:@@pair.empty.statement.plain:We have no integration between ${context}:context: and ${other}:other: on record.`;
+  const rungs = [`${statement} ${caveat}`, emptyPairMetaTitle(pair), caveat];
+  return rungs.find((rung) => rung.length <= META_DESCRIPTION_MAX) ?? caveat;
+}
+
 export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async (route) => {
   const contextSlug = route.paramMap.get('contextSlug') ?? '';
   const otherSlug = route.paramMap.get('otherSlug') ?? '';
@@ -304,14 +306,17 @@ export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async
     // genuinely `undefined` at runtime against an API Worker that predates it —
     // and `undefined?.is_default === false` is `false`, i.e. indexable, which is
     // the correct degradation.
-    const noindex = pair.mechanisms.length === 0 || pair.version_diff?.is_default === false;
-    const name = pairMetaName(pair);
-    const description = pairMetaDescription(pair);
+    const empty = pair.mechanisms.length === 0;
+    const noindex = empty || pair.version_diff?.is_default === false;
+    // AECI-1827: an empty pair's title and description carry the caveat. No fallbacks, so
+    // `fitTitle` emits the caveat title whole rather than a shorter rung without it.
+    const name = empty ? emptyPairMetaTitle(pair) : pairMetaName(pair);
+    const description = empty ? emptyPairMetaDescription(pair) : pairMetaDescription(pair);
 
     meta.setEntityMeta({
       entity: 'integration',
       name,
-      titleFallbacks: pairMetaTitleFallbacks(pair),
+      titleFallbacks: empty ? [] : pairMetaTitleFallbacks(pair),
       description,
       canonical,
       // Pairs have no own logo; OG falls back to the site default.
@@ -355,9 +360,19 @@ export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async
     // always has one, and a null router simply skips the redirect and renders.
     const router = inject(Router, { optional: true });
     const http = inject(HttpClient);
-    const pair = transferState.hasKey(stateKey)
+    const transferred = transferState.hasKey(stateKey);
+    let pair: PairPageData | null = transferred
       ? transferState.get(stateKey, null)
       : await httpGetOrNull<ProductPairResponse>(http, pairPath(contextSlug, otherSlug, selection));
+    // AECI-1829 / AECI-1830: an in-app navigation to an empty pair reads its alternatives
+    // too. A hydration hit already carries what the server rendered, in the same slot.
+    if (!transferred && pair && pair.mechanisms.length === 0 && !pair.moved_to) {
+      const alternatives = await httpGetOrNull<PairAlternatives>(
+        http,
+        pairAlternativesPath(contextSlug, otherSlug),
+      );
+      pair = { ...pair, alternatives };
+    }
 
     // AECI-953 — the client half of the moved-pair redirect. A SPA navigation has no
     // HTTP status, so the equivalent of a 301 is a `replaceUrl` navigation: the moved
@@ -395,7 +410,12 @@ export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async
     return null;
   }
 
-  const pair = await fetchProductPair(ctx.api, contextSlug, otherSlug, selection);
+  let pair: PairPageData | null = await fetchProductPair(
+    ctx.api,
+    contextSlug,
+    otherSlug,
+    selection,
+  );
 
   // ── AECI-953: the moved-pair 301, before anything else the server does ──────
   // Checked ahead of the `!pair` 404 branch and ahead of the TransferState write:
@@ -423,6 +443,16 @@ export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async
     headers.set('Cache-Tag', `pair:${minSlug}__${maxSlug}`);
     transferState.set(stateKey, null);
     return null;
+  }
+
+  // AECI-1829 / AECI-1830: an empty pair renders its alternatives on the server, in the
+  // same TransferState slot, so the cached HTML holds them for every visitor. A failed
+  // read renders the page without them rather than failing it.
+  if (pair && pair.mechanisms.length === 0) {
+    const alternatives = await fetchPairAlternatives(ctx.api, contextSlug, otherSlug).catch(
+      () => null,
+    );
+    pair = { ...pair, alternatives };
   }
 
   transferState.set(stateKey, pair);
@@ -463,6 +493,12 @@ export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async
     if (mechanism.powered_by_product) {
       ctx.embedded.push({ type: 'product', slug: mechanism.powered_by_product.slug });
     }
+  }
+  // AECI-341: the closest matches are data-derived, so a purge on any matched product
+  // must reach this page. Both lanes render in the HTML, so both are tagged.
+  const lanes = pair.alternatives?.lanes;
+  for (const match of [...(lanes?.context.matches ?? []), ...(lanes?.other.matches ?? [])]) {
+    ctx.embedded.push({ type: 'product', slug: match.product.slug });
   }
 
   return pair;

@@ -25,6 +25,7 @@ import {
   type BrowserContext,
   type Page,
 } from '@playwright/test';
+import { expectNoSidewaysScroll } from './no-sideways-scroll';
 
 const PRODUCT_SLUG = 'fixture-procore';
 
@@ -96,11 +97,7 @@ async function firstTwo(page: Page, list: string): Promise<[Box, Box]> {
 }
 
 async function noHorizontalScroll(page: Page): Promise<void> {
-  const { scrollWidth, clientWidth } = await page.evaluate(() => ({
-    scrollWidth: document.documentElement.scrollWidth,
-    clientWidth: document.documentElement.clientWidth,
-  }));
-  expect(scrollWidth, 'no horizontal page scroll').toBeLessThanOrEqual(clientWidth);
+  await expectNoSidewaysScroll(page, 'no horizontal page scroll');
 }
 
 /** The prose block's width against 75ch measured in its own font. */
@@ -156,7 +153,21 @@ function formPageSuite(name: string, path: string, prose: string, needsSession: 
         await page.goto(path);
         const form = await box(page, '[data-testid="page-canvas"] form');
         const rail = await box(page, '[data-testid="context-rail"]');
-        expect(Math.abs(rail.x - form.x), 'rail and form share a left edge').toBeLessThan(2);
+        if (width < 640) {
+          // AECI-1720 layout pass: below sm the form is a form card. It drops its
+          // frame and spans the 24px gutter, so its fields, not its box, line up
+          // with the rail, and they are as wide as a form with no card.
+          const canvas = await box(page, '[data-testid="page-canvas"]');
+          expect(Math.abs(form.x - canvas.x), 'form card spans the gutter').toBeLessThan(2);
+          const field = await box(page, '[data-testid="page-canvas"] form input:visible');
+          expect(Math.abs(rail.x - field.x), 'rail and fields share a left edge').toBeLessThan(2);
+          expect(
+            field.width,
+            'fields as wide as the canvas less its gutters',
+          ).toBeGreaterThanOrEqual(canvas.width - 48 - 2);
+        } else {
+          expect(Math.abs(rail.x - form.x), 'rail and form share a left edge').toBeLessThan(2);
+        }
         await noHorizontalScroll(page);
         await proseWithinMeasure(page, prose);
       });
@@ -214,15 +225,24 @@ docsIndexSuite('/docs', 'docs-all-sections');
 docsIndexSuite('/docs/reviewers', 'docs-section-pages');
 
 test.describe('/products/:context/integrations/:other', () => {
+  // AECI-1798: the data band sits on the 1328px page wrap under the Forest hero. The
+  // prose check reads a mechanism description when the pair has one.
+  const descriptionWithinMeasure = async (page: Page) => {
+    const prose = page.locator('[data-testid="page-canvas"] article p.max-w-prose');
+    if ((await prose.count()) > 0) {
+      await proseWithinMeasure(page, '[data-testid="page-canvas"] article p.max-w-prose');
+    }
+  };
+
   for (const width of [1280, 1536]) {
-    test(`takes the 7xl canvas at ${width}px`, async ({ page, request }) => {
+    test(`takes the page wrap at ${width}px`, async ({ page, request }) => {
       const path = await findPair(request);
       test.skip(path === null, 'no integration in the local catalog to build a pair from');
       await page.setViewportSize({ width, height: 900 });
       await page.goto(path!);
       expect((await box(page, '[data-testid="page-canvas"]')).width).toBeGreaterThanOrEqual(1000);
       await noHorizontalScroll(page);
-      await proseWithinMeasure(page, '[data-testid="page-canvas"] header p');
+      await descriptionWithinMeasure(page);
     });
   }
 
@@ -233,7 +253,7 @@ test.describe('/products/:context/integrations/:other', () => {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(path!);
       await noHorizontalScroll(page);
-      await proseWithinMeasure(page, '[data-testid="page-canvas"] header p');
+      await descriptionWithinMeasure(page);
     });
   }
 });

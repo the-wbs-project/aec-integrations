@@ -15,8 +15,13 @@ import {
   type SubscribeSubmit,
 } from '@aeci/shared';
 
+import { AecButton } from '../shared/button/button';
 import { FoundViaField } from '../shared/found-via/found-via-field';
 import { LandingApi, buildAttribution } from '../shared/landing/landing-api';
+import { isReplayedEvent } from '../core/event-replay';
+import { AecEarlyInput } from '../shared/form-field/early-input';
+import { AecConsentBox } from '../shared/form-field/consent-box';
+import { FIELD_ERROR_CLASS, FIELD_LABEL_CLASS } from '../shared/form-field/form-field-classes';
 
 /** Standard-schema-validated subset of the feedback form. Only `features` /
  *  `tools` live in the Signal Forms model so `FeedbackSubmitSchema`'s `.refine`
@@ -56,11 +61,11 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   selector: 'aec-home-feedback-form',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
-  imports: [FormField, FoundViaField],
+  imports: [AecButton, FormField, AecEarlyInput, AecConsentBox, FoundViaField],
   template: `
     @if (submitted()) {
       <p
-        class="rounded-(--radius-md) border border-(--border-default) bg-(--accent-warm) px-4 py-3 text-sm font-medium text-(--text-primary)"
+        class="rounded-panel border border-(--border-default) bg-(--accent-warm) px-4 py-3 text-sm font-semibold text-(--text-primary)"
         role="status"
         aria-live="polite"
         i18n="@@home.feedback.status.success"
@@ -68,12 +73,12 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         Thanks. We read every suggestion.
       </p>
     } @else {
-      <form class="flex flex-col gap-5" novalidate (submit)="onSubmit($event)">
+      <form method="dialog" class="flex flex-col gap-6" novalidate (submit)="onSubmit($event)">
         <!-- Feature ideas -->
-        <div class="flex flex-col gap-1.5">
+        <div class="flex flex-col gap-2">
           <label
             for="home-feedback-features"
-            class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+            [class]="labelClass"
             i18n="@@home.feedback.features.label"
             >Features to build</label
           >
@@ -85,16 +90,13 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
             placeholder="What capabilities would help your work?"
             [attr.aria-invalid]="atLeastOneError() ? 'true' : null"
             [attr.aria-describedby]="atLeastOneError() ? 'home-feedback-fields-error' : null"
-            class="w-full resize-y rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            class="w-full resize-y aec-field-control rounded-control border bg-(--surface-base) px-4 py-2 text-t-16 text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           ></textarea>
         </div>
 
         <!-- Tool ideas -->
-        <div class="flex flex-col gap-1.5">
-          <label
-            for="home-feedback-tools"
-            class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-            i18n="@@home.feedback.tools.label"
+        <div class="flex flex-col gap-2">
+          <label for="home-feedback-tools" [class]="labelClass" i18n="@@home.feedback.tools.label"
             >Tools to cover</label
           >
           <textarea
@@ -105,14 +107,14 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
             placeholder="Which AEC tools should we add? e.g. Procore, Bluebeam, Revit"
             [attr.aria-invalid]="atLeastOneError() ? 'true' : null"
             [attr.aria-describedby]="atLeastOneError() ? 'home-feedback-fields-error' : null"
-            class="w-full resize-y rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            class="w-full resize-y aec-field-control rounded-control border bg-(--surface-base) px-4 py-2 text-t-16 text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           ></textarea>
         </div>
 
         @if (atLeastOneError()) {
           <p
             id="home-feedback-fields-error"
-            class="-mt-2 text-xs font-medium text-(--text-primary)"
+            [class]="'-mt-2 ' + errorClass"
             role="alert"
             i18n="@@home.feedback.fields.error"
           >
@@ -121,11 +123,8 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         }
 
         <!-- Email (optional) -->
-        <div class="flex flex-col gap-1.5">
-          <label
-            for="home-feedback-email"
-            class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-            i18n="@@home.feedback.email.label"
+        <div class="flex flex-col gap-2">
+          <label for="home-feedback-email" [class]="labelClass" i18n="@@home.feedback.email.label"
             >Email (optional)</label
           >
           <input
@@ -138,12 +137,12 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
             placeholder="you@yourfirm.com"
             [attr.aria-invalid]="emailInvalid() ? 'true' : null"
             [attr.aria-describedby]="emailInvalid() ? 'home-feedback-email-error' : null"
-            class="w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            class="w-full aec-field-control rounded-control border bg-(--surface-base) px-4 py-2 text-t-16 text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           />
           @if (emailInvalid()) {
             <p
               id="home-feedback-email-error"
-              class="text-xs font-medium text-(--text-primary)"
+              [class]="errorClass"
               role="alert"
               i18n="@@home.feedback.email.error"
             >
@@ -162,9 +161,10 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         />
 
         <!-- Mailing-list opt-in -->
-        <label class="flex items-center gap-2.5 text-sm text-(--text-secondary)">
+        <label class="flex items-center gap-3 text-sm text-(--text-secondary)">
           <input
             type="checkbox"
+            aecConsent
             [checked]="subscribed()"
             (change)="onSubscribedChange($event)"
             class="size-4 rounded-(--radius-sm) border-(--border-strong) text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
@@ -173,11 +173,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         </label>
 
         <div class="flex items-center gap-4">
-          <button
-            type="submit"
-            [disabled]="submitDisabled()"
-            class="rounded-(--radius-sm) bg-(--accent-primary) px-5 py-2 font-label text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-60"
-          >
+          <button aecButton type="submit" [disabled]="submitDisabled()">
             @if (form().submitting()) {
               <span i18n="@@home.feedback.submitting">Sending…</span>
             } @else {
@@ -188,7 +184,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
         @if (submitFailed()) {
           <p
-            class="text-sm font-medium text-(--text-primary)"
+            class="text-sm font-semibold text-(--text-primary)"
             role="alert"
             aria-live="polite"
             i18n="@@home.feedback.status.error"
@@ -201,6 +197,8 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   `,
 })
 export class HomeFeedbackForm {
+  /** A field's inline error: the shared recipe (AECI-1984). */
+  protected readonly errorClass = FIELD_ERROR_CLASS;
   private readonly api = inject(LandingApi);
 
   /** Emitted on a successful submit so the host dialog can close. */
@@ -218,6 +216,8 @@ export class HomeFeedbackForm {
 
   /** Standalone optional fields (see `FeedbackModel`). */
   protected readonly email = signal('');
+  /** The shared field label (AECI-1850). */
+  protected readonly labelClass = FIELD_LABEL_CLASS;
   protected readonly subscribed = signal(false);
 
   protected readonly submitted = signal(false);
@@ -250,6 +250,7 @@ export class HomeFeedbackForm {
   }
 
   protected async onSubmit(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     this.submitFailed.set(false);
     await submit(this.form, async (f) => {

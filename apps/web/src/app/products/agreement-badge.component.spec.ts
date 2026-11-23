@@ -25,9 +25,11 @@ function render(
   return fixture.nativeElement as HTMLElement;
 }
 
+// The full meaning is visually hidden text (AECI-1720 restore C), not an aria-label.
 const ariaOf = (el: HTMLElement) =>
-  el.querySelector('span[aria-label]')?.getAttribute('aria-label');
-const chipOf = (el: HTMLElement) => el.querySelector('span[aria-label]')!;
+  el.querySelector('[data-testid="agreement-badge-meaning"]')?.textContent?.trim();
+const chipOf = (el: HTMLElement) => el.querySelector('.aec-chip')!;
+const toneOf = (el: HTMLElement) => chipOf(el).getAttribute('data-tone');
 
 describe('AgreementBadge', () => {
   beforeEach(() => TestBed.resetTestingModule());
@@ -52,9 +54,7 @@ describe('AgreementBadge', () => {
 
   it('keeps a refuted claim neutral, with the stronger spoken-vendor dot', () => {
     const el = render('unverified', null, true);
-    const className = chipOf(el).className;
-    expect(className).not.toContain('status-error');
-    expect(className).not.toContain('accent-primary-soft');
+    expect(toneOf(el)).toBe('quiet');
     expect(el.querySelector('span[aria-hidden="true"]')!.className).toContain(
       'bg-(--text-secondary)',
     );
@@ -108,16 +108,16 @@ describe('AgreementBadge', () => {
   // The §4.3 render contract, asserted structurally rather than by eyeballing
   // the classes: only `confirmed` earns the Forest wash, only `conflict` is red.
   it('gives the affirmative treatment to confirmed alone', () => {
-    expect(chipOf(render('confirmed')).className).toContain('bg-(--accent-primary-soft)');
+    expect(toneOf(render('confirmed'))).toBe('wash');
     for (const state of ['unverified', 'single_source', 'conflict'] as const) {
-      expect(chipOf(render(state)).className).not.toContain('accent-primary-soft');
+      expect(toneOf(render(state))).not.toBe('wash');
     }
   });
 
   it('is red for conflict alone', () => {
-    expect(chipOf(render('conflict')).className).toContain('text-(--status-error)');
+    expect(toneOf(render('conflict'))).toBe('error');
     for (const state of ['unverified', 'single_source', 'confirmed'] as const) {
-      expect(chipOf(render(state)).className).not.toContain('status-error');
+      expect(toneOf(render(state))).not.toBe('error');
     }
   });
 
@@ -143,11 +143,29 @@ describe('AgreementBadge', () => {
   });
 
   // Account status and claim agreement remain distinct through wording and tone.
-  it('stays a rounded.sm claim-state chip', () => {
+  it('is one aec-chip in the 500-weight label face, never a link or a button', () => {
     for (const state of AGREEMENT_STATES) {
-      const className = chipOf(render(state)).className;
-      expect(className).toContain('rounded-(--radius-sm)');
-      expect(className).not.toContain('rounded-full');
+      const chip = chipOf(render(state));
+      expect(chip.tagName).toBe('SPAN');
+      expect(chip.getAttribute('data-face')).toBe('label');
     }
+  });
+
+  // records/10 §2 and records/11 §8: an aria-label on a plain span is not reliably read.
+  it('carries its full meaning as visually hidden text, read once, with no aria-label', () => {
+    for (const state of AGREEMENT_STATES) {
+      const el = render(state, 'Acme Software');
+      const chip = chipOf(el);
+      expect(chip.hasAttribute('aria-label')).toBe(false);
+      const meaning = chip.querySelector('[data-testid="agreement-badge-meaning"]')!;
+      expect(meaning.className).toContain('sr-only');
+      expect(meaning.textContent!.trim().length).toBeGreaterThan(0);
+      // Every other text node in the chip is hidden, so the label is not heard twice.
+      const heard = [...chip.querySelectorAll('span')].filter(
+        (span) => span !== meaning && !span.closest('[aria-hidden="true"]'),
+      );
+      expect(heard.every((span) => span.contains(meaning))).toBe(true);
+    }
+    expect(ariaOf(render('confirmed'))).toBe('Confirmed by both companies.');
   });
 });

@@ -1,5 +1,6 @@
 import {
   Component,
+  DestroyRef,
   computed,
   effect,
   inject,
@@ -22,6 +23,7 @@ import {
   lockedField,
   type LockedField,
   type ProductUsefulness,
+  type TaxonomyFacetKey,
   type TaxonomyResponse,
   type TaxonomyTermWithCount,
   type UpdateVendorProductInput,
@@ -45,7 +47,7 @@ type NarrativeFacet = 'audiences' | 'phases';
 
 interface FacetConfig {
   readonly slugKey: SlugKey;
-  readonly vocabulary: keyof TaxonomyResponse;
+  readonly vocabulary: TaxonomyFacetKey;
   readonly legend: string;
   readonly hint: string;
   /** Set for the two facets that carry "How teams use it" points. */
@@ -160,7 +162,7 @@ interface PendingRemoval {
     BrnDialogDescription,
   ],
   template: `
-    <form class="space-y-5" novalidate (submit)="onFormSubmit($event)">
+    <form method="dialog" class="space-y-5" novalidate (submit)="onFormSubmit($event)">
       <div class="space-y-2">
         @if (headingLevel() === 2) {
           <h2 [id]="headingId()" class="font-display text-lg font-semibold text-(--text-primary)">
@@ -375,14 +377,23 @@ interface PendingRemoval {
       </div>
     </form>
 
-    <brn-dialog [closeOnBackdropClick]="false" (closed)="pendingRemoval.set(null)">
+    <brn-dialog
+      [role]="'alertdialog'"
+      [autoFocus]="'first-heading'"
+      [closeOnBackdropClick]="false"
+      (closed)="pendingRemoval.set(null)"
+    >
       <ng-template brnDialogContent>
         @if (pendingRemoval(); as removal) {
           <div
             class="flex max-h-[85vh] w-[min(95vw,36rem)] flex-col rounded-(--radius-lg) border border-(--border-default) bg-(--surface-base) text-(--text-primary) shadow-[0_16px_48px_-8px_rgb(0_0_0/0.18),0_4px_16px_-2px_rgb(0_0_0/0.10)]"
           >
             <div class="shrink-0 p-6 pb-4">
-              <h2 brnDialogTitle class="font-display text-xl font-semibold text-(--text-primary)">
+              <h2
+                brnDialogTitle
+                tabindex="-1"
+                class="font-display text-xl font-semibold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              >
                 {{ removalHeading(removal.name) }}
               </h2>
               <p
@@ -431,6 +442,7 @@ interface PendingRemoval {
 export class VendorProductFacetEditor {
   private readonly api = inject(VendorApi);
   private readonly store = inject(VendorPortalStore);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly product = input.required<VendorProduct>();
   readonly facet = input.required<ProductFacetKind>();
@@ -528,7 +540,7 @@ export class VendorProductFacetEditor {
 
   private readonly vocabulary = computed<readonly TaxonomyTermWithCount[]>(() => {
     const t = this.taxonomy();
-    return t ? (t[this.config().vocabulary] as readonly TaxonomyTermWithCount[]) : [];
+    return t ? t[this.config().vocabulary] : [];
   });
 
   /**
@@ -672,6 +684,15 @@ export class VendorProductFacetEditor {
       // or the store would hold `me` for a form nobody can see.
       onCleanup(() => untracked(() => this.store.clearDirty('products', owner)));
     });
+    // AECI-1943: the effect's cleanup also runs when `hasChanges` flips, so it
+    // only withdraws the registration. Leaving the form for good also applies
+    // the refresh the store set aside while it was dirty.
+    this.destroyRef.onDestroy(() =>
+      this.store.releaseDirty(
+        'products',
+        untracked(() => this.owner()),
+      ),
+    );
   }
 
   protected rowLabelClass(row: FacetRow): string {
@@ -747,8 +768,8 @@ export class VendorProductFacetEditor {
     void this.store.reload('products');
   }
 
-  /** The form's submit. Returns early on a replayed early submit, which the
-   *  browser already ran natively (`core/event-replay.ts`). */
+  /** The form's submit. Drops a replayed early submit. The form is `method="dialog"`,
+   *  so the native submit did nothing (AECI-1919, `core/event-replay.ts`). */
   protected onFormSubmit(event: Event): void {
     if (isReplayedEvent(event)) return;
     event.preventDefault();

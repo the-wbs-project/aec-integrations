@@ -9,11 +9,14 @@ export const ClaimStatusSchema = z.enum(['claimed', 'unclaimed']);
 export type ClaimStatus = z.infer<typeof ClaimStatusSchema>;
 
 /**
- * `claim_status` on a page's subject. The default lets an SSR Worker on this schema parse
- * a response from an API Worker that predates the field. `claimed` adds no wording, so a
- * deploy gap can never cache "not affiliated" on a company that holds its listing.
+ * `claim_status` on a page's subject (`ProductDetail`, `VendorDetail`,
+ * `ProductPairSubject`). Required, with no default (AECI-1851). Every producer sends it,
+ * and the web never Zod-parses these responses, so a default only hid a missing field.
+ * A client that still meets `undefined` must treat it as not claimed for the logo:
+ * `aec-logo-or-initial` shows a subject's logo only for `'claimed'`, or for
+ * `'unclaimed'` at the 32px own-page slot.
  */
-export const SubjectClaimStatusSchema = ClaimStatusSchema.default('claimed');
+export const SubjectClaimStatusSchema = ClaimStatusSchema;
 
 /**
  * Canonical error envelope returned by the API Worker for every non-2xx

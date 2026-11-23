@@ -31,6 +31,7 @@ function setup(inputs: {
   caption?: FieldCaption | null;
   correction?: FieldCorrection | null;
   label?: string | null;
+  tone?: 'default' | 'on-brand';
 }) {
   const analytics = { externalLinkClicked: vi.fn() };
   TestBed.resetTestingModule();
@@ -192,5 +193,33 @@ describe('FieldCaptionLine (AECI-1614)', () => {
     const line = el.querySelector('[data-testid="field-caption"]')!;
     expect(line.className).not.toMatch(/\b(bg-|border|rounded)/);
     expect(line.className).toContain('text-(--text-secondary)');
+  });
+});
+
+// AECI-1778: the hero band puts captions on Forest. The words and the link do not change.
+describe('FieldCaptionLine on Forest (AECI-1778)', () => {
+  it('takes Bone-secondary text and a Bone ring on the source link', () => {
+    const { el, text } = setup({ correction: CORRECTION, tone: 'on-brand' });
+    const line = el.querySelector('[data-testid="field-correction"]')!;
+    expect(line.classList.contains('text-(--text-on-brand-secondary)')).toBe(true);
+    expect(line.classList.contains('text-(--text-secondary)')).toBe(false);
+    expect(text('field-correction')).toContain(
+      'Corrected by AEC Integrations on September 15, 2026',
+    );
+    const link = el.querySelector('[data-testid="field-correction-source"]')!;
+    expect(link.classList.contains('focus-visible:outline-(--focus-ring-on-brand)')).toBe(true);
+    expect(link.classList.contains('focus-visible:outline-(--accent-primary)')).toBe(false);
+    expect(link.classList.contains('hover:text-(--text-primary)')).toBe(false);
+  });
+
+  it('keeps the light-ground colours by default', () => {
+    const { el } = setup({ correction: CORRECTION });
+    const link = el.querySelector('[data-testid="field-correction-source"]')!;
+    expect(link.classList.contains('focus-visible:outline-(--accent-primary)')).toBe(true);
+    expect(
+      el
+        .querySelector('[data-testid="field-correction"]')!
+        .classList.contains('text-(--text-secondary)'),
+    ).toBe(true);
   });
 });

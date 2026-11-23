@@ -10,9 +10,10 @@
  *
  * A second layer for form answers (AECI-1919). A form submitted natively before
  * hydration GETs the page with every Signal Forms field in the query string, as
- * `ng.form9.submitter_email=…`. The leaking form now declares `method="dialog"`
- * so that cannot happen, and this hook drops any `ng.form*` parameter that still
- * arrives, from an old cached page or another form.
+ * `ng.form9.submitter_email=…`. Every form now declares `method` so that cannot
+ * happen (DESIGN.md "Forms are inert before hydration"), and this hook drops any
+ * `ng.form*` parameter that still arrives, from an old cached page or a new form
+ * that slipped past the lint rule.
  *
  * Wired as the `before_send` hook in `createPostHogClient` (`posthog-client.ts`).
  * Pure on purpose, so plain Vitest covers it without the SDK or a browser.

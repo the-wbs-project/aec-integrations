@@ -1,4 +1,9 @@
 <!doctype html>
+<!--
+  Smooth scrolling is scoped to in-page section links (AECI-1752). To restore the
+  old global smooth scroll, add class="aeci-smooth-scroll" to the html element
+  below. See app/core/in-page-smooth-scroll.ts.
+-->
 <html lang="en-US" dir="ltr">
   <head>
     <meta charset="utf-8" />
@@ -23,12 +28,379 @@
       Access gate) — it just sends same-origin cookies. See docs/access.md.
     -->
     <link rel="manifest" href="manifest.webmanifest" crossorigin="use-credentials" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:ital,wght@0,400..700;1,400..700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap"
-    />
+    <!--
+      Early input (AECI-1720). A visitor can type in a server-rendered form field before the
+      app's scripts load. Hydration then writes each field's starting value over the control,
+      so the answer was lost. This keeps the last value of each text field, select and radio
+      group, from input and change events the browser dispatched, whether the visitor, an
+      extension or a script's click() caused them (an input or change event a script
+      dispatches itself is not trusted and is not kept). So
+      it holds nothing the same action after hydration would not have put in the form. A
+      value the browser restored on Back fires no event and is not kept. No checkbox is ever
+      kept: consent boxes are disabled until the app is live and are never carried.
+      AecEarlyInput (app/shared/form-field/early-input.ts) reads each value once. Once the
+      app is stable, App calls stop(): the listeners go, the values go, and the global is
+      deleted. The global is a non-writable property, so plain assignment cannot replace it.
+      It stays configurable because stop() must be able to delete it, so a script could still
+      redefine it with Object.defineProperty. Element keys are held
+      weakly. Static, so the cached HTML stays the same for every visitor.
+    -->
+    <script>
+      (function (d, w) {
+        var kept = new WeakMap();
+        var live = true;
+        function keep(e) {
+          var t = e.target;
+          if (!live || !e.isTrusted || !t || !/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+          if (/^(checkbox|file|password)$/.test(t.type) || t.hasAttribute('aecconsent')) return;
+          if (t.type === 'radio' && t.name) {
+            var group = (t.form || d).querySelectorAll('input[type="radio"]');
+            for (var i = 0; i < group.length; i++)
+              if (group[i].name === t.name) kept.delete(group[i]);
+          }
+          kept.set(t, { value: t.value, checked: t.checked });
+        }
+        function take(el) {
+          if (!live) return undefined;
+          var value = kept.get(el);
+          kept.delete(el);
+          return value;
+        }
+        function stop() {
+          live = false;
+          kept = new WeakMap();
+          d.removeEventListener('input', keep, true);
+          d.removeEventListener('change', keep, true);
+          delete w.__aeciEarlyInput;
+        }
+        Object.defineProperty(w, '__aeciEarlyInput', {
+          value: Object.freeze({ take: take, stop: stop }),
+          writable: false,
+          enumerable: false,
+          configurable: true,
+        });
+        d.addEventListener('input', keep, true);
+        d.addEventListener('change', keep, true);
+      })(document, window);
+    </script>
+    <!--
+      Font faces (AECI-1892). e2e/font-loading.spec.ts guards this block.
+      The two web fonts are self-hosted: public/fonts/, licences beside them, served with
+      a one-year immutable Cache-Control (public/_headers). A file never changes under its
+      name: a new font version is a new file name. A subset loads only when a page has a
+      character in its unicode-range. No font is preloaded: the browser finds these faces
+      at first layout, and a preload delayed first paint by about 100ms on a throttled
+      phone profile without making the fonts arrive sooner.
+      The @font-face rules sit here, not in styles.css: the SSR critical-CSS pass
+      (Beasties) drops every @font-face from the inlined styles, because the families are
+      named through var(--font-*), so a face in styles.css would only exist once the
+      deferred stylesheet loads. The faces and unicode ranges are Google Fonts' own
+      (css2, 2026-11-16), so the fonts render as they did from Google.
+    -->
+    <style>
+      @font-face {
+        font-family: 'Atkinson Hyperlegible Next';
+        font-style: normal;
+        font-weight: 400 700;
+        font-display: swap;
+        src: url(/fonts/atkinson-hyperlegible-next-v7-latin-ext.woff2) format('woff2');
+        unicode-range:
+          U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+          U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113,
+          U+2C60-2C7F, U+A720-A7FF;
+      }
+      @font-face {
+        font-family: 'Atkinson Hyperlegible Next';
+        font-style: normal;
+        font-weight: 400 700;
+        font-display: swap;
+        src: url(/fonts/atkinson-hyperlegible-next-v7-latin.woff2) format('woff2');
+        unicode-range:
+          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+          U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+      @font-face {
+        font-family: 'Atkinson Hyperlegible Next';
+        font-style: italic;
+        font-weight: 400 700;
+        font-display: swap;
+        src: url(/fonts/atkinson-hyperlegible-next-italic-v7-latin-ext.woff2) format('woff2');
+        unicode-range:
+          U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+          U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113,
+          U+2C60-2C7F, U+A720-A7FF;
+      }
+      @font-face {
+        font-family: 'Atkinson Hyperlegible Next';
+        font-style: italic;
+        font-weight: 400 700;
+        font-display: swap;
+        src: url(/fonts/atkinson-hyperlegible-next-italic-v7-latin.woff2) format('woff2');
+        unicode-range:
+          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+          U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+      /* Source Serif 4 is one variable file per subset. Google declares it once per
+         weight the site asked for (400 and 600), and so does this. */
+      @font-face {
+        font-family: 'Source Serif 4';
+        font-style: normal;
+        font-weight: 400;
+        font-display: swap;
+        src: url(/fonts/source-serif-4-v15-cyrillic-ext.woff2) format('woff2');
+        unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+      }
+      @font-face {
+        font-family: 'Source Serif 4';
+        font-style: normal;
+        font-weight: 400;
+        font-display: swap;
+        src: url(/fonts/source-serif-4-v15-cyrillic.woff2) format('woff2');
+        unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+      }
+      @font-face {
+        font-family: 'Source Serif 4';
+        font-style: normal;
+        font-weight: 400;
+        font-display: swap;
+        src: url(/fonts/source-serif-4-v15-greek.woff2) format('woff2');
+        unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+      }
+      @font-face {
+        font-family: 'Source Serif 4';
+        font-style: normal;
+        font-weight: 400;
+        font-display: swap;
+        src: url(/fonts/source-serif-4-v15-vietnamese.woff2) format('woff2');
+        unicode-range:
+          U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301,
+          U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+      }
+      @font-face {
+        font-family: 'Source Serif 4';
+        font-style: normal;
+        font-weight: 400;
+        font-display: swap;
+        src: url(/fonts/source-serif-4-v15-latin-ext.woff2) format('woff2');
+        unicode-range:
+          U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+          U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113,
+          U+2C60-2C7F, U+A720-A7FF;
+      }
+      @font-face {
+        font-family: 'Source Serif 4';
+        font-style: normal;
+        font-weight: 400;
+        font-display: swap;
+        src: url(/fonts/source-serif-4-v15-latin.woff2) format('woff2');
+        unicode-range:
+          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+          U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+      @font-face {
+        font-family: 'Source Serif 4';
+        font-style: normal;
+        font-weight: 600;
+        font-display: swap;
+        src: url(/fonts/source-serif-4-v15-cyrillic-ext.woff2) format('woff2');
+        unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+      }
+      @font-face {
+        font-family: 'Source Serif 4';
+        font-style: normal;
+        font-weight: 600;
+        font-display: swap;
+        src: url(/fonts/source-serif-4-v15-cyrillic.woff2) format('woff2');
+        unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+      }
+      @font-face {
+        font-family: 'Source Serif 4';
+        font-style: normal;
+        font-weight: 600;
+        font-display: swap;
+        src: url(/fonts/source-serif-4-v15-greek.woff2) format('woff2');
+        unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+      }
+      @font-face {
+        font-family: 'Source Serif 4';
+        font-style: normal;
+        font-weight: 600;
+        font-display: swap;
+        src: url(/fonts/source-serif-4-v15-vietnamese.woff2) format('woff2');
+        unicode-range:
+          U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301,
+          U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+      }
+      @font-face {
+        font-family: 'Source Serif 4';
+        font-style: normal;
+        font-weight: 600;
+        font-display: swap;
+        src: url(/fonts/source-serif-4-v15-latin-ext.woff2) format('woff2');
+        unicode-range:
+          U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+          U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113,
+          U+2C60-2C7F, U+A720-A7FF;
+      }
+      @font-face {
+        font-family: 'Source Serif 4';
+        font-style: normal;
+        font-weight: 600;
+        font-display: swap;
+        src: url(/fonts/source-serif-4-v15-latin.woff2) format('woff2');
+        unicode-range:
+          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+          U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+      /* Size-matched fallback faces (AECI-1892). Until the web fonts arrive, text paints in
+         a local font scaled to the web font's advance width (size-adjust), with the web
+         font's ascent and descent, so lines break in the same places and the swap moves
+         nothing. Measured in Chromium against a corpus of real headings and body lines.
+         Georgia and Georgia Bold stand in for Source Serif 4 (the closest per-string fit of
+         the fonts Windows, macOS and iOS ship), Arial for Atkinson Hyperlegible Next.
+         Source Serif 4 has an optical-size axis: it narrows as it grows (about 9% from 20
+         to 60px, flat above 60). One size-adjust cannot fit every size, so the serif has
+         one fallback family per size band, named by the size it is tuned for. styles.css
+         picks the band for each type role and viewport ("Fallback faces by role"). The
+         display-scale roles draw the opsz 60 cut at every size (AECI-1927), so they all use
+         the 60 face, and the 48 and 56 bands they used to need were removed. Uppercase
+         overlines get their own sans face: capitals run narrower against Arial than mixed
+         case. Each face covers only the latin subset's range, so a character the web font
+         lacks (an arrow, a star) falls through to the same font as before. A device without
+         the local font skips the face and uses the next family. */
+      @font-face {
+        font-family: 'Source Serif 4 Fallback 24';
+        src: local('Georgia');
+        font-weight: 100 500;
+        size-adjust: 99.48%;
+        ascent-override: 104.14%;
+        descent-override: 33.68%;
+        line-gap-override: 0%;
+        unicode-range:
+          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+          U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+      @font-face {
+        font-family: 'Source Serif 4 Fallback 24';
+        src: local('Georgia Bold'), local('Georgia-Bold');
+        font-weight: 600 900;
+        size-adjust: 86.76%;
+        ascent-override: 119.41%;
+        descent-override: 38.61%;
+        line-gap-override: 0%;
+        unicode-range:
+          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+          U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+      @font-face {
+        font-family: 'Source Serif 4 Fallback 32';
+        src: local('Georgia');
+        font-weight: 100 500;
+        size-adjust: 97.66%;
+        ascent-override: 106.08%;
+        descent-override: 34.3%;
+        line-gap-override: 0%;
+        unicode-range:
+          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+          U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+      @font-face {
+        font-family: 'Source Serif 4 Fallback 32';
+        src: local('Georgia Bold'), local('Georgia-Bold');
+        font-weight: 600 900;
+        size-adjust: 85.23%;
+        ascent-override: 121.56%;
+        descent-override: 39.31%;
+        line-gap-override: 0%;
+        unicode-range:
+          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+          U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+      @font-face {
+        font-family: 'Source Serif 4 Fallback 40';
+        src: local('Georgia');
+        font-weight: 100 500;
+        size-adjust: 95.84%;
+        ascent-override: 108.1%;
+        descent-override: 34.95%;
+        line-gap-override: 0%;
+        unicode-range:
+          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+          U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+      @font-face {
+        font-family: 'Source Serif 4 Fallback 40';
+        src: local('Georgia Bold'), local('Georgia-Bold');
+        font-weight: 600 900;
+        size-adjust: 83.69%;
+        ascent-override: 123.79%;
+        descent-override: 40.03%;
+        line-gap-override: 0%;
+        unicode-range:
+          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+          U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+      @font-face {
+        font-family: 'Source Serif 4 Fallback 60';
+        src: local('Georgia');
+        font-weight: 100 500;
+        size-adjust: 91.29%;
+        ascent-override: 113.48%;
+        descent-override: 36.7%;
+        line-gap-override: 0%;
+        unicode-range:
+          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+          U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+      @font-face {
+        font-family: 'Source Serif 4 Fallback 60';
+        src: local('Georgia Bold'), local('Georgia-Bold');
+        font-weight: 600 900;
+        size-adjust: 79.85%;
+        ascent-override: 129.74%;
+        descent-override: 41.95%;
+        line-gap-override: 0%;
+        unicode-range:
+          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+          U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+      @font-face {
+        font-family: 'Atkinson Hyperlegible Next Fallback';
+        src: local('Arial'), local('ArialMT'), local('Liberation Sans');
+        font-weight: 100 500;
+        size-adjust: 99%;
+        ascent-override: 99.39%;
+        descent-override: 31.92%;
+        line-gap-override: 0%;
+        unicode-range:
+          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+          U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+      @font-face {
+        font-family: 'Atkinson Hyperlegible Next Fallback';
+        src: local('Arial Bold'), local('Arial-BoldMT'), local('Liberation Sans Bold');
+        font-weight: 600 900;
+        size-adjust: 96%;
+        ascent-override: 102.5%;
+        descent-override: 32.92%;
+        line-gap-override: 0%;
+        unicode-range:
+          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+          U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+      @font-face {
+        font-family: 'Atkinson Hyperlegible Next Caps Fallback';
+        src: local('Arial Bold'), local('Arial-BoldMT'), local('Liberation Sans Bold');
+        font-weight: 100 900;
+        size-adjust: 93.6%;
+        ascent-override: 105.13%;
+        descent-override: 33.76%;
+        line-gap-override: 0%;
+        unicode-range:
+          U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+          U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+    </style>
   </head>
   <body>
     <app-root></app-root>

@@ -172,7 +172,8 @@ export async function resolveVisitorSession(
   // The fast path: no credentials at all. Returns before touching WebCrypto or
   // D1, which is what keeps this affordable on anonymous traffic.
   const token =
-    extractBearer(c.req.header('Authorization')) ?? extractSessionCookieToken(getCookie(c));
+    extractBearer(c.req.header('Authorization')) ??
+    extractSessionCookieToken(getCookie(c), supabaseUrl);
   if (!token) return ANONYMOUS;
 
   try {

@@ -252,32 +252,37 @@ Runs in parallel where possible to minimize wall time. Goal: under 10 minutes to
 1. Checkout
 2. Setup Node 24 with cache
 3. `pnpm install --frozen-lockfile`
-4. `pnpm run lint` (ESLint ×4 packages + `apps/web/scripts/check-source-constraints.mjs` + Prettier)
+4. `pnpm run lint` (CLAUDE.md size gate + NOTIFICATIONS.md drift check + alerts.json runbook-pointer gate + ESLint ×4 packages + `apps/web/scripts/check-source-constraints.mjs` + Prettier)
 5. `pnpm run typecheck` (`tsc --noEmit` across the monorepo)
 
 In the lite lane, step 4 narrows only the per-package ESLint pass to the affected packages. The
-CLAUDE.md size gate, the NOTIFICATIONS.md drift check and the whole-repo Prettier check still run.
+CLAUDE.md size gate, the NOTIFICATIONS.md drift check, the alerts.json runbook-pointer gate
+(`scripts/check-alert-runbook-pointers.mjs`) and the whole-repo Prettier check still run.
 Step 5 runs `typecheck` for the affected packages. apps/web has had a `typecheck` script since
 AECI-1652 (`tsc -p tsconfig.spec.json --noEmit`, the spec + e2e graph), so both lanes check it.
 Its app code is still covered by `ng build` in the Build SSR Worker lane.
 
 This job is where the non-negotiable constraints are enforced (AECI-549), not just style: the Drizzle/D1 data-layer ban, zoneless, light-theme-only, and the `Vary` discipline all fail here. Because `lint-and-types` is a required check on `main`, a PR cannot merge while violating one. See `ANGULAR_STYLE_GUIDE.md` §24 for the rule-to-constraint map.
 
-**Jobs: `unit-api`, `unit-web`, and the `unit-tests` gate** (split 2026-10)
+**Jobs: `unit-api` (two shards), `unit-api-coverage`, `unit-web`, and the `unit-tests` gate** (split 2026-10, sharded AECI-1709)
 
-The unit lane is three jobs. Measured 2026-10-03 to 10-06, the single job took 7.4 min median on a
+The unit lane is five runners in four jobs. Measured 2026-10-03 to 10-06, the single job took 7.4 min median on a
 PR. apps/api's vitest suite (368 s) was the floor, and it shared a 4-vCPU runner with apps/web's
 vitest and `ng test` (207 s) under one `pnpm -r`. Each now has its own runner.
 
 | Job | Check name | Runs |
 |---|---|---|
-| `unit-api` | `Unit tests (api)` | apps/api vitest |
+| `unit-api` (matrix `shard: [1, 2]`) | `Unit tests (api 1/2)`, `Unit tests (api 2/2)` | apps/api vitest, `--shard=N/2`. On push, with coverage and `--reporter=blob`; each shard uploads `apps/api/.vitest-reports` as `blob-api-N` |
+| `unit-api-coverage` | `Unit tests (api coverage)` | Sets up and plans on PRs; coverage steps run only on push. Downloads both blobs and runs `vitest run --merge-reports --coverage`, then the coverage advisory. Re-reports the shards' results, so a red shard turns it red too |
 | `unit-web` | `Unit tests (web + shared)` | root `scripts/*.test.mjs`, apps/web vitest + `ng test`, packages/shared, apps/agent, apps/datatool |
-| `unit-tests` | `Unit tests` (**required**) | Nothing. Passes only when both jobs above report `success` |
+| `unit-tests` | `Unit tests` (**required**) | Nothing. Passes only when `unit-api`, `unit-api-coverage` and `unit-web` all report `success` |
 
 The gate has `if: always()` and checks each `needs.<job>.result` explicitly. Without that, a red
 unit job would skip the gate, and a skipped required check counts as passing. Every job that waits
-on unit work (`deploy-staging`) still `needs: [unit-tests]`, so it waits on both.
+on unit work (`deploy-staging`) still `needs: [unit-tests]`, so it waits on all of them. A matrix
+job reports one result, `failure` if either shard failed. `fail-fast: false` keeps a red shard from
+cancelling its sibling. `unit-api-coverage` runs even if a shard fails, unless the workflow is
+cancelled.
 `unit-web` excludes the workspace root by name. The root's own `test:unit` script recurses into
 every package, apps/api included.
 
@@ -287,8 +292,19 @@ The vitest thresholds are zeroed on the command line (`COVERAGE_ARGS` in `deploy
 code reflects test failures only. `scripts/ci/coverage-advisory.mjs` then compares each package's
 totals with the `thresholds` block in its `vitest.config.ts`. A miss becomes a warning annotation
 and a row in the job summary. Coverage stays **reported, not gated** (`TESTING_STRATEGY.md` §3.3).
-The artifacts are `coverage-api` and `coverage-web`. PRs skip coverage entirely (AECI-917). There
-is no Codecov integration today.
+The artifacts are `coverage-api` and `coverage-web`. apps/api's coverage is one report merged from
+the two shard blobs by `unit-api-coverage`. The blob upload sets `include-hidden-files: true`,
+because upload-artifact skips dot directories by default and the merge would then find nothing.
+PRs skip coverage entirely (AECI-917). There is no Codecov integration today.
+
+> **AECI-1709 (2026-11):** apps/api's suite runs as two shards on PR and push. Before, one runner
+> ran it with coverage on push in about 920 s on slow runs. The vitest main process was starved for
+> CPU, a worker's `onTaskUpdate` RPC timed out after 60 s, and vitest counted that unhandled error
+> as a failure with every test green. It failed 2 of 3 `main` runs and blocked staging. Sharding
+> halves the files, collect time and coverage work on each runner. If the timeout comes back on a
+> shard, the next step is a `maxWorkers` cap in `apps/api/vitest.config.ts` when `CI` is set, so the
+> main process keeps a core. Do not set `dangerouslyIgnoreUnhandledErrors`: it would hide real
+> unhandled errors.
 
 **Job: `integration-db-tests`** (~3 min, AECI-90; its own workflow `integration-db-tests.yml`, extracted from `deploy.yml`) — *non-blocking*
 1. Checkout, install
@@ -1267,6 +1283,12 @@ merge. Merge `main` into the batch only when the batch → `main` PR shows a con
 is fine on a batch branch. The final squash flattens it. If `main` gained a migration meanwhile,
 `main` keeps its numbers and the batch renumbers (`docs/migrations.md` §0).
 
+**After any merge of `main` into a long-lived branch** (a batch, or a hold branch such as
+`redesign/on-hold-2026-11-16`), run `pnpm lint` before pushing. `scripts/check-conflict-markers.mjs`
+fails on a conflict left in any tracked file, archives and Markdown included (AECI-1720). Then check
+`git diff origin/main HEAD -- apps/web/src/content/legal/` is empty unless the branch changes legal
+text on purpose.
+
 **What we have not verified.** Linear's GitHub integration also links a PR to an issue by branch
 name, such as `aeci-1234-...`. It may move a sub-issue to Done when its sub-PR merges into the batch
 branch, even without a `Closes` line. If it does, move the issue back to In Review. The fix is a
@@ -1290,13 +1312,13 @@ Independent jobs run in parallel. The real `deploy.yml` dependency graph is:
 
 ```
 lint-and-types ──→ build-web ──┐
-                               ├─→ e2e-and-integration ──┐
-changes  ──────────────────────┘                         │
- (advisory)                                              ├─→ deploy-staging
-unit-api ──┐                                             │   (push + refs/heads/main
-           ├─→ unit-tests (gate, if: always()) ──────────┤    + STAGING_ENABLED)
-unit-web ──┘                                             │
-lint-and-types ──────────────────────────────────────────┘
+                               ├─→ e2e-and-integration ────────────────┐
+changes  ──────────────────────┘                                       │
+ (advisory)                                                            ├─→ deploy-staging
+unit-api (1/2, 2/2) ─┬─→ unit-api-coverage ─┐                          │   (push + refs/heads/main
+                     └──────────────────────┼─→ unit-tests ────────────┤    + STAGING_ENABLED)
+unit-web ───────────────────────────────────┘   (gate, if: always())   │
+lint-and-types ────────────────────────────────────────────────────────┘
 ```
 
 > **2026-10:** the single `unit-tests` job became `unit-api` + `unit-web` behind a `unit-tests`

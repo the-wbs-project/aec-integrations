@@ -5,9 +5,11 @@ import {
   computeSyncHeadline,
   conflictSince,
   distinctDataObjectSlugs,
+  integrationAgreement,
   isClaimPubliclyBacked,
   isClaimRefuted,
   type AgreementAttestation,
+  type AgreementState,
   type HistoricalAttestation,
   type SyncHeadlineClaim,
 } from './agreement';
@@ -352,6 +354,36 @@ describe('distinctDataObjectSlugs (AECI-711)', () => {
       { agreement: 'unverified' as const, data_object_slug: 'models' },
     ];
     expect(computeSyncHeadline(claims).total).toBe(distinctDataObjectSlugs(claims).length);
+  });
+});
+
+describe('integrationAgreement (AECI-1781, the row roll-up)', () => {
+  const of = (...states: AgreementState[]) => states.map((agreement) => ({ agreement }));
+
+  it('is null for a row with no claims', () => {
+    expect(integrationAgreement([])).toBeNull();
+  });
+
+  it('is the one state of a single claim', () => {
+    for (const state of ['unverified', 'single_source', 'confirmed', 'conflict'] as const) {
+      expect(integrationAgreement(of(state))).toBe(state);
+    }
+  });
+
+  it('reads confirmed only when every claim is confirmed', () => {
+    expect(integrationAgreement(of('confirmed', 'confirmed'))).toBe('confirmed');
+    expect(integrationAgreement(of('confirmed', 'single_source'))).toBe('single_source');
+    expect(integrationAgreement(of('confirmed', 'unverified'))).toBe('unverified');
+  });
+
+  it('takes the weakest state, whatever the order', () => {
+    expect(integrationAgreement(of('single_source', 'unverified', 'confirmed'))).toBe('unverified');
+    expect(integrationAgreement(of('unverified', 'single_source'))).toBe('unverified');
+  });
+
+  it('lets any conflict win', () => {
+    expect(integrationAgreement(of('confirmed', 'conflict', 'confirmed'))).toBe('conflict');
+    expect(integrationAgreement(of('unverified', 'conflict'))).toBe('conflict');
   });
 });
 

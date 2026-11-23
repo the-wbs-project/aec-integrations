@@ -49,7 +49,7 @@ describe('NewTabIcon', () => {
     const svg = anchor(await create()).querySelector('svg');
 
     expect(svg).not.toBeNull();
-    // Two paths: the corner and the diagonal of Lucide's arrow-up-right.
+    // Two paths: the diagonal and the corner of the registry's external arrow.
     expect(svg?.querySelectorAll('path')).toHaveLength(2);
   });
 

@@ -3,6 +3,10 @@ import { RouterLink } from '@angular/router';
 
 import type { ProductListItem } from '@aeci/shared';
 
+import { RatingSummary } from '../reviews/rating-summary';
+import { AecCard, CARD_GRID_CLASS } from '../shared/card/card';
+import { Chip } from '../shared/chip/chip';
+import { AecIcon } from '../shared/icon/icon';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 
 /**
@@ -19,14 +23,18 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
  * Anchor site: Faire (the catalog's anchor, `DESIGN.md`). Its "Shop more from
  * {brand}" parent strip is the pattern for the sidebar card, and its brand tile
  * row for the body grid. One verb, "built within", names the relation in both
- * directions so the two read as mirror images. The body tiles carry no chevron,
- * which is what keeps them from reading as integration rows, so they take a
- * surface wash on hover instead of relying on a border shift alone.
+ * directions so the two read as mirror images. Since ruling 35 (2026-11-16,
+ * AECI-1784) the body tiles are the shared card (`aecCard`): white, the card
+ * shadow, and the card lift on hover. Since the AECI-1720 restore (owner, 2026-11-17)
+ * they follow mock-up 6 `.xt`: "by {vendor}", the shared rating line,
+ * a "Runs inside {product}" chip and a round arrow. What keeps them from reading as
+ * integration rows is the chip's words and the separate section, not the arrow. The
+ * mark stays 32px, the tile-mark size of the logo rule, not the mock-up's 56px.
  */
 
-/** Shared link-card classes: the vendor card's shape, plus a visible focus ring. */
+/** The "Built within" link card: the vendor card's shape, plus a visible focus ring. */
 const CARD_CLASS =
-  'flex h-full items-center gap-3 rounded-(--radius-lg) border border-(--border-default) ' +
+  'flex h-full items-center gap-3 rounded-panel border border-(--border-default) ' +
   'p-3 no-underline transition-colors hover:border-(--border-strong) ' +
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent-primary) ' +
   'focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-base)';
@@ -61,9 +69,15 @@ const CARD_CLASS =
             [class]="cardClass"
             class="bg-(--surface-base) lg:bg-(--surface-raised) lg:p-4"
           >
-            <aec-logo-or-initial [src]="host.logo_url" [name]="host.name" alt="" size="sm" />
+            <aec-logo-or-initial
+              [claimStatus]="'server-filtered'"
+              [src]="host.logo_url"
+              [name]="host.name"
+              alt=""
+              size="sm"
+            />
             <span class="min-w-0">
-              <span class="block break-words font-medium text-(--text-primary)">{{
+              <span class="block break-words font-semibold text-(--text-primary)">{{
                 host.name
               }}</span>
               @if (host.vendor; as v) {
@@ -84,8 +98,12 @@ export class ProductBuiltWithin {
 /**
  * "Extensions built within {product}": the products built within this one, as a
  * body section after Integrations. A grid of linked tiles, never table rows, so
- * it cannot read as a third integrations lane. The heading carries no `(N)`, so
- * the page never shows two counts that look like the same kind.
+ * it cannot read as a third integrations lane. Each tile is one `aecCard` that is
+ * itself the link, so it keeps the link name it had: the name, then the vendor.
+ * The tiles keep the API's order, A to Z by name then id
+ * (`apps/api/src/lib/product-extensions.ts`). This component adds no sort. The
+ * heading carries no `(N)`, so the page never shows two counts that look like the
+ * same kind.
  *
  * Attribute selector on the page's `<section id="extensions">`, like the
  * Integrations section, so the anchor and the labelled region stay on the
@@ -95,36 +113,82 @@ export class ProductBuiltWithin {
 @Component({
   // eslint-disable-next-line @angular-eslint/component-selector
   selector: 'section[aec-product-extensions-section]',
-  imports: [RouterLink, LogoOrInitial],
+  imports: [RouterLink, AecCard, AecIcon, Chip, LogoOrInitial, RatingSummary],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="space-y-2">
-      <h2 id="extensions-title" class="font-display text-2xl font-semibold text-(--text-primary)">
-        {{ heading() }}
+    <!-- Mock-up 6 band head (AECI-1720 restore): the small label above the heading, hidden
+         from assistive technology because the heading says it again. -->
+    <div>
+      <p
+        aria-hidden="true"
+        class="aec-overline mb-3 text-(--text-secondary)"
+        i18n="@@products.detail.extensions.kicker"
+      >
+        Extensions
+      </p>
+      <h2 id="extensions-title">
+        <span
+          class="font-display text-t-36 leading-[1.1] font-semibold tracking-[-0.02em] text-(--text-primary)"
+          >{{ heading() }}</span
+        >
       </h2>
-      <p class="max-w-prose text-(--text-secondary)">{{ lead() }}</p>
+      <p
+        class="mt-4 max-w-[38em] text-t-16 leading-relaxed text-(--text-secondary)"
+        data-testid="extensions-lead"
+      >
+        {{ lead() }}
+      </p>
     </div>
-    <ul class="grid gap-3 sm:grid-cols-2">
+    <ul role="list" [class]="gridClass" [attr.data-columns]="columns()">
       @for (extension of extensions(); track extension.id) {
-        <li>
+        <li class="group/card">
           <a
+            aecCard
+            interactive
             [routerLink]="['/products', extension.slug]"
-            [class]="cardClass"
-            class="bg-(--surface-raised) hover:bg-(--surface-sunken)"
+            class="grid h-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-4 p-6 no-underline"
           >
             <aec-logo-or-initial
+              [claimStatus]="'server-filtered'"
               [src]="extension.logo_url"
               [name]="extension.name"
               alt=""
               size="sm"
             />
             <span class="min-w-0">
-              <span class="block break-words font-medium text-(--text-primary)">{{
-                extension.name
-              }}</span>
+              <span
+                class="block font-display text-t-20 leading-tight font-semibold break-words text-(--text-primary) transition-colors group-hover/card:text-(--accent-primary)"
+                >{{ extension.name }}</span
+              >
               @if (extension.vendor; as v) {
-                <span class="block break-words text-sm text-(--text-secondary)">{{ v.name }}</span>
+                <span
+                  class="mt-1 block text-t-13 break-words text-(--text-secondary)"
+                  i18n="@@products.detail.extensions.byline"
+                  >by {{ v.name }}</span
+                >
               }
+              <!-- The shared card's rating rule: shown only at five reviews or more. -->
+              <aec-rating-summary
+                class="mt-2 flex"
+                variant="inline"
+                [ratingOverall]="extension.rating_overall_avg"
+                [reviewCount]="extension.review_count"
+              />
+              <!-- Mock-up 6 .xt chip: the relation in words, the same fact the intro states. -->
+              <span class="mt-2 flex">
+                <aec-chip
+                  density="dense"
+                  icon="puzzle"
+                  i18n="@@products.detail.extensions.runsInside"
+                  >Runs inside {{ productName() }}</aec-chip
+                >
+              </span>
+            </span>
+            <span
+              class="grid size-8 place-items-center rounded-full bg-(--surface-sunken) text-(--text-secondary) transition-colors group-hover/card:text-(--text-primary)"
+              aria-hidden="true"
+            >
+              <aec-icon name="arrow-right" decorative [size]="4" />
             </span>
           </a>
         </li>
@@ -136,7 +200,17 @@ export class ProductExtensionsSection {
   /** The page product's name: the host every listed extension is built within. */
   readonly productName = input.required<string>();
   readonly extensions = input.required<readonly ProductListItem[]>();
-  protected readonly cardClass = CARD_CLASS;
+  protected readonly gridClass = CARD_GRID_CLASS;
+
+  /**
+   * Ruling 35 (2026-11-16): one or two tiles share the row equally, three or more
+   * take the shared grid's three columns. A set `data-columns` also makes every row
+   * as tall as the tallest tile, so no tile is larger than its siblings.
+   */
+  protected readonly columns = computed<1 | 2 | 3>(() => {
+    const n = this.extensions().length;
+    return n <= 2 ? (Math.max(n, 1) as 1 | 2) : 3;
+  });
 
   protected readonly heading = computed(() => {
     const name = this.productName();

@@ -161,3 +161,24 @@ test.describe('/vendor-program/list-your-product (AECI-1474)', () => {
     });
   }
 });
+
+// AECI-1720 layout pass: a vendor comes here to fill the form, so the form starts on
+// the first screen. A Bone hero had pushed it to about 490px.
+test.describe('/vendor-program/list-your-product first screen (AECI-1720)', () => {
+  for (const [width, height] of [
+    [1440, 900],
+    [1180, 820],
+  ] as const) {
+    test(`the form card starts within the top 240px at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      await page.goto('/vendor-program/list-your-product');
+      const form = page.locator('[data-testid="list-your-product-form"]');
+      const box = (await form.boundingBox())!;
+      expect(box.y).toBeLessThanOrEqual(240);
+      await expect(form.getByLabel('Product or company name')).toBeInViewport();
+      // The heading sits beside the form, not above it.
+      const h1 = (await page.locator('h1').boundingBox())!;
+      expect(h1.x + h1.width).toBeLessThan(box.x);
+    });
+  }
+});

@@ -13,6 +13,7 @@ import {
   STRIPE_WATCH_TIMEOUT_MS,
   VendorBillingStripeWatch,
 } from '../components/vendor-billing-stripe-watch';
+import { expectTitleFirstDialog } from '../../core/testing/title-first-dialog.harness';
 import { VendorApi } from '../vendor-api';
 import {
   VENDOR_ACCEPTANCES_FIXTURE,
@@ -350,6 +351,30 @@ describe('VendorBillingSection, paying by card (AECI-1502)', () => {
     expect(document.activeElement).toBe(error);
   });
 
+  it('takes focus back when a blank click left it on <main> during the re-read (AECI-1839)', async () => {
+    startCheckout.mockRejectedValueOnce(
+      apiError(409, 'STRIPE_SUBSCRIPTION_EXISTS', { interval: 'year' }),
+    );
+    const main = document.createElement('main');
+    main.id = 'main';
+    main.tabIndex = -1;
+    document.body.appendChild(main);
+    try {
+      const fixture = await create();
+      getBilling.mockResolvedValue(SUBSCRIBED);
+      (q(fixture, 'stripe-checkout') as HTMLButtonElement).click();
+      // The vendor clicks empty space while the re-read runs: focus lands on <main>.
+      main.focus();
+      await settle(fixture);
+      await settle(fixture);
+
+      const error = q(fixture, 'stripe-error') as HTMLElement;
+      expect(document.activeElement).toBe(error);
+    } finally {
+      main.remove();
+    }
+  });
+
   // ── With a subscription ───────────────────────────────────────────────────
 
   it('shows the subscription, Add licenses and Manage billing in Stripe', async () => {
@@ -412,6 +437,15 @@ describe('VendorBillingSection, paying by card (AECI-1502)', () => {
     expect(q(fixture, 'stripe-past')).toBeNull();
   });
 
+  it('opens Add subscriptions on its title, as an alert dialog (AECI-1861)', async () => {
+    getBilling.mockResolvedValue(SUBSCRIBED);
+    const fixture = await create();
+    (q(fixture, 'stripe-add-open') as HTMLButtonElement).click();
+    await settle(fixture);
+    await settle(fixture);
+    expectTitleFirstDialog('Add subscriptions');
+  });
+
   it('adds licenses from the dialog with the quantity only, then waits for them', async () => {
     getBilling.mockResolvedValue(SUBSCRIBED);
     const fixture = await create();
@@ -419,7 +453,10 @@ describe('VendorBillingSection, paying by card (AECI-1502)', () => {
     await settle(fixture);
 
     const dialog = document.querySelector('[data-testid="stripe-add-dialog"]') as HTMLElement;
-    expect(dialog.textContent).toContain('$250 a year per subscription');
+    // AECI-1954: the price label already ends "per subscription", so the intro says it once.
+    const intro = (dialog.textContent ?? '').replace(/\s+/g, ' ');
+    expect(intro).toContain('at $250 a year per subscription. Stripe charges');
+    expect(intro).not.toContain('per subscription per subscription');
     expect(dialog.textContent).toContain('pro-rated');
     type(dialog.querySelector('[data-testid="stripe-add-quantity"]') as HTMLInputElement, '2');
     getBilling.mockResolvedValue(withMoreLicenses(SUBSCRIBED, 2));

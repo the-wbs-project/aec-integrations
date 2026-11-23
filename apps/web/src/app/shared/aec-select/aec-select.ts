@@ -10,6 +10,8 @@ import {
   output,
   signal,
 } from '@angular/core';
+import { FIELD_LABEL_CLASS, FIELD_LABEL_TYPE_CLASS } from '../form-field/form-field-classes';
+import { AecIcon } from '../icon/icon';
 
 /**
  * One choice. `value` is `null` for an "any"/"none" row — several callers make
@@ -73,7 +75,7 @@ let nextAecSelectId = 0;
 @Component({
   selector: 'aec-select',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [Combobox, ComboboxPopup, ComboboxWidget, Listbox, Option, OverlayModule],
+  imports: [AecIcon, Combobox, ComboboxPopup, ComboboxWidget, Listbox, Option, OverlayModule],
   template: `
     <div [class]="wrapperClass()">
       <span [id]="labelId()" [class]="labelClass()">{{ label() }}</span>
@@ -91,18 +93,7 @@ let nextAecSelectId = 0;
           [class]="triggerClass()"
         >
           <span>{{ triggerLabel() }}</span>
-          <svg
-            class="h-4 w-4 shrink-0 text-(--text-secondary)"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="m6 9 6 6 6-6" />
-          </svg>
+          <aec-icon class="text-(--text-secondary)" name="chevron-down" decorative [size]="4" />
         </button>
 
         <!--
@@ -129,9 +120,8 @@ let nextAecSelectId = 0;
               focusMode="activedescendant"
               selectionMode="explicit"
               [attr.aria-label]="label()"
-              class="z-50 flex max-h-[18rem] w-full min-w-[12rem] list-none flex-col gap-0.5
-                overflow-y-auto rounded-(--radius-md) border border-(--border-default)
-                bg-(--surface-raised) p-1.5 shadow-lg"
+              class="aec-popover z-50 flex max-h-[18rem] w-full min-w-[12rem] list-none flex-col gap-1
+                overflow-y-auto p-2"
             >
               @for (section of sections(); track $index) {
                 @if (section.heading === null) {
@@ -155,7 +145,7 @@ let nextAecSelectId = 0;
                         text-(--text-secondary) uppercase"
                       >{{ section.heading }}</span
                     >
-                    <ul role="none" class="m-0 flex list-none flex-col gap-0.5 p-0">
+                    <ul role="none" class="m-0 flex list-none flex-col gap-1 p-0">
                       @for (opt of section.options; track opt.value ?? ANY) {
                         <li ngOption [value]="opt" [label]="opt.label" [class]="optionClass">
                           <span>{{ opt.label }}</span>
@@ -202,7 +192,7 @@ export class AecSelect {
   protected readonly ANY = ' any';
 
   protected readonly optionClass =
-    'flex cursor-pointer items-start justify-between gap-3 rounded-(--radius-sm) px-3 py-2' +
+    'flex cursor-pointer items-start justify-between gap-3 rounded-mark px-3 py-2' +
     ' text-sm text-(--text-primary) data-[active=true]:bg-(--surface-sunken)';
 
   /** The options split into runs that share a `group`. A list with no groups is
@@ -230,13 +220,11 @@ export class AecSelect {
   protected readonly expanded = signal(false);
 
   protected readonly wrapperClass = computed(() =>
-    this.layout() === 'stacked' ? 'flex w-full flex-col gap-1.5' : 'inline-flex items-center gap-2',
+    this.layout() === 'stacked' ? 'flex w-full flex-col gap-2' : 'inline-flex items-center gap-2',
   );
 
   protected readonly labelClass = computed(() =>
-    this.layout() === 'stacked'
-      ? 'block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase'
-      : 'text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase',
+    this.layout() === 'stacked' ? FIELD_LABEL_CLASS : FIELD_LABEL_TYPE_CLASS,
   );
 
   protected readonly triggerClass = computed(() => {
@@ -245,18 +233,17 @@ export class AecSelect {
     // ever taking the native attribute the `disabled:` variant keys off. That is
     // the better accessible behaviour (a disabled control stays discoverable),
     // but it means the obvious Tailwind variant silently never fires.
-    // The border colour (3:1 `--border-input`, red when invalid) comes from the
+    // The border colour (3:1 `--border-field`, red when invalid) comes from the
     // unlayered `.aec-field-control` rule in `styles.css`: a border-colour
     // utility never applies in this app.
     const base =
-      'aec-field-control flex items-center justify-between gap-2 rounded-(--radius-md) border' +
-      ' bg-(--surface-base) text-sm text-(--text-primary)' +
-      ' focus-visible:outline-2 focus-visible:outline-offset-2' +
-      ' focus-visible:outline-(--accent-primary) aria-disabled:cursor-not-allowed' +
-      ' aria-disabled:opacity-50';
+      'aec-field-control flex items-center justify-between gap-2 rounded-control border' +
+      ' bg-(--surface-base) text-t-16 text-(--text-primary)' +
+      ' focus-visible:outline-3 focus-visible:outline-offset-3' +
+      ' focus-visible:outline-(--accent-primary) aria-disabled:cursor-not-allowed';
     return this.layout() === 'stacked'
-      ? `${base} w-full py-2 ps-3 pe-2`
-      : `${base} min-w-[8rem] py-1.5 ps-3 pe-2`;
+      ? `${base} w-full py-2 ps-4 pe-3`
+      : `${base} min-w-[8rem] py-2 ps-4 pe-3`;
   });
 
   /** The selection bridged into Aria's array-valued listbox model, re-derived

@@ -1,10 +1,13 @@
 import { Component, computed, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { AecCard } from '../shared/card/card';
+
 import { defaultIntegrationContext } from '@aeci/shared';
 import type { AlgoliaIntegrationRecord } from '@aeci/shared/algolia-records';
 
 import { directionLabel, mechanismKindLabel } from './mechanism-labels';
+import { Chip } from '../shared/chip/chip';
 
 /**
  * Grid hit card for an `integrations` search result (AECI-142). `<article>` tile
@@ -21,16 +24,17 @@ import { directionLabel, mechanismKindLabel } from './mechanism-labels';
  */
 @Component({
   selector: 'aec-search-integration-card',
-  imports: [RouterLink],
-  host: { class: 'block h-full' },
+  imports: [RouterLink, AecCard, Chip],
+  host: { class: 'group/card block h-full' },
   template: `
-    <article
-      class="group relative flex h-full flex-col rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5 transition-colors hover:border-(--border-strong)"
-    >
-      <h3 class="font-display text-base font-semibold tracking-tight text-(--text-primary)">
+    <article aecCard interactive class="flex h-full flex-col p-6">
+      <h3 class="text-(--text-primary)">
+        <!-- The card title is the heading's link (a stretched link). The size sits on the
+             block anchor, not the h3: the unlayered h3 rule beats a text-* utility on
+             the h3 itself (DESIGN.md, the Unlayered-Heading Rule). -->
         <a
           [routerLink]="pairLink()"
-          class="rounded-sm transition-colors after:absolute after:inset-0 group-hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          class="block text-t-20 leading-tight transition-colors after:absolute after:inset-0 after:rounded-card group-hover/card:text-(--accent-primary) focus-visible:outline-0"
         >
           {{ record().source_product_name }}
           <span class="inline-block text-(--text-secondary) rtl:-scale-x-100" aria-hidden="true"
@@ -48,11 +52,7 @@ import { directionLabel, mechanismKindLabel } from './mechanism-labels';
 
       <div class="mt-4 flex flex-wrap items-center gap-2">
         @if (mechanismLabel(); as label) {
-          <span
-            class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-2.5 py-0.5 text-xs font-bold tracking-[0.01em] text-(--text-secondary)"
-          >
-            {{ label }}
-          </span>
+          <aec-chip density="dense" tone="neutral">{{ label }}</aec-chip>
         }
         @if (direction(); as label) {
           <span class="text-xs text-(--text-secondary)">{{ label }}</span>

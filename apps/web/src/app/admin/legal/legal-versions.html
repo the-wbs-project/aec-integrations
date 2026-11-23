@@ -17,11 +17,13 @@
         Legal versions
       </h2>
       <p class="mt-1 max-w-[64ch] text-sm text-(--text-secondary)" i18n="@@admin.legal.subheading">
-        Record a new version of the Vendor Terms, the Managed plan agreement, the Terms of Service
-        or the Privacy Policy before it takes effect. Publishing stores your answers, the summary
-        and the PDF fingerprint. A material change is then emailed with the PDF attached: an
-        agreement to every affected company, the Terms of Service or the Privacy Policy to every
-        account. The text itself is changed in the repository, not here. All times are UTC.
+        Record a new version of the Vendor Terms, the Managed plan agreement, the Listing Accuracy
+        Policy, the Review Guidelines, the Terms of Service or the Privacy Policy before it takes
+        effect. Publishing stores your answers, the summary and the PDF fingerprint. A material
+        change is then emailed with the PDF attached: an agreement to every affected company, the
+        Listing Accuracy Policy or the Review Guidelines to every claimed company, the Terms of
+        Service or the Privacy Policy to every account. The text itself is changed in the
+        repository, not here. All times are UTC.
       </p>
     </div>
     <button
@@ -417,10 +419,33 @@
     </div>
     } @else {
     <form
+      method="dialog"
       novalidate
       class="space-y-5 border-t border-(--border-default) pt-4"
-      (submit)="$event.preventDefault(); openPublish(entry)"
+      (aecSubmit)="openPublish(entry)"
     >
+      @if (isPolicy(entry.document)) {
+      <!-- AECI-1969 (ruling 54): no material question. Every policy version is emailed. -->
+      <p
+        data-testid="legal-policy-notice"
+        class="max-w-[64ch] text-sm text-(--text-secondary)"
+        i18n="@@admin.legal.policy.notice"
+      >
+        The Vendor Terms include this policy, so every version is a material change. Publishing
+        emails every claimed company at least 30 days before it takes effect. A company the email
+        does not reach stays on the version it accepted.
+      </p>
+      } @else if (!asksMaterial(entry.document)) {
+      <!-- AECI-1977 (ruling 62): no material question. Every agreement version is emailed. -->
+      <p
+        data-testid="legal-agreement-notice"
+        class="max-w-[64ch] text-sm text-(--text-secondary)"
+        i18n="@@admin.legal.agreement.notice"
+      >
+        This agreement promises an email for every new version, so every version is a material
+        change. Publishing emails every affected company at least 30 days before it takes effect.
+      </p>
+      } @else {
       <fieldset class="space-y-1.5">
         <legend
           class="text-sm font-bold text-(--text-primary)"
@@ -476,6 +501,7 @@
           </label>
         </div>
       </fieldset>
+      }
 
       <!-- AECI-1637: no acceptance question for the Privacy Policy (the API refuses it). -->
       @if (asksAcceptance(entry.document)) {
@@ -514,7 +540,7 @@
           Answer Yes for a material change to this agreement. Customers who pay monthly must then
           click to accept it before it applies to them.
         </p>
-        } @if (draft(entry.document).material !== 'yes') {
+        } @if (materialOf(entry.document) !== 'yes') {
         <p
           [id]="'admin-legal-' + entry.document + '-acceptance-locked'"
           class="max-w-[64ch] text-xs text-(--text-secondary)"
@@ -526,7 +552,7 @@
         <div class="flex flex-wrap gap-5 pt-1">
           <label
             class="flex items-center gap-2 text-sm text-(--text-primary) data-[locked=true]:text-(--text-secondary)"
-            [attr.data-locked]="draft(entry.document).material !== 'yes'"
+            [attr.data-locked]="materialOf(entry.document) !== 'yes'"
           >
             <input
               type="radio"
@@ -534,8 +560,8 @@
               [attr.id]="'admin-legal-' + entry.document + '-acceptance-yes'"
               value="yes"
               [checked]="draft(entry.document).acceptance === 'yes'"
-              [disabled]="draft(entry.document).material !== 'yes'"
-              [attr.aria-describedby]="'admin-legal-' + entry.document + '-acceptance-hint' + (draft(entry.document).material !== 'yes' ? ' admin-legal-' + entry.document + '-acceptance-locked' : '')"
+              [disabled]="materialOf(entry.document) !== 'yes'"
+              [attr.aria-describedby]="'admin-legal-' + entry.document + '-acceptance-hint' + (materialOf(entry.document) !== 'yes' ? ' admin-legal-' + entry.document + '-acceptance-locked' : '')"
               (change)="onAcceptance(entry.document, 'yes')"
               class="h-4 w-4 accent-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed"
             />
@@ -603,7 +629,7 @@
         }
       </div>
 
-      @if (entry.document === 'vendor_terms') {
+      @if (mayExpedite(entry.document)) {
       <div class="space-y-1.5">
         <aec-select
           i18n-label="@@admin.legal.expedited.label"
@@ -611,12 +637,12 @@
           layout="stacked"
           [options]="expeditedOptions"
           [value]="draft(entry.document).expedited"
-          idPrefix="admin-legal-expedited"
-          describedBy="admin-legal-expedited-hint"
+          [idPrefix]="expeditedId(entry.document)"
+          [describedBy]="expeditedId(entry.document) + '-hint'"
           (changed)="onExpedited(entry.document, $event)"
         />
         <p
-          id="admin-legal-expedited-hint"
+          [id]="expeditedId(entry.document) + '-hint'"
           class="max-w-[64ch] text-xs text-(--text-secondary)"
           i18n="@@admin.legal.expedited.hint"
         >
@@ -649,7 +675,9 @@
           [id]="'admin-legal-' + entry.document + '-publish-hint'"
           class="text-xs text-(--text-secondary)"
         >
-          @if (publishEnabled()) { @if (asksAcceptance(entry.document)) {
+          @if (publishEnabled()) { @if (isPolicy(entry.document)) {
+          <span i18n="@@admin.legal.publishHintSummary">Write the summary to publish.</span>
+          } @else if (asksAcceptance(entry.document) && asksMaterial(entry.document)) {
           <span i18n="@@admin.legal.publishHint"
             >Answer both questions and write the summary to publish.</span
           >
@@ -684,7 +712,12 @@
   <!-- AECI-1638: litigation holds, the switch that stops the legal retention prune. -->
   <aec-admin-litigation-holds />
 
-  <brn-dialog [disableClose]="submitting()" (closed)="onDialogClosed()">
+  <brn-dialog
+    [role]="'alertdialog'"
+    [autoFocus]="'first-heading'"
+    [disableClose]="submitting()"
+    (closed)="onDialogClosed()"
+  >
     <ng-template brnDialogContent>
       @if (pending(); as p) {
       <div
@@ -693,7 +726,8 @@
         @if (dialogMode() === 'resend') {
         <h2
           brnDialogTitle
-          class="text-lg font-bold text-(--text-primary)"
+          tabindex="-1"
+          class="text-lg font-bold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           i18n="@@admin.legal.resendDialog.title"
         >
           Send the notice for version {{ p.version }} of the {{ documentTitle(p.document) }} again?
@@ -726,7 +760,8 @@
         } @else {
         <h2
           brnDialogTitle
-          class="text-lg font-bold text-(--text-primary)"
+          tabindex="-1"
+          class="text-lg font-bold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           i18n="@@admin.legal.dialog.title"
         >
           Publish version {{ p.version }} of the {{ documentTitle(p.document) }}?
@@ -739,7 +774,18 @@
             This records version {{ p.version }}, which takes effect on {{ p.effective_at | date:
             'longDate' : 'UTC' }} at 12:00 UTC, with your summary and the stored PDF.
           </p>
-          @if (draft(p.document).material === 'yes' && isReader(p.document)) {
+          @if (isPolicy(p.document)) {
+          <p data-testid="legal-dialog-material" i18n="@@admin.legal.dialog.materialPolicy">
+            Every policy version is a material change. Publishing emails every claimed company your
+            summary, a link to this version and its PDF. A company the email does not reach stays on
+            the version it accepted.
+          </p>
+          } @else if (!asksMaterial(p.document)) {
+          <p data-testid="legal-dialog-material" i18n="@@admin.legal.dialog.materialAgreement">
+            Every version of this agreement is a material change. Publishing emails every affected
+            company your summary, a link to this version and its PDF.
+          </p>
+          } @else if (draft(p.document).material === 'yes' && isReader(p.document)) {
           <p data-testid="legal-dialog-material" i18n="@@admin.legal.dialog.materialYesAccounts">
             You said this is a material change. Publishing emails every account holder your summary,
             a link to this version and its PDF.
@@ -754,7 +800,7 @@
             You said this is not a material change. No one will be emailed about it.
           </p>
           } @if (!asksAcceptance(p.document)) {
-          <!-- The Privacy Policy: no acceptance question, so no acceptance line. -->
+          <!-- The Privacy Policy and the two policies: no acceptance question, so no line. -->
           } @else if (draft(p.document).acceptance === 'yes') { @if (p.document === 'terms') {
           <p data-testid="legal-dialog-acceptance" i18n="@@admin.legal.dialog.acceptTerms">
             You said it needs acceptance. Version {{ p.version }} will apply to each account holder
@@ -774,12 +820,12 @@
           <p data-testid="legal-dialog-acceptance" i18n="@@admin.legal.dialog.acceptNo">
             You said it does not need acceptance, so no one will be asked to accept it.
           </p>
-          } @if (p.document === 'vendor_terms' && draft(p.document).expedited === 'law') {
+          } @if (mayExpedite(p.document) && draft(p.document).expedited === 'law') {
           <p i18n="@@admin.legal.dialog.expeditedLaw">
             You gave an expedited reason: the law requires the change. It is recorded only if the
             version takes effect less than 30 days from now.
           </p>
-          } @if (p.document === 'vendor_terms' && draft(p.document).expedited === 'error') {
+          } @if (mayExpedite(p.document) && draft(p.document).expedited === 'error') {
           <p i18n="@@admin.legal.dialog.expeditedError">
             You gave an expedited reason: it corrects an error. It is recorded only if the version
             takes effect less than 30 days from now.

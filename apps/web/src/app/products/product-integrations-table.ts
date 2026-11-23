@@ -1,5 +1,15 @@
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 
+import {
+  INTEGRATION_TABLE_BODY_CLASS,
+  INTEGRATION_TABLE_CLASS,
+  INTEGRATION_TABLE_FRAME_CLASS,
+  INTEGRATION_TABLE_NESTED_FRAME_CLASS,
+  INTEGRATION_TABLE_HEAD_CLASS,
+  INTEGRATION_TABLE_TH_CLASS,
+  INTEGRATION_TABLE_TH_LINK_CLASS,
+  INTEGRATION_TABLE_TH_MD_CLASS,
+} from './integration-table-recipe';
 import { ProductIntegrationRow } from './product-integration-row';
 
 import type { IntegrationLaneRow } from './connector-lane-grouping';
@@ -35,39 +45,45 @@ import type { IntegrationLaneRow } from './connector-lane-grouping';
          608px body column when DetailLayout docks the metadata sidebar at
          lg, which is the whole point of the fold. Raising it back above 38rem
          re-breaks that dock into a horizontal scroll. -->
-    <div class="overflow-x-auto">
+    <!-- AECI-1720 (mock-up 6, .table-wrap): the table sits in a white card with a Bone
+         header row. -->
+    <div [class]="frameClass()" data-testid="integrations-table-frame">
       <table
-        class="w-full border-collapse text-start text-sm md:min-w-[34rem]"
+        [class]="tableClass"
         [attr.aria-label]="ariaLabel()"
         [attr.aria-labelledby]="ariaLabelledby()"
       >
-        <thead
-          class="border-b border-(--border-default) text-start text-xs
-            font-medium tracking-wide text-(--text-secondary)"
-        >
+        <thead [class]="headClass">
           <tr>
             <th
               scope="col"
-              class="px-4 py-3 text-start font-medium"
+              [class]="thClass"
               i18n="@@products.detail.body.integrations.col.product"
             >
               Integrates with
             </th>
             <th
               scope="col"
-              class="hidden px-4 py-3 text-start font-medium md:table-cell"
+              class="hidden px-4 py-3 text-start font-semibold lg:table-cell"
+              i18n="@@search.facet.categories"
+            >
+              Categories
+            </th>
+            <th
+              scope="col"
+              [class]="thMdClass"
               i18n="@@products.detail.body.integrations.col.connection"
             >
               Connection
             </th>
-            <th scope="col" class="px-4 py-3">
+            <th scope="col" [class]="thLinkClass">
               <span class="sr-only" i18n="@@products.detail.body.integrations.col.details"
                 >Details</span
               >
             </th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-(--border-default)">
+        <tbody [class]="bodyClass">
           @for (row of above(); track row.key) {
             <tr
               aec-product-integration-row
@@ -77,6 +93,7 @@ import type { IntegrationLaneRow } from './connector-lane-grouping';
               [mergedMechanismKinds]="row.mechanismKinds"
               [mergedDirection]="row.direction"
               [mergedDataObjectSlugs]="row.dataObjectSlugs"
+              [mergedAgreement]="row.agreement"
             ></tr>
           }
           @if (deferred().length > 0) {
@@ -90,13 +107,14 @@ import type { IntegrationLaneRow } from './connector-lane-grouping';
                   [mergedMechanismKinds]="row.mechanismKinds"
                   [mergedDirection]="row.direction"
                   [mergedDataObjectSlugs]="row.dataObjectSlugs"
+                  [mergedAgreement]="row.agreement"
                 ></tr>
               }
             } @placeholder (minimum 100ms) {
               <tr aria-hidden="true">
-                <td colspan="3" class="px-4 py-3">
+                <td colspan="4" class="px-4 py-3">
                   <div
-                    class="h-16 animate-pulse rounded-(--radius-lg)
+                    class="h-16 animate-pulse rounded-mark
                       border border-(--border-default) bg-(--surface-sunken)"
                   ></div>
                 </td>
@@ -120,4 +138,21 @@ export class ProductIntegrationsTable {
   readonly ariaLabel = input<string | null>(null);
   /** …or the id of the group's `<h3>`, for a named lane. */
   readonly ariaLabelledby = input<string | null>(null);
+  /**
+   * The table sits inside a group card (a lane card): no frame radius or shadow of its
+   * own, so no curved header sits inside the card's square edge (AECI-1924, 2026-11-19).
+   * The standalone table keeps its rounded frame.
+   */
+  readonly nested = input(false);
+
+  // The table recipe, shared with the hub tables of "Integrations it powers" (AECI-1924).
+  protected readonly frameClass = computed(() =>
+    this.nested() ? INTEGRATION_TABLE_NESTED_FRAME_CLASS : INTEGRATION_TABLE_FRAME_CLASS,
+  );
+  protected readonly tableClass = INTEGRATION_TABLE_CLASS;
+  protected readonly headClass = INTEGRATION_TABLE_HEAD_CLASS;
+  protected readonly thClass = INTEGRATION_TABLE_TH_CLASS;
+  protected readonly thMdClass = INTEGRATION_TABLE_TH_MD_CLASS;
+  protected readonly thLinkClass = INTEGRATION_TABLE_TH_LINK_CLASS;
+  protected readonly bodyClass = INTEGRATION_TABLE_BODY_CLASS;
 }

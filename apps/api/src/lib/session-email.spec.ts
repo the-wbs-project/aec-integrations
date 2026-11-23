@@ -52,7 +52,7 @@ async function mint(opts: { email?: string; exp?: number | string } = {}): Promi
 function sessionCookie(token: string): string {
   const json = JSON.stringify({ access_token: token });
   const b64 = btoa(json).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  return `sb-test-auth-token=base64-${b64}`;
+  return `sb-test-project-auth-token=base64-${b64}`;
 }
 
 async function resolve(headers: Record<string, string>, env: Partial<Env> = {}) {

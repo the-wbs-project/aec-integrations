@@ -12,8 +12,17 @@ import {
 import { compareText } from '@aeci/shared/text-sort';
 
 import { KIND_PATH_SEGMENT } from '../core/api/taxonomy';
+import { BROWSE_HEADER_CLASS } from '../layouts/browse-header';
+import { BrowseLayout } from '../layouts/browse-layout';
+import { AecCard, CARD_GRID_CLASS } from '../shared/card/card';
+import { EmptyState } from '../shared/empty-state/empty-state';
+import {
+  ListingSortSelect,
+  type ListingSortOption,
+} from '../shared/listing-toolbar/listing-sort-select';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
+import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcrumb/breadcrumb';
 
 /**
  * How the term grid is ordered.
@@ -55,11 +64,11 @@ const SORT_MODES_BY_KIND: Record<TaxonomyKind, readonly SortMode[]> = {
  * Generalizes the original AECI-61 `/categories` page so the four facets share
  * one template, mirroring `TaxonomyBrowsePage`.
  *
- * Every term renders as an editorial card linking to its `/{segment}/:slug`
- * browse page. Still not a sortable *table* (cf. `/products`) — the taxonomy is
- * small (≈30 terms) and reads better as cards — but the card grid does carry a
- * sort toggle (`SortMode`), on all four facets because all four routes are this
- * component. The option set is per-facet (`SORT_MODES_BY_KIND`): `/phases` gets
+ * Every term renders as a card (`aecCard`, at most three columns) whose title
+ * links to its `/{segment}/:slug` browse page (AECI-1795, mock-up 10). Still not
+ * a sortable *table* (cf. `/products`) — the taxonomy is small (≈30 terms) and
+ * reads better as cards — but the card grid does carry the shared sort control
+ * (`SortMode`), on all four facets because all four routes are this component. The option set is per-facet (`SORT_MODES_BY_KIND`): `/phases` gets
  * `sequence / name / products` and defaults to its curated sequence; the other
  * three get `name / products` and default to A→Z.
  * Generic chrome uses shared `@@taxonomy.index.*` ids; the facet-specific copy
@@ -71,106 +80,86 @@ const SORT_MODES_BY_KIND: Record<TaxonomyKind, readonly SortMode[]> = {
  */
 @Component({
   selector: 'aec-taxonomy-index',
-  imports: [RouterLink, MailingListSignup],
+  imports: [
+    AecBreadcrumb,
+    AecCard,
+    BrowseLayout,
+    EmptyState,
+    ListingSortSelect,
+    MailingListSignup,
+    RouterLink,
+  ],
   template: `
-    <div class="bg-(--surface-base) text-(--text-primary)">
-      <div class="mx-auto w-full max-w-7xl px-6 py-8 md:px-8 md:py-12">
-        <header class="mb-8 border-b border-(--border-default) pb-6 md:mb-12 md:pb-8">
-          <nav i18n-aria-label="@@taxonomy.index.breadcrumbs.aria" aria-label="Breadcrumb">
-            <ol
-              class="flex items-center gap-2 text-xs tracking-wide uppercase text-(--text-secondary)"
-            >
-              <li>
-                <a
-                  routerLink="/"
-                  class="rounded-sm transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                  i18n="@@taxonomy.index.breadcrumbs.home"
-                  >Home</a
-                >
-              </li>
-              <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
-              <li class="text-(--text-primary)" aria-current="page">{{ title() }}</li>
-            </ol>
-          </nav>
-          <h1 class="mt-3 font-display text-4xl font-semibold tracking-tight md:text-5xl">
-            {{ title() }}
-          </h1>
-          <p class="mt-3 max-w-prose text-(--text-secondary)">{{ lede() }}</p>
-        </header>
+    <!-- Mock-up 10, the taxonomy index (AECI-1795): the browse shell's white
+         header and wrap, with no filter rail. -->
+    <aec-browse-layout [filters]="false">
+      <div slot="header">
+        <aec-breadcrumb [items]="crumbs()" />
+        <h1 [class]="headerClass.title">{{ title() }}</h1>
+        <p [class]="headerClass.lede">{{ lede() }}</p>
+      </div>
 
+      <div slot="grid">
         @if (terms().length > 0) {
-          <!-- Sort control. See sorted() and sortOptionLabel() for the rules. -->
-          <fieldset class="mb-6 flex flex-wrap items-center gap-2">
-            <legend class="sr-only" i18n="@@taxonomy.index.sort.legend">Sort terms by</legend>
-            <span class="me-1 text-xs font-bold tracking-wide uppercase text-(--text-secondary)">
-              {{ sortLabel }}
-            </span>
-            @for (mode of sortModes(); track mode) {
-              <button
-                type="button"
-                (click)="setSort(mode)"
-                [attr.aria-pressed]="sort() === mode"
-                class="rounded-(--radius-md) border px-3 py-1.5 text-xs font-bold transition-colors
-                  focus-visible:outline-2 focus-visible:outline-offset-2
-                  focus-visible:outline-(--accent-primary)"
-                [class]="
-                  sort() === mode
-                    ? 'border-(--accent-primary) bg-(--accent-primary-soft) text-(--text-primary)'
-                    : 'border-(--border-default) text-(--text-secondary) hover:text-(--text-primary)'
-                "
-              >
-                {{ sortOptionLabel(mode) }}
-              </button>
-            }
-          </fieldset>
+          <!-- The shared sort control (ruling 7 of 2026-11-16). Same orders and
+               the same default per facet as the buttons it replaced. -->
+          <aec-listing-sort-select
+            [options]="sortOptions()"
+            [value]="sort()"
+            (sortChange)="onSortChange($event)"
+          />
 
-          <ul class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <ul role="list" class="mt-6" [class]="gridClass">
             @for (term of terms(); track term.id) {
-              <li>
-                <a
-                  [routerLink]="[basePath(), term.slug]"
-                  class="flex h-full flex-col rounded-(--radius-lg) border border-(--border-default)
-                    bg-(--surface-raised) p-5 text-(--text-primary) no-underline transition-colors
-                    hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2
-                    focus-visible:outline-(--accent-primary)"
-                >
-                  <span class="font-display text-lg font-semibold tracking-tight">{{
-                    term.name
-                  }}</span>
-                  @if (term.description) {
-                    <span
-                      class="mt-2 line-clamp-3 text-sm leading-relaxed text-(--text-secondary)"
-                      >{{ term.description }}</span
+              <li class="group/card flex min-w-0">
+                <div aecCard interactive class="flex w-full flex-col p-6">
+                  <!-- One link, on the title, stretched over the card (the card
+                       recipe). The size sits on the span, because the unlayered
+                       h2 rule beats a size utility on the h2 itself. -->
+                  <h2>
+                    <a
+                      [routerLink]="[basePath(), term.slug]"
+                      class="text-(--text-primary) no-underline transition-colors after:absolute after:inset-0 after:rounded-card group-hover/card:text-(--accent-primary) focus-visible:outline-0"
+                      ><span class="text-t-20 leading-tight">{{ term.name }}</span></a
                     >
+                  </h2>
+                  @if (term.description) {
+                    <p
+                      class="mt-2 line-clamp-3 flex-1 text-t-14 leading-relaxed text-(--text-secondary)"
+                    >
+                      {{ term.description }}
+                    </p>
                   }
                   <!-- Both counts: one of them is a sort key. See the note on
                        integrationCountLabel(). -->
-                  <span class="mt-4 text-sm font-bold text-(--text-secondary) tabular-nums">
+                  <p class="mt-4 text-t-13 text-(--text-secondary) tabular-nums">
                     {{ countLabel(term.product_count) }}
                     @if (term.integration_count !== undefined) {
-                      <span aria-hidden="true" class="mx-1.5 text-(--text-tertiary)">·</span>
+                      <span aria-hidden="true" class="mx-2">·</span>
                       {{ integrationCountLabel(term.integration_count) }}
                     }
-                  </span>
-                </a>
+                  </p>
+                </div>
               </li>
             }
           </ul>
         } @else {
-          <p
-            class="rounded-(--radius-lg) border border-dashed border-(--border-default)
-              bg-(--surface-sunken) p-6 text-sm text-(--text-secondary)"
-          >
-            {{ emptyLabel() }}
-          </p>
+          <aec-empty-state>
+            <p>{{ emptyLabel() }}</p>
+          </aec-empty-state>
         }
       </div>
-    </div>
+    </aec-browse-layout>
 
     <aec-mailing-list-signup />
   `,
 })
 export class TaxonomyIndexPage {
+  protected readonly crumbs = computed<BreadcrumbItem[]>(() => [
+    homeCrumb(),
+    { label: this.title() },
+  ]);
+
   private readonly route = inject(ActivatedRoute);
 
   /** Facet kind for this route — static `data: { kind }` in `app.routes.ts`. */
@@ -221,16 +210,29 @@ export class TaxonomyIndexPage {
   );
 
   /**
-   * The control is a `<fieldset>` of `aria-pressed` buttons behind an `sr-only`
-   * `<legend>`, mirroring the admin console's range toggles. Angular Aria ships
-   * no `radio` (ADR 0010), and a pressed-state toggle group is the honest
-   * semantic for something that reorders content already on the page. It renders
-   * only when there is a grid to reorder: a sort control over an empty list is
-   * furniture, not function.
+   * The control is the shared listing sort control, `aec-listing-sort-select`
+   * (ruling 7 of 2026-11-16, AECI-1795). Until then it was a row of
+   * `aria-pressed` buttons labelled "Sequence", "A → Z" and "Products". The
+   * modes, their order and each facet's default did not change. Only the
+   * control and its labels did. It renders only when there is a grid to
+   * reorder: a sort control over an empty list is furniture, not function.
+   *
+   * The control hands back an option `value`. Anything that is not one of this
+   * facet's modes is ignored.
    */
-  protected setSort(mode: SortMode): void {
-    this.explicitSort.set(mode);
+  protected onSortChange(value: string): void {
+    const mode = this.sortModes().find((m) => m === value);
+    if (mode) this.explicitSort.set(mode);
   }
+
+  /** The control's options, in this facet's mode order, with their labels. */
+  protected readonly sortOptions = computed<readonly ListingSortOption[]>(() =>
+    this.sortModes().map((mode) => ({ value: mode, label: this.sortOptionLabel(mode) })),
+  );
+
+  protected readonly headerClass = BROWSE_HEADER_CLASS;
+  /** One column, two from `md`, three from `lg`, never more (clash 18). */
+  protected readonly gridClass = CARD_GRID_CLASS;
 
   /**
    * Reorder a term list for the active mode.
@@ -353,22 +355,21 @@ export class TaxonomyIndexPage {
       : $localize`:@@taxonomy.index.card.integrationCount:${count}:INTERPOLATION: integrations`;
   }
 
-  /** The visible "Sort by" lead-in. The `<legend>` carries the accessible name,
-   *  so this span is the sighted-reader half of the same label. */
-  protected readonly sortLabel = $localize`:@@taxonomy.index.sort.label:Sort by`;
-
   /**
-   * Composed in TS, not as an `i18n` attribute, because the options come out of
-   * a `@for` — and an *interpolated* `i18n-*` attribute emits no attribute at
-   * all in this app (AECI-166), so a template-side switch would be one refactor
-   * away from silently unlabelled buttons.
+   * The option labels, composed in TS because the control takes localized
+   * strings. "Name (A–Z)" reuses the product listings' message, because the
+   * order means the same thing. "Project order" is new with the shared control
+   * (mock-up 10, question 7; it was "Sequence", approved 2026-11-16). "Products"
+   * keeps the old button's word and message id. "Most products" is proposed
+   * for it and waits on the owner (DESIGN.md). The text arrow left with the old
+   * labels, because the Arrow Rule keeps it for data-flow direction.
    */
-  protected sortOptionLabel(mode: SortMode): string {
+  private sortOptionLabel(mode: SortMode): string {
     switch (mode) {
       case 'sequence':
-        return $localize`:@@taxonomy.index.sort.sequence:Sequence`;
+        return $localize`:@@taxonomy.index.sort.projectOrder:Project order`;
       case 'name':
-        return $localize`:@@taxonomy.index.sort.alphabetical:A → Z`;
+        return $localize`:@@listing.sort.name:Name (A–Z)`;
       case 'products':
         return $localize`:@@taxonomy.index.sort.products:Products`;
     }

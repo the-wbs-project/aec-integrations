@@ -45,6 +45,8 @@ import { Analytics } from '../analytics/analytics';
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
 import { RequestsApi } from '../requests/requests-api';
+import { AecButton } from '../shared/button/button';
+import { AecCard } from '../shared/card/card';
 
 /**
  * `no-token`: reached without `?token=`. `idle`: awaiting the click. `confirming`:
@@ -65,13 +67,10 @@ type ClaimConfirmStatus =
   | 'gone'
   | 'error';
 
-const BTN =
-  'inline-flex items-center justify-center rounded-(--radius-sm) bg-(--accent-primary) px-5 py-2 font-label text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-60';
+/** Size, weight and face come from the unlayered global h1 rule (the Headline role). */
+const HEADLINE = 'text-(--text-primary) outline-none';
 
-const HEADLINE =
-  'font-display text-3xl font-normal leading-snug text-(--text-primary) outline-none md:text-4xl';
-
-const BODY = 'mt-4 text-base leading-relaxed text-(--text-secondary)';
+const BODY = 'mt-4 text-t-16 leading-relaxed text-(--text-secondary)';
 
 /** The states a refused confirm can land on. */
 type FailureStatus = Extract<ClaimConfirmStatus, 'expired' | 'not-found' | 'gone' | 'error'>;
@@ -95,272 +94,239 @@ function failureStatus(err: unknown): FailureStatus {
 
 @Component({
   selector: 'app-claim-confirm',
-  imports: [RouterLink],
+  imports: [AecButton, AecCard, RouterLink],
   template: `
-    <div class="bg-(--surface-base) text-(--text-primary)">
-      <section class="border-b border-(--border-default) bg-(--accent-warm)">
-        <div class="mx-auto max-w-2xl px-6 py-16 md:px-8 md:py-20">
-          <div
-            class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-base) p-8 md:p-10"
-          >
-            @switch (status()) {
-              @case ('confirmed') {
-                @if (result(); as r) {
-                  @if (r.kind === 'listing') {
-                    <h1
-                      #resultHeading
-                      tabindex="-1"
-                      [class]="headline"
-                      i18n="@@claimConfirm.done.listing.headline"
-                    >
-                      Request sent
-                    </h1>
-                    <p [class]="body" i18n="@@claimConfirm.done.listing.body">
-                      Thanks. We've emailed you a receipt. We'll check that you work for the
-                      company. We may add
-                      <strong class="font-semibold text-(--text-primary)">{{
-                        r.company_name
-                      }}</strong>
-                      to the directory if it meets our
-                      <a
-                        href="/docs/trust/listing-submissions"
-                        target="_blank"
-                        rel="noopener"
-                        class="font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                        >listing conditions<span class="sr-only"> (opens in a new tab)</span></a
-                      >. If we add it, we'll write to you so you can finish your claim.
-                    </p>
-                  } @else {
-                    <h1
-                      #resultHeading
-                      tabindex="-1"
-                      [class]="headline"
-                      i18n="@@requests.sent.claim.title"
-                    >
-                      Claim sent
-                    </h1>
-                    <p [class]="body" i18n="@@claimConfirm.done.claim.body">
-                      Thanks for confirming. We've emailed you a receipt.
-                    </p>
-                    <div
-                      class="mt-6 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
-                    >
-                      <p
-                        class="text-sm font-bold text-(--text-primary)"
-                        i18n="@@requests.sent.next.heading"
-                      >
-                        What happens next
-                      </p>
-                      <ol
-                        class="mt-2 list-decimal space-y-1 ps-5 text-sm leading-relaxed text-(--text-secondary)"
-                      >
-                        @if (r.routed) {
-                          <li data-testid="claim-confirm-routed">
-                            @if (r.company_name; as name) {
-                              <ng-container i18n="@@requests.sent.claim.routed"
-                                >The team at {{ name }} has been asked to confirm you.</ng-container
-                              >
-                            } @else {
-                              <ng-container i18n="@@requests.sent.claim.routed.unnamed"
-                                >The team at this company has been asked to confirm
-                                you.</ng-container
-                              >
-                            }
-                          </li>
-                          <li i18n="@@requests.sent.claim.routed.accept">
-                            If they accept, you get an invitation email to join.
-                          </li>
-                          <li i18n="@@requests.sent.claim.routed.fallback">
-                            If nobody answers within {{ reviewDays }} days, we review your claim and
-                            write to you.
-                          </li>
-                        } @else {
-                          <li i18n="@@requests.sent.claim.step1">
-                            A person at AEC Integrations reviews every claim. Nothing is granted
-                            automatically.
-                          </li>
-                          <li i18n="@@requests.sent.claim.step2">
-                            We check your email domain against your company's website, and your
-                            LinkedIn if you added it.
-                          </li>
-                          <li i18n="@@requests.sent.claim.step3">
-                            If we approve it, we email you a link to your vendor portal.
-                          </li>
-                        }
-                      </ol>
-                    </div>
-                  }
+    <!-- A focused flow (DESIGN.md "The Page-Width Rule", AECI-1808): a narrow
+         centred column on white, like the not-found page. No band. -->
+    <div class="mx-auto w-full max-w-2xl px-6 py-16 text-(--text-primary) md:py-24">
+      <div aecCard class="p-6 sm:p-8 md:p-10">
+        @switch (status()) {
+          @case ('confirmed') {
+            @if (result(); as r) {
+              @if (r.kind === 'listing') {
+                <h1
+                  #resultHeading
+                  tabindex="-1"
+                  [class]="headline"
+                  i18n="@@claimConfirm.done.listing.headline"
+                >
+                  Request sent
+                </h1>
+                <p [class]="body" i18n="@@claimConfirm.done.listing.body">
+                  Thanks. We've emailed you a receipt. We'll check that you work for the company. We
+                  may add
+                  <strong class="font-semibold text-(--text-primary)">{{ r.company_name }}</strong>
+                  to the directory if it meets our
                   <a
-                    routerLink="/docs/vendors/claiming-your-listing"
-                    class="mt-6 inline-flex text-sm font-bold text-(--accent-primary) underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                    i18n="@@requests.sent.docsLink"
-                    >How claims work</a
-                  >
-                }
-              }
-              @case ('rejected') {
+                    href="/docs/trust/listing-submissions"
+                    target="_blank"
+                    rel="noopener"
+                    class="text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                    >listing conditions<span class="sr-only"> (opens in a new tab)</span></a
+                  >. If we add it, we'll write to you so you can finish your claim.
+                </p>
+              } @else {
                 <h1
                   #resultHeading
                   tabindex="-1"
                   [class]="headline"
-                  i18n="@@claimConfirm.rejected.headline"
+                  i18n="@@requests.sent.claim.title"
                 >
-                  We could not accept this claim
+                  Claim sent
                 </h1>
-                @if (rejected(); as r) {
-                  @if (r.reason === 'already_admin') {
-                    <p [class]="body" i18n="@@claimConfirm.rejected.admin">
-                      This address belongs to an AEC Integrations staff account. Send the claim
-                      again from a different work address.
-                    </p>
-                  } @else if (r.vendor_name; as vendor) {
-                    <p [class]="body" i18n="@@claimConfirm.rejected.otherVendor">
-                      This address already manages
-                      <strong class="font-semibold text-(--text-primary)">{{ vendor }}</strong>
-                      on AEC Integrations. Each address can manage one company. Send the claim again
-                      from a different work address.
-                    </p>
-                  } @else {
-                    <p [class]="body" i18n="@@claimConfirm.rejected.otherVendor.unnamed">
-                      This address already manages another company on AEC Integrations. Each address
-                      can manage one company. Send the claim again from a different work address.
-                    </p>
-                  }
-                }
-                <p [class]="body" i18n="@@claimConfirm.rejected.emailed">
-                  We've emailed you the same details.
+                <p [class]="body" i18n="@@claimConfirm.done.claim.body">
+                  Thanks for confirming. We've emailed you a receipt.
                 </p>
-                <a
-                  routerLink="/vendor-program"
-                  [class]="btn + ' mt-6'"
-                  i18n="@@claimConfirm.restart"
-                >
-                  Start again
-                </a>
-              }
-              @case ('already') {
-                <h1
-                  #resultHeading
-                  tabindex="-1"
-                  [class]="headline"
-                  i18n="@@claimConfirm.already.headline"
-                >
-                  Already confirmed
-                </h1>
-                <p [class]="body" i18n="@@claimConfirm.already.body">
-                  This link was used already, so your request is with us. We'll write to you by
-                  email. You don't need to do anything else.
-                </p>
-              }
-              @case ('expired') {
-                <h1
-                  #resultHeading
-                  tabindex="-1"
-                  [class]="headline"
-                  i18n="@@claimConfirm.expired.headline"
-                >
-                  This link has expired
-                </h1>
-                <p [class]="body" i18n="@@claimConfirm.expired.body">
-                  Confirm links work for {{ confirmDays }} days. Nothing was sent. Start again and
-                  we'll email you a new link.
-                </p>
-                <a
-                  routerLink="/vendor-program"
-                  [class]="btn + ' mt-6'"
-                  i18n="@@claimConfirm.restart"
-                >
-                  Start again
-                </a>
-              }
-              @case ('not-found') {
-                <h1
-                  #resultHeading
-                  tabindex="-1"
-                  [class]="headline"
-                  i18n="@@claimConfirm.notFound.headline"
-                >
-                  This link is not valid
-                </h1>
-                <p [class]="body" i18n="@@claimConfirm.notFound.body">
-                  Check that you opened the whole link from the email. If it still does not work,
-                  start again and we'll email you a new link.
-                </p>
-                <a
-                  routerLink="/vendor-program"
-                  [class]="btn + ' mt-6'"
-                  i18n="@@claimConfirm.restart"
-                >
-                  Start again
-                </a>
-              }
-              @case ('gone') {
-                <h1
-                  #resultHeading
-                  tabindex="-1"
-                  [class]="headline"
-                  i18n="@@claimConfirm.gone.headline"
-                >
-                  That listing is no longer available
-                </h1>
-                <p [class]="body" i18n="@@claimConfirm.gone.body.askToAdd">
-                  The listing you claimed was removed after you sent the claim, so nothing was sent.
-                  Start again and choose Ask us to add it to name your product or company.
-                </p>
-                <a
-                  routerLink="/vendor-program"
-                  [class]="btn + ' mt-6'"
-                  i18n="@@claimConfirm.restart"
-                >
-                  Start again
-                </a>
-              }
-              @case ('no-token') {
-                <h1 [class]="headline" i18n="@@claimConfirm.noToken.headline">
-                  Confirm your claim
-                </h1>
-                <p [class]="body" i18n="@@claimConfirm.noToken.body">
-                  To confirm a claim, open the link in the email we sent you. That link is tied to
-                  your request, so we send the right one.
-                </p>
-              }
-              @default {
-                <h1 [class]="headline" i18n="@@claimConfirm.confirm.headline">
-                  Confirm your claim
-                </h1>
-                <p [class]="body" i18n="@@claimConfirm.confirm.body">
-                  Press the button to send your claim to AEC Integrations. Nothing is sent until you
-                  do. If you did not ask for this, close this page.
-                </p>
-                <button
-                  type="button"
-                  [disabled]="status() === 'confirming'"
-                  [class]="btn + ' mt-6'"
-                  (click)="onConfirm()"
-                >
-                  @if (status() === 'confirming') {
-                    <span i18n="@@claimConfirm.confirm.pending">Sending…</span>
-                  } @else {
-                    <span i18n="@@claimConfirm.confirm.action">Confirm and send</span>
-                  }
-                </button>
-
-                @if (status() === 'error') {
+                <div aecCard nested class="mt-6 p-4 sm:p-5">
                   <p
-                    #resultHeading
-                    tabindex="-1"
-                    class="mt-4 text-sm font-medium text-(--text-primary) outline-none"
-                    role="alert"
-                    i18n="@@claimConfirm.error"
+                    class="text-t-14 font-semibold text-(--text-primary)"
+                    i18n="@@requests.sent.next.heading"
                   >
-                    Something went wrong. Please try again.
+                    What happens next
                   </p>
-                }
+                  <ol
+                    class="mt-2 list-decimal space-y-1 ps-5 text-t-14 leading-relaxed text-(--text-secondary)"
+                  >
+                    @if (r.routed) {
+                      <li data-testid="claim-confirm-routed">
+                        @if (r.company_name; as name) {
+                          <ng-container i18n="@@requests.sent.claim.routed"
+                            >The team at {{ name }} has been asked to confirm you.</ng-container
+                          >
+                        } @else {
+                          <ng-container i18n="@@requests.sent.claim.routed.unnamed"
+                            >The team at this company has been asked to confirm you.</ng-container
+                          >
+                        }
+                      </li>
+                      <li i18n="@@requests.sent.claim.routed.accept">
+                        If they accept, you get an invitation email to join.
+                      </li>
+                      <li i18n="@@requests.sent.claim.routed.fallback">
+                        If nobody answers within {{ reviewDays }} days, we review your claim and
+                        write to you.
+                      </li>
+                    } @else {
+                      <li i18n="@@requests.sent.claim.step1">
+                        A person at AEC Integrations reviews every claim. Nothing is granted
+                        automatically.
+                      </li>
+                      <li i18n="@@requests.sent.claim.step2">
+                        We check your email domain against your company's website, and your LinkedIn
+                        if you added it.
+                      </li>
+                      <li i18n="@@requests.sent.claim.step3">
+                        If we approve it, we email you a link to your vendor portal.
+                      </li>
+                    }
+                  </ol>
+                </div>
+              }
+              <a
+                routerLink="/docs/vendors/claiming-your-listing"
+                class="mt-3 inline-flex min-h-11 items-center text-t-14 font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                i18n="@@requests.sent.docsLink"
+                >How claims work</a
+              >
+            }
+          }
+          @case ('rejected') {
+            <h1
+              #resultHeading
+              tabindex="-1"
+              [class]="headline"
+              i18n="@@claimConfirm.rejected.headline"
+            >
+              We could not accept this claim
+            </h1>
+            @if (rejected(); as r) {
+              @if (r.reason === 'already_admin') {
+                <p [class]="body" i18n="@@claimConfirm.rejected.admin">
+                  This address belongs to an AEC Integrations staff account. Send the claim again
+                  from a different work address.
+                </p>
+              } @else if (r.vendor_name; as vendor) {
+                <p [class]="body" i18n="@@claimConfirm.rejected.otherVendor">
+                  This address already manages
+                  <strong class="font-semibold text-(--text-primary)">{{ vendor }}</strong>
+                  on AEC Integrations. Each address can manage one company. Send the claim again
+                  from a different work address.
+                </p>
+              } @else {
+                <p [class]="body" i18n="@@claimConfirm.rejected.otherVendor.unnamed">
+                  This address already manages another company on AEC Integrations. Each address can
+                  manage one company. Send the claim again from a different work address.
+                </p>
               }
             }
-          </div>
-        </div>
-      </section>
+            <p [class]="body" i18n="@@claimConfirm.rejected.emailed">
+              We've emailed you the same details.
+            </p>
+            <a aecButton routerLink="/vendor-program" class="mt-6" i18n="@@claimConfirm.restart">
+              Start again
+            </a>
+          }
+          @case ('already') {
+            <h1
+              #resultHeading
+              tabindex="-1"
+              [class]="headline"
+              i18n="@@claimConfirm.already.headline"
+            >
+              Already confirmed
+            </h1>
+            <p [class]="body" i18n="@@claimConfirm.already.body">
+              This link was used already, so your request is with us. We'll write to you by email.
+              You don't need to do anything else.
+            </p>
+          }
+          @case ('expired') {
+            <h1
+              #resultHeading
+              tabindex="-1"
+              [class]="headline"
+              i18n="@@claimConfirm.expired.headline"
+            >
+              This link has expired
+            </h1>
+            <p [class]="body" i18n="@@claimConfirm.expired.body">
+              Confirm links work for {{ confirmDays }} days. Nothing was sent. Start again and we'll
+              email you a new link.
+            </p>
+            <a aecButton routerLink="/vendor-program" class="mt-6" i18n="@@claimConfirm.restart">
+              Start again
+            </a>
+          }
+          @case ('not-found') {
+            <h1
+              #resultHeading
+              tabindex="-1"
+              [class]="headline"
+              i18n="@@claimConfirm.notFound.headline"
+            >
+              This link is not valid
+            </h1>
+            <p [class]="body" i18n="@@claimConfirm.notFound.body">
+              Check that you opened the whole link from the email. If it still does not work, start
+              again and we'll email you a new link.
+            </p>
+            <a aecButton routerLink="/vendor-program" class="mt-6" i18n="@@claimConfirm.restart">
+              Start again
+            </a>
+          }
+          @case ('gone') {
+            <h1 #resultHeading tabindex="-1" [class]="headline" i18n="@@claimConfirm.gone.headline">
+              That listing is no longer available
+            </h1>
+            <p [class]="body" i18n="@@claimConfirm.gone.body.askToAdd">
+              The listing you claimed was removed after you sent the claim, so nothing was sent.
+              Start again and choose Ask us to add it to name your product or company.
+            </p>
+            <a aecButton routerLink="/vendor-program" class="mt-6" i18n="@@claimConfirm.restart">
+              Start again
+            </a>
+          }
+          @case ('no-token') {
+            <h1 [class]="headline" i18n="@@claimConfirm.noToken.headline">Confirm your claim</h1>
+            <p [class]="body" i18n="@@claimConfirm.noToken.body">
+              To confirm a claim, open the link in the email we sent you. That link is tied to your
+              request, so we send the right one.
+            </p>
+          }
+          @default {
+            <h1 [class]="headline" i18n="@@claimConfirm.confirm.headline">Confirm your claim</h1>
+            <p [class]="body" i18n="@@claimConfirm.confirm.body">
+              Press the button to send your claim to AEC Integrations. Nothing is sent until you do.
+              If you did not ask for this, close this page.
+            </p>
+            <button
+              aecButton
+              type="button"
+              class="mt-6"
+              [disabled]="status() === 'confirming'"
+              (click)="onConfirm()"
+            >
+              @if (status() === 'confirming') {
+                <span i18n="@@claimConfirm.confirm.pending">Sending…</span>
+              } @else {
+                <span i18n="@@claimConfirm.confirm.action">Confirm and send</span>
+              }
+            </button>
+
+            @if (status() === 'error') {
+              <p
+                #resultHeading
+                tabindex="-1"
+                class="mt-4 text-t-14 font-semibold text-(--text-primary) outline-none"
+                role="alert"
+                i18n="@@claimConfirm.error"
+              >
+                Something went wrong. Please try again.
+              </p>
+            }
+          }
+        }
+      </div>
     </div>
   `,
 })
@@ -371,7 +337,6 @@ export class ClaimConfirmPage {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 
-  protected readonly btn = BTN;
   protected readonly headline = HEADLINE;
   protected readonly body = BODY;
   protected readonly reviewDays = CLAIM_OWNER_REVIEW_DAYS;

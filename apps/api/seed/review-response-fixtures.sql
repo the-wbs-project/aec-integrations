@@ -24,10 +24,16 @@
 --     The sixth approved review has no reply (the
 --     "needs a reply" row). The pending review has none, and the vendor list
 --     must never show it.
---   * Reviews are anonymous (`reviewer_id` NULL, `anonymized_at` NULL), like
---     the review seeder's, so no profile rows are needed. `moderated_by` on a
---     reply resolves the e2e admin from auth-fixtures.sql when it exists, and
---     is NULL otherwise, so this file also runs on its own.
+--   * Reviews have no reviewer (`reviewer_id` NULL), so no profile rows are
+--     needed. Each is stamped `anonymized_at` 2026-10-20, as if its
+--     author deleted the account after posting. That is the one state a live
+--     review is in with no reviewer: `DELETE /api/account` nulls `reviewer_id`
+--     and stamps `anonymized_at` in one statement, and the daily
+--     `reviews_missing_anonymized_at` check (error severity) flags a NULL pair
+--     (AECI-1920). Nothing public reads the column, so pages, counts and
+--     ratings are unchanged. `moderated_by` on a reply resolves the e2e admin
+--     from auth-fixtures.sql when it exists, and is NULL otherwise, so this
+--     file also runs on its own.
 --   * Dynamo's `review_count` and rating averages are recomputed from approved
 --     reviews at the end, the same expression the review seeder uses, so the
 --     denormalized counts stay true.
@@ -41,14 +47,14 @@
 -- =============================================================================
 
 INSERT OR IGNORE INTO "reviews"
-  ("id","product_id","rating_overall","rating_onboarding","title","body","role_at_company","years_using","would_recommend","status","moderated_at","created_at","updated_at") VALUES
-  ('d0000000-0000-4000-8000-000000001101','c0000000-0000-4000-8000-000000000710',4,3,'Saves our design team hours each week','We script repetitive Revit tasks with Dynamo. Graphs break across Revit upgrades, which costs us a day each release.','practitioner',3,'yes','approved','2026-09-01T10:00:00.000Z','2026-09-01T09:00:00.000Z','2026-09-01T10:00:00.000Z'),
-  ('d0000000-0000-4000-8000-000000001102','c0000000-0000-4000-8000-000000000710',5,4,'The best way into computational design','Our architects learned it in a week. Package management is the only weak spot.','manager',2,'yes','approved','2026-09-02T10:00:00.000Z','2026-09-02T09:00:00.000Z','2026-09-02T10:00:00.000Z'),
-  ('d0000000-0000-4000-8000-000000001103','c0000000-0000-4000-8000-000000000710',2,2,'Hard to support at scale','Every office runs a different package set. IT spends too long chasing broken graphs.','IT',4,'maybe','approved','2026-09-03T10:00:00.000Z','2026-09-03T09:00:00.000Z','2026-09-03T10:00:00.000Z'),
-  ('d0000000-0000-4000-8000-000000001104','c0000000-0000-4000-8000-000000000710',3,3,'Good, but the documentation lags','The node library is powerful. The docs trail the releases by months.','practitioner',1,'maybe','approved','2026-09-04T10:00:00.000Z','2026-09-04T09:00:00.000Z','2026-09-04T10:00:00.000Z'),
-  ('d0000000-0000-4000-8000-000000001105','c0000000-0000-4000-8000-000000000710',1,2,'Crashes on large models','On our hospital model Dynamo crashes Revit about once a day.','practitioner',2,'no','approved','2026-09-05T10:00:00.000Z','2026-09-05T09:00:00.000Z','2026-09-05T10:00:00.000Z'),
-  ('d0000000-0000-4000-8000-000000001106','c0000000-0000-4000-8000-000000000710',4,4,'Solid for parametric facades','We use it on every facade package now. The learning curve is real but short.','exec',5,'yes','approved','2026-09-06T10:00:00.000Z','2026-09-06T09:00:00.000Z','2026-09-06T10:00:00.000Z'),
-  ('d0000000-0000-4000-8000-000000001107','c0000000-0000-4000-8000-000000000710',3,3,'Still waiting on moderation','A pending review. The vendor reviews list must never show it.','other',1,'maybe','pending',NULL,'2026-09-07T09:00:00.000Z','2026-09-07T09:00:00.000Z');
+  ("id","product_id","rating_overall","rating_onboarding","title","body","role_at_company","years_using","would_recommend","status","moderated_at","created_at","updated_at","anonymized_at") VALUES
+  ('d0000000-0000-4000-8000-000000001101','c0000000-0000-4000-8000-000000000710',4,3,'Saves our design team hours each week','We script repetitive Revit tasks with Dynamo. Graphs break across Revit upgrades, which costs us a day each release.','practitioner',3,'yes','approved','2026-09-01T10:00:00.000Z','2026-09-01T09:00:00.000Z','2026-09-01T10:00:00.000Z','2026-10-20T00:00:00.000Z'),
+  ('d0000000-0000-4000-8000-000000001102','c0000000-0000-4000-8000-000000000710',5,4,'The best way into computational design','Our architects learned it in a week. Package management is the only weak spot.','manager',2,'yes','approved','2026-09-02T10:00:00.000Z','2026-09-02T09:00:00.000Z','2026-09-02T10:00:00.000Z','2026-10-20T00:00:00.000Z'),
+  ('d0000000-0000-4000-8000-000000001103','c0000000-0000-4000-8000-000000000710',2,2,'Hard to support at scale','Every office runs a different package set. IT spends too long chasing broken graphs.','IT',4,'maybe','approved','2026-09-03T10:00:00.000Z','2026-09-03T09:00:00.000Z','2026-09-03T10:00:00.000Z','2026-10-20T00:00:00.000Z'),
+  ('d0000000-0000-4000-8000-000000001104','c0000000-0000-4000-8000-000000000710',3,3,'Good, but the documentation lags','The node library is powerful. The docs trail the releases by months.','practitioner',1,'maybe','approved','2026-09-04T10:00:00.000Z','2026-09-04T09:00:00.000Z','2026-09-04T10:00:00.000Z','2026-10-20T00:00:00.000Z'),
+  ('d0000000-0000-4000-8000-000000001105','c0000000-0000-4000-8000-000000000710',1,2,'Crashes on large models','On our hospital model Dynamo crashes Revit about once a day.','practitioner',2,'no','approved','2026-09-05T10:00:00.000Z','2026-09-05T09:00:00.000Z','2026-09-05T10:00:00.000Z','2026-10-20T00:00:00.000Z'),
+  ('d0000000-0000-4000-8000-000000001106','c0000000-0000-4000-8000-000000000710',4,4,'Solid for parametric facades','We use it on every facade package now. The learning curve is real but short.','exec',5,'yes','approved','2026-09-06T10:00:00.000Z','2026-09-06T09:00:00.000Z','2026-09-06T10:00:00.000Z','2026-10-20T00:00:00.000Z'),
+  ('d0000000-0000-4000-8000-000000001107','c0000000-0000-4000-8000-000000000710',3,3,'Still waiting on moderation','A pending review. The vendor reviews list must never show it.','other',1,'maybe','pending',NULL,'2026-09-07T09:00:00.000Z','2026-09-07T09:00:00.000Z','2026-10-20T00:00:00.000Z');
 
 INSERT OR IGNORE INTO "review_responses"
   ("id","review_id","vendor_id","author_profile_id","body","status","rejection_reason","moderated_by","moderated_at","published_at","created_at","updated_at") VALUES
@@ -81,9 +87,9 @@ It now checks versions before it installs.','published',NULL,
 -- references `review_responses`, so the REPLACE's delete cascades nowhere. The
 -- five rows above stay `OR IGNORE`, one per status, for development.
 INSERT OR IGNORE INTO "reviews"
-  ("id","product_id","rating_overall","rating_onboarding","title","body","role_at_company","years_using","would_recommend","status","moderated_at","created_at","updated_at") VALUES
-  ('d0000000-0000-4000-8000-000000001108','c0000000-0000-4000-8000-000000000710',4,3,'Fast once the graphs are set up','Setup took a sprint. After that our tagging runs in minutes.','practitioner',2,'yes','approved','2026-09-08T10:00:00.000Z','2026-09-08T09:00:00.000Z','2026-09-08T10:00:00.000Z'),
-  ('d0000000-0000-4000-8000-000000001109','c0000000-0000-4000-8000-000000000710',3,2,'Training was the hard part','The tool is fine. Getting the team trained took longer than we planned.','manager',1,'maybe','approved','2026-09-09T10:00:00.000Z','2026-09-09T09:00:00.000Z','2026-09-09T10:00:00.000Z');
+  ("id","product_id","rating_overall","rating_onboarding","title","body","role_at_company","years_using","would_recommend","status","moderated_at","created_at","updated_at","anonymized_at") VALUES
+  ('d0000000-0000-4000-8000-000000001108','c0000000-0000-4000-8000-000000000710',4,3,'Fast once the graphs are set up','Setup took a sprint. After that our tagging runs in minutes.','practitioner',2,'yes','approved','2026-09-08T10:00:00.000Z','2026-09-08T09:00:00.000Z','2026-09-08T10:00:00.000Z','2026-10-20T00:00:00.000Z'),
+  ('d0000000-0000-4000-8000-000000001109','c0000000-0000-4000-8000-000000000710',3,2,'Training was the hard part','The tool is fine. Getting the team trained took longer than we planned.','manager',1,'maybe','approved','2026-09-09T10:00:00.000Z','2026-09-09T09:00:00.000Z','2026-09-09T10:00:00.000Z','2026-10-20T00:00:00.000Z');
 
 INSERT OR REPLACE INTO "review_responses"
   ("id","review_id","vendor_id","author_profile_id","body","status","rejection_reason","moderated_by","moderated_at","published_at","created_at","updated_at") VALUES
@@ -93,6 +99,12 @@ INSERT OR REPLACE INTO "review_responses"
   ('d0000000-0000-4000-8000-000000001159','d0000000-0000-4000-8000-000000001109','a0000000-0000-4000-8000-000000000001',NULL,
     'Call our sales line on 555 0100 for a training bundle at half price.','pending',NULL,NULL,NULL,NULL,
     '2026-09-17T09:00:00.000Z','2026-09-17T09:00:00.000Z');
+
+-- AECI-1920: a local DB seeded before the stamp keeps its rows (INSERT OR IGNORE),
+-- so stamp them here too. Only these fixture ids, and only while still unstamped.
+UPDATE "reviews" SET "anonymized_at" = '2026-10-20T00:00:00.000Z'
+WHERE "id" BETWEEN 'd0000000-0000-4000-8000-000000001101' AND 'd0000000-0000-4000-8000-000000001109'
+  AND "reviewer_id" IS NULL AND "anonymized_at" IS NULL;
 
 UPDATE "products" SET
   "review_count" = (SELECT COUNT(*) FROM "reviews" r WHERE r."product_id" = "products"."id" AND r."status" = 'approved'),

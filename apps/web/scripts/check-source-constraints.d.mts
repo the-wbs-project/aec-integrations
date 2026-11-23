@@ -30,6 +30,8 @@ export interface SourceConstraintRule {
    * rules.
    */
   readonly allow?: readonly string[];
+  /** Also test each line joined to the next, for a violation split across two lines. */
+  readonly joinNextLine?: boolean;
 }
 
 /** A single line that matched a rule. */
@@ -42,6 +44,24 @@ export interface SourceConstraintViolation {
 }
 
 export const RULES: readonly SourceConstraintRule[];
+
+/**
+ * A rule that reads a whole opening tag, which can span several lines
+ * (AECI-1919). `check` returns true when the tag is fine.
+ */
+export interface SourceConstraintTagRule {
+  readonly id: string;
+  readonly extensions: readonly string[];
+  /** Path suffixes this rule skips, such as `.spec.ts`. */
+  readonly exclude?: readonly string[];
+  /** The element name, without the `<`. */
+  readonly tag: string;
+  readonly check: (tag: string) => boolean;
+  readonly label: string;
+  readonly hint: string;
+}
+
+export const TAG_RULES: readonly SourceConstraintTagRule[];
 
 /**
  * Scan one file's contents. Pure — the CLI and the spec call the same function,

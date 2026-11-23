@@ -69,7 +69,11 @@ when it fails), and add the new file to `SOURCES` in `src/app/docs/docs-archive-
 `docs/trust/how-ranking-works.md`, so **any change to it is a new version**, a typo fix included.
 It is plain Markdown, so a version's file is a copy, not a rendered snapshot: the page's body with
 the `## Versions` section left out, under a `title` / `version` / `recorded_on` frontmatter. No
-acceptance stores it, so it has no hash and no constant in `@aeci/shared`.
+acceptance stores it, so it has no hash and no constant in `@aeci/shared`. The spec does record the
+SHA-256 of each frozen version file (`FROZEN_SHA256`, AECI-1720), so an older version cannot change
+silently, a bad merge included. A version still awaiting approval (1.2, AECI-1894) is checked for its
+file, frontmatter and conflict markers only. Add its hash when it is approved, and add each new
+version's hash once that version is superseded.
 `src/app/docs/ranking-page-versions.spec.ts` fails on any edit until the bump is done. To bump: edit
 the page, raise `RANKING_PAGE_CURRENT_VERSION`, add the version to `RANKING_PAGE_KNOWN_VERSIONS` and
 its date ("Month D, YYYY", the merge date) to `RANKING_PAGE_RECORDED_ON`

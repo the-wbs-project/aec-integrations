@@ -216,7 +216,7 @@
   </details>
   }
 
-  <brn-dialog (closed)="closeChange()">
+  <brn-dialog [role]="'alertdialog'" [autoFocus]="'first-heading'" (closed)="closeChange()">
     <ng-template brnDialogContent>
       @if (pending(); as p) {
       <div
@@ -225,7 +225,8 @@
         @if (p.target.kind === 'support_copy') { @if (!p.enabled) {
         <h2
           brnDialogTitle
-          class="text-lg font-bold text-(--text-primary)"
+          tabindex="-1"
+          class="text-lg font-bold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           i18n="@@admin.email.switches.dialog.copyPauseTitle"
         >
           Pause the support copy?
@@ -241,7 +242,8 @@
         } @else {
         <h2
           brnDialogTitle
-          class="text-lg font-bold text-(--text-primary)"
+          tabindex="-1"
+          class="text-lg font-bold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           i18n="@@admin.email.switches.dialog.copyResumeTitle"
         >
           Resume the support copy?
@@ -257,7 +259,8 @@
         } } @else { @if (!p.enabled) {
         <h2
           brnDialogTitle
-          class="text-lg font-bold text-(--text-primary)"
+          tabindex="-1"
+          class="text-lg font-bold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           i18n="@@admin.email.switches.dialog.pauseTitle"
         >
           Pause {{ p.target.key }}?
@@ -273,7 +276,8 @@
         } @else {
         <h2
           brnDialogTitle
-          class="text-lg font-bold text-(--text-primary)"
+          tabindex="-1"
+          class="text-lg font-bold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           i18n="@@admin.email.switches.dialog.resumeTitle"
         >
           Resume {{ p.target.key }}?
@@ -288,7 +292,7 @@
         </p>
         } }
 
-        <form novalidate (submit)="$event.preventDefault(); confirmChange()" class="mt-5 space-y-2">
+        <form method="dialog" novalidate (aecSubmit)="confirmChange()" class="mt-5 space-y-2">
           <label
             for="admin-email-switch-reason"
             class="block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"

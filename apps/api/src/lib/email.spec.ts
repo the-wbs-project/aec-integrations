@@ -691,7 +691,7 @@ describe('sendClaimApprovedEmail', () => {
       const text = String(body.text);
       const html = String(body.html);
       expect(text).toContain(
-        'Later, open your vendor portal from the account menu at the top right of any page. On a phone, it is in the menu at the top left. You can also go to https://aecintegrations.com/vendor?utm_source=email&utm_campaign=claim-approved',
+        'Later, open your vendor portal from the account menu at the top right of any page. On a phone, it is in the menu at the top right. You can also go to https://aecintegrations.com/vendor?utm_source=email&utm_campaign=claim-approved',
       );
       expect(html).toContain(
         'href="https://aecintegrations.com/vendor?utm_source=email&amp;utm_campaign=claim-approved"',
@@ -711,7 +711,7 @@ describe('sendClaimApprovedEmail', () => {
     });
     const text = String(lastBody(fetchSpy).text);
     expect(text).toContain(
-      'Later, open your vendor portal from the account menu at the top right of any page. On a phone, it is in the menu at the top left.',
+      'Later, open your vendor portal from the account menu at the top right of any page. On a phone, it is in the menu at the top right.',
     );
     expect(text).not.toContain('You can also go to');
   });
@@ -4645,10 +4645,12 @@ describe('attachments on the transactional send (AECI-1620)', () => {
     subject: 'S',
     template: 'legal-terms-change' as const,
     text: 'Body',
-    attachments: [{ filename: 'aeci-vendor-terms-v1.4.pdf', content: PDF_B64 }],
+    attachments: [
+      { filename: 'aeci-vendor-terms-v1.4.pdf', content: PDF_B64, contentType: 'application/pdf' },
+    ],
   };
 
-  it('passes the file to Resend as base64 that decodes to a PDF, with no bcc', async () => {
+  it('passes the file to Resend as base64 that decodes to a PDF, typed as a PDF, with no bcc', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     const outcome = await sendTransactionalEmail(
       fakeContext({ EMAIL_BCC: 'ops@aecintegrations.com' }),
@@ -4658,11 +4660,13 @@ describe('attachments on the transactional send (AECI-1620)', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     const body = lastBody(fetchSpy) as {
       bcc?: unknown;
-      attachments: { filename: string; content: string }[];
+      attachments: { filename: string; content: string; content_type: string }[];
     };
     expect(body.bcc).toBeUndefined();
+    // AECI-1992: Resend's REST field is `content_type`; without it the PDF arrived as
+    // application/octet-stream.
     expect(body.attachments).toEqual([
-      { filename: 'aeci-vendor-terms-v1.4.pdf', content: PDF_B64 },
+      { filename: 'aeci-vendor-terms-v1.4.pdf', content: PDF_B64, content_type: 'application/pdf' },
     ]);
     expect(atob(body.attachments[0]!.content).startsWith('%PDF-')).toBe(true);
   });
@@ -4689,7 +4693,7 @@ describe('attachments on the transactional send (AECI-1620)', () => {
       fetchSpy.mockClear();
       await sendTransactionalEmail(fakeContext(), {
         ...ATTACHED,
-        attachments: [{ filename: 'a.pdf', content }],
+        attachments: [{ filename: 'a.pdf', content, contentType: 'application/pdf' }],
         dedupeKey: 'legal-terms-change:vendor_terms:1.4:v1:h',
       });
       return new Headers((fetchSpy.mock.calls[0]![1] as RequestInit).headers).get(
@@ -4737,7 +4741,7 @@ describe('sendLegalTermsChangeEmail (AECI-1620)', () => {
       { ...base, ...over },
     );
     const body = lastBody(fetchSpy) as Record<string, unknown> & {
-      attachments: { filename: string }[];
+      attachments: { filename: string; content_type: string }[];
     };
     return { outcome, body, text: String(body.text), html: String(body.html) };
   };
@@ -4760,6 +4764,7 @@ describe('sendLegalTermsChangeEmail (AECI-1620)', () => {
     );
     expect(text).toContain('It is a legal notice, so it has no unsubscribe link.');
     expect(body.attachments[0]!.filename).toBe('aeci-vendor-terms-v1.4.pdf');
+    expect(body.attachments[0]!.content_type).toBe('application/pdf');
     expect(body.reply_to).toBe('support@aecintegrations.com');
     expect(body.headers).toBeUndefined();
     // Escaped in HTML.
@@ -4867,7 +4872,7 @@ describe('sendLegalTermsChangeEmail (AECI-1620)', () => {
     [
       'terms',
       'reader-terms-accept',
-      'Because this change reduces your rights, it applies to your account only from the next time you sign in. Until then the earlier version applies. It never applies to a claim that arose before January 15, 2027.',
+      'Because this change reduces your rights, it applies to your account only after you accept it. The next time you sign in, we will ask you to tick a box to accept it. Until you do, the earlier version applies. It never applies to a claim that arose before January 15, 2027.',
     ],
     ['privacy', 'reader-privacy', 'The new version applies from January 15, 2027.'],
   ] as const)(
@@ -4951,7 +4956,11 @@ describe('entitlement-expiring with a new Managed plan agreement version (AECI-1
     expect(html).not.toContain('<30>');
     expect(html).toContain('/legal/managed-plan-agreement/v1.2?');
     expect(body.attachments).toEqual([
-      { filename: 'aeci-managed-plan-agreement-v1.2.pdf', content: PDF_B64 },
+      {
+        filename: 'aeci-managed-plan-agreement-v1.2.pdf',
+        content: PDF_B64,
+        content_type: 'application/pdf',
+      },
     ]);
     expect(atob(body.attachments[0]!.content).startsWith('%PDF-')).toBe(true);
     expect(`${text}${html}`).not.toMatch(/—/);

@@ -1104,6 +1104,10 @@ The `result` object in full:
   on your side; it is listed so a diff of the response shape has an explanation. Note
   that re-sending an edge with its endpoints **swapped** is not a move — AECi compares
   them unordered, so an authorship-order correction never mints a redirect.
+- **`movedFromConnectorSlug`** (AECI-1897) appears on an integration result only when
+  your push **re-pointed the connector** to a different product. It names the connector
+  the edge moved away from, so AECi can refresh that connector's page and its vendor's
+  search record. Informational and optional. Nothing changes on your side.
 - **Always inspect `skipped[]`.** An entry there means AECi could **not** link
   that integration/extension (typically the other endpoint isn't promoted yet),
   could **not** resolve a usefulness group to an existing audience/phase term
@@ -1562,7 +1566,7 @@ The live app sends one vendor's record after each of these commits:
 | Admin seat provision (`POST /api/admin/vendors/:id/seats`), only when it stamped `owned_at`. Also the unban of a vendor seat (`PATCH /api/admin/reviewers/:id`, AECI-1589), only when it re-stamped `owned_at` after a Terminate | `seat_provisioned` |
 | Owner accepts a product proposal (AECI-1417). One record per **owned** vendor named on the created product, not only the addressed one (ruled 2026-10-20) | `proposal_accepted` |
 | Owner declines a product proposal | `proposal_declined` |
-| "Return records to AECi" (`POST /api/admin/vendors/:id/return-to-aeci`). Also Terminate of a suspended vendor (`POST /api/admin/vendors/:id/suspension/terminate`, AECI-1623, which took this over from the last-seat ban of AECI-1589), which returns the records in its batch. The records stay the vendor's text: only the operational lock clears, and the cause is `vendor-banned` on the audit row. The reason is reused because the receiver validates the enum | `records_returned` |
+| "Return records to AECi" (`POST /api/admin/vendors/:id/return-to-aeci`). Also Terminate of a suspended vendor (`POST /api/admin/vendors/:id/suspension/terminate`, AECI-1623, which took this over from the last-seat ban of AECI-1589), which returns the records in its batch. The records stay the vendor's text: only the operational lock clears, and the cause is `vendor-terminated` on the audit row (AECI-1974). The message reason is `records_returned`, reused because the receiver validates the enum | `records_returned` |
 | `ops:backfill-ownership-sync`, once per already-owned vendor (ruling Q7) | `backfill` |
 | A vendor-portal write that changes a mirrored field of an owned vendor's record: profile, product, versions, taxonomy, usefulness, logo, integration edit, create, claim, retire, restore, links, attestations, "Looks right", contest decisions (v2 producer, AECI-1454) | `vendor_edit` |
 | An AECi admin write to a mirrored field of an owned vendor's record: logo, contest decision, field correction with a lock and its lift, integration retire or restore (v2 producer, AECI-1454). Also the daily brand asset removal, after it puts the AECi logo back on a company whose claim ended (AECI-1618, no new reason, because the receiver validates the enum) | `admin_edit` |

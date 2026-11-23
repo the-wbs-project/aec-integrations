@@ -9,8 +9,10 @@
 import {
   AcceptLegalVersionResponseSchema,
   ApiErrorCode,
+  LEGAL_IN_FORCE_MAPS,
   LEGAL_POLICY_CURRENT_VERSIONS,
   PLANS_PAGE_CURRENT_VERSION,
+  type LegalInForceMaps,
   portalAcceptanceLabel,
   VendorLegalAcceptanceResponseSchema,
 } from '@aeci/shared';
@@ -128,7 +130,11 @@ async function acceptanceOf(version: string, document = 'vendor_terms', vendorId
   });
 }
 
-function app(auth: AuthzVariables['auth'], factory: DbFactory = t.factory) {
+function app(
+  auth: AuthzVariables['auth'],
+  factory: DbFactory = t.factory,
+  maps: LegalInForceMaps = LEGAL_IN_FORCE_MAPS,
+) {
   const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
   a.onError(errorHandler());
   a.use('*', async (c, next) => {
@@ -141,7 +147,7 @@ function app(auth: AuthzVariables['auth'], factory: DbFactory = t.factory) {
   );
   a.post(
     '/api/vendor/legal-acceptance',
-    createAcceptLegalVersionHandler(factory, () => NOW),
+    createAcceptLegalVersionHandler(factory, () => NOW, maps),
   );
   return a;
 }
@@ -464,5 +470,53 @@ describe('the signer name and the Stripe billing flag (AECI-1677 review)', () =>
       .where(eq(billingAccounts.id, account));
     expect((await read()).body.stripe_billing).toBe(true);
     expect((await read(seat(MEMBER))).body.stripe_billing).toBe(false);
+  });
+});
+
+// AECI-1969 (ruling 54): a policy switches only once published, so the portal acceptance must
+// read the published rows. With the build constants alone it would record the old version
+// from the effective moment until bump day.
+describe('POST /api/vendor/legal-acceptance: the policy versions in force (AECI-1969)', () => {
+  const POLICY_DAY = '2027-03-31';
+  const MAPS: LegalInForceMaps = {
+    ...LEGAL_IN_FORCE_MAPS,
+    policyUpcoming: { listing_accuracy: { version: '1.1', effectiveOn: POLICY_DAY } },
+  };
+  const post = async (maps: LegalInForceMaps) => {
+    const res = await app(seat(OWNER), t.factory, maps).request(
+      '/api/vendor/legal-acceptance',
+      {
+        method: 'POST',
+        body: JSON.stringify(acceptBody()),
+        headers: { 'content-type': 'application/json' },
+      },
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(201);
+    const [row] = await t.db
+      .select()
+      .from(agreementAcceptances)
+      .where(eq(agreementAcceptances.source, 'portal'));
+    return row!;
+  };
+
+  it('records the published policy version once its moment has passed', async () => {
+    await publish();
+    await publish({
+      document: 'listing_accuracy',
+      version: '1.1',
+      effectiveAt: PAST,
+      pdfKey: 'legal/listing-accuracy/v1.1.pdf',
+    });
+    const row = await post(MAPS);
+    expect(row.listingAccuracyVersion).toBe('1.1');
+    expect(row.reviewGuidelinesVersion).toBe(LEGAL_POLICY_CURRENT_VERSIONS.review_guidelines);
+  });
+
+  it('keeps the build version when the policy version was never published', async () => {
+    await publish();
+    const row = await post(MAPS);
+    expect(row.listingAccuracyVersion).toBe(LEGAL_POLICY_CURRENT_VERSIONS.listing_accuracy);
   });
 });

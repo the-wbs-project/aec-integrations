@@ -120,6 +120,27 @@ three workflows and the four wrangler var blocks in step.
 | **Demo** | aeci-demo sandbox | `STRIPE_SECRET_KEY_DEMO`, `STRIPE_WEBHOOK_SECRET_DEMO` (`promote-to-demo.yml`) | `"true"` for sandbox checkout |
 | **Production** | live account | `STRIPE_SECRET_KEY_PRODUCTION`, `STRIPE_WEBHOOK_SECRET_PRODUCTION` (`promote-to-prod.yml`) | `"false"` |
 
+**The key is a restricted key (AECI-1985, 2026-11-20).** Each tier's `STRIPE_SECRET_KEY` is
+the account's restricted key (`rk_test_…` or `rk_live_…`), named `aeci-api-staging`,
+`aeci-api-demo` and `aeci-api-production` in the Dashboard. It is never the account's full
+`sk_` key. A permission the code needs but the key lacks answers `403
+more_permissions_required`. Each key carries these 13 permissions:
+
+| Permission | Level | Used by |
+| --- | --- | --- |
+| Charges and Refunds | Write | Terminate's refund lookup and refund (`GET` and `POST /v1/refunds`) |
+| Checkout Sessions | Write | Checkout, and the ban's expire of open sessions |
+| Customer Portal | Write | Manage billing in Stripe |
+| Customers | Write | Checkout's customer create |
+| Subscriptions | Write | The sync's reads, and the ban's cancel at once |
+| Payment Intents | Read | Terminate's refund preview (`GET /v1/payment_intents/:id`) |
+| Invoices | Read | Terminate's refund preview, and the reconcile |
+| Coupons, Events, Prices, Products, Promotion Codes, Webhook Endpoints | Read | Checkout and the reconcile |
+
+Until 2026-11-20 the keys lacked Charges and Refunds and Payment Intents, so every
+termination refund failed with `refund lookup http_error 403`. A new Stripe call needs its
+permission added on all three keys before it ships.
+
 The Customer Portal configuration ids are committed vars (`STRIPE_PORTAL_CONFIG_ANNUAL`,
 `STRIPE_PORTAL_CONFIG_MONTHLY`), one pair per Stripe account. Both configurations must
 keep quantity update and plan switching off, and both cancel at period end only, with no
@@ -974,7 +995,7 @@ Secrets are stored in three places:
 | `LINEAR_API_KEY` (form→Linear pipeline) | ❌ **deliberately not pushed** | ✅ on **API Worker only** (CI-pushed) | ✅ un-suffixed `LINEAR_API_KEY` | AECI-211 / Phase 6.4 → **AECI-851**. Linear personal API key; a submitted claim/correction becomes an issue in the shared "Vendor Requests" project. **REQUIRED on production** — the only fail-open-at-runtime key that is fail-closed at deploy time. `promote-to-prod.yml` preflights it in `REQUIRED_SECRETS` (before any deploy or migration), pushes it to the prod API Worker, then re-asserts it on the live Worker via `REQUIRED_WORKER_SECRETS`. Required rather than warn-and-skip because the absent-key path is **silent**: `createLinearIssueForRequest()` returns early with no metric and no log, so a vendor claim reaches nobody and the only signal is the 60-minute reconciliation-sweep email. **PRODUCTION ONLY.** The board constants in `apps/api/src/lib/linear.ts` are hardcoded to the one live project, so a staging/demo/PR-preview key files fixture claims as real issues — `AECI-638` ("Claim: Fixture Procore") and `AECI-662` are exactly that, from the AECI-637 window. Do not add a push to `deploy.yml` / `promote-to-demo.yml` / `pr-preview.yml` until non-prod has its own Linear project and those constants become env-configurable. **Never on the web Worker.** ⚠️ **This row did not exist until AECI-851, and neither did any CI step.** Production ran from the 2026-07 apex cutover to 2026-09-10 with no key at all; the first real vendor claim (Procore, request `943e4502-…`) submitted, returned its 201, and routed to nobody. |
 | `LINEAR_WEBHOOK_SIGNING_SECRET` (inbound Linear webhook) | ❌ **deliberately not pushed** | ✅ on **API Worker only** (CI-pushed) | ✅ un-suffixed `LINEAR_WEBHOOK_SIGNING_SECRET` | AECI-212 / Phase 6.5 → **AECI-851**. HMAC-SHA256 signing secret for `POST /api/webhooks/linear` (the Linear→site status sync). Copy it from Linear → Settings → API → Webhooks. **Recommended, not required** — the opposite call from `LINEAR_API_KEY` above, because this one **fails closed** (every delivery rejected 401 before any write) and emits `aeci.webhooks.linear.hmac_failure`, which has its own alert. Its absence is loud, not silent, and a prod webhook may not be registered in Linear at all, in which case the secret is moot and must not block a promote. Warn-and-skip in `promote-to-prod.yml`, production only, same reasoning as the row above. **Never on the web Worker.** |
 | `RESEND_WEBHOOK_SECRET` (inbound Resend delivery webhook) | ✅ on **API Worker only** (CI-pushed) | ✅ on **API Worker only** (CI-pushed) | ✅ **suffixed per tier**: `RESEND_WEBHOOK_SECRET_STAGING` / `_DEMO` / `_PRODUCTION` | AECI-1222. Svix signing secret (`whsec_…`) for `POST /api/webhooks/resend`. **Per tier, unlike `RESEND_API_KEY`:** each tier registers its own endpoint in the Resend dashboard and each endpoint has its own secret. Pushed by `deploy.yml` (staging), `promote-to-demo.yml` (demo) and `promote-to-prod.yml` (production). **Required on production since AECI-1438** (preflight `REQUIRED_SECRETS` and the post-deploy `REQUIRED_WORKER_SECRETS` check). AECI-1222 shipped it recommended and warn-and-skip, and the GH secret was then never created: every prod promote warned, and production recorded no delivery event for three weeks. **Staging and demo stay recommended, warn-and-skip**: their endpoints are not registered, and an unregistered tier must not block a deploy. Not pushed to PR previews. **Never on the web Worker.** Provision it after registering the endpoint (§Resend delivery webhook per tier). |
-| `STRIPE_SECRET_KEY` (Stripe API) | ✅ on **API Worker only** (CI-pushed) | ✅ on **API Worker only** (CI-pushed) | ✅ **suffixed per tier**: `STRIPE_SECRET_KEY_STAGING` / `_DEMO` / `_PRODUCTION` | AECI-1499 (epic AECI-1339). Secret key of the tier's Stripe account (`sk_test_…` from the staging and demo sandboxes, `sk_live_…` on production), read by `apps/api/src/lib/stripe.ts`. **Recommended + warn-and-skip on every tier, production included**, and never in `REQUIRED_WORKER_SECRETS`. Absent → `stripeCheckoutAvailable` is false and the buy, add and portal routes answer 503. Production is held off by `STRIPE_CHECKOUT_ENABLED="false"`, not by the secret. **Never on the web Worker.** ⚠️ **Operator step:** the staging value sits under the unsuffixed name today. Re-set it as `STRIPE_SECRET_KEY_STAGING` (§Stripe secrets per tier). |
+| `STRIPE_SECRET_KEY` (Stripe API) | ✅ on **API Worker only** (CI-pushed) | ✅ on **API Worker only** (CI-pushed) | ✅ **suffixed per tier**: `STRIPE_SECRET_KEY_STAGING` / `_DEMO` / `_PRODUCTION` | AECI-1499 (epic AECI-1339). Restricted key of the tier's Stripe account (`rk_test_…` from the staging and demo sandboxes, `rk_live_…` on production; its permission list is in §Stripe secrets per tier, AECI-1985), read by `apps/api/src/lib/stripe.ts`. **Recommended + warn-and-skip on every tier, production included**, and never in `REQUIRED_WORKER_SECRETS`. Absent → `stripeCheckoutAvailable` is false and the buy, add and portal routes answer 503. Production is held off by `STRIPE_CHECKOUT_ENABLED="false"`, not by the secret. **Never on the web Worker.** ⚠️ **Operator step:** the staging value sits under the unsuffixed name today. Re-set it as `STRIPE_SECRET_KEY_STAGING` (§Stripe secrets per tier). |
 | `STRIPE_WEBHOOK_SECRET` (inbound Stripe webhook) | ✅ on **API Worker only** (CI-pushed) | ✅ on **API Worker only** (CI-pushed) | ✅ **suffixed per tier**: `STRIPE_WEBHOOK_SECRET_STAGING` / `_DEMO` / `_PRODUCTION` | AECI-1499. Signing secret (`whsec_…`) of the tier's Stripe webhook endpoint, for `POST /api/webhooks/stripe`. **Fails closed:** absent → every delivery 401s. Recommended + warn-and-skip on every tier, never in `REQUIRED_WORKER_SECRETS`. Locally it is the secret `stripe listen` prints, not a dashboard endpoint's (`local-dev.md` §8). **Never on the web Worker.** ⚠️ **Operator step:** same unsuffixed staging value; re-set it as `STRIPE_WEBHOOK_SECRET_STAGING`. |
 | `REVIEW_APP_OWNERSHIP_URL` + `REVIEW_APP_OWNERSHIP_TOKEN` (ownership receiver) | ❌ **leave unset**: no staging receiver exists (warn-and-skip) | ✅ on **API Worker only** (CI-pushed), **required** | ✅ suffixed per tier: `REVIEW_APP_OWNERSHIP_{URL,TOKEN}_{STAGING,DEMO,PRODUCTION}` | AECI-1418 → **AECI-1427**. Base URL and bearer for the review app's `PUT /vendors/{vendorId}` receiver (`REVIEW_APP_PROMOTE_API.md` §4d). Production base is `https://review.aecintegrations.com/api/ownership`. Required on production in preflight and postflight (ruling D4). Demo stays unset by ruling D5. See "Ownership receiver per tier". |
 | `GSC_SA_KEY_JSON` (Google URL Inspection) | ❌ **deliberately not pushed** | ✅ on **API Worker only** (CI-pushed by `promote-to-prod.yml`) | ✅ `GSC_SA_KEY_JSON_PRODUCTION` (suffixed, production only) | AECI-1236. The whole service-account key-file JSON, read-only scope `webmasters.readonly`, for property `sc-domain:aecintegrations.com`. **Recommended, not required**: without it the daily `gsc-inspect` run emits `aeci.gsc_inspect.run{outcome:skipped}` and leaves every row for the manual pass. Gated with `INDEXNOW_KEY` and `PUBLIC_SITE_URL`. A CI spec (`apps/api/src/gsc-secrets-ci.spec.ts`) keeps the push step and the recommended list in step. Runbook: `docs/runbooks/alerts.md` "gsc-inspect halted on quota or failed" |
@@ -1550,7 +1571,7 @@ Worker; it does not apply when the whole Worker goes.
 #### 10.6 Seeding, if you build one again
 
 `pnpm db:seed:<tier>` chaining `catalog` → `phase2-fixtures` → `auth-fixtures` →
-`version-diff-fixtures` → `connector-fixtures` → `extension-fixtures` → `review-response-fixtures` is the pattern. `seed/catalog.sql` and
+`version-diff-fixtures` → `connector-fixtures` → `extension-fixtures` → `review-response-fixtures` → `long-list-fixtures` → `connector-lists-fixtures` is the pattern. `seed/catalog.sql` and
 `seed/phase2-fixtures.sql` carry a "dev / CI only — never staging/production" warning;
 applying them to a throwaway tier is a deliberate exception. Four things they give you
 that a bare catalog does not:
@@ -1562,13 +1583,20 @@ that a bare catalog does not:
 | `auth-fixtures.sql` `vendor_admin` profile | `requireVendor()` authorizes the `/vendor` portal. Pair with `SUPABASE_VENDOR_TEST_USER_*`. |
 | `version-diff-fixtures.sql` | Product versions + version-stamped attestations, so the version-diff selectors render. |
 | `extension-fixtures.sql` | Two Revit extensions in `product_extensions` (AECI-710), so "Built within" and "Extensions built within Revit" render (`STAGE_1_5_SPEC.md` §13.3b). Idempotent (`INSERT OR IGNORE`). |
-| `review-response-fixtures.sql` | Seven reviews on Dynamo for Revit (six approved, one pending) and five Autodesk replies, one per status (AECI-1175, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c). Recomputes Dynamo's `review_count` and averages. Idempotent (`INSERT OR IGNORE`). Ids `d0000000-…-0000000011xx`, outside the review seeder's `aeceed00-` prefix. |
+| `review-response-fixtures.sql` | Nine reviews on Dynamo for Revit (eight approved, one pending) and seven Autodesk replies: one per status, plus two pending for the admin queue e2e (AECI-1175, AECI-1177, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c). Recomputes Dynamo's `review_count` and averages. The reviews have no reviewer and carry an `anonymized_at` stamp, the state an account deletion leaves, so `reviews_missing_anonymized_at` stays at zero (AECI-1920). Idempotent (`INSERT OR IGNORE`). Ids `d0000000-…-0000000011xx`, outside the review seeder's `aeceed00-` prefix. |
+| `long-list-fixtures.sql` | `fixture-long-list` with 14 integrations, its 14 partners and three fixture-only categories (AECI-1868), so the grouped integration list renders. Idempotent. Ids `00000000-…-0000000018xx`. |
+| `connector-lists-fixtures.sql` | `fixture-hybrid-via` (a Via lane past 20 rows, and it powers 21 pairs) and `fixture-connector-hub` (powers 39 pairs), with two hubs and 25 partners (AECI-1788), so `products-connector-lists.spec.ts` runs every case. One unverified vendor, no category or review, so the data-quality run adds no finding (`src/test/seed-data-quality.spec.ts`). Idempotent. Ids `00000000-…-0000000019xx` to `21xx`. |
 
 Four things they do **not** cover, all of which had to be applied by hand:
 
-- **Reviews.** Only the seven on Dynamo for Revit are seeded, so most review sections and the moderation queue render empty.
+- **Reviews.** Only the fixtures on Dynamo for Revit are seeded, so most review sections and the moderation queue render empty.
   `db:seed-reviews -- --remote --env <tier> --apply` writes a deterministic set; every row
-  carries the `aeceed00-…` id prefix so `--teardown --apply` removes exactly those.
+  carries the `aeceed00-…` id prefix so `--teardown --apply` removes exactly those. Its rows
+  have `reviewer_id` NULL and an `anonymized_at` stamp at their moderation time, so the daily
+  `reviews_missing_anonymized_at` check (error severity) stays at zero (AECI-1936). They keep
+  their `reviewer_firm`, which a real account deletion would also clear. `src/test/seed-data-quality.spec.ts` applies the seeder's output
+  over the seed chain and fails on any error-severity finding. Rows seeded before AECI-1936
+  carry no stamp and are still reported until they are torn down or re-seeded.
 - **An operator profile.** The fixture profiles are the two e2e personas; your own account
   has no row, so you sign in as a role-less user with no `/admin` and no `/vendor`.
   Authorization is per-tier D1 (ADR 0016), so a profile there grants nothing elsewhere.
@@ -1585,9 +1613,10 @@ Four things they do **not** cover, all of which had to be applied by hand:
   chain, which would overwrite operator test state.
 
 `apps/datatool` **cannot** clone into a fifth tier without code changes:
-`apps/datatool/src/targets.ts` has a closed four-element `ENV_IDS` list and one D1 binding
-per tier, and adding an entry to a Worker that can wipe prod D1 is not worth it for a temp
-env. Re-promoting from the review app works if `REVIEW_APP_TOKEN` and the
+`apps/datatool/src/targets.ts` has a closed three-element `ENV_IDS` list and one D1 binding
+per tier, and adding an entry to a Worker that binds prod D1 is not worth it for a temp
+env. Copy and seed destinations are a further closed list, `COPY_SEED_DEST_IDS`, which
+leaves production out (AECI-1946). Re-promoting from the review app works if `REVIEW_APP_TOKEN` and the
 `PROMOTE_WORKFLOW` binding are wired and the review app is pointed at the host.
 
 #### 10.7 Verifying a hand-deployed tier

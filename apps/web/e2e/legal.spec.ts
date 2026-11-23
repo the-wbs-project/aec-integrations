@@ -136,7 +136,7 @@ for (const pageDef of PAGES) {
       await expect(page.locator('app-root')).toBeAttached();
 
       const results = await new AxeBuilder({ page })
-        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
         .analyze();
 
       expect(results.violations).toEqual([]);
@@ -214,7 +214,7 @@ test.describe('/legal/terms/v1.0 — archived version (AECI-1361)', () => {
     await page.goto(ARCHIVE);
     await expect(page.locator('app-root')).toBeAttached();
     const results = await new AxeBuilder({ page })
-      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
       .analyze();
     expect(results.violations).toEqual([]);
   });
@@ -259,5 +259,108 @@ test.describe('the current Vendor Terms at their own address (AECI-1610)', () =>
     await link.click();
     await expect(page).toHaveURL(/\/legal\/vendor-terms$/);
     await expect(page.getByTestId('legal-fixed-current')).toHaveCount(0);
+  });
+});
+
+// AECI-1720 layout pass: from lg an "On this page" list of the page's own h2s fills
+// the column beside the 42rem article. The article keeps its measure, and a link
+// jumps in place to the heading's id.
+test.describe('/legal "On this page" (AECI-1720)', () => {
+  test('lists the h2s beside the article and jumps in place', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/legal/terms');
+    const article = page.locator('article.aec-prose');
+    const toc = page.locator('aec-page-toc nav');
+    await expect(toc).toBeVisible();
+    const h2s = await article.locator('h2').allTextContents();
+    await expect(toc.getByRole('link')).toHaveText(h2s.map((t) => t.trim()));
+    const a = (await article.boundingBox())!;
+    const t = (await toc.boundingBox())!;
+    expect(a.width).toBeLessThanOrEqual(42 * 16 + 1);
+    expect(t.x).toBeGreaterThan(a.x + a.width);
+    // The host owns the click listener (highlight only); wait for it to hydrate.
+    await untilHydrated(page.locator('aec-page-toc'));
+    const link = toc.getByRole('link', { name: 'Disputes' });
+    await expect(link).toHaveAttribute('href', '/legal/terms#disputes');
+    await link.click();
+    await expect(page).toHaveURL(/\/legal\/terms#disputes$/);
+    await expect(article.locator('#disputes')).toBeInViewport();
+  });
+
+  test('is not rendered below lg', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/legal/terms');
+    await expect(page.locator('aec-page-toc')).toBeHidden();
+  });
+});
+
+// AECI-1720 review, WCAG 2.4.11: a stuck box does not scroll, so the list sticks only
+// on a viewport tall enough to show all of it (`aec-page-toc` in styles.css). Tab to
+// the last link of the tallest list and check it is in view and clear of the banner.
+test.describe('/legal "On this page" never hides a focused link (AECI-1720)', () => {
+  for (const [height, banner] of [
+    [768, true],
+    [600, false],
+    [900, true],
+  ] as const) {
+    test(`Tab reaches the last link in view at 1024x${height}, banner ${banner ? 'shown' : 'dismissed'}`, async ({
+      page,
+    }) => {
+      if (!banner) {
+        await page.addInitScript(() =>
+          globalThis.localStorage.setItem('aeci_analytics_consent', 'denied'),
+        );
+      }
+      await page.setViewportSize({ width: 1024, height });
+      await page.goto('/legal/vendor-terms');
+      await untilHydrated(page.locator('aec-page-toc'));
+      const links = page.locator('aec-page-toc nav a');
+      const count = await links.count();
+      expect(count).toBeGreaterThanOrEqual(20);
+      // Read well down the page first, where a stuck list would be the one in view.
+      await page.evaluate(() => window.scrollTo({ top: 2500, behavior: 'instant' }));
+      await links.first().focus();
+      for (let i = 1; i < count; i++) await page.keyboard.press('Tab');
+      const last = links.last();
+      await expect(last).toBeFocused();
+      await expect(last).toBeInViewport({ ratio: 1 });
+      const box = (await last.boundingBox())!;
+      const reserve = await page.evaluate(() =>
+        parseFloat(document.documentElement.style.getPropertyValue('--aec-consent-reserve') || '0'),
+      );
+      if (banner) expect(reserve).toBeGreaterThan(0);
+      expect(box.y + box.height).toBeLessThanOrEqual(height - reserve);
+    });
+  }
+
+  // The thresholds in styles.css (46rem, 54rem with the banner) must still clear the
+  // tallest list. A new heading that makes a list taller fails here first.
+  test('the sticky thresholds clear every legal list at 1024px', async ({ page }) => {
+    await page.setViewportSize({ width: 1024, height: 900 });
+    let banner = 0;
+    for (const slug of [
+      'terms',
+      'privacy',
+      'review-guidelines',
+      'listing-accuracy',
+      'vendor-terms',
+      'managed-plan-agreement',
+    ]) {
+      await page.goto(`/legal/${slug}`);
+      const toc = (await page.locator('aec-page-toc').boundingBox())!;
+      banner = Math.max(
+        banner,
+        await page.evaluate(() =>
+          parseFloat(
+            document.documentElement.style.getPropertyValue('--aec-consent-reserve') || '0',
+          ),
+        ),
+      );
+      expect(32 + toc.height, `${slug} list fits under 46rem`).toBeLessThanOrEqual(46 * 16);
+      expect(
+        32 + toc.height + banner,
+        `${slug} list fits under 54rem with the banner`,
+      ).toBeLessThanOrEqual(54 * 16);
+    }
   });
 });

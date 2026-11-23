@@ -83,6 +83,7 @@ const CONSTRAINT = {
   colorFunction: '(rgb/hsl/oklch',
   colorPalette: '(raw Tailwind palette class)',
   colorNamed: '(named color class',
+  colorOpacity: '(colour opacity modifier',
 } as const;
 
 /** Only the two core rules — a bare Linter cannot resolve plugin rules. */
@@ -332,6 +333,20 @@ describe('constraint rules fire on deliberate violations', () => {
     );
   });
 
+  it('rejects a Tailwind opacity modifier on a colour utility (AECI-1747)', () => {
+    for (const c of [
+      'text-(--surface-base)/70',
+      'bg-(--accent-primary)/40',
+      'hover:bg-(--surface-base)/85',
+      'bg-forest/40',
+      'border-[color:var(--x)]/50',
+      'ring-(--accent-primary)/[0.4]',
+      '[class.bg-(--accent-primary)/40]',
+    ]) {
+      expect(lint('webSource', `const c = "${c}";`).join(), c).toContain(CONSTRAINT.colorOpacity);
+    }
+  });
+
   it('rejects raw Tailwind palette classes and named colour classes', () => {
     expect(lint('webSource', 'const c = "p-4 bg-zinc-100";').join()).toContain(
       CONSTRAINT.colorPalette,
@@ -486,7 +501,11 @@ describe('constraint rules do not fire on legitimate code', () => {
     expect(lint('webSource', 'const c = "bg-(--surface-raised) text-(--text-secondary)";')).toEqual(
       [],
     );
-    expect(lint('webSource', 'const c = "text-(--surface-base)/80";')).toEqual([]);
+    expect(lint('webSource', 'const c = "text-(--text-on-brand-secondary)";')).toEqual([]);
+    // A class binding without a modifier is fine.
+    expect(lint('webSource', 'const c = "[class.text-(--text-primary)]";')).toEqual([]);
+    // Line-height shorthands are not colour opacity modifiers.
+    expect(lint('webSource', 'const c = "text-sm/6 text-base/7 text-[13px]/6 w-1/2";')).toEqual([]);
     expect(lint('webSource', 'const c = "border border-transparent bg-transparent";')).toEqual([]);
     expect(lint('webSource', 'const t = `<svg stroke="currentColor" fill="none"></svg>`;')).toEqual(
       [],

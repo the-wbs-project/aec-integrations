@@ -17,6 +17,7 @@ import { ADMIN_REASON_MAX, type UpdateLicenseBody } from '@aeci/shared';
 import { AdminLicensesApi } from './admin-licenses-api';
 import type { BillingLicenseRow } from './billing-licenses-table';
 import { licenseErrorMessage, licenseMinEndDay, licenseRowActions } from './license-row-actions';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 type Mode = 'extend' | 'revoke';
 
@@ -48,9 +49,15 @@ export interface LicenseBulkFailure {
  * its license checked and the form open with one line per failure. Announcements
  * leave through {@link announce} for the page's live region; the host refetches on
  * {@link changed}. Light theme only.
+ *
+ * ── FOCUS (AECI-1994) ───────────────────────────────────────────────────────
+ * Opening a form focuses its first field, and Cancel returns focus to its button. A run
+ * with a failure or a rate-limit stop focuses the list of what was not changed, because
+ * the confirm button was disabled while the run went and a disabled button drops focus.
  */
 @Component({
   selector: 'aec-license-bulk-actions',
+  imports: [AecFormSubmit],
   templateUrl: './license-bulk-actions.html',
 })
 export class LicenseBulkActions {
@@ -114,6 +121,7 @@ export class LicenseBulkActions {
   private readonly reasonInput = viewChild<ElementRef<HTMLTextAreaElement>>('reasonInput');
   private readonly firstField = viewChild<ElementRef<HTMLElement>>('firstField');
   private readonly triggers = viewChild<ElementRef<HTMLElement>>('triggers');
+  private readonly failedAlert = viewChild<ElementRef<HTMLElement>>('failedAlert');
 
   protected open(mode: Mode): void {
     this.failures.set([]);
@@ -212,7 +220,14 @@ export class LicenseBulkActions {
       this.changed.emit();
     }
     this.announce.emit(summary(body.action, done.length, failed.length, stopped));
-    if (failed.length === 0 && stopped === 0) this.mode.set(null);
+    if (failed.length === 0 && stopped === 0) {
+      this.mode.set(null);
+    } else {
+      // The confirm button was disabled while the run went, which drops focus.
+      afterNextRender(() => this.failedAlert()?.nativeElement.focus(), {
+        injector: this.injector,
+      });
+    }
   }
 }
 

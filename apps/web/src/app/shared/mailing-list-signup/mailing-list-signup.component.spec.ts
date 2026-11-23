@@ -73,15 +73,90 @@ describe('MailingListSignup', () => {
     expect(el.textContent).toContain('occasional updates');
   });
 
-  it('disables submit while the email is invalid and never POSTs', async () => {
+  it('is one shared card on the page wrap; the ground input only changes the band (AECI-1799)', () => {
+    const bone = setup().fixture.nativeElement as HTMLElement;
+    const boneBand = bone.querySelector('section')!;
+    expect(boneBand.classList).toContain('bg-(--accent-warm)');
+    // The unlayered class that keeps an edge under forced colours.
+    expect(boneBand.classList).toContain('aec-bone-band');
+    expect(boneBand.firstElementChild?.classList).toContain('max-w-[1328px]');
+    const card = boneBand.querySelector('.aec-card')!;
+    expect(card.classList).toContain('rounded-card');
+    expect(card.classList).toContain('shadow-card');
+    // The headline size is on an inner span (the unlayered h2 rule beats the element).
+    expect(card.querySelector('h2 > span.text-t-36')).not.toBeNull();
+
+    TestBed.resetTestingModule();
+    const whiteFixture = setup().fixture;
+    whiteFixture.componentRef.setInput('ground', 'white');
+    whiteFixture.detectChanges();
+    const white = (whiteFixture.nativeElement as HTMLElement).querySelector('section')!;
+    expect(white.classList).toContain('bg-(--surface-base)');
+    expect(white.classList).not.toContain('bg-(--accent-warm)');
+    expect(white.classList).not.toContain('aec-bone-band');
+    // Same card, same form, on either ground.
+    expect(white.querySelector('.aec-card form #mailing-list-email')).not.toBeNull();
+    // The field keeps its 3:1 edge class.
+    expect(white.querySelector('#mailing-list-email')?.classList).toContain('aec-field-control');
+  });
+
+  it('keeps submit enabled while the email is invalid, shows the error on submit and never POSTs', async () => {
     const { fixture, el, httpMock } = setup();
     typeEmail(fixture, 'not-an-email');
     await settle();
     fixture.detectChanges();
 
-    expect((el.querySelector('button[type="submit"]') as HTMLButtonElement).disabled).toBe(true);
+    // AECI-1720 restore: a disabled pale button read as broken, so it stays enabled.
+    expect((el.querySelector('button[type="submit"]') as HTMLButtonElement).disabled).toBe(false);
     await submitForm(fixture);
+    await settle();
+    fixture.detectChanges();
     httpMock.expectNone('/api/subscribe');
+    expect(el.querySelector('#mailing-list-email-error')?.getAttribute('role')).toBe('alert');
+  });
+
+  it('shows the error when an empty email is submitted, and never POSTs', async () => {
+    const { fixture, el, httpMock } = setup();
+    await submitForm(fixture);
+    await settle();
+    fixture.detectChanges();
+    httpMock.expectNone('/api/subscribe');
+    expect(el.querySelector('#mailing-list-email-error')).not.toBeNull();
+  });
+
+  it('moves focus to the email field on an invalid submit, so its error is heard', async () => {
+    const { fixture, el, httpMock } = setup();
+    document.body.appendChild(el);
+    try {
+      const input = el.querySelector('#mailing-list-email') as HTMLInputElement;
+      const button = el.querySelector('button[type="submit"]') as HTMLButtonElement;
+      button.focus();
+      await submitForm(fixture);
+      await settle();
+      fixture.detectChanges();
+      expect(document.activeElement).toBe(input);
+      expect(input.getAttribute('aria-describedby')).toBe('mailing-list-email-error');
+      expect(input.getAttribute('aria-invalid')).toBe('true');
+      httpMock.expectNone('/api/subscribe');
+    } finally {
+      el.remove();
+    }
+  });
+
+  it('splits the card into words and form from lg, so the right half is never blank', () => {
+    const { el } = setup();
+    const card = el.querySelector('[data-testid="mailing-list-card"]')!;
+    expect(card.classList).toContain('lg:grid');
+    // Equal halves at lg, so the words keep a readable measure at 1024px; the 32rem form
+    // column waits for xl.
+    expect(card.classList).toContain('lg:grid-cols-2');
+    expect(card.classList).toContain('xl:grid-cols-[minmax(0,1fr)_minmax(0,32rem)]');
+    // Two columns: the words, then the form.
+    expect(card.children[0]!.querySelector('h2')).not.toBeNull();
+    expect(card.children[1]!.tagName).toBe('FORM');
+    // In the narrower words column the headline balances its lines, so "land" never
+    // sits alone on the second line at 1440px.
+    expect(card.querySelector('h2 > span')!.classList).toContain('text-balance');
   });
 
   it('surfaces the inline email error once touched', async () => {

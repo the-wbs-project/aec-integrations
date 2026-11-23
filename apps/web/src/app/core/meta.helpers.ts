@@ -73,14 +73,15 @@ export const VENDOR_PROGRAM_OG_IMAGE = '/branding/vendor-program-og.png';
  * unclaimed listing keeps a small logo on the page itself, with the "not affiliated"
  * wording beside it. A share card, a search result and structured data show no such
  * wording, so they carry no logo: the caller falls back to `DEFAULT_OG_IMAGE` and the
- * JSON-LD omits the field. Ruled by Chris, 2026-11-06. A missing `claim_status` reads
- * as claimed, matching `SubjectClaimStatusSchema`'s default.
+ * JSON-LD omits the field. Ruled by Chris, 2026-11-06. Only `'claimed'` carries the
+ * logo: a missing `claim_status` (a response from an API that predates the field)
+ * carries none, so the rule fails closed (AECI-1851).
  */
 export function shareableLogo(subject: {
   logo_url: string | null;
-  claim_status?: ClaimStatus;
+  claim_status: ClaimStatus;
 }): string | undefined {
-  if (subject.claim_status === 'unclaimed') return undefined;
+  if (subject.claim_status !== 'claimed') return undefined;
   return subject.logo_url ?? undefined;
 }
 
@@ -665,7 +666,7 @@ export function productLdId(origin: string, slug: string): string {
 }
 
 /** A pair endpoint. `claim_status` decides whether its logo reaches the JSON-LD. */
-export type PairSubjectLd = ProductListItem & { claim_status?: ClaimStatus };
+export type PairSubjectLd = ProductListItem & { claim_status: ClaimStatus };
 
 /** Nest one endpoint product as an `about` node. Null source fields are omitted. */
 function aboutProduct(origin: string, product: PairSubjectLd): AboutSoftwareApplicationLd {

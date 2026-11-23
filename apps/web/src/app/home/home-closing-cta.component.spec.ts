@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { HomeClosingCta } from './home-closing-cta';
 
 /**
- * The home closing band (AECI-1564): a vendor call to action linking to
+ * The home closing card (AECI-1564, AECI-1792): a vendor call to action linking to
  * `/vendor-program`, plus the "suggest a tool" trigger that flips the
  * `@defer`-gated feedback dialog on. The mailing-list signup is gone from the home.
  */
@@ -41,7 +41,18 @@ describe('HomeClosingCta', () => {
     const link = el.querySelector('a[href="/vendor-program"]');
     expect(link).not.toBeNull();
     expect(link?.textContent).toContain('Claim or list your product');
-    expect(link?.className).toContain('bg-(--accent-primary)');
+    expect(link?.getAttribute('data-variant')).toBe('primary');
+  });
+
+  it('is one white card on the page ground, never a Bone band (mock-up 9 question 1, clash 2)', () => {
+    const { el } = setup();
+    const card = el.querySelector('section')!;
+    expect(card.classList).toContain('aec-card');
+    expect(card.classList).toContain('bg-(--surface-base)');
+    expect(card.classList).toContain('shadow-card');
+    expect(el.querySelector('[class*="--accent-warm"]')).toBeNull();
+    expect(el.querySelector('[class*="max-w-7xl"]')).toBeNull();
+    expect(card.getAttribute('aria-labelledby')).toBe('home-cta-heading');
   });
 
   it('carries no mailing-list form', () => {

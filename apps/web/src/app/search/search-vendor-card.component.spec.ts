@@ -64,3 +64,25 @@ describe('SearchVendorCard', () => {
     expect(el.textContent).not.toContain('account active');
   });
 });
+
+describe('SearchVendorCard surface (AECI-1765)', () => {
+  it('is a lifting card in a static hover host, with the link on the company name alone', () => {
+    const el = setup();
+    const host = el.querySelector('aec-search-vendor-card')!;
+    expect(host.classList.contains('group/card')).toBe(true);
+    const card = el.querySelector('div')!;
+    expect(card.classList.contains('shadow-card')).toBe(true);
+    expect(card.classList.contains('motion-safe:group-hover/card:-translate-y-1')).toBe(true);
+    const link = el.querySelector('a')!;
+    expect(link.textContent?.trim()).toBe('Procore Technologies');
+    expect(link.hasAttribute('aria-label')).toBe(false);
+    expect(link.classList.contains('after:inset-0')).toBe(true);
+    // Headquarters and the count are text outside the link name.
+    expect(card.textContent).toContain('Carpinteria, CA');
+    expect(card.textContent).toContain('412');
+    expect(link.textContent).not.toContain('Carpinteria');
+    const title = el.querySelector('p')!;
+    expect(title.classList.contains('text-t-20')).toBe(true);
+    expect(title.classList.contains('leading-tight')).toBe(true);
+  });
+});

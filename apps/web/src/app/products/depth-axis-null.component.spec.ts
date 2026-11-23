@@ -15,6 +15,21 @@
  * One re-record, and it is not a depth-axis change. AECI-1079 (2026-09-24) gave
  * the row's partner-name link a 24px target (`-my-0.5 min-w-6 py-0.5`). The two
  * row snapshots changed in that `class` attribute and nowhere else.
+ *
+ * AECI-1928 (2026-11-18) re-recorded the two rows and the powered hub for the
+ * Serif-Floor Rule, not a depth-axis change: the 32px initial tile's
+ * `font-display` became `font-body`, and the group card count gained
+ * `font-body`. Checked by diffing with those two classes removed: identical.
+ *
+ * AECI-1924 (2026-11-18) re-recorded the powered hub snapshot for its filter panel only:
+ * the panel gained the Cards and Table toggle. Everything from the list row on, every
+ * card included, is byte for byte the same. Recorded again when it met the shared card
+ * recipe (#1392): the recording differs from the hold branch's in the toggle alone.
+ *
+ * AECI-1844 (2026-11-22) re-recorded all six for the radius and spacing sweep, not a
+ * depth-axis change: `mt-0.5` became `mt-1`, `gap-x-1.5` became `gap-x-2`, `px-5`
+ * became `px-6` and `rounded-sm` became `rounded-mark`. A word diff of the recording
+ * shows those class tokens and nothing else.
  */
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
@@ -57,6 +72,9 @@ const nullRow: ProductIntegrationItem = {
   via: null,
   powered_by_product: null,
   data_object_slugs: [],
+  data_objects: [],
+  partner_categories: [],
+  agreement: null,
   created_at: '2024-03-01T00:00:00.000Z',
   updated_at: '2024-06-15T00:00:00.000Z',
 };
@@ -104,6 +122,13 @@ function renderRow(integration: ProductIntegrationItem, merged = false): string 
 
 const listItem = (slug: string, name: string) => ({
   claim_status: 'claimed' as const,
+  categories: [],
+  audiences: [],
+  phases: [],
+  trades: [],
+  api_docs_url: null,
+  tool_integrations_url: null,
+  listed_integration_count: 0,
   id: `00000000-0000-4000-8000-${slug.padEnd(12, '0')}`,
   slug,
   name,
@@ -246,6 +271,9 @@ describe('AECI-711 depth axis: the null case renders exactly as before', () => {
   // AECI-1142 re-baselined the three pair-card snapshots: the kind chip and the
   // "Powered by" byline moved into the card's At a glance strip ("How you get
   // it"). The depth-axis guarantee is unchanged: no direction or object chip.
+  // AECI-1798 re-baselined them again for mock-up 12: the shared card, the card
+  // title as an h3 with its size on an inner span, and At a glance as an h4 on a
+  // nested fill. Same words, same chips (none), same order.
   it('pair page mechanism card, integrations arm, Detailed view', () => {
     expect(renderPair(nullPair(null), 'detailed')).toMatchSnapshot();
   });

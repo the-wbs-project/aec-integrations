@@ -1,10 +1,12 @@
 import { Component, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute } from '@angular/router';
 import { map } from 'rxjs';
 
 import type { ProductListItem, VendorDetail } from '@aeci/shared';
 
+import { AecButton } from '../shared/button/button';
+import { AecCard } from '../shared/card/card';
 import type { ExternalLinkContext } from '../analytics/analytics';
 import { ExternalLinkTracker } from '../analytics/external-link-tracker';
 import { DetailLayout } from '../layouts/detail-layout';
@@ -23,6 +25,7 @@ import {
   countUnderReview,
 } from '../shared/field-caption/field-caption-facts';
 import { UnderReviewMarker } from '../shared/field-caption/under-review';
+import { HeroBand } from '../shared/hero-band/hero-band';
 import {
   ListingProvenance,
   type ProvenanceCorrection,
@@ -31,6 +34,8 @@ import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 
 import { COMPANY_FACT_FIELDS, CompanyFacts } from './company-facts';
 import { VendorProductRow } from './vendor-product-row';
+import { AecIcon } from '../shared/icon/icon';
+import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcrumb/breadcrumb';
 
 /** Hero social platforms, in launch priority order (PRODUCT.md §B0). */
 type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
@@ -63,8 +68,11 @@ const UNDER_REVIEW_MARKED_FIELDS: readonly string[] = [
  *   - `vendor === null` → render the global `aec-not-found` shell; the
  *     resolver already set `RESPONSE_INIT.status = 404` and
  *     `MetaService.setNotFoundMeta`.
- *   - `vendor` set → render hero / metadata sidebar / description /
- *     products table sections inside the shared `DetailLayout`.
+ *   - `vendor` set → render the page on `DetailLayout`'s band shell (AECI-1797,
+ *     mock-up 11, rulings of 2026-11-16): a Forest hero (`aec-hero-band`) with the
+ *     description as its lede, the facts card (At a glance, Company facts, Actions)
+ *     on the page's one Bone band with the licence note under it, then the products
+ *     table on white. No section nav, and no picture on the right of the hero.
  *
  * Products table: a column-aligned `<table>` (product · category · rating ·
  * integrations), one `VendorProductRow` per product — mirroring the
@@ -93,16 +101,21 @@ const UNDER_REVIEW_MARKED_FIELDS: readonly string[] = [
  * too (AECI-1266): every listing reads "Claim <Company>" (AECI-1365), and
  * `VendorDetail` no longer carries the plan mirror at all.
  *
- * Company facts live in the sidebar (AECI-1310, `CompanyFacts`). Headquarters and
+ * Company facts live in the facts card (AECI-1310, `CompanyFacts`). Headquarters and
  * founded year moved there from the hero, so each fact shows once, with its source.
  */
 @Component({
   selector: 'aec-vendor-detail',
   imports: [
+    AecBreadcrumb,
+    AecButton,
+    AecCard,
+    AecIcon,
     CompanyFacts,
     CompanyFactsNote,
     DetailLayout,
     ExternalLinkTracker,
+    HeroBand,
     ListingProvenance,
     LogoOrInitial,
     UnclaimedNote,
@@ -111,7 +124,6 @@ const UNDER_REVIEW_MARKED_FIELDS: readonly string[] = [
     NotFound,
     RequestDrawer,
     RequestTrigger,
-    RouterLink,
     UnderReviewMarker,
     VendorProductRow,
   ],
@@ -120,330 +132,277 @@ const UNDER_REVIEW_MARKED_FIELDS: readonly string[] = [
     @if (v === null) {
       <aec-not-found />
     } @else {
-      <aec-detail-layout>
-        <ol
-          slot="breadcrumbs"
-          class="flex flex-wrap items-center gap-2 text-sm text-(--text-secondary)"
-        >
-          <li>
-            <a
-              routerLink="/"
-              class="text-(--text-secondary) no-underline hover:text-(--accent-primary)"
-              i18n="@@vendors.detail.breadcrumbs.home"
-            >
-              Home
-            </a>
-          </li>
-          <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
-          <li class="min-w-0 break-words text-(--text-primary)" aria-current="page">
-            {{ v.company_name }}
-          </li>
-        </ol>
+      <aec-detail-layout shell="bands">
+        <!-- The Forest hero (AECI-1797, mock-up 11). The band renders the page's only h1,
+             the vendor name. No picture on the right (ruling 2, 2026-11-16). -->
+        <aec-hero-band slot="hero">
+          <aec-breadcrumb heroCrumbs tone="on-brand" [items]="crumbs()" />
 
-        <div slot="hero" class="space-y-5">
-          <!-- items-center, not items-start. The logo is a 64px square and the
-               column beside it opens with a row of ~29px chips, so top-aligning
-               anchored the logo to the chip row and left it relating to nothing:
-               its optical centre landed in the gap ABOVE the name. Centring ties
-               it to the h1, which is what it belongs to. The column is always
-               taller than 64px (eyebrow + h1 clears it at every breakpoint), so
-               the logo never becomes the taller item and start-align the text. -->
-          <div class="flex items-center gap-5">
-            @if (v.claim_status !== 'unclaimed') {
+          <div heroKicker class="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+            <p
+              class="aec-overline text-(--text-on-brand-secondary)"
+              i18n="@@vendors.detail.eyebrow"
+            >
+              Vendor
+            </p>
+          </div>
+
+          <!-- A claimed vendor's logo takes the hero mark. An unclaimed vendor has no large
+               mark: its small logo sits beside the note under the name (AECI-1618), and the
+               logo component decides what that slot shows. -->
+          @if (v.claim_status !== 'unclaimed') {
+            <aec-logo-or-initial
+              heroMark
+              data-testid="vendor-hero-mark"
+              [src]="v.logo_url"
+              [name]="v.company_name"
+              [alt]="logoAlt(v.company_name)"
+              [claimStatus]="v.claim_status"
+              size="hero"
+              [priority]="true"
+            />
+          }
+
+          <span heroTitle>{{ v.company_name }}</span>
+
+          <!-- AECI-1618: an unclaimed listing keeps a small logo, not a header image, with
+               counsel's wording directly beside it. -->
+          @if (v.claim_status === 'unclaimed') {
+            <div heroByline class="flex items-center gap-3">
               <aec-logo-or-initial
                 [src]="v.logo_url"
                 [name]="v.company_name"
                 [alt]="logoAlt(v.company_name)"
-                size="lg"
+                [claimStatus]="v.claim_status"
+                [ownPage]="true"
+                size="sm"
                 [priority]="true"
               />
-            }
-            <div class="min-w-0 space-y-2">
-              <p
-                class="text-xs uppercase tracking-[0.14em] text-(--text-secondary)"
-                i18n="@@vendors.detail.eyebrow"
-              >
-                Vendor
-              </p>
-              <h1
-                class="font-display text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) break-words sm:text-4xl"
-              >
-                {{ v.company_name }}
-              </h1>
-              <!-- AECI-1618: an unclaimed listing keeps a small logo, not a header
-                   image, with counsel's wording directly beside it. -->
-              @if (v.claim_status === 'unclaimed') {
-                <div class="flex items-center gap-2 pt-1">
-                  <aec-logo-or-initial
-                    [src]="v.logo_url"
-                    [name]="v.company_name"
-                    [alt]="logoAlt(v.company_name)"
-                    size="sm"
-                    [priority]="true"
-                  />
-                  <aec-unclaimed-note />
-                </div>
-              }
+              <aec-unclaimed-note tone="on-brand" />
             </div>
-          </div>
+          }
 
-          <div class="flex flex-wrap items-center gap-3">
-            @if (v.website) {
-              <a
-                [href]="v.website"
-                target="_blank"
-                rel="noopener nofollow"
-                aecTrackExternalLink="vendor_detail"
-                [aecLinkContext]="linkContexts()!.website"
-                class="inline-flex items-center gap-2 rounded-(--radius-md)
-                  border border-(--border-strong) bg-(--accent-primary)
-                  px-4 py-2 text-sm font-bold text-(--surface-base) no-underline
-                  transition-colors hover:bg-(--accent-primary-hover)
-                  focus-visible:outline-none focus-visible:ring-2
-                  focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
-                  focus-visible:ring-offset-(--surface-base)"
-              >
-                <ng-container i18n="@@vendors.detail.visitWebsite">Visit website</ng-container>
-                <aec-new-tab-icon />
-              </a>
-            }
-            @if (socialLinks().length > 0) {
-              <span class="flex items-center gap-2" role="list" [attr.aria-label]="socialAria">
-                @for (link of socialLinks(); track link.key) {
-                  <a
-                    role="listitem"
-                    [href]="link.href"
-                    target="_blank"
-                    rel="noopener nofollow"
-                    aecTrackExternalLink="vendor_detail_social"
-                    [aecLinkContext]="linkContexts()!.social"
-                    class="inline-flex h-9 w-9 items-center justify-center rounded-(--radius-sm)
-                      border border-(--border-default) bg-(--surface-raised) text-(--text-secondary)
-                      transition-colors hover:border-(--border-strong) hover:text-(--accent-primary)
-                      focus-visible:outline-none focus-visible:ring-2
-                      focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
-                      focus-visible:ring-offset-(--surface-base)"
-                    [attr.aria-label]="link.aria"
-                    [title]="link.label"
-                  >
-                    <svg
-                      aria-hidden="true"
-                      class="h-[18px] w-[18px]"
-                      viewBox="0 0 24 24"
-                      fill="currentColor"
-                    >
-                      <path [attr.d]="link.path" />
-                    </svg>
-                  </a>
-                }
-              </span>
-            }
-          </div>
+          <!-- The description is the hero lede (ruling 3, 2026-11-16). Its words are
+               unchanged and it has no heading. Ruling 77: below sm it steps down one
+               ramp role, to the body size at its 1.6 line height, so a long description
+               does not make the hero a wall. Every word still shows. -->
+          @if (v.description) {
+            <p
+              class="mt-6 max-w-[40rem] break-words text-t-16 text-(--text-on-brand-secondary) sm:text-t-20 sm:leading-normal"
+              data-testid="vendor-description"
+            >
+              {{ v.description }}
+            </p>
+          } @else if (descriptionUnderReview()) {
+            <aec-under-review
+              class="mt-6 block"
+              tone="on-brand"
+              data-testid="vendor-description-under-review"
+            />
+          }
 
           <!-- AECI-1238 (§11d.7): a link AECi hid while it checks it. Its icon is gone
-               from the row above, so each line names the field. -->
+               from the row below, so each line names the field. -->
           @if (linksUnderReview().length > 0) {
-            <div class="space-y-1" data-testid="vendor-under-review">
+            <div class="mt-3 space-y-1" data-testid="vendor-under-review">
               @for (entry of linksUnderReview(); track entry.field) {
-                <aec-under-review [label]="entry.label" />
+                <aec-under-review class="max-sm:min-h-10" tone="on-brand" [label]="entry.label" />
               }
             </div>
           }
-        </div>
+
+          <!-- One wrap at natural widths, so the website button never stretches and the
+               social buttons follow it. The band's own action grid would stretch each. -->
+          @if (v.website || socialLinks().length > 0) {
+            <div heroActions class="flex flex-wrap items-center gap-3">
+              @if (v.website) {
+                <a
+                  aecButton
+                  variant="on-brand"
+                  [href]="v.website"
+                  target="_blank"
+                  rel="noopener nofollow"
+                  aecTrackExternalLink="vendor_detail"
+                  [aecLinkContext]="linkContexts()!.website"
+                >
+                  <ng-container i18n="@@vendors.detail.visitWebsite">Visit website</ng-container>
+                  <aec-new-tab-icon />
+                </a>
+              }
+              @if (socialLinks().length > 0) {
+                <span
+                  class="flex flex-wrap items-center gap-2"
+                  role="list"
+                  [attr.aria-label]="socialAria"
+                >
+                  @for (link of socialLinks(); track link.key) {
+                    <a
+                      aecButton
+                      variant="on-brand-secondary"
+                      iconOnly
+                      role="listitem"
+                      [href]="link.href"
+                      target="_blank"
+                      rel="noopener nofollow"
+                      aecTrackExternalLink="vendor_detail_social"
+                      [aecLinkContext]="linkContexts()!.social"
+                      [attr.aria-label]="link.aria"
+                      [title]="link.label"
+                    >
+                      <svg
+                        aria-hidden="true"
+                        class="h-[18px] w-[18px]"
+                        viewBox="0 0 24 24"
+                        fill="currentColor"
+                      >
+                        <path [attr.d]="link.path" />
+                      </svg>
+                    </a>
+                  }
+                </span>
+              }
+            </div>
+          }
+        </aec-hero-band>
 
         <!--
-          One instance, two formats, same contract as the product page. Docked
-          sidebar at lg; below lg the layout places it directly under About, where
-          it reads as a contained fact panel (groups pair up from sm, actions sit
-          inline at their natural width) rather than a stack of full-bleed rows at
-          the bottom of the page. See DetailLayout.
+          The facts card (mock-up 11): At a glance, Company facts and Actions as the cells
+          of one elevated card that the band shell pulls up over the hero. The licence note
+          sits under it, on the page's one Bone band. With no company facts the card has
+          two cells.
         -->
-        <div
-          slot="metadata"
-          class="grid gap-x-8 gap-y-6 rounded-(--radius-lg) border border-(--border-default)
-            bg-(--surface-raised) p-5 sm:grid-cols-2 sm:p-6 lg:block lg:space-y-6
-            lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0"
-        >
-          <section aria-labelledby="vendor-stats-title" class="space-y-3">
-            <h2
-              id="vendor-stats-title"
-              class="aec-overline text-(--text-secondary)"
-              i18n="@@vendors.detail.metadata.stats"
-            >
-              At a glance
-            </h2>
-            <dl
-              class="grid grid-cols-2 gap-3 rounded-(--radius-lg) border
-                border-(--border-default) bg-(--surface-base) p-4
-                lg:bg-(--surface-raised)"
-            >
-              <div>
-                <dt
-                  class="text-xs text-(--text-secondary)"
-                  i18n="@@vendors.detail.metadata.productCount"
-                >
-                  Products
-                </dt>
-                <dd class="mt-1 font-display text-xl font-semibold text-(--text-primary)">
-                  {{ v.product_count }}
-                </dd>
-              </div>
-              <div>
-                <dt
-                  class="text-xs text-(--text-secondary)"
-                  i18n="@@vendors.detail.metadata.integrationCount"
-                >
-                  Integrations
-                </dt>
-                <dd class="mt-1 font-display text-xl font-semibold text-(--text-primary)">
-                  {{ v.integration_count }}
-                </dd>
-              </div>
-            </dl>
-          </section>
-
-          <aec-company-facts [facts]="v.company_facts" [underReview]="v.under_review ?? []" />
-
-          <section aria-labelledby="vendor-actions-label" class="space-y-3">
-            <h2
-              id="vendor-actions-label"
-              class="aec-overline text-(--text-secondary)"
-              i18n="@@vendors.detail.metadata.actions"
-            >
-              Actions
-            </h2>
-            <div class="flex flex-wrap gap-2 lg:flex-col">
-              <a
-                aecRequestTrigger
-                [entity]="'vendor'"
-                [kind]="'claim'"
-                [slug]="v.slug"
-                [company]="v.company_name"
-                [href]="'/vendors/' + v.slug + '/claim'"
-                class="inline-flex items-center justify-center gap-2 rounded-(--radius-md)
-                  border border-(--border-default) bg-(--surface-base) px-4 py-2.5
-                  lg:bg-(--surface-raised)
-                  text-sm font-medium text-(--text-secondary) no-underline transition-colors
-                  hover:border-(--border-strong) hover:text-(--accent-primary)
-                  focus-visible:outline-none focus-visible:ring-2
-                  focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
-                  focus-visible:ring-offset-(--surface-base)"
+        <div slot="metadata" data-testid="vendor-facts">
+          <div aecCard class="overflow-hidden">
+            <div [class]="factsGridClass()">
+              <section
+                aria-labelledby="vendor-stats-title"
+                class="flex min-w-0 flex-col justify-center gap-3 bg-(--accent-warm) p-6"
               >
-                <svg
-                  aria-hidden="true"
-                  class="h-4 w-4 shrink-0"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
+                <h2
+                  id="vendor-stats-title"
+                  class="aec-overline text-(--text-secondary)"
+                  i18n="@@vendors.detail.metadata.stats"
                 >
-                  <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
-                  <path d="M4 22v-7" />
-                </svg>
-                <!-- AECI-1365: a claim is on the company (VENDOR_SIGNUP_PROCESS.md §3). -->
-                <ng-container i18n="@@vendors.detail.metadata.claimCompany"
-                  >Claim {{ v.company_name }}</ng-container
-                >
-              </a>
-              <a
-                aecRequestTrigger
-                [entity]="'vendor'"
-                [kind]="'correction'"
-                [slug]="v.slug"
-                [href]="'/vendors/' + v.slug + '/correction'"
-                class="inline-flex items-center justify-center gap-2 rounded-(--radius-md)
-                  border border-(--border-default) bg-(--surface-base) px-4 py-2.5
-                  lg:bg-(--surface-raised)
-                  text-sm font-medium text-(--text-secondary) no-underline transition-colors
-                  hover:border-(--border-strong) hover:text-(--accent-primary)
-                  focus-visible:outline-none focus-visible:ring-2
-                  focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
-                  focus-visible:ring-offset-(--surface-base)"
-              >
-                <svg
-                  aria-hidden="true"
-                  class="h-4 w-4 shrink-0"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M12 20h9" />
-                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                </svg>
-                <ng-container i18n="@@vendors.detail.metadata.correction"
-                  >Suggest a correction</ng-container
-                >
-              </a>
-            </div>
-          </section>
-          <aec-company-facts-note class="block sm:col-span-2 lg:col-span-1" />
-        </div>
+                  At a glance
+                </h2>
+                <dl class="grid gap-3">
+                  <div class="flex flex-col-reverse gap-1">
+                    <dt
+                      class="text-t-16 text-(--text-primary)"
+                      i18n="@@vendors.detail.metadata.productCount"
+                    >
+                      Products
+                    </dt>
+                    <dd
+                      class="font-display text-t-fig font-semibold tracking-[-0.01em] tabular-nums text-(--accent-primary)"
+                    >
+                      {{ v.product_count }}
+                    </dd>
+                  </div>
+                  <div class="flex items-baseline gap-2 text-t-14">
+                    <dt
+                      class="text-(--text-secondary)"
+                      i18n="@@vendors.detail.metadata.integrationCount"
+                    >
+                      Integrations
+                    </dt>
+                    <dd class="font-semibold tabular-nums text-(--text-primary)">
+                      {{ v.integration_count }}
+                    </dd>
+                  </div>
+                </dl>
+              </section>
 
-        <!-- AECI-1666: "About this listing", the page's one provenance panel. A card at
-             the end of the sidebar from lg. Below lg the disclosure copy at the end of
-             the body takes over, so only this copy carries the test id. Corrections
-             only: this page takes no Maintained caption (ruling 2026-11-05). -->
-        <aec-listing-provenance
-          slot="metadata"
-          data-testid="listing-provenance"
-          variant="card"
-          [maintainedBy]="v.maintenance.maintained_by"
-          [reviewedAt]="v.maintenance.last_reviewed_at"
-          [ownerName]="v.company_name"
-          [claimed]="v.claim_status !== 'unclaimed'"
-          [corrections]="provenanceCorrections()"
-          [underReviewCount]="underReviewCount()"
-          [page]="captionPage()"
-        />
-
-        <!-- About goes in the LEAD slot so the metadata panel lands under it below
-             xl instead of at the foot of the page. See DetailLayout. -->
-        <div slot="body-lead" class="space-y-12">
-          @if (v.description || descriptionUnderReview()) {
-            <section aria-labelledby="vendor-description-title" class="space-y-4">
-              <h2
-                id="vendor-description-title"
-                class="font-display text-2xl font-semibold text-(--text-primary)"
-                i18n="@@vendors.detail.body.description"
-              >
-                About
-              </h2>
-              @if (v.description) {
-                <p
-                  class="max-w-prose break-words text-base leading-relaxed text-(--text-secondary)"
-                >
-                  {{ v.description }}
-                </p>
-              } @else {
-                <aec-under-review data-testid="vendor-description-under-review" />
+              @if (hasCompanyFacts()) {
+                <aec-company-facts
+                  class="min-w-0 border-t p-6 md:border-t-0 md:border-s"
+                  [facts]="v.company_facts"
+                  [underReview]="v.under_review ?? []"
+                />
               }
-            </section>
-          }
+
+              <section aria-labelledby="vendor-actions-label" [class]="actionsCellClass()">
+                <h2
+                  id="vendor-actions-label"
+                  class="aec-overline text-(--text-secondary)"
+                  i18n="@@vendors.detail.metadata.actions"
+                >
+                  Actions
+                </h2>
+                <div [class]="actionsClass()">
+                  <a
+                    aecButton
+                    variant="secondary"
+                    aecRequestTrigger
+                    [entity]="'vendor'"
+                    [kind]="'claim'"
+                    [slug]="v.slug"
+                    [company]="v.company_name"
+                    [href]="'/vendors/' + v.slug + '/claim'"
+                  >
+                    <aec-icon name="flag" decorative [size]="4" />
+                    <!-- AECI-1365: a claim is on the company (VENDOR_SIGNUP_PROCESS.md section 3).
+                         AECI-1925: the label reads "Claim Vendor" (Chris, 2026-11-18). The name
+                         stays in the accessible name, after the visible words. -->
+                    <ng-container i18n="@@vendors.detail.metadata.claimVendor"
+                      >Claim Vendor<span class="sr-only"> {{ v.company_name }}</span></ng-container
+                    >
+                  </a>
+                  <a
+                    aecButton
+                    variant="secondary"
+                    aecRequestTrigger
+                    [entity]="'vendor'"
+                    [kind]="'correction'"
+                    [slug]="v.slug"
+                    [href]="'/vendors/' + v.slug + '/correction'"
+                  >
+                    <aec-icon name="pen" decorative [size]="4" />
+                    <ng-container i18n="@@vendors.detail.metadata.correction"
+                      >Suggest a correction</ng-container
+                    >
+                  </a>
+                </div>
+              </section>
+            </div>
+          </div>
+          <!-- The link stays on one line: the fallback font wrapped its last word and
+               icon to a third line at 390px, and the web font swap pulled it back
+               (layout shift 0.0186 to 0.0099). -->
+          <aec-company-facts-note class="mt-6 block [&_a]:whitespace-nowrap" />
         </div>
 
         <div slot="body" class="space-y-12">
-          <section aria-labelledby="vendor-products-title" class="space-y-4">
-            <div class="flex items-baseline gap-2">
-              <h2
-                id="vendor-products-title"
-                class="font-display text-2xl font-semibold text-(--text-primary)"
-                i18n="@@vendors.detail.body.products"
-              >
-                Products
-              </h2>
-              <span class="text-base font-normal tabular-nums text-(--text-secondary)">{{
-                productCountLabel()
-              }}</span>
+          <section aria-labelledby="vendor-products-title" class="space-y-6">
+            <div class="space-y-1">
+              <div class="flex items-baseline gap-2">
+                <h2 id="vendor-products-title">
+                  <span
+                    class="font-display text-t-36 font-semibold tracking-[-0.02em] text-(--text-primary)"
+                    i18n="@@vendors.detail.body.products"
+                    >Products</span
+                  >
+                </h2>
+                <span class="text-t-20 font-normal tabular-nums text-(--text-secondary)">{{
+                  productCountLabel()
+                }}</span>
+              </div>
+              <!-- The order the API returns: A to Z by name, case ignored, then id
+                   (toVendorDetail, AECI-1242). Approved copy, ruling 4 of 2026-11-16. -->
+              @if (v.products.length > 0) {
+                <p
+                  class="text-t-14 text-(--text-secondary)"
+                  data-testid="vendor-products-order"
+                  i18n="@@vendors.detail.body.products.order"
+                >
+                  A to Z by name.
+                </p>
+              }
             </div>
 
             @if (v.products.length === 0) {
               <p
-                class="rounded-(--radius-lg) border border-dashed border-(--border-default)
+                class="rounded-panel border border-dashed border-(--border-default)
                   bg-(--surface-sunken) p-6 text-sm text-(--text-secondary)"
                 i18n="@@vendors.detail.body.products.empty"
               >
@@ -459,21 +418,16 @@ const UNDER_REVIEW_MARKED_FIELDS: readonly string[] = [
                 >.
               </p>
             } @else {
-              <!-- Real table (replaces the former card stack) mirroring the
-                   integrations table on the product page, so the vendor's
-                   portfolio aligns into scannable columns. Rating collapses at
-                   md (matching ProductCard / the browse tables). The table has
-                   four columns: product, rating, integrations, and the row link.
-
-                   The min width is 34rem, not the former 44rem. AECI-853 moved
-                   DetailLayout's sidebar dock from xl to lg, which makes 608px
-                   the narrowest this body column ever gets. At 44rem (704px) the
-                   table overflowed that by 96px and scrolled inside a narrow
-                   well. The 648px worst case measured for AECI-853 included a
-                   category column that has since been removed, so the table is
-                   narrower now than that figure. Do not raise this back above
-                   38rem. -->
-              <div class="overflow-x-auto">
+              <!-- A real table mirroring the integrations rows on the product page, so the
+                   vendor's portfolio aligns into scannable columns. Overall, the rating
+                   column, collapses at md (matching ProductCard and the browse tables). It
+                   reads "Overall" as on the browse lists (ruling 5, 2026-11-16). Four
+                   columns: product, overall rating, integrations, and the row link. On the band shell the body is the
+                   full page wrap at every width, so the 34rem minimum has room from md.
+                   relative: the sr-only "Details" header is absolutely positioned, and
+                   without a positioned scroller it escaped it and scrolled the page 1px
+                   sideways at 320px. -->
+              <div class="relative overflow-x-auto" data-testid="vendor-products-scroller">
                 <table
                   class="w-full border-collapse text-start text-sm md:min-w-[34rem]"
                   i18n-aria-label="@@vendors.detail.body.products.table.aria"
@@ -481,26 +435,26 @@ const UNDER_REVIEW_MARKED_FIELDS: readonly string[] = [
                 >
                   <thead
                     class="border-b border-(--border-default) text-start text-xs
-                      font-medium tracking-wide text-(--text-secondary)"
+                      font-semibold tracking-wide text-(--text-secondary)"
                   >
                     <tr>
                       <th
                         scope="col"
-                        class="px-4 py-3 text-start font-medium"
+                        class="px-4 py-3 text-start font-semibold"
                         i18n="@@vendors.detail.body.products.col.product"
                       >
                         Product
                       </th>
                       <th
                         scope="col"
-                        class="hidden px-4 py-3 text-end font-medium md:table-cell"
-                        i18n="@@vendors.detail.body.products.col.rating"
+                        class="hidden px-4 py-3 text-end font-semibold md:table-cell"
+                        i18n="@@products.detail.reviews.item.overall"
                       >
-                        Rating
+                        Product quality
                       </th>
                       <th
                         scope="col"
-                        class="px-4 py-3 text-end font-medium"
+                        class="px-4 py-3 text-end font-semibold"
                         i18n="@@vendors.detail.body.products.col.integrations"
                       >
                         Integrations
@@ -525,7 +479,7 @@ const UNDER_REVIEW_MARKED_FIELDS: readonly string[] = [
                         <tr aria-hidden="true">
                           <td colspan="4" class="px-4 py-3">
                             <div
-                              class="h-16 animate-pulse rounded-(--radius-lg)
+                              class="h-16 animate-pulse rounded-mark
                                 border border-(--border-default) bg-(--surface-sunken)"
                             ></div>
                           </td>
@@ -538,20 +492,40 @@ const UNDER_REVIEW_MARKED_FIELDS: readonly string[] = [
             }
           </section>
 
-          <aec-listing-provenance
-            variant="disclosure"
-            [maintainedBy]="v.maintenance.maintained_by"
-            [reviewedAt]="v.maintenance.last_reviewed_at"
-            [ownerName]="v.company_name"
-            [claimed]="v.claim_status !== 'unclaimed'"
-            [corrections]="provenanceCorrections()"
-            [underReviewCount]="underReviewCount()"
-            [page]="captionPage()"
-          />
+          <!-- AECI-1666: "About this listing", the page's one provenance panel, after the
+               products. The band shell has no sidebar, so both copies sit here: the card
+               from lg, the closed disclosure below it. Only the card copy carries the test
+               id. Corrections only: this page takes no Maintained caption (ruling
+               2026-11-05). -->
+          <div data-testid="listing-provenance-band">
+            <aec-listing-provenance
+              data-testid="listing-provenance"
+              variant="card"
+              [maintainedBy]="v.maintenance.maintained_by"
+              [reviewedAt]="v.maintenance.last_reviewed_at"
+              [ownerName]="v.company_name"
+              [claimed]="v.claim_status !== 'unclaimed'"
+              [corrections]="provenanceCorrections()"
+              [underReviewCount]="underReviewCount()"
+              [page]="captionPage()"
+            />
+            <aec-listing-provenance
+              variant="disclosure"
+              [maintainedBy]="v.maintenance.maintained_by"
+              [reviewedAt]="v.maintenance.last_reviewed_at"
+              [ownerName]="v.company_name"
+              [claimed]="v.claim_status !== 'unclaimed'"
+              [corrections]="provenanceCorrections()"
+              [underReviewCount]="underReviewCount()"
+              [page]="captionPage()"
+            />
+          </div>
         </div>
       </aec-detail-layout>
 
-      <aec-mailing-list-signup />
+      <!-- White with a hairline above: on the band shell the facts ground is the page's one
+           Bone band (ruling 12, 2026-11-16). -->
+      <aec-mailing-list-signup ground="white" />
 
       <!-- In-place claim/correction drawer (AECI-128); opened by the
            aecRequestTrigger anchors above. Renders nothing until opened. -->
@@ -560,6 +534,11 @@ const UNDER_REVIEW_MARKED_FIELDS: readonly string[] = [
   `,
 })
 export class VendorDetailPage {
+  protected readonly crumbs = computed<BreadcrumbItem[]>(() => [
+    homeCrumb(),
+    { label: this.vendor()?.company_name ?? '' },
+  ]);
+
   private readonly route = inject(ActivatedRoute);
 
   protected readonly logoAlt = logoAlt;
@@ -657,6 +636,52 @@ export class VendorDetailPage {
    */
   protected readonly underReviewCount = computed(() =>
     countUnderReview(this.vendor()?.under_review, UNDER_REVIEW_MARKED_FIELDS),
+  );
+
+  /**
+   * Whether the Company facts cell renders: the rows `CompanyFacts` would draw, a fact
+   * with a value or a fact AECi hid while it checks it (AECI-1238).
+   */
+  protected readonly hasCompanyFacts = computed(() => {
+    const v = this.vendor();
+    if (!v) return false;
+    const f = v.company_facts;
+    const shown = [
+      f.headquarters,
+      f.founded_year,
+      f.company_size,
+      f.ownership_type,
+      f.parent_company,
+      f.funding_stage,
+    ].some((fact) => fact !== null);
+    return shown || COMPANY_FACT_FIELDS.some((field) => isUnderReview(v.under_review, field));
+  });
+
+  /**
+   * The facts card's cells (mock-up 11). With Company facts: one column, then the stat
+   * cell beside the facts from md with Actions under both, then three columns from xl.
+   * Without: the stat cell and Actions side by side from md.
+   */
+  protected readonly factsGridClass = computed(() =>
+    this.hasCompanyFacts()
+      ? 'grid md:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)] xl:grid-cols-[minmax(0,0.8fr)_minmax(0,2fr)_minmax(0,0.9fr)]'
+      : 'grid md:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)]',
+  );
+
+  /** The Actions cell. It spans the row under the stat and facts cells from md to xl. */
+  protected readonly actionsCellClass = computed(
+    () =>
+      'flex min-w-0 flex-col gap-3 border-t p-6 ' +
+      (this.hasCompanyFacts()
+        ? 'md:col-span-2 xl:col-span-1 xl:border-t-0 xl:border-s'
+        : 'md:border-t-0 md:border-s'),
+  );
+
+  /** The two buttons: stacked full width, in a row where the cell is wide. */
+  protected readonly actionsClass = computed(
+    () =>
+      'flex flex-col gap-2 ' +
+      (this.hasCompanyFacts() ? 'md:max-xl:flex-row md:max-xl:flex-wrap' : ''),
   );
 
   /** AECI-1238 (§11d.7): the company description is hidden while AECi checks it. */

@@ -1028,3 +1028,86 @@ describe('the mixed Managed plan company (review item 4)', () => {
     });
   });
 });
+
+// ─── AECI-1969 (counsel Q68, ruling 54): a policy version ─────────────────────
+
+describe('a policy version goes to companies as a Vendor Terms change (AECI-1969)', () => {
+  it('reaches the Vendor Terms audience', async () => {
+    await seedVendor(V1, 'a');
+    await seedVendor(V2, 'b');
+    await seedSeat(u(11), V1);
+    await seedSeat(u(21), V2, { banned: true });
+    for (const d of ['listing_accuracy', 'review_guidelines'] as const) {
+      expect(await legalNoticeVendorIds(t.db, d)).toEqual([V1]);
+    }
+  });
+
+  it('closes with the policy line', () => {
+    expect(legalClosingFor('listing_accuracy', false, false)).toBe('vendor-policy');
+    expect(legalClosingFor('review_guidelines', false, true)).toBe('vendor-policy');
+  });
+
+  it('emails every seat and the billing email, keyed per company, once through the real sender', async () => {
+    vi.mocked(ledgerDb).mockReturnValue(t.db as Db);
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => new Response('{"id":"re_1"}', { status: 200 }));
+    await seedVendor(V1, 'alpha', 'billing@a.example');
+    await seedSeat(u(11), V1);
+    await seedSeat(u(12), V1, { owner: true });
+    const row = await seedVersion({
+      document: 'review_guidelines',
+      version: '1.1',
+      pdfKey: 'legal/review-guidelines/v1.1.pdf',
+    });
+    const bucket = await bucketWith(row.pdfKey, PDF);
+    const env = {
+      ...baseEnv(bucket),
+      RESEND_API_KEY: 'rk_test',
+      EMAIL_FROM: 'AEC Integrations <notifications@aecintegrations.com>',
+    } as Env;
+    const run = async () => {
+      const message = fakeMessage({ legalVersionId: row.id, vendorId: V1, enqueuedAt: 'x' });
+      await deliverLegalNotice(env, fakeExecutionContext(), message, {
+        dbFor: t.factory,
+        fetchSeatEmails: seatEmails,
+        send: sendLegalTermsChangeEmail,
+        now: () => NOW,
+      });
+      expect(message.ack).toHaveBeenCalledTimes(1);
+    };
+    await run();
+    // A second run sends nothing: every key is held.
+    await run();
+
+    const resend = fetchSpy.mock.calls.filter(
+      (c) => String(c[0]) === 'https://api.resend.com/emails',
+    );
+    expect(resend).toHaveLength(3);
+    const sent = JSON.parse(String((resend[0]![1] as RequestInit).body)) as {
+      subject: string;
+      text: string;
+      attachments: { filename: string }[];
+    };
+    expect(sent.subject).toBe(
+      'Version 1.1 of the Review Guidelines takes effect on January 15, 2027',
+    );
+    expect(sent.text).toContain('What changes:');
+    expect(sent.text).toContain('https://www.aecintegrations.com/legal/review-guidelines/v1.1');
+    expect(sent.text).toContain(
+      "The Vendor Terms make this policy part of your company's agreement with us.",
+    );
+    expect(sent.attachments[0]!.filename).toBe('aeci-review-guidelines-v1.1.pdf');
+
+    const ledger = await t.db.select().from(notificationSends);
+    expect(ledger.filter((r) => r.outcome === 'sent')).toHaveLength(3);
+    expect(ledger.filter((r) => r.outcome === 'duplicate')).toHaveLength(3);
+    const hash = await recipientHash('billing@a.example');
+    expect(ledger.map((r) => r.dedupeKey)).toContain(
+      `legal-terms-change:review_guidelines:1.1:${V1}:${hash}`,
+    );
+    expect(await rowsFor()).toEqual([
+      { vendorId: V1, status: 'delivered', attempts: 1, lastReason: null },
+    ]);
+  });
+});

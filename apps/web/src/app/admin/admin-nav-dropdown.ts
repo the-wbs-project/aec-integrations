@@ -16,8 +16,8 @@ import {
  * button that reveals its group's screens.
  *
  * The trigger is the group label (plus its pending badge) and nothing else —
- * **no arrow icon**. The public nav dropped its arrow buttons first
- * (`layout/nav-flyout-trigger.ts`), and a triangle here with none there would
+ * **no arrow icon**. The public nav dropped its arrow buttons first (the
+ * taxonomy flyouts, now the Browse menu in `layout/browse-menu.ts`), and a triangle here with none there would
  * read as two different products; `aria-haspopup` / `aria-expanded` carry the
  * disclosure to assistive tech, which is what the icon was never doing.
  *
@@ -104,10 +104,14 @@ import {
       >
         @for (item of group().items; track item.path) {
           <li>
+            <!-- A pressed link closes the panel, as the Browse menu's do, so it never stays
+                 open over the new page. Its focus is then lost to the hidden panel and
+                 RouteFocus moves it to the page h1 (AECI-1855). -->
             <a
               [routerLink]="item.path"
               routerLinkActive="bg-(--surface-sunken) text-(--accent-primary)"
               ariaCurrentWhenActive="page"
+              (click)="close()"
               class="flex items-center justify-between gap-3 rounded-(--radius-sm) px-3 py-1.5 text-sm font-normal text-(--text-primary) no-underline transition-colors hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
             >
               <span>{{ item.label }}</span>

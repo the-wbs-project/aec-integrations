@@ -60,11 +60,11 @@ export function vendorMetaTitleFallbacks(vendor: VendorDetail): string[] {
  * blurb, else `MetaService`'s `@@meta.defaultDescription` (reached by returning
  * `null`).
  *
- * **The count is `product_count`, never `integration_count`.** A vendor's
- * `integration_count` counts integrations that vendor BUILT
- * (`built_by_vendor_id`, `drizzle-helpers.ts`), not integrations across its
- * products, and it is zero for almost every vendor. Quoting it in a snippet
- * would state something the number does not mean.
+ * **The count is `product_count`, never `integration_count`.** Ruling
+ * 2026-11-23 (Chris, AECI-1897): a vendor snippet describes what the vendor
+ * publishes, so it quotes products. This holds even though `integration_count`
+ * now counts the integrations across the vendor's products
+ * (`vendorReachCountSql`). Do not switch it without a new ruling.
  *
  * `Organization.description` in the JSON-LD is deliberately NOT varied
  * (`buildVendorJsonLd` reads `vendor.description` directly), matching the

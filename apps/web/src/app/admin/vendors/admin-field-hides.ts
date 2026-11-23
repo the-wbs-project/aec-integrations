@@ -32,6 +32,7 @@ import {
 } from './admin-field-corrections';
 import { AdminVendorsApi } from './admin-vendors-api';
 import { todayLocal } from './listing-hide-form';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 /** Which inline action is open on one hide. */
 type HideAction = { readonly id: string; readonly kind: 'restore' | 'reply' };
@@ -60,7 +61,7 @@ type HideAction = { readonly id: string; readonly kind: 'restore' | 'reply' };
  */
 @Component({
   selector: 'aec-admin-field-hides',
-  imports: [DatePipe, NewTabIcon],
+  imports: [AecFormSubmit, DatePipe, NewTabIcon],
   templateUrl: './admin-field-hides.html',
 })
 export class AdminFieldHides {

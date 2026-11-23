@@ -8,7 +8,9 @@
  *   1. **Today's data reads nothing and changes nothing.** With the real, empty upcoming
  *      maps no query runs, and every answer is the build's current version.
  *   2. **An unpublished upcoming agreement version never switches**, before, at or long
- *      after its moment: not the stamp, not the gate, not the public read.
+ *      after its moment: not the stamp, not the gate, not the public read. Since AECI-1969
+ *      (ruling 54) the same holds for a Listing Accuracy Policy or Review Guidelines
+ *      version.
  *   3. **A published one switches exactly at its moment**: one millisecond before, the
  *      old version; at the moment, the new one. The stamp, the gate, the claim box and
  *      the public read the web decides from all agree.
@@ -143,9 +145,25 @@ describe('an unpublished upcoming agreement version (invariant 2)', () => {
     expect(await webVendorTerms(now)).toBe('1.3');
   });
 
-  it('the policy switches on its date anyway: it has no publish record', async () => {
+  // AECI-1969 (counsel Q68, ruling 54) reversed the date-alone rule for the policies: an
+  // unpublished policy version never emailed the claimed companies, so it never switches.
+  it('an unpublished policy version never switches either', async () => {
+    for (const now of [BEFORE, AT, LATER]) {
+      expect((await loadLegalInForce(t.db, now, MAPS)).policies.listing_accuracy).toBe('1.0');
+    }
+  });
+
+  it('a published policy version switches exactly at its moment, and the public read names it', async () => {
+    await publish({
+      document: 'listing_accuracy',
+      version: '1.1',
+      pdfKey: 'legal/listing-accuracy/v1.1.pdf',
+    });
     expect((await loadLegalInForce(t.db, BEFORE, MAPS)).policies.listing_accuracy).toBe('1.0');
     expect((await loadLegalInForce(t.db, AT, MAPS)).policies.listing_accuracy).toBe('1.1');
+    expect((await readPublic(AT)).published).toEqual([
+      { document: 'listing_accuracy', version: '1.1', effective_at: AT.toISOString() },
+    ]);
   });
 
   it('a row with another moment does not switch either (fail safe)', async () => {

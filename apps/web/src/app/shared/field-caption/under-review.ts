@@ -16,12 +16,16 @@ import { Component, computed, input } from '@angular/core';
  *
  * Visitor-neutral and clock-free, so it belongs in the edge-cached HTML. A block span
  * rather than a paragraph, because a table row mounts this inside a `<span>`.
+ *
+ * `tone="on-brand"` is for the Forest hero band (AECI-1778): the line takes
+ * `--text-on-brand-secondary` instead of `--text-secondary`. The words do not change.
  */
 @Component({
   selector: 'aec-under-review',
   host: { class: 'block' },
   template: `<span
-    class="block text-xs leading-5 text-(--text-secondary)"
+    class="block text-xs leading-5"
+    [class]="toneClass()"
     data-testid="field-under-review"
     >{{ text() }}</span
   >`,
@@ -29,6 +33,12 @@ import { Component, computed, input } from '@angular/core';
 export class UnderReviewMarker {
   /** Names the field where the line cannot sit in its own slot. */
   readonly label = input<string | null>(null);
+  /** `default` on a light ground, `on-brand` on Forest. */
+  readonly tone = input<'default' | 'on-brand'>('default');
+
+  protected readonly toneClass = computed(() =>
+    this.tone() === 'on-brand' ? 'text-(--text-on-brand-secondary)' : 'text-(--text-secondary)',
+  );
 
   protected readonly text = computed(() => {
     const label = this.label();

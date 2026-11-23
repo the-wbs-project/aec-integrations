@@ -1,0 +1,99 @@
+diff --git a/dist/compiler.mjs b/dist/compiler.mjs
+index 378e428ac843cf823facb492c0a77b9653d83430..e30fe473163ac8de891ab244357f2ce5cc2e0818 100644
+--- a/dist/compiler.mjs
++++ b/dist/compiler.mjs
+@@ -150,8 +150,27 @@ function isAlwaysCriticalSelector(sel) {
+ * matched against the document, since we only care that the associated
+ * elements exist.
+ */
++function unwrapFunctionalPseudo(sel) {
++	const match = sel.trim().match(/^:(?:where|is)\((.*)\)$/s);
++	if (!match) return sel;
++	let depth = 0;
++	for (const ch of match[1]) {
++		if (ch === "(") depth++;
++		else if (ch === ")" && --depth < 0) return sel;
++	}
++	return depth === 0 ? match[1] : sel;
++}
+ function normalizeCssSelector(sel) {
+-	return sel.replace(removePseudoClassesAndElementsPattern, "").replace(removeTrailingCommasPattern, (match) => match.includes("(") ? "(" : ")").replace(implicitUniversalPattern, "$1 * $2").replace(emptyCombinatorPattern, "$1 *").trim();
++	// AECI-1854 patch: a selector that is entirely `:where(...)` or `:is(...)`
++	// (Tailwind v4's space-*, divide-* and similar) was stripped to an empty
++	// string and dropped from the critical CSS. Match its argument instead.
++	sel = unwrapFunctionalPseudo(sel);
++	const normalized = sel.replace(removePseudoClassesAndElementsPattern, "").replace(removeTrailingCommasPattern, (match) => match.includes("(") ? "(" : ")").replace(implicitUniversalPattern, "$1 * $2").replace(emptyCombinatorPattern, "$1 *").trim();
++	// AECI-1854 patch: a selector that is only pseudo-elements or pseudo-classes
++	// (`::placeholder`, `::selection`, `:focus-visible`) has no element part, so
++	// it was stripped to an empty string and dropped. It applies to every element,
++	// as `*` does, so match it as `*`.
++	return normalized === "" && sel.trim() !== "" ? "*" : normalized;
+ }
+ //#endregion
+ //#region src/urls.ts
+diff --git a/dist/index.cjs b/dist/index.cjs
+index 2e3ffbda9497899e65371e7571559e25e72df433..a6062160bf08c1baef8ec7daf317fe5275a700e8 100644
+--- a/dist/index.cjs
++++ b/dist/index.cjs
+@@ -776,8 +776,27 @@ function isAlwaysCriticalSelector(sel) {
+ * matched against the document, since we only care that the associated
+ * elements exist.
+ */
++function unwrapFunctionalPseudo(sel) {
++	const match = sel.trim().match(/^:(?:where|is)\((.*)\)$/s);
++	if (!match) return sel;
++	let depth = 0;
++	for (const ch of match[1]) {
++		if (ch === "(") depth++;
++		else if (ch === ")" && --depth < 0) return sel;
++	}
++	return depth === 0 ? match[1] : sel;
++}
+ function normalizeCssSelector(sel) {
+-	return sel.replace(removePseudoClassesAndElementsPattern, "").replace(removeTrailingCommasPattern, (match) => match.includes("(") ? "(" : ")").replace(implicitUniversalPattern, "$1 * $2").replace(emptyCombinatorPattern, "$1 *").trim();
++	// AECI-1854 patch: a selector that is entirely `:where(...)` or `:is(...)`
++	// (Tailwind v4's space-*, divide-* and similar) was stripped to an empty
++	// string and dropped from the critical CSS. Match its argument instead.
++	sel = unwrapFunctionalPseudo(sel);
++	const normalized = sel.replace(removePseudoClassesAndElementsPattern, "").replace(removeTrailingCommasPattern, (match) => match.includes("(") ? "(" : ")").replace(implicitUniversalPattern, "$1 * $2").replace(emptyCombinatorPattern, "$1 *").trim();
++	// AECI-1854 patch: a selector that is only pseudo-elements or pseudo-classes
++	// (`::placeholder`, `::selection`, `:focus-visible`) has no element part, so
++	// it was stripped to an empty string and dropped. It applies to every element,
++	// as `*` does, so match it as `*`.
++	return normalized === "" && sel.trim() !== "" ? "*" : normalized;
+ }
+ //#endregion
+ //#region src/urls.ts
+diff --git a/dist/index.mjs b/dist/index.mjs
+index ae67599891b338600c7daf6d007a064eacaaf82d..7c404708d9de066d56ec73666f5b4b6dbb63772b 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -749,8 +749,27 @@ function isAlwaysCriticalSelector(sel) {
+ * matched against the document, since we only care that the associated
+ * elements exist.
+ */
++function unwrapFunctionalPseudo(sel) {
++	const match = sel.trim().match(/^:(?:where|is)\((.*)\)$/s);
++	if (!match) return sel;
++	let depth = 0;
++	for (const ch of match[1]) {
++		if (ch === "(") depth++;
++		else if (ch === ")" && --depth < 0) return sel;
++	}
++	return depth === 0 ? match[1] : sel;
++}
+ function normalizeCssSelector(sel) {
+-	return sel.replace(removePseudoClassesAndElementsPattern, "").replace(removeTrailingCommasPattern, (match) => match.includes("(") ? "(" : ")").replace(implicitUniversalPattern, "$1 * $2").replace(emptyCombinatorPattern, "$1 *").trim();
++	// AECI-1854 patch: a selector that is entirely `:where(...)` or `:is(...)`
++	// (Tailwind v4's space-*, divide-* and similar) was stripped to an empty
++	// string and dropped from the critical CSS. Match its argument instead.
++	sel = unwrapFunctionalPseudo(sel);
++	const normalized = sel.replace(removePseudoClassesAndElementsPattern, "").replace(removeTrailingCommasPattern, (match) => match.includes("(") ? "(" : ")").replace(implicitUniversalPattern, "$1 * $2").replace(emptyCombinatorPattern, "$1 *").trim();
++	// AECI-1854 patch: a selector that is only pseudo-elements or pseudo-classes
++	// (`::placeholder`, `::selection`, `:focus-visible`) has no element part, so
++	// it was stripped to an empty string and dropped. It applies to every element,
++	// as `*` does, so match it as `*`.
++	return normalized === "" && sel.trim() !== "" ? "*" : normalized;
+ }
+ //#endregion
+ //#region src/urls.ts

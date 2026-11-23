@@ -11,6 +11,7 @@ import { RouterLink } from '@angular/router';
 
 import { AccountApi } from '../account/account-api';
 import { AuthService } from '../auth/auth.service';
+import { AecButton } from '../shared/button/button';
 
 type CtaState = 'neutral' | 'anon' | 'authed' | 'reviewed';
 
@@ -42,25 +43,33 @@ type CtaState = 'neutral' | 'anon' | 'authed' | 'reviewed';
 @Component({
   selector: 'aec-review-cta',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink],
+  imports: [AecButton, RouterLink],
   host: { class: 'inline-flex' },
   template: `
     @if (state() === 'reviewed') {
       <span
-        class="inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-(--text-secondary)"
+        class="inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-sm"
+        [class]="onBrand() ? 'text-(--text-on-brand-secondary)' : 'text-(--text-secondary)'"
       >
         <span i18n="@@products.detail.reviews.cta.reviewed">You've already reviewed this</span>
         <a
           routerLink="/account"
-          class="font-semibold text-(--accent-primary) underline-offset-2 hover:underline
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent-primary)
-            focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-base)"
+          class="font-semibold underline-offset-2"
+          [class]="reviewedLinkClass()"
           i18n="@@products.detail.reviews.cta.viewYourReview"
           >View your review</a
         >
       </span>
     } @else {
-      <a [routerLink]="linkCommands()" [queryParams]="queryParams()" [class]="buttonClass()">
+      <!-- grow: the button fills the host when a parent stretches it (the hero band's
+           equal columns below md, AECI-1778). With a content-sized host it changes nothing. -->
+      <a
+        aecButton
+        class="grow"
+        [variant]="variant()"
+        [routerLink]="linkCommands()"
+        [queryParams]="queryParams()"
+      >
         @switch (state()) {
           @case ('anon') {
             <span i18n="@@products.detail.reviews.cta.signIn">Sign in to review</span>
@@ -85,33 +94,26 @@ export class ReviewCta {
    *  lookup after hydration (never read during SSR). */
   readonly productId = input.required<string>();
   /**
-   * Visual weight of the CTA button. `primary` (default) is the accent-filled
-   * button used in the Reviews section; `secondary` is the bordered, neutral
-   * treatment used in the product hero (AECI), where "Visit website" is already
-   * the single primary accent button and a second filled button would dilute
-   * the hierarchy. Only affects the button branch — the `reviewed` text state is
-   * variant-agnostic.
+   * Visual weight of the CTA button. `secondary` (default) is the raised, bordered
+   * button: the product page already has "Visit website" as its one filled button
+   * (DESIGN.md §5, one filled button per surface), so neither "Write a review"
+   * placement is filled. `primary` stays available to a caller with no other
+   * filled button. `on-brand-secondary` is the second action on a Forest ground, the
+   * product hero (AECI-1778). There the `reviewed` text state also takes on-brand
+   * colours: Bone-secondary text, a Bone link with a permanent underline and the Bone
+   * ring, so it stays readable after hydration.
    */
-  readonly variant = input<'primary' | 'secondary'>('primary');
+  readonly variant = input<'primary' | 'secondary' | 'on-brand-secondary'>('secondary');
+
+  protected readonly onBrand = computed(() => this.variant() === 'on-brand-secondary');
+
+  protected readonly reviewedLinkClass = computed(() =>
+    this.onBrand()
+      ? 'text-(--text-on-brand) underline hover:text-(--text-on-brand) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--focus-ring-on-brand)'
+      : 'text-(--accent-primary) hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-base)',
+  );
 
   protected readonly state = signal<CtaState>('neutral');
-
-  /** Button classes for the non-`reviewed` branch, varied by `variant()`.
-   *  Layout + focus ring are shared; only border/fill/text/hover differ. */
-  protected readonly buttonClass = computed(() => {
-    const base =
-      'inline-flex items-center justify-center rounded-(--radius-md) border px-4 py-2 ' +
-      'text-sm font-bold no-underline transition-colors focus-visible:outline-none ' +
-      'focus-visible:ring-2 focus-visible:ring-(--accent-primary) ' +
-      'focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-base)';
-    const skin =
-      this.variant() === 'secondary'
-        ? 'border-(--border-default) bg-(--surface-raised) text-(--text-primary) ' +
-          'hover:border-(--border-strong) hover:text-(--accent-primary)'
-        : 'border-(--border-strong) bg-(--accent-primary) text-(--surface-base) ' +
-          'hover:bg-(--accent-primary-hover)';
-    return `${base} ${skin}`;
-  });
 
   /** Absolute path to the (auth-gated) review form for this product. */
   protected readonly reviewPath = computed(() => `/products/${this.slug()}/review`);

@@ -21,39 +21,49 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
   selector: 'tr[aec-search-vendor-row]',
   imports: [RouterLink, IntegrationStat, LogoOrInitial],
   host: {
+    // `border-b`: the hairline under each row, as on `tr[aec-product-card]`. The
+    // colour is the unlayered `*` rule's `--border-default`.
     class:
-      'group text-(--text-primary) transition-colors hover:bg-(--surface-muted) focus-within:bg-(--surface-muted)',
+      'border-b text-(--text-primary) transition-colors hover:bg-(--surface-muted) focus-within:bg-(--surface-muted)',
   },
   template: `
-    <td class="px-4 py-3 font-medium">
-      <span class="flex items-center gap-3">
-        <aec-logo-or-initial [src]="record().logo_url" [name]="record().company_name" size="sm" />
+    <td class="px-4 py-3 align-middle font-semibold">
+      <span class="flex min-w-0 items-center gap-3">
+        <aec-logo-or-initial
+          [claimStatus]="'server-filtered'"
+          [src]="record().logo_url"
+          [name]="record().company_name"
+          size="sm"
+        />
         <span class="flex min-w-0 flex-col">
           <a
             [routerLink]="['/vendors', record().slug]"
-            class="rounded-sm transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            class="inline-block min-h-6 rounded-mark leading-6 text-(--text-primary) transition-colors hover:text-(--accent-primary) hover:underline hover:underline-offset-3 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
             >{{ record().company_name }}</a
           >
-          <!-- Below md the Headquarters cell is hidden, so the value sits here.
-               Tertiary at rest, secondary on the muted hover fill (AA), as on
-               the product row's stacked vendor. -->
+          <!-- Below md the Headquarters cell is hidden, so the value sits here,
+               13px secondary like the product row's stacked vendor. Secondary
+               holds AA on the white row and on the muted hover fill alike. -->
           @if (record().headquarters; as hq) {
             <span
-              class="mt-0.5 truncate text-xs text-(--text-tertiary) group-hover:text-(--text-secondary) group-focus-within:text-(--text-secondary) md:hidden"
+              class="truncate text-t-13 leading-6 font-normal text-(--text-secondary) md:hidden"
               >{{ hq }}</span
             >
           }
         </span>
       </span>
     </td>
-    <td class="hidden px-4 py-3 text-(--text-secondary) md:table-cell">
+    <td class="hidden px-4 py-3 align-middle text-(--text-secondary) md:table-cell">
       @if (record().headquarters; as hq) {
         {{ hq }}
       } @else {
-        <span i18n="@@search.vendorRow.hq.none" aria-label="No headquarters listed">–</span>
+        <!-- The dash is for the eye. The words are for a screen reader: an
+             aria-label on a plain span is not reliably read (rating-summary.ts). -->
+        <span aria-hidden="true" i18n="@@search.vendorRow.hq.none">–</span>
+        <span class="sr-only" i18n="@@search.vendorRow.hq.noneLabel">No headquarters listed</span>
       }
     </td>
-    <td class="px-4 py-3 text-end">
+    <td class="px-4 py-3 text-end align-middle">
       <aec-integration-stat [count]="record().integration_count" variant="inline" />
     </td>
   `,

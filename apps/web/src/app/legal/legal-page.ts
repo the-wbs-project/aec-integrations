@@ -56,17 +56,32 @@
  * head AND refreshes on an in-app navigation.
  *
  * The body is rendered via `[innerHTML]` — Angular's sanitizer runs (the content
- * is trusted/in-repo, but we don't bypass it), and the body is *content*, not UI
+ * is trusted/in-repo, but we don't bypass it). Since the AECI-1720 layout pass it
+ * arrives cut at each heading (`aec-prose-blocks`), so each `h2` and `h3` carries a
+ * slug `id` the sanitizer would otherwise strip; the words are unchanged. The body is *content*, not UI
  * strings, so it is not `$localize`-extracted. Only the chrome (eyebrow, title,
  * metadata labels, meta) is i18n-wrapped. Body prose is styled by the global
- * `.aec-prose` block in `styles.css`. Layout mirrors `/about`: a warm Bone
- * (`accent-warm`) hero band, body measure capped at 70ch. Light theme only.
+ * `.aec-prose` block in `styles.css`. Layout mirrors `/methodology` (AECI-1804):
+ * the hero on `aec-bone-band`, the page's one Bone band, the body a white band
+ * on the 1328px page wrap, both capped at 42rem, the docs article measure. The
+ * measure is in rem, not `ch`, so the web font's swap does not re-wrap the text
+ * (DESIGN.md §3 "How the fonts load"). From `lg` the "On this page" list
+ * (`aec-page-toc`) fills the column beside the article, so the page has no empty
+ * right half; the article keeps its 42rem. Light theme only.
  */
 import { ChangeDetectionStrategy, Component, InjectionToken, inject } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
+import { BAND_WRAP_CLASS } from '../shared/band-wrap';
+import { BoneBand } from '../shared/bone-band/bone-band';
+import {
+  AecPageToc,
+  PROSE_PAGE_GRID_CLASS,
+  PROSE_PAGE_TOC_CLASS,
+} from '../shared/page-toc/page-toc';
+import { AecProseBlocks } from '../shared/prose-blocks/prose-blocks';
 import { type LegalDoc, type LegalSlug, getLegalDoc, getLegalVersion } from './legal-content';
 import {
   type LegalAnnouncement,
@@ -131,121 +146,116 @@ function chromeForSlug(slug: LegalSlug): LegalChrome {
 @Component({
   selector: 'app-legal-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink],
+  imports: [AecPageToc, AecProseBlocks, BoneBand, RouterLink],
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
-      <!-- Hero: warm Bone accent band (the Surfaces-Are-Neutral treatment, not a
-           page background), mirroring /about. -->
-      <section class="border-b border-(--border-default) bg-(--accent-warm)">
-        <div class="mx-auto max-w-7xl px-6 py-16 md:px-8 md:py-20">
-          <div class="max-w-[70ch]">
-            <p class="aec-overline text-(--accent-primary)" i18n="@@app.legal.eyebrow">Legal</p>
-            <h1
-              class="mt-3 font-display text-4xl font-normal leading-[1.1] tracking-[-0.01em] text-(--text-primary) md:text-5xl"
-            >
-              {{ doc.frontmatter.title }}
-            </h1>
-            <!-- Frontmatter metadata line (§27.1: version + effective date shown
-                 at the top). Labels are i18n-wrapped with the value as an
-                 interpolation placeholder; effective date is hidden while blank
-                 (an unapproved draft). -->
-            <div
-              class="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-(--text-secondary)"
-            >
-              <span i18n="@@app.legal.version">Version {{ doc.frontmatter.version }}</span>
-              @if (doc.frontmatter.effectiveDate) {
-                <span aria-hidden="true">·</span>
-                <span i18n="@@app.legal.effectiveDate"
-                  >Effective {{ doc.frontmatter.effectiveDate }}</span
-                >
-              }
+      <!-- Hero: the page's one Bone band, as on /methodology (AECI-1804), with
+           the h1 at the Headline role (the global h1 size). -->
+      <aec-bone-band>
+        <div class="max-w-[42rem]">
+          <p class="aec-overline text-(--text-secondary)" i18n="@@app.legal.eyebrow">Legal</p>
+          <h1 class="mt-4 text-(--text-primary)">
+            {{ doc.frontmatter.title }}
+          </h1>
+          <!-- Frontmatter metadata line (§27.1: version + effective date shown
+               at the top). Labels are i18n-wrapped with the value as an
+               interpolation placeholder; effective date is hidden while blank
+               (an unapproved draft). -->
+          <div
+            class="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-t-14 text-(--text-secondary)"
+          >
+            <span i18n="@@app.legal.version">Version {{ doc.frontmatter.version }}</span>
+            @if (doc.frontmatter.effectiveDate) {
               <span aria-hidden="true">·</span>
-              <span i18n="@@app.legal.lastUpdated"
-                >Last updated {{ doc.frontmatter.lastUpdated }}</span
+              <span i18n="@@app.legal.effectiveDate"
+                >Effective {{ doc.frontmatter.effectiveDate }}</span
               >
-            </div>
-            <!-- AECI-1361: an archived version says so before anything else in
-                 the body, and links to the current text. -->
-            @if (doc.supersededOn) {
-              <p
-                class="mt-6 rounded-md border border-(--border-default) bg-(--surface-base) px-4 py-3 text-sm text-(--text-primary)"
-                data-testid="legal-superseded"
-                i18n="@@app.legal.superseded"
-              >
-                This is version {{ doc.frontmatter.version }}, superseded on {{ doc.supersededOn }}.
-                <a class="font-medium text-(--accent-primary) underline" [routerLink]="currentPath"
-                  >Read the current version.</a
-                >
-              </p>
             }
-            <!-- AECI-1610: a version not yet in force says so first, and links to
-                 the text that applies until then. -->
-            @if (doc.effectiveOn) {
-              <p
-                class="mt-6 rounded-md border border-(--border-default) bg-(--surface-base) px-4 py-3 text-sm text-(--text-primary)"
-                data-testid="legal-upcoming"
-                i18n="@@app.legal.upcoming"
-              >
-                This version takes effect on {{ doc.frontmatter.effectiveDate }}. Until then
-                <a class="font-medium text-(--accent-primary) underline" [routerLink]="currentPath"
-                  >the current version</a
-                >
-                applies.
-              </p>
-            }
-            <!-- AECI-1610: the current version at its own address names the version
-                 it always shows, and links the page that follows the current one.
-                 It does not say the version is in force: a draft is not. -->
-            @if (fixedCurrent) {
-              <p
-                class="mt-6 rounded-md border border-(--border-default) bg-(--surface-base) px-4 py-3 text-sm text-(--text-primary)"
-                data-testid="legal-fixed-current"
-                i18n="@@app.legal.fixedCurrent"
-              >
-                This address always shows version {{ doc.frontmatter.version }}. For the version
-                that currently applies, see
-                <a
-                  class="font-medium text-(--accent-primary) underline"
-                  [routerLink]="currentPath"
-                  >{{ doc.frontmatter.title }}</a
-                >.
-              </p>
-            }
-            <!-- AECI-1610: the current text announces each upcoming version from the
-                 manifest, so announcing one never edits the current Markdown. -->
-            @for (next of announcements; track next.version) {
-              <p
-                class="mt-6 rounded-md border border-(--border-default) bg-(--surface-base) px-4 py-3 text-sm text-(--text-primary)"
-                data-testid="legal-upcoming-announcement"
-                i18n="@@app.legal.upcomingAnnouncement"
-              >
-                Version {{ next.version }} takes effect on {{ next.effectiveDate }}.
-                <a class="font-medium text-(--accent-primary) underline" [routerLink]="next.path"
-                  >Read version {{ next.version }}.</a
-                >
-              </p>
-            }
+            <span aria-hidden="true">·</span>
+            <span i18n="@@app.legal.lastUpdated"
+              >Last updated {{ doc.frontmatter.lastUpdated }}</span
+            >
           </div>
+          <!-- AECI-1361: an archived version says so before anything else in
+               the body, and links to the current text. -->
+          @if (doc.supersededOn) {
+            <p
+              class="mt-6 rounded-control border border-(--border-default) bg-(--surface-base) px-4 py-3 text-t-14 text-(--text-primary)"
+              data-testid="legal-superseded"
+              i18n="@@app.legal.superseded"
+            >
+              This is version {{ doc.frontmatter.version }}, superseded on {{ doc.supersededOn }}.
+              <a [class]="inTextLink" [routerLink]="currentPath">Read the current version.</a>
+            </p>
+          }
+          <!-- AECI-1610: a version not yet in force says so first, and links to
+               the text that applies until then. -->
+          @if (doc.effectiveOn) {
+            <p
+              class="mt-6 rounded-control border border-(--border-default) bg-(--surface-base) px-4 py-3 text-t-14 text-(--text-primary)"
+              data-testid="legal-upcoming"
+              i18n="@@app.legal.upcoming"
+            >
+              This version takes effect on {{ doc.frontmatter.effectiveDate }}. Until then
+              <a [class]="inTextLink" [routerLink]="currentPath">the current version</a>
+              applies.
+            </p>
+          }
+          <!-- AECI-1610: the current version at its own address names the version
+               it always shows, and links the page that follows the current one.
+               It does not say the version is in force: a draft is not. -->
+          @if (fixedCurrent) {
+            <p
+              class="mt-6 rounded-control border border-(--border-default) bg-(--surface-base) px-4 py-3 text-t-14 text-(--text-primary)"
+              data-testid="legal-fixed-current"
+              i18n="@@app.legal.fixedCurrent"
+            >
+              This address always shows version {{ doc.frontmatter.version }}. For the version that
+              currently applies, see
+              <a [class]="inTextLink" [routerLink]="currentPath">{{ doc.frontmatter.title }}</a
+              >.
+            </p>
+          }
+          <!-- AECI-1610: the current text announces each upcoming version from the
+               manifest, so announcing one never edits the current Markdown. -->
+          @for (next of announcements; track next.version) {
+            <p
+              class="mt-6 rounded-control border border-(--border-default) bg-(--surface-base) px-4 py-3 text-t-14 text-(--text-primary)"
+              data-testid="legal-upcoming-announcement"
+              i18n="@@app.legal.upcomingAnnouncement"
+            >
+              Version {{ next.version }} takes effect on {{ next.effectiveDate }}.
+              <a [class]="inTextLink" [routerLink]="next.path">Read version {{ next.version }}.</a>
+            </p>
+          }
         </div>
-      </section>
+      </aec-bone-band>
 
-      <!-- Body: rendered Markdown (sanitized). Styled globally via .aec-prose. -->
-      <div class="mx-auto max-w-7xl px-6 py-12 md:px-8 md:py-16">
-        <article class="aec-prose max-w-[70ch]" [innerHTML]="doc.html"></article>
-        <!-- AECI-1610: the body ends with "## Change history" (the registry
+      <!-- Body: rendered Markdown (sanitized). Styled globally via .aec-prose.
+           White band on the page wrap; the article keeps the prose measure. -->
+      <div class="py-16 md:py-24">
+        <div [class]="body">
+          <article
+            aec-prose-blocks
+            class="aec-prose max-w-[42rem] min-w-0"
+            [blocks]="doc.blocks"
+          ></article>
+          <!-- AECI-1610: the body ends with "## Change history" (the registry
              checks it is the last section), and the current files promise that
              every version is listed there. So an upcoming version is listed here,
              right after it, from the manifest, without editing the Markdown. -->
-        @if (announcements.length > 0) {
-          <ul class="aec-prose max-w-[70ch]" data-testid="legal-upcoming-history">
-            @for (next of announcements; track next.version) {
-              <li i18n="@@app.legal.upcomingHistoryLine">
-                <a [routerLink]="next.path">Version {{ next.version }}</a
-                >: takes effect on {{ next.effectiveDate }}.
-              </li>
-            }
-          </ul>
-        }
+          @if (announcements.length > 0) {
+            <ul class="aec-prose max-w-[42rem]" data-testid="legal-upcoming-history">
+              @for (next of announcements; track next.version) {
+                <li i18n="@@app.legal.upcomingHistoryLine">
+                  <a [routerLink]="next.path">Version {{ next.version }}</a
+                  >: takes effect on {{ next.effectiveDate }}.
+                </li>
+              }
+            </ul>
+          }
+          <aec-page-toc [class]="toc" [headings]="doc.headings" />
+        </div>
       </div>
     </div>
   `,
@@ -254,6 +264,16 @@ export class LegalPage {
   private readonly route = inject(ActivatedRoute);
   private readonly meta = inject(MetaService);
   private readonly lookup = inject(LEGAL_DOC_LOOKUP);
+
+  /**
+   * The body on the 1328px page wrap the header, footer and bands share: the
+   * article, then the "On this page" column from `lg`.
+   */
+  protected readonly body = `${BAND_WRAP_CLASS} ${PROSE_PAGE_GRID_CLASS}`;
+  protected readonly toc = PROSE_PAGE_TOC_CLASS;
+  /** The in-text link recipe (DESIGN.md "The Link Treatment Rule"). */
+  protected readonly inTextLink =
+    'text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover)';
   private readonly upcoming = inject(LEGAL_UPCOMING_ENTRIES);
 
   protected readonly doc: LegalDoc;

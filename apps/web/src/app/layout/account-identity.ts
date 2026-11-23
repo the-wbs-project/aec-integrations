@@ -1,7 +1,7 @@
 /**
  * The account menu's identity block — who you are, above the things you can do
  * (AECI-850). Rendered at the top of the desktop dropdown (`user-menu.ts`) and
- * the top of the mobile overlay's account section (`nav-menu.ts`).
+ * the top of the mobile menu's account block (`nav-menu-account.ts`).
  *
  * ── Why this is one component and not two inline blocks ─────────────────────
  * The two headers had already drifted once: the desktop menu and the mobile
@@ -46,16 +46,18 @@ import { Component, computed, inject } from '@angular/core';
 import { RoleStatus } from '../auth/role-status';
 import { SessionStatus } from '../auth/session-status';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
+import { Chip, type ChipTone } from '../shared/chip/chip';
 
 @Component({
   selector: 'aec-account-identity',
-  imports: [LogoOrInitial],
+  imports: [LogoOrInitial, Chip],
   host: { class: 'block' },
   template: `
     <div class="flex min-h-10 items-center gap-3 px-3 py-2">
       <!-- Empty alt: the name is in the adjacent text, so a described photo
            would make a screen reader announce the same person twice. -->
       <aec-logo-or-initial
+        [claimStatus]="'stored'"
         size="sm"
         shape="circle"
         alt=""
@@ -64,7 +66,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
         [name]="initialSource()"
       />
       <div class="min-w-0 flex-1">
-        <p class="truncate text-sm font-medium text-(--text-primary)" [title]="primaryLine()">
+        <p class="truncate text-sm font-semibold text-(--text-primary)" [title]="primaryLine()">
           {{ primaryLine() }}
         </p>
         @if (secondaryLine(); as secondary) {
@@ -77,10 +79,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 
     @if (roleKey(); as key) {
       <p class="px-3 pb-2">
-        <span
-          class="inline-flex items-center rounded-full px-2 py-0.5 text-[0.6875rem] font-medium"
-          [class]="pillClass()"
-        >
+        <aec-chip density="dense" [tone]="pillTone()">
           @switch (key) {
             @case ('admin') {
               <ng-container i18n="@@app.header.account.role.admin">Site admin</ng-container>
@@ -92,7 +91,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
               <ng-container i18n="@@app.header.account.role.reviewer">Reviewer</ng-container>
             }
           }
-        </span>
+        </aec-chip>
       </p>
     }
   `,
@@ -140,9 +139,7 @@ export class AccountIdentity {
    *  default. The distinction is informative, so it earns the accent; Forest is
    *  the only accent it may use (the Forest-Anchor Rule). Colour is never the
    *  sole signal — the label beside it says which role this is. */
-  protected readonly pillClass = computed(() =>
-    this.roleKey() === 'admin' || this.roleKey() === 'vendor_admin'
-      ? 'bg-(--accent-primary-soft) text-(--accent-primary)'
-      : 'border border-(--border-default) bg-(--surface-sunken) text-(--text-secondary)',
+  protected readonly pillTone = computed<ChipTone>(() =>
+    this.roleKey() === 'admin' || this.roleKey() === 'vendor_admin' ? 'wash' : 'sunken',
   );
 }

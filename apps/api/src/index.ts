@@ -172,7 +172,11 @@ import { createAdminPageViewsHandler } from './routes/admin-page-views';
 import { createAdminTrafficBreakdownHandler } from './routes/admin-traffic';
 import { createAdminSummaryHandler } from './routes/admin-summary';
 import { createAdminSystemHandler } from './routes/admin-system';
-import { createEnsureProfileHandler } from './routes/auth-profile';
+import {
+  createAcceptTermsHandler,
+  createEnsureProfileHandler,
+  createTermsPendingHandler,
+} from './routes/auth-profile';
 import { createAuthWhoamiHandler } from './routes/auth-whoami';
 import { activityMiddleware } from './activity-middleware';
 import { bookmarkMiddleware } from './bookmark-middleware';
@@ -193,6 +197,7 @@ import { createHealthHandler } from './routes/health';
 import {
   createIntegrationDetailHandler,
   createIntegrationsListHandler,
+  createPairAlternativesHandler,
   createPairTimelineHandler,
   createProductPairHandler,
 } from './routes/integrations';
@@ -457,6 +462,12 @@ phase28.get('/api/products/:slug/integrations/:otherSlug', createProductPairHand
 // Lazy and browser-fetched on demand, never by SSR: history is the gateable depth,
 // so it must not land in the pair page's shared edge-cache entry.
 phase28.get('/api/products/:slug/integrations/:otherSlug/timeline', createPairTimelineHandler());
+// AECI-341 / AECI-1829 / AECI-1830: the empty pair page's alternatives (moving, closest
+// matches). SSR fetches it for an empty pair only; it reads no visitor and no plan.
+phase28.get(
+  '/api/products/:slug/integrations/:otherSlug/alternatives',
+  createPairAlternativesHandler(),
+);
 
 phase28.get('/api/vendors', createVendorsListHandler());
 phase28.get('/api/vendors/:slug', createVendorDetailHandler());
@@ -742,6 +753,19 @@ authAccount.get(
 );
 authAccount.get('/api/account/reviews', requireAuth(), createGetAccountReviewsHandler());
 authAccount.patch('/api/account', requireAuth(), rateLimit('write'), createUpdateAccountHandler());
+// AECI-1637: what `/auth/terms` shows (the version, its date and summary). A read, so
+// never rate-limited (`docs/waf-rate-limits.md` §6).
+authAccount.get('/api/auth/terms/pending', requireAuth(), createTermsPendingHandler());
+// AECI-1637 (ruling 53): the reader ticks the box on `/auth/terms` for a Terms version that
+// reduces their rights. The browser sends the session cookie, so this sits on the
+// `requireAuth()` router, not `authUser`. The write convention (`docs/waf-rate-limits.md`
+// §6.2): guard, then `write`.
+authAccount.post(
+  '/api/auth/terms/accept',
+  requireAuth(),
+  rateLimit('write'),
+  createAcceptTermsHandler(),
+);
 // AECI-773: `DELETE /api/account` is DELIBERATELY NOT rate-limited. Erasure is a
 // legal obligation (`docs/AUTH_AND_RLS.md` §8), the second call is a no-op, and
 // the whole abuse ceiling is one account erasing itself. A 429 must never be the

@@ -155,6 +155,46 @@
                 // moved the legal version lists out of the initial bundle (they now
                 // load with the legal page), which offset the rest of its growth.
                 //
+                // The next four notes (AECI-1755, AECI-1763, AECI-1764, AECI-1766)
+                // come from the redesign hold branch. There they raised this line in
+                // 10 kB steps, 1.08MB -> 1.11MB. Main's AECI-1932 raise to 1.20MB
+                // reached the branch in a later sync and covers them, so none of
+                // those steps is in the value below. Each note records what its
+                // change added to the initial bundle.
+                //
+                // AECI-1755: added 8,960 B eager. Measured with `ng build`:
+                // base (`batch/redesign-shell`) at 1,072,809 B, this branch at
+                // 1,081,769 B. The growth is the `aec-icon` registry: 8,527 B
+                // minified and 2,970 B gzipped. It was lazy-only; it is now in the
+                // initial bundle because six always-loaded shell components
+                // (header, nav menu, search trigger, user menu, update banner,
+                // legal notice band) use four of its icons. The registry is not
+                // split: one object is cheaper than a chunk per icon (ADR 0059).
+                //
+                // AECI-1763: added 4,580 B eager. Measured with `ng build`
+                // (the budget's own total): base (`batch/redesign-shell`) at
+                // 1,088,350 B, this branch at 1,092,930 B, so +4,580 B (about
+                // +1.2 kB transferred). The growth is the one chip recipe: +2.34 kB
+                // in `styles.css` (the `.aec-chip` rules) and the rest in the
+                // `aec-chip` component, which the header's account role pill and
+                // the search autocomplete tag load eagerly. The chip needs
+                // `AecIcon` for the selected tick, already in the initial bundle.
+                //
+                // AECI-1764: the shared field recipe adds about 1 kB of eager CSS (`.aec-field-control` edge,
+                // focus, error and disabled rules, the forced-colours rule and
+                // the error glyph mask).
+                //
+                // AECI-1766: added 2,489 B eager. Measured with `ng build`
+                // (the budget's own total): base (`batch/redesign-shell`) at
+                // 1,098,450 B, this branch at 1,100,939 B, so +2,489 B. All
+                // of it is eager CSS. About 1,000 B is rules in `styles.css`:
+                // the hero band (glow, base-layer ring and link rules, chip
+                // ring), the Bone band forced-colours edge and the
+                // `on-brand-secondary` button edge. The rest is Tailwind
+                // utilities generated from the band and demo templates.
+                // The `aec-hero-band` and `aec-bone-band` components are lazy
+                // (no initial route uses them yet) and add no initial bytes.
+                //
                 // AECI-1932 (2026-11-18): raised 1.08MB -> 1.20MB, ruled by Chris.
                 // zod 4.4.3 -> 4.6.x patches GHSA-mrhx-c7xc-m3w5 (memory
                 // exhaustion in the API Worker's request validation). zod 4.6
@@ -166,10 +206,19 @@
                 // is all zod. Recovering it (pinning `sideEffects` back, or a
                 // narrower zod import) is follow-up work; lower this line when
                 // that lands.
+                //
+                // AECI-1988 (2026-11-20): raised 1.20MB -> 1.22MB, ruled by Chris.
+                // Measured locally with `ng build`: 1,191,130 B before this change,
+                // 1,194,480 B after, against 1,200,000 B. The +3.3 kB is the
+                // new-tab half of the browser report (`new-tab-evidence.ts`). It
+                // must be eager: the opening tab has to see the click on the first
+                // page it renders. 5.5 kB of headroom was left and CI measures
+                // ~1 kB more than local (the AECI-955 note). The zod recovery
+                // named above still applies; lower this line when it lands.
                 {
                   "type": "initial",
                   "maximumWarning": "500kB",
-                  "maximumError": "1.20MB"
+                  "maximumError": "1.22MB"
                 },
                 {
                   "type": "anyComponentStyle",

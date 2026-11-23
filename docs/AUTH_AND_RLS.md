@@ -224,8 +224,9 @@ that also backs production. That is the accepted ADR-0017 cost, and it is why lo
 ### 3.1b The sign-in is the Terms acceptance (AECI-1637)
 
 Signing in is the acceptance of the Terms of Service (Chris's ruling of 2026-11-13, counsel
-Q34). There is no reader gate, no acceptance panel and no write block. Nothing is ever refused
-because a Terms version is new.
+Q34). There is no write block, and nothing is refused because a Terms version is new. One screen
+exists: the tick box at `/auth/terms`, shown only at the first sign-in after a version that
+reduces rights (counsel Q63, ruling 53, 2026-11-19, step 6).
 
 1. **The line.** `/auth/login` always shows one line beside the sign-in buttons: "By signing in,
    you agree to our Terms of Service and Privacy Policy." Both names link to `/legal/terms` and
@@ -234,7 +235,8 @@ because a Terms version is new.
    the profile exists, through `recordSignInTermsAcceptance` (`lib/reader-legal-acceptance.ts`).
    It writes one `terms_acceptances` row (`DATABASE_SCHEMA.md` §8.6k) and its `terms.accepted`
    audit row in one `db.batch`, for the Terms version in force. Once per account per version.
-   With no Terms version in force it reads and writes nothing, which is today.
+   With no Terms version in force it reads and writes nothing, which is today. When a box is
+   pending (step 6) it writes nothing and returns `terms_acceptance: { version }` instead.
 3. **The evidence.** The ensure call is a fresh `Request` across the service binding, so the
    callback copies the eyeball request's `CF-Connecting-IP` and `User-Agent` onto it
    (`signInEvidenceHeaders` in `apps/web/src/server/routes/auth-callback.ts`). Cloudflare sets
@@ -244,8 +246,37 @@ because a Terms version is new.
    answers `{ created }`, and the callback's retry and sign-out rules (§3.1a) are unchanged.
 5. **A live session is not interrupted.** A session that began before a new Terms version stays
    on the earlier one until its next sign-in. A version published with `requires_acceptance`
-   (it reduces rights) applies to an account holder only from that sign-in, never on continued
-   use (`STAGE_1_SPEC.md` §27.4).
+   (it reduces rights) applies to an account holder only after the box in step 6, never on
+   continued use (`STAGE_1_SPEC.md` §27.4).
+6. **The tick box (counsel Q63, ruling 53, as built 2026-11-19).** A box is pending when a
+   published Terms version with `requires_acceptance` is in force, took effect after
+   `profiles.created_at`, and no `terms_acceptances` row covers it
+   (`termsBoxPendingVersion`). An account this sign-in created never gets the box. It gets the
+   line row. When a box is pending, the callback sends the reader to
+   `/auth/terms?version=<v>&next=<destination>` (`termsAcceptRedirect`). The page links the
+   version, shows one unticked box and "Accept and continue". Without the tick it shows an
+   error and sends nothing. After hydration (2026-11-20) the page reads
+   `GET /api/auth/terms/pending` and shows "What changes on <date>": the published summary
+   bullets (the same as the change email), a link to the new version and a link to the version
+   that applies until the tick. Nothing pending sends the reader to `next`. A newer version
+   named by the server replaces the one in the query. A failed read leaves the page usable
+   without the summary. A "Not now" link goes to `next` and posts nothing, with the line "You
+   stay on the version you have now, and we'll ask again the next time you sign in." The tick
+   stays the only way to accept. The analytics consent banner is held off this page
+   (`bannerHeldOn`), so the page has one "Accept". The tick calls `POST /api/auth/terms/accept`, which writes the row
+   with the box label and `checkbox_default_unticked = 1` (`writeTermsBoxAcceptance`). The
+   page is gated for signed-out visitors like `/welcome` (`isTermsAcceptPath`). A reader who
+   leaves stays signed in on the earlier version, and the next sign-in asks again. No guard
+   blocks any other route. "Accept and continue" stays disabled until the page hydrates, as on
+   the login form, so an early click cannot submit natively and drop the version and
+   destination. A `401` on the tick sends the reader to sign-in with the original destination
+   as the return, never `/auth/terms` itself. The callback also unwraps a return that is the
+   box page (`unwrapTermsAcceptPath`), so a seat invitation link survives a second sign-in.
+   A signed-out visit to `/auth/terms` bounces to sign-in with the carried destination as the
+   return (`termsAcceptSignInReturnPath`), not `/auth/terms`. Every return the callback
+   redirects to passes `sanitizeReturnPath`, which since this review also refuses control
+   characters and any backslash: a browser strips a tab from `Location`, so `/<TAB>/evil.example`
+   would otherwise leave the site.
 
 The `GET /api/account` self-heal does not record an acceptance. Only a completed sign-in does.
 
@@ -440,6 +471,27 @@ export async function requireAuth(request: Request, env: Env): Promise<AuthConte
 }
 ```
 
+**The session cookie is read for the configured project only (AECI-1990).** When there is no
+`Authorization` header, the API reads the `@supabase/ssr` session cookie. It reads exactly one
+name: `sb-<ref>-auth-token`, whole or chunked (`.0`, `.1`, …), where `<ref>` is the first label
+of the `SUPABASE_URL` hostname. That is supabase-js's own default storage key, and the web app
+sets no custom cookie name. `sessionCookieNameFor` and `extractSessionCookieToken` in
+`apps/api/src/lib/authz.ts` hold the rule. The guards, `resolveVisitorSession` and
+`verifiedSessionEmail` all go through it.
+
+A host that once served another Supabase project keeps that project's cookie. Before this
+change the API read the first `sb-*-auth-token` cookie it could parse, so a stale one from an
+old project hid the right one. Every request then 401'd until the user cleared cookies by hand.
+This bit demo in 2026-07 and staging on 2026-11-12.
+
+When the name cannot be derived, because `SUPABASE_URL` is unset or unparseable, no cookie is
+read and the request fails closed. That loses nothing: without a usable `SUPABASE_URL` no token
+can be verified. The SSR Worker needs no matching change. `@supabase/ssr` there already reads
+only its own project's cookie. Its two presence checks, `hasSessionCookie()` in
+`server-runtime.ts` and `hasSupabaseAuthCookie()` in `auth.service.ts`, still match any project.
+They grant nothing. A foreign cookie only skips the SSR signed-out redirect, and the API's 401
+then sends the visitor to sign-in (§4.1a).
+
 **Why hard-fail rather than soft-fail:** an unauthenticated request to an authenticated endpoint is either a bug in our own code, a misconfigured client, or someone probing. None of these benefit from being silently downgraded to anonymous.
 
 #### 4.1a What a 401 means to the _page_ gates (AECI-954)
@@ -498,7 +550,8 @@ const profile = await db.query.profiles.findFirst({
 // GET /api/account alone passes `onMissingProfile` (§3.1a): one ensure, then re-read.
 if (!profile) throw unauthenticated(); // 401: verified token, no profile row
 if (profile.bannedAt) {
-  throw new ApiError(403, ApiErrorCode.FORBIDDEN, profile.banReason ?? 'Account suspended');
+  // AECI-1973: the admin's reason stays internal. Only Terminate's own reason is shown.
+  throw new ApiError(403, ApiErrorCode.FORBIDDEN, bannedAccountMessage(profile.banReason));
 }
 if (requiredRole === 'admin' && profile.role !== 'admin') {
   throw new ApiError(403, ApiErrorCode.FORBIDDEN, 'Admin role required');

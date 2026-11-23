@@ -23,6 +23,10 @@ import {
 import { safeReturnPath } from './return-path';
 import { hasLiveSession } from './session-recovery';
 import { isReplayedEvent } from '../core/event-replay';
+import { AecButton } from '../shared/button/button';
+import { AecCard } from '../shared/card/card';
+import { AecEarlyInput } from '../shared/form-field/early-input';
+import { FIELD_ERROR_CLASS } from '../shared/form-field/form-field-classes';
 
 /**
  * Magic-link model schema, local to the auth folder: there is no API endpoint
@@ -104,10 +108,12 @@ export function callbackErrorCode(raw: string | null): CallbackErrorCode | null 
  */
 @Component({
   selector: 'aec-login-page',
-  imports: [FormField, NgTemplateOutlet, RouterLink],
+  imports: [AecButton, AecCard, FormField, AecEarlyInput, NgTemplateOutlet, RouterLink],
   templateUrl: './login.html',
 })
 export class LoginPage {
+  /** A field's inline error: the shared recipe (AECI-1984). */
+  protected readonly errorClass = FIELD_ERROR_CLASS;
   private readonly route = inject(ActivatedRoute);
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
@@ -157,7 +163,9 @@ export class LoginPage {
    * False until the browser has hydrated. The email submit stays disabled until
    * then. Event replay only queues an early event for later. It never cancels
    * the native action, so a click on the SSR HTML would still run the native form
-   * submit and drop `?next=` (AECI-831, AECI-1655).
+   * submit and drop `?next=` (AECI-831, AECI-1655). The form also declares
+   * `method="dialog"` (AECI-1919), so that native submit now does nothing, and this
+   * gate stays as the second layer.
    */
   protected readonly hydrated = signal(false);
 
@@ -221,8 +229,8 @@ export class LoginPage {
     this.resuming.set(false);
   }
 
-  /** The form's submit. Returns early on a replayed early submit, which the
-   *  browser already ran natively (`core/event-replay.ts`). */
+  /** The form's submit. Drops a replayed early submit. The form is `method="dialog"`,
+   *  so the native submit did nothing (AECI-1919, `core/event-replay.ts`). */
   protected onFormSubmit(event: Event): void {
     if (isReplayedEvent(event)) return;
     event.preventDefault();

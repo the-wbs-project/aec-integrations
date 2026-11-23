@@ -46,6 +46,7 @@ import type { PlanCtaPage } from '../analytics/analytics';
 import { PlanCardsComponent } from '../shared/plan-cta/plan-cards';
 import { planLabel } from '../vendor/vendor-plan';
 import { planComparisonGroups, planSortRuleNote } from './plans-comparison-groups';
+import { AecIcon } from '../shared/icon/icon';
 
 export {
   type PlanCell,
@@ -56,7 +57,7 @@ export {
 
 @Component({
   selector: 'app-docs-plans-comparison',
-  imports: [PlanCardsComponent],
+  imports: [AecIcon, PlanCardsComponent],
   host: { class: 'block' },
   template: `
     <aec-plan-cards [page]="page" />
@@ -90,31 +91,14 @@ export {
                 @for (cell of [row.free, row.managed]; track $index) {
                   <td class="aec-plan-table-plan">
                     @if (cell === true) {
-                      <svg
-                        class="mx-auto size-4 text-(--accent-primary)"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2.25"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        aria-hidden="true"
-                      >
-                        <path d="M20 6 9 17l-5-5" />
-                      </svg>
+                      <span class="flex justify-center text-(--accent-primary)">
+                        <aec-icon name="check" decorative [size]="4" />
+                      </span>
                       <span class="sr-only" i18n="@@app.docs.plans.table.included">Included</span>
                     } @else if (cell === false) {
-                      <svg
-                        class="mx-auto size-4 text-(--text-tertiary)"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        aria-hidden="true"
-                      >
-                        <path d="M5 12h14" />
-                      </svg>
+                      <span class="flex justify-center text-(--text-tertiary)">
+                        <aec-icon name="minus" decorative [size]="4" />
+                      </span>
                       <span class="sr-only" i18n="@@app.docs.plans.table.notIncluded"
                         >Not included</span
                       >

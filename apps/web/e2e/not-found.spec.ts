@@ -102,3 +102,29 @@ test.describe('global 404 — wildcard path', () => {
     });
   });
 });
+
+// AECI-1720 layout pass: the recovery tiles take the page wrap, so no description
+// wraps at 1440px and the tiles run three, then two.
+test('the recovery tiles use the page width at 1440px', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/never-a-real-route');
+  const tiles = page.locator('nav[aria-labelledby="not-found-recovery"] a');
+  await expect(tiles).toHaveCount(5);
+  const boxes = await tiles.evaluateAll((els) =>
+    els.map((a) => {
+      const d = a.querySelectorAll('span')[1];
+      const lh = parseFloat(getComputedStyle(d).lineHeight);
+      const r = a.getBoundingClientRect();
+      return {
+        y: Math.round(r.y),
+        width: r.width,
+        lines: Math.round(d.getBoundingClientRect().height / lh),
+      };
+    }),
+  );
+  for (const b of boxes) {
+    expect(b.lines).toBe(1);
+    expect(b.width).toBeGreaterThan(350);
+  }
+  expect(new Set(boxes.map((b) => b.y)).size).toBe(2);
+});

@@ -53,7 +53,7 @@ function followUpAppeared(question: string): string {
       />
 
       @if (followUpLabel(); as question) {
-        <div class="space-y-1.5">
+        <div class="space-y-2">
           <label [for]="idPrefix() + '-detail'" [class]="labelClass">{{ question }}</label>
           <input
             [id]="idPrefix() + '-detail'"

@@ -509,6 +509,9 @@ Every page sets:
   - **The vendor number is `product_count`, never `integration_count`.** A vendor's
     `integration_count` counts integrations that vendor *built* (`built_by_vendor_id`), not
     integrations across its products, and it is zero for almost every vendor.
+    *(AECI-1897, 2026-11-23: the public vendor `integration_count` now counts the distinct live
+    integrations touching any of the vendor's products, so that reason no longer holds. The
+    snippet still uses `product_count`. Changing it is a separate SEO decision.)*
   - **The trust line must not claim verification.** `/methodology` states that vendor accounts opened in
     September 2026, that most claims and integrations are still recorded by AEC Integrations, and
     that readers will see "Listed by AEC Integrations" nearly everywhere (wording since AECI-1142; "Unverified · AECi" from AECI-1023) (`STAGE_2_5_SPEC.md` §7.1). A snippet saying
@@ -599,6 +602,14 @@ Code: `listingCanonicalUrl()` in `apps/web/src/app/core/canonical.ts` composes i
 survive `MetaService.setEntityMeta`. Every other `MetaService` canonical path keeps the full strip.
 `og:url` follows the canonical. **No `rel="prev"` / `rel="next"`** is emitted — Google dropped them as
 an indexing signal in 2019; re-open only with a Bing-specific reason.
+
+**The canonical follows `?page=` on a client navigation too (AECI-1904, 2026-11-20).** The router reuses
+the listing component, so a navigation from `/products?page=2` to `/products` used to leave the live
+head on `?page=2`. The taxonomy resolver does not re-run on a query-only navigation either. Each of
+the five routes passes `canonicalPath` to `createPaginatedIndex`, whose effect rebuilds the canonical
+and `og:url` from the URL's `?page=` through `MetaService.setListingCanonical`. Its first run writes
+what the server rendered, so hydration does not drift. Append mode's "Load more" never writes `?page=`,
+so it never moves the canonical. Server HTML is unchanged.
 
 ### 9.2 JSON-LD
 

@@ -64,6 +64,15 @@ describe('PairVersionSelect', () => {
     expect(btn.getAttribute('aria-labelledby')).toBe(`${label!.id} ${btn.id}`);
   });
 
+  it('stacks the label above a 44px shared form control (AECI-1798)', () => {
+    const { el } = setup();
+    const btn = trigger(el);
+    expect(btn.classList.contains('aec-field-control')).toBe(true);
+    const label = el.querySelector('#pair-version-label-context')!;
+    expect(label.parentElement!.className).toContain('flex-col');
+    expect(label.compareDocumentPosition(btn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('does not render the listbox while closed — so SSR emits only the trigger', () => {
     // `[cdkConnectedOverlayOpen]="expanded()"` is what keeps this control safe to
     // server-render at all.

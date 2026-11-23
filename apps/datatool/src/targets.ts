@@ -19,6 +19,17 @@ export function isEnvId(v: unknown): v is EnvId {
   return typeof v === 'string' && (ENV_IDS as readonly string[]).includes(v);
 }
 
+/** AECI-1946: the envs a copy or a seed apply may WRITE INTO. Production is not one.
+ * A copy wipes and replaces the whole destination database, and a seed apply inserts
+ * synthetic reviews, so neither has a place in production and no runbook needs it.
+ * Production stays a copy SOURCE and a prune, reindex and seed-teardown target. */
+export const COPY_SEED_DEST_IDS = ['staging', 'demo'] as const satisfies readonly EnvId[];
+export type CopySeedDestId = (typeof COPY_SEED_DEST_IDS)[number];
+
+export function isCopySeedDest(v: unknown): v is CopySeedDestId {
+  return typeof v === 'string' && (COPY_SEED_DEST_IDS as readonly string[]).includes(v);
+}
+
 export interface Target {
   id: EnvId;
   /** The bound D1 database for this env. */

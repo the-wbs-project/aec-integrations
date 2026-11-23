@@ -3,155 +3,136 @@
   ── Confirmation ──────────────────────────────────────────────────────
   In the drawer, the panel header swaps to the "sent" title and the email line
   (request-drawer.html), so this block renders only the next steps and the
-  dismiss action. The routed page has no panel header and renders its own.
+  dismiss action. The routed page has no panel header and renders its own, all
+  inside the shared card (AECI-1807, as the claim receipt page does).
 -->
-@if (variant() === 'page') {
-<span
-  aria-hidden="true"
-  class="inline-flex h-9 w-9 items-center justify-center rounded-full bg-(--accent-primary-soft) text-(--accent-primary)"
->
-  <svg
-    class="h-[18px] w-[18px]"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    stroke-width="2.5"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-  >
-    <path d="M20 6 9 17l-5-5" />
-  </svg>
-</span>
-<h1
-  #confirmFocus
-  id="request-title"
-  tabindex="-1"
-  class="mt-3 font-display text-3xl font-semibold tracking-tight focus:outline-none md:text-4xl"
->
-  @switch (kind()) { @case ('claim') { @if (confirmationRequired()) {
-  <ng-container i18n="@@requests.sent.claim.confirm.title">Check your inbox</ng-container>
-  } @else {
-  <ng-container i18n="@@requests.sent.claim.title">Claim sent</ng-container>
-  } } @case ('correction') {
-  <ng-container i18n="@@requests.sent.correction.title">Correction sent</ng-container>
-  } }
-</h1>
-<p class="mt-4 max-w-prose text-base leading-relaxed text-(--text-secondary)">
-  @switch (kind()) { @case ('claim') { @if (confirmationRequired()) {
-  <ng-container i18n="@@requests.sent.claim.confirm.subtitle"
-    >We've sent a link to
-    <strong class="font-bold break-all text-(--text-primary)">{{ sentTo() }}</strong>. Your claim is
-    not sent until you click it.</ng-container
-  >
-  } @else if (sentAsRouted()) {
-  <ng-container i18n="@@requests.sent.claim.subtitle.routed"
-    >We've emailed a receipt to
-    <strong class="font-bold break-all text-(--text-primary)">{{ sentTo() }}</strong>.</ng-container
-  >
-  } @else {
-  <ng-container i18n="@@requests.sent.claim.subtitle"
-    >We've emailed a receipt to
-    <strong class="font-bold break-all text-(--text-primary)">{{ sentTo() }}</strong>. We'll write
-    to you there with our decision.</ng-container
-  >
-  } } @case ('correction') {
-  <ng-container i18n="@@requests.sent.correction.subtitle"
-    >Thanks. We'll check it against the source. If we have questions, we'll email
-    <strong class="font-bold break-all text-(--text-primary)">{{ sentTo() }}</strong>.</ng-container
-  >
-  } }
-</p>
-} @if (kind() === 'claim') {
-<div
-  class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4"
-  [class.mt-6]="variant() === 'page'"
->
-  <p class="text-sm font-bold text-(--text-primary)" i18n="@@requests.sent.next.heading">
-    What happens next
-  </p>
-  <ol class="mt-2 list-decimal space-y-1 ps-5 text-sm leading-relaxed text-(--text-secondary)">
-    @if (confirmationRequired()) {
-    <!-- AECI-1435: the emailed link comes first; nothing is sent before it. -->
-    <li data-testid="request-sent-confirm" i18n="@@requests.sent.claim.confirm.step">
-      Open the email and click the link. It works for {{ confirmDays }} days.
-    </li>
-    } @if (sentAsRouted()) {
-    <!-- AECI-1366: the company's team decides first (AECI-1368). -->
-    <li data-testid="request-sent-routed">
-      @if (company(); as name) {
-      <ng-container i18n="@@requests.sent.claim.routed"
-        >The team at {{ name }} has been asked to confirm you.</ng-container
-      >
-      } @else {
-      <ng-container i18n="@@requests.sent.claim.routed.unnamed"
-        >The team at this company has been asked to confirm you.</ng-container
-      >
-      }
-    </li>
-    <li i18n="@@requests.sent.claim.routed.accept">
-      If they accept, you get an invitation email to join.
-    </li>
-    <li i18n="@@requests.sent.claim.routed.fallback">
-      If nobody answers within {{ reviewDays }} days, we review your claim and write to you.
-    </li>
-    } @else {
-    <li i18n="@@requests.sent.claim.step1">
-      A person at AEC Integrations reviews every claim. Nothing is granted automatically.
-    </li>
-    <li i18n="@@requests.sent.claim.step2">
-      We check your email domain against your company's website, and your LinkedIn if you added it.
-    </li>
-    <li i18n="@@requests.sent.claim.step3">
-      If we approve it, we email you a link to your vendor portal.
-    </li>
-    }
-  </ol>
-</div>
-<a
-  routerLink="/docs/vendors/claiming-your-listing"
-  target="_blank"
-  rel="noopener"
-  class="mt-3 inline-flex items-center gap-1.5 text-sm font-bold text-(--accent-primary) underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-  ><span i18n="@@requests.sent.docsLink">How claims work</span><aec-new-tab-icon
-/></a>
-}
-
-<div class="mt-6" [class.pb-6]="variant() === 'drawer'">
+<div [class]="variant() === 'page' ? confirmCardClass : ''">
   @if (variant() === 'page') {
-  <a
-    [routerLink]="backRouterLink()"
-    class="inline-flex items-center rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-5 py-3 text-sm font-bold text-(--text-primary) no-underline transition-colors hover:border-(--border-strong) hover:text-(--accent-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-base)"
+  <span
+    aria-hidden="true"
+    class="inline-flex size-9 items-center justify-center rounded-full bg-(--accent-primary-soft) text-(--accent-primary)"
   >
-    <span aria-hidden="true" class="me-2 inline-block rtl:-scale-x-100">←</span>
-    @switch (entity()) { @case ('product') {
-    <ng-container i18n="@@requests.back.product">Back to product</ng-container>
-    } @case ('vendor') {
-    <ng-container i18n="@@requests.back.vendor">Back to vendor</ng-container>
+    <aec-icon name="check" decorative [size]="5" />
+  </span>
+  <!-- Size, weight and face come from the unlayered global h1 rule (the Headline role). -->
+  <h1 #confirmFocus id="request-title" tabindex="-1" class="mt-3 focus:outline-none">
+    @switch (kind()) { @case ('claim') { @if (confirmationRequired()) {
+    <ng-container i18n="@@requests.sent.claim.confirm.title">Check your inbox</ng-container>
+    } @else {
+    <ng-container i18n="@@requests.sent.claim.title">Claim sent</ng-container>
+    } } @case ('correction') {
+    <ng-container i18n="@@requests.sent.correction.title">Correction sent</ng-container>
     } }
-  </a>
-  } @else {
-  <button
-    #confirmFocus
-    type="button"
-    (click)="done.emit()"
-    class="inline-flex min-h-11 items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-    i18n="@@requests.sent.done"
-  >
-    Done
-  </button>
+  </h1>
+  <p class="mt-4 max-w-prose text-t-16 leading-relaxed text-(--text-secondary)">
+    @switch (kind()) { @case ('claim') { @if (confirmationRequired()) {
+    <ng-container i18n="@@requests.sent.claim.confirm.subtitle"
+      >We've sent a link to
+      <strong class="font-bold break-all text-(--text-primary)">{{ sentTo() }}</strong>. Your claim
+      is not sent until you click it.</ng-container
+    >
+    } @else if (sentAsRouted()) {
+    <ng-container i18n="@@requests.sent.claim.subtitle.routed"
+      >We've emailed a receipt to
+      <strong class="font-bold break-all text-(--text-primary)">{{ sentTo() }}</strong
+      >.</ng-container
+    >
+    } @else {
+    <ng-container i18n="@@requests.sent.claim.subtitle"
+      >We've emailed a receipt to
+      <strong class="font-bold break-all text-(--text-primary)">{{ sentTo() }}</strong>. We'll write
+      to you there with our decision.</ng-container
+    >
+    } } @case ('correction') {
+    <ng-container i18n="@@requests.sent.correction.subtitle"
+      >Thanks. We'll check it against the source. If we have questions, we'll email
+      <strong class="font-bold break-all text-(--text-primary)">{{ sentTo() }}</strong
+      >.</ng-container
+    >
+    } }
+  </p>
+  } @if (kind() === 'claim') {
+  <div aecCard nested class="p-4 sm:p-6" [class.mt-6]="variant() === 'page'">
+    <p class="text-t-14 font-semibold text-(--text-primary)" i18n="@@requests.sent.next.heading">
+      What happens next
+    </p>
+    <ol class="mt-2 list-decimal space-y-1 ps-6 text-t-14 leading-relaxed text-(--text-secondary)">
+      @if (confirmationRequired()) {
+      <!-- AECI-1435: the emailed link comes first; nothing is sent before it. -->
+      <li data-testid="request-sent-confirm" i18n="@@requests.sent.claim.confirm.step">
+        Open the email and click the link. It works for {{ confirmDays }} days.
+      </li>
+      } @if (sentAsRouted()) {
+      <!-- AECI-1366: the company's team decides first (AECI-1368). -->
+      <li data-testid="request-sent-routed">
+        @if (company(); as name) {
+        <ng-container i18n="@@requests.sent.claim.routed"
+          >The team at {{ name }} has been asked to confirm you.</ng-container
+        >
+        } @else {
+        <ng-container i18n="@@requests.sent.claim.routed.unnamed"
+          >The team at this company has been asked to confirm you.</ng-container
+        >
+        }
+      </li>
+      <li i18n="@@requests.sent.claim.routed.accept">
+        If they accept, you get an invitation email to join.
+      </li>
+      <li i18n="@@requests.sent.claim.routed.fallback">
+        If nobody answers within {{ reviewDays }} days, we review your claim and write to you.
+      </li>
+      } @else {
+      <li i18n="@@requests.sent.claim.step1">
+        A person at AEC Integrations reviews every claim. Nothing is granted automatically.
+      </li>
+      <li i18n="@@requests.sent.claim.step2">
+        We check your email domain against your company's website, and your LinkedIn if you added
+        it.
+      </li>
+      <li i18n="@@requests.sent.claim.step3">
+        If we approve it, we email you a link to your vendor portal.
+      </li>
+      }
+    </ol>
+  </div>
+  <a
+    routerLink="/docs/vendors/claiming-your-listing"
+    target="_blank"
+    rel="noopener"
+    [class]="docsLinkClass"
+    ><span i18n="@@requests.sent.docsLink">How claims work</span><aec-new-tab-icon
+  /></a>
   }
+
+  <div class="mt-6" [class.pb-6]="variant() === 'drawer'">
+    @if (variant() === 'page') {
+    <a aecButton variant="secondary" [routerLink]="backRouterLink()">
+      <span aria-hidden="true" class="me-2 inline-block rtl:-scale-x-100">←</span>
+      @switch (entity()) { @case ('product') {
+      <ng-container i18n="@@requests.back.product">Back to product</ng-container>
+      } @case ('vendor') {
+      <ng-container i18n="@@requests.back.vendor">Back to vendor</ng-container>
+      } }
+    </a>
+    } @else {
+    <button aecButton #confirmFocus type="button" (click)="done.emit()" i18n="@@requests.sent.done">
+      Done
+    </button>
+    }
+  </div>
 </div>
 } @else {
-<!-- ── Header (routed page only — the drawer panel supplies its own title) ── -->
+<!-- ── Header (routed page only; the drawer panel supplies its own title) ── -->
 @if (variant() === 'page') {
-<p class="text-xs uppercase tracking-[0.14em] text-(--text-tertiary)">
+<p class="aec-overline text-(--text-secondary)">
   @switch (kind()) { @case ('claim') {
   <ng-container i18n="@@requests.claim.eyebrow">Vendor claim</ng-container>
   } @case ('correction') {
   <ng-container i18n="@@requests.correction.eyebrow">Suggest a correction</ng-container>
   } }
 </p>
-<h1 id="request-title" class="mt-3 font-display text-3xl font-semibold tracking-tight md:text-4xl">
+<!-- Size, weight and face come from the unlayered global h1 rule (the Headline role). -->
+<h1 id="request-title" class="mt-3">
   @switch (kind()) { @case ('claim') { @if (company(); as name) {
   <ng-container i18n="@@requests.claim.title.company">Claim {{ name }}</ng-container>
   } @else {
@@ -162,7 +143,7 @@
 </h1>
 @if (kind() === 'claim' && contextProduct()) {
 <!-- AECI-1364: the claim is on the company. This names the page it was sent from. -->
-<p class="mt-2 text-sm text-(--text-secondary)" data-testid="request-context-product">
+<p class="mt-2 text-t-14 text-(--text-secondary)" data-testid="request-context-product">
   <ng-container i18n="@@requests.claim.fromProduct"
     >From the
     <strong class="font-semibold text-(--text-primary)">{{ contextProduct() }}</strong>
@@ -170,7 +151,7 @@
   >
 </p>
 }
-<p class="mt-4 max-w-prose text-base leading-relaxed text-(--text-secondary)">
+<p class="mt-4 max-w-prose text-t-16 leading-relaxed text-(--text-secondary)">
   @switch (kind()) { @case ('claim') {
   <ng-container i18n="@@requests.claim.subtitle"
     >Work at this company? Tell us about your role and we'll verify your claim.</ng-container
@@ -183,108 +164,101 @@
 </p>
 }
 
-<!-- ── Form ──────────────────────────────────────────────────────────── -->
+<!--
+  ── Form ────────────────────────────────────────────────────────────
+  AECI-1807: on the routed page the form is the shared card, its fields padded
+  inside it and the submit in the form footer, as /welcome does. In the drawer
+  the panel is the surface, so the form is bare and the submit sits in the
+  pinned bar (AECI-847).
+-->
 @switch (kind()) { @case ('correction') {
-<form
-  class="space-y-6"
-  [class.mt-10]="variant() === 'page'"
-  novalidate
-  (submit)="onFormSubmit($event)"
->
-  <!-- What's wrong -->
-  <div class="space-y-1.5">
-    <label
-      for="correction-body"
-      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-      i18n="@@requests.correction.body.label"
-    >
-      What should we fix?
-    </label>
-    <textarea
-      id="correction-body"
-      rows="4"
-      [formField]="form.body"
-      [attr.aria-invalid]="form.body().touched() && form.body().invalid() ? 'true' : null"
-      [attr.aria-describedby]="form.body().touched() && form.body().getError('standardSchema') ? 'correction-body-hint correction-body-error' : 'correction-body-hint'"
-      class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-    ></textarea>
-    <p
-      id="correction-body-hint"
-      class="text-xs text-(--text-secondary)"
-      i18n="@@requests.correction.body.hint"
-    >
-      Tell us what's inaccurate and what it should say instead.
-      <strong class="text-(--text-primary)">Minimum 20 characters.</strong>
-    </p>
-    @if (form.body().touched() && form.body().getError('standardSchema')) {
-    <p
-      id="correction-body-error"
-      class="text-xs font-medium text-(--text-primary)"
-      role="alert"
-      i18n="@@requests.correction.body.error"
-    >
-      Add at least 20 characters.
-    </p>
-    }
-  </div>
+<form method="dialog" [class]="formClass()" novalidate (submit)="onFormSubmit($event)">
+  <div [class]="fieldsClass()">
+    <!-- What's wrong -->
+    <div class="space-y-2">
+      <label for="correction-body" [class]="labelClass" i18n="@@requests.correction.body.label">
+        What should we fix?
+      </label>
+      <textarea
+        id="correction-body"
+        rows="4"
+        [formField]="form.body"
+        [attr.aria-invalid]="form.body().touched() && form.body().invalid() ? 'true' : null"
+        [attr.aria-describedby]="form.body().touched() && form.body().getError('standardSchema') ? 'correction-body-hint correction-body-error' : 'correction-body-hint'"
+        [class]="inputClass"
+      ></textarea>
+      <p id="correction-body-hint" [class]="hintClass" i18n="@@requests.correction.body.hint">
+        Tell us what's inaccurate and what it should say instead.
+        <strong class="text-(--text-primary)">Minimum 20 characters.</strong>
+      </p>
+      @if (form.body().touched() && form.body().getError('standardSchema')) {
+      <p
+        id="correction-body-error"
+        [class]="errorClass"
+        role="alert"
+        i18n="@@requests.correction.body.error"
+      >
+        Add at least 20 characters.
+      </p>
+      }
+    </div>
 
-  <!-- Source (optional) -->
-  <div class="space-y-1.5">
-    <label
-      for="correction-source"
-      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-      i18n="@@requests.correction.source.label"
-    >
-      Source <span class="font-normal normal-case text-(--text-tertiary)">(optional)</span>
-    </label>
-    <input
-      id="correction-source"
-      type="url"
-      inputmode="url"
-      [formField]="form.source_url"
-      [attr.aria-invalid]="form.source_url().touched() && form.source_url().invalid() ? 'true' : null"
-      [attr.aria-describedby]="form.source_url().touched() && form.source_url().getError('standardSchema') ? 'correction-source-error' : null"
-      class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-    />
-    @if (form.source_url().touched() && form.source_url().getError('standardSchema')) {
-    <p
-      id="correction-source-error"
-      class="text-xs font-medium text-(--text-primary)"
-      role="alert"
-      i18n="@@requests.correction.source.error"
-    >
-      Enter a valid URL (including https://).
-    </p>
-    }
-  </div>
+    <!-- Source (optional) -->
+    <div class="space-y-2">
+      <label for="correction-source" [class]="labelClass" i18n="@@requests.correction.source.label">
+        Source <span [class]="optionalClass">(optional)</span>
+      </label>
+      <input
+        id="correction-source"
+        type="url"
+        inputmode="url"
+        [formField]="form.source_url"
+        [attr.aria-invalid]="form.source_url().touched() && form.source_url().invalid() ? 'true' : null"
+        [attr.aria-describedby]="form.source_url().touched() && form.source_url().getError('standardSchema') ? 'correction-source-error' : null"
+        [class]="inputClass"
+      />
+      @if (form.source_url().touched() && form.source_url().getError('standardSchema')) {
+      <p
+        id="correction-source-error"
+        [class]="errorClass"
+        role="alert"
+        i18n="@@requests.correction.source.error"
+      >
+        Enter a valid URL (including https://).
+      </p>
+      }
+    </div>
 
-  <!-- Email -->
-  <div class="space-y-1.5">
-    <label
-      for="correction-email"
-      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-      i18n="@@requests.correction.email.label"
-    >
-      Your email
-    </label>
-    <input
-      id="correction-email"
-      type="email"
-      inputmode="email"
-      autocomplete="email"
-      [formField]="form.submitter_email"
-      [attr.aria-invalid]="form.submitter_email().touched() && form.submitter_email().invalid() ? 'true' : null"
-      [attr.aria-describedby]="form.submitter_email().touched() && form.submitter_email().getError('standardSchema') ? 'correction-email-error' : null"
-      class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-    />
-    @if (form.submitter_email().touched() && form.submitter_email().getError('standardSchema')) {
-    <p
-      id="correction-email-error"
-      class="text-xs font-medium text-(--text-primary)"
-      role="alert"
-      i18n="@@requests.email.invalid"
-    >
-      Enter a valid email address.
+    <!-- Email -->
+    <div class="space-y-2">
+      <label for="correction-email" [class]="labelClass" i18n="@@requests.correction.email.label">
+        Your email
+      </label>
+      <input
+        id="correction-email"
+        type="email"
+        inputmode="email"
+        autocomplete="email"
+        [formField]="form.submitter_email"
+        [attr.aria-invalid]="form.submitter_email().touched() && form.submitter_email().invalid() ? 'true' : null"
+        [attr.aria-describedby]="form.submitter_email().touched() && form.submitter_email().getError('standardSchema') ? 'correction-email-error' : null"
+        [class]="inputClass"
+      />
+      @if (form.submitter_email().touched() && form.submitter_email().getError('standardSchema')) {
+      <p
+        id="correction-email-error"
+        [class]="errorClass"
+        role="alert"
+        i18n="@@requests.email.invalid"
+      >
+        Enter a valid email address.
+      </p>
+      }
+    </div>
+
+    @if (submitFailed() && variant() === 'page') {
+    <p id="correction-email-error" [class]="errorClass" role="alert" i18n="@@requests.submitFailed">
+      Something went wrong. Please try again.
     </p>
     }
   </div>
@@ -294,19 +268,13 @@
     panel so it stays reachable while the fields above scroll. The negative
     -mx-6 bleeds it past the scroll port's px-6 to the panel edges, and its own
     pb-6 is the port's bottom padding (the port has none, so nothing can show
-    below the pinned bar). The routed page has no scroll port, so it stays in
-    normal flow.
+    below the pinned bar). The routed page has no scroll port: its footer is the
+    card's form footer.
   -->
-  <div
-    [class]="
-      variant() === 'drawer'
-        ? 'sticky bottom-0 -mx-6 space-y-4 border-t border-(--border-default) bg-(--surface-raised) px-6 pt-4 pb-6'
-        : 'space-y-6'
-    "
-  >
-    @if (submitFailed()) {
+  <div [class]="footerClass()">
+    @if (submitFailed() && variant() === 'drawer') {
     <p
-      class="text-sm font-medium text-(--text-primary)"
+      class="text-t-14 font-semibold text-(--text-primary)"
       role="alert"
       i18n="@@requests.submitFailed"
     >
@@ -314,11 +282,10 @@
     </p>
     }
 
-    <button
-      type="submit"
-      [disabled]="form().invalid() || form().pending() || form().submitting()"
-      class="inline-flex min-h-11 items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-    >
+    <!-- Submit stays enabled while an answer is bad (DESIGN.md "Submit stays
+         enabled"): pressing it shows every error and focuses the first bad field.
+         It waits for hydration, as sign-in does (see `hydrated`). -->
+    <button aecButton type="submit" [disabled]="!hydrated() || form().submitting()">
       @if (form().submitting()) {
       <span i18n="@@requests.submitting">Submitting…</span>
       } @else {
@@ -328,92 +295,73 @@
   </div>
 </form>
 } @case ('claim') {
-<form
-  class="space-y-6"
-  [class.mt-10]="variant() === 'page'"
-  novalidate
-  (submit)="onFormSubmit($event)"
->
-  <!-- AECI-1366: the company already has a team, so they confirm the claim first. -->
-  <aec-claim-routed-notice [show]="routed()" [company]="company()" />
+<form method="dialog" [class]="formClass()" novalidate (submit)="onFormSubmit($event)">
+  <div [class]="fieldsClass()">
+    <!-- AECI-1366: the company already has a team, so they confirm the claim first. -->
+    <aec-claim-routed-notice [show]="routed()" [company]="company()" />
 
-  <!-- Name, title, LinkedIn, work email, legal name: shared with the claim dialog (AECI-1293). -->
-  <aec-claimant-fields
-    [name]="form.submitter_name"
-    [title]="form.submitter_title"
-    [linkedin]="form.submitter_linkedin_url"
-    [email]="form.submitter_email"
-    [legalName]="form.company_legal_name"
-  />
+    <!-- Name, title, LinkedIn, work email, legal name: shared with the claim dialog (AECI-1293). -->
+    <aec-claimant-fields
+      [name]="form.submitter_name"
+      [title]="form.submitter_title"
+      [linkedin]="form.submitter_linkedin_url"
+      [email]="form.submitter_email"
+      [legalName]="form.company_legal_name"
+    />
 
-  <!-- Additional comments: the claim body, relabelled by AECI-1293 (§15.6). -->
-  <div class="space-y-1.5">
-    <label
-      for="claim-body"
-      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-      i18n="@@requests.claim.comments.label"
-    >
-      Additional comments
-      <span class="font-normal normal-case text-(--text-tertiary)">(optional)</span>
-    </label>
-    <textarea
-      id="claim-body"
-      rows="4"
-      [formField]="form.body"
-      [attr.aria-invalid]="form.body().touched() && form.body().invalid() ? 'true' : null"
-      [attr.aria-describedby]="form.body().touched() && form.body().getError('standardSchema') ? 'claim-body-hint claim-body-error' : 'claim-body-hint'"
-      class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-    ></textarea>
+    <!-- Additional comments: the claim body, relabelled by AECI-1293 (§15.6). -->
+    <div class="space-y-2">
+      <label for="claim-body" [class]="labelClass" i18n="@@requests.claim.comments.label">
+        Additional comments
+        <span [class]="optionalClass">(optional)</span>
+      </label>
+      <textarea
+        id="claim-body"
+        rows="4"
+        [formField]="form.body"
+        [attr.aria-invalid]="form.body().touched() && form.body().invalid() ? 'true' : null"
+        [attr.aria-describedby]="form.body().touched() && form.body().getError('standardSchema') ? 'claim-body-hint claim-body-error' : 'claim-body-hint'"
+        [class]="inputClass"
+      ></textarea>
+      <p id="claim-body-hint" [class]="hintClass" i18n="@@requests.claim.body.hint">
+        Tell us how you're connected to the company: the team you work on, the products you make, or
+        anything else that helps us verify you.
+      </p>
+      @if (form.body().touched() && form.body().getError('standardSchema')) {
+      <p id="claim-body-error" [class]="errorClass" role="alert" i18n="@@requests.claim.body.error">
+        Keep this under 2,000 characters.
+      </p>
+      }
+    </div>
+
+    <!-- AECI-1063: the optional "How did you find us?" question. -->
+    <aec-found-via-field
+      idPrefix="claim-found-via"
+      [value]="form.found_via().value()"
+      (valueChange)="form.found_via().value.set($event)"
+      [detail]="form.found_via_detail().value()"
+      (detailChange)="form.found_via_detail().value.set($event)"
+    />
+
+    <!-- AECI-1366: required. Submit stays disabled until it is checked. -->
+    <aec-vendor-terms-box [field]="form.accepted_terms" [rejected]="termsRejected()" />
+
+    @if (submitFailed() && variant() === 'page') {
     <p
-      id="claim-body-hint"
-      class="text-xs text-(--text-secondary)"
-      i18n="@@requests.claim.body.hint"
-    >
-      Tell us how you're connected to the company: the team you work on, the products you make, or
-      anything else that helps us verify you.
-    </p>
-    @if (form.body().touched() && form.body().getError('standardSchema')) {
-    <p
-      id="claim-body-error"
-      class="text-xs font-medium text-(--text-primary)"
+      class="text-t-14 font-semibold text-(--text-primary)"
       role="alert"
-      i18n="@@requests.claim.body.error"
+      i18n="@@requests.submitFailed"
     >
-      Keep this under 2,000 characters.
+      Something went wrong. Please try again.
     </p>
     }
   </div>
 
-  <!-- AECI-1063: the optional "How did you find us?" question. -->
-  <aec-found-via-field
-    idPrefix="claim-found-via"
-    [value]="form.found_via().value()"
-    (valueChange)="form.found_via().value.set($event)"
-    [detail]="form.found_via_detail().value()"
-    (detailChange)="form.found_via_detail().value.set($event)"
-  />
-
-  <!-- AECI-1366: required. Submit stays disabled until it is checked. -->
-  <aec-vendor-terms-box [field]="form.accepted_terms" [rejected]="termsRejected()" />
-
-  <!--
-    AECI-847: in the drawer the submit control is pinned to the bottom of the
-    panel so it stays reachable while the fields above scroll. The negative
-    -mx-6 bleeds it past the scroll port's px-6 to the panel edges, and its own
-    pb-6 is the port's bottom padding (the port has none, so nothing can show
-    below the pinned bar). The routed page has no scroll port, so it stays in
-    normal flow.
-  -->
-  <div
-    [class]="
-      variant() === 'drawer'
-        ? 'sticky bottom-0 -mx-6 space-y-4 border-t border-(--border-default) bg-(--surface-raised) px-6 pt-4 pb-6'
-        : 'space-y-6'
-    "
-  >
-    @if (submitFailed()) {
+  <!-- AECI-847: see the correction form's footer note. -->
+  <div [class]="footerClass()">
+    @if (submitFailed() && variant() === 'drawer') {
     <p
-      class="text-sm font-medium text-(--text-primary)"
+      class="text-t-14 font-semibold text-(--text-primary)"
       role="alert"
       i18n="@@requests.submitFailed"
     >
@@ -421,10 +369,13 @@
     </p>
     }
 
+    <!-- Disabled only while the box is unticked (VENDOR_SIGNUP_PROCESS.md §4) or a
+         request is in flight. Any other bad answer shows its error on the press and
+         takes focus, as on the claim dialog. -->
     <button
+      aecButton
       type="submit"
-      [disabled]="form().invalid() || form().pending() || form().submitting()"
-      class="inline-flex min-h-11 items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+      [disabled]="!hydrated() || form().submitting() || !form.accepted_terms().value()"
     >
       @if (form().submitting()) {
       <span i18n="@@requests.submitting">Submitting…</span>

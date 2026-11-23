@@ -86,10 +86,32 @@ describe('ListYourProductPage', () => {
     expect(host.textContent).not.toContain('—');
   });
 
-  it('lists what happens next in order, in the explainer column above the form', async () => {
+  // AECI-1720 layout pass: a vendor comes to fill the form, so there is no Bone band
+  // pushing it down. The heading, the lede and the steps sit beside the form in one
+  // 5:7 row, the form on the shared form card.
+  it('puts the heading beside the form, with no Bone band, and the form on the form card', async () => {
+    const { host } = await setup();
+    expect(host.querySelectorAll('aec-bone-band')).toHaveLength(0);
+    const form = host.querySelector('[data-testid="list-your-product-form"]')!;
+    expect(form.classList).toContain('aec-card');
+    expect(form.classList).toContain('shadow-card');
+    // The form card's phone recipe: frameless and gutter-wide below sm.
+    expect(form.classList).toContain('max-sm:-mx-6');
+    expect(form.classList).toContain('max-sm:shadow-none');
+    // The heading column and the form are siblings in one 5:7 row.
+    const next = host.querySelector('[data-testid="list-your-product-next"]')!;
+    expect(next.querySelector('h1')).not.toBeNull();
+    expect(next.parentElement).toBe(form.parentElement);
+    expect(next.parentElement!.className).toContain('lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]');
+    // The h1 comes before the form in the DOM, so it is read first at every width.
+    expect(
+      next.querySelector('h1')!.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it('lists what happens next in order, in the column beside the form', async () => {
     const { host } = await setup();
     const next = host.querySelector('[data-testid="list-your-product-next"]')!;
-    expect(next.closest('[data-testid="list-your-product-intro"]')).not.toBeNull();
     const list = next.querySelector('ol')!;
     expect(list.getAttribute('aria-labelledby')).toBe('list-your-product-next-heading');
     const items = [...list.querySelectorAll(':scope > li')].map((li) =>

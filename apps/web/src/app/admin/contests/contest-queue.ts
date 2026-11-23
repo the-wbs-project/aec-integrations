@@ -23,6 +23,7 @@ import {
 } from '../../vendor/components/vendor-contest-labels';
 import { AdminSummaryStore } from '../admin-summary.store';
 import { AdminContestsApi } from './admin-contests-api';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 /** One request covers a launch-scale backlog. The API caps `perPage` at 100; we
  *  load the max and say so when the server reports more. */
@@ -69,7 +70,7 @@ const QUEUE_PAGE_SIZE = 100;
  */
 @Component({
   selector: 'aec-contest-queue',
-  imports: [DatePipe, NewTabIcon, RouterLink],
+  imports: [AecFormSubmit, DatePipe, NewTabIcon, RouterLink],
   templateUrl: './contest-queue.html',
 })
 export class ContestQueue {

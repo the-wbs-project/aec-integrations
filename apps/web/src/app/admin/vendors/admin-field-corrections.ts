@@ -26,6 +26,7 @@ import {
   type FieldOverrideField,
   type FieldOverrideValue,
   type ProductFacetOverrideField,
+  type TaxonomyFacetKey,
   type TaxonomyResponse,
 } from '@aeci/shared';
 
@@ -33,6 +34,7 @@ import { mechanismKindLabel } from '../../search/mechanism-labels';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { fieldOverrideLabel } from '../../vendor/components/field-override-labels';
 import { AdminVendorsApi } from './admin-vendors-api';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 /** One record the form can correct: the company, a product, or a held integration. */
 export interface CorrectableRecord {
@@ -66,7 +68,7 @@ type ValueControl =
 export const MAX_FACET_TERMS = 10;
 
 /** Which `GET /api/taxonomy` list holds a facet's vocabulary. */
-const FACET_VOCABULARY: Readonly<Record<ProductFacetOverrideField, keyof TaxonomyResponse>> = {
+const FACET_VOCABULARY: Readonly<Record<ProductFacetOverrideField, TaxonomyFacetKey>> = {
   category_slugs: 'categories',
   audience_slugs: 'audiences',
   phase_slugs: 'phases',
@@ -99,7 +101,7 @@ interface TermOption {
  */
 @Component({
   selector: 'aec-admin-field-corrections',
-  imports: [DatePipe, NewTabIcon],
+  imports: [AecFormSubmit, DatePipe, NewTabIcon],
   templateUrl: './admin-field-corrections.html',
 })
 export class AdminFieldCorrections {

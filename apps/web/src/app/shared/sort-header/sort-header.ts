@@ -49,7 +49,7 @@ import { Component, computed, input, output } from '@angular/core';
     <button
       type="button"
       (click)="select()"
-      class="-mx-1 inline-flex cursor-pointer items-center gap-1 rounded-(--radius-sm) px-1 py-0.5 font-bold transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      class="-mx-1 inline-flex cursor-pointer items-center gap-1 rounded-mark px-1 py-1 font-bold transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       [class.text-(--text-primary)]="isActive()"
       [class.text-(--text-secondary)]="!isActive()"
     >

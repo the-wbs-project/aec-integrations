@@ -33,6 +33,7 @@ import {
   VendorConnectorMappingForm,
   type CatalogueMappingSaved,
 } from './vendor-connector-mapping-form';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
 
@@ -74,7 +75,7 @@ function domId(value: string): string {
  */
 @Component({
   selector: 'aec-vendor-connector-catalogue',
-  imports: [AecSelect, VendorConnectorMappingForm],
+  imports: [AecFormSubmit, AecSelect, VendorConnectorMappingForm],
   host: { class: 'block' },
   template: `
     <section aria-labelledby="vendor-catalogue-heading" data-catalogue>
@@ -194,10 +195,11 @@ function domId(value: string): string {
         }
 
         <form
+          method="dialog"
           role="search"
           class="mt-6 flex flex-col gap-4 sm:flex-row sm:items-end"
           [attr.aria-label]="filterLabel"
-          (submit)="$event.preventDefault(); applySearch()"
+          (aecSubmit)="applySearch()"
         >
           <div class="min-w-0 sm:w-72">
             <label

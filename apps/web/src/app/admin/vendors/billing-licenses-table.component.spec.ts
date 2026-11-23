@@ -69,6 +69,7 @@ function makeBilling(over: Partial<AdminVendorBillingResponse> = {}): AdminVendo
     release_requests: [],
     grants: [],
     grants_truncated: false,
+    policy_versions: [],
     ...over,
   };
 }
@@ -202,12 +203,12 @@ describe('BillingLicensesTable', () => {
     expect(el.textContent).toContain('Ended Oct 10, 2026, lapsed');
   });
 
-  it('says the vendor has no billing account, that it is a bug to file, and lists no licenses', () => {
+  it('says the vendor has no billing account yet, how one is created, and lists no licenses', () => {
     const { el } = mount(makeBilling({ billing_account: null, licenses: [] }));
     const note = el.querySelector('[data-testid="billing-no-account"]')?.textContent ?? '';
-    expect(note).toContain('This vendor has no billing account.');
-    expect(note).toContain('The E1.5 back-fill should have created one');
-    expect(note).toContain('this is a bug: file it in Linear');
+    expect(note).toContain('This vendor has no billing account yet.');
+    expect(note).toContain('when a claim is approved or a seat is');
+    expect(note).not.toContain('bug');
     expect(note).not.toContain('Report it to the team');
     expect(el.querySelector('section[aria-labelledby="admin-vendor-billing-licenses"]')).toBeNull();
   });
@@ -646,6 +647,75 @@ describe('BillingLicensesTable', () => {
     expect(labels).toEqual([['Extend', 'Change reference', 'Revoke'], ['Revoke'], []]);
     expect(rows[2]!.textContent).toContain('Ended Oct 10, 2026, revoked by AEC Integrations');
     expect(rows[2]!.textContent).toContain('No actions on an ended subscription');
+  });
+});
+
+// AECI-1969 (counsel Q68, ruling 54): which policy version the company is on.
+describe('BillingLicensesTable: policy versions', () => {
+  const base = {
+    notice_delivered_at: null,
+    missed_versions: [],
+    upcoming: null,
+  };
+
+  it('says nothing when the API sends no policy record', () => {
+    const { el } = mount(makeBilling());
+    expect(el.querySelector('[data-testid="billing-policy-version"]')).toBeNull();
+  });
+
+  it('names the version, why the company is on it, a missed version and the next one', () => {
+    const { el } = mount(
+      makeBilling({
+        policy_versions: [
+          {
+            ...base,
+            policy: 'listing_accuracy',
+            version: '1.1',
+            basis: 'notice',
+            since: '2027-01-15T12:00:00.000Z',
+            notice_delivered_at: '2026-12-02T09:00:00.000Z',
+          },
+          {
+            ...base,
+            policy: 'review_guidelines',
+            version: '1.0',
+            basis: 'acceptance',
+            since: '2026-11-20T00:00:00.000Z',
+            missed_versions: ['1.1'],
+            upcoming: {
+              version: '1.2',
+              effective_at: '2027-06-30T12:00:00.000Z',
+              delivered: false,
+            },
+          },
+        ],
+      }),
+    );
+    // Each line is its own block span, so join them with a space to read the item.
+    const items = [...el.querySelectorAll('[data-testid="billing-policy-version"]')].map((n) =>
+      [...n.querySelectorAll('span')]
+        .map((span) => span.textContent?.replace(/\s+/g, ' ').trim())
+        .join(' '),
+    );
+    expect(items[0]).toBe(
+      'Listing Accuracy Policy Version 1.1, in effect since Jan 15, 2027. Its change email reached the company on Dec 2, 2026.',
+    );
+    expect(items[1]).toBe(
+      'Review Guidelines Version 1.0, recorded when the company accepted the Vendor Terms on Nov 20, 2026. Not bound by version 1.1: its change email did not reach the company before it took effect. Version 1.2 takes effect on Jun 30, 2027. Its change email has not reached the company yet. Send it again from the Legal page.',
+    );
+  });
+
+  it('says when no version is recorded', () => {
+    const { el } = mount(
+      makeBilling({
+        policy_versions: [
+          { ...base, policy: 'listing_accuracy', version: null, basis: 'none', since: null },
+        ],
+      }),
+    );
+    expect(el.querySelector('[data-testid="billing-policy-version"]')?.textContent).toContain(
+      'No version recorded.',
+    );
   });
 });
 

@@ -24,6 +24,7 @@ import { LICENSE_GRANT_REFERENCE_MAX } from '@aeci/shared/entitlements';
 import { formatTermDate } from '../../shared/term-date/format-term-date';
 import { AdminLicensesApi } from './admin-licenses-api';
 import type { BillingLicenseRow } from './billing-licenses-table';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 /** Which edits a license offers. Mirrors the API's refusals, so no button leads to one. */
 export interface LicenseRowActionSet {
@@ -78,6 +79,11 @@ type Mode = 'extend' | 'reference' | 'revoke';
  * Ended licenses offer nothing (no un-end). Stripe licenses offer only Revoke: Stripe
  * owns their term and invoice. One form open at a time.
  *
+ * ── FOCUS (AECI-1994) ───────────────────────────────────────────────────────
+ * Opening a form focuses its first field, and Cancel returns focus to the button that
+ * opened it. A refusal focuses its message, because the confirm button was disabled
+ * while the request ran and a disabled button drops focus.
+ *
  * ── HOST-OWNED CHROME ───────────────────────────────────────────────────────
  * No heading and no live region, like `GrantLicensesControl`: `VendorDetail` owns
  * the page's `role="status"` region. Announcements leave through {@link announce};
@@ -85,6 +91,7 @@ type Mode = 'extend' | 'reference' | 'revoke';
  */
 @Component({
   selector: 'aec-license-row-actions',
+  imports: [AecFormSubmit],
   templateUrl: './license-row-actions.html',
 })
 export class LicenseRowActions {
@@ -126,6 +133,7 @@ export class LicenseRowActions {
   private readonly reasonInput = viewChild<ElementRef<HTMLTextAreaElement>>('reasonInput');
   private readonly firstField = viewChild<ElementRef<HTMLElement>>('firstField');
   private readonly triggers = viewChild<ElementRef<HTMLElement>>('triggers');
+  private readonly failedAlert = viewChild<ElementRef<HTMLElement>>('failedAlert');
 
   /** The earliest day the date input should offer: the day after the current end. */
   protected readonly minEnd = computed(() => licenseMinEndDay(this.license()));
@@ -219,6 +227,10 @@ export class LicenseRowActions {
       this.announce.emit(this.announcementFor(result));
     } catch (err) {
       this.failedMessage.set(licenseErrorMessage(err));
+      // The confirm button was disabled while the request ran, which drops focus.
+      afterNextRender(() => this.failedAlert()?.nativeElement.focus(), {
+        injector: this.injector,
+      });
     } finally {
       this.pending.set(false);
     }

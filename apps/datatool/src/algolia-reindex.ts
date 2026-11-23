@@ -324,6 +324,10 @@ export async function buildVendorRecords(db: D1Database): Promise<Record<string,
   const vendorsHidden = await hasHiddenColumn(db, 'vendors');
   const hides = await activeFieldHides(db, 'vendor');
   const corrections = await vendorFactCorrections(db);
+  // The vendor's visible products: the reach rule's owned set, and the same test
+  // product_count uses.
+  const owned = `SELECT pv.product_id FROM product_vendors pv JOIN products vp ON vp.id = pv.product_id
+              WHERE pv.vendor_id = v.id AND ${visibleProductSqlIf('vp', productsHidden)}`;
   const { results } = await db
     .prepare(
       `SELECT
@@ -337,16 +341,18 @@ export async function buildVendorRecords(db: D1Database): Promise<Record<string,
          -- AECI-1238: visible products only, as the Worker's vendor rule counts them.
          (SELECT count(*) FROM product_vendors pv JOIN products vp ON vp.id = pv.product_id
             WHERE pv.vendor_id = v.id AND ${visibleProductSqlIf('vp', productsHidden)}) AS product_count,
-         -- AECI-721 / §13.5 item 6: datatool's independent copy of the VENDOR rule,
-         -- which counts what the vendor BUILT rather than reading the denormalized
-         -- product column. Both tables, or connector vendors' counts collapse.
-         -- Live rows only, in both tables (AECI-1010, AECI-1091).
-         ((SELECT count(*) FROM integrations i
-             WHERE i.built_by_vendor_id = v.id
-               AND ${liveIntegrationSqlIf('i', retiredColumn, productsHidden)})
-          + (SELECT count(*) FROM connector_evidenced_pairs cep
-             WHERE cep.built_by_vendor_id = v.id
-               AND ${liveEvidencedPairSqlIf('cep', pairsRetiredColumn, productsHidden)}))
+         -- AECI-1897 / §13.5: datatool's copy of the VENDOR REACH rule
+         -- (vendorReachCountSql in apps/api/src/lib/live-integration.ts, same text).
+         -- Distinct live delivered edges touching any of the vendor's visible
+         -- products, on both arms; the connector disjunct is option B. Top-level OR
+         -- over IN, so each leg uses its column's index (AECI-1483).
+         ((SELECT count(*) FROM integrations ri
+             WHERE (ri.source_product_id IN (${owned}) OR ri.target_product_id IN (${owned}))
+               AND ${liveIntegrationSqlIf('ri', retiredColumn, productsHidden)})
+          + (SELECT count(*) FROM connector_evidenced_pairs rep
+             WHERE (rep.product_a_id IN (${owned}) OR rep.product_b_id IN (${owned})
+                    OR rep.connector_product_id IN (${owned}))
+               AND ${liveEvidencedPairSqlIf('rep', pairsRetiredColumn, productsHidden)}))
            AS integration_count
        FROM vendors v WHERE v.promotion_status = 'promoted'
          AND ${visibleVendorSqlIf('v', vendorsHidden)}`,

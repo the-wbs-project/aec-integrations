@@ -2,6 +2,9 @@ import { ChangeDetectionStrategy, Component, computed, input } from '@angular/co
 
 import type { AgreementState } from '@aeci/shared';
 
+import { Chip, type ChipTone } from '../shared/chip/chip';
+import { AecIcon } from '../shared/icon/icon';
+
 /**
  * The agreement pill for a `data_object` claim on the pair page (Stage 1.5 §8 —
  * AECI-300; four states from `STAGE_2_ATTESTATIONS_SPEC.md` §4.3 — AECI-605).
@@ -32,7 +35,9 @@ import type { AgreementState } from '@aeci/shared';
  *   disagreement and stops there.
  *
  * Colour is never the sole signal (WCAG 1.4.1): each state carries a distinct
- * visible label and `aria-label`, and the dot/glyph is `aria-hidden`. Light
+ * visible label and its full meaning as visually hidden text, and the dot/glyph is
+ * `aria-hidden`. The meaning used to be an `aria-label` on the chip's plain span, which
+ * assistive tech may ignore (AECI-1720 restore C). Light
  * theme only (Stage 1 / AECI-226).
  *
  * This claim-agreement chip was kept distinct from the account-status label
@@ -42,32 +47,22 @@ import type { AgreementState } from '@aeci/shared';
 @Component({
   selector: 'aec-agreement-badge',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [Chip, AecIcon],
   template: `
-    <span
-      class="inline-flex items-center gap-1.5 rounded-(--radius-sm) border px-2.5 py-1
-        text-[0.75rem] font-medium tracking-[0.01em]"
-      [class]="toneClass()"
-      [attr.aria-label]="ariaLabel()"
-    >
+    <!-- AECI-1720 restore C (records/10 §2, records/11 §8, mock-up 12): the full meaning
+         is real text, visually hidden, and the visible label is aria-hidden so it is read
+         once. An aria-label on a plain span is not reliably read. -->
+    <aec-chip label [tone]="tone()">
       @if (agreement() === 'conflict') {
         <!-- A shape, not just a hue: the conflict state must survive both
              greyscale and a colour-vision deficiency. -->
-        <svg
-          aria-hidden="true"
-          class="h-3 w-3 shrink-0"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.5"
-          stroke-linecap="round"
-        >
-          <path d="M7 7l10 10M17 7L7 17" />
-        </svg>
+        <aec-icon name="x" decorative [size]="3.5" />
       } @else {
         <span aria-hidden="true" class="h-1.5 w-1.5 rounded-full" [class]="dotClass()"></span>
       }
-      {{ label() }}
-    </span>
+      <span aria-hidden="true">{{ label() }}</span>
+      <span class="sr-only" data-testid="agreement-badge-meaning">{{ ariaLabel() }}</span>
+    </aec-chip>
   `,
 })
 export class AgreementBadge {
@@ -132,17 +127,17 @@ export class AgreementBadge {
     }
   });
 
-  /** Border + ground + text per state. Only `conflict` is red; only `confirmed`
-   *  gets the Forest wash. `unverified` and `single_source` share the neutral
-   *  chip — by design, so a lone affirmation cannot read as agreement. */
-  protected readonly toneClass = computed<string>(() => {
+  /** Tone per state. Only `conflict` is red; only `confirmed` gets the Forest
+   *  wash. `unverified` and `single_source` share the neutral chip, quiet text
+   *  included, by design, so a lone affirmation cannot read as agreement. */
+  protected readonly tone = computed<ChipTone>(() => {
     switch (this.agreement()) {
       case 'confirmed':
-        return 'border-(--accent-primary) bg-(--accent-primary-soft) text-(--accent-primary)';
+        return 'wash';
       case 'conflict':
-        return 'border-(--status-error) bg-(--surface-base) text-(--status-error)';
+        return 'error';
       default:
-        return 'border-(--border-default) bg-(--surface-raised) text-(--text-secondary)';
+        return 'quiet';
     }
   });
 

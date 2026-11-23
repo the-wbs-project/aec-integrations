@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { AGREEMENT_STATES } from '../agreement';
 import { VERSION_DIFF_ACCESS, VERSION_STATUSES } from '../version-diff';
 import {
+  LinkRefSchema,
   SubjectClaimStatusSchema,
   MaintenanceSchema,
   ProductLinkSchema,
@@ -402,13 +403,57 @@ export type SyncHeadline = z.infer<typeof SyncHeadlineSchema>;
 
 /**
  * Response for `GET /api/products/:slug/integrations/:otherSlug`. Both products
- * are hydrated as `ProductListItem` (vendor, logo, review recap) so the rail
- * renders without a second fetch. `mechanisms` is `[]` for a valid-but-empty
- * pair (both products exist, no integration between them) — a 200, not a 404.
+ * are hydrated as `ProductPairSubject` (`ProductListItem` plus claim status, taxonomy
+ * and the two docs links, AECI-1822) so the rail renders without a second fetch. `mechanisms` is `[]` for a
+ * valid-but-empty pair (both products exist, no integration between them) — a 200, not a 404.
  */
+/**
+ * The subset of `ProductFieldCaptionsSchema` a pair subject carries (AECI-1827). The pair
+ * page shows no description, website, categories or usefulness, so it carries no caption
+ * for those groups.
+ */
+export const PairSubjectCaptionsSchema = z.object({
+  managed: FieldCaptionSchema.nullable(),
+  corrections: FieldCorrectionsSchema,
+});
+export type PairSubjectCaptions = z.infer<typeof PairSubjectCaptionsSchema>;
+
 /** A pair page's two subjects (AECI-1618): each keeps its logo and says if it is claimed. */
 export const ProductPairSubjectSchema = ProductListItemSchema.extend({
   claim_status: SubjectClaimStatusSchema,
+  /**
+   * AECI-1822: what the empty pair page's cards and "look it up yourself" row read.
+   * The four facets are every term the product carries, in the product page's order
+   * (`ProductDetailSchema`). `trades` is sparse by design, so `[]` is the common case.
+   * The two links are masked to `null` while AECi has them hidden (AECI-1238), exactly
+   * as on the product page. No `.default`: the API deploys before the SSR Worker.
+   */
+  categories: z.array(LinkRefSchema),
+  audiences: z.array(LinkRefSchema),
+  phases: z.array(LinkRefSchema),
+  trades: z.array(LinkRefSchema),
+  api_docs_url: z.string().url().nullable(),
+  tool_integrations_url: z.string().url().nullable(),
+  /**
+   * AECI-1827: how many rows the product's own page lists under "Integrations" and
+   * "Integrations it powers" (`countListedIntegrationRows`). The product page's facts
+   * card prints this when the stored `integration_count` is 0, because that column can
+   * lag. The empty pair page applies the same rule (`integrationsOnRecordCount`), so the
+   * two pages print the same figure. Required: the API deploys before the SSR Worker.
+   */
+  listed_integration_count: z.number().int().min(0),
+  /**
+   * AECI-1827: the captions the empty pair page needs beside the facts it shows. `managed`
+   * is the product's "Maintained by" line for the Managed group (the two links, audiences,
+   * phases and trades), built by the same function as `ProductDetail.captions.managed`.
+   * `corrections` are AECi's live corrections on the product, as on the product page, so a
+   * corrected link says "Corrected by" and a removed one "Removed by". Optional for deploy
+   * skew: absent reads as no caption.
+   */
+  captions: PairSubjectCaptionsSchema.optional(),
+  /** AECI-1827: the product fields AECi hid while it checks them (§11d.7), as on the
+   *  product page. Each is `null` above, and the page shows "Under review" in its slot. */
+  under_review: UnderReviewSchema,
 });
 export type ProductPairSubject = z.infer<typeof ProductPairSubjectSchema>;
 

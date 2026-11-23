@@ -54,7 +54,7 @@ export const routes: Routes = [
   //     Counts are LIVE, not `stats_cache` (§10).
   //   - `stats` (`homeStatsResolver`, AECI-186) — the daily `stats_cache`
   //     snapshot (`GET /api/stats/home`, AECI-179) for the credibility
-  //     row + the hero's "Popular:" row.
+  //     row + the hero's "Most viewed" row.
   // The home carries `Cache-Tag: route:index,index:home,taxonomy` (`cacheTagInputsForPath`),
   // so a taxonomy edit purges it; the daily stats snapshot needs no purge handle
   // (the §4 900s edge TTL bounds staleness). Home meta/JSON-LD is set by the
@@ -266,6 +266,15 @@ export const routes: Routes = [
   {
     path: 'welcome',
     loadComponent: () => import('./welcome/welcome').then((m) => m.WelcomePage),
+  },
+  // AECI-1637 (counsel Q63, ruling 53) — the one Terms tick box. `/auth/callback` sends a
+  // reader here only at the first sign-in after a Terms version that reduces their rights,
+  // with `?version=<v>&next=<path>`. Gated like `/welcome` (`isTermsAcceptPath` in
+  // `server-runtime.ts`), non-cacheable by the `/auth/*` rule, no resolver; the component
+  // sets `robots: noindex`.
+  {
+    path: 'auth/terms',
+    loadComponent: () => import('./auth/terms-accept').then((m) => m.TermsAcceptPage),
   },
   // Dev-only preview routes for v0.dev → Angular ports. Always registered in
   // the Angular bundle (lazy-loaded, no eager-bundle cost) but blocked at the
@@ -594,7 +603,9 @@ export const routes: Routes = [
   // tokenized `/unsubscribe?token=…` link. Deliberately NOT cacheable and NOT
   // indexed: the URL carries a per-subscriber token, so it is absent from
   // `ROUTE_CACHE_PATTERNS` + `cacheTagInputsForPath` (fail-closed `private,
-  // no-store`) and the component sets `robots: noindex`. RenderMode.Server (the
+  // no-store`) and the component sets `robots: noindex`. It is also on the
+  // never-cached list (`isNeverCacheablePath`, AECI-1848), so even a 404 is never
+  // edge-cached and the skip link's server-rendered href keeps the token. RenderMode.Server (the
   // `**` default). No resolver — the opt-out POSTs to `/api/unsubscribe` only on
   // the confirm click (a GET must never mutate). Not linked from site nav.
   {
@@ -604,7 +615,8 @@ export const routes: Routes = [
   // AECI-1435 — the confirm page behind the claim-confirm email
   // (`/claims/confirm?token=…`, ADR 0043). Same rules as `/unsubscribe`: NOT
   // cacheable (absent from `ROUTE_CACHE_PATTERNS`, fail-closed `private, no-store`),
-  // noindex, no resolver, and it POSTs to `/api/requests/confirm` only on the confirm
+  // never-cached even on a 404 (AECI-1848), noindex, no resolver, and it POSTs to
+  // `/api/requests/confirm` only on the confirm
   // click, because mail scanners prefetch links. Not linked from nav.
   {
     path: 'claims/confirm',
@@ -613,7 +625,8 @@ export const routes: Routes = [
   // AECI-1204 — the confirm page for the "Mute the daily reminder email" link in the daily
   // attestation digest (`/notifications/mute?token=…`). Same rules as
   // `/unsubscribe`: NOT cacheable (absent from `ROUTE_CACHE_PATTERNS`, fail-closed
-  // `private, no-store`), noindex, no resolver, and it POSTs to
+  // `private, no-store`), never-cached even on a 404 (AECI-1848), noindex, no
+  // resolver, and it POSTs to
   // `/api/notifications/nudges/mute` only on the confirm click. Not linked from nav.
   {
     path: 'notifications/mute',

@@ -637,7 +637,17 @@ two distinct vendors.
   the product-detail integrations table's `context_direction` (`effectiveContextDirection`,
   `packages/shared/src/integration-context.ts`) — a **denied** claim must not keep contributing its
   direction to the table, or the table and the pair page contradict each other again (the bug
-  `STAGE_1_5_SPEC.md` §7.1 already had to fix once).
+  `STAGE_1_5_SPEC.md` §7.1 already had to fix once). **Since AECI-1781** the product-detail row
+  also carries `agreement`. **Ruling 2026-11-14 (Chris, asked on AECI-1781): "A".** The weakest flow
+  decides. The claims are rolled up by `integrationAgreement` (`packages/shared/src/agreement.ts`).
+  Any `conflict` makes the row `conflict`. Otherwise the row reads `confirmed` only when every flow
+  it lists is confirmed by both companies. A flow every voting company denied is left out of the
+  roll-up, as it is out of the depth axis. A row at `single_source` names no vendor, so its card
+  says "Confirmed by one company". The attributed "Confirmed by {vendor}" form above is for a
+  single claim. The row-level roll-up uses the unattributed copy. The state is a label only:
+  nothing sorts or filters by it. A claim marked `removed` on a versioned pair still counts on the
+  product row, as `data_object_slugs` has since AECI-711. That is existing behaviour, not part of
+  the ruling. The four states and the per-claim engine are unchanged.
 
 - **The provenance disclosure renders no note at all** (AECI-1139, superseding AECI-779's
   vendor-note carve-out). **Ruling 2026-09-28 (Chris): "No notes at all."** No attestation note is
@@ -2055,8 +2065,8 @@ brought forward to match. Decisions taken at build that §8.1–§8.3 did not pr
 
 ### 9.2 Two things that are easy to miss
 
-- **Cache key.** The selectors are **content-affecting URL params**, so they must be added to the
-  pair route's `cacheKeyParams` in `apps/web/src/server-runtime.ts` — exactly as `?view` was for
+- **Cache key.** The selectors are **content-affecting URL params**, so they belong in
+  `PAIR_PAGE_CACHE_KEY_PARAMS` in `apps/web/src/app/core/route-cache-key.ts` — exactly as `?view` was for
   the Basic/Detailed toggle (`STAGE_1_5_SPEC.md` §8, `CACHE_STRATEGY.md` §4a). Omitting this
   serves one visitor's version selection to everyone.
 - **SEO.** A non-default version selection must be **`noindex`** and canonicalise to the default

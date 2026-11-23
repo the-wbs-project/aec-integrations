@@ -42,7 +42,7 @@
         "datadogMonitor": "AECi — Worker error rate > 1% (5m)",
         "datadogQuery": "sum(last_5m):( ( count:aeci.page.render.duration_ms{status_class:5xx,env:production} + count:aeci.api.query.duration_ms{status_class:5xx,env:production} ) / ( count:aeci.page.render.duration_ms{env:production} + count:aeci.api.query.duration_ms{env:production} ) ) * 100 > 1"
       },
-      "runbook": "docs/runbooks/alerts.md — 'Worker error rate high'."
+      "runbook": "docs/runbooks/alerts.md — 'High Worker error rate'."
     },
     {
       "key": "cron-job-failed",
@@ -101,7 +101,7 @@
         "datadogMonitor": "AECi — Data quality check found ERROR-severity issues (by check)",
         "datadogQuery": "max(last_1d):max:aeci.data_quality.check{env:production,severity:error} by {check} > 0"
       },
-      "runbook": "docs/runbooks/alerts.md — 'Data quality check'. Report-only: humans triage, nothing auto-remediates."
+      "runbook": "docs/runbooks/alerts.md — 'Data quality job failed or not running'. Report-only: humans triage, nothing auto-remediates."
     },
     {
       "key": "retention-runaway",
@@ -130,7 +130,7 @@
         "datadogMonitor": "AECi — Retention prune deleted an unexpected number of rows",
         "datadogQuery": "sum(last_1d):sum:aeci.retention.rows_deleted{env:production} by {table}.as_count() > 5000"
       },
-      "runbook": "docs/runbooks/alerts.md — 'Retention prune'. §7.4: a runaway must be visible HERE before it is visible as missing data."
+      "runbook": "docs/runbooks/alerts.md — 'Retention prune skipped, failed, or not running'. §7.4: a runaway must be visible HERE before it is visible as missing data."
     },
     {
       "key": "reconcile-persistent-stuck",
@@ -159,7 +159,7 @@
         "datadogMonitor": "AECi — Linear reconciliation: persistent stuck requests",
         "datadogQuery": "sum(last_1h):sum:aeci.linear.reconcile.persistent_failure{env:production}.as_count() > 0"
       },
-      "runbook": "docs/runbooks/alerts.md — 'Linear reconciliation'. §6.2 admin alert email is the parallel channel."
+      "runbook": "docs/runbooks/alerts.md — 'Linear reconciliation — stuck requests'. §6.2 admin alert email is the parallel channel."
     },
     {
       "key": "algolia-orphan-cap",
@@ -188,7 +188,7 @@
         "datadogMonitor": "AECi — Algolia orphan sweep capped",
         "datadogQuery": "max(last_1d):max:aeci.algolia.orphans_skipped_cap{env:production} by {index} > 0"
       },
-      "runbook": "docs/runbooks/alerts.md — 'Algolia index drift / orphan sweep'. Either raise DEFAULT_SAFETY_CAP deliberately or find out why the index diverged that far."
+      "runbook": "docs/runbooks/alerts.md — 'Algolia index drift'. Either raise DEFAULT_SAFETY_CAP deliberately or find out why the index diverged that far."
     },
     {
       "key": "auth-error-rate",
@@ -217,7 +217,7 @@
         "datadogMonitor": "AECi — Auth sign-in error rate > 30% (15m)",
         "datadogQuery": "sum(last_15m):( sum:aeci.auth.signin{outcome:failed,env:production}.as_count() / sum:aeci.auth.signin{env:production}.as_count() ) * 100 > 30"
       },
-      "runbook": "docs/runbooks/alerts.md — 'Auth sign-in error rate'. Check the `reason` breakdown on the Auth board: link_invalid / missing_code / auth_not_configured point at three different causes."
+      "runbook": "docs/runbooks/alerts.md — 'Auth sign-in error-rate spike'. Check the `reason` breakdown on the Auth board: link_invalid / missing_code / auth_not_configured point at three different causes."
     },
     {
       "key": "toxicity-outage",
@@ -275,7 +275,7 @@
         "datadogMonitor": "AECi — page_views write error rate > 10% (10m)",
         "datadogQuery": "sum(last_10m):( sum:aeci.pageviews.write{outcome:failed,env:production}.as_count() / sum:aeci.pageviews.write{env:production}.as_count() ) * 100 > 10"
       },
-      "runbook": "docs/runbooks/alerts.md — 'page_views write errors'. Traffic keeps serving; the admin panel's traffic screen under-reports."
+      "runbook": "docs/runbooks/alerts.md — 'Page-view writes failing'. Traffic keeps serving; the admin panel's traffic screen under-reports."
     },
     {
       "key": "pageviews-raw-unsent",
@@ -395,7 +395,7 @@
         "datadogMonitor": "AECi — Linear pipeline failure rate > 50% (1h)",
         "datadogQuery": "sum(last_1h):( sum:aeci.linear.issue{outcome:failed,env:production}.as_count() + sum:aeci.linear.sync{outcome:failed,env:production}.as_count() ) / ( sum:aeci.linear.issue{!outcome:skipped_exists,env:production}.as_count() + sum:aeci.linear.sync{!outcome:skipped_no_issue,env:production}.as_count() ) * 100 > 50"
       },
-      "runbook": "docs/runbooks/alerts.md — 'Linear pipeline failure'. The every-15-minute reconciliation sweep is the backstop; this alert says the backstop is doing all the work."
+      "runbook": "docs/runbooks/alerts.md — 'Linear pipeline failure (issue creation / sync)'. The every-15-minute reconciliation sweep is the backstop; this alert says the backstop is doing all the work."
     },
     {
       "key": "webhook-hmac-failure",
@@ -453,7 +453,7 @@
         "datadogMonitor": "AECi — WAF rate-limit / challenge spike (15m)",
         "datadogQuery": "sum(last_15m):sum:aeci.waf.ratelimit.blocked{env:production}.as_count() > 500"
       },
-      "runbook": "docs/waf-rate-limits.md for the rule expressions; docs/runbooks/alerts.md — 'WAF rate-limit spike'."
+      "runbook": "docs/waf-rate-limits.md for the rule expressions; docs/runbooks/alerts.md — 'WAF rate-limit / challenge spike'."
     },
     {
       "key": "detail-render-p95",
@@ -695,7 +695,7 @@
         "datadogQuery": null,
         "_note": "NEW with AECI-1206, no Datadog predecessor. outcome:suppressed is the AECI-1198 tier delivery gate refusing an outside recipient. The gate applies to non-production tiers only, and only production reports to this project, so any count means the gate misread the tier and a real recipient got nothing. Production had never emitted the outcome as of 2026-10-01; it did not exist before this epic."
       },
-      "runbook": "docs/email.md §Tier delivery policy."
+      "runbook": "docs/email.md — 'Tier delivery policy (AECI-1198)'."
     },
     {
       "key": "email-bounce-rate",
@@ -726,7 +726,7 @@
         "datadogQuery": null,
         "_note": "NEW with AECI-1222, no Datadog predecessor. INITIAL threshold set before any delivery data existed. Re-tune after 14 days of production data. Not applied to PostHog by AECI-1222: apply.sh is run by hand."
       },
-      "runbook": "docs/email.md \u00a7Delivery webhooks (what each event means, how to read notification_delivery_events); the Resend dashboard for the bounce or complaint itself."
+      "runbook": "docs/email.md — 'Delivery webhooks (AECI-1222)' (what each event means, how to read notification_delivery_events); the Resend dashboard for the bounce or complaint itself."
     },
     {
       "key": "email-complaint-rate",
@@ -757,7 +757,7 @@
         "datadogQuery": null,
         "_note": "NEW with AECI-1222, no Datadog predecessor. INITIAL threshold set before any delivery data existed: at today's volume any complaint fires. Re-tune after 14 days of production data. Not applied to PostHog by AECI-1222: apply.sh is run by hand."
       },
-      "runbook": "docs/email.md \u00a7Delivery webhooks (what each event means, how to read notification_delivery_events); the Resend dashboard for the bounce or complaint itself."
+      "runbook": "docs/email.md — 'Delivery webhooks (AECI-1222)' (what each event means, how to read notification_delivery_events); the Resend dashboard for the bounce or complaint itself."
     }
   ]
 }

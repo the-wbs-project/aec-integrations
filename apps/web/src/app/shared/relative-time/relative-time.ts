@@ -3,6 +3,7 @@ import { formatDate } from '@angular/common';
 import { Component, DestroyRef, LOCALE_ID, computed, inject, input, signal } from '@angular/core';
 
 import { relativeSpan } from './relative-time-format';
+import { AecIcon } from '../icon/icon';
 
 /**
  * A timestamp rendered compactly ("4h", "2d") with the exact instant one hover
@@ -43,7 +44,7 @@ import { relativeSpan } from './relative-time-format';
  */
 @Component({
   selector: 'aec-relative-time',
-  imports: [OverlayModule],
+  imports: [AecIcon, OverlayModule],
   templateUrl: './relative-time.html',
   host: { class: 'inline-flex items-center gap-1 whitespace-nowrap' },
 })

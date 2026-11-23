@@ -229,6 +229,7 @@ import {
   emitRetentionPruneMetrics,
   resolveRetentionWindows,
   runRetentionPrune,
+  runRetentionPruneWithReplan,
   RETENTION_RUN_METRIC,
   type RetentionMetricSink,
 } from './lib/retention-prune';
@@ -1597,6 +1598,10 @@ async function runAcceptanceChainJob(
  *     stops the prune from running: the gate is what protects the data. The gate
  *     is on when the bucket is bound, and in production always, so a production
  *     deploy that lost the binding refuses to prune instead of pruning unarchived.
+ *   - **A lost race replans, never fails** (AECI-1917). Count sentinels abort the batch
+ *     when an overlapping run deleted the planned rows first. The library replans once
+ *     (`runRetentionPruneWithReplan`), and a second loss is `skipped` with
+ *     `reason: concurrent_run`, logged at warn.
  */
 async function runRetentionPruneJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
   const req = cronRequest('/cron/retention-prune');
@@ -1629,7 +1634,8 @@ async function runRetentionPruneJob(env: Env, ctx: ExecutionContext): Promise<Jo
   const started = Date.now();
   let result: Awaited<ReturnType<typeof runRetentionPrune>>;
   try {
-    result = await runRetentionPrune(db, now, windows, { archiveRequired });
+    // AECI-1917: a plan that loses a race is replanned once; a second loss is `concurrent_run`.
+    result = await runRetentionPruneWithReplan(db, now, windows, { archiveRequired });
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     submitCount(ctx, env, req, RETENTION_RUN_METRIC, 1, ['trigger:cron', 'outcome:failed']);
@@ -1644,6 +1650,26 @@ async function runRetentionPruneJob(env: Env, ctx: ExecutionContext): Promise<Jo
 
   const durationMs = Date.now() - started;
   emitRetentionPruneMetrics(metricSink(ctx, env, req), result, durationMs);
+
+  if (result.status === 'skipped' && result.reason === 'concurrent_run') {
+    // Another run deleted the planned rows first. Nothing is wrong with the data, so a
+    // warning, not the gate skip's error.
+    logToPosthog(ctx, env, req, {
+      level: 'warn',
+      message: 'aeci.retention.skipped reason=concurrent_run',
+      source: 'retention-prune-cron',
+      reason: result.reason,
+    });
+    return {
+      outcome: 'skipped',
+      detail: {
+        job: 'retention-prune',
+        reason: result.reason,
+        tables: result.tables,
+        archive: archiveDetail,
+      },
+    };
+  }
 
   if (result.status === 'skipped') {
     logToPosthog(ctx, env, req, {
@@ -1700,6 +1726,7 @@ async function runRetentionPruneJob(env: Env, ctx: ExecutionContext): Promise<Jo
       rowsDeleted: result.rowsDeleted,
       tables: result.tables,
       archive: archiveDetail,
+      ...(result.replanned ? { replanned: true } : {}),
     },
   };
 }
@@ -3304,7 +3331,8 @@ function queueForJob(
       // it must not have. A run that was skipped, truncated, or died mid-batch is
       // re-attempted tomorrow by the cron, from a re-probed cutoff — never
       // replayed against state it may already have changed. No `RETENTION_QUEUE`
-      // binding exists.
+      // binding exists. A run that overlaps another anyway (a duplicate fire, a
+      // pushed message) is caught by the prune's count sentinels (AECI-1917).
       return QUEUE_LESS;
     case 'entitlement_expiry':
       // Queue-less like `moderation`/`waf`/`analytics` (AECI-613 / §7.1): one

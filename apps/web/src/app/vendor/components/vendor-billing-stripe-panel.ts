@@ -46,6 +46,7 @@ import {
 } from '../../shared/form-field/form-field-classes';
 import { formatTermDate } from '../../shared/term-date/format-term-date';
 import { VendorApi } from '../vendor-api';
+import { focusIsLost } from '../focus-is-lost';
 import { formatPlanPrice } from '../vendor-plan';
 import { VendorPortalStore } from '../vendor-portal-store';
 import {
@@ -54,6 +55,7 @@ import {
   type StripeBillingError,
 } from './vendor-billing-stripe-errors';
 import { VendorBillingStripeWatch, liveLicenseCount } from './vendor-billing-stripe-watch';
+import { isReplayedEvent } from '../../core/event-replay';
 import { VendorBillingUnusedWarning } from './vendor-billing-unused-warning';
 
 /** Per-license price in cents, by interval. Display only: Stripe bills from its own
@@ -238,9 +240,10 @@ function parseQuantity(text: string): number | null {
           </p>
         }
 
-        <brn-dialog (closed)="onAddClosed()">
+        <brn-dialog [role]="'alertdialog'" [autoFocus]="'first-heading'" (closed)="onAddClosed()">
           <ng-template brnDialogContent>
             <form
+              method="dialog"
               novalidate
               class="max-h-[85vh] w-[min(92vw,30rem)] overflow-y-auto rounded-(--radius-lg) border border-(--border-default) bg-(--surface-base) p-6 text-(--text-primary) md:p-8"
               data-testid="stripe-add-dialog"
@@ -248,7 +251,8 @@ function parseQuantity(text: string): number | null {
             >
               <h2
                 brnDialogTitle
-                class="font-display text-xl font-semibold text-(--text-primary)"
+                tabindex="-1"
+                class="font-display text-xl font-semibold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                 i18n="@@vendor.billing.stripe.add.heading"
               >
                 Add subscriptions
@@ -259,8 +263,8 @@ function parseQuantity(text: string): number | null {
                 i18n="@@vendor.billing.stripe.add.intro"
               >
                 New subscriptions join your Stripe plan and are billed on the same schedule, at
-                {{ unitPriceLabel() }} per subscription. Stripe charges your card now for the rest
-                of the current period, pro-rated, plus tax where applicable.
+                {{ unitPriceLabel() }}. Stripe charges your card now for the rest of the current
+                period, pro-rated, plus tax where applicable.
               </p>
               <div class="mt-6 space-y-1.5">
                 <label
@@ -361,7 +365,7 @@ function parseQuantity(text: string): number | null {
           If you want subscriptions of your own, you can pay for them by card through Stripe. Each
           subscription puts one product on Managed.
         </p>
-        <form novalidate class="mt-4 space-y-6" (submit)="checkout($event)">
+        <form method="dialog" novalidate class="mt-4 space-y-6" (submit)="checkout($event)">
           <fieldset>
             <legend [class]="labelClass" i18n="@@vendor.billing.stripe.interval.legend">
               Billing period
@@ -802,6 +806,7 @@ export class VendorBillingStripePanel {
   }
 
   protected async checkout(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.busy()) return;
     this.panelError.set(null);
@@ -879,6 +884,7 @@ export class VendorBillingStripePanel {
   }
 
   protected async add(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.busy()) return;
     const quantity = parseQuantity(this.addQuantity());
@@ -953,7 +959,7 @@ export class VendorBillingStripePanel {
       () => {
         const doc = this.host.nativeElement.ownerDocument;
         const active = doc.activeElement;
-        const lost = !active || active === doc.body || !active.isConnected;
+        const lost = focusIsLost(doc);
         if (fromDialog || lost || this.host.nativeElement.contains(active)) {
           this.panelErrorEl()?.nativeElement.focus();
         }

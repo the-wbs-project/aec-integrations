@@ -25,6 +25,8 @@ import {
   auditLog,
   agreementAcceptances,
   billingAccounts,
+  legalNoticeDeliveries,
+  legalVersions,
   licenseGrants,
   licenseReleaseRequests,
   licenses,
@@ -292,6 +294,10 @@ describe('GET /api/admin/vendors/:id/billing', () => {
       release_requests: [],
       grants: [],
       grants_truncated: false,
+      policy_versions: [
+        expect.objectContaining({ policy: 'listing_accuracy', version: null, basis: 'none' }),
+        expect.objectContaining({ policy: 'review_guidelines', version: null, basis: 'none' }),
+      ],
     });
     // No account to show seats on: GoTrue is not asked.
     expect(fetchEmails).not.toHaveBeenCalled();
@@ -390,6 +396,137 @@ describe('GET /api/admin/vendors/:id/billing', () => {
     const { status, body } = await call(uuid(999));
     expect(status).toBe(404);
     expect((body as { error: { code: string } }).error.code).toBe('NOT_FOUND');
+  });
+});
+
+// AECI-1969 (counsel Q68, ruling 54): which policy version the company is on.
+describe('GET /api/admin/vendors/:id/billing: policy_versions', () => {
+  const MOMENT = Date.parse('2027-01-15T12:00:00.000Z');
+  async function callAt(nowMs: number) {
+    const app = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+    app.onError(errorHandler());
+    app.get(
+      '/api/admin/vendors/:id/billing',
+      createAdminVendorBillingHandler(t.factory, fetchEmails as never, () => new Date(nowMs)),
+    );
+    const res = await app.fetch(
+      new Request(`http://x/api/admin/vendors/${VENDOR}/billing`),
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(200);
+    return AdminVendorBillingResponseSchema.parse(await res.json()).policy_versions;
+  }
+  const version = (id: string, document: string) => ({
+    id,
+    document,
+    version: '1.1',
+    effectiveAt: MOMENT,
+    summaryJson: '["A change."]',
+    material: true,
+    requiresAcceptance: false,
+    pdfKey: `legal/${document}/v1.1.pdf`,
+    pdfSha256: 'a'.repeat(64),
+    pdfBytes: 10,
+    publishedBy: ADMIN_USER,
+    publishedAt: '2026-12-01T00:00:00.000Z',
+  });
+
+  it('is the claim version, then moves only where the email reached the company', async () => {
+    await t.db.insert(agreementAcceptances).values({
+      id: uuid(960),
+      document: 'vendor_terms',
+      version: LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms,
+      source: 'claim',
+      email: 'olive@acme.example',
+      vendorId: VENDOR,
+      acceptedAt: '2026-11-20T00:00:00.000Z',
+      listingAccuracyVersion: '1.0',
+      reviewGuidelinesVersion: '1.0',
+    });
+    await t.db
+      .insert(legalVersions)
+      .values([version(uuid(970), 'listing_accuracy'), version(uuid(971), 'review_guidelines')]);
+    const ts = '2026-12-02T00:00:00.000Z';
+    await t.db.insert(legalNoticeDeliveries).values([
+      {
+        legalVersionId: uuid(970),
+        vendorId: VENDOR,
+        status: 'delivered',
+        createdAt: ts,
+        updatedAt: ts,
+      },
+      {
+        legalVersionId: uuid(971),
+        vendorId: VENDOR,
+        status: 'dropped',
+        createdAt: ts,
+        updatedAt: ts,
+      },
+      // Another company's delivery never counts for this one.
+      {
+        legalVersionId: uuid(971),
+        vendorId: OTHER_VENDOR,
+        status: 'delivered',
+        createdAt: ts,
+        updatedAt: ts,
+      },
+    ]);
+
+    const before = await callAt(MOMENT - 1);
+    expect(before.map((p) => [p.policy, p.version, p.basis, p.upcoming?.delivered])).toEqual([
+      ['listing_accuracy', '1.0', 'acceptance', true],
+      ['review_guidelines', '1.0', 'acceptance', false],
+    ]);
+
+    const after = await callAt(MOMENT);
+    expect(after[0]).toMatchObject({
+      policy: 'listing_accuracy',
+      version: '1.1',
+      basis: 'notice',
+      since: new Date(MOMENT).toISOString(),
+      notice_delivered_at: ts,
+      missed_versions: [],
+    });
+    expect(after[1]).toMatchObject({
+      policy: 'review_guidelines',
+      version: '1.0',
+      basis: 'acceptance',
+      missed_versions: ['1.1'],
+    });
+  });
+
+  it('reads a later portal acceptance of the Vendor Terms, and skips a claim that recorded none', async () => {
+    const row = (id: string, source: string, acceptedAt: string, la?: string) => ({
+      id,
+      document: 'vendor_terms',
+      version: LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms,
+      source,
+      email: 'olive@acme.example',
+      vendorId: VENDOR,
+      acceptedAt,
+      ...(la ? { listingAccuracyVersion: la, reviewGuidelinesVersion: '1.0' } : {}),
+    });
+    await t.db.insert(agreementAcceptances).values([
+      row(uuid(961), 'claim', '2026-11-20T00:00:00.000Z', '1.0'),
+      row(uuid(962), 'portal', '2027-02-01T00:00:00.000Z', '1.1'),
+      // Newest, but it recorded no policy version (older than the columns).
+      row(uuid(963), 'claim', '2027-03-01T00:00:00.000Z'),
+    ]);
+    const out = await callAt(MOMENT);
+    expect(out[0]).toMatchObject({
+      version: '1.1',
+      basis: 'acceptance',
+      since: '2027-02-01T00:00:00.000Z',
+    });
+  });
+
+  it('says nothing is recorded for a company with no claim and no notice', async () => {
+    const out = await callAt(MOMENT);
+    expect(out.map((p) => [p.policy, p.version, p.basis])).toEqual([
+      ['listing_accuracy', null, 'none'],
+      ['review_guidelines', null, 'none'],
+    ]);
   });
 });
 

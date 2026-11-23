@@ -29,6 +29,9 @@ const baseIntegration: ProductIntegrationItem = {
   via: null,
   powered_by_product: null,
   data_object_slugs: [],
+  data_objects: [],
+  partner_categories: [],
+  agreement: null,
   created_at: '2024-03-01T00:00:00.000Z',
   updated_at: '2024-06-15T00:00:00.000Z',
 };
@@ -66,6 +69,18 @@ function setup(overrides: Partial<Host> = {}) {
 }
 
 describe('ProductIntegrationRow', () => {
+  // AECI-1769: the partner is a `ProductLink`, whose logo the API withholds while the
+  // partner is unclaimed (AECI-1618). The row renders exactly what it is sent.
+  it('shows the partner initial tile when unclaimed and its logo when claimed', () => {
+    const unclaimed = setup({ other: signal<ProductLink>({ ...OTHER, logo_url: null }) });
+    expect(unclaimed.el.querySelector('aec-logo-or-initial img')).toBeNull();
+    TestBed.resetTestingModule();
+    const claimed = setup({
+      other: signal<ProductLink>({ ...OTHER, logo_url: 'https://cdn.example.com/bim.png' }),
+    });
+    expect(claimed.el.querySelector('aec-logo-or-initial img')).not.toBeNull();
+  });
+
   it('links the partner product name to the partner product page', () => {
     const { el } = setup();
     const link = el.querySelector('a[href="/products/autodesk-bim-360"]');
@@ -146,34 +161,63 @@ describe('ProductIntegrationRow', () => {
   // under the partner name, which is the FIRST cell. The row is now two content
   // cells + the trailing nav chevron, so these assertions read cells[0] for
   // both the partner and the direction, and cells[1] for the connection.
-  it('renders "Outbound" in the partner cell meta line when data leaves this product', () => {
+  it('renders "Sends to {partner}" in the partner cell meta line when data leaves this product', () => {
     const { el } = setup();
     const cells = el.querySelectorAll('td');
-    expect(cells[0]?.textContent).toContain('Outbound');
+    expect(cells[0]?.textContent).toContain('Sends to Autodesk BIM 360');
+    expect(cells[0]?.textContent).not.toContain('Outbound');
     expect(cells[0]?.textContent).toContain('→');
   });
 
-  it('renders "Inbound" when data arrives from the other product', () => {
+  it('renders "Receives from {partner}" when data arrives from the other product', () => {
     const { el } = setup({
       integration: signal({ ...baseIntegration, context_direction: 'inbound' }),
     });
     const cells = el.querySelectorAll('td');
-    expect(cells[0]?.textContent).toContain('Inbound');
+    expect(cells[0]?.textContent).toContain('Receives from Autodesk BIM 360');
     expect(cells[0]?.textContent).toContain('←');
   });
 
-  it('renders "Both" with the ⇄ glyph for a bidirectional flow', () => {
+  it('renders "Syncs both ways" with the ⇄ glyph for a bidirectional flow', () => {
     const { el } = setup({
       integration: signal({ ...baseIntegration, context_direction: 'both' }),
     });
     const cells = el.querySelectorAll('td');
-    expect(cells[0]?.textContent).toContain('Both');
+    expect(cells[0]?.textContent).toContain('Syncs both ways');
     expect(cells[0]?.textContent).toContain('⇄');
   });
 
-  it('renders exactly two content cells plus the trailing chevron (no Direction column)', () => {
+  it('renders three content cells plus the trailing chevron (no Direction column)', () => {
+    // AECI-1720 added the partner's categories (from lg) between the partner and the
+    // connection. Direction stays folded into the partner cell.
     const { el } = setup();
-    expect(el.querySelectorAll('td').length).toBe(3);
+    expect(el.querySelectorAll('td').length).toBe(4);
+  });
+
+  it('prints the partner vendor and the categories, and the agreement label in the connection cell (AECI-1720)', () => {
+    const { el } = setup({
+      integration: signal({
+        ...baseIntegration,
+        partner_vendor_name: 'Autodesk',
+        partner_categories: [{ slug: 'bim', name: 'BIM' }],
+        agreement: 'confirmed' as const,
+      }),
+    });
+    const cells = el.querySelectorAll('td');
+    expect(cells[0]!.querySelector('[data-testid="row-vendor"]')?.textContent?.trim()).toBe(
+      'by Autodesk',
+    );
+    expect(cells[1]!.textContent).toContain('BIM');
+    expect(cells[2]!.querySelector('aec-agreement-badge')?.textContent).toContain(
+      'Confirmed by both companies',
+    );
+  });
+
+  it('says a partner has no category in words for assistive tech, and drops a missing vendor line', () => {
+    const { el } = setup();
+    const cells = el.querySelectorAll('td');
+    expect(cells[1]!.querySelector('.sr-only')?.textContent).toContain('No category on record');
+    expect(el.querySelector('[data-testid="row-vendor"]')).toBeNull();
   });
 
   // AECI-919. The trailing cell used to render a literal "\u2192", the same character
@@ -182,7 +226,7 @@ describe('ProductIntegrationRow', () => {
   // Lucide chevron-right and carries no direction vocabulary at all.
   it('renders the nav affordance as a chevron, never a direction arrow', () => {
     const { el } = setup();
-    const nav = el.querySelectorAll('td')[2]!;
+    const nav = el.querySelectorAll('td')[3]!;
 
     expect(nav.textContent).not.toContain('\u2192');
     expect(nav.textContent).not.toContain('\u2190');
@@ -202,18 +246,18 @@ describe('ProductIntegrationRow', () => {
     const { el } = setup();
     const cells = el.querySelectorAll('td');
     expect(cells[0]?.textContent).toContain('\u2192');
-    expect(cells[2]?.textContent).not.toContain('\u2192');
+    expect(cells[3]?.textContent).not.toContain('\u2192');
   });
 
   it('keeps the direction in the same cell as the partner name', () => {
     const { el } = setup();
     const partnerCell = el.querySelector('td')!;
     expect(partnerCell.querySelector('a[href="/products/autodesk-bim-360"]')).not.toBeNull();
-    expect(partnerCell.textContent).toContain('Outbound');
+    expect(partnerCell.textContent).toContain('Sends to Autodesk BIM 360');
   });
 
   // The <th> that named this value is gone, so the sr-only prefix is the only
-  // thing left telling a screen reader what "Outbound" is a property OF.
+  // thing left telling a screen reader what "Sends to …" is a property OF.
   it('labels the direction for assistive tech with an sr-only prefix', () => {
     const { el } = setup();
     const prefix = [...el.querySelectorAll('span.sr-only')].find((s) =>
@@ -225,8 +269,8 @@ describe('ProductIntegrationRow', () => {
   it('renders the mechanism_kind badge and mechanism_name in the connection cell', () => {
     const { el } = setup();
     const cells = el.querySelectorAll('td');
-    expect(cells[1]?.textContent).toContain('API');
-    expect(cells[1]?.textContent).toContain('REST connector');
+    expect(cells[2]?.textContent).toContain('API');
+    expect(cells[2]?.textContent).toContain('REST connector');
   });
 
   it('renders an en-dash placeholder when the context direction is unknown', () => {
@@ -334,7 +378,8 @@ describe('ProductIntegrationRow without field captions (AECI-1666)', () => {
     expect(el.querySelector('aec-field-caption')).toBeNull();
     expect(el.textContent).not.toContain('Maintained by');
     expect(el.textContent).not.toContain('Removed by');
-    expect(el.querySelectorAll('td')).toHaveLength(3);
+    // The redesign's row keeps its four cells (AECI-1781).
+    expect(el.querySelectorAll('td')).toHaveLength(4);
   });
 });
 

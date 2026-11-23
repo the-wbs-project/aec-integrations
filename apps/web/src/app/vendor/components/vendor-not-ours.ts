@@ -24,6 +24,8 @@ import { VendorPortalStore } from '../vendor-portal-store';
 
 import { NO_OWNER } from './vendor-contest-form';
 import { contestSubmitErrorMessage } from './vendor-contest-labels';
+import { isReplayedEvent } from '../../core/event-replay';
+import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
 
 /**
  * The caller's newest "not ours" on one row (AECI-1225): an `owner` contest it filed
@@ -141,6 +143,7 @@ export function selfDisclaimStands(contest: VendorContest | null): boolean {
 
     @if (open()) {
       <form
+        method="dialog"
         [id]="fieldId('panel')"
         class="mt-3 max-w-2xl space-y-4 rounded-(--radius-md) border border-(--border-default) p-4"
         novalidate
@@ -221,11 +224,7 @@ export function selfDisclaimStands(contest: VendorContest | null): boolean {
             Required. Say who offers it if you know, and link to a source if you have one.
           </p>
           @if (showReasonError()) {
-            <p
-              [id]="fieldId('reason') + '-error'"
-              role="alert"
-              class="text-xs font-medium text-(--text-primary)"
-            >
+            <p [id]="fieldId('reason') + '-error'" role="alert" [class]="errorClass">
               {{ reasonRequiredMessage }}
             </p>
           }
@@ -258,6 +257,8 @@ export function selfDisclaimStands(contest: VendorContest | null): boolean {
   `,
 })
 export class VendorNotOurs {
+  /** A field's inline error: the shared recipe (AECI-1984). */
+  protected readonly errorClass = FIELD_ERROR_CLASS;
   private readonly api = inject(VendorApi);
   private readonly store = inject(VendorPortalStore);
   private readonly announcer = inject(VendorPortalAnnouncer);
@@ -334,6 +335,7 @@ export class VendorNotOurs {
   }
 
   protected async onSubmit(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.submitting()) return;
     this.attempted.set(true);

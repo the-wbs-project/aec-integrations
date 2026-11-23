@@ -65,8 +65,9 @@
  *
  * 404s on a non-cacheable path are the one exception (AECI-62): they get
  * `NOT_FOUND_TTL` + `route:404`. That exception skips `/auth`, `/account`,
- * `/welcome`, `/admin`, `/vendor` and `/search` (`isNeverCacheablePath`,
- * AECI-1442): a 404 there stays `private, no-store`.
+ * `/welcome`, `/admin`, `/vendor`, `/search` and the email token pages
+ * (`isNeverCacheablePath`, AECI-1442, AECI-1848): a 404 there stays
+ * `private, no-store`.
  *
  * Locale prefixes from `LOCALES` are stripped before classification so the
  * matcher table stays single-source as locales are added. The `LOCALES`
@@ -110,7 +111,19 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 
 import { ACCESSIBILITY_STATEMENT_PUBLISHED } from './app/accessibility/accessibility-published';
-import { LISTING_CACHE_KEY_PARAMS } from './app/core/listing-cache-key-params';
+import {
+  cacheKeyParamsForPath,
+  cacheKeyQuery,
+  isAdminPath,
+  isAudiencesPath,
+  isCategoriesPath,
+  isNeverCacheablePath,
+  isPairPagePath,
+  isPhasesPath,
+  isProductsIndexPath,
+  isTradesPath,
+  isVendorPath,
+} from './app/core/route-cache-key';
 import { nextLegalEffectiveMomentMs } from './app/legal/legal-in-force-state';
 import { LEGAL_UPCOMING, type LegalUpcomingEntry } from './app/legal/legal-manifest';
 import { LEGAL_NOTICES, nextLegalNoticeBoundaryMs } from './app/legal/legal-notices';
@@ -123,7 +136,11 @@ import { buildRobotsTxt } from './server/robots';
 import { NOINDEX_DIRECTIVE, indexingAllowed, pathForcesNoindex } from './server/robots-policy';
 import { applySecurityHeaders, applySeoHeaders } from './server/seo-headers';
 import { createAdminPurgeHandler } from './server/routes/admin-purge';
-import { createAuthCallbackHandler, signInReturnPath } from './server/routes/auth-callback';
+import {
+  createAuthCallbackHandler,
+  signInReturnPath,
+  termsAcceptSignInReturnPath,
+} from './server/routes/auth-callback';
 import { refreshSessionCookies, withRefreshedCookies } from './server/auth/session-refresh';
 import { createAuthWhoamiHandler } from './server/routes/auth-whoami';
 import { createIndexNowKeyHandler } from './server/routes/indexnow-key';
@@ -242,15 +259,25 @@ export function isWelcomePath(localePath: string): boolean {
 }
 
 /**
+ * Matches the Terms tick-box page `/auth/terms` (AECI-1637, ruling 53, locale prefix
+ * already stripped). `/auth/callback` sends a reader here at the first sign-in after a
+ * Terms version that reduces their rights. Gated exactly like `/welcome`: a signed-out
+ * visitor bounces to login, a signed-in one gets the session refresh, so the tick's
+ * `POST /api/auth/terms/accept` authenticates on the first try. Non-cacheable by the
+ * `/auth/*` rule.
+ */
+export function isTermsAcceptPath(localePath: string): boolean {
+  return /^\/auth\/terms\/?$/.test(localePath);
+}
+
+/**
  * Matches the admin surface `/admin` and everything under it (locale prefix
  * already stripped by the caller). Used by the worker-level anon gate (AECI-203):
  * a logged-out visitor is bounced to login rather than shown a bare 404. NOTE
  * this is the SSR catch-all's concern only — the API Worker's `POST /admin/purge`
  * is a separate, earlier-registered route and is never reached through here.
  */
-export function isAdminPath(localePath: string): boolean {
-  return localePath === '/admin' || localePath.startsWith('/admin/');
-}
+export { isAdminPath };
 
 /**
  * Matches the Stage 2 vendor-portal surface `/vendor` and everything under it
@@ -263,9 +290,7 @@ export function isAdminPath(localePath: string): boolean {
  * behind a session. The prefix check uses `'/vendor/'` with the trailing slash
  * precisely so `/vendors` can never match.
  */
-export function isVendorPath(localePath: string): boolean {
-  return localePath === '/vendor' || localePath.startsWith('/vendor/');
-}
+export { isVendorPath };
 
 /**
  * Cheap presence check for a Supabase session cookie (`sb-<ref>-auth-token`,
@@ -451,14 +476,12 @@ export function legalPageTtl(
 type RoutePattern = {
   match: (path: string) => boolean;
   ttl: CacheTtl;
-  // AECI-100 / WC-4 (AECI-318) — query params that genuinely affect this route's
-  // rendered HTML. The gateway entrypoint's normalized cache key (`cacheKeyFor`)
-  // keeps only these (canonically ordered) and drops everything else (utm_*,
-  // fbclid, …). Omitted ⇒ the route is query-independent and the key strips the
-  // query string entirely. This list MUST be a superset of every param the page
-  // component reads from the URL — under-including collapses distinct renders
-  // onto one key and serves wrong HTML. See docs/CACHE_STRATEGY.md §4a.
-  cacheKeyParams?: readonly string[];
+  // The query params that affect a route's HTML, and so stay in its cache key, are NOT on this
+  // table. They live in `app/core/route-cache-key.ts` (`cacheKeyParamsForPath`), which the
+  // skip link's server render also reads (AECI-1839). A route whose rendered HTML reads a new
+  // query param adds it THERE, in the same change. Omitted ⇒ the key strips the whole query.
+  // This list MUST be a superset of every param the page component reads from the URL:
+  // under-including collapses distinct renders onto one key. See docs/CACHE_STRATEGY.md §4a.
 };
 
 /**
@@ -472,28 +495,11 @@ type RoutePattern = {
  */
 const RESILIENCE = { staleWhileRevalidate: 60, staleIfError: 86_400 } as const;
 
-/**
- * Cache-key params whose value is a comma-separated *set* (multi-select taxonomy
- * facets, AECI-223). The producer (`aec-facet-sidebar` `onRefine`) already emits
- * these sorted, but WC-4 (AECI-318) also sorts them inside `cacheKeyFor` so a
- * raw/hand-typed/bot `?category_id=b,a` collapses onto the same key as `a,b` —
- * the cache-key layer no longer depends solely on the producer for the invariant.
- */
-const MULTI_VALUE_CACHE_KEY_PARAMS: ReadonlySet<string> = new Set([
-  'category_id',
-  'audience_id',
-  'phase_id',
-  // AECI-544, the fourth multi-select facet. Kept in step with
-  // `LISTING_CACHE_KEY_PARAMS` (`app/core/listing-cache-key-params.ts`) and
-  // `DIMENSIONS` in `facet-sidebar.ts`.
-  'trade_id',
-]);
-
 const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   { match: (p) => p === '/', ttl: { edge: 900, browser: 300, ...RESILIENCE } },
   { match: (p) => p === '/about', ttl: { edge: 86_400, browser: 3_600 } },
   // AECI-536 — /updates signup page: static + visitor-state-neutral, same static-
-  // page TTL as /about. No `cacheKeyParams`, so the whole query string (incl. UTM)
+  // page TTL as /about. No cache-key params, so the whole query string (incl. UTM)
   // is dropped from the cache key; UTM still survives in the real browser URL for
   // `buildAttribution` at submit time (same as every other lead-capture surface).
   { match: (p) => p === '/updates', ttl: { edge: 86_400, browser: 3_600 } },
@@ -505,7 +511,7 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   { match: (p) => p === '/roadmap', ttl: { edge: 86_400, browser: 3_600 } },
   // AECI-804 — /methodology, the editorial methodology page. Static and
   // visitor-state-neutral like /about, so the same static-page TTL and, like the
-  // other static pages, deliberately NO `...RESILIENCE`. No `cacheKeyParams`, so
+  // other static pages, deliberately NO `...RESILIENCE`. No cache-key params, so
   // the whole query string (incl. UTM) is dropped from the cache key — the page
   // reads no query params at all. Indexable and in `sitemap.xml`.
   { match: (p) => p === '/methodology', ttl: { edge: 86_400, browser: 3_600 } },
@@ -519,7 +525,7 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   // AECI-1283 — /vendor-program, the public vendor landing page
   // (`docs/VENDOR_PROGRAM_PAGE_SPEC.md` §2.2). Static and visitor-neutral (every
   // signed-in variant is applied after hydration), so the /about TTL with no
-  // `...RESILIENCE`. No `cacheKeyParams`: LinkedIn and outreach links carry UTM,
+  // `...RESILIENCE`. No cache-key params: LinkedIn and outreach links carry UTM,
   // which PostHog reads from the browser URL, so the query string stays out of the
   // cache key. `?vendor=` (§2.4) is read in the browser after hydration only, so
   // it does not change the HTML either. Indexable and in `sitemap.xml`.
@@ -527,7 +533,7 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   // AECI-1474 — /vendor-program/list-your-product, the listing request form on a
   // page of its own (§2.5). The same rules as /vendor-program: the form renders
   // empty on the server (cookies are stripped, so no email prefill), the /about
-  // TTL, no `...RESILIENCE`, no `cacheKeyParams`. Indexable and in `sitemap.xml`.
+  // TTL, no `...RESILIENCE`, no cache-key params. Indexable and in `sitemap.xml`.
   {
     match: (p) => p === '/vendor-program/list-your-product',
     ttl: { edge: 86_400, browser: 3_600 },
@@ -569,9 +575,8 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   // legitimate comma-bearing label (`R2024,SP1`) into a different string — turning
   // a valid selection into one that no longer matches any row.
   {
-    match: (p) => /^\/products\/[^/]+\/integrations\/[^/]+$/.test(p),
+    match: isPairPagePath,
     ttl: { edge: 900, browser: 0, ...RESILIENCE },
-    cacheKeyParams: ['view', 'context_version', 'other_version'],
   },
   { match: (p) => /^\/products\/[^/]+$/.test(p), ttl: { edge: 900, browser: 0, ...RESILIENCE } },
   { match: (p) => /^\/vendors\/[^/]+$/.test(p), ttl: { edge: 900, browser: 0, ...RESILIENCE } },
@@ -580,36 +585,31 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   // tag the purge path can invalidate on writes; the browser is told to refetch
   // on every navigation so users always see fresh server HTML.
   {
-    match: (p) => p === '/products',
+    match: isProductsIndexPath,
     ttl: { edge: 300, browser: 0, ...RESILIENCE },
-    cacheKeyParams: LISTING_CACHE_KEY_PARAMS,
   },
   // CACHE_STRATEGY.md §4 — taxonomy browse pages AND the `/categories` index are
   // `s-maxage=300, max-age=0` (5 min edge, browser revalidates every nav), same
   // as the other index/browse routes. Per-slug pages also carry `{type}:{slug}`
   // + embedded `product:{slug}` tags for targeted purge.
   {
-    match: (p) => p === '/categories' || p.startsWith('/categories/'),
+    match: isCategoriesPath,
     ttl: { edge: 300, browser: 0, ...RESILIENCE },
-    cacheKeyParams: LISTING_CACHE_KEY_PARAMS,
   },
   {
-    match: (p) => p === '/audiences' || p.startsWith('/audiences/'),
+    match: isAudiencesPath,
     ttl: { edge: 300, browser: 0, ...RESILIENCE },
-    cacheKeyParams: LISTING_CACHE_KEY_PARAMS,
   },
   {
-    match: (p) => p === '/phases' || p.startsWith('/phases/'),
+    match: isPhasesPath,
     ttl: { edge: 300, browser: 0, ...RESILIENCE },
-    cacheKeyParams: LISTING_CACHE_KEY_PARAMS,
   },
   // AECI-544: trades, the fourth facet. Cacheable on the same terms as its three
   // siblings, `...RESILIENCE` included, published or not: the publication gate
   // controls indexability, not cacheability (CACHE_STRATEGY.md §2).
   {
-    match: (p) => p === '/trades' || p.startsWith('/trades/'),
+    match: isTradesPath,
     ttl: { edge: 300, browser: 0, ...RESILIENCE },
-    cacheKeyParams: LISTING_CACHE_KEY_PARAMS,
   },
 ];
 
@@ -638,8 +638,9 @@ export function isCacheableRoute(url: URL): boolean {
 /**
  * AECI-1442 — paths whose responses must never enter the shared edge cache, at
  * any status. Input is the locale-stripped path (`stripLocalePrefix`). True for
- * `/auth`, `/account`, `/welcome`, `/admin`, `/vendor` and `/search`, each as an
- * exact match or a `prefix/` match. `/vendor` is SINGULAR: the public
+ * `/auth`, `/account`, `/welcome`, `/admin`, `/vendor`, `/search` and the email
+ * token pages `/unsubscribe`, `/claims/confirm` and `/notifications/mute`
+ * (AECI-1848), each as an exact match or a `prefix/` match. `/vendor` is SINGULAR: the public
  * `/vendors/:slug` page and `/vendor-program` are not matched (`isVendorPath`).
  *
  * The non-cacheable branch of `handleSsr` reads this to keep the AECI-62 404
@@ -650,18 +651,7 @@ export function isCacheableRoute(url: URL): boolean {
  * `/api/*` is not listed because it never reaches `handleSsr`: `app.all('/api/*')`
  * forwards it to the API Worker first.
  */
-export function isNeverCacheablePath(localePath: string): boolean {
-  const underPrefix = (prefix: string) =>
-    localePath === prefix || localePath.startsWith(`${prefix}/`);
-  return (
-    isAdminPath(localePath) ||
-    isVendorPath(localePath) ||
-    underPrefix('/auth') ||
-    underPrefix('/account') ||
-    underPrefix('/welcome') ||
-    underPrefix('/search')
-  );
-}
+export { isNeverCacheablePath };
 
 /**
  * Build the `Cache-Control` for a cacheable route. Always `public` so the native
@@ -684,15 +674,6 @@ export function buildCacheControl(ttl: CacheTtl): string {
 
 // ─── Cache-key normalization + gateway entrypoint (WC-4 / AECI-318) ──────────
 
-/** Sort a comma-separated set canonically (the AECI-223 multi-select CSV invariant). */
-function sortCsv(value: string): string {
-  return value
-    .split(',')
-    .filter((v) => v.length > 0)
-    .sort()
-    .join(',');
-}
-
 /**
  * Normalized cache key for a request (WC-4, AECI-318). Native Workers Cache keys
  * on the full, order-sensitive query string, so the gateway entrypoint forwards
@@ -707,22 +688,15 @@ function sortCsv(value: string): string {
  * params declared per route in `ROUTE_CACHE_PATTERNS`, and canonicalizes order —
  * `URLSearchParams.sort()` on names (`?sort=name&page=2` == `?page=2&sort=name`)
  * plus a value sort on multi-select facet CSVs (`category_id=a,b` == `b,a`). A
- * path with no matching pattern (or no `cacheKeyParams`) yields the bare
+ * path with no matching pattern (or no cache-key params) yields the bare
  * `pathname` — the safe "strip everything" default. The pathname (incl. any
  * locale prefix) is preserved verbatim; locale variance is segmented by URL
  * prefix, so the key must keep it.
  */
 export function cacheKeyFor(url: URL): string {
   const { path } = stripLocalePrefix(url.pathname);
-  const allowed = ROUTE_CACHE_PATTERNS.find((pattern) => pattern.match(path))?.cacheKeyParams ?? [];
-  const params = new URLSearchParams();
-  for (const name of allowed) {
-    for (const value of url.searchParams.getAll(name)) {
-      params.append(name, MULTI_VALUE_CACHE_KEY_PARAMS.has(name) ? sortCsv(value) : value);
-    }
-  }
-  params.sort(); // canonical param order — ?sort=name&page=2 and ?page=2&sort=name → one key
-  const query = params.toString();
+  const allowed = cacheKeyParamsForPath(path);
+  const query = cacheKeyQuery(allowed, url.searchParams);
   return query ? `${url.pathname}?${query}` : url.pathname;
 }
 
@@ -1423,7 +1397,12 @@ async function handleSsr(
     // authenticated resolver (e.g. the `/admin` gate) can read the session
     // cookie. Safe here precisely because this branch never writes the response
     // to the shared edge cache.
-    const reqCtx = createRequestContext(createServerApiClient(env, { forwardCookieFrom: request }));
+    // `edgeCacheable: false` lets the skip link keep the whole query on a non-404
+    // render here, since nothing on this branch but a 404 is stored (AECI-1848).
+    const reqCtx = createRequestContext(
+      createServerApiClient(env, { forwardCookieFrom: request }),
+      { edgeCacheable: false },
+    );
     const rendered = await renderer(request, reqCtx);
     const transformed = transformResponse
       ? await transformResponse(rendered, env, request, execCtx)
@@ -1881,10 +1860,17 @@ export function createApp(options: {
       const url = new URL(c.req.url);
       const { path } = stripLocalePrefix(url.pathname);
       if (
-        (isReviewPath(path) || isAccountPath(path) || isWelcomePath(path)) &&
+        (isReviewPath(path) ||
+          isAccountPath(path) ||
+          isWelcomePath(path) ||
+          isTermsAcceptPath(path)) &&
         !hasSessionCookie(c.req.raw)
       ) {
-        const returnPath = signInReturnPath(url);
+        // `/auth/terms` returns to the destination it carried, not to itself: its own
+        // query would be dropped here and the seat invite or page lost (AECI-1637).
+        const returnPath = isTermsAcceptPath(path)
+          ? termsAcceptSignInReturnPath(url)
+          : signInReturnPath(url);
         const query = returnPath === '/' ? '' : `?return=${encodeURIComponent(returnPath)}`;
         return new Response(null, {
           status: 303,
@@ -1935,12 +1921,16 @@ export function createApp(options: {
       // beside a live refresh token (the ordinary "back after an hour" state).
       // Trading it here lets the resolver's forwarded cookie authenticate on the
       // first try, instead of a 401 → `/auth/login` → "Restoring your session"
-      // → client navigation back. A fresh token costs no network. All four
+      // → client navigation back. A fresh token costs no network. All five
       // paths are non-cacheable, which is what makes the `Set-Cookie` safe —
       // see `server/auth/session-refresh.ts` for why this does not reopen
       // ADMIN_PANEL_SPEC.md §13 D22.
       if (
-        (isAdminPath(path) || isVendorPath(path) || isAccountPath(path) || isWelcomePath(path)) &&
+        (isAdminPath(path) ||
+          isVendorPath(path) ||
+          isAccountPath(path) ||
+          isWelcomePath(path) ||
+          isTermsAcceptPath(path)) &&
         hasSessionCookie(c.req.raw)
       ) {
         const refreshed = await refreshSessionCookies(c.req.raw, c.env);

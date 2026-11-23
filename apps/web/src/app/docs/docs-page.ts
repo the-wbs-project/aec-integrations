@@ -7,8 +7,8 @@
  *
  * Anchor site: **Devin (DeepWiki)**, Mobbin screen c3936cdb. The article is a
  * compact centred column with a small Source Serif `h1`, one muted lede line,
- * then the body in `.aec-prose aec-docs-prose`. From `xl` the "On this page"
- * rail (`docs-toc.ts`) sits at the far right. A quiet previous / next pager
+ * then the body in `.aec-prose`. From `xl` the "On this page"
+ * rail (`shared/page-toc/page-toc.ts`, `variant="rail"`) sits at the far right. A quiet previous / next pager
  * closes the article. No overline, no hero, no cards (the Plans page's
  * pricing widget is the one exception).
  *
@@ -49,7 +49,8 @@ import { type DocsBlock, type DocsPage, docsNeighbours, getDocsPage } from './do
 import { pathForcesNoindex } from './docs-indexing';
 import type { DocsWidget } from './docs-markdown';
 import { DocsPlansComparisonComponent } from './docs-plans-comparison';
-import { DocsTocComponent } from './docs-toc';
+import { AecPageToc } from '../shared/page-toc/page-toc';
+import { AecProseTableScroll } from '../shared/prose-blocks/prose-table-scroll';
 import { VENDOR_PROGRAM_PATH, plansVendorProgramPointer } from './plans-actions-copy';
 import {
   PlanCtaActionsComponent,
@@ -87,17 +88,18 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
   selector: 'app-docs-page',
   imports: [
     RouterLink,
-    DocsTocComponent,
+    AecPageToc,
     DocsPlansComparisonComponent,
     PlanCtaActionsComponent,
     PlanCtaMobileBarComponent,
     PlanCtaPanelComponent,
     PlanCtaRailComponent,
     ClaimDialogHost,
+    AecProseTableScroll,
   ],
   template: `
     <div
-      class="px-4 pt-8 pb-14 md:px-6 lg:px-8 lg:pt-10 xl:grid xl:grid-cols-[minmax(0,1fr)_minmax(0,42rem)_minmax(0,1fr)] xl:gap-x-8"
+      class="px-4 pt-8 pb-16 md:px-6 lg:px-8 lg:pt-12 xl:grid xl:grid-cols-[minmax(0,1fr)_minmax(0,42rem)_minmax(0,1fr)] xl:gap-x-8"
     >
       <article class="mx-auto w-full max-w-[42rem] min-w-0 xl:col-start-2 xl:row-start-1">
         <header>
@@ -106,7 +108,7 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
           <!-- Pre-formatted in the frontmatter and rendered verbatim: SSR runs
                UTC and the browser does not, so reformatting would mismatch.
                The top bar shows this line from sm; here it covers phones. -->
-          <p class="mt-2 text-sm text-(--text-secondary) sm:hidden" i18n="@@app.docs.lastUpdated">
+          <p class="mt-2 text-t-14 text-(--text-secondary) sm:hidden" i18n="@@app.docs.lastUpdated">
             Last updated {{ page.lastUpdated }}
           </p>
         </header>
@@ -115,7 +117,7 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
              .aec-prose, so the prose list and table rules do not reach it. -->
         @for (segment of segments; track $index; let first = $first) {
           @if (segment.widget === 'plans-comparison') {
-            <app-docs-plans-comparison class="mt-5 mb-10" />
+            <app-docs-plans-comparison class="mt-6 mb-12" />
           } @else if (segment.widget === 'plans-actions') {
             <!-- The intro's pointer to the public vendor program page
                  (VENDOR_PROGRAM_PAGE_SPEC.md section 10), then the button pair. -->
@@ -126,15 +128,15 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
               {{ vendorProgram.before
               }}<a
                 [routerLink]="vendorProgramPath"
-                class="rounded-sm font-medium text-(--accent-primary) underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                class="rounded-mark text-(--accent-primary) underline underline-offset-4 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
                 >{{ vendorProgram.link }}</a
               >{{ vendorProgram.after }}
             </p>
-            <aec-plan-cta-actions class="mt-6 mb-10" page="docs_plans" />
+            <aec-plan-cta-actions class="mt-6 mb-12" page="docs_plans" />
           } @else if (segment.widget === 'plans-cta') {
             <aec-plan-cta-panel class="mt-6 mb-6" page="docs_plans" />
           } @else {
-            <div class="aec-prose aec-docs-prose" [class.mt-6]="first">
+            <div class="aec-prose" [class.mt-6]="first" aecProseTableScroll>
               @for (block of segment.blocks; track $index) {
                 @if (block.heading; as heading) {
                   @if (heading.level === 2) {
@@ -161,7 +163,7 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
           class="hidden xl:sticky xl:top-8 xl:z-10 xl:col-start-3 xl:row-span-2 xl:row-start-1 xl:flex xl:flex-col xl:items-end xl:gap-8 xl:self-start xl:justify-self-end"
         >
           <aec-plan-cta-rail class="hidden w-44 min-[90rem]:block" page="docs_plans" />
-          <app-docs-toc class="block w-10" [headings]="page.headings" [path]="page.path" />
+          <app-docs-toc class="block w-10" [variant]="rail" [headings]="page.headings" />
         </div>
         <aec-plan-cta-mobile-bar page="docs_plans" />
         <!-- One claim dialog for every claim control (AECI-1293), loaded on first use. -->
@@ -169,14 +171,14 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
       } @else {
         <app-docs-toc
           class="hidden xl:sticky xl:top-8 xl:z-10 xl:col-start-3 xl:row-span-2 xl:row-start-1 xl:block xl:w-10 xl:self-start xl:justify-self-end"
+          [variant]="rail"
           [headings]="page.headings"
-          [path]="page.path"
         />
       }
 
       @if (neighbours.prev || neighbours.next) {
         <nav
-          class="mx-auto mt-12 flex w-full max-w-[42rem] gap-6 border-t border-(--border-default) pt-5 text-sm xl:col-start-2 xl:row-start-2"
+          class="mx-auto mt-12 flex w-full max-w-[42rem] gap-6 border-t border-(--border-default) pt-6 text-t-14 xl:col-start-2 xl:row-start-2"
           i18n-aria-label="@@app.docs.pager.aria"
           aria-label="Previous and next articles"
         >
@@ -184,13 +186,13 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
             <a
               [routerLink]="prev.path"
               rel="prev"
-              class="group min-w-0 rounded-sm focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-(--accent-primary)"
+              class="group min-w-0 rounded-mark focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
             >
               <span class="block text-(--text-secondary)" i18n="@@app.docs.pager.previous"
                 >Previous</span
               >
               <span
-                class="mt-0.5 block font-medium text-(--accent-primary) underline-offset-4 group-hover:underline"
+                class="mt-1 block font-semibold text-(--accent-primary) underline-offset-4 group-hover:underline"
                 >{{ prev.title }}</span
               >
             </a>
@@ -199,11 +201,11 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
             <a
               [routerLink]="next.path"
               rel="next"
-              class="group ms-auto min-w-0 rounded-sm text-end focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-(--accent-primary)"
+              class="group ms-auto min-w-0 rounded-mark text-end focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
             >
               <span class="block text-(--text-secondary)" i18n="@@app.docs.pager.next">Next</span>
               <span
-                class="mt-0.5 block font-medium text-(--accent-primary) underline-offset-4 group-hover:underline"
+                class="mt-1 block font-semibold text-(--accent-primary) underline-offset-4 group-hover:underline"
                 >{{ next.title }}</span
               >
             </a>
@@ -218,6 +220,8 @@ export class DocsPageComponent {
   private readonly meta = inject(MetaService);
 
   protected readonly page: DocsPage;
+  /** The "On this page" component's docs look: the dash rail. */
+  protected readonly rail = 'rail' as const;
   protected readonly segments: readonly DocsSegment[];
   protected readonly neighbours: { readonly prev?: DocsPage; readonly next?: DocsPage };
   /** The Plans page's pointer to the vendor program (`plans-actions-copy.ts`, AECI-1619). */

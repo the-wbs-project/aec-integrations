@@ -25,7 +25,10 @@
  *      deleted or detached — in that order, in that batch (AECI-1226).
  *   2. Algolia: delete the `<env>_vendors` object (objectID = vendor id) so search does
  *      not keep an orphan (reuses the AECI-267 orphan-purge core).
- *   3. Cache: print the `vendor:<slug>` Cache-Tag purge command.
+ *   3. Sitemap: put `sitemap:dirty` in TAXONOMY_KV through `wrangler kv`, so the next
+ *      `sitemap-rebuild` tick drops `/vendors/<slug>` (AECI-1945, `src/lib/retract-followups.ts`).
+ *   4. Print the remaining follow-ups in run order: the `vendor:<slug>` Cache-Tag purge,
+ *      the Algolia drift reconciler, and the upstream review-app cleanup (production).
  *
  * SAFETY:
  *   - Dry-run by default; `--apply` performs the writes.
@@ -94,6 +97,12 @@ import {
   type VendorPlanEntry,
   type VendorRow,
 } from '../src/lib/retract-vendor';
+import {
+  formatFollowUps,
+  sitemapDirtyWranglerArgs,
+  vendorRetractFollowUps,
+  type RetractCliTarget,
+} from '../src/lib/retract-followups';
 
 // ─── Args + target resolution ────────────────────────────────────────────────
 
@@ -216,7 +225,7 @@ function runD1<T>(target: Target, sql: string): D1ExecResult<T>[] {
   }
   if (res.status !== 0) {
     const hint = target.remote
-      ? `Check CLOUDFLARE_API_TOKEN (Account→D1→Edit) + CLOUDFLARE_ACCOUNT_ID, and that "${target.db}" exists for --env ${target.label}.`
+      ? `Check CLOUDFLARE_API_TOKEN (Account→D1→Edit and Account→Workers KV Storage→Edit) + CLOUDFLARE_ACCOUNT_ID, and that "${target.db}" exists for --env ${target.label}.`
       : 'Set up the local D1 first:  pnpm --filter @aeci/api db:setup:local';
     throw new Error(
       `wrangler d1 execute failed on "${target.db}" (exit ${res.status}).\n${hint}\n\n${res.stderr}`,
@@ -272,19 +281,29 @@ async function deindexAlgolia(ctx: AlgoliaCtx, vendor: VendorRow): Promise<void>
 }
 
 /**
- * Cache-tag purge is native (WC-6): the SSR Worker's `POST /admin/purge` invalidates
- * in-process via `ctx.cache.purge()`. This CLI runs outside any Worker, so it prints the
- * exact purge command for the operator to run — authenticated with `ADMIN_PURGE_TOKEN`.
- * Staging, demo and production are all cached since AECI-1443, so the purge matters
- * on every deployed tier.
+ * AECI-1945: put `sitemap:dirty` on the target's tier, as every Worker writer does through
+ * `markSitemapDirty`. Returns whether the put landed. A failure warns, and the follow-up
+ * list then carries the manual command. Same shape as `retract-product.ts`.
  */
-function reportCachePurge(tags: string[]): void {
-  console.warn(
-    '⚠  Cache: purge the edge cache by POSTing to the SSR Worker (auth: ADMIN_PURGE_TOKEN):\n' +
-      `     POST /admin/purge  {"tags": ${JSON.stringify(tags)}}\n` +
-      '     (staging, demo and production are cached — run it on each tier you touched.)',
-  );
+function markSitemapDirty(target: RetractCliTarget): boolean {
+  const res = spawnSync('wrangler', sitemapDirtyWranglerArgs(target, new Date().toISOString()), {
+    encoding: 'utf8',
+  });
+  if (res.error || res.status !== 0) {
+    console.error(
+      `✗ Sitemap: could not mark sitemap:dirty (exit ${res.status ?? 'n/a'}). ${res.stderr ?? res.error?.message ?? ''}`.trim(),
+    );
+    return false;
+  }
+  console.log('✓ Sitemap: marked dirty. The next sitemap-rebuild tick drops the URLs.');
+  return true;
 }
+
+// Cache-tag purge is native (WC-6): the SSR Worker's `POST /admin/purge` invalidates
+// in-process via `ctx.cache.purge()`. This CLI runs outside any Worker, so it prints the
+// exact purge command as a follow-up, authenticated with `ADMIN_PURGE_TOKEN`. Staging,
+// demo and production are all cached since AECI-1443, so the purge matters on every
+// deployed tier.
 
 // ─── Main ────────────────────────────────────────────────────────────────────
 
@@ -447,7 +466,9 @@ export async function main(argv: string[]): Promise<number> {
         `${detached.attestations} attestation(s), ${detached.pageViews} page_view(s) and ` +
         `${detached.contestsOwned} owned field contest(s);`,
     );
-    console.log(`de-index the Algolia vendors objects; purge Cache-Tags: ${tags.join(', ')}.`);
+    console.log(
+      `de-index the Algolia vendors objects; mark the sitemap dirty; purge Cache-Tags: ${tags.join(', ')}.`,
+    );
     console.log(
       `Re-run with --apply --confirm-count ${plan.length}` +
         (target.label === 'production' ? ' --allow-production' : '') +
@@ -491,13 +512,15 @@ export async function main(argv: string[]): Promise<number> {
   }
   console.log('');
 
-  if (!argv.includes('--skip-cache')) reportCachePurge(tags);
-  else console.log('Cache: skipped (--skip-cache).');
+  const sitemapMarked = markSitemapDirty(target);
+  const cacheSkipped = argv.includes('--skip-cache');
+  if (cacheSkipped) console.log('Cache: skipped (--skip-cache).');
 
   console.log('');
   console.log(`✓ Retracted ${plan.length} vendor(s) from ${target.db}.`);
+  console.log('');
   console.log(
-    "   Next, upstream: clear each review-app record's `supabase_vendor_id`, then delete the record.",
+    formatFollowUps(vendorRetractFollowUps({ target, tags, cacheSkipped, sitemapMarked })),
   );
   return 0;
 }

@@ -23,13 +23,14 @@ import {
 } from '../account/profile-details/profile-details-model';
 import { safeReturnPath } from '../auth/return-path';
 import {
-  BUTTON_PRIMARY_CLASS,
-  BUTTON_SECONDARY_CLASS,
   FIELD_ERROR_CLASS,
   FIELD_INPUT_CLASS,
   FIELD_LABEL_CLASS,
   FORM_FOOTER_CLASS,
 } from '../shared/form-field/form-field-classes';
+import { AecButton } from '../shared/button/button';
+import { AecCard } from '../shared/card/card';
+import { AecFormSubmit } from '../shared/form-field/form-submit';
 
 /** Display name bounds. Mirror `UpdateAccountSchema.display_name`. */
 const DISPLAY_NAME_MAX = 80;
@@ -72,7 +73,7 @@ export function welcomeNextPath(raw: string | null): string {
  */
 @Component({
   selector: 'aec-welcome-page',
-  imports: [ProfileDetailsForm],
+  imports: [AecFormSubmit, AecButton, AecCard, ProfileDetailsForm],
   template: `
     <!-- AECI-987: the 7xl canvas with the form + context rail. From lg the header
          and the form sit in columns 1 to 7 and the rail docks in 9 to 12. Below lg
@@ -84,23 +85,18 @@ export function welcomeNextPath(raw: string | null): string {
     >
       <div class="lg:grid lg:grid-cols-12 lg:gap-x-12">
         <div class="min-w-0 lg:col-span-7 lg:col-start-1 lg:row-start-1">
-          <p
-            class="text-xs tracking-[0.14em] text-(--text-secondary) uppercase"
-            i18n="@@welcome.eyebrow"
-          >
-            Welcome
-          </p>
+          <p class="aec-overline text-(--text-secondary)" i18n="@@welcome.eyebrow">Welcome</p>
           <h1
             #title
             id="welcome-title"
             tabindex="-1"
-            class="mt-3 font-display text-3xl font-semibold tracking-tight focus:outline-none md:text-4xl"
+            class="mt-3 focus:outline-none"
             i18n="@@welcome.title"
           >
             Tell us about yourself
           </h1>
           <p
-            class="mt-4 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+            class="mt-4 max-w-prose text-t-16 leading-relaxed text-(--text-secondary)"
             i18n="@@welcome.lede"
           >
             A few questions about where you work. Reviewers get their review forms filled in from
@@ -110,7 +106,7 @@ export function welcomeNextPath(raw: string | null): string {
 
         <!-- Static copy only. Sticky on the grid child, whose area spans both rows. -->
         <aside
-          class="mt-8 min-w-0 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5 lg:sticky lg:top-8 lg:col-span-4 lg:col-start-9 lg:row-span-2 lg:row-start-1 lg:mt-0 lg:self-start lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0"
+          class="mt-8 min-w-0 rounded-panel border bg-(--surface-raised) p-5 lg:sticky lg:top-8 lg:col-span-4 lg:col-start-9 lg:row-span-2 lg:row-start-1 lg:mt-0 lg:self-start lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0"
           aria-labelledby="welcome-rail-heading"
           data-testid="context-rail"
         >
@@ -149,16 +145,17 @@ export function welcomeNextPath(raw: string | null): string {
           } @else if (loadFailed()) {
             <div class="mt-8 space-y-3">
               <p
-                class="text-sm font-medium text-(--text-primary)"
+                class="text-sm font-semibold text-(--text-primary)"
                 role="alert"
                 i18n="@@welcome.loadFailed"
               >
                 We couldn't load your account. You can fill this in later from your account page.
               </p>
               <button
+                aecButton
+                variant="secondary"
                 type="button"
                 (click)="leave()"
-                [class]="secondaryClass"
                 i18n="@@welcome.continue"
               >
                 Continue
@@ -166,9 +163,12 @@ export function welcomeNextPath(raw: string | null): string {
             </div>
           } @else {
             <form
-              class="mt-10 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised)"
+              method="dialog"
+              aecCard
+              phoneFlush
+              class="mt-6 sm:mt-10"
               novalidate
-              (submit)="$event.preventDefault(); onSave()"
+              (aecSubmit)="onSave()"
             >
               <div class="space-y-6 p-6 sm:p-8">
                 <div class="space-y-1.5">
@@ -213,7 +213,7 @@ export function welcomeNextPath(raw: string | null): string {
 
                 @if (saveFailed()) {
                   <p
-                    class="text-sm font-medium text-(--text-primary)"
+                    class="text-t-14 font-semibold text-(--text-primary)"
                     role="alert"
                     i18n="@@welcome.saveFailed"
                   >
@@ -224,23 +224,18 @@ export function welcomeNextPath(raw: string | null): string {
 
               <div class="px-6 py-4 sm:px-8" [class]="footerClass">
                 <button
+                  aecButton
+                  variant="secondary"
                   type="button"
                   (click)="onSkip()"
                   [disabled]="saving()"
                   data-testid="welcome-skip"
-                  [class]="
-                    secondaryClass + ' sm:me-auto disabled:cursor-not-allowed disabled:opacity-50'
-                  "
+                  class="sm:me-auto"
                   i18n="@@welcome.skip"
                 >
                   Skip for now
                 </button>
-                <button
-                  type="submit"
-                  [disabled]="saving()"
-                  data-testid="welcome-save"
-                  [class]="primaryClass"
-                >
+                <button aecButton type="submit" [disabled]="saving()" data-testid="welcome-save">
                   @if (saving()) {
                     <span i18n="@@welcome.saving">Saving…</span>
                   } @else {
@@ -276,8 +271,6 @@ export class WelcomePage {
   protected readonly labelClass = FIELD_LABEL_CLASS;
   protected readonly inputClass = FIELD_INPUT_CLASS;
   protected readonly errorClass = FIELD_ERROR_CLASS;
-  protected readonly primaryClass = BUTTON_PRIMARY_CLASS;
-  protected readonly secondaryClass = BUTTON_SECONDARY_CLASS;
   protected readonly footerClass = FORM_FOOTER_CLASS;
 
   protected readonly loading = signal(true);

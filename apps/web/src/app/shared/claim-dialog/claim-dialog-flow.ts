@@ -31,9 +31,9 @@ import {
   type FoundVia,
 } from '@aeci/shared';
 
+import { AecButton } from '../button/button';
 import { Analytics, type ClaimDialogStep } from '../../analytics/analytics';
 import { SessionStatus } from '../../auth/session-status';
-import { isReplayedEvent } from '../../core/event-replay';
 import { ClaimRoutedNotice } from '../../requests/claim-routed-notice';
 import { ClaimantFields } from '../../requests/claimant-fields';
 import { CompanyCountryField } from '../../requests/company-country-field';
@@ -42,8 +42,7 @@ import { VendorTermsBox, isAcceptedTermsRejection } from '../../requests/vendor-
 import type { AutocompleteSuggestion } from '../../search/autocomplete-mapping';
 import { SearchAutocomplete } from '../../search/search-autocomplete';
 import {
-  BUTTON_PRIMARY_CLASS,
-  BUTTON_SECONDARY_CLASS,
+  FIELD_ERROR_CLASS,
   FIELD_INPUT_CLASS,
   FIELD_LABEL_CLASS,
 } from '../form-field/form-field-classes';
@@ -54,6 +53,8 @@ import {
   type ClaimDialogOpening,
   type ClaimListing,
 } from './claim-dialog.service';
+import { AecFormSubmit } from '../form-field/form-submit';
+import { AecEarlyInput } from '../form-field/early-input';
 
 /** The three numbered steps, in order. `done` is the receipt, outside the count. The
  *  plan step was removed by AECI-1365. */
@@ -139,10 +140,13 @@ interface ClaimDialogModel {
 @Component({
   selector: 'aec-claim-dialog-flow',
   imports: [
+    AecFormSubmit,
+    AecButton,
     ClaimantFields,
     ClaimRoutedNotice,
     CompanyCountryField,
     FormField,
+    AecEarlyInput,
     FoundViaField,
     SearchAutocomplete,
     VendorTermsBox,
@@ -174,7 +178,7 @@ interface ClaimDialogModel {
           <p class="mt-1 text-sm text-(--text-secondary)" i18n="@@claimDialog.find.lede">
             Your product or company may already be listed, under a different name.
           </p>
-          <div class="mt-5">
+          <div class="mt-6">
             <aec-search-autocomplete
               inputId="claim-dialog-search"
               [label]="searchLabel"
@@ -330,7 +334,7 @@ interface ClaimDialogModel {
               </p>
             }
             <div
-              class="mt-5 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
+              class="mt-6 rounded-panel border border-(--border-default) bg-(--surface-raised) p-4"
             >
               <p
                 class="text-sm font-bold text-(--text-primary)"
@@ -339,7 +343,7 @@ interface ClaimDialogModel {
                 What happens next
               </p>
               <ol
-                class="mt-2 list-decimal space-y-1 ps-5 text-sm leading-relaxed text-(--text-secondary)"
+                class="mt-2 list-decimal space-y-1 ps-6 text-sm leading-relaxed text-(--text-secondary)"
               >
                 @if (sentAsRouted()) {
                   <!-- AECI-1366: the company's team decides first (AECI-1368). -->
@@ -379,10 +383,7 @@ interface ClaimDialogModel {
           }
         }
         @default {
-          <!-- AECI-1919: method="dialog" makes a native submit before hydration do
-               nothing. With no method, Enter on the server-rendered listing page
-               reloaded it with every answer in the address. -->
-          <form id="claim-dialog-form" method="dialog" novalidate (submit)="onFormSubmit($event)">
+          <form method="dialog" id="claim-dialog-form" novalidate (aecSubmit)="primary()">
             @switch (step()) {
               @case ('you') {
                 <h3
@@ -395,7 +396,7 @@ interface ClaimDialogModel {
                 </h3>
                 @if (path() === 'found') {
                   <p
-                    class="mt-3 flex flex-wrap items-baseline gap-x-2 rounded-(--radius-md) bg-(--surface-raised) px-3 py-2 text-sm text-(--text-primary)"
+                    class="mt-3 flex flex-wrap items-baseline gap-x-2 rounded-panel bg-(--surface-raised) px-3 py-2 text-sm text-(--text-primary)"
                     data-testid="claim-dialog-listing"
                   >
                     <!-- AECI-1364: the claim is on the company. A product hit names
@@ -440,8 +441,8 @@ interface ClaimDialogModel {
                       >Tell us the product or company to add.</span
                     >
                   </p>
-                  <div class="mt-5 space-y-6">
-                    <div class="space-y-1.5">
+                  <div class="mt-6 space-y-6">
+                    <div class="space-y-2">
                       <label
                         for="claim-dialog-listing-name"
                         [class]="labelClass"
@@ -463,7 +464,7 @@ interface ClaimDialogModel {
                       @if (invalid(form.listing_name)) {
                         <p
                           id="claim-dialog-listing-name-error"
-                          class="text-xs font-medium text-(--text-primary)"
+                          [class]="errorClass"
                           role="alert"
                           i18n="@@claimDialog.you.listingName.error"
                         >
@@ -471,7 +472,7 @@ interface ClaimDialogModel {
                         </p>
                       }
                     </div>
-                    <div class="space-y-1.5">
+                    <div class="space-y-2">
                       <label
                         for="claim-dialog-website"
                         [class]="labelClass"
@@ -495,7 +496,7 @@ interface ClaimDialogModel {
                       @if (invalid(form.website)) {
                         <p
                           id="claim-dialog-website-error"
-                          class="text-xs font-medium text-(--text-primary)"
+                          [class]="errorClass"
                           role="alert"
                           i18n="@@claimDialog.you.website.error"
                         >
@@ -540,7 +541,7 @@ interface ClaimDialogModel {
                 >
                   Anything to add?
                 </h3>
-                <div class="mt-4 space-y-1.5">
+                <div class="mt-4 space-y-2">
                   <label
                     for="claim-dialog-comments"
                     [class]="labelClass"
@@ -572,7 +573,7 @@ interface ClaimDialogModel {
                   @if (invalid(form.body)) {
                     <p
                       id="claim-dialog-comments-error"
-                      class="text-xs font-medium text-(--text-primary)"
+                      [class]="errorClass"
                       role="alert"
                       i18n="@@requests.claim.body.error"
                     >
@@ -590,7 +591,7 @@ interface ClaimDialogModel {
                   (detailChange)="form.found_via_detail().value.set($event)"
                 />
                 @if (submitError() === 'gone') {
-                  <p class="mt-4 text-sm font-medium text-(--text-primary)" role="alert">
+                  <p class="mt-4 text-sm font-semibold text-(--text-primary)" role="alert">
                     <span i18n="@@claimDialog.error.gone"
                       >That listing is no longer available.</span
                     >
@@ -606,7 +607,7 @@ interface ClaimDialogModel {
                   </p>
                 } @else if (submitError() === 'failed') {
                   <p
-                    class="mt-4 text-sm font-medium text-(--text-primary)"
+                    class="mt-4 text-sm font-semibold text-(--text-primary)"
                     role="alert"
                     i18n="@@requests.submitFailed"
                   >
@@ -626,20 +627,17 @@ interface ClaimDialogModel {
         data-testid="claim-dialog-footer"
       >
         @if (step() === 'done') {
-          <button
-            type="button"
-            (click)="done.emit()"
-            [class]="primaryClass"
-            i18n="@@requests.sent.done"
-          >
+          <button aecButton type="button" (click)="done.emit()" i18n="@@requests.sent.done">
             Done
           </button>
         } @else {
           @if (canGoBack()) {
             <button
+              aecButton
+              variant="secondary"
               type="button"
               (click)="back()"
-              [class]="secondaryClass + ' me-auto'"
+              class="me-auto"
               data-testid="claim-dialog-back"
               i18n="@@claimDialog.back"
             >
@@ -647,10 +645,10 @@ interface ClaimDialogModel {
             </button>
           }
           <button
+            aecButton
             type="submit"
             form="claim-dialog-form"
             [disabled]="primaryDisabled()"
-            [class]="primaryClass"
             data-testid="claim-dialog-primary"
           >
             @if (step() !== 'comments') {
@@ -669,6 +667,8 @@ interface ClaimDialogModel {
   `,
 })
 export class ClaimDialogFlow implements OnInit {
+  /** A field's inline error: the shared recipe (AECI-1984). */
+  protected readonly errorClass = FIELD_ERROR_CLASS;
   private readonly api = inject(RequestsApi);
   private readonly analytics = inject(Analytics);
   private readonly session = inject(SessionStatus);
@@ -793,14 +793,11 @@ export class ClaimDialogFlow implements OnInit {
   protected readonly searchLabel = $localize`:@@vendorProgram.find.label:Your product or company`;
   protected readonly searchPlaceholder = $localize`:@@vendorProgram.find.placeholder:Search for your product or company`;
 
-  protected readonly headingClass =
-    'font-display text-xl font-normal text-(--text-primary) focus:outline-none';
+  protected readonly headingClass = 'font-display text-(--text-primary) focus:outline-none';
   protected readonly labelClass = FIELD_LABEL_CLASS;
   protected readonly inputClass = FIELD_INPUT_CLASS;
   protected readonly textButtonClass =
     'font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly primaryClass = BUTTON_PRIMARY_CLASS;
-  protected readonly secondaryClass = BUTTON_SECONDARY_CLASS;
 
   private prefilledEmail = false;
 
@@ -825,9 +822,15 @@ export class ClaimDialogFlow implements OnInit {
       // form, so the focused field can start below the fold (§2.5, ruling 2026-10-24).
       this.path.set('typed');
       this.show('you', false);
+      // AECI-1720: the page is server-rendered, so the visitor may already be typing in
+      // the form when the app takes over. Focus stays where they put it: moving it would
+      // send their next keys to the first field.
       afterNextRender(
-        () =>
-          this.document.getElementById('claim-dialog-listing-name')?.focus({ preventScroll: true }),
+        () => {
+          const form = this.document.getElementById('claim-dialog-form');
+          if (form?.contains(this.document.activeElement)) return;
+          this.document.getElementById('claim-dialog-listing-name')?.focus({ preventScroll: true });
+        },
         { injector: this.injector },
       );
       return;
@@ -937,18 +940,6 @@ export class ClaimDialogFlow implements OnInit {
   protected back(): void {
     const index = STEPS.indexOf(this.step());
     if (index > 0) this.show(STEPS[index - 1]!);
-  }
-
-  /**
-   * The form's submit. A press made before hydration is replayed here once the app
-   * is stable, and on a replay `preventDefault` throws (`core/event-replay.ts`).
-   * The form is `method="dialog"`, so the native submit did nothing, and the
-   * replayed press is dropped, as the other forms drop theirs (AECI-1919).
-   */
-  protected onFormSubmit(event: Event): void {
-    if (isReplayedEvent(event)) return;
-    event.preventDefault();
-    void this.primary();
   }
 
   /** Continue, or send on the last step. */

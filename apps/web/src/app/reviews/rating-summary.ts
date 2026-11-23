@@ -22,9 +22,10 @@ import { RATING_VISIBILITY_MIN_REVIEWS } from '@aeci/shared';
  * Two variants for the two empty-state needs:
  *   - `inline` (default, grid + search cards) — renders **nothing** when gated,
  *     so the card reflows with no orphaned label.
- *   - `cell` (dense table row) — renders an en-dash empty state when gated, the
- *     same `–` + `aria-label` pattern the vendor cell uses, so the
- *     `<td>` stays populated and the column doesn't collapse.
+ *   - `cell` (dense table row) — renders an en-dash empty state when gated, so
+ *     the `<td>` stays populated and the column doesn't collapse. The dash is
+ *     `aria-hidden` and "No ratings yet" is visually hidden text (AECI-1793):
+ *     an `aria-label` on a plain `<span>` is not reliably read.
  *
  * Accessibility mirrors `ReviewStars`: the star glyph is decorative
  * (`aria-hidden`) and the precise meaning is carried by the visible numeral +
@@ -46,16 +47,19 @@ export type RatingSummaryVariant = 'inline' | 'cell';
       <span
         role="img"
         [attr.aria-label]="ariaLabel()"
-        class="inline-flex items-baseline gap-1.5 leading-none"
+        class="inline-flex items-baseline gap-2 leading-none"
       >
         <span aria-hidden="true" class="text-sm" [style.color]="'var(--accent-rating)'">★</span>
-        <span class="font-display text-sm font-semibold tabular-nums text-(--text-primary)">{{
+        <!-- The body face: a 14px number is below the 20px serif floor
+             (DESIGN.md §3 "The Serif-Floor Rule", AECI-1928). -->
+        <span class="font-body text-sm font-semibold tabular-nums text-(--text-primary)">{{
           formatted()
         }}</span>
         <span class="text-xs text-(--text-secondary)">{{ countLabel() }}</span>
       </span>
     } @else if (variant() === 'cell') {
-      <span class="text-(--text-secondary)" [attr.aria-label]="noneLabel()">–</span>
+      <span class="text-t-13 text-(--text-secondary)" aria-hidden="true">–</span>
+      <span class="sr-only">{{ noneLabel() }}</span>
     }
   `,
 })
@@ -86,7 +90,7 @@ export class RatingSummary {
 
   protected readonly ariaLabel = computed(
     () =>
-      $localize`:@@reviews.rating.aria:Rated ${this.formatted()}:VALUE: out of 5, from ${this.reviewCount()}:COUNT: reviews`,
+      $localize`:@@reviews.rating.aria:Product quality ${this.formatted()}:VALUE: out of 5, from ${this.reviewCount()}:COUNT: reviews`,
   );
 
   protected readonly noneLabel = computed(

@@ -1,5 +1,14 @@
 import { VendorPortalAnnouncer } from '../vendor-announcer';
-import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
+import {
+  Component,
+  DestroyRef,
+  computed,
+  effect,
+  inject,
+  input,
+  signal,
+  untracked,
+} from '@angular/core';
 
 import {
   UpdateVendorProductSchema,
@@ -21,6 +30,7 @@ import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 import { productCan } from '../vendor-capabilities';
 import { isReplayedEvent } from '../../core/event-replay';
+import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
 
 type ProductTextKey =
   | 'description'
@@ -115,7 +125,7 @@ interface FieldConfig {
         </p>
       </div>
 
-      <form class="space-y-6" novalidate (submit)="onFormSubmit($event)">
+      <form method="dialog" class="space-y-6" novalidate (submit)="onFormSubmit($event)">
         @if (updatedElsewhere()) {
           <div
             class="flex flex-wrap items-center gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
@@ -267,11 +277,7 @@ interface FieldConfig {
               <aec-vendor-hidden-note [hide]="hide" [noteId]="fieldId(cfg.key) + '-hidden'" />
             }
             @if (fieldErrors()[cfg.key]; as err) {
-              <p
-                [id]="fieldId(cfg.key) + '-error'"
-                class="text-xs font-medium text-(--text-primary)"
-                role="alert"
-              >
+              <p [id]="fieldId(cfg.key) + '-error'" [class]="errorClass" role="alert">
                 {{ err }}
               </p>
             }
@@ -322,8 +328,11 @@ interface FieldConfig {
   styles: [':host { display: block; }'],
 })
 export class VendorProductForm {
+  /** A field's inline error: the shared recipe (AECI-1984). */
+  protected readonly errorClass = FIELD_ERROR_CLASS;
   private readonly api = inject(VendorApi);
   private readonly store = inject(VendorPortalStore);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly product = input.required<VendorProduct>();
 
@@ -503,14 +512,27 @@ export class VendorProductForm {
     });
 
     // Register/withdraw this product's unsaved-edit protection.
-    effect(() => {
+    effect((onCleanup) => {
       const dirty = this.hasChanges();
+      const id = untracked(() => this.product().id);
       untracked(() => {
-        const id = this.product().id;
         if (dirty) this.store.markDirty('products', id);
         else this.store.clearDirty('products', id);
       });
+      // AECI-1943: a tab switch destroys this form. Its registration must not
+      // outlive it, or the store would hold `me` (the products list, plan badges)
+      // for a form nobody can see. Same pattern as the facet editor.
+      onCleanup(() => untracked(() => this.store.clearDirty('products', id)));
     });
+    // AECI-1943: the effect's cleanup also runs when `hasChanges` flips, so it
+    // only withdraws the registration. Leaving the form for good also applies
+    // the refresh the store set aside while it was dirty.
+    this.destroyRef.onDestroy(() =>
+      this.store.releaseDirty(
+        'products',
+        untracked(() => this.product().id),
+      ),
+    );
   }
 
   /** Take the server's copy and drop the unsaved edits. */
@@ -552,8 +574,8 @@ export class VendorProductForm {
     this.saved.set(false);
   }
 
-  /** The form's submit. Returns early on a replayed early submit, which the
-   *  browser already ran natively (`core/event-replay.ts`). */
+  /** The form's submit. Drops a replayed early submit. The form is `method="dialog"`,
+   *  so the native submit did nothing (AECI-1919, `core/event-replay.ts`). */
   protected onFormSubmit(event: Event): void {
     if (isReplayedEvent(event)) return;
     event.preventDefault();

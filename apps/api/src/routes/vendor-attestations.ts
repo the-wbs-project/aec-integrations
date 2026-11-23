@@ -178,7 +178,7 @@ import {
 } from '../lib/claim-thread-lifecycle';
 import { auditActorType, productTier, requireProductCapability } from '../lib/authz';
 import { loadDataObjectResolver, type DataObjectTerm } from '../lib/data-object-vocabulary';
-import { productLinkColumns, toMechanismKind, toProductLink } from '../lib/drizzle-helpers';
+import { productLinkColumns, toMechanismKind, toOwnedProductLink } from '../lib/drizzle-helpers';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { publicSiteBase } from '../lib/public-urls';
 import { pairCacheTag } from './promote-pair';
@@ -1172,7 +1172,7 @@ export function createListVendorIntegrationsHandler(
           // AECI-705 — computed server-side and never re-derived in the browser:
           // the union predicate is non-obvious and a client copy would drift.
           attestable,
-          powered_by: row.poweredByProduct ? toProductLink(row.poweredByProduct) : null,
+          powered_by: row.poweredByProduct ? toOwnedProductLink(row.poweredByProduct) : null,
           // AECI-1008. Computed per entry because `direction` is framed against
           // this entry's context product, like every other direction here.
           is_owner: row.builtByVendorId === vendorId,
@@ -1213,8 +1213,12 @@ export function createListVendorIntegrationsHandler(
           maintained_by: row.maintainedBy === 'vendor' ? 'vendor' : 'aeci',
           last_reviewed_at: row.lastReviewedAt ?? null,
           pricing_url: row.pricingUrl ?? null,
-          context_product: toProductLink(contextIsSource ? row.sourceProduct : row.targetProduct),
-          other_product: toProductLink(contextIsSource ? row.targetProduct : row.sourceProduct),
+          context_product: toOwnedProductLink(
+            contextIsSource ? row.sourceProduct : row.targetProduct,
+          ),
+          other_product: toOwnedProductLink(
+            contextIsSource ? row.targetProduct : row.sourceProduct,
+          ),
           slots: [...authority.slots],
           claims: [...row.claims]
             // Vocabulary order, then slug — the same ordering the pair page's claim

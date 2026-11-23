@@ -566,10 +566,10 @@ describe('a Managed seat edits every field', () => {
       description: 'x',
     });
     // The ONLY thing that can reject this is the ban — and it must be the plain
-    // FORBIDDEN with the ban reason, not an ENTITLEMENT_REQUIRED.
+    // FORBIDDEN with the ban message, not an ENTITLEMENT_REQUIRED.
     expect(status).toBe(403);
     expect(body.error.code).toBe(ApiErrorCode.FORBIDDEN);
-    expect(body.error.message).toBe('Portal abuse');
+    expect(body.error.message).toBe('Account suspended');
   });
 });
 

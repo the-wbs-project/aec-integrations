@@ -45,7 +45,7 @@ describe('RatingSummary', () => {
     expect(el.textContent).toContain('4.3');
     expect(el.textContent).toContain('12 reviews');
     // The value/label is announced once, not as five separate stars.
-    expect(role?.getAttribute('aria-label')).toBe('Rated 4.3 out of 5, from 12 reviews');
+    expect(role?.getAttribute('aria-label')).toBe('Product quality 4.3 out of 5, from 12 reviews');
     // The gold star is decorative — meaning is carried by the numeral + label.
     const star = el.querySelector('span[aria-hidden="true"]');
     expect(star?.textContent).toContain('★');
@@ -72,9 +72,13 @@ describe('RatingSummary', () => {
   it('renders an en-dash empty state in the cell variant when gated', () => {
     const { el } = create(null, 2, 'cell');
     expect(img(el)).toBeNull();
-    const dash = el.querySelector('span[aria-label]');
-    expect(dash?.textContent).toContain('–');
-    expect(dash?.getAttribute('aria-label')).toBe('No ratings yet');
+    // AECI-1793: the dash is hidden from assistive tech and the words are
+    // visually hidden text, because an aria-label on a plain span is not
+    // reliably read.
+    const dash = el.querySelector('span[aria-hidden="true"]');
+    expect(dash?.textContent?.trim()).toBe('–');
+    expect(el.querySelector('span.sr-only')?.textContent?.trim()).toBe('No ratings yet');
+    expect(el.querySelector('span[aria-label]')).toBeNull();
   });
 
   it('shows the rating (not the en-dash) in the cell variant when visible', () => {
@@ -82,6 +86,6 @@ describe('RatingSummary', () => {
     expect(img(el)).not.toBeNull();
     expect(el.textContent).toContain('4.9');
     expect(el.textContent).toContain('30 reviews');
-    expect(el.querySelector('span[aria-label="No ratings yet"]')).toBeNull();
+    expect(el.textContent).not.toContain('No ratings yet');
   });
 });

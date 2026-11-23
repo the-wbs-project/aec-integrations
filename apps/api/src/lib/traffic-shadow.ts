@@ -13,7 +13,7 @@
  * `metrics-backfill.ts` does: the unit lane and `tsc` cover `src/**` only.
  */
 
-import { and, eq, gte, isNotNull, lt, sql } from 'drizzle-orm';
+import { and, eq, gte, isNotNull, lt, min, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { compareText } from '@aeci/shared/text-sort';
@@ -29,6 +29,13 @@ import { loadAsnAnnotations, type AsnNetworkClass } from './asn-registry';
 import { NOT_INTERNAL, OPERATOR_PAIR_LOOKBACK_DAYS } from './page-view-predicates';
 import { detectSwarms, NON_BROWSER_VERDICTS, SWARM_PRIOR_LOOKBACK_DAYS } from './swarm-detection';
 import { findCoordinatedGroups } from './coordinated-identities';
+import {
+  BrowserEvidenceCollector,
+  renderBrowserEvidenceMarkdown,
+  type BrowserEvidenceInputs,
+  type BrowserEvidenceReport,
+  type IdRange,
+} from './traffic-shadow-browser-evidence';
 import {
   CandidateCollector,
   readHashWindows,
@@ -116,6 +123,8 @@ export const PULL_COLUMNS = [
   'privacy_signal',
   // AECI-1584. Report-only: the candidate review shows it, and the classifier does not read it.
   'turnstile_verdict',
+  // AECI-1716. Report-only: the browser-report candidates read it, and the classifier does not.
+  'browser_evidence',
   'created_at',
 ] as const;
 
@@ -232,7 +241,7 @@ function bool(v: string | number | null): boolean | null {
   return v === 1 || v === '1' || v === 'true';
 }
 
-/** 25 bound values per row; 100 rows stays far under SQLite's parameter limit. */
+/** 26 bound values per row; 100 rows stays far under SQLite's parameter limit. */
 const LOAD_CHUNK = 100;
 
 /**
@@ -271,6 +280,7 @@ export async function loadPulledRows(
     writerProvenance: str(v.writer_provenance),
     privacySignal: bool(v.privacy_signal),
     turnstileVerdict: str(v.turnstile_verdict),
+    browserEvidence: str(v.browser_evidence),
     createdAt: String(v.created_at),
   }));
   for (let i = 0; i < rows.length; i += LOAD_CHUNK) {
@@ -876,6 +886,40 @@ export interface ShadowResult {
    * the running classifier's class as the baseline.
    */
   coordinated: CoordinatedReport & { slices: SliceMetrics[]; moves: FamilyMove[] };
+  /**
+   * AECI-1716. The two browser-report candidates, overlaid on the running classifier.
+   * Each signal has its own §3c metrics, with the running classifier's class as the
+   * baseline.
+   */
+  browserEvidence: BrowserEvidenceReport & {
+    interacted: { slices: SliceMetrics[]; moves: FamilyMove[] };
+    noBrowserReport: { slices: SliceMetrics[]; moves: FamilyMove[] };
+  };
+}
+
+/**
+ * The first `ssr-arrival` in the loaded rows that carries a browser report, or null.
+ * A report needs both the API and the browser switch on, so this is the earliest
+ * instant capture is known to have run. It can only be later than the true start,
+ * which moves rows to "capture off" and never to `no_browser_report`.
+ */
+export async function deriveCaptureFrom(db: Db): Promise<string | null> {
+  const [row] = await db
+    .select({ first: min(pageViews.createdAt) })
+    .from(pageViews)
+    .where(
+      and(eq(pageViews.writerProvenance, 'ssr-arrival'), isNotNull(pageViews.browserEvidence)),
+    );
+  return row?.first ?? null;
+}
+
+/** The AECI-1716 inputs a run takes. Every field is optional. */
+export interface BrowserEvidenceOptions {
+  /** When the rows were read. Default: now. */
+  readAt?: string;
+  /** The tier's capture start. Default: {@link deriveCaptureFrom}. */
+  captureFrom?: string;
+  excludeIds?: IdRange[];
 }
 
 function sumReach(days: readonly CrawlReach[]): CrawlReach {
@@ -893,7 +937,12 @@ function sumReach(days: readonly CrawlReach[]): CrawlReach {
 /** Classify every row of every reported day already loaded into `db`. */
 export async function runShadow(
   db: Db,
-  opts: { fromDay: string; toDay: string; labels: LabelsFile },
+  opts: {
+    fromDay: string;
+    toDay: string;
+    labels: LabelsFile;
+    browserEvidence?: BrowserEvidenceOptions;
+  },
 ): Promise<ShadowResult> {
   const heldOut = new Set(opts.labels.heldOutDays);
   const outcomes: ShadowRowOutcome[] = [];
@@ -917,6 +966,22 @@ export async function runShadow(
   const candidates = new CandidateCollector();
   const coordinated = new CoordinatedCollector();
   const coordinatedOutcomes: ShadowRowOutcome[] = [];
+  const derivedCaptureFrom =
+    opts.browserEvidence?.captureFrom === undefined ? await deriveCaptureFrom(db) : null;
+  const browserInputs: BrowserEvidenceInputs = {
+    readAt: opts.browserEvidence?.readAt ?? new Date().toISOString(),
+    captureFrom: opts.browserEvidence?.captureFrom ?? derivedCaptureFrom,
+    captureFromSource:
+      opts.browserEvidence?.captureFrom !== undefined
+        ? 'input'
+        : derivedCaptureFrom === null
+          ? 'none'
+          : 'derived',
+    excludeIds: opts.browserEvidence?.excludeIds ?? [],
+  };
+  const browser = new BrowserEvidenceCollector(browserInputs, opts.labels.sessions.length > 0);
+  const interactedOutcomes: ShadowRowOutcome[] = [];
+  const noReportOutcomes: ShadowRowOutcome[] = [];
 
   for (const day of daysBetween(opts.fromDay, opts.toDay)) {
     const { rows, ctx, networkClassByAsn, swarm, coverage, crawlWindows } =
@@ -924,12 +989,29 @@ export async function runShadow(
     candidates.addDay(day, await readHashWindows(db, day), heldOut.has(day));
     const internalIds = new Set(ctx.internalRowIds);
     for (const r of rows) if (r.isOperator === true) internalIds.add(r.id);
-    coordinated.addDay(
-      day,
-      findCoordinatedGroups(rows, (r) => internalIds.has(r.id)),
-      heldOut.has(day),
-      networkClassByAsn,
+    const coordinatedDay = findCoordinatedGroups(rows, (r) => internalIds.has(r.id));
+    coordinated.addDay(day, coordinatedDay, heldOut.has(day), networkClassByAsn);
+    // AECI-1716. Read beside the classifier's columns, never through them, so
+    // `buildClassificationDay` (shared with the nightly writer) does not change.
+    const browserFacts = new Map(
+      (
+        await db
+          .select({
+            id: pageViews.id,
+            cfCountry: pageViews.cfCountry,
+            browserEvidence: pageViews.browserEvidence,
+            turnstileVerdict: pageViews.turnstileVerdict,
+          })
+          .from(pageViews)
+          .where(
+            and(
+              gte(pageViews.createdAt, `${day}T00:00:00.000Z`),
+              lt(pageViews.createdAt, evidenceWindows(day, day).reported.to),
+            ),
+          )
+      ).map((f) => [f.id, f] as const),
     );
+    browser.addDay(day, heldOut.has(day), networkClassByAsn);
     const reach: CrawlReach = { population: 0, dayOnly: 0, trailingOnly: 0, both: 0, neither: 0 };
     const exclusions = new Map<string, CrawlExclusionPair>();
     const windowByPair = new Map(crawlWindows.map((w) => [`${w.userAgentHash}|${w.cfAsn}`, w]));
@@ -1069,6 +1151,33 @@ export async function runShadow(
         class: coordinated.addRow(row, result),
         baselineClass: result.class,
       });
+      // AECI-1716. The same rule: the overlays never touch the counts below.
+      const facts = browserFacts.get(row.id);
+      const overlay = browser.addRow({
+        row: {
+          ...row,
+          cfCountry: facts?.cfCountry ?? null,
+          browserEvidence: facts?.browserEvidence ?? null,
+        },
+        turnstileVerdict: facts?.turnstileVerdict ?? null,
+        result,
+        session: session ? `${session.slice}: ${session.browser}` : null,
+        coordinatedMember: coordinatedDay.memberRowIds.has(row.id),
+        spaFollowup: ctx.spaFollowupRowIds.has(row.id),
+      });
+      // `--exclude-ids` rows stay out of the overlays' slice metrics too.
+      if (!overlay.excluded) {
+        interactedOutcomes.push({
+          ...outcome,
+          class: overlay.interacted,
+          baselineClass: result.class,
+        });
+        noReportOutcomes.push({
+          ...outcome,
+          class: overlay.noBrowserReport,
+          baselineClass: result.class,
+        });
+      }
 
       classCounts[result.class] += 1;
       currentCounts[current] += 1;
@@ -1122,12 +1231,13 @@ export async function runShadow(
     }
   }
 
-  const coordinatedSlices: SliceMetrics[] = [];
-  for (const slice of SHADOW_SLICES) {
-    for (const partition of ['all', 'tuning', 'held_out'] as const) {
-      coordinatedSlices.push(sliceMetrics(coordinatedOutcomes, slice, partition));
-    }
-  }
+  const allSlices = (list: readonly ShadowRowOutcome[]): SliceMetrics[] =>
+    SHADOW_SLICES.flatMap((slice) =>
+      (['all', 'tuning', 'held_out'] as const).map((partition) =>
+        sliceMetrics(list, slice, partition),
+      ),
+    );
+  const coordinatedSlices = allSlices(coordinatedOutcomes);
 
   const reportWindow = evidenceWindows(opts.fromDay, opts.toDay);
   const hopDays = await readVerifiedHopDays(db, reportWindow.rows.from, reportWindow.rows.to);
@@ -1175,6 +1285,14 @@ export async function runShadow(
       ...coordinated.finish(),
       slices: coordinatedSlices,
       moves: familyMoves(coordinatedOutcomes),
+    },
+    browserEvidence: {
+      ...browser.finish(),
+      interacted: { slices: allSlices(interactedOutcomes), moves: familyMoves(interactedOutcomes) },
+      noBrowserReport: {
+        slices: allSlices(noReportOutcomes),
+        moves: familyMoves(noReportOutcomes),
+      },
     },
   };
 }
@@ -1461,6 +1579,25 @@ export function renderShadowMarkdown(meta: ShadowMeta, result: ShadowResult): st
           result.coordinated.moves.map((m) => [m.slice, m.partition, m.from, m.to, m.rows]),
         ),
   );
+
+  out.push(...renderBrowserEvidenceMarkdown(result.browserEvidence));
+  for (const [label, signal] of [
+    ['`interacted`', result.browserEvidence.interacted],
+    ['`no_browser_report`', result.browserEvidence.noBrowserReport],
+  ] as const) {
+    out.push('', `### Slice metrics with ${label} (§3c step 3)`, '');
+    out.push(sliceTable(signal.slices));
+    out.push('', `### Moved by ${label}, by slice`, '');
+    out.push('Baseline is the running classifier. Only rows whose class changed.', '');
+    out.push(
+      signal.moves.length === 0
+        ? 'None.'
+        : table(
+            ['Slice', 'Partition', 'From', 'To', 'Rows'],
+            signal.moves.map((m) => [m.slice, m.partition, m.from, m.to, m.rows]),
+          ),
+    );
+  }
 
   out.push('', '## Labelled sessions', '');
   out.push(

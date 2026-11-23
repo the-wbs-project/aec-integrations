@@ -18,6 +18,7 @@ import {
 } from '@aeci/shared';
 
 import { AdminLicensesApi } from './admin-licenses-api';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 /**
  * The Withdraw action on a pending grant row of the admin Billing tab (AECI-1615;
@@ -32,9 +33,15 @@ import { AdminLicensesApi } from './admin-licenses-api';
  * No heading and no live region: `VendorDetail` owns the page's `role="status"`
  * region. Announcements leave through {@link announce}; the host refetches the billing
  * and the audit trail on {@link changed}.
+ *
+ * ── FOCUS (AECI-1994) ───────────────────────────────────────────────────────
+ * Opening the form focuses the reason, and Cancel returns focus to Withdraw. A refusal
+ * focuses its message, because the confirm button was disabled while the request ran
+ * and a disabled button drops focus.
  */
 @Component({
   selector: 'aec-license-grant-actions',
+  imports: [AecFormSubmit],
   template: `
     @if (grant().status !== 'pending_acceptance') {
       <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
@@ -54,9 +61,10 @@ import { AdminLicensesApi } from './admin-licenses-api';
       </button>
     } @else {
       <form
+        method="dialog"
         novalidate
         class="ms-auto w-80 rounded-(--radius-md) bg-(--surface-sunken) p-3 text-start"
-        (submit)="$event.preventDefault(); submit()"
+        (aecSubmit)="submit()"
         data-testid="grant-withdraw-form"
       >
         <p class="text-sm text-(--text-primary)" i18n="@@admin.vendors.billing.grants.confirm">
@@ -107,7 +115,12 @@ import { AdminLicensesApi } from './admin-licenses-api';
           </p>
         }
         @if (failedMessage()) {
-          <p role="alert" class="mt-2 text-sm font-medium text-(--text-primary)">
+          <p
+            #failedAlert
+            tabindex="-1"
+            role="alert"
+            class="mt-2 text-sm font-medium text-(--text-primary)"
+          >
             {{ failedMessage() }}
           </p>
         }
@@ -160,6 +173,7 @@ export class LicenseGrantActions {
 
   private readonly reasonInput = viewChild<ElementRef<HTMLTextAreaElement>>('reasonInput');
   private readonly trigger = viewChild<ElementRef<HTMLButtonElement>>('trigger');
+  private readonly failedAlert = viewChild<ElementRef<HTMLElement>>('failedAlert');
 
   protected openForm(): void {
     this.reason.set('');
@@ -200,6 +214,10 @@ export class LicenseGrantActions {
       );
     } catch (err) {
       this.failedMessage.set(withdrawErrorMessage(err));
+      // AECI-1994: the confirm button was disabled while the request ran, which drops focus.
+      afterNextRender(() => this.failedAlert()?.nativeElement.focus(), {
+        injector: this.injector,
+      });
     } finally {
       this.pending.set(false);
     }

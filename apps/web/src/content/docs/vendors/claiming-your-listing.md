@@ -12,7 +12,7 @@ AEC Integrations compiles its listings from public sources. A claim is how someo
 
 ## Send a claim
 
-Choose **Claim your listing** on the [vendor program page](/vendor-program), search for your product or company, and pick it. Or open your company's page, or one of its product pages, and choose the claim button. It names your company, for example **Claim Acme Software**. A claim is also how you join your company's account when a colleague already has a seat.
+Choose **Claim your listing** on the [vendor program page](/vendor-program), search for your product or company, and pick it. Or open your company's page, or one of its product pages, and choose **Claim Vendor**. A claim is also how you join your company's account when a colleague already has a seat.
 
 If your product or company is not listed, use the [listing request form](/vendor-program/list-your-product), or choose **Not listed? Ask us to add it** in the claim dialog. Give its name, its website and the company's country. A listing request is not a claim, so it does not ask you to accept the Vendor Terms. You accept them when you claim the listing we add. We email you a link to confirm the request, the same way as a claim. Once you confirm it, we check that you work for the company. We may add the listing to the directory if it meets our [listing conditions](/docs/trust/listing-submissions). If we add it, we email you so you can finish your claim.
 
@@ -53,7 +53,7 @@ A person reviews every claim and emails you the result.
 
 ## What happens next
 
-**If we approve it,** you get an email saying your claim is approved, with a button to your vendor portal. If you did not have an account, we create one for you. Sign in with the same address from the sign-in page. After that, open the portal from the account menu at the top right of any page, or go to [/vendor](/vendor). On a phone, the menu is at the top left. Approval puts every product on Free, and the email tells you what your account can do. To put a product on Managed, an owner buys a subscription on the **Billing** tab and puts it on the product. [Plans](/docs/vendors/plans) explains both plans. [Your seat](/docs/vendors/your-seat) covers what you can do from there.
+**If we approve it,** you get an email saying your claim is approved, with a button to your vendor portal. If you did not have an account, we create one for you. Sign in with the same address from the sign-in page. After that, open the portal from the account menu at the top right of any page, or go to [/vendor](/vendor). On a phone, it is in the menu at the top right. Approval puts every product on Free, and the email tells you what your account can do. To put a product on Managed, an owner buys a subscription on the **Billing** tab and puts it on the product. [Plans](/docs/vendors/plans) explains both plans. [Your seat](/docs/vendors/your-seat) covers what you can do from there.
 
 **If we cannot approve it,** you get an email saying so. You are welcome to send a new claim with more detail about your role.
 

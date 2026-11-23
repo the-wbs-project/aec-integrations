@@ -173,26 +173,51 @@ describe('ReviewCta', () => {
     expect(el.textContent).not.toContain('Submit a review');
   });
 
-  it('renders the primary (accent-filled) button skin by default', () => {
+  it('renders the secondary (raised, bordered) button by default, so the product page keeps one filled button', () => {
     const { fixture, el } = create();
     fixture.detectChanges();
 
-    const cls = anchor(el).className;
-    expect(cls).toContain('bg-(--accent-primary)');
-    expect(cls).not.toContain('bg-(--surface-raised)');
+    const a = anchor(el);
+    expect(a.getAttribute('data-variant')).toBe('secondary');
+    expect(a.className).toContain('bg-(--surface-raised)');
+    expect(a.className).not.toContain('bg-(--accent-primary)');
   });
 
-  it('renders the secondary (bordered) skin when variant="secondary" (hero placement)', () => {
+  it('renders the filled (primary) button when a caller asks for variant="primary"', () => {
     const { fixture, el } = create();
-    fixture.componentRef.setInput('variant', 'secondary');
+    fixture.componentRef.setInput('variant', 'primary');
     fixture.detectChanges();
 
-    const cls = anchor(el).className;
-    expect(cls).toContain('bg-(--surface-raised)');
-    expect(cls).toContain('text-(--text-primary)');
-    expect(cls).not.toContain('bg-(--accent-primary)');
-    // Skin only — the neutral default label + working link are unchanged.
+    const a = anchor(el);
+    expect(a.getAttribute('data-variant')).toBe('primary');
+    expect(a.className).toContain('bg-(--accent-primary)');
+    expect(a.className).not.toContain('bg-(--surface-raised)');
+    // Skin only: the neutral default label and the working link are unchanged.
     expect(el.textContent).toContain('Write a review');
-    expect(anchor(el).getAttribute('href')).toBe('/products/procore/review');
+    expect(a.getAttribute('href')).toBe('/products/procore/review');
+  });
+
+  // AECI-1778: the product hero puts the CTA on Forest, as the second action.
+  it('renders the on-brand secondary button on Forest', () => {
+    const { fixture, el } = create();
+    fixture.componentRef.setInput('variant', 'on-brand-secondary');
+    fixture.detectChanges();
+    const a = anchor(el);
+    expect(a.getAttribute('data-variant')).toBe('on-brand-secondary');
+    expect(a.getAttribute('href')).toBe('/products/procore/review');
+    expect(el.textContent).toContain('Write a review');
+  });
+
+  it('keeps the "already reviewed" state readable on Forest after hydration', async () => {
+    const account = makeAccountMock({ review: existingReview });
+    const { fixture, el } = create('procore', makeAuthMock({ signedIn: true }), account);
+    fixture.componentRef.setInput('variant', 'on-brand-secondary');
+    await hydrate(fixture);
+    const a = anchor(el);
+    expect(a.getAttribute('href')).toBe('/account');
+    expect(a.classList.contains('text-(--text-on-brand)')).toBe(true);
+    expect(a.classList.contains('text-(--accent-primary)')).toBe(false);
+    expect(a.classList.contains('focus-visible:outline-(--focus-ring-on-brand)')).toBe(true);
+    expect(a.parentElement!.classList.contains('text-(--text-on-brand-secondary)')).toBe(true);
   });
 });

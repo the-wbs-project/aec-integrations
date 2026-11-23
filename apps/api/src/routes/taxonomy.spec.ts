@@ -15,6 +15,7 @@ import {
   taxonomyPhases,
   taxonomyTrades,
 } from '../db/schema';
+import { computeTotalProducts } from '../lib/home-stats';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createTaxonomyHandler } from './taxonomy';
@@ -98,6 +99,52 @@ describe('GET /api/taxonomy', () => {
       'bim-manager',
       'structural-engineer',
     ]);
+  });
+
+  it('returns total_products equal to home.total_products, hidden listings excluded (AECI-1773)', async () => {
+    await t.db.insert(products).values([
+      { id: u(11), slug: 'revit', name: 'Revit', promotionStatus: 'promoted' },
+      { id: u(12), slug: 'navisworks', name: 'Navisworks', promotionStatus: 'promoted' },
+      {
+        id: u(13),
+        slug: 'hidden-one',
+        name: 'Hidden One',
+        promotionStatus: 'promoted',
+        hiddenAt: '2026-11-01T00:00:00.000Z',
+      },
+    ]);
+    const res = await app().request('/api/taxonomy', {}, TEST_ENV, fakeExecutionContext());
+    const body = TaxonomyResponseSchema.parse(await res.json());
+    expect(body.total_products).toBe(await computeTotalProducts(t.db));
+    expect(body.total_products).toBe(2);
+  });
+
+  it('refetches a KV value cached in the old four-list shape and writes the new shape back', async () => {
+    await t.db
+      .insert(products)
+      .values({ id: u(11), slug: 'revit', name: 'Revit', promotionStatus: 'promoted' });
+    const puts: Array<{ key: string; value: string }> = [];
+    const kv = {
+      get: async () => ({ categories: [], audiences: [], phases: [], trades: [] }),
+      put: async (key: string, value: string) => {
+        puts.push({ key, value });
+      },
+    } as unknown as KVNamespace;
+    const res = await app().request(
+      '/api/taxonomy',
+      {},
+      { ...TEST_ENV, TAXONOMY_KV: kv },
+      fakeExecutionContext(),
+    );
+    const body = TaxonomyResponseSchema.parse(await res.json());
+    expect(body.total_products).toBe(1);
+    expect(puts).toHaveLength(1);
+    expect(TaxonomyResponseSchema.parse(JSON.parse(puts[0]!.value)).total_products).toBe(1);
+  });
+
+  it('returns total_products 0 on an empty catalog', async () => {
+    const res = await app().request('/api/taxonomy', {}, TEST_ENV, fakeExecutionContext());
+    expect(TaxonomyResponseSchema.parse(await res.json()).total_products).toBe(0);
   });
 
   it('returns an empty trades list on a catalog with no trade vocabulary seeded', async () => {

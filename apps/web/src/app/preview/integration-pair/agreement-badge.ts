@@ -21,7 +21,7 @@ import { COPY } from './integration-pair.fixtures';
   template: `
     <span
       class="inline-flex items-center gap-1.5 rounded-(--radius-sm) border border-(--border-default)
-        bg-(--surface-raised) px-2.5 py-1 text-[0.75rem] font-medium tracking-[0.01em]
+        bg-(--surface-raised) px-2.5 py-1 text-t-12 font-medium tracking-[0.01em]
         text-(--text-secondary)"
       [attr.aria-label]="copy.badgeAria"
     >

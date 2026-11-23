@@ -22,6 +22,7 @@ import {
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /**
  * The company legal name block on the vendor Billing tab (AECI-1625), under the section's
@@ -65,7 +66,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
     </div>
 
     @if (editing()) {
-      <form class="mt-3 space-y-3" (submit)="submit($event)" novalidate>
+      <form method="dialog" class="mt-3 space-y-3" (submit)="submit($event)" novalidate>
         <div class="space-y-1.5">
           <label
             class="sr-only"
@@ -160,6 +161,7 @@ export class VendorBillingLegalNameForm {
   }
 
   protected async submit(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.busy()) return;
     const trimmed = this.draft().trim();

@@ -227,6 +227,51 @@ Consequences you must hold in your head when reading a number:
     ray comes from the `Server-Timing` header of its own `POST /api/page-views`
     response. No ray means nothing is posted for that view, which is always the case
     in local dev. At most one post per word per view, through `fetch` with `keepalive`.
+  - **The input that opens an in-app view counts for it (AECI-1987, ruled 2026-11-20).**
+    A visitor's click, tap or key press that starts an in-app navigation marks the view
+    it opens. That view posts `interacted` once its beacon ray arrives, with no second
+    touch. The tie is one browser task. A trusted `pointerdown`, `click` or `keydown`
+    marks the task, and a router navigation started in that task carries the mark. The
+    mark clears on the next task. So a redirect, a timer or a script's navigation is
+    never marked, and neither is a script's `element.click()`. Back and Forward are
+    never marked, because the page sees no input for them. A landing view is never
+    marked this way. A link opened in a new tab is the next bullet. `scroll` is not an
+    interaction event.
+  - **A link the visitor opens in a new tab counts for the new tab (AECI-1988, ruled
+    2026-11-20).** Ctrl-click, Cmd-click, Shift-click, middle click, "Open link in new
+    tab" and a plain click on a `target="_blank"` link all open a landing view in a new
+    tab. The proof is a trusted input in the opening tab. The referrer is never read,
+    because crawlers that run our bundle send one. Code: `app/core/new-tab-evidence.ts`.
+    - *The opening tab.* A trusted `click`, `auxclick` or `contextmenu` on one of our
+      links leaves an in-memory record of the link's path and query. A click record
+      lasts `NEW_TAB_OPEN_WINDOW_MS` (30 s). A context-menu record lasts
+      `NEW_TAB_MENU_WINDOW_MS` (60 s), because the visitor still has to pick from the
+      menu. A row Ctrl-click that our code opens with `window.open` records through
+      `recordNewTabOpen`, with the click as proof. Another origin, an untracked route
+      and a `download` link record nothing. At most `NEW_TAB_OPEN_LIMIT` (8) records
+      are kept.
+    - *The new tab.* Its landing view, once it has posted `ran`, asks on the same-origin
+      `BroadcastChannel` `aeci-browser-evidence` whether a tab just opened its address.
+      It asks only after a plain navigation, never after a reload or Back and Forward.
+      It listens for `NEW_TAB_ANSWER_WAIT_MS` (5 s). On a yes it posts `interacted`.
+    - *One open, one mark.* A tab answers only from a fresh record with the same path
+      and query, and the answer uses the record up. So one open can mark at most one
+      tab. A question carries a random tag that names the asker, so a yes reaches only
+      it. Inputs on one address within 1 s are one open.
+    - *What it misses.* An opening tab that closed or loaded a new document before the
+      new tab asked has lost its record. So has one that is frozen or discarded. A
+      server redirect changes the new tab's address, so it does not match. A link from
+      another site, a private window opened from a normal one, and a browser with no
+      `BroadcastChannel` get no answer. Each of these stays `ran` until the visitor
+      touches the page. Two tabs that both opened the same address both answer the
+      first question, so the second new tab can miss.
+    - *Same gates, both tabs.* Only a tab whose three gates pass (below) listens, asks
+      or answers. A gated tab opens no channel. The channel is open only while a record
+      or a question is live.
+    - *Known limit.* A client that runs our script can open a second same-origin
+      context and answer itself. That is the same class as a client that reads its own
+      ray and posts `interacted`. AECI-1716's shadow run checks the floor against the
+      other evidence. This change claims no more than that.
   - **Three gates, all checked before any post.** (1) The tier's switch: the SSR
     Worker injects `window.__AECI_BROWSER_EVIDENCE__ = { enabled: true }` only when the
     wrangler var `BROWSER_EVIDENCE_ENABLED` is `"true"` (`docs/environments.md`).
@@ -237,7 +282,8 @@ Consequences you must hold in your head when reading a number:
     Turnstile uses (`turnstile-config.ts`). The API refuses privacy and held-region
     rows as well.
   - **Nothing is written to the browser.** No `localStorage`, `sessionStorage`, cookie
-    or IndexedDB. Not on `/admin` or `/account`.
+    or IndexedDB. Not on `/admin` or `/account`. The new-tab record and question live
+    in the two tabs' memory only, and nothing is added to the URL (AECI-1988).
   - `ran` is never human evidence. Crawlers run our bundle (AECI-1710). The planned
     human floor is `interacted` (`BOT_TRAFFIC_CLASSIFICATION.md` §2.11).
 - Tier 2 writes no identifier, so each page load is a fresh anonymous id. Error

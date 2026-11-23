@@ -17,7 +17,8 @@ import { describe, expect, it } from 'vitest';
  * the whole class of bug.
  *
  * Scope: only the app's own design-token namespaces (`--surface-*`, `--text-*`,
- * `--border-*`, `--accent-*`, `--font-*`, `--status-*`). Spartan/Tailwind preset internals
+ * `--border-*`, `--accent-*`, `--font-*`, `--status-*`, `--focus-*`, `--duration-*`,
+ * `--ease-*`). Spartan/Tailwind preset internals
  * (`--radius`, `--spacing`, `--color-*`, `--tw-*`, …) are deliberately excluded —
  * they are defined outside `styles.css` and are not the bug class this guards.
  */
@@ -30,7 +31,43 @@ const SCANNED_EXTENSIONS = ['.ts', '.html', '.css'];
 const SKIP_DIRS = new Set(['node_modules', 'dist', '.angular']);
 
 /** App design-token namespaces this guard governs. */
-const GUARDED_PREFIXES = /^(surface|text|border|accent|font|status)-/;
+const GUARDED_PREFIXES = /^(surface|text|border|accent|font|status|focus|duration|ease|t)-/;
+
+/**
+ * AECI-1750: the role-named radius and shadow tokens. `--radius-sm|md|lg|xl|2xl…`
+ * are Spartan's, defined outside `styles.css`, so the radius namespace is guarded
+ * by name, not by prefix: a `--radius-<x>` or `--shadow-<x>` reference whose name
+ * is neither Spartan's nor in this list is an undefined token.
+ */
+const ROLE_TOKENS = [
+  'radius-mark',
+  'radius-control',
+  'radius-panel',
+  'radius-card',
+  'radius-pill',
+  'shadow-card',
+  'shadow-menu',
+  'shadow-modal',
+];
+/** Tailwind's and Spartan's own names: defined outside `styles.css`, never a violation. */
+const FRAMEWORK_TOKENS =
+  /^(radius-(xs|sm|md|lg|xl|2xl|3xl|4xl)|shadow-(2xs|xs|sm|md|lg|xl|2xl|inner|none))$/;
+/** The ruled recipes (DESIGN.md §4 "Shadow Vocabulary"), pinned exactly. */
+const SHADOW_RECIPES: Record<string, string> = {
+  'shadow-card': '0 1px 3px rgb(0 0 0 / 0.06), 0 16px 36px -16px rgb(0 0 0 / 0.24)',
+  'shadow-menu': '0 8px 24px -4px rgb(0 0 0 / 0.12), 0 2px 8px -1px rgb(0 0 0 / 0.06)',
+  // AECI-1770: the dialog and drawer recipe, unchanged in value, now named (Prettier writes 0.10 as 0.1).
+  'shadow-modal': '0 16px 48px -8px rgb(0 0 0 / 0.18), 0 4px 16px -2px rgb(0 0 0 / 0.1)',
+};
+/** Ruled radius values (DESIGN.md §4 "Radius"). */
+const RADIUS_VALUES: Record<string, string> = {
+  'radius-mark': '0.5rem',
+  'radius-control': '0.75rem',
+  'radius-panel': '1rem',
+  'radius-card': '1.5rem',
+  'radius-pill': '9999px',
+};
+const ROLE_NAMESPACE = /^(radius|shadow)-/;
 
 /** Matches a CSS custom-property *declaration* — `--name:` on the left side. */
 const DECLARATION_RE = /--([\w-]+)\s*:/g;
@@ -90,5 +127,443 @@ describe('design tokens', () => {
         .map((v) => `  ${v.token} — ${v.file}`)
         .join('\n')}`,
     ).toEqual([]);
+  });
+
+  it('declares every radius and shadow role token in :root with a real value, and exposes it in @theme inline (AECI-1750)', () => {
+    const css = readFileSync(STYLES_PATH, 'utf8');
+    const theme = css.slice(css.indexOf('@theme inline {'));
+    // The @theme self-reference `--x: var(--x)` is not a definition: only the
+    // :root block counts, and its value must not be a var().
+    const root = css.slice(css.indexOf(':root {'), css.indexOf('/* ─── Data-series'));
+    for (const token of ROLE_TOKENS) {
+      const decl = root.match(new RegExp(`^\\s*--${token}:\\s*([^;]+);`, 'm'))?.[1] ?? '';
+      expect(decl, `--${token} must have a value in the :root block`).not.toBe('');
+      expect(decl, `--${token} in :root must not be a var() reference`).not.toMatch(/^var\(/);
+      expect(theme, `--${token} must be exposed in @theme inline`).toContain(
+        `--${token}: var(--${token});`,
+      );
+    }
+  });
+
+  it('pins the radius values and the two shadow recipes exactly, in pure black (AECI-1750)', () => {
+    const css = readFileSync(STYLES_PATH, 'utf8');
+    const root = css.slice(css.indexOf(':root {'), css.indexOf('/* ─── Data-series'));
+    const valueOf = (name: string) =>
+      root.match(new RegExp(`^\\s*--${name}:\\s*([^;]+);`, 'm'))?.[1];
+    for (const [name, value] of Object.entries(SHADOW_RECIPES)) {
+      expect(valueOf(name), `--${name}`).toBe(value);
+    }
+    for (const [name, value] of Object.entries(RADIUS_VALUES)) {
+      expect(valueOf(name)?.replace(/\s*\/\*.*$/, ''), `--${name}`).toBe(value);
+    }
+  });
+
+  it('has no reference to an undefined radius or shadow role token (AECI-1750)', () => {
+    const violations: { token: string; file: string }[] = [];
+    for (const file of walk(SRC_DIR)) {
+      if (file === SELF) continue;
+      for (const token of collectMatches(readFileSync(file, 'utf8'), REFERENCE_RE)) {
+        if (!ROLE_NAMESPACE.test(token) || FRAMEWORK_TOKENS.test(token)) continue;
+        if (!definedTokens.has(token)) {
+          violations.push({ token: `--${token}`, file: file.slice(SRC_DIR.length + 1) });
+        }
+      }
+    }
+    expect(
+      violations,
+      `Undefined radius/shadow tokens referenced:\n${violations
+        .map((v) => `  ${v.token} — ${v.file}`)
+        .join('\n')}`,
+    ).toEqual([]);
+  });
+
+  /**
+   * AECI-1845: an unlayered rule beats every Tailwind utility. The global focus
+   * colour must sit in `@layer base`, or `focus-visible:outline-(--focus-ring-on-brand)`
+   * is dead and the ring is invisible on Forest. The on-Forest hairline is one
+   * shared unlayered class, because the `*` border rule stays unlayered.
+   */
+  describe('focus ring and on-Forest hairline (AECI-1845)', () => {
+    const css = readFileSync(STYLES_PATH, 'utf8');
+
+    /** Top-level `@layer base { … }` blocks, by brace matching. */
+    function baseLayerBlocks(source: string): string[] {
+      const blocks: string[] = [];
+      for (const m of source.matchAll(/@layer base\s*\{/g)) {
+        let depth = 0;
+        const start = m.index + m[0].length - 1;
+        for (let i = start; i < source.length; i++) {
+          if (source[i] === '{') depth++;
+          else if (source[i] === '}' && --depth === 0) {
+            blocks.push(source.slice(start + 1, i));
+            break;
+          }
+        }
+      }
+      return blocks;
+    }
+
+    /** The CSS with every `@layer base` block and every comment removed. */
+    function unlayered(source: string): string {
+      let out = source.replace(/\/\*[\s\S]*?\*\//g, '');
+      for (const block of baseLayerBlocks(out)) out = out.replace(block, '');
+      return out;
+    }
+
+    it('declares the global :focus-visible colour inside @layer base', () => {
+      const inBase = baseLayerBlocks(css).some((b) =>
+        /(^|[\s,}]):focus-visible\s*\{\s*outline-color:\s*var\(--accent-primary\);\s*\}/.test(b),
+      );
+      expect(inBase, ':focus-visible { outline-color } must sit in @layer base').toBe(true);
+    });
+
+    it('has no unlayered bare :focus-visible rule left to beat the utilities', () => {
+      expect(unlayered(css)).not.toMatch(/(^|[\s,}]):focus-visible\s*\{/);
+    });
+
+    it('defines the shared aec-on-brand-rule hairline class, unlayered', () => {
+      const rule =
+        /\.aec-on-brand-rule\s*\{\s*border-color:\s*var\(--border-on-brand-subtle\);\s*\}/;
+      expect(unlayered(css)).toMatch(rule);
+    });
+
+    it('defines the shared aec-on-brand-edge control-edge class, unlayered', () => {
+      const rule =
+        /\.aec-on-brand-edge\s*\{\s*border-color:\s*var\(--border-on-brand-strong\);\s*\}/;
+      expect(unlayered(css)).toMatch(rule);
+    });
+  });
+
+  describe('overlay scrims and surfaces (AECI-1770)', () => {
+    const css = readFileSync(STYLES_PATH, 'utf8');
+
+    it('has two scrim tokens: 40% for the menu dimmer, 50% for the modal backdrop', () => {
+      expect(css).toMatch(/^\s*--scrim:\s*rgb\(0 0 0 \/ 0\.4\);/m);
+      expect(css).toMatch(/^\s*--scrim-modal:\s*rgb\(0 0 0 \/ 0\.5\);/m);
+      expect(css.match(/^\s*--scrim:/gm)?.length).toBe(1);
+      expect(css.match(/^\s*--scrim-modal:/gm)?.length).toBe(1);
+      const rule = css.match(
+        /\.cdk-overlay-backdrop\.cdk-overlay-backdrop-showing\s*\{([^}]*)\}/,
+      )?.[1];
+      expect(rule).toContain('background-color: var(--scrim-modal);');
+    });
+
+    it('declares the three overlay surfaces in @layer components, so a utility overrides them', () => {
+      const start = css.indexOf('@layer components {');
+      expect(start, '@layer components block').toBeGreaterThan(-1);
+      let depth = 0;
+      let end = start;
+      for (let i = css.indexOf('{', start); i < css.length; i++) {
+        if (css[i] === '{') depth++;
+        else if (css[i] === '}' && --depth === 0) {
+          end = i;
+          break;
+        }
+      }
+      const block = css.slice(start, end);
+      for (const cls of ['.aec-dialog', '.aec-drawer', '.aec-popover']) {
+        expect(block, cls).toContain(cls);
+      }
+      expect(block).toMatch(/\.aec-popover\s*\{[^}]*border-radius:\s*var\(--radius-control\)/);
+      expect(block).toMatch(
+        /\.aec-dialog,\s*\.aec-drawer\s*\{[^}]*border-radius:\s*var\(--radius-card\)/,
+      );
+      expect(block).not.toMatch(/border-color/);
+    });
+
+    it('writes no second backdrop colour in a template or a component', () => {
+      const offenders = walk(SRC_DIR)
+        .filter((f) => f !== SELF && !f.endsWith('.spec.ts'))
+        .filter((f) => /bg-black\/|bg-\[rgb\(0[_ ]0[_ ]0\//.test(readFileSync(f, 'utf8')))
+        .map((f) => f.slice(SRC_DIR.length + 1));
+      expect(offenders).toEqual([]);
+    });
+  });
+
+  describe('motion tokens (AECI-1751)', () => {
+    const css = readFileSync(STYLES_PATH, 'utf8');
+    const theme = css.slice(css.indexOf('@theme inline {'));
+    /** Values come from the mock-ups' default state (PLAN.md §4.6, clash 36). */
+    const DURATIONS: Record<string, string> = {
+      fast: '120ms',
+      base: '180ms',
+      slow: '280ms',
+    };
+    const EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
+
+    it('defines the three durations and the easing with the ruled values', () => {
+      for (const [name, value] of Object.entries(DURATIONS)) {
+        expect(css).toMatch(new RegExp(`^\\s*--duration-${name}:\\s*${value};`, 'm'));
+      }
+      expect(css).toContain(`--ease-standard: ${EASING};`);
+    });
+
+    it('exposes every motion token through @theme inline, so the utilities exist', () => {
+      for (const name of Object.keys(DURATIONS)) {
+        expect(theme, `--transition-duration-${name}`).toContain(
+          `--transition-duration-${name}: var(--duration-${name});`,
+        );
+      }
+      expect(theme).toContain('--ease-standard: var(--ease-standard);');
+    });
+
+    it('defines every --duration-* / --ease-* token that @theme inline points at', () => {
+      const exposed = [...theme.matchAll(/var\(--((?:duration|ease)-[\w-]+)\)/g)].map((m) => m[1]);
+      expect(exposed.length).toBeGreaterThan(0);
+      for (const token of exposed) {
+        expect(definedTokens, `--${token} must be defined in styles.css`).toContain(token);
+      }
+    });
+
+    it('collapses every transition and animation duration under reduced motion', () => {
+      const start = css.indexOf('@media (prefers-reduced-motion: reduce)');
+      expect(start).toBeGreaterThan(-1);
+      const block = css.slice(start, css.indexOf('\n}\n', start));
+      expect(block).toMatch(/\*,\s*\*::before,\s*\*::after\s*\{/);
+      expect(block).toMatch(/animation-duration:\s*0\.01ms\s*!important/);
+      expect(block).toMatch(/transition-duration:\s*0\.01ms\s*!important/);
+    });
+
+    it('never feeds a duration token into a delay or a timer', () => {
+      const offenders: string[] = [];
+      for (const file of walk(SRC_DIR)) {
+        if (file === SELF || file.endsWith('.spec.ts')) continue;
+        for (const line of readFileSync(file, 'utf8').split('\n')) {
+          if (!/var\(--duration-/.test(line)) continue;
+          if (/(transition-delay|animation-delay|setTimeout)/.test(line)) {
+            offenders.push(`${file.slice(SRC_DIR.length + 1)}: ${line.trim()}`);
+          }
+        }
+      }
+      expect(offenders).toEqual([]);
+    });
+  });
+
+  describe('the type ramp (AECI-1748, DESIGN.md §3)', () => {
+    const css = readFileSync(STYLES_PATH, 'utf8');
+    const RAMP = [
+      't-12',
+      't-13',
+      't-14',
+      't-16',
+      't-20',
+      't-24',
+      't-36',
+      't-fig',
+      't-48',
+      't-statement',
+      't-statement-wide',
+      't-display',
+    ];
+    const FLUID = new Set(['t-36', 't-fig', 't-statement', 't-statement-wide', 't-display']);
+    const TAILWIND_STEPS = ['xs', 'sm', 'base', 'lg', 'xl', '2xl', '3xl', '4xl', '5xl'];
+
+    /** The value of a custom-property declaration, or undefined. */
+    function valueOf(name: string): string | undefined {
+      return css.match(new RegExp(`--${name}\\s*:\\s*([^;]+);`))?.[1].trim();
+    }
+
+    it('defines all twelve ramp tokens', () => {
+      for (const token of RAMP) {
+        expect(definedTokens, `--${token} must be defined in styles.css`).toContain(token);
+      }
+    });
+
+    it('writes each fluid step as a rem clamp with a rem-plus-vw middle term (WCAG 1.4.4)', () => {
+      for (const token of FLUID) {
+        expect(valueOf(token), `--${token}`).toMatch(
+          /^clamp\([\d.]+rem,\s*[\d.]+vw \+ [\d.]+rem,\s*[\d.]+rem\)$/,
+        );
+      }
+    });
+
+    // WCAG 1.4.4: text must reach 200%. Browser zoom shrinks the CSS viewport and grows
+    // the rem, so a vw term grows less than the zoom. Safari stops at 300%, so every
+    // fluid step must reach twice its 100% size by 300% zoom at every window width.
+    it('doubles every fluid step by 300% zoom at every window width from 320 to 4000px', () => {
+      const ROOT_PX = 16;
+      for (const token of FLUID) {
+        const parts = valueOf(token)?.match(
+          /^clamp\(([\d.]+)rem,\s*([\d.]+)vw \+ ([\d.]+)rem,\s*([\d.]+)rem\)$/,
+        );
+        expect(parts, `--${token}`).toBeTruthy();
+        const [min, vw, rem, max] = parts!.slice(1).map(Number);
+        /** Rendered size in device px for a window `width` device px wide at `zoom`. */
+        const size = (width: number, zoom: number): number => {
+          const cssWidth = width / zoom;
+          const css = Math.min(
+            max * ROOT_PX,
+            Math.max(min * ROOT_PX, (vw * cssWidth) / 100 + rem * ROOT_PX),
+          );
+          return css * zoom;
+        };
+        for (let width = 320; width <= 4000; width += 10) {
+          expect(
+            size(width, 3),
+            `--${token} at ${width}px: ${size(width, 1).toFixed(1)}px at 100% zoom`,
+          ).toBeGreaterThanOrEqual(2 * size(width, 1) - 0.01);
+        }
+      }
+    });
+
+    it('maps each Tailwind step to the token in the DESIGN.md §3 table', () => {
+      const expected: Record<string, string> = {
+        xs: 't-12',
+        sm: 't-14',
+        base: 't-16',
+        lg: 't-20',
+        xl: 't-20',
+        '2xl': 't-24',
+        '3xl': 't-36',
+        '4xl': 't-36',
+        // The portal glance figure is the only live non-heading text-5xl: a Figure.
+        '5xl': 't-fig',
+      };
+      for (const [step, token] of Object.entries(expected)) {
+        expect(valueOf(`text-${step}`), `--text-${step}`).toBe(`var(--${token})`);
+      }
+    });
+
+    // Ruling A3 (2026-11-16): the score figure is a fixed 48px, not a clamp. A fixed rem
+    // scales one for one with zoom, so it doubles at 200% and needs no sweep.
+    it('sets the score figure step at a fixed 48px (3rem), with its utility', () => {
+      expect(valueOf('t-48')).toBe('3rem');
+      expect(FLUID.has('t-48')).toBe(false);
+      expect(valueOf('text-t-48')).toBe('var(--t-48)');
+      expect(valueOf('text-t-48--line-height')).toBe('1');
+    });
+
+    it('keeps the fixed steps in rem', () => {
+      for (const token of RAMP.filter((t) => !FLUID.has(t))) {
+        expect(valueOf(token), `--${token}`).toMatch(/^[\d.]+rem$/);
+      }
+    });
+
+    it('resolves every Tailwind text-* size to a ramp token', () => {
+      for (const step of [...TAILWIND_STEPS, '6xl', '7xl', '8xl', '9xl']) {
+        const value = valueOf(`text-${step}`);
+        const token = value?.match(/^var\(--(t-[\w]+)\)$/)?.[1];
+        expect(token !== undefined && RAMP.includes(token), `--text-${step} is "${value}"`).toBe(
+          true,
+        );
+      }
+    });
+  });
+
+  // AECI-1928: Source Serif never renders below 20px (DESIGN.md §3 "The Serif-Floor
+  // Rule"). `--t-12` to `--t-16` are sans. This is the source half of the guard: a
+  // class string that names the serif face never names a sub-floor size. The
+  // rendered half, which also catches a small size inheriting the serif from an
+  // `h1` to `h3`, is `e2e/serif-floor.spec.ts`.
+  describe('the Serif-Floor Rule (AECI-1928, DESIGN.md §3)', () => {
+    /** A sub-floor size utility, with any variant prefix (`md:`, `hover:`). */
+    const SUB_FLOOR = /(?:^|\s)(?:[\w-]+:)*text-(?:xs|sm|base|t-12|t-13|t-14|t-16)(?=\s|$)/;
+    const SERIF = /(?:^|\s)font-display(?=\s|$)/;
+
+    it('never pairs the serif face with a size below 20px in one class string', () => {
+      const offenders: string[] = [];
+      for (const file of walk(join(SRC_DIR, 'app'))) {
+        if (/\.spec\.ts$/.test(file)) continue;
+        const text = readFileSync(file, 'utf8');
+        // Every quoted run: a `class="…"` attribute, a TS string or a template literal.
+        for (const m of text.matchAll(/(["'`])((?:(?!\1)[^\n\\]|\\.)*)\1/g)) {
+          if (SERIF.test(m[2]) && SUB_FLOOR.test(m[2])) {
+            offenders.push(`${file.slice(SRC_DIR.length + 1)}: "${m[2].slice(0, 80)}"`);
+          }
+        }
+      }
+      expect(offenders, 'use font-body below 20px, or a serif step of --t-20 or more').toEqual([]);
+    });
+
+    it('draws the 32px initial tile in the body face, as mock-ups 10 to 12 do', () => {
+      const tile = readFileSync(
+        join(SRC_DIR, 'app', 'shared', 'logo-or-initial', 'logo-or-initial.ts'),
+        'utf8',
+      );
+      expect(tile).toContain("'font-body text-sm'");
+      expect(tile).not.toMatch(/\bfont-display \$\{this\.initialClass\(\)\}/);
+    });
+  });
+
+  // AECI-1927: glyphs are drawn as the approved mock-ups draw them, from one shared rule
+  // per role in styles.css (DESIGN.md §3 "How glyphs are drawn").
+  describe('how glyphs are drawn (AECI-1927, DESIGN.md §3)', () => {
+    const css = readFileSync(STYLES_PATH, 'utf8');
+    /** Every innermost rule: its selector list and its declarations. */
+    const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
+      selectors: m[1]
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .split(',')
+        .map((s) => s.trim()),
+      body: m[2],
+    }));
+    /** The `font-variation-settings` a selector's own rules declare. */
+    function variationOf(selector: string): string[] {
+      return rules
+        .filter((r) => r.selectors.includes(selector))
+        .flatMap((r) => [...r.body.matchAll(/font-variation-settings:\s*([^;]+);/g)])
+        .map((m) => m[1].trim());
+    }
+    function valueOf(name: string): string | undefined {
+      return css.match(new RegExp(`--${name}\\s*:\\s*([^;]+);`))?.[1].trim();
+    }
+
+    it('sets grayscale smoothing and optimizeLegibility on body, for every ground', () => {
+      const body = rules.find((r) => r.selectors.length === 1 && r.selectors[0] === 'body');
+      expect(body?.body).toMatch(/-webkit-font-smoothing:\s*antialiased;/);
+      // Firefox on macOS: the same grayscale smoothing.
+      expect(body?.body).toMatch(/-moz-osx-font-smoothing:\s*grayscale;/);
+      expect(body?.body).toMatch(/text-rendering:\s*optimizeLegibility;/);
+    });
+
+    it('pins the display-scale roles at opsz 60 and leaves the smaller roles at the default', () => {
+      for (const sel of [
+        '.text-t-36',
+        '.text-3xl',
+        '.text-4xl',
+        '.text-t-48',
+        '.text-t-statement',
+        '.text-t-display',
+        '.aec-docs-title',
+        '.aec-plan-price',
+        '.md\\:text-t-36',
+      ]) {
+        expect(variationOf(sel), sel).toEqual(["'opsz' 60"]);
+      }
+      for (const sel of ['.text-t-20', '.text-t-24', '.text-t-fig', 'h1', 'h2[class]', 'h3']) {
+        expect(variationOf(sel), sel).toEqual(['normal']);
+      }
+    });
+
+    it('gives every role pinned at opsz 60 the opsz 60 fallback face at every width', () => {
+      for (const stack of [
+        'font-display-36',
+        'font-display-48',
+        'font-display-statement',
+        'font-display-display',
+      ]) {
+        const declared = [...css.matchAll(new RegExp(`--${stack}\\s*:\\s*([^;]+);`, 'g'))];
+        expect(declared, `--${stack} is declared once, outside any width band`).toHaveLength(1);
+        expect(valueOf(stack), `--${stack}`).toContain("'Source Serif 4 Fallback 60'");
+      }
+    });
+
+    it('sets optical size, smoothing and text rendering nowhere but styles.css', () => {
+      const offenders: string[] = [];
+      for (const file of walk(SRC_DIR)) {
+        if (file === STYLES_PATH || file === SELF || /\.spec\.ts$/.test(file)) continue;
+        const text = readFileSync(file, 'utf8');
+        if (
+          /font-variation-settings|font-optical-sizing|font-smoothing|text-rendering|\b(?:subpixel-)?antialiased\b/.test(
+            text,
+          )
+        ) {
+          offenders.push(file.slice(SRC_DIR.length + 1));
+        }
+      }
+      expect(offenders, 'move a local rendering rule onto the shared rule in styles.css').toEqual(
+        [],
+      );
+    });
   });
 });

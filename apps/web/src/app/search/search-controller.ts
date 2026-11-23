@@ -57,7 +57,12 @@ import type { AlgoliaProductRecord, AlgoliaVendorRecord } from '@aeci/shared/alg
 import type { RefinementItem } from '../shared/facets/refinement-item';
 
 import type { AlgoliaPublicConfig } from './algolia-config';
-import { orderFacetItems } from './search-facet-order';
+import {
+  compareFacetValues,
+  type FacetSortValue,
+  orderFacetItems,
+  withCheckedValues,
+} from './search-facet-order';
 import {
   emptyFilters,
   filtersFromUiState,
@@ -133,7 +138,17 @@ export interface IndexView<T> {
   readonly hasMore: Signal<boolean>;
   /** True from `loadMore()` until the next page lands (drives the footer spinner). */
   readonly loadingMore: Signal<boolean>;
-  /** Append the next page. No-op while a page is in flight or none remain. */
+  /**
+   * Append the next page. No-op while a page is in flight, while none remain,
+   * and while ANY search is in flight (AECI-1906). A query, filter or sort
+   * change resets to page 1; a `showMore()` sent before that answer lands asks
+   * for page 2 of the new state, and InstantSearch caches a page only when no
+   * other search is pending, so page 1 was never kept. The reader saw page 2
+   * alone. So the call is deferred, not dropped: it runs once that search
+   * settles, when page 1 is cached. Dropping it stalled infinite scroll. The
+   * footer's sentinel reports once and re-arms only when the row count
+   * changes, which a 24-row page replacing a 24-row page does not do.
+   */
   loadMore(): void;
   readonly refinementLists: readonly RefinementListView[];
   readonly numericMenus: readonly NumericMenuView[];
@@ -171,6 +186,17 @@ export interface InstantSearchInstance extends WidgetHost {
    * error on the payload.
    */
   on(event: 'error', handler: (payload: { error: Error }) => void): void;
+  /**
+   * Subscribe to the instance render event. It fires after every render of the
+   * widgets, once `status` is already updated. The controller replays a
+   * deferred `loadMore` here (AECI-1906).
+   */
+  on(event: 'render', handler: () => void): void;
+  /**
+   * `'loading'` or `'stalled'` while a search is in flight; `'idle'` once it
+   * landed; `'error'` after a failure. `loadMore` reads it (AECI-1906).
+   */
+  readonly status: 'idle' | 'loading' | 'stalled' | 'error';
 }
 
 /** Render-state shapes (the subset of each connector's output we consume). */
@@ -184,8 +210,11 @@ export interface InfiniteHitsRenderState {
   items: readonly unknown[];
   isLastPage: boolean;
   showMore(): void;
-  /** The response these items came from; a new object only when a search lands. */
-  results?: unknown;
+  /**
+   * The response these items came from; a new object only when a search lands.
+   * `query` is the text that response answers (Algolia's `SearchResults.query`).
+   */
+  results?: { readonly query?: string } | null;
 }
 export interface StatsRenderState {
   nbHits: number;
@@ -212,6 +241,149 @@ export interface SortByRenderState {
   currentRefinement: string;
   options: readonly { label: string; value: string }[];
   refine(value: string): void;
+}
+
+/**
+ * The hits each loaded page holds, by page number from 0. The shape of
+ * InstantSearch's infinite-hits cache (`connectInfiniteHits` `cache` option).
+ */
+export type HitsPages = Readonly<Record<number, readonly unknown[]>>;
+
+/**
+ * What one tab showed when the reader left a `/search` history entry: every
+ * loaded page, the counts, the sort and every facet's rows (AECI-1900 for
+ * `/search`). In memory only; see `search-history.ts`.
+ */
+export interface IndexSnapshot {
+  readonly pages: HitsPages;
+  readonly nbHits: number;
+  readonly hasMore: boolean;
+  readonly sortBy: string;
+  readonly sortOptions: readonly SortOption[];
+  readonly refinementLists: Readonly<Record<string, readonly RefinementItem[]>>;
+  readonly numericMenus: Readonly<Record<string, readonly NumericMenuItem[]>>;
+  readonly ranges: Readonly<
+    Record<
+      string,
+      {
+        readonly bounds: { min?: number; max?: number };
+        readonly start: readonly [number | undefined, number | undefined];
+      }
+    >
+  >;
+}
+
+/** Both tabs of `/search` as the reader left them, and the query they answer. */
+export interface SearchSnapshot {
+  readonly query: string;
+  readonly products: IndexSnapshot;
+  readonly vendors: IndexSnapshot;
+}
+
+/** Every loaded hit, page 0 first. Pages are contiguous from 0. */
+export function flattenPages(pages: HitsPages): unknown[] {
+  const out: unknown[] = [];
+  for (let page = 0; pages[page] !== undefined; page++) out.push(...pages[page]!);
+  return out;
+}
+
+/**
+ * The infinite-hits cache, in memory (AECI-1900 for `/search`).
+ *
+ * The same rule as InstantSearch's default in-memory cache: it holds the pages
+ * of one search, and a search that differs in anything but the page reads as a
+ * miss. Kept here, not in the default, so the pages can be read for a Back and
+ * handed back on the restore. InstantSearch also offers a sessionStorage cache.
+ * It is not used: the store must never be persisted.
+ *
+ * A seeded cache holds the pages a restore starts with. Until the first answer
+ * renders it hands them to every read, and that answer binds them to the
+ * search it answers (`bind`). The init render cannot bind them: it reads the
+ * index's own state, which lacks the query the root adds to every search, so
+ * every later read would miss. The page seeds the cache only when the restored
+ * instance starts on exactly the URL state the pages were saved under. A filter,
+ * sort or query changed before an answer binds them drops them for that tab
+ * (`dropSeed`), so only an answer to the search they belong to binds them. From
+ * then on "Load more" asks for the page after the last one held, so it
+ * continues with no hit twice and none missing.
+ */
+class HitsCache {
+  private state: unknown = null;
+  private hits: Record<number, unknown[]> = {};
+  private seed: Record<number, unknown[]> | null;
+  private lastRead: unknown = null;
+  /** True from a dropped seed until the next write: the new search has not answered. */
+  private waiting = false;
+
+  constructor(seed?: HitsPages) {
+    this.seed = seed ? ({ ...seed } as Record<number, unknown[]>) : null;
+  }
+
+  readonly read = ({ state }: { state: unknown }): Record<number, unknown[]> | null => {
+    const without = withoutPage(state);
+    if (this.seed) {
+      this.lastRead = without;
+      return this.seed;
+    }
+    return this.state !== null && sameState(this.state, without) ? this.hits : null;
+  };
+
+  /**
+   * Forget seeded pages no answer has bound yet. For a search other than the
+   * one they were saved under, whose answer would otherwise draw them.
+   */
+  dropSeed(): void {
+    if (!this.seed) return;
+    this.seed = null;
+    this.lastRead = null;
+    this.waiting = true;
+  }
+
+  /**
+   * True after a dropped seed until the new search's answer is written. An
+   * answer to the search the restore started on can still land first. The
+   * connector holds no page for it, so it would draw an empty list.
+   */
+  awaitingAnswer(): boolean {
+    return this.waiting;
+  }
+
+  /** Bind seeded pages to the search last read: the one the first answer is for. */
+  bind(): void {
+    if (!this.seed || this.lastRead === null) return;
+    this.state = this.lastRead;
+    this.hits = this.seed;
+    this.seed = null;
+  }
+
+  readonly write = ({ state, hits }: { state: unknown; hits: Record<number, unknown[]> }) => {
+    this.seed = null;
+    this.waiting = false;
+    this.state = withoutPage(state);
+    this.hits = hits;
+  };
+
+  /** The pages held (the seeded ones until an answer binds them), or `null` before any. */
+  pages(): HitsPages | null {
+    if (this.seed) return { ...this.seed };
+    return this.state === null ? null : { ...this.hits };
+  }
+}
+
+function withoutPage(state: unknown): Record<string, unknown> {
+  const { page: _page, ...rest } = (state ?? {}) as Record<string, unknown>;
+  return rest;
+}
+
+/** Structural equality, as InstantSearch's own cache compares states. */
+function sameState(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') return false;
+  const left = a as Record<string, unknown>;
+  const right = b as Record<string, unknown>;
+  const keys = Object.keys(left);
+  if (keys.length !== Object.keys(right).length) return false;
+  return keys.every((key) => key in right && sameState(left[key], right[key]));
 }
 
 type Renderer<S> = (state: S, isFirstRender: boolean) => void;
@@ -291,7 +463,12 @@ export interface InstantSearchLib {
   connectStats: Connector<StatsRenderState, Record<string, unknown>>;
   connectRefinementList: Connector<
     RefinementListRenderState,
-    { attribute: string; limit?: number; operator?: 'or' | 'and'; sortBy?: string[] }
+    {
+      attribute: string;
+      limit?: number;
+      operator?: 'or' | 'and';
+      sortBy?: string[] | ((a: FacetSortValue, b: FacetSortValue) => number);
+    }
   >;
   connectNumericMenu: Connector<
     NumericMenuRenderState,
@@ -415,7 +592,7 @@ export class SearchController {
    * skeletons on this so it reserves space until results actually settle
    * (AECI-228).
    */
-  readonly ready = signal(false);
+  readonly ready: WritableSignal<boolean>;
 
   readonly products: IndexView<AlgoliaProductRecord>;
   readonly vendors: IndexView<AlgoliaVendorRecord>;
@@ -429,9 +606,24 @@ export class SearchController {
   private lastSearchEmittedFor: string | null = null;
   /** One per index: clears its `loadingMore` when a search fails. */
   private readonly loadingMoreResets: (() => void)[] = [];
+  /** One per index: runs a `loadMore` deferred while a search was in flight. */
+  private readonly deferredLoads: (() => void)[] = [];
   private readonly onFiltersChange: (filters: SearchFilters) => void;
   /** The filters last seen or applied, to tell a filter change from any other. */
   private lastFilters: SearchFilters;
+  /** True when started from a snapshot of a history entry (Back or Forward). */
+  private readonly restored: boolean;
+  /** Each tab's infinite-hits cache, seeded on a restore. */
+  private readonly hitsCaches: Partial<Record<'products' | 'vendors', HitsCache>> = {};
+  /** The filters a restore started on, to tell its own search from any other. */
+  private readonly restoredFilters: SearchFilters;
+  /** The query a restore started on. */
+  private readonly query0: string;
+  /** Each tab's snapshot builder, for `snapshot()`. */
+  private readonly indexSnapshots: Record<'products' | 'vendors', () => IndexSnapshot | null> = {
+    products: () => null,
+    vendors: () => null,
+  };
 
   constructor(
     private readonly lib: InstantSearchLib,
@@ -458,12 +650,28 @@ export class SearchController {
       initialFilters?: SearchFilters;
       onFiltersChange?: (filters: SearchFilters) => void;
     } = {},
+    /**
+     * What both tabs showed when the reader left this history entry, on a Back
+     * or Forward (AECI-1900 for `/search`). The page passes it only when the URL
+     * still matches the state it was saved under, with `initialQuery`,
+     * `initialSort` and the filters set to that state. The signals start from
+     * it, so the rows on screen stay, and the infinite-hits cache starts with
+     * its pages, so "Load more" continues after them. The first search then
+     * asks Algolia for the same thing a fresh visit asks for, once, with the
+     * query already in it.
+     */
+    restore: SearchSnapshot | null = null,
   ) {
+    this.restored = restore !== null && restore.query === initialQuery;
+    this.query0 = initialQuery;
+    const seed = this.restored ? restore : null;
     this.query = signal(initialQuery);
+    this.ready = signal(seed !== null);
     this.onFiltersChange = urlState.onFiltersChange ?? (() => undefined);
     // Start from the URL's filters (or none), so the first keystroke, which
     // also changes the UI state, is not mistaken for a filter change.
     this.lastFilters = urlState.initialFilters ?? emptyFilters();
+    this.restoredFilters = this.lastFilters;
 
     // The root has no index (it sends no query); products and vendors are
     // sibling nested `index()` widgets so neither inherits the other's filters
@@ -475,14 +683,19 @@ export class SearchController {
       initialSort.products ?? defaultSortIndex(config.indexes.products, 'products');
     const vendorsStart = initialSort.vendors ?? defaultSortIndex(config.indexes.vendors, 'vendors');
     const initial = urlState.initialFilters;
+    // A restore puts the query in the first search (the root index's UI state,
+    // id ''), so that search answers it. A fresh visit keeps today's order: an
+    // empty search first, then the seeded query (see `start()`).
+    const rootQuery: UiState = seed && initialQuery ? { '': { query: initialQuery } } : {};
     this.search = lib.instantsearch({
       searchClient,
       future: { preserveSharedStateOnUnmount: true },
-      ...(initial
+      ...(initial || seed
         ? {
             initialUiState: {
-              products: { ...initial.products },
-              vendors: { ...initial.vendors },
+              ...rootQuery,
+              products: { ...initial?.products },
+              vendors: { ...initial?.vendors },
             },
           }
         : {}),
@@ -490,6 +703,7 @@ export class SearchController {
       // part moved. Comparing against the last known filters keeps typing,
       // paging, sorting and our own `setFilters` from firing it.
       onStateChange: ({ uiState, setUiState }) => {
+        if (this.restored) this.dropSeedUnlessRestored(uiState);
         setUiState(uiState);
         const filters = filtersFromUiState(uiState);
         if (sameFilters(filters, this.lastFilters)) return;
@@ -518,6 +732,7 @@ export class SearchController {
       'products',
       config.indexes.products,
       productsStart,
+      seed?.products,
     );
     const vendorsHost = lib.index({ indexName: vendorsStart, indexId: 'vendors' });
     this.vendors = this.wireIndex<AlgoliaVendorRecord>(
@@ -525,6 +740,7 @@ export class SearchController {
       'vendors',
       config.indexes.vendors,
       vendorsStart,
+      seed?.vendors,
     );
 
     // Root gets: the shared searchBox + the two sibling index widgets.
@@ -540,6 +756,13 @@ export class SearchController {
       this.error.set(true);
       this.emitSearchFailed();
     });
+
+    // A `loadMore` refused while a search was in flight runs once the instance
+    // is idle again: the new page 1 has rendered and is cached (AECI-1906).
+    this.search.on('render', () => {
+      if (this.search.status !== 'idle') return;
+      for (const replay of this.deferredLoads) replay();
+    });
   }
 
   /** Construct + run the initial search. Idempotent. */
@@ -548,8 +771,48 @@ export class SearchController {
     this.started = true;
     this.search.start();
     // Seed `?q=` after start so the first (empty or seeded) search runs with it.
+    // A restore already started with it, so seeding it again would search twice.
     const initial = this.query();
-    if (initial) this.setQuery(initial);
+    if (initial && !this.restored) this.setQuery(initial);
+  }
+
+  /**
+   * A restore's seeded pages answer the search it started on, and an answer
+   * binds them. Until one does, the cache hands them to every read. So when the
+   * first answer failed, or has not landed, the answer to a new filter, sort or
+   * query drew the old rows under its own count. Now a tab whose query, filters
+   * or sort moved drops them, and its search starts its own pages. A tab whose
+   * search did not move keeps them. The rows on screen stay until it answers.
+   */
+  private dropSeedUnlessRestored(uiState: UiState): void {
+    const query = (uiState['']?.['query'] as string | undefined) ?? '';
+    const filters = filtersFromUiState(uiState);
+    for (const entity of ['products', 'vendors'] as const) {
+      const same =
+        query === this.query0 &&
+        sameFilters({ ...this.restoredFilters, [entity]: filters[entity] }, this.restoredFilters) &&
+        uiState[entity]?.['sortBy'] === undefined;
+      if (!same) this.hitsCaches[entity]?.dropSeed();
+    }
+  }
+
+  /** The filters the search is on now (the UI state's, not the helper's). */
+  currentFilters(): SearchFilters {
+    return this.lastFilters;
+  }
+
+  /**
+   * Both tabs as they are on screen, for a later Back or Forward to this
+   * history entry, or `null` when they are not settled: before the first
+   * answer, after a failure, while a search is stalled, or when a tab's rows
+   * are not exactly its cached pages.
+   */
+  snapshot(): SearchSnapshot | null {
+    if (!this.ready() || this.error() || this.stalled()) return null;
+    const products = this.indexSnapshots.products();
+    const vendors = this.indexSnapshots.vendors();
+    if (!products || !vendors) return null;
+    return { query: this.query(), products, vendors };
   }
 
   /**
@@ -673,18 +936,34 @@ export class SearchController {
     baseIndexName: string,
     /** The replica this widget starts on. */
     initialSortIndex: string,
+    /** What this tab showed, on a Back or Forward (AECI-1900 for `/search`). */
+    seed?: IndexSnapshot,
   ): IndexView<T> {
     const { lib } = this;
     const facets = FACET_CONFIG[entity];
 
-    const hits = signal<T[]>([]);
-    const nbHits = signal(0);
-    const hasMore = signal(false);
+    // On a restore the signals start from the snapshot, and each connector's
+    // init render is skipped. That render fires synchronously on `start()`,
+    // before any answer, with no hits and no facet values. Taken, it would blank
+    // the rows the reader came back to. The first answer then updates the
+    // signals in place: the rows themselves stay the cached pages.
+    const keep = (isFirstRender: boolean) => this.restored && isFirstRender;
+    const cache = new HitsCache(seed?.pages);
+    this.hitsCaches[entity] = cache;
+    const hits = signal<T[]>(seed ? (flattenPages(seed.pages) as T[]) : []);
+    const nbHits = signal(seed?.nbHits ?? 0);
+    const hasMore = signal(seed?.hasMore ?? false);
     const loadingMore = signal(false);
     let showMore: (() => void) | null = null;
     let lastResults: unknown;
     let resultsAtLoad: unknown;
-    this.loadingMoreResets.push(() => loadingMore.set(false));
+    /** A `loadMore` arrived while a search was in flight (AECI-1906). */
+    let deferred = false;
+    this.loadingMoreResets.push(() => {
+      loadingMore.set(false);
+      // A failed search drops the deferred page too; "Load more" retries.
+      deferred = false;
+    });
 
     // Sort (AECI-175): one replica per sort, the same set and order as
     // `/products`. The primary is not an option: Relevance was dropped on
@@ -701,23 +980,37 @@ export class SearchController {
     const widgets: IsWidget[] = [
       lib.configure({ hitsPerPage: HITS_PER_PAGE }),
       lib.connectInfiniteHits((state, isFirstRender) => {
+        showMore = state.showMore;
+        if (keep(isFirstRender)) return;
+        if (state.results) cache.bind();
+        // A restore whose search moved before its first answer: an answer to the
+        // old search can land while the new one is in flight, with no page to
+        // draw. Keep the rows on screen until the new search answers.
+        if (cache.awaitingAnswer()) return;
         hits.set(state.items as T[]);
         hasMore.set(!state.isLastPage);
-        showMore = state.showMore;
         // A new results object means a search landed, which ends an error.
         if (state.results && state.results !== lastResults) this.error.set(false);
         lastResults = state.results;
         // The init render (isFirstRender) fires synchronously on start() with
         // empty items, before any network. The first response is the first
-        // non-initial render — that's when results have actually settled.
-        if (!isFirstRender) this.ready.set(true);
+        // non-initial render whose results answer the current query. With `?q=`
+        // set, `start()` runs an empty-query search first and seeds the query
+        // after it. That first response lands while the seeded query is still
+        // in flight, and the infinite-hits list renders it as no items. Flipping
+        // on it flashed "No results" for about 200ms and shifted a phone layout
+        // by about 0.39 (AECI-1796).
+        if (!isFirstRender && state.results && (state.results.query ?? '') === this.query()) {
+          this.ready.set(true);
+        }
         // `showMore()` triggers an immediate re-render with the OLD results, so
         // only a new `results` object means the page landed. Clearing on any
         // render made the footer's pending phase invisible, and its scroll
         // observer never re-armed after the first append.
         if (state.results !== resultsAtLoad) loadingMore.set(false);
-      })({}),
+      })({ cache }),
       lib.connectStats((state, isFirstRender) => {
+        if (keep(isFirstRender)) return;
         nbHits.set(state.nbHits);
         // Like `connectHits` above, the init render (isFirstRender) fires
         // synchronously on start() before any network, so it is skipped; every
@@ -738,15 +1031,26 @@ export class SearchController {
     ];
 
     const refinementLists: RefinementListView[] = facets.refinementLists.map((attribute) => {
-      const items = signal<RefinementItem[]>([]);
-      const canRefine = signal(false);
+      const items = signal<RefinementItem[]>([...(seed?.refinementLists[attribute] ?? [])]);
+      const canRefine = signal(items().length > 0);
       let refineFn: ((value: string) => void) | null = null;
       widgets.push(
-        lib.connectRefinementList((state) => {
-          items.set(orderFacetItems(attribute, state.items));
-          canRefine.set(state.canRefine);
+        lib.connectRefinementList((state, isFirstRender) => {
           refineFn = state.refine;
-        })({ attribute, limit: REFINEMENT_LIST_LIMIT, operator: 'or' }),
+          if (keep(isFirstRender)) return;
+          // AECI-1899: a checked value stays on screen even when the response
+          // omits its whole facet, so the reader can uncheck it.
+          const checked = this.lastFilters[entity].refinementList[attribute] ?? [];
+          const shown = withCheckedValues(state.items, checked);
+          items.set(orderFacetItems(attribute, shown));
+          canRefine.set(state.canRefine || shown.length > 0);
+        })({
+          attribute,
+          limit: REFINEMENT_LIST_LIMIT,
+          operator: 'or',
+          // The connector default with a `compareText` name tie-break (AECI-825).
+          sortBy: compareFacetValues,
+        }),
       );
       return {
         attribute,
@@ -757,12 +1061,13 @@ export class SearchController {
     });
 
     const numericMenus: NumericMenuView[] = facets.numericMenus.map(({ attribute, items: cfg }) => {
-      const items = signal<NumericMenuItem[]>([]);
+      const items = signal<NumericMenuItem[]>([...(seed?.numericMenus[attribute] ?? [])]);
       let refineFn: ((value: string) => void) | null = null;
       widgets.push(
-        lib.connectNumericMenu((state) => {
-          items.set([...state.items]);
+        lib.connectNumericMenu((state, isFirstRender) => {
           refineFn = state.refine;
+          if (keep(isFirstRender)) return;
+          items.set([...state.items]);
         })({ attribute, items: cfg }),
       );
       return {
@@ -773,16 +1078,20 @@ export class SearchController {
     });
 
     const ranges: RangeView[] = facets.ranges.map((attribute) => {
-      const bounds = signal<{ min?: number; max?: number }>({});
-      const start = signal<[number | undefined, number | undefined]>([undefined, undefined]);
+      const restoredRange = seed?.ranges[attribute];
+      const bounds = signal<{ min?: number; max?: number }>({ ...restoredRange?.bounds });
+      const start = signal<[number | undefined, number | undefined]>(
+        restoredRange ? [restoredRange.start[0], restoredRange.start[1]] : [undefined, undefined],
+      );
       const canRefine = signal(false);
       let refineFn: ((values: [number | undefined, number | undefined]) => void) | null = null;
       widgets.push(
-        lib.connectRange((state) => {
+        lib.connectRange((state, isFirstRender) => {
+          refineFn = state.refine;
+          if (keep(isFirstRender)) return;
           bounds.set(state.range);
           start.set([state.start[0], state.start[1]]);
           canRefine.set(state.canRefine);
-          refineFn = state.refine;
         })({ attribute }),
       );
       return {
@@ -796,18 +1105,57 @@ export class SearchController {
 
     host.addWidgets(widgets);
 
+    this.indexSnapshots[entity] = () => {
+      const pages = cache.pages();
+      // Only rows that are exactly the cached pages, so a restore that seeds the
+      // cache with them shows the same rows and "Load more" asks for the next.
+      if (pages === null || flattenPages(pages).length !== hits().length) return null;
+      const byAttribute = <V>(list: readonly { attribute: string }[], read: (i: number) => V) =>
+        Object.fromEntries(list.map((entry, i) => [entry.attribute, read(i)]));
+      return {
+        pages,
+        nbHits: nbHits(),
+        hasMore: hasMore(),
+        sortBy: sortBy(),
+        sortOptions,
+        refinementLists: byAttribute(refinementLists, (i) => refinementLists[i]!.items()),
+        numericMenus: byAttribute(numericMenus, (i) => numericMenus[i]!.items()),
+        ranges: byAttribute(ranges, (i) => ({
+          bounds: ranges[i]!.bounds(),
+          start: ranges[i]!.start(),
+        })),
+      };
+    };
+
+    const loadMore = (): void => {
+      if (loadingMore() || !hasMore() || !showMore) return;
+      // A search for a changed state is in flight: its page 1 has not landed,
+      // so a page-2 request now would replace it. Hold it until the search
+      // settles (AECI-1906).
+      if (this.search.status === 'loading' || this.search.status === 'stalled') {
+        deferred = true;
+        return;
+      }
+      deferred = false;
+      loadingMore.set(true);
+      resultsAtLoad = lastResults;
+      showMore();
+    };
+    this.deferredLoads.push(() => {
+      if (!deferred) return;
+      deferred = false;
+      // Re-checks `hasMore` against the new results: a filter with one page
+      // has nothing to append.
+      loadMore();
+    });
+
     return {
       entity,
       hits,
       nbHits,
       hasMore,
       loadingMore,
-      loadMore: () => {
-        if (loadingMore() || !hasMore() || !showMore) return;
-        loadingMore.set(true);
-        resultsAtLoad = lastResults;
-        showMore();
-      },
+      loadMore,
       refinementLists,
       numericMenus,
       ranges,

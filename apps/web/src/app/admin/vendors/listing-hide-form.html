@@ -1,9 +1,10 @@
 <form
+  method="dialog"
   novalidate
   [attr.id]="fieldId('form')"
   class="space-y-3 rounded-(--radius-md) border border-(--border-strong) bg-(--surface-sunken) p-4"
   data-testid="listing-hide-form"
-  (submit)="$event.preventDefault(); step() === 'edit' ? continue() : confirm()"
+  (aecSubmit)="step() === 'edit' ? continue() : confirm()"
 >
   @if (step() === 'edit') {
   <!-- Step 1: the fields. Nothing is sent from this step. -->

@@ -4,7 +4,8 @@
  * Inserts ~150–200 realistic, AEC-flavored reviews across the EXISTING products
  * so an operator can preview a "fully going" catalog: rating summaries, the
  * 5-review averages threshold, pagination, and a realistic mix of busy vs. quiet
- * products. Every seeded review is ANONYMOUS (`reviewer_id = NULL`) and APPROVED,
+ * products. Every seeded review is ANONYMOUS (`reviewer_id = NULL`, with an
+ * `anonymized_at` stamp so the data-quality check stays clean, AECI-1936) and APPROVED,
  * so no Supabase auth / profiles seeding is needed and the public review cards
  * (which render no reviewer name) look identical to real ones.
  *

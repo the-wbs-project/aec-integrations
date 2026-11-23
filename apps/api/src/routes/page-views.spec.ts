@@ -723,7 +723,7 @@ describe('is_owner_visit (AECI-934 / §13 D26)', () => {
     const headers: Record<string, string> = { 'content-type': 'application/json' };
     if (sub) {
       const token = await jwks.mintToken({ sub, supabaseUrl: SUPABASE_URL });
-      headers.cookie = `sb-test-auth-token=base64-${btoa(JSON.stringify({ access_token: token }))}`;
+      headers.cookie = `sb-test-project-auth-token=base64-${btoa(JSON.stringify({ access_token: token }))}`;
     }
     const app = buildAppWithHandler({
       method: 'post',

@@ -26,6 +26,7 @@ import type {
   ProductIntegrationItem,
   ProductPairMechanism,
   ProductPairResponse,
+  ProductPairSubject,
   VendorDetail,
   VendorListItem,
 } from '@aeci/shared';
@@ -146,10 +147,32 @@ export function maskPairMechanism(
   };
 }
 
+/** One side of a pair page (AECI-1827): the product page's rule for its own fields. */
+function maskPairSubject(subject: ProductPairSubject, hides: HidesByEntity): ProductPairSubject {
+  const hidden = hiddenOf(hides, subject.id);
+  if (hidden.length === 0) return subject;
+  return {
+    ...maskHiddenFields(subject, hidden),
+    captions: subject.captions && {
+      ...subject.captions,
+      corrections: withoutHidden(subject.captions.corrections, hidden) ?? [],
+    },
+    under_review: [...hidden],
+  };
+}
+
 /** `GET /api/products/:slug/integrations/:otherSlug`. */
 export function maskPairResponse(
   body: ProductPairResponse,
   hides: HidesByEntity,
 ): ProductPairResponse {
-  return { ...body, mechanisms: body.mechanisms.map((m) => maskPairMechanism(m, hides)) };
+  return {
+    ...body,
+    // AECI-1822: each subject's two links are product fields AECi may hide. AECI-1827: the
+    // empty pair page shows them, so a hidden field is named in `under_review` and loses its
+    // "Corrected by" entry, as on the product page. The hero card shows no marker.
+    context_product: maskPairSubject(body.context_product, hides),
+    other_product: maskPairSubject(body.other_product, hides),
+    mechanisms: body.mechanisms.map((m) => maskPairMechanism(m, hides)),
+  };
 }

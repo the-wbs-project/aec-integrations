@@ -10,6 +10,7 @@ import { PRODUCT_DEFAULT_SORT } from '../shared/listing-toolbar/product-sort-key
 import { type InstantSearchLib, type IsWidget, type SearchController } from './search-controller';
 import { SearchPage } from './search-page';
 import { type SearchEngine, SEARCH_ENGINE_FACTORY } from './search-controller.factory';
+import { trail } from '../shared/breadcrumb/breadcrumb-trail.harness';
 
 /**
  * `ng test` shell coverage for `SearchPage`.
@@ -66,6 +67,7 @@ function makeFakeEngine(): SearchEngine & {
   const options: Parameters<InstantSearchLib['instantsearch']>[0][] = [];
   let searchBoxRender: ((state: unknown, first: boolean) => void) | null = null;
   const instance = {
+    status: 'idle' as const,
     addWidgets: () => instance,
     start: () => searchBoxRender?.({ query: '', refine, isSearchStalled: false }, true),
     dispose: () => {},
@@ -422,6 +424,77 @@ describe('SearchPage shell', () => {
     expect([...tabs].every((tab) => tab.classList.contains('aec-nav-tab'))).toBe(true);
   });
 
+  it('marks the selected tab by weight too, and keeps every tab 44px (ruling 9)', async () => {
+    setConfigPresent();
+    const router = setup();
+    await router.navigateByUrl('/search?tab=vendors');
+    const fixture = TestBed.createComponent(SearchPage);
+    fixture.detectChanges();
+
+    const tabs = [
+      ...(fixture.nativeElement as HTMLElement).querySelectorAll<HTMLElement>('[role="tab"]'),
+    ];
+    expect(tabs.every((tab) => tab.classList.contains('min-h-11'))).toBe(true);
+    const [products, vendors] = tabs;
+    expect(vendors.getAttribute('aria-selected')).toBe('true');
+    expect(vendors.classList.contains('font-semibold')).toBe(true);
+    expect(products.classList.contains('font-semibold')).toBe(false);
+  });
+
+  it('puts the query box on the shared field edge with a decorative search glyph (AECI-1850)', async () => {
+    setConfigPresent();
+    const router = setup();
+    await router.navigateByUrl('/search');
+    const fixture = TestBed.createComponent(SearchPage);
+    fixture.detectChanges();
+
+    const el = fixture.nativeElement as HTMLElement;
+    const input = el.querySelector('#search-input') as HTMLInputElement;
+    expect(input.classList.contains('aec-field-control')).toBe(true);
+    expect(input.classList.contains('border-(--border-default)')).toBe(false);
+    const form = input.closest('form[role="search"]') as HTMLElement;
+    const glyph = form.querySelector('aec-icon');
+    expect(glyph).not.toBeNull();
+    // The label names the field; the glyph adds nothing for a screen reader.
+    expect(form.querySelector('label[for="search-input"]')?.textContent?.trim()).toBe(
+      'Search the directory',
+    );
+    expect(form.querySelector('[aria-hidden="true"] svg, svg[aria-hidden="true"]')).not.toBeNull();
+  });
+
+  // AECI-1818: the page's search landmark is named by its own label, so a landmarks list
+  // tells it apart from the header's "Site search" (the A5 class in ACCESSIBILITY_AUDIT.md).
+  it('names its search landmark with the field label', async () => {
+    setConfigPresent();
+    const router = setup();
+    await router.navigateByUrl('/search');
+    const fixture = TestBed.createComponent(SearchPage);
+    fixture.detectChanges();
+
+    const el = fixture.nativeElement as HTMLElement;
+    const form = el.querySelector('form[role="search"]') as HTMLElement;
+    const id = form.getAttribute('aria-labelledby');
+    expect(id).toBeTruthy();
+    expect(el.querySelector(`#${id}`)?.textContent?.trim()).toBe('Search the directory');
+  });
+
+  // AECI-1818 (WCAG 2.4.7): the results panel is a Tab stop, so it must draw the ring.
+  it('draws the focus ring on the results panel, which is a Tab stop', async () => {
+    setConfigPresent();
+    const router = setup();
+    await router.navigateByUrl('/search');
+    const fixture = TestBed.createComponent(SearchPage);
+    fixture.detectChanges();
+
+    const panel = (fixture.nativeElement as HTMLElement).querySelector(
+      '[role="tabpanel"]',
+    ) as HTMLElement;
+    expect(panel.getAttribute('tabindex')).toBe('0');
+    expect(panel.classList.contains('focus-visible:outline-none')).toBe(false);
+    expect(panel.classList.contains('focus-visible:outline-3')).toBe(true);
+    expect(panel.classList.contains('focus-visible:outline-(--accent-primary)')).toBe(true);
+  });
+
   it('counts active refinements and clears them on BOTH tabs through each connector', () => {
     setConfigPresent();
     setup();
@@ -485,7 +558,12 @@ describe('SearchPage shell', () => {
       anyFilterCount: () => number;
       clearFilters(): void;
     };
-    page.controller.set({ products: view, vendors: vendorsView, dispose: () => {} });
+    page.controller.set({
+      products: view,
+      vendors: vendorsView,
+      dispose: () => {},
+      snapshot: () => null,
+    });
 
     // Active (products) tab: two checked values + one bucket + one range bound.
     expect(page.activeFilterCount()).toBe(4);
@@ -589,7 +667,23 @@ describe('SearchPage shell', () => {
       controller: WritableSignal<unknown>;
       activeFilterCount: () => number;
     };
-    page.controller.set({ products: view, vendors: view, dispose: () => {} });
+    page.controller.set({ products: view, vendors: view, dispose: () => {}, snapshot: () => null });
     expect(page.activeFilterCount()).toBe(0);
+  });
+});
+
+describe('SearchPage breadcrumb (AECI-1777)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+  afterEach(() => delete (globalThis as GlobalWithConfig).__AECI_ALGOLIA__);
+
+  it('reads Home, then Search as the current page', async () => {
+    const router = setup();
+    await router.navigateByUrl('/search');
+    const fixture = TestBed.createComponent(SearchPage);
+    fixture.detectChanges();
+    expect(trail(fixture.nativeElement as HTMLElement)).toEqual([
+      { label: 'Home', href: '/', current: false },
+      { label: 'Search', href: null, current: true },
+    ]);
   });
 });

@@ -1,5 +1,5 @@
 /**
- * VendorDetailPage — the Actions-sidebar claim CTA.
+ * VendorDetailPage: the band shell page (AECI-1797) and its claim CTA.
  *
  * Named `.component.spec.ts` so it runs under `ng test` (Angular's TestBed /
  * vitest runner) rather than the node-only Vitest pass that excludes Angular DI
@@ -27,6 +27,7 @@ import type { VendorDetail } from '@aeci/shared';
 import { Analytics } from '../analytics/analytics';
 
 import { VendorDetailPage } from './vendor-detail';
+import { trail } from '../shared/breadcrumb/breadcrumb-trail.harness';
 
 function buildVendor(overrides: Partial<VendorDetail> = {}): VendorDetail {
   return {
@@ -92,6 +93,15 @@ describe('VendorDetailPage company facts licence note (AECI-1310)', () => {
     const { el } = setup(buildVendor({ headquarters: null, founded_year: null }));
     expect(el.querySelector('aec-company-facts-note')).not.toBeNull();
   });
+
+  // The fallback font wrapped the link over two lines at 390px and the web font pulled
+  // it back to one, which shifted the page on load.
+  it('keeps the licence link on one line', () => {
+    const { el } = setup(buildVendor({}));
+    expect(el.querySelector('aec-company-facts-note')?.className).toContain(
+      '[&_a]:whitespace-nowrap',
+    );
+  });
 });
 
 // AECI-933: the vendor owns its own website and social profiles, so both clicks
@@ -139,16 +149,145 @@ describe('VendorDetailPage outbound click ownership (AECI-933)', () => {
   });
 });
 
-// AECI-853 lockstep. This page shares DetailLayout, which now docks its sidebar
-// at `lg` and so leaves the body column 608px wide. At the old 44rem the
-// products table overflowed that by 96px and scrolled inside a narrow well.
-// 34rem keeps the table's floor under that 608px column.
-// Paired with the dock assertion in detail-layout.component.spec.ts and the
-// table assertion in product-integrations-section.component.spec.ts.
+// AECI-1797: the vendor page is on DetailLayout's band shell (mock-up 11, rulings of
+// 2026-11-16). The Forest hero holds the breadcrumb, the name and the description. The
+// facts card is the page's metadata. No section nav. The mailing list is white.
+describe('VendorDetailPage band shell (AECI-1797)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('renders the band shell with the hero, the facts card and no sidebar', () => {
+    const { el } = setup(buildVendor());
+    expect(el.querySelector('[data-shell=bands]')).not.toBeNull();
+    const hero = el.querySelector('aec-hero-band');
+    expect(hero).not.toBeNull();
+    expect(hero!.querySelector('nav[aria-label=Breadcrumb]')).not.toBeNull();
+    expect(el.querySelectorAll('h1')).toHaveLength(1);
+    expect(hero!.querySelector('h1')?.textContent?.trim()).toBe('Procore Technologies');
+    const aside = el.querySelector('aside[aria-label=Metadata]');
+    expect(aside?.querySelector('[data-testid=vendor-facts]')).not.toBeNull();
+    expect([...aside!.classList]).not.toContain('lg:sticky');
+    expect(el.querySelector('aec-section-nav')).toBeNull();
+  });
+
+  it('puts the description in the hero as its lede, with no About heading', () => {
+    const { el } = setup(buildVendor());
+    const lede = el.querySelector('aec-hero-band [data-testid=vendor-description]');
+    expect(lede?.textContent?.trim()).toBe('Construction management platform.');
+    expect([...el.querySelectorAll('h2')].map((h) => h.textContent?.trim())).not.toContain('About');
+    // With no lead, the shell's About band holds nothing and hides: the facts ground is
+    // the page's one Bone band.
+    expect(el.querySelector('[data-lead]')?.children).toHaveLength(0);
+  });
+
+  it('keeps At a glance, Company facts and Actions in the facts card', () => {
+    const { el } = setup(
+      buildVendor({
+        company_facts: {
+          headquarters: {
+            value: 'Carpinteria, CA',
+            source: { set_by: 'aeci', date: '2026-11-04T00:00:00.000Z', url: 'https://x.test/hq' },
+          },
+          founded_year: null,
+          company_size: null,
+          ownership_type: null,
+          parent_company: null,
+          funding_stage: null,
+        },
+      }),
+    );
+    const card = el.querySelector('[data-testid=vendor-facts]')!;
+    const headings = [...card.querySelectorAll('h2')].map((h) => h.textContent?.trim());
+    expect(headings).toEqual(['At a glance', 'Company facts', 'Actions']);
+    expect(card.querySelector('aec-company-facts')?.textContent).toContain(
+      'Set by AEC Integrations on Nov 4, 2026',
+    );
+    // The licence note sits under the card, in the same slot.
+    expect(card.lastElementChild?.tagName.toLowerCase()).toBe('aec-company-facts-note');
+  });
+
+  it('drops the Company facts cell when there are no facts, and keeps the others', () => {
+    const { el } = setup(buildVendor());
+    const card = el.querySelector('[data-testid=vendor-facts]')!;
+    expect(card.querySelector('aec-company-facts')).toBeNull();
+    expect([...card.querySelectorAll('h2')].map((h) => h.textContent?.trim())).toEqual([
+      'At a glance',
+      'Actions',
+    ]);
+  });
+
+  it('shows the website as the Bone button and the social links Bone-washed', () => {
+    const { el } = setup(buildVendor({ x_url: 'https://x.com/procore' }));
+    expect(el.querySelector('a[href="https://x.com/procore"]')?.getAttribute('data-variant')).toBe(
+      'on-brand-secondary',
+    );
+    expect(
+      el.querySelector('a[href="https://www.procore.com"]')?.getAttribute('data-variant'),
+    ).toBe('on-brand');
+  });
+
+  it('puts the mailing list on white', () => {
+    const { el } = setup(buildVendor());
+    const band = el.querySelector('aec-mailing-list-signup section');
+    expect([...band!.classList]).toContain('bg-(--surface-base)');
+  });
+});
+
+// Ruling 4 of 2026-11-16 approved the caption. It states the API's order (toVendorDetail:
+// A to Z by name, case ignored, then id), which the page renders as given.
+describe('VendorDetailPage products order caption (AECI-1797)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const product = (n: number, name: string) => ({
+    id: `00000000-0000-4000-8000-00000002000${n}`,
+    slug: `p-${n}`,
+    name,
+    logo_url: null,
+    product_role: 'application' as const,
+    vendor: null,
+    integration_count: 0,
+    review_count: 0,
+    rating_overall_avg: null,
+    rating_onboarding_avg: null,
+    created_at: '2024-06-01T00:00:00.000Z',
+    updated_at: '2024-06-01T00:00:00.000Z',
+  });
+
+  it('says how the list is ordered and keeps the order it was given', () => {
+    const names = ['Agave', 'BIM 360', 'pyRevit', 'Revit'];
+    const { el } = setup(buildVendor({ products: names.map((name, i) => product(i, name)) }));
+    expect(el.querySelector('[data-testid=vendor-products-order]')?.textContent?.trim()).toBe(
+      'A to Z by name.',
+    );
+    const links = [...el.querySelectorAll('table[aria-label=Products] tbody tr')].map((tr) =>
+      tr.querySelector('a[href^="/products/"]')?.getAttribute('href'),
+    );
+    expect(links).toEqual(['/products/p-0', '/products/p-1', '/products/p-2', '/products/p-3']);
+  });
+
+  // Ruling 5 of 2026-11-16: the rating column reads "Overall", as on the browse lists. AECI-1720 restore C names the score "Product quality" on every public page.
+  it('heads the columns Product, Product quality, Integrations', () => {
+    const { el } = setup(buildVendor({ products: [product(0, 'Revit')] }));
+    const heads = [...el.querySelectorAll('table[aria-label=Products] thead th')].map((th) =>
+      th.textContent?.trim(),
+    );
+    expect(heads).toEqual(['Product', 'Product quality', 'Integrations', 'Details']);
+  });
+
+  it('shows no order caption over the empty state', () => {
+    const { el } = setup(buildVendor({ products: [] }));
+    expect(el.querySelector('[data-testid=vendor-products-order]')).toBeNull();
+    expect(el.textContent).toContain('No products listed yet.');
+  });
+});
+
+// AECI-853 set the 34rem floor for the old sidebar's 608px body column. On the band
+// shell (AECI-1797) the body is the full content column, which is wider at every width
+// from md, so the floor still fits. The 38rem ceiling stays as a guard against the old
+// 44rem, which scrolled inside its wrapper.
 describe('VendorDetailPage products table width floor', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
-  it('keeps the products table at or under the 38rem the lg dock allows', () => {
+  it('keeps the products table floor at or under 38rem', () => {
     const { el } = setup(
       buildVendor({
         products: [
@@ -173,6 +312,13 @@ describe('VendorDetailPage products table width floor', () => {
     expect(table).not.toBeNull();
     expect([...table.classList]).toContain('md:min-w-[34rem]');
     expect([...table.classList].some((c) => /min-w-\[(3[89]|[4-9]\d)rem\]/.test(c))).toBe(false);
+    // The scroller is positioned, so the absolutely positioned sr-only header stays
+    // inside it and cannot widen the page at 320px.
+    const scroller = el.querySelector('[data-testid=vendor-products-scroller]')!;
+    expect(scroller.contains(table)).toBe(true);
+    expect([...scroller.classList]).toEqual(
+      expect.arrayContaining(['relative', 'overflow-x-auto']),
+    );
   });
 });
 
@@ -239,12 +385,18 @@ describe('VendorDetailPage claim CTA', () => {
   const actions = (el: HTMLElement) =>
     el.querySelector('section[aria-labelledby="vendor-actions-label"]') as HTMLElement;
 
-  it('always offers to claim the company by name, with no note (AECI-1365)', () => {
+  it('always offers to claim the company, with no note (AECI-1365, AECI-1925)', () => {
     const { el } = setup(buildVendor());
     const section = actions(el);
 
     expect(section).toBeTruthy();
-    expect(section.textContent).toContain('Claim Procore Technologies');
+    // AECI-1925: the visible label is "Claim Vendor" (Chris, 2026-11-18). The company
+    // name stays in the accessible name as visually hidden text after the label.
+    const cta = section.querySelector<HTMLAnchorElement>('a[href$="/claim"]')!;
+    const hidden = cta.querySelector('.sr-only')!;
+    expect(hidden.textContent?.trim()).toBe('Procore Technologies');
+    expect(cta.textContent?.replace(hidden.textContent ?? '', '').trim()).toBe('Claim Vendor');
+    expect(cta.textContent?.replace(/\s+/g, ' ').trim()).toBe('Claim Vendor Procore Technologies');
     expect(section.textContent).not.toContain('Claim this listing');
     expect(section.textContent).not.toContain('Request access to this listing');
     expect(section.textContent).not.toContain('Already managed through an active vendor account');
@@ -294,13 +446,27 @@ describe('VendorDetailPage unclaimed wording (AECI-1618)', () => {
     ).toBe('P');
   });
 
-  it('keeps the 64px logo and adds no wording on a claimed listing', () => {
+  it('shows the logo as the 104px hero mark and adds no wording on a claimed listing', () => {
     const { fixture } = setup(
       buildVendor({ claim_status: 'claimed', logo_url: 'https://cdn.example.com/a.png' }),
     );
     const el = fixture.nativeElement as HTMLElement;
     expect(el.querySelector('aec-unclaimed-note')).toBeNull();
-    expect(el.querySelector('aec-logo-or-initial img')?.getAttribute('width')).toBe('64');
+    const mark = el.querySelector('[data-testid=vendor-hero-mark]');
+    expect(mark?.hasAttribute('heroMark')).toBe(true);
+    expect(mark?.querySelector('img')?.getAttribute('width')).toBe('104');
+  });
+
+  it('gives an unclaimed listing no large mark, so no logo renders above 32px', () => {
+    const { fixture } = setup(
+      buildVendor({ claim_status: 'unclaimed', logo_url: 'https://cdn.example.com/a.png' }),
+    );
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('[data-testid=vendor-hero-mark]')).toBeNull();
+    const widths = [...el.querySelectorAll('img[src="https://cdn.example.com/a.png"]')].map((i) =>
+      Number(i.getAttribute('width')),
+    );
+    expect(widths).toEqual([32]);
   });
 });
 
@@ -344,7 +510,12 @@ describe('VendorDetailPage provenance panel (AECI-1666)', () => {
     expect(el.querySelector('[data-testid="logo-correction"]')).toBeNull();
     expect(el.querySelectorAll('aec-listing-provenance')).toHaveLength(2);
     expect(el.querySelectorAll('[data-testid="listing-provenance"]')).toHaveLength(1);
-    expect(panel(el).closest('aside')).not.toBeNull();
+    // The band shell has no sidebar (AECI-1797): both copies sit in the last body band,
+    // after Products, and neither is in the facts card.
+    const band = el.querySelector('[data-testid="listing-provenance-band"]')!;
+    expect(panel(el).closest('[data-testid="listing-provenance-band"]')).toBe(band);
+    expect(band.parentElement?.lastElementChild).toBe(band);
+    expect(panel(el).closest('aside')).toBeNull();
   });
 
   it('names each corrected fact the page shows', () => {
@@ -454,8 +625,11 @@ describe('VendorDetailPage values under review (AECI-1238)', () => {
       n.textContent?.replace(/\s+/g, ' ').trim(),
     );
 
-  it('shows About with the marker for a hidden description', () => {
+  it('shows the marker in the hero for a hidden description', () => {
     const { el } = setup(buildVendor({ description: null, under_review: ['description'] }));
+    expect(
+      el.querySelector('aec-hero-band [data-testid="vendor-description-under-review"]'),
+    ).not.toBeNull();
     expect(
       markers(
         el.querySelector('[data-testid="vendor-description-under-review"]')?.parentElement ?? null,
@@ -482,5 +656,17 @@ describe('VendorDetailPage values under review (AECI-1238)', () => {
     expect(
       el.querySelector('[data-testid="company-fact-under-review-headquarters"]'),
     ).not.toBeNull();
+  });
+});
+
+describe('VendorDetailPage breadcrumb (AECI-1777)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('reads Home, then the company as the current page', () => {
+    const { el } = setup(buildVendor());
+    expect(trail(el)).toEqual([
+      { label: 'Home', href: '/', current: false },
+      { label: 'Procore Technologies', href: null, current: true },
+    ]);
   });
 });

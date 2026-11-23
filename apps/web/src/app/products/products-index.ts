@@ -1,9 +1,10 @@
 import { Component, computed, inject } from '@angular/core';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 
 import type { ProductsListResponse } from '@aeci/shared';
 
 import { listingCanonicalUrl } from '../core/canonical';
+import { BROWSE_HEADER_CLASS } from '../layouts/browse-header';
 import { BrowseLayout } from '../layouts/browse-layout';
 import { FacetSidebar } from '../shared/facets/facet-sidebar';
 import { ListingToolbar } from '../shared/listing-toolbar/listing-toolbar';
@@ -15,8 +16,11 @@ import { createPaginatedIndex } from '../shared/paginated-index/paginated-index-
 import { PRODUCTS_INDEX_REQUEST } from './products-index.config';
 import { PaginationFooter } from '../shared/pagination/pagination-footer';
 
-import { ProductCard } from './product-card';
+import { EmptyState } from '../shared/empty-state/empty-state';
+
 import { ProductCardGrid } from './product-card-grid';
+import { ProductTable } from './product-table';
+import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcrumb/breadcrumb';
 
 /**
  * Phase 2.12 (AECI-58) product index. Composes two features:
@@ -55,62 +59,38 @@ import { ProductCardGrid } from './product-card-grid';
  * (set by the SSR Worker via `cacheTagInputsForPath`). Page 1 is prefetched by
  * `productsIndexResolver` through the service binding and handed to the grid via
  * `TransferState` (AECI-746) — until that shipped, this route server-rendered its
- * "Couldn't load products" branch to every crawler. `<link rel="canonical">` stays on the
- * unfiltered `/products` (filters/view are query params, stripped by the meta
- * layer — §20.6). The card grid's "broken-grid" featured lead is gated to page 1
+ * "Couldn't load products" branch to every crawler. `<link rel="canonical">` drops
+ * the filters and view (query params, stripped by the meta layer — §20.6) and
+ * keeps only `?page=` (AECI-803), which it follows on every navigation
+ * (AECI-1904, `canonicalPath`). The card grid's "broken-grid" featured lead is gated to page 1
  * at the newest sort (`showFeatured`) so its "Recently added" claim stays
  * truthful even with filters applied.
  */
 @Component({
   selector: 'app-products-index',
   imports: [
-    RouterLink,
+    AecBreadcrumb,
     BrowseLayout,
     FacetSidebar,
     ListingToolbar,
-    ProductCard,
+    EmptyState,
     ProductCardGrid,
+    ProductTable,
     PaginationFooter,
     MailingListSignup,
   ],
   template: `
     <aec-browse-layout>
-      <div slot="header" class="space-y-3">
-        <nav i18n-aria-label="@@products.index.breadcrumbs.aria" aria-label="Breadcrumb">
-          <ol class="flex items-center gap-2 text-sm text-(--text-secondary)">
-            <li>
-              <a
-                routerLink="/"
-                class="rounded-sm transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                i18n="@@products.index.breadcrumbs.home"
-                >Home</a
-              >
-            </li>
-            <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
-            <li
-              class="text-(--text-primary)"
-              aria-current="page"
-              i18n="@@products.index.breadcrumbs.current"
-            >
-              Products
-            </li>
-          </ol>
-        </nav>
-        <h1
-          class="font-display text-4xl font-semibold tracking-tight md:text-5xl"
-          i18n="@@products.index.title"
-        >
-          Products
-        </h1>
-        @if (idx.total() !== null) {
-          <p class="text-(--text-secondary)" i18n="@@products.index.lede">
-            Every AEC software product indexed on AEC Integrations ({{ idx.total() }} in total).
-          </p>
-        } @else {
-          <p class="text-(--text-secondary)" i18n="@@products.index.lede.loading">
-            Every AEC software product indexed on AEC Integrations.
-          </p>
-        }
+      <!-- The page header roles (mock-up 10): the h1 takes the Headline role from
+           the global h1 rule, the lede the Lede role. Ruling 8 of 2026-11-16
+           drops the count from the lede: it followed the filters and could read
+           "(0 in total)". The footer's "Showing X of Y" is the one count. -->
+      <div slot="header">
+        <aec-breadcrumb [items]="crumbs" />
+        <h1 [class]="headerClass.title" i18n="@@products.index.title">Products</h1>
+        <p [class]="headerClass.lede" i18n="@@products.index.lede">
+          Every AEC software product indexed on AEC Integrations.
+        </p>
       </div>
 
       <aec-facet-sidebar slot="filters" [resetsPage]="false" />
@@ -137,51 +117,7 @@ import { ProductCardGrid } from './product-card-grid';
           @if (idx.items().length > 0) {
             @switch (listingView.view()) {
               @case ('table') {
-                <div class="overflow-x-auto">
-                  <table
-                    class="w-full border-collapse text-start text-sm md:min-w-[44rem]"
-                    i18n-aria-label="@@products.index.table.aria"
-                    aria-label="Products"
-                  >
-                    <thead class="border-b border-(--border-default)">
-                      <tr>
-                        <th
-                          scope="col"
-                          class="px-4 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
-                          i18n="@@products.index.col.name"
-                        >
-                          Name
-                        </th>
-                        <th
-                          scope="col"
-                          class="hidden px-4 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary) md:table-cell"
-                          i18n="@@products.index.col.vendor"
-                        >
-                          Vendor
-                        </th>
-                        <th
-                          scope="col"
-                          class="hidden px-4 py-3 text-end text-xs font-medium tracking-wide text-(--text-secondary) md:table-cell"
-                          i18n="@@products.index.col.rating"
-                        >
-                          Rating
-                        </th>
-                        <th
-                          scope="col"
-                          class="px-4 py-3 text-end text-xs font-medium tracking-wide text-(--text-secondary)"
-                          i18n="@@products.index.col.integrations"
-                        >
-                          Integrations
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody class="divide-y divide-(--border-default)">
-                      @for (product of idx.items(); track product.id) {
-                        <tr aec-product-card [product]="product"></tr>
-                      }
-                    </tbody>
-                  </table>
-                </div>
+                <aec-product-table [rows]="idx.items()" />
               }
               @default {
                 <aec-product-card-grid [products]="idx.items()" [featuredLead]="showFeatured()" />
@@ -210,13 +146,9 @@ import { ProductCardGrid } from './product-card-grid';
               Couldn't load products. Refresh to try again.
             </p>
           } @else {
-            <p
-              class="rounded-(--radius-lg) border border-dashed border-(--border-default)
-              bg-(--surface-sunken) p-6 text-center text-sm text-(--text-secondary)"
-              i18n="@@products.index.empty"
-            >
-              No products match these filters.
-            </p>
+            <aec-empty-state>
+              <p i18n="@@products.index.empty">No products match these filters.</p>
+            </aec-empty-state>
           }
         </div>
       </div>
@@ -226,6 +158,13 @@ import { ProductCardGrid } from './product-card-grid';
   `,
 })
 export class ProductsIndex {
+  protected readonly headerClass = BROWSE_HEADER_CLASS;
+
+  protected readonly crumbs: BreadcrumbItem[] = [
+    homeCrumb(),
+    { label: $localize`:@@products.index.breadcrumbs.current:Products` },
+  ];
+
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 
@@ -245,11 +184,13 @@ export class ProductsIndex {
       // duplicate of page 1. Read from the SNAPSHOT, not the `queryParamMap`
       // signal: this runs once at construction on the server and again on the
       // first client evaluation, and both see the same `?page=`, so the SSR HTML
-      // and the hydrated head agree (the drift ADR 0011 guards against). Append
-      // mode never writes `?page=` to the address bar afterwards, so there is
-      // nothing later to react to.
+      // and the hydrated head agree (the drift ADR 0011 guards against).
       canonical: listingCanonicalUrl('/products', this.route.snapshot.queryParamMap.get('page')),
     },
+    // AECI-1904 — and keep following `?page=` afterwards. Append mode never writes
+    // it, but a navigation can: `/products?page=2`, then the header link to
+    // `/products`, reuses this component.
+    canonicalPath: () => '/products',
   });
 
   protected readonly sortOptions = productSortOptions();

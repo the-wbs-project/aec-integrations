@@ -381,8 +381,9 @@
         <!-- AECI-1643: remove form (required reason, then a deliberate confirm) -->
         @if (removingId() === r.id) {
         <form
+          method="dialog"
           novalidate
-          (submit)="$event.preventDefault(); confirmRemove(r.id)"
+          (aecSubmit)="confirmRemove(r.id)"
           class="mt-4 space-y-2 border-t border-(--border-default) pt-4"
           data-testid="remove-form"
         >
@@ -511,8 +512,9 @@
         <!-- Reject form (required reason) -->
         @if (rejectingId() === r.id) {
         <form
+          method="dialog"
           novalidate
-          (submit)="$event.preventDefault(); confirmReject(r.id)"
+          (aecSubmit)="confirmReject(r.id)"
           class="mt-4 space-y-2 border-t border-(--border-default) pt-4"
         >
           <label
@@ -543,7 +545,7 @@
           rejectForm.rejection_reason().getError('standardSchema') ) {
           <p
             [id]="'reject-reason-' + r.id + '-error'"
-            class="text-xs font-medium text-(--text-primary)"
+            [class]="errorClass"
             role="alert"
             i18n="@@admin.reviews.reject.error"
           >
@@ -589,10 +591,10 @@
   }
 
   <!-- AECI-218 ban dialog: opened from the banner's "Ban reviewer" button. A
-       required reason mirrors the reject form. Driven imperatively by `banTarget()`
-       (see the component effect); the backdrop/Escape `closed` output keeps state
-       in sync. -->
-  <brn-dialog (closed)="closeBan()">
+       required reason mirrors the reject form. Opened from the click handler
+       (`openBan()`), never from an effect; the backdrop/Escape `closed` output keeps
+       state in sync. It opens on its title (AECI-1861). -->
+  <brn-dialog [role]="'alertdialog'" [autoFocus]="'first-heading'" (closed)="closeBan()">
     <ng-template brnDialogContent>
       @if (banTarget(); as t) {
       <div
@@ -600,7 +602,8 @@
       >
         <h2
           brnDialogTitle
-          class="text-lg font-bold text-(--text-primary)"
+          tabindex="-1"
+          class="text-lg font-bold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           i18n="@@admin.reviews.ban.dialog.title"
         >
           Ban this reviewer?
@@ -614,7 +617,7 @@
           reviews. Their existing approved reviews stay visible. You can unban them later.
         </p>
 
-        <form novalidate (submit)="$event.preventDefault(); confirmBan()" class="mt-5 space-y-2">
+        <form method="dialog" novalidate (aecSubmit)="confirmBan()" class="mt-5 space-y-2">
           <label
             for="ban-reason"
             class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
@@ -639,7 +642,7 @@
           @if (banForm.reason().touched() && banForm.reason().getError('standardSchema')) {
           <p
             id="ban-reason-error"
-            class="text-xs font-medium text-(--text-primary)"
+            [class]="errorClass"
             role="alert"
             i18n="@@admin.reviews.ban.dialog.error"
           >

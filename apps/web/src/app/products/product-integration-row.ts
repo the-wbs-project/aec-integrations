@@ -2,6 +2,7 @@ import { Component, ElementRef, computed, input, viewChild } from '@angular/core
 import { RouterLink } from '@angular/router';
 
 import type {
+  AgreementState,
   ContextDirection,
   IntegrationMechanismKind,
   ProductIntegrationItem,
@@ -11,6 +12,7 @@ import type {
 import {
   contextDirectionLabel,
   dataObjectCountLabel,
+  mechanismDisplay,
   mechanismKindLabel,
 } from '../search/mechanism-labels';
 import { correctionLabel } from '../shared/field-caption/correction-labels';
@@ -18,7 +20,10 @@ import { UnderReviewMarker } from '../shared/field-caption/under-review';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { forwardRowClick } from '../shared/row-link/row-link-click';
 
+import { AgreementBadge } from './agreement-badge';
 import { routeIntegrationLane, rowUnderReviewFields } from './connector-lane-grouping';
+import { AecIcon } from '../shared/icon/icon';
+import { Chip } from '../shared/chip/chip';
 
 /**
  * Row representation of one of a product's integrations, slotted into the
@@ -93,7 +98,7 @@ import { routeIntegrationLane, rowUnderReviewFields } from './connector-lane-gro
   // Attribute selector so the rendered DOM is a literal `<tr>` (see class doc).
   // eslint-disable-next-line @angular-eslint/component-selector
   selector: 'tr[aec-product-integration-row]',
-  imports: [RouterLink, LogoOrInitial, UnderReviewMarker],
+  imports: [AecIcon, AgreementBadge, RouterLink, LogoOrInitial, UnderReviewMarker, Chip],
   host: {
     // No `relative`: a <tr> cannot anchor positioned children in Safari < 27
     // (see class doc). The row click is forwarded to the chevron link instead.
@@ -104,9 +109,14 @@ import { routeIntegrationLane, rowUnderReviewFields } from './connector-lane-gro
     '(click)': 'onRowClick($event)',
   },
   template: `
-    <td class="px-4 py-3 font-medium">
+    <td class="px-4 py-3 font-semibold">
       <span class="flex items-center gap-3">
-        <aec-logo-or-initial [src]="other().logo_url" [name]="other().name" size="sm" />
+        <aec-logo-or-initial
+          [claimStatus]="'server-filtered'"
+          [src]="other().logo_url"
+          [name]="other().name"
+          size="sm"
+        />
         <span class="flex min-w-0 flex-col">
           <!-- Secondary link to the partner product page. The row click handler
                skips clicks on links, so this one keeps its own destination.
@@ -117,9 +127,15 @@ import { routeIntegrationLane, rowUnderReviewFields } from './connector-lane-gro
                very short partner name. -->
           <a
             [routerLink]="['/products', other().slug]"
-            class="-my-0.5 w-fit min-w-6 rounded-sm py-0.5 transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            class="-my-0.5 w-fit min-w-6 rounded-mark py-0.5 transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
             >{{ other().name }}</a
           >
+          <!-- AECI-1720: the partner's vendor, as the card prints it (mock-up 6). -->
+          @if (vendorLine(); as line) {
+            <span class="text-xs font-normal text-(--text-secondary)" data-testid="row-vendor">{{
+              line
+            }}</span>
+          }
           <!-- The meta line under the partner name. Direction lives here at
                every width (AECI-853); the mechanism joins it only below md,
                where the Connection <td> is hidden. Tertiary at rest (4.83:1 on
@@ -127,7 +143,7 @@ import { routeIntegrationLane, rowUnderReviewFields } from './connector-lane-gro
                once the row fill goes muted (DESIGN.md §"Tertiary": never on
                muted). -->
           <span
-            class="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-(--text-tertiary) transition-colors group-hover:text-(--text-secondary) group-focus-within:text-(--text-secondary)"
+            class="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-(--text-tertiary) transition-colors group-hover:text-(--text-secondary) group-focus-within:text-(--text-secondary)"
           >
             <!-- Direction, context-relative to THIS page's product and
                  precomputed server-side (claims-aware, §3.2), so it can never
@@ -179,6 +195,24 @@ import { routeIntegrationLane, rowUnderReviewFields } from './connector-lane-gro
         </span>
       </span>
     </td>
+    <!-- AECI-1720: the partner's categories, as on the card (mock-up 6's table). From lg
+         only, so the table's 34rem floor below lg is unchanged. -->
+    <td class="hidden px-4 py-3 lg:table-cell" data-testid="row-categories">
+      @if (integration().partner_categories.length > 0) {
+        <ul class="flex flex-wrap gap-2">
+          @for (category of integration().partner_categories; track category.slug) {
+            <li>
+              <aec-chip density="dense">{{ category.name }}</aec-chip>
+            </li>
+          }
+        </ul>
+      } @else {
+        <span class="text-(--text-secondary)" aria-hidden="true">–</span>
+        <span class="sr-only" i18n="@@products.detail.body.integrations.group.uncategorised"
+          >No category on record</span
+        >
+      }
+    </td>
     <td class="hidden px-4 py-3 text-(--text-secondary) md:table-cell">
       <span class="flex flex-col items-start gap-1">
         <!-- The mechanism badge(s), then the AECI-711 object-coverage chip at the
@@ -189,13 +223,10 @@ import { routeIntegrationLane, rowUnderReviewFields } from './connector-lane-gro
              the connector, and a bare dash beside "2 data objects" read as a minus
              sign. A row with no kinds AND no objects takes the @else below,
              unchanged since before the depth axis (depth-axis-null.component.spec.ts). -->
-        @if (mechanismKindLabels().length > 0 || dataObjectLabel()) {
+        @if (mechanism().labels.length > 0 || dataObjectLabel()) {
           <span class="flex flex-wrap items-center gap-1">
-            @for (label of mechanismKindLabels(); track label) {
-              <span
-                class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-2.5 py-0.5 text-xs font-bold tracking-[0.01em]"
-                >{{ label }}</span
-              >
+            @for (label of mechanism().labels; track label) {
+              <aec-chip density="dense" tone="neutral">{{ label }}</aec-chip>
             } @empty {
               @if (!isViaLane()) {
                 <span
@@ -208,11 +239,9 @@ import { routeIntegrationLane, rowUnderReviewFields } from './connector-lane-gro
               }
             }
             @if (dataObjectLabel(); as objects) {
-              <span
-                class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-2.5 py-0.5 text-xs font-bold tracking-[0.01em]"
-                data-testid="row-data-objects"
-                >{{ objects }}</span
-              >
+              <aec-chip density="dense" tone="neutral" data-testid="row-data-objects">{{
+                objects
+              }}</aec-chip>
             }
           </span>
         } @else {
@@ -224,8 +253,12 @@ import { routeIntegrationLane, rowUnderReviewFields } from './connector-lane-gro
             >–</span
           >
         }
-        @if (integration().mechanism_name; as name) {
+        @if (mechanism().name; as name) {
           <span class="text-xs text-(--text-secondary)">{{ name }}</span>
+        }
+        <!-- AECI-1720: the row's agreement state, the card's label (a label only, R1). -->
+        @if (rowAgreement(); as agreement) {
+          <aec-agreement-badge class="mt-1" [agreement]="agreement" />
         }
       </span>
     </td>
@@ -235,7 +268,7 @@ import { routeIntegrationLane, rowUnderReviewFields } from './connector-lane-gro
            put a direction arrow on the meta line of this very row, one row carried
            two arrows meaning two different things. A chevron is the site's existing
            "there is more this way" mark and carries no direction vocabulary.
-           Hand-inlined Lucide chevron-right (DESIGN.md: Lucide only, no emoji).
+           The aec-icon chevron-right glyph (DESIGN.md: no emoji).
            The chevron is the row's pair-page link: the <a> carries the
            accessible name, so the glyph is aria-hidden. size-6 keeps the
            target at 24px (WCAG 2.2 SC 2.5.8). A click anywhere else on the row
@@ -245,20 +278,15 @@ import { routeIntegrationLane, rowUnderReviewFields } from './connector-lane-gro
         #rowLink
         [routerLink]="pairLink()"
         [attr.aria-label]="pairAriaLabel()"
-        class="inline-flex size-6 items-center justify-center rounded-sm align-middle focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        class="inline-flex size-6 items-center justify-center rounded-mark align-middle focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       >
-        <svg
-          class="inline-block size-4 text-(--text-tertiary) rtl:-scale-x-100"
-          aria-hidden="true"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <path d="m9 18 6-6-6-6" />
-        </svg>
+        <aec-icon
+          class="text-(--text-tertiary)"
+          name="chevron-right"
+          decorative
+          [size]="4"
+          [mirrorRtl]="true"
+        />
       </a>
     </td>
   `,
@@ -282,6 +310,14 @@ export class ProductIntegrationRow {
   /** The union of the collapsed edges' `data_object_slugs` (AECI-711). Same
    *  `undefined` sentinel: unset means "read `integration()`". */
   readonly mergedDataObjectSlugs = input<readonly string[] | undefined>(undefined);
+  /** The collapsed edges' agreement (`IntegrationLaneRow.agreement`). Same sentinel. */
+  readonly mergedAgreement = input<AgreementState | null | undefined>(undefined);
+
+  /** The agreement label the card shows for the same row. */
+  protected readonly rowAgreement = computed(() => {
+    const merged = this.mergedAgreement();
+    return merged === undefined ? this.integration().agreement : merged;
+  });
 
   /** RouterLink to the product-PAIR page, this product as the context slug. */
   protected readonly pairLink = computed(() => [
@@ -304,7 +340,12 @@ export class ProductIntegrationRow {
 
   /** Below `md` the Connection column is hidden, so the kinds join the meta
    *  line under the partner name, after the direction. */
-  protected readonly mechanismSublabel = computed(() => this.mechanismKindLabels().join(' · '));
+  protected readonly mechanismSublabel = computed(() => this.mechanism().labels.join(' · '));
+
+  /** The kind chips and the name, each fact once (`mechanismDisplay`, AECI-1720 restore C). */
+  protected readonly mechanism = computed(() =>
+    mechanismDisplay(this.mechanismKindLabels(), this.integration().mechanism_name),
+  );
 
   /** AECI-711 depth axis: "N data objects", or `''` (renders nothing). The slugs
    *  are already distinct — server-side per edge, unioned per collapsed row. */
@@ -332,6 +373,7 @@ export class ProductIntegrationRow {
     const merged = this.mergedDirection();
     return contextDirectionLabel(
       merged === undefined ? this.integration().context_direction : merged,
+      this.other().name,
     );
   });
 
@@ -341,6 +383,14 @@ export class ProductIntegrationRow {
   protected onRowClick(event: MouseEvent): void {
     forwardRowClick(event, this.rowLink()?.nativeElement);
   }
+
+  /** "by {vendor}", the card's own message, or `null` with no vendor on record. */
+  protected readonly vendorLine = computed(() => {
+    const vendor = this.integration().partner_vendor_name;
+    return vendor
+      ? $localize`:@@products.detail.integrations.card.byVendor:by ${vendor}:VENDOR:`
+      : null;
+  });
 
   // Built in TS (not an interpolated i18n-aria-label, which emits no attribute)
   // so the pair link has a real accessible name naming the partner.

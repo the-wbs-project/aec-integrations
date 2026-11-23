@@ -36,7 +36,7 @@ Run each surface with **(a) keyboard only**, then **(b) VoiceOver**, then **(c) 
 **Keyboard-only (every surface):**
 - [ ] A visible focus indicator is present on every interactive element; focus order matches reading order.
 - [ ] No keyboard trap; `Tab`/`Shift+Tab` reach and leave every control; `Esc` closes overlays/menus and returns focus to the trigger.
-- [ ] "Skip to content" works; landmarks (`header`/`nav`/`main`/`footer`) are reachable.
+- [ ] "Skip to content" works **on a non-home page** (`/products/{slug}`, a `/docs` article): Enter keeps the URL path and moves focus into `main`, with no page load (AECI-1839); landmarks (`header`/`nav`/`main`/`footer`) are reachable.
 - [ ] All actions (links, buttons, filters, form submit, menu) are operable without a pointer.
 
 **Screen reader (VoiceOver + NVDA, every surface):**
@@ -136,8 +136,8 @@ questions the machine pass could not answer.
 
 | # | Surface | Keys | Expected announcement | ✅/❌ |
 |---|---|---|---|---|
-| V1 | `/` | `Tab` once from page top | "Skip to main content, link" — and the link becomes **visible** | ☐ |
-| V2 | `/` | `Return` on it, then `VO+Right` | The cursor should move **into the main content**, not stay in the header. *(H1: `<main>` has no `tabindex="-1"`, so this is the open question.)* | ☐ |
+| V1 | `/products/{slug}` (not `/`: the old link only worked there) | `Tab` once from page top | "Skip to main content, link" — and the link becomes **visible** | ☐ |
+| V2 | `/products/{slug}` | `Return` on it, then `VO+Right` | The URL path does not change and the page does not reload. The cursor moves **into the main content**, not the header. *(H1: `<main>` has had `tabindex="-1"` since AECI-1839, so this confirms the virtual cursor follows.)* | ☐ |
 | V3 | `/` | `VO+U`, choose **Landmarks** | Distinct entries: "Site search" (at desktop widths), "Search the directory" and "Do these two connect?". *(A5, fixed by AECI-830.)* | ☐ |
 | V4 | `/` | `VO+U`, choose **Links** | Three "Source" entries, each naming its figure and publisher, for example "Source for the $27K paid visibility figure, Vendr, opens in a new tab". *(A4, fixed by AECI-830.)* | ☐ |
 | V5 | `/` | Focus the hero search, type `proc` | Does anything announce **how many results** arrived, or only the first option? *(H4.)* | ☐ |
@@ -169,6 +169,7 @@ mode where quick-nav keys work, and the mode most users spend most of their time
 | N8 | `/products/:slug/review` | `F` repeatedly, then `Tab` | Does NVDA switch cleanly between browse and forms mode on each control? Are the star ratings usable with arrows? | ☐ |
 | N9 | `/products/:slug/review` | Submit *(local only)* | Is "Review received" spoken? *(A2.)* | ☐ |
 | N10 | `/account` | `Return` on "Delete account", then `Escape` | Focus enters the dialog, `Tab` cycles inside it, `Escape` returns focus to the button. *(Run **locally**.)* | ☐ |
+| N11 | `/products` | Open "Browse" with `↓`, `Return` on a link; then the mobile menu at 390px | NVDA speaks the new page's `h1` and the next `Tab` starts in the content, not at the top of the page. In a persistent section row (the vendor portal, admin) `Return` on a section link keeps focus on that link, now announced as current page. *(AECI-1855.)* | ☐ |
 
 **Record every ❌ in `docs/ACCESSIBILITY_AUDIT.md` §3 with the tool, the browser and what was actually
 spoken.** An announcement that differs between VoiceOver and NVDA is itself a finding worth writing

@@ -1,12 +1,15 @@
 import { DatePipe, formatDate } from '@angular/common';
 import {
   Component,
+  ElementRef,
+  Injector,
   LOCALE_ID,
   afterNextRender,
   computed,
   effect,
   inject,
   signal,
+  viewChild,
 } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
@@ -32,6 +35,7 @@ import {
   COMPANY_TYPE_OPTIONS,
   labelFor,
 } from '../../account/profile-details/profile-details-model';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 /**
  * `/admin/users/:id` — the operator's user page (AECI-692 /
@@ -82,7 +86,7 @@ import {
  */
 @Component({
   selector: 'aec-user-detail',
-  imports: [AuditTrail, RouterLink, DatePipe, SortHeader],
+  imports: [AecFormSubmit, AuditTrail, RouterLink, DatePipe, SortHeader],
   templateUrl: './user-detail.html',
 })
 export class UserDetail {
@@ -164,6 +168,15 @@ export class UserDetail {
   /** `409 VENDOR_LAST_SEAT_USE_SUSPEND` names the vendor, so the refusal can link to it. */
   protected readonly lastSeatVendorId = signal<string | null>(null);
 
+  // AECI-1989: where focus goes after each ban step. Every step removes or disables
+  // the button the operator pressed, and without a target focus falls to the body.
+  private readonly injector = inject(Injector);
+  private readonly banButton = viewChild<ElementRef<HTMLButtonElement>>('banButton');
+  private readonly banReasonInput = viewChild<ElementRef<HTMLTextAreaElement>>('banReasonInput');
+  private readonly bannedStatus = viewChild<ElementRef<HTMLElement>>('bannedStatus');
+  private readonly lastSeatAlert = viewChild<ElementRef<HTMLElement>>('lastSeatAlert');
+  private readonly failedAlert = viewChild<ElementRef<HTMLElement>>('failedAlert');
+
   // ── Audit trail (AECI-693) ─────────────────────────────────────────────────
   // Page-owned state, the same set the claim and vendor pages keep. The trail
   // component is display-only.
@@ -229,10 +242,23 @@ export class UserDetail {
     this.lastSeatVendorId.set(null);
     this.banReason.set('');
     this.banFormOpen.set(true);
+    this.focusAfterRender(() => this.banReasonInput()?.nativeElement);
   }
 
   protected closeBanForm(): void {
     this.banFormOpen.set(false);
+    this.focusAfterRender(() => this.banButton()?.nativeElement);
+  }
+
+  private focusAfterRender(target: () => HTMLElement | undefined): void {
+    afterNextRender(() => target()?.focus(), { injector: this.injector });
+  }
+
+  /** A refusal's message: the last-seat one when it rendered, else the generic alert. */
+  private focusRefusal(): void {
+    this.focusAfterRender(
+      () => this.lastSeatAlert()?.nativeElement ?? this.failedAlert()?.nativeElement,
+    );
   }
 
   protected onReasonInput(event: Event): void {
@@ -252,6 +278,7 @@ export class UserDetail {
       this.actionFailed.set(
         $localize`:@@admin.users.ban.error.reasonRequired:A reason is required to ban someone. It is recorded in the audit trail.`,
       );
+      this.focusAfterRender(() => this.banReasonInput()?.nativeElement);
       return;
     }
     await this.runBanAction(
@@ -291,13 +318,29 @@ export class UserDetail {
       );
       this.banFormOpen.set(false);
       this.liveMessage.set(announcement);
+      // A ban swaps the form for the "Banned since" status; a reinstate swaps it back
+      // for the ban button.
+      this.focusAfterRender(() =>
+        input.action === 'ban'
+          ? this.bannedStatus()?.nativeElement
+          : this.banButton()?.nativeElement,
+      );
       // Both actions write a profile row, so the trail now has a new first row.
       this.auditPage.set(1);
       void this.loadAudit();
     } catch (err) {
       const lastSeatVendorId = lastSeatRefusalVendorId(err);
-      if (lastSeatVendorId) this.lastSeatVendorId.set(lastSeatVendorId);
-      else this.actionFailed.set(this.banErrorMessage(err, input.action));
+      if (lastSeatVendorId) {
+        this.lastSeatVendorId.set(lastSeatVendorId);
+      } else if (isStatus(err, 422)) {
+        // Already in that state: the page reloads to show the truth. The reload
+        // re-renders the whole page, so focus the message once it has landed.
+        this.actionFailed.set(this.alreadyInStateMessage(input.action));
+        await this.load();
+      } else {
+        this.actionFailed.set(this.banErrorMessage(err));
+      }
+      this.focusRefusal();
     } finally {
       this.actionPending.set(false);
     }
@@ -313,25 +356,26 @@ export class UserDetail {
    *
    * **422 is not an error to the operator.** It means the account was already in
    * the state being asked for, which is the outcome they wanted — so the page
-   * refetches to show the truth rather than showing a failure.
+   * refetches to show the truth rather than showing a failure
+   * ({@link alreadyInStateMessage}).
    *
    * **409 on the last seat** never reaches here when it names its vendor: it renders with a
    * link instead (AECI-1623). The generic line below covers a response that names none.
    */
-  private banErrorMessage(err: unknown, action: 'ban' | 'unban'): string {
+  private banErrorMessage(err: unknown): string {
     if (isStatus(err, 403)) {
       return $localize`:@@admin.users.ban.error.forbidden:You can't ban this account. Admin accounts can't be banned, and you can't ban yourself.`;
-    }
-    if (isStatus(err, 422)) {
-      void this.load();
-      return action === 'ban'
-        ? $localize`:@@admin.users.ban.error.alreadyBanned:This account was already banned. Showing the current state.`
-        : $localize`:@@admin.users.ban.error.alreadyActive:This account was not banned. Showing the current state.`;
     }
     if (isStatus(err, 404)) {
       return $localize`:@@admin.users.ban.error.gone:That account no longer exists. Reload the list.`;
     }
     return $localize`:@@admin.users.ban.error.failed:Something went wrong. Please try again.`;
+  }
+
+  private alreadyInStateMessage(action: 'ban' | 'unban'): string {
+    return action === 'ban'
+      ? $localize`:@@admin.users.ban.error.alreadyBanned:This account was already banned. Showing the current state.`
+      : $localize`:@@admin.users.ban.error.alreadyActive:This account was not banned. Showing the current state.`;
   }
 
   // ── Audit trail (AECI-693) ─────────────────────────────────────────────────

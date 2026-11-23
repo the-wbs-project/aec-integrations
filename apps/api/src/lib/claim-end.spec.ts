@@ -21,6 +21,9 @@ import {
   publicProductLinkConfig,
   toIntegrationListItem,
   toProductDetail,
+  isProductClaimed,
+  pickPrimaryVendor,
+  toOwnedProductLink,
   toProductLink,
   toProductListItem,
   toVendorDetail,
@@ -29,6 +32,7 @@ import {
   vendorListConfig,
 } from './drizzle-helpers';
 import { integrations } from '../db/schema';
+import { toAlgoliaVendor } from './algolia-transforms';
 import { computeMostIntegratedProduct } from './home-stats';
 import {
   CLAIM_END_CAUSES,
@@ -305,12 +309,84 @@ describe('the public mappers', () => {
       columns: productLinkColumns,
       where: eq(products.id, PRODUCT),
     });
-    expect(toProductLink(portal!).logo_url).toBe(LOGO);
+    expect(toOwnedProductLink(portal!).logo_url).toBe(LOGO);
     const open = await t.db.query.products.findFirst({
       ...publicProductLinkConfig,
       where: eq(products.id, PRODUCT),
     });
     expect(toProductLink(open!).logo_url).toBeNull();
+  });
+
+  // AECI-1851: the public mapper fails closed. A read that forgot `claimed` hides the
+  // logo even of a CLAIMED listing, so a new public read cannot leak by omission.
+  it('a public read that forgot the claimed column hides the logo, claimed or not', async () => {
+    const bare = async () =>
+      (await t.db.query.products.findFirst({
+        columns: productLinkColumns,
+        where: eq(products.id, PRODUCT),
+      }))!;
+    expect(toProductLink(await bare()).logo_url).toBeNull();
+    expect(toOwnedProductLink(await bare()).logo_url).toBe(LOGO);
+    await endClaim();
+    expect(toProductLink(await bare()).logo_url).toBeNull();
+    expect(toOwnedProductLink(await bare()).logo_url).toBe(LOGO);
+  });
+
+  // AECI-1851: the change moves no existing read. The mapper before this change is
+  // copied here verbatim. Public reads select `claimed` and go through `toProductLink`;
+  // portal and admin reads select bare columns and go through `toOwnedProductLink`.
+  // Both must equal what the old mapper returned, for a claimed and an unclaimed row.
+  it('every existing read returns the same link as before, claimed and unclaimed', async () => {
+    const before = (raw: {
+      id: string;
+      name: string;
+      slug: string;
+      logoUrl: string | null;
+      claimed?: number | boolean;
+    }) => {
+      const hidden = raw.claimed !== undefined && !raw.claimed;
+      return { id: raw.id, name: raw.name, slug: raw.slug, logo_url: hidden ? null : raw.logoUrl };
+    };
+    const read = async () => ({
+      open: (await t.db.query.products.findMany({
+        ...publicProductLinkConfig,
+        orderBy: (p, { asc }) => [asc(p.id)],
+      }))!,
+      portal: (await t.db.query.products.findMany({
+        columns: productLinkColumns,
+        orderBy: (p, { asc }) => [asc(p.id)],
+      }))!,
+    });
+    // PRODUCT claimed, PARTNER unclaimed (no vendor); then both unclaimed.
+    for (const step of ['claimed', 'ended'] as const) {
+      if (step === 'ended') await endClaim();
+      const { open, portal } = await read();
+      expect(open).toHaveLength(2);
+      expect(open.map(toProductLink)).toEqual(open.map(before));
+      expect(portal.map(toOwnedProductLink)).toEqual(portal.map(before));
+    }
+    const { open } = await read();
+    expect(open.map((r) => toProductLink(r).logo_url)).toEqual([null, null]);
+  });
+
+  // AECI-1851: every other public mapper already reads the claim fact off the row and
+  // treats an absent one as unclaimed. These pin that, so a later edit cannot flip it.
+  it('the vendor, list and search mappers hide the logo when the claim fact is absent', () => {
+    const vendor = { id: VENDOR, companyName: 'Acme', slug: 'acme', logoUrl: LOGO, verified: true };
+    // No `ownedAt` / `claimEndedAt` on the row: the read forgot them.
+    expect(pickPrimaryVendor([{ isPrimary: true, vendor }])!.logo_url).toBeNull();
+    expect(isProductClaimed({ productVendors: [{ isPrimary: true, vendor }] } as never)).toBe(
+      false,
+    );
+    expect(
+      toAlgoliaVendor({ ...vendor, productCount: 0, integrationCount: 0 } as never).logo_url,
+    ).toBeNull();
+    // And with the facts present, a claimed vendor keeps it.
+    expect(
+      pickPrimaryVendor([
+        { isPrimary: true, vendor: { ...vendor, ownedAt: OLD, claimEndedAt: null } },
+      ])!.logo_url,
+    ).toBe(LOGO);
   });
 
   it('the home page headline hides an unclaimed logo', async () => {

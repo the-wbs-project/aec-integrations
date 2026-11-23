@@ -149,6 +149,20 @@ function pushConnector(
   }
 }
 
+/**
+ * AECI-1720: each row prints its partner's vendor ("by {vendor}"), so the page carries
+ * that vendor's tag. A vendor rename purges `vendor:{slug}` only (`promote-cache-tags.ts`),
+ * and the partner's `product:` tag does not move on a vendor write.
+ */
+function pushPartnerVendor(
+  embedded: Array<{ type: string; slug?: string; id?: string }>,
+  integration: ProductIntegrationItem,
+): void {
+  if (integration.partner_vendor_slug) {
+    embedded.push({ type: 'vendor', slug: integration.partner_vendor_slug });
+  }
+}
+
 export const productDetailResolver = createDetailResolver<ProductDetail>({
   statePrefix: 'aeci.product-detail:',
   paramName: 'slug',
@@ -188,11 +202,13 @@ export const productDetailResolver = createDetailResolver<ProductDetail>({
       ctx.embedded.push({ type: 'integration', id: i.id });
       ctx.embedded.push({ type: 'product', slug: i.target.slug });
       pushConnector(ctx.embedded, i);
+      pushPartnerVendor(ctx.embedded, i);
     }
     for (const i of product.integrations_as_target) {
       ctx.embedded.push({ type: 'integration', id: i.id });
       ctx.embedded.push({ type: 'product', slug: i.source.slug });
       pushConnector(ctx.embedded, i);
+      pushPartnerVendor(ctx.embedded, i);
     }
     // Powered edges (Stage 1.5 Addendum B): this product is the connector, so
     // BOTH endpoints are rendered — the hub heading links one and the chip links
@@ -212,6 +228,10 @@ export const productDetailResolver = createDetailResolver<ProductDetail>({
     }
     for (const extension of product.extensions) {
       ctx.embedded.push({ type: 'product', slug: extension.slug });
+    }
+    // AECI-1785: every "Similar products" card renders that product's name and logo.
+    for (const related of product.related_products) {
+      ctx.embedded.push({ type: 'product', slug: related.slug });
     }
   },
 });

@@ -9,11 +9,14 @@ import type { ProductsListResponse } from '@aeci/shared';
 import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
 
 import { KIND_PATH_SEGMENT, type TaxonomyTermDetail } from '../core/api/taxonomy';
+import { BROWSE_HEADER_CLASS } from '../layouts/browse-header';
 import { BrowseLayout } from '../layouts/browse-layout';
 import { NotFound } from '../not-found/not-found';
-import { ProductCard } from '../products/product-card';
 import { ProductCardGrid } from '../products/product-card-grid';
+import { ProductTable } from '../products/product-table';
+import { EmptyState } from '../shared/empty-state/empty-state';
 import { FacetSidebar } from '../shared/facets/facet-sidebar';
+import { FILTER_LINK_CLASS } from '../shared/facets/filter-row';
 import { ListingToolbar } from '../shared/listing-toolbar/listing-toolbar';
 import { createListingView } from '../shared/listing-toolbar/listing-view';
 import {
@@ -25,6 +28,7 @@ import { createPaginatedIndex } from '../shared/paginated-index/paginated-index-
 
 import { taxonomyBrowseIndexRequest } from './taxonomy-browse.config';
 import { PaginationFooter } from '../shared/pagination/pagination-footer';
+import { AecBreadcrumb, homeCrumb, type BreadcrumbItem } from '../shared/breadcrumb/breadcrumb';
 
 /**
  * AECI-61 / AECI-544 — shared browse page for `/categories/:slug`,
@@ -47,8 +51,10 @@ import { PaginationFooter } from '../shared/pagination/pagination-footer';
  *
  * AECI-657 — the grid slot leads with `aec-listing-toolbar`, the same sort +
  * cards/table control `/products` carries, and renders `ProductCardGrid` in the
- * cards view (the default, matching `/products`) or the existing table in the
- * table view. Until then this page had NO toolbar: `STAGE_1_SPEC.md` §4.5 asks
+ * cards view (the default, matching `/products`) or the shared
+ * `aec-product-table` in the table view (AECI-1793). Loading, error and "no
+ * match" read the same in both views, as on `/products`. Until AECI-657 this
+ * page had NO toolbar: `STAGE_1_SPEC.md` §4.5 asks
  * for a "Product grid with sort options (alphabetical, most integrations, most
  * reviewed)" and it shipped with a table and no sort, because AECI-190's
  * redesign was scoped to `/products` and gave this page only the upgraded row.
@@ -72,20 +78,23 @@ import { PaginationFooter } from '../shared/pagination/pagination-footer';
  * resolver pushes `product:{slug}` for every product the term carries onto
  * `ctx.embedded` (a superset of any filtered grid subset), so editing any of
  * those products purges this page. Filters are query params → `<link
- * rel="canonical">` stays on the unfiltered `/{kind}/{slug}` (§20.6).
+ * rel="canonical">` stays on the unfiltered `/{kind}/{slug}` (§20.6), plus
+ * `?page=` from page 2 (AECI-803), followed on every navigation (AECI-1904).
  */
 @Component({
   selector: 'aec-taxonomy-browse',
   imports: [
+    AecBreadcrumb,
     BrowseLayout,
     FacetSidebar,
     ListingToolbar,
     MailingListSignup,
     NgTemplateOutlet,
     NotFound,
+    EmptyState,
     PaginationFooter,
-    ProductCard,
     ProductCardGrid,
+    ProductTable,
     RouterLink,
   ],
   template: `
@@ -96,39 +105,12 @@ import { PaginationFooter } from '../shared/pagination/pagination-footer';
       template never depends on where it is instantiated.
     -->
     <ng-template #pageHeader let-t>
-      <nav i18n-aria-label="@@taxonomy.browse.breadcrumbs.aria" aria-label="Breadcrumb">
-        <ol class="flex flex-wrap items-center gap-2 text-sm text-(--text-secondary)">
-          <li>
-            <a
-              routerLink="/"
-              class="rounded-sm transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              i18n="@@taxonomy.browse.breadcrumbs.home"
-              >Home</a
-            >
-          </li>
-          <li aria-hidden="true" class="text-(--text-secondary)">›</li>
-          <li>
-            @if (parentLink(); as link) {
-              <a
-                [routerLink]="link"
-                class="rounded-sm transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                >{{ parentLabel() }}</a
-              >
-            } @else {
-              <span>{{ parentLabel() }}</span>
-            }
-          </li>
-          <li aria-hidden="true" class="text-(--text-secondary)">›</li>
-          <li class="text-(--text-primary)" aria-current="page">{{ t.name }}</li>
-        </ol>
-      </nav>
+      <aec-breadcrumb [items]="crumbs()" />
 
-      <h1 class="font-display text-4xl font-semibold tracking-tight md:text-5xl">
-        {{ t.name }}
-      </h1>
+      <h1 [class]="headerClass.title">{{ t.name }}</h1>
 
       @if (t.description) {
-        <p class="max-w-prose text-(--text-secondary)">{{ t.description }}</p>
+        <p [class]="headerClass.lede">{{ t.description }}</p>
       }
     </ng-template>
 
@@ -139,50 +121,44 @@ import { PaginationFooter } from '../shared/pagination/pagination-footer';
       <!--
         Nothing tagged yet. No sidebar (there is nothing to cross-filter) and no
         table: just the header and an honest panel out to the products index.
-        Same page chrome as BrowseLayout, minus its two-column grid.
+        BrowseLayout without the rail, so both states share one header and wrap.
       -->
-      <div class="bg-(--surface-base) text-(--text-primary)">
-        <div class="mx-auto w-full max-w-7xl px-6 pt-3 pb-8 md:px-8 md:pt-4 md:pb-12">
-          <header class="mb-8 border-b border-(--border-default) pb-6 md:mb-12 md:pb-8">
-            <div class="space-y-4">
-              <ng-container
-                [ngTemplateOutlet]="pageHeader"
-                [ngTemplateOutletContext]="{ $implicit: t }"
-              />
-            </div>
-          </header>
-
-          <div
-            class="max-w-prose space-y-3 rounded-(--radius-lg) border border-dashed
-              border-(--border-default) bg-(--surface-sunken) p-6"
-          >
-            <p class="text-(--text-primary)">{{ emptyTermHeadline() }}</p>
-            <p class="text-sm text-(--text-secondary)" i18n="@@taxonomy.browse.emptyTerm.body">
-              As the catalog grows, this page fills in on its own.
-            </p>
-            <a
-              routerLink="/products"
-              class="inline-block rounded-sm text-sm font-medium text-(--accent-primary) underline
-                decoration-(--border-strong) underline-offset-4 transition-colors
-                hover:decoration-(--accent-primary) focus-visible:outline-2
-                focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              i18n="@@taxonomy.browse.emptyTerm.cta"
-              >Browse all products</a
-            >
-          </div>
+      <aec-browse-layout [filters]="false">
+        <div slot="header">
+          <ng-container
+            [ngTemplateOutlet]="pageHeader"
+            [ngTemplateOutletContext]="{ $implicit: t }"
+          />
         </div>
-      </div>
+
+        <!-- Mock-up 10, the empty term: a lead line at 16px and 600 in primary
+             ink, the sentence under it, then "Browse all products" as the
+             standalone link role with a 44px target. Same words as before. -->
+        <aec-empty-state slot="grid">
+          <p class="max-w-2xl font-semibold text-(--text-primary)">{{ emptyTermHeadline() }}</p>
+          <p class="mt-1 max-w-2xl" i18n="@@taxonomy.browse.emptyTerm.body">
+            As the catalog grows, this page fills in on its own.
+          </p>
+          <a
+            routerLink="/products"
+            [class]="emptyLinkClass"
+            class="mt-2"
+            i18n="@@taxonomy.browse.emptyTerm.cta"
+            >Browse all products</a
+          >
+        </aec-empty-state>
+      </aec-browse-layout>
 
       <aec-mailing-list-signup />
     } @else {
       <aec-browse-layout>
-        <div slot="header" class="space-y-4">
+        <div slot="header">
           <ng-container
             [ngTemplateOutlet]="pageHeader"
             [ngTemplateOutletContext]="{ $implicit: t }"
           />
 
-          <p class="text-sm text-(--text-secondary)">{{ productCountLabel() }}</p>
+          <p [class]="headerClass.count">{{ productCountLabel() }}</p>
         </div>
 
         <aec-facet-sidebar
@@ -210,88 +186,12 @@ import { PaginationFooter } from '../shared/pagination/pagination-footer';
             [class.pointer-events-none]="idx.reloading()"
             [attr.aria-busy]="idx.reloading() ? 'true' : null"
           >
-            @if (listingView.view() === 'table') {
-              <div class="overflow-x-auto">
-                <table
-                  class="w-full border-collapse text-start text-sm md:min-w-[44rem]"
-                  i18n-aria-label="@@taxonomy.browse.table.aria"
-                  aria-label="Products"
-                >
-                  <thead
-                    class="border-b border-(--border-default) text-xs font-medium tracking-wide text-(--text-secondary)"
-                  >
-                    <tr>
-                      <th
-                        scope="col"
-                        class="px-4 py-3 font-medium"
-                        i18n="@@taxonomy.browse.col.name"
-                      >
-                        Name
-                      </th>
-                      <th
-                        scope="col"
-                        class="hidden px-4 py-3 font-medium md:table-cell"
-                        i18n="@@taxonomy.browse.col.vendor"
-                      >
-                        Vendor
-                      </th>
-                      <th
-                        scope="col"
-                        class="hidden px-4 py-3 text-end font-medium md:table-cell"
-                        i18n="@@taxonomy.browse.col.rating"
-                      >
-                        Rating
-                      </th>
-                      <th
-                        scope="col"
-                        class="px-4 py-3 text-end font-medium"
-                        i18n="@@taxonomy.browse.col.integrations"
-                      >
-                        Integrations
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody class="divide-y divide-(--border-default)">
-                    @if (idx.items().length === 0 && idx.pending()) {
-                      <tr aria-busy="true">
-                        <td
-                          colspan="4"
-                          class="px-4 py-12 text-center text-(--text-secondary)"
-                          i18n="@@taxonomy.browse.loading"
-                        >
-                          Loading products…
-                        </td>
-                      </tr>
-                    } @else if (idx.items().length === 0 && idx.error()) {
-                      <tr>
-                        <td
-                          colspan="4"
-                          class="px-4 py-12 text-center text-(--text-secondary)"
-                          i18n="@@taxonomy.browse.error"
-                        >
-                          Couldn't load products. Refresh to try again.
-                        </td>
-                      </tr>
-                    } @else {
-                      @for (product of idx.items(); track product.id) {
-                        <tr aec-product-card [product]="product"></tr>
-                      } @empty {
-                        <tr>
-                          <td
-                            colspan="4"
-                            class="px-4 py-12 text-center text-(--text-secondary)"
-                            i18n="@@taxonomy.browse.empty"
-                          >
-                            No products match these filters.
-                          </td>
-                        </tr>
-                      }
-                    }
-                  </tbody>
-                </table>
-              </div>
-            } @else if (idx.items().length > 0) {
-              <aec-product-card-grid [products]="idx.items()" [featuredLead]="showFeatured()" />
+            @if (idx.items().length > 0) {
+              @if (listingView.view() === 'table') {
+                <aec-product-table [rows]="idx.items()" />
+              } @else {
+                <aec-product-card-grid [products]="idx.items()" [featuredLead]="showFeatured()" />
+              }
             } @else if (idx.pending()) {
               <p
                 class="py-12 text-center text-(--text-secondary)"
@@ -308,13 +208,9 @@ import { PaginationFooter } from '../shared/pagination/pagination-footer';
                 Couldn't load products. Refresh to try again.
               </p>
             } @else {
-              <p
-                class="rounded-(--radius-lg) border border-dashed border-(--border-default)
-                  bg-(--surface-sunken) p-6 text-center text-sm text-(--text-secondary)"
-                i18n="@@taxonomy.browse.cards.empty"
-              >
-                No products match these filters.
-              </p>
+              <aec-empty-state>
+                <p i18n="@@taxonomy.browse.cards.empty">No products match these filters.</p>
+              </aec-empty-state>
             }
           </div>
 
@@ -339,6 +235,10 @@ import { PaginationFooter } from '../shared/pagination/pagination-footer';
 export class TaxonomyBrowsePage {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+
+  protected readonly headerClass = BROWSE_HEADER_CLASS;
+  /** The standalone link role, the same spelling as the filter panel's links. */
+  protected readonly emptyLinkClass = FILTER_LINK_CLASS;
 
   /** Taxonomy kind for this route — static `data: { kind }` in `app.routes.ts`. */
   protected readonly kind = computed<TaxonomyKind>(
@@ -377,6 +277,13 @@ export class TaxonomyBrowsePage {
     // pages append client-side (the page number stays out of the URL).
     mode: 'append',
     enabled: () => this.term() !== null,
+    // AECI-1904 — the resolver sets the canonical when the term resolves, and
+    // query-only navigations do not re-run it, so the controller keeps the
+    // canonical on `?page=`. Null on a 404, whose canonical strips the query.
+    canonicalPath: () => {
+      const slug = this.term()?.slug;
+      return slug ? `/${KIND_PATH_SEGMENT[this.kind()]}/${slug}` : null;
+    },
   });
 
   /**
@@ -419,6 +326,13 @@ export class TaxonomyBrowsePage {
    * links.
    */
   protected readonly parentLink = computed(() => `/${KIND_PATH_SEGMENT[this.kind()]}`);
+
+  /** Home, the facet index, then the term. The term is the current page. */
+  protected readonly crumbs = computed<BreadcrumbItem[]>(() => [
+    homeCrumb(),
+    { label: this.parentLabel(), link: this.parentLink() },
+    { label: this.term()?.name ?? '' },
+  ]);
 
   protected readonly productCountLabel = computed(() => {
     const count = this.term()?.product_count ?? 0;

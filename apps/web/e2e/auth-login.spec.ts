@@ -2,6 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
 import { attachConsoleCapture } from './console-capture';
+import { expectNoSidewaysScroll } from './no-sideways-scroll';
 
 // AECI-194 / Phase 5.3 — the /auth/login page. The Supabase calls run
 // browser-side with the anon key; CI / local-bound typically has no
@@ -73,8 +74,8 @@ test.describe('/auth/login — login page (AECI-194)', () => {
         anonKey: 'e2e-anon-key',
       };
     });
-    // Any host: CI has no config and uses the stub above, but a local run with a
-    // configured `.dev.vars` injects the real one after the init script.
+    // Any host. The Content-Security-Policy allows only the real Supabase host, so this
+    // test needs it in `.dev.vars` (CI writes it). A worktree without `.dev.vars` fails here.
     await page.route('**/auth/v1/otp**', (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
     );
@@ -130,6 +131,65 @@ test.describe('/auth/login — login page (AECI-194)', () => {
     const violations = await aaViolations(page);
     expect(violations, formatViolations(violations)).toEqual([]);
   });
+
+  // AECI-1805: inside the card at 320px, "Continue with Google" broke onto two lines away
+  // from its G mark. The web fonts are blocked and a wide face is forced, so the check
+  // holds whatever font the runner falls back to (Verdana is the widest common sans; the
+  // generic families cover a runner that has none of the named ones).
+  for (const face of ['Verdana', 'DejaVu Sans', 'Arial', 'sans-serif']) {
+    test(`at 320px "Continue with Google" stays one 44px line beside its mark (${face})`, async ({
+      page,
+    }) => {
+      await page.route('**/fonts/**', (route) => route.abort());
+      await page.setViewportSize({ width: 320, height: 800 });
+      await page.goto('/auth/login');
+      await page.addStyleTag({
+        content: `body, body * { font-family: "${face}", sans-serif !important; }`,
+      });
+      const google = page.getByRole('button', { name: 'Continue with Google' });
+      await expect(google).toBeVisible();
+
+      const m = await google.evaluate((button) => {
+        const label = [...button.querySelectorAll('span')].find((s) =>
+          s.textContent?.includes('Google'),
+        ) as HTMLElement;
+        const mark = button.querySelector('svg') as SVGElement;
+        const b = button.getBoundingClientRect();
+        const l = label.getBoundingClientRect();
+        const g = mark.getBoundingClientRect();
+        return {
+          buttonH: b.height,
+          buttonW: b.width,
+          parentW: (button.parentElement as HTMLElement).getBoundingClientRect().width,
+          labelH: l.height,
+          lineH: parseFloat(getComputedStyle(label).lineHeight),
+          labelInside: l.left >= b.left && l.right <= b.right,
+          markBesideLabel: g.right <= l.left && g.top < l.bottom && g.bottom > l.top,
+        };
+      });
+      expect(m.labelH, 'the label is one line').toBeLessThanOrEqual(m.lineH + 1);
+      expect(m.buttonH).toBeGreaterThanOrEqual(44);
+      expect(m.buttonH).toBeLessThanOrEqual(46);
+      expect(m.buttonW, 'the button is full width').toBeCloseTo(m.parentW, 0);
+      expect(m.labelInside, 'the label stays inside the button').toBe(true);
+      expect(m.markBesideLabel, 'the G mark sits beside the label').toBe(true);
+      await expectNoSidewaysScroll(page);
+
+      const termsLine = page.getByTestId('login-terms-line');
+      await expect(termsLine.getByRole('link', { name: 'Terms of Service' })).toBeVisible();
+      await expect(termsLine.getByRole('link', { name: 'Privacy Policy' })).toBeVisible();
+    });
+  }
+
+  for (const width of [320, 390]) {
+    test(`has zero axe AA violations at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 800 });
+      await page.goto('/auth/login');
+      await expect(page.locator('aec-login-page')).toBeAttached();
+      const violations = await aaViolations(page);
+      expect(violations, formatViolations(violations)).toEqual([]);
+    });
+  }
 });
 
 async function aaViolations(page: Page) {

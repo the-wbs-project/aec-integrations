@@ -569,7 +569,7 @@ export const NOTIFICATIONS = {
     pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §9',
     summary: 'Tells a claimant their claim was approved.',
-    note: 'One variant since AECI-1367: every approval lands on Free. It names the vendor and has three blocks: sign in (the button is the sign-in page, never a one-time link; an invited claimant is told the account exists; since AECI-1437 a line says the portal is in the account menu, top left on a phone, or at /vendor), what Free includes, and how Managed works (subscriptions on the billing account, one per product, bought later from Billing; no price). It ends with one link to /vendor-program, the public vendor page (AECI-1283). Always on: a claim decision, and the first the vendor hears of its seat.',
+    note: 'One variant since AECI-1367: every approval lands on Free. It names the vendor and has three blocks: sign in (the button is the sign-in page, never a one-time link; an invited claimant is told the account exists; since AECI-1437 a line says the portal is in the account menu, inside the menu at the top right on a phone, or at /vendor), what Free includes, and how Managed works (subscriptions on the billing account, one per product, bought later from Billing; no price). It ends with one link to /vendor-program, the public vendor page (AECI-1283). Always on: a claim decision, and the first the vendor hears of its seat.',
   },
   'claim-rejected': {
     channel: 'email',
@@ -962,8 +962,8 @@ export const NOTIFICATIONS = {
     pausable: false,
     doc: 'docs/VENDOR_SIGNUP_PROCESS.md §3',
     summary:
-      "The change notice for a published material version of the Vendor Terms (every unbanned seat and the billing email of every company with a seat) or the Managed plan agreement (owner seats and the billing email of every company with a live subscription of any kind). It names the version and its effective date, lists the summary of changes, links the fixed copy at /legal/<slug>/v<version> and attaches that version's PDF.",
-    note: 'Always on: a legal notice both agreements promise, so it has no unsubscribe and cannot be paused. The consumer re-hashes the PDF on every message and sends nothing on a mismatch. A seat-email lookup that is unavailable retries the message rather than sending to part of the company. The send carries an attachment, so it blind-copies no one, and it passes no operator copy. Each company has a legal_notice_deliveries row, and /admin/legal lists every company not reached with its reason.',
+      "The change notice for a published material version of the Vendor Terms (every unbanned seat and the billing email of every company with a seat), of the Listing Accuracy Policy or the Review Guidelines (AECI-1969, ruling 54: the same audience, because the Vendor Terms incorporate both, and every policy version is material), or of the Managed plan agreement (owner seats and the billing email of every company with a live subscription of any kind). Since AECI-1977 (ruling 62) every Vendor Terms and Managed plan agreement version is material too, so every published version of those four documents sends it. It names the version and its effective date, lists the summary of changes, links the fixed copy at /legal/<slug>/v<version> and attaches that version's PDF.",
+    note: 'Always on: a legal notice both agreements promise, so it has no unsubscribe and cannot be paused. The consumer re-hashes the PDF on every message and sends nothing on a mismatch. A seat-email lookup that is unavailable retries the message rather than sending to part of the company. The send carries an attachment, so it blind-copies no one, and it passes no operator copy. Each company has a legal_notice_deliveries row, and /admin/legal lists every company not reached with its reason. A policy version does not take effect for a company its notice did not reach: that company stays on the policy version it accepted (companyPolicyVersion, shown on the admin Billing tab).',
   },
   // AECI-1637 (counsel Q34, ruling 12): the account twin of `legal-terms-change`.
   'legal-account-change': {
@@ -981,7 +981,7 @@ export const NOTIFICATIONS = {
     pausable: false,
     doc: 'docs/STAGE_1_SPEC.md §27',
     summary:
-      "The change notice for a published material version of the Terms of Service or the Privacy Policy, to every unbanned account on the tier, vendor seats included. It names the version and its effective date, lists the summary of changes, links the fixed copy at /legal/<slug>/v<version>, attaches that version's PDF, and says whether the version applies by continued use, only from the account holder's next sign-in, or (Privacy Policy) from its date.",
+      "The change notice for a published material version of the Terms of Service or the Privacy Policy, to every unbanned account on the tier, vendor seats included. It names the version and its effective date, lists the summary of changes, links the fixed copy at /legal/<slug>/v<version>, attaches that version's PDF, and says whether the version applies by continued use, only after the account holder ticks the acceptance box at their next sign-in, or (Privacy Policy) from its date.",
     note: 'Always on: a service notice the Terms promise, so it has no unsubscribe, ignores the marketing mute and cannot be paused. Same template and checks as legal-terms-change: the consumer re-hashes the PDF on every message and sends nothing on a mismatch, and an account email lookup that is unavailable retries the whole message. The send carries an attachment, so it blind-copies no one. Each account has a legal_notice_reader_deliveries row, and /admin/legal counts and lists the accounts not reached.',
   },
   'license-unassigned-reminder': {

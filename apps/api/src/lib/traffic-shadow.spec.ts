@@ -1249,4 +1249,115 @@ describe('runShadow over the real migrations', () => {
     expect(md).toContain('| 2026-10-01 | 7 | 1 | 1 | 2 | 3 | 1 |');
     expect(md).toContain('Report-only.');
   });
+
+  describe('the browser-report candidates (AECI-1716)', () => {
+    const DAY = { fromDay: '2026-11-21', toDay: '2026-11-21', labels: parseLabelsFile({}) };
+    const READ_AT = '2026-11-23T00:00:00.000Z';
+    const row = (overrides: Partial<PulledPageView> & { id: number; created_at: string }) =>
+      pulled({ cf_country: 'US', ...overrides });
+
+    async function loadDay() {
+      await loadPulledRows(
+        t.db,
+        [
+          // Written before capture: NULL by construction.
+          row({ id: 1, created_at: '2026-11-21T08:00:00.000Z' }),
+          // Capture's first report, which a run derives the start from.
+          row({ id: 2, created_at: '2026-11-21T09:00:00.000Z', browser_evidence: 'ran' }),
+          row({ id: 3, created_at: '2026-11-21T09:10:00.000Z', turnstile_verdict: 'pass' }),
+          row({ id: 4, created_at: '2026-11-21T09:20:00.000Z', cf_country: 'DE' }),
+          row({
+            id: 5,
+            created_at: '2026-11-21T09:30:00.000Z',
+            browser_evidence: 'interacted',
+            user_agent_hash: 'ua-other',
+          }),
+          row({ id: 6, created_at: '2026-11-21T09:40:00.000Z', user_agent_hash: 'ua-test' }),
+        ],
+        [],
+      );
+    }
+
+    it('derives the capture start, separates capture off, and keeps the digest', async () => {
+      await loadDay();
+      const result = await runShadow(t.db, {
+        ...DAY,
+        browserEvidence: { readAt: READ_AT, excludeIds: [{ from: 6, to: 6 }] },
+      });
+      expect(result.days[0]?.reproducesDigest).toBe(true);
+      const be = result.browserEvidence;
+      expect(be.inputs).toMatchObject({
+        captureFrom: '2026-11-21T09:00:00.000Z',
+        captureFromSource: 'derived',
+      });
+      expect(be.days[0]).toMatchObject({
+        rule: 'after',
+        excluded: 1,
+        turnstilePass: 1,
+        turnstilePassNoReport: 1,
+      });
+      expect(be.days[0]?.arrivals).toMatchObject({
+        capture_off: 1,
+        ran: 1,
+        no_browser_report: 1,
+        not_collected_held_region: 1,
+        interacted: 1,
+      });
+      // One family alone moves no class, and nothing else carries a family here.
+      expect(be.noBrowserReport.moves).toEqual([]);
+      // `interacted` on an arrival with no hop turns Unresolved into human evidence.
+      expect(be.interacted.moves).toEqual([
+        expect.objectContaining({ from: 'unresolved', to: 'browser_with_human_evidence', rows: 1 }),
+      ]);
+      // The overlays never change a running count.
+      expect(result.days[0]?.classCounts.browser_with_human_evidence).toBe(0);
+    });
+
+    it('takes an explicit capture start over the derived one', async () => {
+      await loadDay();
+      const result = await runShadow(t.db, {
+        ...DAY,
+        browserEvidence: { readAt: READ_AT, captureFrom: '2026-11-22T00:00:00.000Z' },
+      });
+      expect(result.browserEvidence.inputs.captureFromSource).toBe('input');
+      expect(result.browserEvidence.days[0]?.arrivals.no_browser_report).toBe(0);
+      expect(result.browserEvidence.days[0]?.arrivals.capture_off).toBe(3);
+    });
+
+    it('renders the new sections', async () => {
+      await loadDay();
+      const result = await runShadow(t.db, { ...DAY, browserEvidence: { readAt: READ_AT } });
+      const md = renderShadowMarkdown(
+        {
+          classifierVersion: TRAFFIC_CLASSIFIER_VERSION,
+          fingerprint: 'f',
+          gitSha: 'g',
+          generatedAt: READ_AT,
+          target: 't',
+          window: { fromDay: DAY.fromDay, toDay: DAY.toDay },
+          evidenceWindows: evidenceWindows(DAY.fromDay, DAY.toDay),
+          pulled: { pageViews: 6, asnRegistry: 0 },
+          labelsPath: null,
+          heldOutDays: [],
+          ruleInputs: {},
+        },
+        result,
+      );
+      for (const heading of [
+        '## Browser report candidates (AECI-1716)',
+        '### Arrivals by report state',
+        '### Not collected',
+        '### Blocker loss: Turnstile-pass arrivals with no report',
+        '### Moved by `interacted`, by network',
+        '### Moved by `no_browser_report`, by network',
+        '### AECI-1659 coordinated identities beside `no_browser_report`',
+        '### Interacted share: operator rows and labelled sessions',
+        '### Forgery check:',
+        '### Slice metrics with `interacted` (§3c step 3)',
+        '### Slice metrics with `no_browser_report` (§3c step 3)',
+      ]) {
+        expect(md).toContain(heading);
+      }
+    });
+  });
 });

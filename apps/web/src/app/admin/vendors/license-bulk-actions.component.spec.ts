@@ -95,6 +95,7 @@ function makeBilling(licenses = LICENSES): AdminVendorBillingResponse {
     release_requests: [],
     grants: [],
     grants_truncated: false,
+    policy_versions: [],
   };
 }
 
@@ -347,11 +348,33 @@ describe('LicenseBulkActions in the Billing table', () => {
     expect(text(failures)).toContain(
       'The rate limit stopped the run with 2 subscriptions not tried.',
     );
+    // AECI-1994: the disabled confirm dropped focus, so the failure list takes it.
+    expect(document.activeElement).toBe(failures);
     expect(host.changes).toBe(1);
     expect(host.announced()).toBe(
       'Revoked 1 of the selected subscriptions. 1 could not be changed. They are still selected. ' +
         'Stopped by the rate limit with 2 not tried. Wait a minute, then run it again.',
     );
+  });
+
+  it('focuses the stop message when a 429 stops a run with no other failure (AECI-1994)', async () => {
+    const updateLicense = vi.fn(async (id: string, input: UpdateLicenseBody) => {
+      if (id === 'l2') throw new HttpErrorResponse({ status: 429 });
+      return okFor(id, input);
+    });
+    const { el, refresh } = await setup(updateLicense);
+    click(selectAll(el));
+    await refresh();
+    button(el, 'Revoke').click();
+    await refresh();
+    type(el.querySelector<HTMLTextAreaElement>('#t-bulk-reason')!, 'Contract ended');
+    await refresh();
+    button(el, 'Revoke 4 subscriptions').click();
+    await refresh();
+
+    const failures = el.querySelector('[data-testid="license-bulk-failures"]')!;
+    expect(text(failures)).toContain('The rate limit stopped the run');
+    expect(document.activeElement).toBe(failures);
   });
 
   it('locks the checkboxes and keeps the bar while a run is in flight', async () => {

@@ -4,6 +4,7 @@ import { ISO_COUNTRY_CODES, countryName } from '@aeci/shared';
 import { compareText } from '@aeci/shared/text-sort';
 
 import { AecSelect, type AecSelectOption } from '../shared/aec-select/aec-select';
+import { FIELD_ERROR_CLASS } from '../shared/form-field/form-field-classes';
 
 /**
  * "Company country" on the listing request form (AECI-1705,
@@ -22,7 +23,7 @@ import { AecSelect, type AecSelectOption } from '../shared/aec-select/aec-select
 @Component({
   selector: 'aec-company-country-field',
   imports: [AecSelect],
-  host: { class: 'block space-y-1.5' },
+  host: { class: 'block space-y-2' },
   template: `
     <aec-select
       class="block"
@@ -41,7 +42,7 @@ import { AecSelect, type AecSelectOption } from '../shared/aec-select/aec-select
     @if (showError()) {
       <p
         [id]="idPrefix() + '-error'"
-        class="text-xs font-medium text-(--text-primary)"
+        [class]="errorClass"
         role="alert"
         i18n="@@requests.listing.country.error"
       >
@@ -51,6 +52,8 @@ import { AecSelect, type AecSelectOption } from '../shared/aec-select/aec-select
   `,
 })
 export class CompanyCountryField {
+  /** A field's inline error: the shared recipe (AECI-1984). */
+  protected readonly errorClass = FIELD_ERROR_CLASS;
   private readonly locale = inject(LOCALE_ID);
 
   /** The host form's `company_country` field: `''` until a country is chosen. */

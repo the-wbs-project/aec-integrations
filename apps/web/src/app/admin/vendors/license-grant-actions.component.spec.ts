@@ -60,6 +60,7 @@ function makeBilling(grants: AdminLicenseGrant[]): AdminVendorBillingResponse {
     release_requests: [],
     grants,
     grants_truncated: false,
+    policy_versions: [],
   };
 }
 
@@ -200,5 +201,8 @@ describe('LicenseGrantActions (AECI-1615)', () => {
     expect(el.textContent).toContain('This grant is no longer waiting.');
     expect(el.textContent).toContain('Reload the page.');
     expect(host.changed).toBe(0);
+    // AECI-1994: the disabled confirm dropped focus, so the refusal takes it.
+    expect(document.activeElement?.getAttribute('role')).toBe('alert');
+    expect(document.activeElement?.textContent).toContain('This grant is no longer waiting.');
   });
 });

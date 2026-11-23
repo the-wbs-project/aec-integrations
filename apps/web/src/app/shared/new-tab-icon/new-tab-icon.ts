@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 
+import { AecIcon } from '../icon/icon';
+
 /**
  * `NewTabIcon` (AECI-980) — the ONE new-tab cue. Drop it inside any anchor that
  * carries `target="_blank"`.
@@ -12,7 +14,8 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
  * links announced the new tab to a screen reader via an `sr-only` span and gave
  * a sighted reader no warning whatsoever. `DESIGN.md` §"Named Rules" → "The Link
  * Treatment Rule" now pins the drawn glyph, and this component is the only place
- * it is drawn.
+ * it is used. Since AECI-1753 `aec-icon` draws it, as the registry's `external`
+ * icon at 14px (size 3.5), so the cue keeps the size it always had.
  *
  * The `↗` spelling had a second problem. `DESIGN.md`'s Arrow Rule reserves arrow
  * characters for data-flow direction, and the pair page rendered `↗` in the same
@@ -41,23 +44,12 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
  */
 @Component({
   selector: 'aec-new-tab-icon',
+  imports: [AecIcon],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <!-- Lucide arrow-up-right. The rtl:-scale-x-100 utility is there because the
-         cue points away from the start of the line, which flips with direction. -->
-    <svg
-      aria-hidden="true"
-      class="h-3.5 w-3.5 shrink-0 rtl:-scale-x-100"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="2"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-    >
-      <path d="M7 7h10v10" />
-      <path d="M7 17 17 7" />
-    </svg>
+    <!-- AECI-1753: drawn by aec-icon. mirrorRtl is there because the cue points
+         away from the start of the line, which flips with direction. -->
+    <aec-icon name="external" decorative [size]="3.5" [mirrorRtl]="true" />
     @if (announce()) {
       <span class="sr-only" i18n="@@shared.newTabIcon.label">(opens in a new tab)</span>
     }

@@ -228,7 +228,7 @@ Per-detail hydration rules:
 |---|---|---|
 | `ProductDetail` | `vendor` | `VendorLink` |
 | `ProductDetail` | `categories` / `audiences` / `phases` / `trades` | `LinkRef[]`, sorted by the API (AECI-1242): audiences A to Z, the other three by `display_order` then name. `trades` (AECI-541) is **sparse by design**: most products carry zero trade tags, so `[]` is the common, correct value, not missing data (`STAGE_1_SPEC.md` §5.5a). |
-| `ProductDetail` | `integrations_as_source` / `integrations_as_target` | `ProductIntegrationItem[]` (= `IntegrationListItem` + `context_direction` + `powered_by_product` + `data_object_slugs`). **Each array spans BOTH delivered-tier tables** (AECI-713 / `STAGE_1_5_SPEC.md` §13.1) — an edge in `integrations`, or a `connector_evidenced_pairs` row on which this product is an endpoint, discriminated by `via`. An evidenced pair is filed by its **oriented** source/target, never by which of `product_a` / `product_b` matched: the canonical order is a storage detail and carries no orientation meaning. **Both arrays are unordered** — deliberately. The rendered table interleaves them into one list sorted alphabetically by partner name (`STAGE_1_5_SPEC.md` §7.1), which SQL cannot express here: the relations can only `ORDER BY` columns of `integrations`, while the partner name lives on the joined product. Do not add an `orderBy` and assume the client inherits it. |
+| `ProductDetail` | `integrations_as_source` / `integrations_as_target` | `ProductIntegrationItem[]` (= `IntegrationListItem` + `context_direction` + `powered_by_product` + `data_object_slugs` + `data_objects` + `partner_categories` + `agreement`). **Each array spans BOTH delivered-tier tables** (AECI-713 / `STAGE_1_5_SPEC.md` §13.1) — an edge in `integrations`, or a `connector_evidenced_pairs` row on which this product is an endpoint, discriminated by `via`. An evidenced pair is filed by its **oriented** source/target, never by which of `product_a` / `product_b` matched: the canonical order is a storage detail and carries no orientation meaning. **Both arrays are unordered** — deliberately. The rendered table interleaves them into one list sorted alphabetically by partner name (`STAGE_1_5_SPEC.md` §7.1), which SQL cannot express here: the relations can only `ORDER BY` columns of `integrations`, while the partner name lives on the joined product. Do not add an `orderBy` and assume the client inherits it. |
 | `ProductDetail` | `integrations_as_connector` | `PoweredIntegrationItem[]` (= `IntegrationListItem` + `data_object_slugs`) — edges this product **powers** as the mechanism (`powered_by_product_id`), not as an endpoint (Stage 1.5 Addendum B). No `context_direction` **by design**: the page product is neither endpoint, so it has no frame to be relative to. `data_object_slugs` (AECI-1080) means what it means on `ProductIntegrationItem`, on both arms (`integrations` and `connector_evidenced_pairs`). The hub unions it per collapsed pair row. `/api/integrations` does not carry it. |
 | `ProductDetail` | `related_products` | `ProductListItem[]` |
 | `ProductDetail` | `extension_of` / `extensions` | `ProductListItem[]`, both defaulted to `[]` (AECI-710 / `STAGE_1_5_SPEC.md` §13.3b). `extension_of` is the hosts this product is built **within**; `extensions` is the products built within it. Read from `product_extensions` by `productExtensionQueries` (`apps/api/src/lib/product-extensions.ts`), two statements of the detail read's one `db.batch` (AECI-1507), each sorted by `textAsc(name)` then `id`, unbounded. **Not integrations**: never in `integrations_as_*`, never in `integration_count`, never a §13.5 lockstep site. |
@@ -237,6 +237,11 @@ Per-detail hydration rules:
 | `IntegrationDetail` | `built_by_vendor` | `VendorLink \| null` |
 | `IntegrationDetail` / `ProductIntegrationItem` | `powered_by_product` | `ProductLink \| null` |
 | `ProductIntegrationItem` | `data_object_slugs` | `string[]` — the distinct `data_object` slugs the edge's claims cover (AECI-711, the depth axis). Counted by `distinctDataObjectSlugs`, the AECI-1042 rule `computeSyncHeadline` uses. `[]` when the edge has no claims, and the row then renders nothing (no "not specified" marker). Slugs, not a count, so a collapsed Via row can take the union across its edges. An unbacked vendor-added claim is excluded here and from `context_direction` (AECI-1314). That is a claim with `origin = 'vendor'`, no live `aeci` attestation and no live affirming vendor vote (`isClaimPubliclyBacked`). The pair read drops the same claims, so the row and the pair card still agree. A refuted claim (every voting vendor denies it, `isClaimRefuted`) is also excluded here, as from the pair `sync_headline` (AECI-1140). |
+| `ProductIntegrationItem` | `data_objects` | `{ slug, name }[]` (AECI-1781): the objects in `data_object_slugs`, with their names from `taxonomy_data_objects`, the source the pair page reads. Same claim filter, so the same set. Sorted as the pair page sorts the same objects (`compareClaims`): curated `display_order`, NULLs last, then name, then slug (`compareTermsByDisplayOrder`). One object keeps one place on both pages. `display_order` is set only by AECi seeds, never by a plan, and term chips are not the product or integration lists PLAN.md §7.8 governs. Resolved on the server so the browser does not carry the vocabulary. |
+| `ProductIntegrationItem` | `partner_categories` | `{ slug, name }[]` (AECI-1781): the categories of the partner, the endpoint that is not the page product. Sorted as a product's own `categories` are (AECI-1242): curated `display_order`, NULLs last, then name, then slug (`compareTermsByDisplayOrder`), so a category chip reads the same on the partner's page and on this row. `display_order` is set only by AECi seeds. `[]` for a partner with none. Read through a nested relation on the partner slot only, so a product with 58 rows still runs one statement for them. |
+| `ProductIntegrationItem` | `partner_vendor_name` | `string \| null`, optional (AECI-1720): the company name of the partner's primary vendor, picked as the product list card picks its vendor (`pickPrimaryVendorRow`: `is_primary`, else the first). Printed as the card's and the table row's "by {vendor}" line. `null` for a partner with no vendor on record, and absent from an API that predates the field, so a client reads both as no line. Row data only: classified as a payload field by the ordering firewall, so no order, filter or count reads it. Read through the same partner-slot relation as `partner_categories`. |
+| `ProductIntegrationItem` | `partner_vendor_slug` | `string \| null`, optional (AECI-1720): the same vendor's slug. Not rendered. The product detail resolver pushes `vendor:{slug}` for it, because a vendor rename purges only that tag and the row prints the name (`CACHE_STRATEGY.md` §3). `null` with no vendor on record. Classified as a payload field by the ordering firewall. |
+| `ProductIntegrationItem` | `agreement` | `'unverified' \| 'single_source' \| 'confirmed' \| 'conflict' \| null` (AECI-1781). Ruling 2026-11-14 (Chris, asked on AECI-1781): "A", the weakest flow decides. The row's claims are rolled up by `integrationAgreement` (`packages/shared/src/agreement.ts`). Any `conflict` wins. Otherwise the weakest claim's state, in `unverified < single_source < confirmed`, so `confirmed` means every listed flow is confirmed by two companies. It covers the claims `data_objects` lists: public, not refuted. A claim marked `removed` on a versioned pair still counts, as in `data_object_slugs` since AECI-711. `null` when there are none. A flow every voting company denied is left out of the roll-up. A rolled-up `single_source` names no vendor, so its card says "Confirmed by one company". Row data only. No server order reads it, and a client sort or filter on it would be placement (`docs/design/mockups/redesign-2026-11/PLAN.md` §7.7). |
 | `CategoryDetail` / `AudienceDetail` / `PhaseDetail` / `TradeDetail` | `products` | `ProductListItem[]` |
 
 Each list endpoint returns the lean `*ListItem` shape; the corresponding `*Detail` shape (returned only by the `:slug` / `:id` endpoint) extends it with the heavier hydration.
@@ -309,7 +314,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `LICENSE_GRANT_VERSION_CHANGED` | 409 | `POST /api/vendor/license-grants/:id/accept` (AECI-1615) naming a Managed plan agreement `version` that is not the one the grant pinned at create. The page is stale. Reload and read that version. `details.terms_version` names it. Nothing was written |
 | `LICENSE_GRANT_NOT_PENDING` | 422 | `POST /api/vendor/license-grants/:id/accept` (AECI-1615) on a grant that is no longer waiting: accepted, withdrawn, expired, or past its `ends_at` before the sweep marked it. Also the loser of a race with a second accept or a withdraw. `details.state` names which. Nothing was written. The admin withdraw answers `INVALID_STATE_TRANSITION` instead |
 | `LICENSE_GRANT_PRODUCTS_CHANGED` | 409 | `POST /api/vendor/license-grants/:id/accept` (AECI-1615) when a ban-term product left the vendor (its `product_vendors` row went) between the read and the batch (`productsStillJoinedSentinel`). Nothing was written. A retry lands that subscription in the pool with a `product_not_owned` warning |
-| `VENDOR_STILL_BANNED` | 409 | `POST /api/admin/vendors/:id/licenses/ban-term` (AECI-1589). The vendor has no unbanned `vendor_admin` seat, so subscriptions for the ban term would land on a banned vendor. Unban a seat first. Nothing was written. Also `POST /api/admin/vendors/:id/licenses` (AECI-1589, ruled 2026-11-03) when the vendor has `vendor_admin` seats and every one is banned. A vendor with no seat at all (never claimed) is still grantable. A replay of a grant made before the ban is still `200` |
+| `VENDOR_STILL_BANNED` | 409 | `POST /api/admin/vendors/:id/licenses/ban-term` (AECI-1589). The vendor has no unbanned `vendor_admin` seat, so subscriptions for the ban term would land on a banned vendor. Unban a seat first. Nothing was written. Also `POST /api/admin/vendors/:id/licenses` (AECI-1589, ruled 2026-11-03) when the vendor has `vendor_admin` seats and every one is banned. A vendor that has never been claimed has no billing account, so the grant answers `404` and is not grantable (ruled 2026-11-20, AECI-1975). A replay of a grant made before the ban is still `200` |
 | `LICENSE_PRODUCT_ALREADY_LICENSED` | 409 | `POST /api/admin/vendors/:id/licenses/ban-term` (AECI-1589). A product the request names already holds a live subscription on any billing account, so a second would break `licenses_live_product_idx`. Nothing was written |
 | `INTEGRATION_CHANGED_WHILE_SAVING` | 409 | A retire, restore, owner edit or claim (AECI-1089) whose batch lost a race, when the re-read finds no other refusal to give: a contest was filed on the row between the read and the batch, say, or (for a claim) promote moved the row to the other table. Nothing was written. Reload and try again (AECI-1010) |
 | `INTEGRATION_RETIRED_BY_AECI` | 403 | `POST /api/vendor/integrations/:id/restore` on a row an AECi admin retired (`retired_by = 'aeci'`). Only an admin restores an admin retire (AECI-1046, ruled 2026-09-22). Nothing is written |
@@ -362,7 +367,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `LEGAL_NOTICE_TOO_LATE` | 422 | `POST /api/admin/legal-versions/:id/notice` (AECI-1620) once the version's `effective_at` has passed: the email says the version has not taken effect yet. Nothing is written |
 | `LEGAL_NOTICE_ENQUEUE_FAILED` | 503 | `POST /api/admin/legal-versions/:id/notice` (AECI-1620) when the audience read failed, `LEGAL_NOTICE_QUEUE` is unbound, or a `sendBatch` chunk failed. Retryable. The partial outcome **is** recorded first (`notice_enqueued_at` NULL, `notice_vendor_count` = companies queued) with its audit row. `details` is `{ queued, total, failure }`. Send again |
 | `LEGAL_ACCEPTANCE_REQUIRED` | 403 | Any vendor write (AECI-1677, ruling 24) while the Vendor Terms are in force and the company holds no acceptance of a version in force. Raised by the vendor guard (`lib/authz.ts`), after the ban, role and suspension checks. `details: { document: 'vendor_terms', version }` names the version to accept. Never on a read. Not on `POST /api/vendor/legal-acceptance` or `POST /api/vendor/billing/portal` (`allowTermsPending`). Nothing is written |
-| `LEGAL_ACCEPTANCE_NOT_PENDING` | 422 | `POST /api/vendor/legal-acceptance` (AECI-1677) when the `document` and `version` are not pending for the company now: not in force and not a published version that needs acceptance, already accepted, or a stale page. `field: 'version'`, `details: { document, version }`. Nothing is written |
+| `LEGAL_ACCEPTANCE_NOT_PENDING` | 422 | `POST /api/vendor/legal-acceptance` (AECI-1677) when the `document` and `version` are not pending for the company now: not in force and not a published version that needs acceptance, already accepted, or a stale page. `field: 'version'`, `details: { document, version }`. Also `POST /api/auth/terms/accept` (AECI-1637) for a Terms version not waiting for a box, with `details: { document: 'terms', version }`. Nothing is written |
 | `DMCA_NOTICE_CHANGED` | 409 | `PATCH /api/admin/dmca-notices/:id` (AECI-1665) when the row's `updated_at` is not the `expected_updated_at` the page sent: another tab or admin saved it first, or an account deletion cleared its account. Checked on read and again by a sentinel in the write batch. Nothing is written. Reload and edit again |
 | `LITIGATION_HOLD_EXISTS` | 409 | `POST /api/admin/litigation-holds` (AECI-1638) when an open hold of that scope already exists: the one open global hold, or an open hold for that vendor. The early read and the partial unique index both answer it. Nothing was written. |
 | `LITIGATION_HOLD_RELEASED` | 409 | `POST /api/admin/litigation-holds/:id/release` (AECI-1638) when the hold was already released, on read or by the batch's sentinel. Nothing was written. |
@@ -615,6 +620,8 @@ export const VendorDetailSchema = VendorListItemSchema.extend({
 
 The public sort key `name` on `/api/vendors` maps to the `company_name` column server-side (vendors have no plain `name` column).
 
+**`integration_count` is the vendor's reach (AECI-1897, ruled 2026-11-23).** It counts the distinct live delivered integrations that touch any of the vendor's visible products, in both tables: an `integrations` row by source or target, and a `connector_evidenced_pairs` row by either endpoint or the connector. Who built the row does not matter. An integration between two of the vendor's own products counts once, so the figure is at least each product's `integration_count` and at most their sum. The Algolia vendor record carries the same number (`STAGE_1_5_SPEC.md` §13.5). The admin vendor detail's `integration_count` is a different number: the integrations the vendor owns (`owned_integrations.total`, see `GET /api/admin/vendors/:id`).
+
 **`headquarters` and `founded_year` pass the company-facts display rule (AECI-1635, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.23).** `toVendorListItem` nulls an unsourced value on a vendor that does not own its record, unless an AECi correction on it still holds. The list reads those corrections in the same `Promise.all` as its hides, scoped to the two fields. `VendorDetail` spreads the list item with the detail's own corrections, so its top-level `headquarters` and `founded_year` always equal `company_facts.headquarters?.value` and `company_facts.founded_year?.value`. The hide mask runs after the rule. The vendor portal's own reads (`VendorAccount`) still return the stored value.
 
 `linkedin_url`, `x_url`, `facebook_url`, `instagram_url`, and `youtube_url` are returned verbatim from their `vendors.*` columns (the review app curates full canonical URLs and forwards them via `POST /api/promote`). All are nullable; the detail hero renders an icon for each only when its value is present.
@@ -673,6 +680,16 @@ export const ProductIntegrationItemSchema = IntegrationListItemSchema.extend({
   // (`distinctDataObjectSlugs`, the AECI-1042 rule). Slugs rather than a count so
   // the Via lane can union a collapsed row's edges. `[]` = no claims = no chip.
   data_object_slugs: z.array(z.string()).default([]),
+  // AECI-1781. The same objects, named, in the pair page's `display_order`. The
+  // partner's categories, in the sidebar's `display_order` (AECI-1242). The row's
+  // agreement, ruled 2026-11-14 ("A"): `integrationAgreement`, or null.
+  // IntegrationTermSchema = z.object({ slug: z.string(), name: z.string() }).
+  data_objects: z.array(IntegrationTermSchema).default([]),
+  partner_categories: z.array(IntegrationTermSchema).default([]),
+  // AECI-1720: the partner's primary vendor name, for the "by {vendor}" line.
+  partner_vendor_name: z.string().nullable().optional(),
+  partner_vendor_slug: z.string().nullable().optional(),
+  agreement: z.enum(AGREEMENT_STATES).nullable().default(null),
 });
 
 export const IntegrationDetailSchema = IntegrationListItemSchema.extend({
@@ -839,7 +856,7 @@ export type ProductDetail = z.infer<typeof ProductDetailSchema>;
 
 Errors: `NOT_FOUND` if no product matches the slug.
 
-**`claim_status` (AECI-1618, 2026-11-05).** `ProductDetail` carries `claim_status: 'claimed' | 'unclaimed'`, default `claimed` so an SSR Worker on this schema can parse an older API response. A product is claimed when any joined vendor is: `owned_at IS NOT NULL AND claim_ended_at IS NULL` (ADR 0051). The page's own `logo_url` is returned either way, and the page shows counsel's wording beside it when unclaimed. Every other product or vendor in a public response (`related_products`, vendor and product links, list cards, search records) returns `logo_url: null` while unclaimed, so the client shows the initial tile. The portal and admin reads keep the stored value. No label says Claimed.
+**`claim_status` (AECI-1618, 2026-11-05).** `ProductDetail` carries `claim_status: 'claimed' | 'unclaimed'`. It is required, with no default (AECI-1851). The API always sends it, and the web never Zod-parses this response, so the old `claimed` default only hid a missing field. A client that meets a missing `claim_status` treats it as not claimed for the logo: no subject logo, no share-card logo. A product is claimed when any joined vendor is: `owned_at IS NOT NULL AND claim_ended_at IS NULL` (ADR 0051). The page's own `logo_url` is returned either way, and the page shows counsel's wording beside it when unclaimed. Every other product or vendor in a public response (`related_products`, vendor and product links, list cards, search records) returns `logo_url: null` while unclaimed, so the client shows the initial tile. The portal and admin reads keep the stored value, by an explicit choice: they map product links with `toOwnedProductLink`. The public `toProductLink` shows a logo only when the row carries a truthy `claimed`, so a public read that forgets that column hides the logo (AECI-1851). No label says Claimed. Any client that renders `ProductDetail.logo_url` off the product's own page must apply `claim_status` and show the initial tile while unclaimed, as the review form rail does (AECI-1769, `aec-logo-or-initial` `claimStatus`).
 
 **Reads (AECI-1507).** The handler makes one D1 round trip: a single `db.batch` of eight
 statements. Every statement keys on the scalar subquery `(SELECT id FROM products WHERE slug = ?)`,
@@ -847,8 +864,10 @@ so none waits on another's result. The statements are the product (the relationa
 `productDetailConfig` shape), related products, the first review page, the published vendor replies
 for that page (`IN` a subquery of the same page), the reach count, both extension directions, and
 every phase's `display_order`. An unknown slug makes the subquery `NULL`, every keyed read comes back
-empty, and the handler returns `NOT_FOUND` from the product row. `related_products` is the latest 6
-products sharing a category, ordered `created_at DESC, id ASC`, self excluded.
+empty, and the handler returns `NOT_FOUND` from the product row. `related_products` is the first 6
+products sharing a category, A to Z by name, case folded (`textAsc`), then `id ASC`, self excluded.
+The order changed from newest first in AECI-1785, which first renders the list ("Similar products").
+Ruling R1 (AECI-1732) makes a list new to a page A to Z.
 
 #### `GET /api/products/:slug/reviews`
 
@@ -896,7 +915,7 @@ export type VendorDetail = z.infer<typeof VendorDetailSchema>;
 
 Errors: `NOT_FOUND`.
 
-**`claim_status` (AECI-1618, 2026-11-05).** `VendorDetail` carries `claim_status: 'claimed' | 'unclaimed'`, default `claimed`. A vendor is claimed while `owned_at IS NOT NULL AND claim_ended_at IS NULL`. The page's own `logo_url` is returned either way, with counsel's wording beside it when unclaimed (ADR 0051).
+**`claim_status` (AECI-1618, 2026-11-05).** `VendorDetail` carries `claim_status: 'claimed' | 'unclaimed'`, required, with no default (AECI-1851, as for `ProductDetail`). A vendor is claimed while `owned_at IS NOT NULL AND claim_ended_at IS NULL`. The page's own `logo_url` is returned either way, with counsel's wording beside it when unclaimed (ADR 0051).
 
 ### 6.2a Slug redirects (AECI-978)
 
@@ -1040,7 +1059,18 @@ The route is unfiltered on `retired_at` so a legacy link to a retired row still 
 
 The **product-PAIR read**. Consolidates every integration between two products into one context-oriented view (Stage 1.5 §7–§8). `:slug` is the **context** product; `:otherSlug` the other. Query resolves the unordered pair (matches integrations in either source/target orientation). Layer B (AECI-300) hydrates each mechanism's `data_object` claims + attestations and fills the `sync_headline`. The whole read is **one D1 round trip** (AECI-1506): the two product lookups, both anchor tables, the version rows and the `moved_to` lookup run as six statements in one `db.batch`. Both anchor tables and the version rows key on the slugs through `(SELECT id FROM products WHERE slug = ?)`. The `moved_to` lookup needs no id: `integration_endpoint_moves` is keyed on the old pair's slugs. The product lookups stay separate statements, so a missing slug is still a `NOT_FOUND` and never an empty pair.
 
-**`claim_status` on both subjects (AECI-1618, 2026-11-05).** `context_product` and `other_product` each carry `claim_status` and keep their own `logo_url`. The page shows the wording beside each subject's logo when it is unclaimed. Products elsewhere on the page, such as the rail and the integration rows, return `logo_url: null` while unclaimed.
+**`claim_status` on both subjects (AECI-1618, 2026-11-05).** `context_product` and `other_product` each carry `claim_status` and keep their own `logo_url`. It is required, with no default (AECI-1851, as for `ProductDetail`). The page shows the wording beside each subject's logo when it is unclaimed. Products elsewhere on the page, such as the rail and the integration rows, return `logo_url: null` while unclaimed.
+
+**Taxonomy and links on both subjects (AECI-1822, 2026-11-14).** `context_product` and `other_product` each also carry `categories`, `audiences`, `phases` and `trades` (`LinkRef[]`), plus `api_docs_url` and `tool_integrations_url` (`string | null`). They feed the empty pair page's cards and its "look it up yourself" row (`PLAN.md` §6.1). They are the same facts `GET /api/products/:slug` returns. Four differences from that read:
+
+- **Order.** The same as the product page, from the same comparators (AECI-1242, `taxonomy-order.ts`). Categories, phases and trades follow the curated `display_order`, NULLs last, then name. Audiences go by name. PLAN §7.8's A to Z rule governs lists of products and integrations, not one product's own terms. A test asserts the pair order equals the product page order for the same product.
+- **One read.** The terms hydrate through `productPairSubjectConfig`, inside the same `db.batch` as the two product lookups, so no round trip is added.
+- **Hidden links are masked.** `tool_integrations_url` and `api_docs_url` are in `PRODUCT_HIDE_FIELDS`. While AECi has either hidden on a product, that subject's value is `null`, as on the product page (AECI-1238, `maskPairResponse`). Since AECI-1827 the subject names each hidden field in `under_review`, as `ProductDetail` does, and its "Corrected by" entry is dropped. The empty pair page shows "Under review" in the link's slot. The product hides ride in the same `db.batch` (`productHidesQuery`). The other four fields have no hide.
+
+**`listed_integration_count` on both subjects (AECI-1827, ruling 96, 2026-11-17).** The number of rows the product's own page lists under "Integrations" and "Integrations it powers", counted by `countListedIntegrationRows` (`packages/shared`): one row per direct edge, one per (connector, partner) for Via edges, and one per distinct endpoint pair it powers. The product page's facts card prints this figure when the stored `integration_count` is 0, because that column can lag. The empty pair page applies the same rule through the same web helper (`integrationsOnRecordCount`), so the two pages print the same number. The rows load as slugs only, through the same six relations and live filters as `productDetailConfig`, inside each subject's own statement: no statement and no round trip is added. Required, with no default.
+
+**Captions on both subjects (AECI-1827, 2026-11-17).** `context_product` and `other_product` each carry an optional `captions: { managed, corrections }` (`PairSubjectCaptionsSchema`). `managed` is the product's "Maintained by" line for the Managed group (the two links, audiences, phases and trades), built by `productGroupCaptions` exactly as for `ProductDetail.captions.managed`. `corrections` are AECi's live corrections on the product, as `ProductDetail.captions.corrections` carries them, so a corrected link reads "Corrected by" and a removed one "Removed by". They come from `productCorrectionsQuery` on both product ids, in the same `db.batch`: twelve statements now. No description, profile or usefulness caption, because the pair page shows none of those fields. Optional for deploy skew: absent reads as no caption.
+- **Cache.** No new tag. The page already carries `product:{slug}` for both products, so a promote or vendor edit that changes either product's terms purges it. A rename of a term itself repaints on the TTL, exactly as on the product page, which does not tag `taxonomy` either (`CACHE_STRATEGY.md` rule 2).
 
 **Query params (AECI-303 / `STAGE_2_ATTESTATIONS_SPEC.md` §9):**
 
@@ -1163,8 +1193,8 @@ export const SyncHeadlineSchema = z.object({
 });
 
 export const ProductPairResponseSchema = z.object({
-  context_product: ProductListItemSchema,   // both products hydrate as ProductListItem (vendor + review recap)
-  other_product: ProductListItemSchema,
+  context_product: ProductPairSubjectSchema, // ProductListItem + claim_status + the six AECI-1822 fields
+  other_product: ProductPairSubjectSchema,
   mechanisms: z.array(ProductPairMechanismSchema),
   sync_headline: SyncHeadlineSchema,
   // The page-header maintenance marker (AECI-616), folded across all mechanisms by
@@ -1228,7 +1258,36 @@ export type ProductPairResponse = z.infer<typeof ProductPairResponseSchema>;
 - **`pricing_url`** (AECI-1154, specified 2026-09-28) is the mechanism row's pricing page link, read from `integrations` or `connector_evidenced_pairs` alike, `null` when unset. It sits beside the `pricing_model`, `maturity` and `last_reviewed_at` fields that AECI-1142 adds on its own PR, and follows the same rule: additive and `.optional()`, absent meaning `null`. It feeds the "Price" fact in the card's "At a glance" row: the price text links to it when both are set, and "See pricing" links to it when only the URL is. **Rendered since AECI-1158** (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.11 as-built note); the web re-checks the scheme before it sets `href`. The owner writes it (`PATCH /api/vendor/integrations/:id`). Promote never does. It is an absolute `http(s)` URL, so it renders as an ordinary external link with `rel="noopener nofollow"`, the card links' recipe. **As built:** the pair read carries it only when it is an absolute `http(s)` URL and reads anything else as `null`, as defence in depth behind the writers' own check (security review, AECI-1154).
 - **`connector_vendor_id`** (AECI-933) is the primary vendor of the mechanism's connector product: `powered_by_product` on an `integrations` row, `via` on a connector-evidenced pair. It is `null` when there is no connector or the connector has no vendor. "Primary" is `pickPrimaryVendor`, the rule behind `ProductListItem.vendor`. It has one reader, the pair page's outbound-click analytics. A curated `listing_url` / `docs_url` click on a row with no `built_by_vendor` is owned by this vendor (`VENDOR_PERFORMANCE_SPEC.md` §3.2). It is a new field rather than a vendor on `ProductLinkSchema`, which many responses share. Additive and `.optional()`, absent meaning `null`. The join is on the pair read only: `connectorEvidencedPairListConfig`, which other reads spread, stays bare.
 - **Errors / status:** `NOT_FOUND` when either slug is unknown **or the two slugs are equal**. Since AECI-991 the SSR resolver turns that 404 into a **301** when either slug is mapped in `slug_redirects` — the API itself is unchanged and still answers `NOT_FOUND`. A valid-but-unconnected pair (both products exist, no integration between them) is a **200** with `mechanisms: []` — and, since AECI-953, possibly a non-null `moved_to` the SSR layer renders as a 301. The API itself never redirects. A bad `context_version` / `other_version` is **not** an error — see the degrade rule above.
-- SSR caching (pair page): detail TTL, `Cache-Tag: route:detail,pair:{min}__{max},product:{slug}×2` (see `CACHE_STRATEGY.md`). The selector params are in the route's `cacheKeyParams` (`CACHE_STRATEGY.md` §4a), and a non-default selection is `noindex` with the canonical pointing at the default pair URL (§7.2). A `moved_to` 301 is the one response on this route that carries neither — it sets its own `public, max-age=3600, s-maxage=86400` and the **old** pair's tag, because `withCacheHeaders` applies a route TTL and a path-derived tag to 2xx and 404 only. The AECI-991 retired-endpoint 301 does the same with four tags (both pair tags plus `product:` per changed slug — `CACHE_STRATEGY.md` §3 rule 6).
+- SSR caching (pair page): detail TTL, `Cache-Tag: route:detail,pair:{min}__{max},product:{slug}×2` (see `CACHE_STRATEGY.md`). The selector params are in `PAIR_PAGE_CACHE_KEY_PARAMS` in `apps/web/src/app/core/route-cache-key.ts` (`CACHE_STRATEGY.md` §4a), and a non-default selection is `noindex` with the canonical pointing at the default pair URL (§7.2). A `moved_to` 301 is the one response on this route that carries neither — it sets its own `public, max-age=3600, s-maxage=86400` and the **old** pair's tag, because `withCacheHeaders` applies a route TTL and a path-derived tag to 2xx and 404 only. The AECI-991 retired-endpoint 301 does the same with four tags (both pair tags plus `product:` per changed slug — `CACHE_STRATEGY.md` §3 rule 6).
+
+#### `GET /api/products/:slug/integrations/:otherSlug/alternatives` (AECI-341 · AECI-1829 · AECI-1830)
+
+The empty pair page's "What you would be moving" and closest matches (`STAGE_1_5_SPEC.md` §11.3 and §11.4). Public, no session. Source of truth: `packages/shared/src/api/pair-alternatives.ts` (`PairAlternativesSchema`), `createPairAlternativesHandler` in `apps/api/src/routes/integrations.ts`, `toPairAlternatives` in `apps/api/src/lib/drizzle-helpers.ts`.
+
+```typescript
+PairAlternatives = {
+  moving: { context_only: IntegrationTerm[]; both: IntegrationTerm[]; other_only: IntegrationTerm[] };
+  lanes: { context: PairAlternativeLane; other: PairAlternativeLane };
+};
+PairAlternativeLane = { anchors: LinkRef[]; matches: PairAlternativeMatch[] };
+PairAlternativeMatch = {
+  product: ProductLink; // logo withheld while unclaimed
+  vendor_name: string | null;
+  review_count: number;
+  rating_overall_avg: number | null; // null under five reviews
+  rating_onboarding_avg: number | null;
+  shared_categories: IntegrationTerm[]; // the match's categories the other product carries
+  data_objects: IntegrationTerm[]; // on the kept product's integrations with the match
+  direction: 'outbound' | 'inbound' | 'both' | null; // from the kept product's side
+  confirmed: boolean; // a label only (ruling R1)
+};
+```
+
+- **One round trip.** One statement per product, through the product page's own endpoint relations and live filters (`pairAlternativesConfig`). A match is exactly a partner the kept product's page lists.
+- **`moving`.** Each product's distinct data objects across its integrations on record, public and not refuted, as the product page lists them. Three groups, each in the data-object vocabulary's order (`display_order`, nulls last, then name). It orders nothing.
+- **A lane.** Keep one product. `anchors` are the other product's categories in its own order. A match has an integration on record with the kept product and shares at least one anchor. Neither of the pair's products is a match. Edges to one partner collapse into one match.
+- **Order (ruling R1).** Matches run A to Z by name with `compareText`, the id breaking a tie. Nothing else. No plan, license or paid input is read; the on-page ordering firewall registers it as `pair-page-closest-matches`.
+- The SSR resolver calls it for an empty pair only and embeds every match's `product:` cache tag. Errors: `NOT_FOUND` (404, either slug unknown or hidden, or the two equal), `VALIDATION_FAILED` (400, a missing slug).
 
 #### `GET /api/products/:slug/integrations/:otherSlug/timeline` (Stage 2 · AECI-303)
 
@@ -1333,10 +1392,18 @@ export const TaxonomyResponseSchema = z.object({
   audiences: z.array(TaxonomyTermWithCountSchema),
   phases: z.array(TaxonomyTermWithCountSchema),
   trades: z.array(TaxonomyTermWithCountSchema),    // AECI-541
+  total_products: z.number().int().min(0),         // AECI-1773
 });
 ```
 
 Used by the SSR Worker to populate nav, footer, and the `/categories` flat list.
+
+`total_products` (AECI-1773) feeds the Browse menu's "All products" line. It uses the same visibility
+rule as `home.total_products` on `GET /api/stats/home` (`computeTotalProducts`: hidden listings are
+not counted). The two may differ briefly while either cache refreshes: this one is computed live inside
+the KV read-through and is at most 5 minutes stale, the home stat updates daily and after each promote.
+A client must treat `total_products` as possibly absent while an older API Worker is still serving. A cached KV value written before this field fails `safeParse` and is
+refetched. This is a read and carries no rate limit.
 
 ### 6.5 Stats
 
@@ -1362,7 +1429,7 @@ suppresses each at `0` (no "0 reviews", no "0 contributing firms").
 
 The home renders the coverage counts, `integrations_added_30d` (the credibility
 row's "+{n} in the last 30 days" note) and `popular_products` (the hero's
-"Popular:" row, AECI-1572). `trending_products`, `recently_added_products`,
+"Most viewed" row, AECI-1572). `trending_products`, `recently_added_products`,
 `most_integrated_product` and `most_active_category` are still computed and
 returned, but nothing on the home renders them (AECI-1573).
 
@@ -1394,7 +1461,7 @@ export type HomeStatsResponse = {
   } | null;                              // null when the cache key is absent
   trending_products: Product[];          // top 5, each ≥ TRENDING_MIN_VIEWS (3) page-views in 7d (AECI-280 floor); not rendered
   recently_added_products: Product[];   // last 10; not rendered
-  popular_products?: Product[];          // top 5 by non-internal views classified person or unresolved in 30d, same floor (AECI-1572, AECI-1586); the hero "Popular:" row
+  popular_products?: Product[];          // top 5 by non-internal views classified person or unresolved in 30d, same floor (AECI-1572, AECI-1586); the hero "Most viewed" row
 };
 ```
 
@@ -1549,7 +1616,7 @@ On the signed-in path `confirmation_required` is `false` and the message is the 
 
 **The vendor terms box (AECI-1366 — 2026-10-15, `VENDOR_SIGNUP_PROCESS.md` §4, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.3).** `accepted_terms` must be the literal `true`. Missing, `false` or any other value is `400 VALIDATION_FAILED` with `error.field = 'accepted_terms'` (and the Zod issue in `details.issues`), and nothing is written. Unlike the other added fields it has no default: a body from a bundle that predates the box is refused, and the web form maps that `400` to the box's own error. The client never sends a version, IP or time. The handler stamps the current `vendor_terms` version, `CF-Connecting-IP` and the user agent, and writes one `agreement_acceptances` row (`source: 'claim'`, `email` = `submitter_email`, `vendor_request_id` = the new claim) plus its `agreement.accepted` audit row in the claim's own `db.batch` (`DATABASE_SCHEMA.md` §8.6d). The batch is six statements; a failure writes none of them. After commit, after `claim-submitted-alert` in the same `waitUntil`, the submitter gets `claim-received`, at most one per address per UTC day (`waf-rate-limits.md` §6.2). The response shape and message are unchanged.
 
-*As built 2026-11-11 (AECI-1619, counsel Q14).* The handler also stamps the Listing Accuracy Policy and Review Guidelines versions in force (`legalPolicyVersionInForce`; before AECI-1689 the build constant `LEGAL_POLICY_CURRENT_VERSIONS`) and the box's label text on the acceptance row. The client sends neither, and the request shape is unchanged. On the confirm path the submit stores the policy versions on `request_confirmations`, and `POST /api/requests/confirm` copies them into the row. A pending row from before migration 0118 writes NULL for both. `POST /api/requests/listing` does the same (`DATABASE_SCHEMA.md` §8.6d).
+*As built 2026-11-11 (AECI-1619, counsel Q14).* The handler also stamps the Listing Accuracy Policy and Review Guidelines versions in force (`legalPolicyVersionInForce`; before AECI-1689 the build constant `LEGAL_POLICY_CURRENT_VERSIONS`; since AECI-1969 an upcoming policy version counts only once published) and the box's label text on the acceptance row. The client sends neither, and the request shape is unchanged. On the confirm path the submit stores the policy versions on `request_confirmations`, and `POST /api/requests/confirm` copies them into the row. A pending row from before migration 0118 writes NULL for both. `POST /api/requests/listing` does the same (`DATABASE_SCHEMA.md` §8.6d).
 
 **A claim is on the company (AECI-1364, `VENDOR_SIGNUP_PROCESS.md` decision 1, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.3).** The wire still accepts `target_type: 'product'`, and the request and response shapes are unchanged. The handler normalises a product target before the write:
 
@@ -1599,11 +1666,14 @@ export const ClaimTargetResponseSchema = z.object({
 export const CorrectionRequestSchema = CorrectionFormSchema.extend({
   target_type: z.enum(['product', 'vendor']),
   slug: z.string().min(1),
+  pair_slug: z.string().min(1).optional(), // AECI-1828
 });
 // CorrectionFormSchema = { body (20–2000),
 //                          source_url ('' or a valid URL ≤500),
 //                          submitter_email (email, ≤200) }
 ```
+
+**`pair_slug` (AECI-1828, `STAGE_1_5_SPEC.md` §11.5).** The empty pair page's "It does exist" sends the pair's other product. On a product target the request records both products: the target, and this one in `vendor_requests.context_product_id`. The audit row carries `pair_product_id` and `pair_product_slug`, and the Linear issue reads "Pair with". A slug that resolves to no listed product, or equals the target, records a plain correction. `GET /api/admin/requests` returns it as `pair_product`.
 
 Both return `RequestSubmitResponse` (`{ request_id: string; message: string; confirmation_required: boolean }`) with HTTP `201`. A correction never waits on a link, so its `confirmation_required` is always `false` (AECI-1435). Errors: `VALIDATION_FAILED` (400), `NOT_FOUND` (404 — `(target_type, slug)` did not resolve), `MALFORMED_REQUEST` (400 — body is not JSON).
 
@@ -1978,6 +2048,8 @@ Under ADR 0016 the authoritative `profiles` row lives in **D1** and no database 
 ```typescript
 export type EnsureProfileResponse = {
   created: boolean; // false = row already existed (the normal case)
+  // AECI-1637, 2026-11-19: set only when the reader must tick the Terms box first.
+  terms_acceptance: { version: string } | null;
 };
 ```
 
@@ -1992,9 +2064,60 @@ sign-in line (`SIGN_IN_TERMS_LINE`) and its SHA-256, the request's `CF-Connectin
 `User-Agent` cut to 512. The callback forwards both headers from the browser's request. The
 audit row names no email, IP or user agent. Once per account per version: a second sign-in on
 the same version writes nothing. With no Terms version in force it reads and writes nothing,
-which is today. The write never changes the response and never fails the call: an error is
-logged and the endpoint still answers `{ created }`. No other endpoint writes an acceptance,
-and no route is blocked by a new Terms version.
+which is today. The write never fails the call: an error is logged and the endpoint still
+answers. No route is blocked by a new Terms version.
+
+*As built 2026-11-19 (AECI-1637, counsel Q63, ruling 53):* the line does not bind a reader to a
+version that reduces rights, so that version needs a box. When a published Terms version with
+`requires_acceptance` is in force, took effect after the profile was created, and no
+`terms_acceptances` row covers it, this endpoint writes no row and answers
+`terms_acceptance: { version }`. The callback then sends the reader to `/auth/terms`. In every
+other case it answers `terms_acceptance: null` and writes the line row as above. An account this
+call created never gets the box. The box row is written by `POST /api/auth/terms/accept`.
+
+#### `POST /api/auth/terms/accept`
+
+Records the tick box on `/auth/terms` (AECI-1637, counsel Q63, ruling 53, as built 2026-11-19).
+`requireAuth()` reads the session cookie, and a banned account gets 403. `rateLimit('write')` runs
+after it (`waf-rate-limits.md` §6).
+
+```typescript
+export type AcceptTermsRequest = { version: string; accepted: true }; // strict
+export type AcceptTermsResponse = { version: string; accepted_at: string };
+```
+
+Writes one `terms_acceptances` row and its `terms.accepted` audit row in one `db.batch`. The row
+holds `checkbox_label` (`TERMS_CHANGE_BOX_LABEL`), its SHA-256, `checkbox_default_unticked = 1`,
+the IP address and the browser. The audit `metadata.source` is `terms-box` and its `afterState`
+carries `checkbox`. A box already ticked for that version answers 200 again with the first
+`accepted_at` and writes nothing.
+
+Errors: `MALFORMED_REQUEST` (400), `VALIDATION_FAILED` (400), `UNAUTHENTICATED` (401), a banned
+account (403), `RATE_LIMITED` (429), and `LEGAL_ACCEPTANCE_NOT_PENDING` (422,
+`details: { document: 'terms', version }`) for a version that is not waiting for a box. Nothing is
+written on an error.
+
+#### `GET /api/auth/terms/pending`
+
+What `/auth/terms` shows the reader before they tick (AECI-1637, as built 2026-11-20).
+`requireAuth()` reads the session cookie, and a banned account gets 403. Reads are never
+rate-limited (`waf-rate-limits.md` §6.2) and the read writes no `audit_log` row.
+
+```typescript
+export const TermsPendingSchema = z.object({
+  version: z.string(),
+  effective_at: z.string(), // ISO, 12:00 UTC of the effective day
+  summary: z.array(z.string()), // the published legal_versions bullets, as emailed
+  previous_version: z.string().nullable(), // the account's latest acceptance by effective moment
+});
+export const TermsPendingResponseSchema = z.object({ pending: TermsPendingSchema.nullable() });
+```
+
+`pending` is `null` when no box waits for the account. `previous_version` is the version that
+applies until the reader ticks, and it is `null` when the account holds no acceptance. The page
+links both versions from it.
+
+Errors: `UNAUTHENTICATED` (401) and a banned account (403).
 
 ### 6.9 Tracking
 
@@ -2188,7 +2311,7 @@ export const TurnstileVerdictPostSchema = z.object({
 
 #### `POST /api/page-views/browser-evidence`
 
-The browser's report about one page load (AECI-1713, epic AECI-1711): `ran` (our page script ran) or `interacted` (a person then touched the page). It sets `page_views.browser_evidence` on the row the page load wrote (`DATABASE_SCHEMA.md` §9.1). Anonymous. Reached through the SSR `/api/*` passthrough with no `withForwardedCfContext` rebuild, because the ray is the body's claim. A landing view reads its ray from the document's `Server-Timing: cfray` entry. An in-app view reads it from the same entry on its own `POST /api/page-views` response, which the gateway stamps on the non-GET branch too (`CACHE_STRATEGY.md` §4a.1). A `browser-spa` row outside the held regions is already written with `ran`, so an in-app view posts only `interacted`.
+The browser's report about one page load (AECI-1713, epic AECI-1711): `ran` (our page script ran) or `interacted` (a person then touched the page, or clicked or pressed the key that opened an in-app page, AECI-1987, or opened this page in a new tab from another of our tabs, AECI-1988). It sets `page_views.browser_evidence` on the row the page load wrote (`DATABASE_SCHEMA.md` §9.1). Anonymous. Reached through the SSR `/api/*` passthrough with no `withForwardedCfContext` rebuild, because the ray is the body's claim. A landing view reads its ray from the document's `Server-Timing: cfray` entry. An in-app view reads it from the same entry on its own `POST /api/page-views` response, which the gateway stamps on the non-GET branch too (`CACHE_STRATEGY.md` §4a.1). A `browser-spa` row outside the held regions is already written with `ran`, so an in-app view posts only `interacted`.
 
 **Switch:** `BROWSER_EVIDENCE_ENABLED` on the API Worker. Only `"true"` turns either writer on: the `ran` on a `browser-spa` insert and this endpoint's UPDATE. Any other value, or none, leaves both columns NULL on every row. Production holds it at `"false"` until Privacy Policy 1.1 is in force (the AECI-1712 entry in `apps/web/src/content/legal/README.md`, `LEGAL_COUNSEL_RECORD.md` Q37 and Q43). Off, a well-formed post gets the same `204`, writes nothing and counts `result:disabled`.
 
@@ -2373,7 +2496,7 @@ Errors: `NOT_FOUND`; `INVALID_STATE_TRANSITION` (422) if the review is not in th
 
 #### `GET /api/admin/requests`
 
-Lists vendor requests (claims and corrections). Implemented in AECI-216 (Phase 6.9).
+Lists vendor requests (claims and corrections). Implemented in AECI-216 (Phase 6.9). Since AECI-1828 each row carries `pair_product: LinkRef | null`: on a correction sent from an empty pair page, the pair's other product, shown as "Pair with"; `null` on every other row.
 Source of truth: `packages/shared/src/api/admin-requests.ts` (Zod), `apps/api/src/routes/admin-requests.ts` (handlers).
 
 ```typescript
@@ -3549,7 +3672,10 @@ rate-limited, `Cache-Control: private, no-store`. Contract:
 One `db.batch` of five reads: the vendor (the 404 gate), its billing account, its owner
 seats (`profiles.seat_owner`, banned ones included and flagged), every subscription on its
 account with the assigned product, and its acceptances (`listVendorAcceptances`, the same
-reader and order as `GET /api/admin/vendors/:id/acceptances`). The owner-seat emails come
+reader and order as `GET /api/admin/vendors/:id/acceptances`). Later issues added the release
+requests, the grants and, since AECI-1969, two reads for `policy_versions`: the latest Vendor
+Terms acceptance that recorded the policy versions and every published policy version with this company's delivery row
+(`apps/api/src/lib/policy-binding.ts`). The owner-seat emails come
 from one bounded GoTrue lookup after the batch.
 
 ```typescript
@@ -3605,6 +3731,22 @@ export const AdminVendorBillingResponseSchema = z.object({
   release_requests: z.array(AdminLicenseReleaseRequestSchema),   // open first, ≤ 50
   grants: z.array(AdminLicenseGrantSchema),      // AECI-1615: pending first, then newest; ≤ ADMIN_BILLING_GRANTS_MAX (200)
   grants_truncated: z.boolean(),
+  // AECI-1969 (counsel Q68, ruling 54): one entry per policy, in vocabulary order.
+  policy_versions: z.array(CompanyPolicyVersionSchema),
+});
+
+// AECI-1969, `packages/shared/src/api/policy-binding.ts`. The version the company is on is the
+// newest of the version its latest Vendor Terms acceptance (claim or portal) recorded and each published version whose
+// moment has passed and whose change notice reached the company (legal_notice_deliveries
+// `delivered`). Read from two more statements in the same batch.
+export const CompanyPolicyVersionSchema = z.object({
+  policy: z.enum(['listing_accuracy', 'review_guidelines']),
+  version: z.string().nullable(),                // null: no acceptance named one and no delivered notice
+  basis: z.enum(['acceptance', 'notice', 'none']),
+  since: z.string().nullable(),                  // acceptance: accepted_at; notice: the effective moment
+  notice_delivered_at: z.string().nullable(),    // notice only
+  missed_versions: z.array(z.string()),          // in force, newer, email did not reach the company
+  upcoming: z.object({ version: z.string(), effective_at: z.string(), delivered: z.boolean() }).nullable(),
 });
 
 // AECI-1615, `packages/shared/src/api/license-grants.ts`
@@ -3638,9 +3780,9 @@ export const AdminLicenseGrantSchema = z.object({
   Stripe subscription is one row per unit, so a real account sits far below the cap.
   Live rows sort first, so a truncated list drops old ended rows, never a live one below
   the cap.
-- **`billing_account: null` is a 200**, with `licenses: []`. Every vendor with a seat or
-  an entitlement was back-filled an account (E1), so this is a back-fill defect, and the
-  tab says so. Acceptances are still read: a claim acceptance names the vendor directly.
+- **`billing_account: null` is a 200**, with `licenses: []`. A billing account is created
+  when a claim is approved or a seat is added, so this is an unclaimed vendor, and the tab
+  says so (AECI-1975). Acceptances are still read: a claim acceptance names the vendor directly.
 - **Vocabulary columns are `z.string()`**, so a row from a future writer cannot fail the
   read. The UI labels the known values.
 - **`release_requests`** (AECI-1373) is the vendor's early-unassign requests, the same row
@@ -4084,8 +4226,9 @@ answers the same 409.
 
 **A fully banned vendor is refused (AECI-1589, ruled 2026-11-03).** After the replay
 check, a vendor that has `vendor_admin` seats and every one banned answers
-`409 VENDOR_STILL_BANNED`. The operator unbans a seat first. A vendor with no seat at
-all (never claimed) is still grantable. The replay check runs first, so a retry of a
+`409 VENDOR_STILL_BANNED`. The operator unbans a seat first. A vendor that has never
+been claimed has no billing account, so the grant answers `404` and is not grantable
+(ruled 2026-11-20, AECI-1975). The replay check runs first, so a retry of a
 grant made before the ban still answers 200. The batch ends with
 `unbannedSeatExistsSentinel` (`allowNoSeats`). A termination (AECI-1623) that commits between the
 seat read and the batch aborts it with `409 VENDOR_SEATS_CHANGED`, nothing granted.
@@ -4239,7 +4382,7 @@ Nine routes under `/api/admin/vendors/:id`, each behind `requireAdmin()`. The ei
 | `POST /suspension/cost-log/:entryId/void` | `{ reason }` | Voids an entry, never edits it. `404` for an unknown or already voided entry. Audits `vendor.abuse_cost_voided` |
 | `POST /suspension/lift` | `{ reason }` | Closes the row `lifted`, audits `vendor.suspension_lifted`, sends `vendor-suspension-lifted`. No purge |
 | `POST /suspension/terminate` | `{ manual_payments: [{ license_id, paid_cents }], expected_gross_cents, expected_cost_cents }` | See below |
-| `POST /suspension/refunds/retry` | none | Retries `failed` refund rows of the latest terminated suspension under their original idempotency keys, then sends the statement again |
+| `POST /suspension/refunds/retry` | none | Retries `failed` and stranded `pending` refund rows of the newest terminated suspension that still owes a refund (else the newest terminated suspension, AECI-1985) under their original idempotency keys, then sends the statement again |
 
 **The window.** 7 business days: Monday to Friday, US federal holidays excluded as observed, dates in America/New_York. It runs from the first confirmed send of that stage's notice. A send is confirmed only on `sent`, and on `suppressed` outside production. `unknown` and `duplicate` start no clock. A refused accept on the invite page and a refused review each show their own suspended message. Before a confirmed send, each resend carries its own dedupe key, because a timed-out send holds its key. The end is computed (`lib/business-days.ts`), never stored, and falls up to an hour late and never early. A failed send leaves `notice_sent_at` NULL and no clock. `can_start_stage_2` and `can_terminate` on `VendorSuspension` say what is allowed now.
 
@@ -4783,6 +4926,7 @@ export const BanReviewerSchema = z.object({
   action: z.enum(['ban', 'unban']),
   // Required (non-empty) when action === 'ban' — enforced by a cross-field refine
   // (mirrors ModerateReviewSchema). Stored on `profiles.ban_reason`; cleared on unban.
+  // Internal (AECI-1973): the banned person's 403 reads "Account suspended", never this.
   reason: z.string().max(500).optional(),
 });
 
@@ -4832,7 +4976,7 @@ exception below. The response shape is unchanged (`STAGE_2_ATTESTATIONS_SPEC.md`
 vendor-seat ban or unban whose batch lost a race answers `409 VENDOR_SEATS_CHANGED` and
 writes nothing.
 
-**Terminate ends everything (AECI-1589, ruled 2026-11-03; rewrites AECI-1374; moved from this route to `POST /api/admin/vendors/:id/suspension/terminate` by AECI-1623).** *As built 2026-11-05: this route no longer does any of the following. A ban of the last unbanned seat answers `409 VENDOR_LAST_SEAT_USE_SUSPEND`. The batch below is Terminate's, with Terminate's `vendor-terminated` email in place of `vendor-banned`, `aeci.moderation.terminate_*` in place of `aeci.moderation.ban_*`, the refunds after the cancel, and `metadata.cause = 'vendor-banned'` kept on the return's audit row.* Terminate does all of this in the one `db.batch`, after it bans every seat.
+**Terminate ends everything (AECI-1589, ruled 2026-11-03; rewrites AECI-1374; moved from this route to `POST /api/admin/vendors/:id/suspension/terminate` by AECI-1623).** *As built 2026-11-05: this route no longer does any of the following. A ban of the last unbanned seat answers `409 VENDOR_LAST_SEAT_USE_SUSPEND`. The batch below is Terminate's, with Terminate's `vendor-terminated` email in place of `vendor-banned`, `aeci.moderation.terminate_*` in place of `aeci.moderation.ban_*`, the refunds after the cancel, and `metadata.cause = 'vendor-terminated'` on the return's audit row (AECI-1974).* Terminate does all of this in the one `db.batch`, after it bans every seat.
 
 - **Every live subscription ends now**, any source, `end_reason = 'banned'`, one `license.banned` row each
   (`entity_type = 'billing_account'`, `metadata.license_id`, `metadata.seat_user_id`,
@@ -4844,7 +4988,7 @@ writes nothing.
 - **The records return to AECi** as the explicit return does, although the banned seat remains
   (`planVendorHandback`): `vendors.owned_at` cleared, markers to `aeci`, claimed integrations and pairs
   un-claimed, every open owner contest moved to AECi **unstamped**, the open product proposals deleted.
-  One `vendor.records_returned` row carries `metadata.cause = 'vendor-banned'`. This replaces the
+  One `vendor.records_returned` row carries `metadata.cause = 'vendor-terminated'`. This replaces the
   AECI-989 seat-lapse contest re-route on this path, so the contest rows are written once.
 - **A grant that lands mid-request aborts the batch** (`noLiveLicenseSentinel`) with
   `409 VENDOR_SEATS_CHANGED`. So does a lapse or a Stripe cancel that ended one of the vendor's
@@ -4875,7 +5019,7 @@ batch revokes every pending invite in `vendor_seat_invites` for the vendor: not 
 not revoked, not expired (`liveInvitesFor`). Each revoke goes through
 `revokeInviteStatements`, sets `revoked_at`, and writes one `vendor_seat.invite_revoked`
 row (`entity_type = 'vendor_seat_invite'`, `metadata.source = 'admin-moderation'`,
-`metadata.reason = 'vendor-banned'`, `metadata.seat_user_id`). A later redeem of such an
+`metadata.reason = 'vendor-terminated'`, `metadata.suspension_id`; AECI-1974). A later redeem of such an
 invite fails `422` as revoked, so it cannot mint the unbanned seat that would clear the
 `vendor-banned` flags the ban no longer writes. A sentinel after the revokes aborts the batch when a live invite
 is still left, for example one created between the read and the batch: the ban answers
@@ -7117,24 +7261,27 @@ Errors: `VALIDATION_FAILED` (400) for a non-boolean `enabled`, an extra field or
 
 #### Legal versions: `GET /api/admin/legal-versions`, `POST /api/admin/legal-versions` (AECI-1688), `POST /api/admin/legal-versions/:id/notice` (AECI-1620)
 
-Record an upcoming version of the Vendor Terms, the Managed plan agreement, the Terms of Service
-or the Privacy Policy before it takes effect (`ADMIN_PANEL_SPEC.md` §5.22, `STAGE_1_SPEC.md` §27.5, ADR 0054). Table `legal_versions`
+Record an upcoming version of the Vendor Terms, the Managed plan agreement, the Terms of Service,
+the Privacy Policy or, since AECI-1969 (ruling 54), the Listing Accuracy Policy or the Review
+Guidelines before it takes effect (`ADMIN_PANEL_SPEC.md` §5.22, `STAGE_1_SPEC.md` §27.5, ADR 0054). Table `legal_versions`
 (`DATABASE_SCHEMA.md` §8.6i). `requireAdmin()` on both; the POST adds `rateLimit('write')` after
 the guard. Contract in `packages/shared/src/api/legal-versions.ts`. **A material publish
 enqueues its change notice post-commit** (AECI-1620, below). A non-material one sends nothing.
+Since AECI-1977 (ruling 62) only a Terms of Service or Privacy Policy version may be non-material:
+`material: false` on any other document is a `400 VALIDATION_FAILED`.
 
 ```typescript
 // GET /api/admin/legal-versions — no parameters. A read: no audit row, no limiter.
 export const AdminLegalVersionsResponseSchema = z.object({
   publish_enabled: z.boolean(),              // LEGAL_PUBLISH_ENABLED === "true" on this tier
-  upcoming: z.array(AdminLegalUpcomingEntrySchema), // one per document in LEGAL_AGREEMENT_UPCOMING_VERSIONS or LEGAL_READER_UPCOMING_VERSIONS
+  upcoming: z.array(AdminLegalUpcomingEntrySchema), // one per document in LEGAL_AGREEMENT_, LEGAL_READER_ or LEGAL_POLICY_UPCOMING_VERSIONS
 });
 export const AdminLegalUpcomingEntrySchema = z.object({
-  document: z.enum(['vendor_terms', 'managed_plan', 'terms', 'privacy']),
+  document: z.enum(['vendor_terms', 'managed_plan', 'terms', 'privacy', 'listing_accuracy', 'review_guidelines']),
   version: z.string(),
   effective_on: z.string(),                  // YYYY-MM-DD, from the upcoming map
   effective_at: z.string(),                  // ISO, 12:00 UTC of effective_on
-  current_version: z.string(),               // LEGAL_AGREEMENT_ or LEGAL_READER_CURRENT_VERSIONS[document]
+  current_version: z.string(),               // LEGAL_AGREEMENT_, LEGAL_READER_ or LEGAL_POLICY_CURRENT_VERSIONS[document]
   published: LegalVersionSchema.nullable(),  // the row for exactly this version, or null
   // AECI-1620: the notice's ADDRESSES, each counted once by the outcome of its latest
   // `legal-terms-change` ledger row for this version (`duplicate` rows ignored), so an
@@ -7169,12 +7316,12 @@ export const AdminLegalUpcomingEntrySchema = z.object({
 
 // POST /api/admin/legal-versions — strict body
 export const PublishLegalVersionRequestSchema = z.object({
-  document: z.enum(['vendor_terms', 'managed_plan', 'terms', 'privacy']),
+  document: z.enum(['vendor_terms', 'managed_plan', 'terms', 'privacy', 'listing_accuracy', 'review_guidelines']),
   version: z.string().trim().min(1).max(20),
-  material: z.boolean(),                     // no default: the page asks Yes or No
-  requires_acceptance: z.boolean(),          // no default; true needs material: true; refused for privacy
+  material: z.boolean(),                     // no default; must be true for the two agreements (AECI-1977) and the two policies (AECI-1969); the page asks only for terms and privacy
+  requires_acceptance: z.boolean(),          // no default; true needs material: true; refused for privacy and the two policies
   summary: z.array(z.string().trim().min(1).max(300) /* one line, no \p{Cc}, \p{Cf}, U+2028, U+2029 */).min(1).max(10),
-  expedited_reason: z.enum(['law', 'error']).nullable().optional(), // Vendor Terms only
+  expedited_reason: z.enum(['law', 'error']).nullable().optional(), // Vendor Terms and, since AECI-1969, the two policies
 }).strict();
 // 201: { legal_version: LegalVersion }
 // LegalVersion: id, document, version, effective_at, material, requires_acceptance, summary,
@@ -7195,7 +7342,7 @@ export const ResendLegalNoticeResponseSchema = z.object({ legal_version: LegalVe
 **Order of checks.** `LEGAL_PUBLISH_ENABLED` first: anything but `"true"` is `409
 LEGAL_PUBLISH_DISABLED`, before the body is read. Then the body: a non-JSON body is `400
 MALFORMED_REQUEST`, and a schema miss (an extra field, a bad summary, `requires_acceptance`
-without `material`, `requires_acceptance` on a Privacy Policy version, an expedited reason on anything but the Vendor Terms) is `400 VALIDATION_FAILED`.
+without `material`, `requires_acceptance` on a Privacy Policy or policy version, `material: false` on anything but a Terms or Privacy version, an expedited reason on anything but the Vendor Terms and the two policies) is `400 VALIDATION_FAILED`.
 Then `422 LEGAL_VERSION_NOT_UPCOMING`, `409 LEGAL_VERSION_EXISTS`, `422 LEGAL_NOTICE_WINDOW` and
 `409 LEGAL_PDF_MISSING`, in that order. The window refusal carries `details.reason`: `passed` or
 `too_soon`, so the page gives the right advice. A bullet holding a control character (tab, CR,
@@ -7231,6 +7378,15 @@ accounts. In `notice_deliveries` each `not_reached_companies` entry is then one 
 `legal-account-change` ledger (`docs/NOTIFICATIONS.md`). The re-send works for these rows,
 skips `delivered` accounts, and its error copy says "accounts".
 
+**The two policies (AECI-1969, counsel Q68, ruling 54).** A `listing_accuracy` or
+`review_guidelines` publish follows the Vendor Terms path exactly: the same checks, the 30-day
+window with the same expedite, the same single batch, and the company fan-out
+(`fanOutLegalNotice`) to the Vendor Terms audience, every company with an unbanned seat. The
+consumer emails every unbanned seat and the billing emails, keyed
+`legal-terms-change:{document}:{version}:{vendorId}:{hash}`, with the closing `vendor-policy`.
+A policy is always material and never needs acceptance. Which version a company is on is read
+by `GET /api/admin/vendors/:id/billing` (`policy_versions`).
+
 **`POST /api/admin/legal-versions/:id/notice`.** `requireAdmin()` then `rateLimit('write')`. No
 body. Checks in order: `409 LEGAL_PUBLISH_DISABLED`; `404 NOT_FOUND` for an unknown id;
 `409 LEGAL_NOTICE_NOT_MATERIAL`; `422 LEGAL_NOTICE_TOO_LATE` once `effective_at` has passed.
@@ -7252,7 +7408,7 @@ Public, no auth. A read: no audit row, never rate-limited. `Cache-Control: priva
 `LegalPublishedResponseSchema` in `packages/shared/src/api/legal-versions.ts`:
 `{ now, published: [{ document, version, effective_at }] }`. `now` is the API Worker's clock as
 an ISO timestamp. `published` lists a `legal_versions` row only when it names the version in
-`LEGAL_AGREEMENT_UPCOMING_VERSIONS` (or, since AECI-1637, `LEGAL_READER_UPCOMING_VERSIONS`) for its document, its `effective_at` equals that entry's
+`LEGAL_AGREEMENT_UPCOMING_VERSIONS` (or, since AECI-1637, `LEGAL_READER_UPCOMING_VERSIONS`, and since AECI-1969 `LEGAL_POLICY_UPCOMING_VERSIONS`) for its document, its `effective_at` equals that entry's
 moment (12:00 UTC of `effectiveOn`), and that moment has come. So it says nothing the legal page
 does not show from that moment. No query runs while no upcoming publishable document's moment has come, so
 with an empty map it never touches D1. Readers: the SSR Worker's legal resolver over the service
@@ -10853,7 +11009,7 @@ export const CreateVendorIntegrationResponseSchema = z.object({
 
 **One batch.** The INSERT (`origin = 'vendor'`, `built_by_vendor_id` = caller, `claimed_at` = now, `maintained_by = 'vendor'`, `last_reviewed_at` = now, id minted app-side), an `integration.created` audit row (`metadata.source: 'vendor-portal'`, `reason: 'vendor-create'`), one `notification.sent` row (`metadata.kind: 'integration_create'`) per vendor of either endpoint other than the caller, and both endpoints' `products.integration_count` recomputed over the row as the batch leaves it.
 
-**After commit:** a by-id Algolia sync of the integration, both products and the caller's vendor record behind `dispatchHook` (failures logged as `aeci.api.vendor.create_algolia_sync_failed`); purge `pair:{a}__{b}`, both `product:` tags, `vendor:{callerSlug}`, `index:products` and `taxonomy` through the queue and mark the sitemap dirty (AECI-1505); queue the pair and both product URLs through the IndexNow buffer and the GSC re-crawl queue, only when the caller's vendor holds a live subscription (AECI-1186; a Free seat's create queues nothing).
+**After commit:** a by-id Algolia sync of the integration, both products, the caller's vendor record and every vendor of either product (the vendor count is reach, AECI-1897) behind `dispatchHook` (failures logged as `aeci.api.vendor.create_algolia_sync_failed`); purge `pair:{a}__{b}`, both `product:` tags, `vendor:{callerSlug}`, `index:products` and `taxonomy` through the queue and mark the sitemap dirty (AECI-1505); queue the pair and both product URLs through the IndexNow buffer and the GSC re-crawl queue, only when the caller's vendor holds a live subscription (AECI-1186; a Free seat's create queues nothing).
 
 **The notification** reads on `GET /api/vendor/notifications` as `{ kind: 'integration_create', id, integration_id, integration_name, owner_name, pair_path, created_at }`.
 
@@ -11032,7 +11188,7 @@ export const RetireIntegrationResponseSchema = z.object({
 
 **One batch.** The guarded `UPDATE integrations SET retired_at, retired_by, updated_at WHERE retired_at IS [NOT] NULL AND claimed_at IS NOT NULL AND built_by_vendor_id = <caller>` (restore adds `AND (retired_by IS NULL OR retired_by = 'owner')`; retire writes `retired_by = 'owner'`, restore clears it), a race sentinel right after it; on retire, every open contest on the row closed as `withdrawn` (its own guarded UPDATE and sentinel, the workflow instance moved to `withdrawn` / `cancelled`, a `workflow_transitions` row with reason `integration retired`, an `integration.contest.withdrawn` audit row, and a `notification.sent` row to the submitter vendor with `metadata.kind: 'contest'`, `event: 'closed_by_retire'`) and a final sentinel that no open contest remains; then the `integration.retired` / `integration.restored` audit row and one `notification.sent` row (`metadata.kind: 'integration_retire'`, `event: 'retired' | 'restored'`) per vendor of either endpoint other than the owner; last, both endpoints' `products.integration_count` recomputed over the row as the batch leaves it (derived writes, no audit row). Restore reopens no contest. A lost race writes nothing and re-derives the refusal, or answers `409 INTEGRATION_CHANGED_WHILE_SAVING` when none applies.
 
-**After commit:** a by-id Algolia sync of the integration (a retire deletes its record, a restore re-adds it), both products and the owner vendor (`trigger:vendor` on `aeci.algolia.sync`), behind promote's `dispatchHook` watchdog, with each failed entity logged as `aeci.api.vendor.retire_algolia_sync_failed`; then purge `pair:{a}__{b}`, both `product:` tags, `vendor:{ownerSlug}`, `index:products` and `taxonomy` through the queue, mark the sitemap dirty (AECI-1505), and queue the pair and both product URLs for re-crawl so a crawler sees the pair page go `noindex`. The home stats are left to their daily cron.
+**After commit:** a by-id Algolia sync of the integration (a retire deletes its record, a restore re-adds it), both products, the owner vendor and every vendor of either product (the vendor count is reach, AECI-1897) (`trigger:vendor` on `aeci.algolia.sync`), behind promote's `dispatchHook` watchdog, with each failed entity logged as `aeci.api.vendor.retire_algolia_sync_failed`; then purge `pair:{a}__{b}`, both `product:` tags, `vendor:{ownerSlug}`, `index:products` and `taxonomy` through the queue, mark the sitemap dirty (AECI-1505), and queue the pair and both product URLs for re-crawl so a crawler sees the pair page go `noindex`. The home stats are left to their daily cron.
 
 **On a `connector_evidenced_pairs` row (AECI-1091).** A soft retire, never a delete: the table cascades into `claims` and on into `attestations`. The batch is `buildPairRetireBatch`: the guarded `UPDATE connector_evidenced_pairs SET retired_at, retired_by, updated_at` under the same guard on the pair's own columns, the race sentinel, the audit row with `entity_type: 'connector_evidenced_pair'` and `metadata { anchor: 'evidenced_pair', connectorPowered: true, connectorProductId }`, one notification per vendor of either endpoint other than the owner (same entity type), and **three** count recomputes: both endpoints and the connector. On a retire the pair's open contests (`evidenced_pair_id`, AECI-1092) close as `withdrawn` exactly as above, then `noOpenContestsSentinel` over that column; `withdrawn_contest_ids` lists them. After commit the sync and purge also cover the connector product (`product:{connectorSlug}`). The response shape is the same.
 

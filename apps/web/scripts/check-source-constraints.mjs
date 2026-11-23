@@ -35,6 +35,8 @@ import { fileURLToPath } from 'node:url';
 import {
   COLOR_FUNCTION,
   COLOR_LITERAL_ALLOW,
+  COLOR_OPACITY_MODIFIER,
+  COLOR_OPACITY_MODIFIER_ALLOW,
   HEX_COLOR,
   NAMED_COLOR_CLASS,
   TAILWIND_PALETTE,
@@ -68,6 +70,8 @@ const COLOR_HINT =
  *   label       short noun phrase for the report header
  *   hint        remediation text, printed once per violating rule
  *   allow       OPTIONAL repo-relative paths exempt from THIS rule only
+ *   joinNextLine  OPTIONAL; also test each line joined to the next, for a
+ *               violation split across two lines
  *
  * `allow` is per-rule rather than per-file on purpose: `styles.css` is exempt
  * from the colour rules because it is the token definition site, but it is still
@@ -179,9 +183,116 @@ const RULES = [
     label: '`white` / `black` color class',
     hint: COLOR_HINT,
   },
+  {
+    id: 'no-color-opacity-modifier',
+    // AECI-1747 (redesign clash 6). `text-(--surface-base)/70` mints an alpha
+    // that no contrast figure covers and blends it in OKLab. Every alpha is a
+    // named token in styles.css. `.ts` is ESLint's, as with the other colour rules.
+    extensions: ['.html', '.css'],
+    pattern: new RegExp(COLOR_OPACITY_MODIFIER),
+    label: 'colour opacity modifier (`/NN` on a colour utility)',
+    allow: COLOR_OPACITY_MODIFIER_ALLOW,
+    hint:
+      '  An opacity modifier on a colour utility is an unmeasured alpha. Use a\n' +
+      '  named alpha token from styles.css (e.g. bg-(--surface-on-brand-wash),\n' +
+      '  border-(--border-on-brand-strong)), or add a measured one there.\n' +
+      '  Vendor portal and admin files are listed in COLOR_OPACITY_MODIFIER_ALLOW\n' +
+      '  in eslint.color-patterns.mjs until AECI-1813 clears them (ruling R2).',
+  },
+  {
+    id: 'no-smooth-scroll',
+    // AECI-1752 — smooth scrolling is scoped to in-page section links through ONE
+    // mechanism with ONE switch (clash 38 of ADR 0059). Any other way to turn it
+    // on is a second mechanism. The pattern's alternatives, in order:
+    //   1. a smooth `scroll-behavior` set by CSS, by `scrollBehavior =` or `:`,
+    //      or by `style.setProperty('scroll-behavior', …)`;
+    //   2. a `behavior` key, bare or quoted, whose value is smooth (a scroll
+    //      option on `scrollTo` / `scrollIntoView` / `scrollBy`);
+    //   3. a `[style.scroll-behavior]` or `[style.scrollBehavior]` binding, any value;
+    //   4. the Tailwind `scroll-smooth` utility, including `[class.scroll-smooth]`;
+    //   5. the switch class itself, `aeci-smooth-scroll`, anywhere but the three
+    //      allow-listed files (the CSS rule, the service, and `index.html`, where
+    //      the switch is documented and flipped).
+    // `joinNextLine` also tests each line joined to the next, so a `behavior`
+    // value split across two lines is caught. `.ts` is in scope because ESLint
+    // has no equivalent selector. The scanner reads comments too, so describe
+    // the banned forms in prose.
+    extensions: ['.ts', '.html', '.css'],
+    pattern:
+      /scroll-?[Bb]ehavior['"`]?\s*[:=,]\s*['"`]?smooth|['"`]?\bbehavior['"`]?\s*:\s*['"`]smooth|\[style\.scroll-?[Bb]ehavior\]|(^|[\s:"'`.])scroll-smooth\b|aeci-smooth-scroll/,
+    joinNextLine: true,
+    label: 'smooth scrolling outside InPageSmoothScroll',
+    allow: [
+      'apps/web/src/styles.css',
+      'apps/web/src/app/core/in-page-smooth-scroll.ts',
+      'apps/web/src/index.html',
+    ],
+    hint:
+      '  Smooth scrolling has one mechanism and one switch (AECI-1752):\n' +
+      '      opt a plain in-page <a href="{path}#id"> in with `data-smooth-scroll`;\n' +
+      '      `InPageSmoothScroll` (app/core/in-page-smooth-scroll.ts) does the rest.\n' +
+      "  Programmatic scrolls pass `behavior: 'instant'`. The switch back to a\n" +
+      '  global smooth scroll is a class on <html> in src/index.html.\n' +
+      '  See ANGULAR_STYLE_GUIDE.md "Smooth scrolling is scoped to in-page section links".',
+  },
 ];
 
-const ALL_EXTENSIONS = [...new Set(RULES.flatMap((r) => r.extensions))];
+/**
+ * Rules that read a whole opening tag, which often spans several lines, so the
+ * per-line scanner above cannot see them. Each declares the tag it reads and a
+ * `check` that returns true when the tag is fine. A tag inside an HTML comment
+ * or on a comment line (`*`, `//`) is skipped, so prose may name the tag.
+ */
+const TAG_RULES = [
+  {
+    id: 'form-declares-method',
+    // AECI-1919. A form with no `method` and no `action` is a GET to the page
+    // itself. Before hydration a press or Enter on it reloads the page with
+    // every named field in the address (`?ng.form9.submitter_email=…`), and the
+    // edge log and PostHog keep that address. `method="dialog"` makes the
+    // native submit do nothing outside a `<dialog>`, needs no script, so CSP
+    // and the cached HTML are untouched, and still fires the `submit` event the
+    // component handles after hydration. Only two shapes pass, read from the
+    // static attributes themselves: `method="dialog"`, or `method="get"` with
+    // `action="/search"`. A GET anywhere else is the leak, and `post` or an
+    // empty or bound method is not inert either. Spec files are out of scope:
+    // their templates never render on the site.
+    extensions: ['.ts', '.html'],
+    exclude: ['.spec.ts'],
+    tag: 'form',
+    check: (tag) => {
+      const attrs = readAttributes(tag);
+      const method = attrs.get('method')?.toLowerCase();
+      if (method === 'dialog') return true;
+      return method === 'get' && attrs.get('action') === '/search';
+    },
+    label: '<form> that is not method="dialog" or a /search GET',
+    hint:
+      '  Every <form> takes one of two shapes (AECI-1919, DESIGN.md "Forms are\n' +
+      '  inert before hydration"):\n' +
+      '      a form the component submits  →  method="dialog"\n' +
+      '      a no-JS GET form (search)     →  method="get" action="/search"\n' +
+      '  Anything else lets a press before hydration GET the page with every\n' +
+      '  answer in the address.',
+  },
+];
+
+/**
+ * The static attributes of one opening tag, name to value, honouring quotes so a
+ * `method=` inside another attribute's value is never read as the attribute. A
+ * bound attribute (`[attr.method]`) keeps its bracketed name, so it never counts.
+ */
+function readAttributes(tag) {
+  const attrs = new Map();
+  const body = tag.replace(/^<[\w-]+/, '').replace(/\/?>$/, '');
+  const re = /([^\s=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g;
+  for (const m of body.matchAll(re)) {
+    if (!attrs.has(m[1])) attrs.set(m[1], m[2] ?? m[3] ?? m[4] ?? '');
+  }
+  return attrs;
+}
+
+const ALL_EXTENSIONS = [...new Set([...RULES, ...TAG_RULES].flatMap((r) => r.extensions))];
 
 /** Recursively collect every file under a directory with a scanned extension. */
 function collectFiles(dir) {
@@ -204,8 +315,52 @@ function collectFiles(dir) {
  */
 function ruleApplies(rule, repoRelativePath) {
   if (!rule.extensions.some((ext) => repoRelativePath.endsWith(ext))) return false;
+  if ((rule.exclude ?? []).some((suffix) => repoRelativePath.endsWith(suffix))) return false;
   const normalized = repoRelativePath.split(sep).join('/');
   return !(rule.allow ?? []).includes(normalized);
+}
+
+/**
+ * Blank out HTML comments and comment lines (`*`, `//`, `/*`), keeping every
+ * newline and offset, so a tag named in prose is never read as a real tag.
+ */
+function maskComments(contents) {
+  const blank = (text) => text.replace(/[^\n]/g, ' ');
+  return contents.replace(/<!--[\s\S]*?-->/g, blank).replace(/^[ \t]*(\*|\/\/|\/\*).*$/gm, blank);
+}
+
+/** Index just past the `>` that closes the tag starting at `start`, honouring quotes. */
+function tagEnd(contents, start) {
+  let quote = null;
+  for (let i = start; i < contents.length; i++) {
+    const ch = contents[i];
+    if (quote) {
+      if (ch === quote) quote = null;
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+    } else if (ch === '>') {
+      return i + 1;
+    }
+  }
+  return contents.length;
+}
+
+/** Every opening `<tag` that fails `rule.check`, reported on the line it opens. */
+function scanTags(rule, repoRelativePath, contents, lines) {
+  const found = [];
+  const opening = new RegExp(`<${rule.tag}(?=[\\s>])`, 'g');
+  for (const match of maskComments(contents).matchAll(opening)) {
+    const lineIndex = contents.slice(0, match.index).split('\n').length - 1;
+    if (lineIndex > 0 && lines[lineIndex - 1].includes(ALLOW_MARKER)) continue;
+    if (rule.check(contents.slice(match.index, tagEnd(contents, match.index)))) continue;
+    found.push({
+      ruleId: rule.id,
+      file: repoRelativePath,
+      line: lineIndex + 1,
+      text: lines[lineIndex].trim(),
+    });
+  }
+  return found;
 }
 
 /**
@@ -214,14 +369,25 @@ function ruleApplies(rule, repoRelativePath) {
  */
 export function scanFile(repoRelativePath, contents) {
   const applicable = RULES.filter((rule) => ruleApplies(rule, repoRelativePath));
-  if (applicable.length === 0) return [];
+  const tagRules = TAG_RULES.filter((rule) => ruleApplies(rule, repoRelativePath));
+  if (applicable.length === 0 && tagRules.length === 0) return [];
 
   const lines = contents.split('\n');
   const found = [];
+  for (const rule of tagRules) found.push(...scanTags(rule, repoRelativePath, contents, lines));
   lines.forEach((line, i) => {
     if (i > 0 && lines[i - 1].includes(ALLOW_MARKER)) return;
+    const next = lines[i + 1];
     for (const rule of applicable) {
-      if (!rule.pattern.test(line)) continue;
+      if (rule.pattern.test(line)) {
+        found.push({ ruleId: rule.id, file: repoRelativePath, line: i + 1, text: line.trim() });
+        continue;
+      }
+      // A violation split across this line and the next. Reported once, here,
+      // and only when the next line does not already match on its own.
+      if (!rule.joinNextLine || next === undefined || rule.pattern.test(next)) continue;
+      if (lines[i].includes(ALLOW_MARKER)) continue;
+      if (!rule.pattern.test(`${line.trimEnd()} ${next.trim()}`)) continue;
       found.push({ ruleId: rule.id, file: repoRelativePath, line: i + 1, text: line.trim() });
     }
   });
@@ -242,7 +408,7 @@ function main() {
     console.error(
       `\n✖ check-source-constraints: ${total} violation${total === 1 ? '' : 's'} in apps/web/src.\n`,
     );
-    for (const rule of RULES) {
+    for (const rule of [...RULES, ...TAG_RULES]) {
       const hits = violationsByRule.get(rule.id);
       if (!hits) continue;
       console.error(`  [${rule.id}] ${hits.length} × ${rule.label}:`);
@@ -254,7 +420,9 @@ function main() {
     process.exit(1);
   }
 
-  console.log(`✓ check-source-constraints: ${RULES.length} rules clean across apps/web/src.`);
+  console.log(
+    `✓ check-source-constraints: ${RULES.length + TAG_RULES.length} rules clean across apps/web/src.`,
+  );
 }
 
 // Run the walk only when invoked as a script. Importing the module (which the
@@ -263,4 +431,4 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   main();
 }
 
-export { RULES };
+export { RULES, TAG_RULES };

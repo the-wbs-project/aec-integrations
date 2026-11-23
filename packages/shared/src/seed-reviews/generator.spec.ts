@@ -64,6 +64,19 @@ describe('seed-reviews generator', () => {
     expect(cells[REVIEW_COLUMNS.indexOf('reviewer_id')]).toBeNull();
   });
 
+  it('stamps anonymized_at on every row with no reviewer (AECI-1936)', () => {
+    const anonymizedAt = REVIEW_COLUMNS.indexOf('anonymized_at');
+    expect(anonymizedAt).toBeGreaterThanOrEqual(0);
+    const reviews = plan(7).reviews;
+    expect(reviews.length).toBeGreaterThan(0);
+    for (const r of reviews) {
+      const cells = reviewCells(r);
+      expect(cells[REVIEW_COLUMNS.indexOf('reviewer_id')]).toBeNull();
+      expect(cells[anonymizedAt]).toBe(r.moderatedAt.toISOString());
+    }
+    expect(buildSeedSql(plan(7), { db: 'aeci-app-preview', seed: 7 })).toContain('"anonymized_at"');
+  });
+
   it('buildSeedSql wraps the plan with the idempotent delete + recompute', () => {
     const sql = buildSeedSql(plan(7), { db: 'aeci-app-staging', seed: 7 });
     expect(sql).toContain(`DELETE FROM "reviews" WHERE "id" LIKE '${ID_MARKER}%'`);

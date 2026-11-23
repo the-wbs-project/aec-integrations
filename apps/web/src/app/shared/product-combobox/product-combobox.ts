@@ -18,7 +18,10 @@ import {
 
 import type { ProductListItem } from '@aeci/shared';
 
+import { listboxEntry } from '../listbox-entry/listbox-entry';
 import { LogoOrInitial } from '../logo-or-initial/logo-or-initial';
+import { AecIcon } from '../icon/icon';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /**
  * One row the picker can offer. `GET /api/products` returns the full
@@ -60,7 +63,10 @@ type Phase = 'idle' | 'short' | 'loading' | 'done' | 'error';
  * An editable Angular Aria combobox over an Aria listbox (ADR 0010), wired the
  * way `search/search-autocomplete.ts` and `shared/aec-select/aec-select.ts` are:
  * Aria supplies the roles, `aria-activedescendant` and the keyboard model
- * (arrows, Home/End, Enter selects, Escape closes, Tab leaves). Aria's popup
+ * (arrows, Home/End, Enter selects, Escape closes, Tab leaves). No row is
+ * active until the first Down or Up (AECI-1860, `listboxEntry`): Down enters
+ * at the first row, Up at the last, and Enter before that picks nothing, so a
+ * product the user never heard is never chosen. Aria's popup
  * renders in-flow, so an outer `cdkConnectedOverlay` (`usePopover: 'inline'`)
  * supplies the floating layer. The listbox renders only when there are rows,
  * so an empty `role="listbox"` never reaches the DOM. Enter never submits the
@@ -79,23 +85,24 @@ type Phase = 'idle' | 'short' | 'loading' | 'done' | 'error';
 @Component({
   selector: 'aec-product-combobox',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [Combobox, ComboboxPopup, ComboboxWidget, Listbox, Option, OverlayModule, LogoOrInitial],
+  imports: [
+    AecIcon,
+    Combobox,
+    ComboboxPopup,
+    ComboboxWidget,
+    Listbox,
+    Option,
+    OverlayModule,
+    LogoOrInitial,
+  ],
   host: { class: 'block' },
   template: `
     <div class="relative w-full" #origin>
-      <svg
-        class="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-(--text-secondary)"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        aria-hidden="true"
+      <span
+        class="pointer-events-none absolute start-3 top-1/2 flex -translate-y-1/2 text-(--text-secondary)"
       >
-        <circle cx="11" cy="11" r="8" />
-        <path d="m21 21-4.3-4.3" />
-      </svg>
+        <aec-icon name="search" decorative [size]="4" />
+      </span>
       <input
         ngCombobox
         #cb="ngCombobox"
@@ -110,7 +117,7 @@ type Phase = 'idle' | 'short' | 'loading' | 'done' | 'error';
         (input)="onInput($event)"
         (focusin)="focused.set(true)"
         (focusout)="focused.set(false)"
-        (keydown.enter)="$event.preventDefault()"
+        (keydown.enter)="onEnterKey($event)"
         (keydown.escape)="dismissed.set(true)"
         (keydown.arrowdown)="dismissed.set(false)"
         [placeholder]="placeholderText()"
@@ -144,19 +151,7 @@ type Phase = 'idle' | 'short' | 'loading' | 'done' | 'error';
             (click)="clear()"
             data-product-combobox-clear
           >
-            <svg
-              class="h-4 w-4"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M18 6 6 18" />
-              <path d="m6 6 12 12" />
-            </svg>
+            <aec-icon name="x" decorative [size]="4" />
           </button>
         }
       </span>
@@ -173,7 +168,7 @@ type Phase = 'idle' | 'short' | 'loading' | 'done' | 'error';
         [cdkConnectedOverlayOpen]="popupOpen()"
       >
         <div
-          class="mt-1 w-full min-w-[16rem] overflow-hidden rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) shadow-lg"
+          class="aec-popover mt-1 w-full min-w-[16rem] overflow-hidden"
           data-product-combobox-popup
         >
           <ng-template ngComboboxPopup [combobox]="cb" popupType="listbox">
@@ -184,23 +179,29 @@ type Phase = 'idle' | 'short' | 'loading' | 'done' | 'error';
                 #listbox="ngListbox"
                 [(value)]="selection"
                 (valueChange)="onSelect($event)"
-                [activeDescendant]="listbox.activeDescendant()"
+                [activeDescendant]="navigated() ? listbox.activeDescendant() : undefined"
+                [attr.data-navigated]="navigated()"
                 focusMode="activedescendant"
                 selectionMode="explicit"
                 [attr.aria-label]="listLabel()"
-                class="m-0 flex max-h-[min(20rem,50vh)] list-none flex-col gap-0.5 overflow-y-auto p-1.5"
+                class="group m-0 flex max-h-[min(20rem,50vh)] list-none flex-col gap-1 overflow-y-auto p-2"
               >
                 @for (p of visible(); track p.id) {
                   <li
                     ngOption
                     [value]="p"
                     [label]="p.name"
-                    class="flex cursor-pointer items-center gap-3 rounded-(--radius-sm) px-2 py-1.5 data-[active=true]:bg-(--surface-sunken)"
+                    class="flex cursor-pointer items-center gap-3 rounded-mark px-2 py-2 group-data-[navigated=true]:data-[active=true]:bg-(--surface-sunken)"
                     data-product-option
                   >
-                    <aec-logo-or-initial [src]="p.logo_url ?? null" [name]="p.name" size="sm" />
+                    <aec-logo-or-initial
+                      [claimStatus]="'server-filtered'"
+                      [src]="p.logo_url ?? null"
+                      [name]="p.name"
+                      size="sm"
+                    />
                     <span class="flex min-w-0 flex-col">
-                      <span class="truncate text-sm font-medium text-(--text-primary)">{{
+                      <span class="truncate text-sm font-semibold text-(--text-primary)">{{
                         p.name
                       }}</span>
                       @if (p.vendor; as vendor) {
@@ -215,7 +216,7 @@ type Phase = 'idle' | 'short' | 'loading' | 'done' | 'error';
             }
           </ng-template>
           @if (!hasList()) {
-            <p class="m-0 px-3 py-2.5 text-sm text-(--text-secondary)" data-product-combobox-state>
+            <p class="m-0 px-3 py-2 text-sm text-(--text-secondary)" data-product-combobox-state>
               {{ stateMessage() }}
             </p>
           }
@@ -260,6 +261,8 @@ export class ProductCombobox {
 
   private readonly field = viewChild.required<ElementRef<HTMLInputElement>>('field');
   private readonly comboboxDirective = viewChild.required(Combobox);
+  /** The `ngListbox`, present only while the popup shows rows. */
+  private readonly popupListbox = viewChild<Listbox<ProductComboboxItem>>(Listbox);
 
   /** The text box value, two-way with `ngCombobox`. */
   protected readonly query = signal('');
@@ -284,6 +287,13 @@ export class ProductCombobox {
   protected readonly dismissed = signal(false);
 
   protected readonly hasList = computed(() => this.visible().length > 0);
+
+  /** No row is active until the first arrow key (AECI-1860). Resets with the rows or the open state. */
+  protected readonly navigated = listboxEntry({
+    listbox: this.popupListbox,
+    count: () => this.visible().length,
+    resetOn: () => [this.visible(), this.expanded()],
+  });
 
   /** Rows open with the combobox. State text (too short, searching, nothing,
    *  failed) shows while the box is focused, with the combobox collapsed. */
@@ -322,7 +332,7 @@ export class ProductCombobox {
       ? 'border [border-color:var(--status-error)]'
       : 'border border-(--border-default)';
     return (
-      `w-full rounded-(--radius-md) ${border} bg-(--surface-base) py-2 ps-9 pe-16 text-sm` +
+      `w-full rounded-control ${border} bg-(--surface-base) py-2 ps-9 pe-16 text-sm` +
       ' text-(--text-primary) placeholder:text-(--text-secondary)' +
       ' focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)' +
       ' aria-disabled:cursor-not-allowed aria-disabled:bg-(--surface-sunken)'
@@ -353,7 +363,15 @@ export class ProductCombobox {
     this.field().nativeElement.focus();
   }
 
+  /** Enter never submits the surrounding form. A replayed press is dropped, because
+   *  `preventDefault` throws on a replay (AECI-1919, `core/event-replay.ts`). */
+  protected onEnterKey(event: Event): void {
+    if (isReplayedEvent(event)) return;
+    event.preventDefault();
+  }
+
   protected onInput(event: Event): void {
+    this.navigated.set(false);
     this.dismissed.set(false);
     this.schedule((event.target as HTMLInputElement).value);
   }

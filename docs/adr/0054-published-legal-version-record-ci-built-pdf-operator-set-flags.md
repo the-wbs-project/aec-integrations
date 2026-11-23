@@ -158,3 +158,38 @@ for customers, or what file they would be sent.
   (`legalPublishedRowMismatched`), so the site never splits. No spec can see D1, so the guard is
   the rule in the legal README (a wrong date is a new version), the `/admin/legal` card alert and
   the `legal_agreement_date_moved` digest check.
+
+## Amendment 2026-11-19 — the two policies publish too (AECI-1969, counsel Q68, ruling 54)
+
+The Vendor Terms make the Listing Accuracy Policy and the Review Guidelines "part of these
+terms" and promise the 30-day email before "we change these terms". Counsel's Q68 answer: a
+policy change is a change to what a vendor agreed to, the site band is not that email, and a
+vendor stays on the version it accepted until the change process is followed. Chris ruled to
+send the email rather than narrow the clause.
+
+1. **The policies are publishable documents on this record.** `listing_accuracy` and
+   `review_guidelines` join `LEGAL_PUBLISHABLE_DOCUMENTS`. A publish is the Vendor Terms path:
+   the same checks, window and expedite, and the company fan-out to the Vendor Terms audience
+   (`legal-terms-change`, closing `vendor-policy`). No second path was built.
+2. **Every policy version is material, and none needs acceptance.** The Vendor Terms promise the
+   email for every change, and no screen asks a vendor to accept a policy. The API refuses
+   either other answer, and the card asks neither question.
+3. **A policy switches only once published** (`legalPolicyVersionInForce` now reads the rows, as
+   the agreement rule does). It had switched on its date alone (AECI-1689).
+4. **Which version a company is on.** The newest of the version its latest Vendor Terms
+   acceptance recorded and each in-force published version whose notice reached it
+   (`legal_notice_deliveries` `delivered`). A company the email did not reach stays on its
+   earlier version. Nothing new is stored: `companyPolicyVersion` reads the two records, and the
+   admin Billing tab shows the answer.
+
+## Amendment 2026-11-20 — every agreement version is material (AECI-1977, ruling 62)
+
+Decision 2's "material" answer no longer applies to the Vendor Terms or the Managed plan
+agreement. The Vendor Terms promise the email "when we change these terms", and the Managed plan
+agreement promises it to monthly subscriptions "before a new version binds". Neither names a
+material threshold, and the Vendor Terms' law-or-error exception changes only the timing. So the
+publish refuses `material: false` for both, the two cards ask only whether the version needs
+acceptance, and every version emails. Annual subscriptions were already told by the 45-day
+renewal notice. Only the Terms of Service and the Privacy Policy, which promise the email for a
+material change only, keep the question. The rule is `legalDocumentAlwaysMaterial`.
+

@@ -207,7 +207,14 @@ describe('SearchAutocomplete', () => {
     // but it keeps its visual styling.
     expect(listbox!.classList.contains('absolute'), 'no self-positioning class').toBe(false);
     expect(listbox!.classList.contains('top-full'), 'no self-positioning class').toBe(false);
-    expect(listbox!.classList.contains('shadow-lg'), 'visual styling stays on the <ul>').toBe(true);
+    // The shared popover surface (AECI-1796): the class, not a hand copy of the shadow.
+    expect(listbox!.classList.contains('aec-popover'), 'visual styling stays on the <ul>').toBe(
+      true,
+    );
+    expect(listbox!.classList.contains('shadow-lg'), 'no off-vocabulary shadow').toBe(false);
+    // Every suggestion row is at least 44px tall.
+    const option = listbox!.querySelector('[role="option"]');
+    expect(option?.classList.contains('min-h-11')).toBe(true);
   });
 
   it('wires the controller to Analytics.autocompleteSearched (AECI-717)', async () => {
@@ -253,6 +260,102 @@ describe('SearchAutocomplete', () => {
     const form = (fixture.nativeElement as HTMLElement).querySelector('form')!;
     form.dispatchEvent(new SubmitEvent('submit', { cancelable: true }));
     expect(submitted).toEqual([]);
+  });
+
+  // AECI-1860: the header search follows the same entry rule as docs search and
+  // the product picker. Nothing is active until the first Down or Up.
+  describe('starts with no active suggestion (AECI-1860)', () => {
+    const SECOND: AutocompleteSuggestion = {
+      kind: 'vendor',
+      objectID: 'y',
+      title: 'Autodesk',
+      subtitle: null,
+      routerLink: ['/vendors', 'autodesk'],
+    };
+
+    async function open() {
+      setup();
+      const fixture = TestBed.createComponent(SearchAutocomplete);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      const controller = new AutocompleteController(() =>
+        Promise.resolve({ products: [SUGGESTION], vendors: [SECOND], nbHits: 2 }),
+      );
+      controller.setQuery('rev');
+      await new Promise((resolve) => setTimeout(resolve, 220));
+      (
+        fixture.componentInstance as unknown as {
+          controller: { set(c: AutocompleteController): void };
+        }
+      ).controller.set(controller);
+      const input = (fixture.nativeElement as HTMLElement).querySelector('input')!;
+      input.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      input.value = 'rev';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      return { fixture, input };
+    }
+
+    async function press(
+      fixture: { detectChanges(): void; whenStable(): Promise<unknown> },
+      input: HTMLInputElement,
+      key: string,
+    ) {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+      await Promise.resolve();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+    }
+
+    const options = () => [...document.querySelectorAll('[role="option"]')];
+    const listbox = () => document.querySelector('[role="listbox"]');
+
+    // jsdom has no scrollIntoView. The first arrow key scrolls the entered row into view.
+    const hadScroll = 'scrollIntoView' in Element.prototype;
+    beforeEach(() => {
+      if (!hadScroll) Element.prototype.scrollIntoView = () => undefined;
+    });
+    afterEach(() => {
+      if (!hadScroll) delete (Element.prototype as Partial<Element>).scrollIntoView;
+    });
+
+    it('has no active suggestion when the list opens', async () => {
+      const { input } = await open();
+      expect(listbox()).not.toBeNull();
+      expect(input.hasAttribute('aria-activedescendant')).toBe(false);
+      expect(listbox()?.getAttribute('data-navigated')).toBe('false');
+    });
+
+    it('enters at the first suggestion on the first Down, then moves on', async () => {
+      const { fixture, input } = await open();
+      await press(fixture, input, 'ArrowDown');
+      expect(input.getAttribute('aria-activedescendant')).toBe(options()[0]!.id);
+      expect(listbox()?.getAttribute('data-navigated')).toBe('true');
+      await press(fixture, input, 'ArrowDown');
+      expect(input.getAttribute('aria-activedescendant')).toBe(options()[1]!.id);
+    });
+
+    it('enters at the last suggestion on the first Up', async () => {
+      const { fixture, input } = await open();
+      await press(fixture, input, 'ArrowUp');
+      expect(input.getAttribute('aria-activedescendant')).toBe(options().at(-1)!.id);
+    });
+
+    it('sends Enter before any arrow key to /search, not to an unheard suggestion', async () => {
+      const { fixture, input } = await open();
+      const submitted: string[] = [];
+      const chosen: AutocompleteSuggestion[] = [];
+      fixture.componentInstance.querySubmitted.subscribe((q) => submitted.push(q));
+      fixture.componentInstance.suggestionChosen.subscribe((c) => chosen.push(c));
+
+      await press(fixture, input, 'Enter');
+
+      expect(chosen).toEqual([]);
+      expect(submitted).toEqual(['rev']);
+    });
   });
 
   it('navigates to /search on a real Enter keydown (Aria preventDefaults the native submit)', async () => {
@@ -435,5 +538,40 @@ describe('SearchAutocomplete', () => {
     await fixture.whenStable();
     expect(api.queryModel()).toBe('Revit');
     expect(input.value).toBe('Revit');
+  });
+
+  describe('focus ring', () => {
+    const DEFAULT_RING = [
+      'focus-visible:outline-2',
+      'focus-visible:outline-offset-2',
+      'focus-visible:outline-(--accent-primary)',
+    ];
+    const BONE_RING = [
+      'focus-visible:outline-3',
+      'focus-visible:outline-offset-3',
+      'focus-visible:outline-(--focus-ring-on-brand)',
+    ];
+
+    function inputOf(fixture: { nativeElement: unknown }): HTMLInputElement {
+      return (fixture.nativeElement as HTMLElement).querySelector('input')!;
+    }
+
+    it('keeps the 2px Forest ring by default, so every other caller renders as before', () => {
+      setup();
+      const fixture = TestBed.createComponent(SearchAutocomplete);
+      fixture.detectChanges();
+      const classes = inputOf(fixture).classList;
+      for (const c of DEFAULT_RING) expect(classes).toContain(c);
+    });
+
+    it('carries exactly one ring set when the caller overrides it', () => {
+      setup();
+      const fixture = TestBed.createComponent(SearchAutocomplete);
+      fixture.componentRef.setInput('focusRingClass', BONE_RING.join(' '));
+      fixture.detectChanges();
+      const classes = inputOf(fixture).classList;
+      for (const c of BONE_RING) expect(classes).toContain(c);
+      for (const c of DEFAULT_RING) expect(classes).not.toContain(c);
+    });
   });
 });

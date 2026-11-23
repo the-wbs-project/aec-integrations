@@ -52,7 +52,7 @@ how you answer "did a deploy cause this" with a join rather than a guess.
 ## Alert → runbook
 
 Every signal that can page you today, and the runbook for it. The PostHog alerts are committed in
-`observability/posthog/alerts.json`, where each carries a `runbook` pointer to a heading below. Old
+`observability/posthog/alerts.json`, where each carries a `runbook` pointer to a heading below. The pointer quotes the heading exactly, and `pnpm lint` fails when it does not match one. So rename a heading here and its pointer in the same change. The pointer is not in the alert email: PostHog never receives it. Old
 thresholds of retired alerts are in `observability/posthog/README.md` "Monitor disposition".
 
 **PostHog alerts (production only, checked hourly unless marked daily).**
@@ -173,7 +173,7 @@ Cloudflare Workers observability dashboard (WC-8; see below).
    pnpm exec wrangler kv key put sitemap:dirty "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" --binding TAXONOMY_KV --env production --remote
    ```
 
-4. **The retraction CLI does not mark dirty.** `apps/api/scripts/retract-product.ts` removes URLs without touching `sitemap:dirty`. After a retraction, put the marker as in step 3, or wait for the 05:07 tick.
+4. **A retraction marks dirty itself.** Since AECI-1945, `ops:retract-product` and `ops:retract-vendor` put `sitemap:dirty` on `--apply`, through the same `wrangler kv` write as step 3. If that write fails, the run prints this step-3 command as its first follow-up. Run it, or wait for the 05:07 tick. Follow-ups: `docs/runbooks/catalog.md` "Retracting a product or vendor by hand".
 5. **Dirty is older than built_at but the edge copy is old.** The build is right and the edge copy has not been purged. The rebuild's purge may have failed to enqueue, which only logs a warning. The edge copy ages out within its hour. To skip the wait, run `POST /admin/purge` with the tag `sitemap`.
 
 The first read after the first deploy in an env finds no stored build and builds inline, so that one request is slow.
@@ -533,7 +533,7 @@ Companion signals: `aeci.stats.compute{outcome:success|partial|failed}` (job rol
 07:00 UTC = 02:00 EST) recomputes the eleven `home.*` `stats_cache` rows. Each
 key computes/validates/upserts independently, so a single failed key leaves **that** cached value
 stale (or absent) while the rest refresh — e.g. a failed `home.popular_products` keeps yesterday's
-"Popular:" row. The home page never errors; it just serves the last good numbers. The "not running" freshness
+"Most viewed" row. The home page never errors; it just serves the last good numbers. The "not running" freshness
 alert means no completed run reported in ~26h — a **missed daily run**, so `computed_at` for the
 `home.*` keys is going stale with no page-level symptom.
 
@@ -593,10 +593,10 @@ monitor exists to surface the regression *before* the home page changes. (Distin
 stats compute failed": there the compute job breaks; here the upstream data the compute reads stops
 arriving.)
 
-An empty `home.popular_products` switches the hero's "Popular:" row to the five largest categories
+An empty `home.popular_products` switches the hero's "Most viewed" row to the five largest categories
 (AECI-1572). That happens by design when no product clears the `TRENDING_MIN_VIEWS` floor (currently 3)
 in a low-traffic window, so category links there look the same as a write regression. That is why this write-rate metric, not the home's appearance,
-is the alerting signal. Corollary when triaging: a short "Popular:" row, or one that names categories, is **not** on its own
+is the alerting signal. Corollary when triaging: a short "Most viewed" row, or one that names categories, is **not** on its own
 evidence of a page-views regression; confirm against `aeci.pageviews.write{outcome:failed}`.
 
 **First checks**
@@ -1375,6 +1375,14 @@ switched on (`docs/environments.md` "Browser report check per tier").
 **What a firing means.** Pages loaded and Turnstile passed, but the report did not land on the row.
 Something on the report path is broken. Look at these first, in this order:
 
+0. **A datatool copy into this tier.** Rule this out before anything else on staging or demo. A
+   copy replaces the tier's `page_views` with the source tier's rows and keeps their
+   `browser_evidence` values. Rows copied from a tier with capture off are all NULL, so the day
+   reads as a broken path when the path is fine. Search Workers Logs for `aeci-datatool` and the
+   `datatool.operation` event with `op: "copy"` and this tier as `dest`. Any day at or before the
+   copy is the source tier's data and says nothing about this tier. The id sequence shows the
+   boundary: a gap in `created_at` with consecutive ids is where the tier's own rows resume
+   (AECI-1986).
 1. **The flag.** The SSR Worker's `BROWSER_EVIDENCE_ENABLED` must match the API's on that tier. If
    the web var is off, the browser never sends a report. Check `GET /_version` and
    `GET /api/version` for the live builds.
@@ -1598,7 +1606,7 @@ combined** cron-failure alert, now the `cron-job-failed-alert` email (AECI-1587)
 it.
 
 **Metrics:**
-- `aeci.retention.prune{outcome:ok|skipped|failed}` — one heartbeat per completed run; the always-emitted series is the liveness signal. On a skip, `reason` is `metrics_daily_gap`, `archive_gap` or `archive_mismatch` (AECI-1228).
+- `aeci.retention.prune{outcome:ok|skipped|failed}` — one heartbeat per completed run; the always-emitted series is the liveness signal. On a skip, `reason` is `metrics_daily_gap`, `archive_gap` or `archive_mismatch` (AECI-1228), or `concurrent_run` (AECI-1917). `concurrent_run` means the planned row counts changed before both commit attempts, so this run deleted nothing. An overlapping prune or a backdated insert can cause it. The next run retries; investigate if skips persist. An ok run tagged `replanned:true` lost one such race and completed on its replan.
 - `aeci.retention.rows_deleted{table}` — rows removed per table, **emitted every run including zeros**.
 - `aeci.retention.prune.truncated{table}` — the per-table run budget (10,000 rows) stopped the run short.
 - `aeci.retention.prune.duration_ms` — run duration.
@@ -1624,10 +1632,14 @@ in staging and production.
 
 **First checks**
 
-1. **Skipped?** Read the `source:retention-prune-cron` log `aeci.retention.skipped` — it carries
-   `window_from`, `window_to`, `missing_count`, and the first ten `missing_days`. The fault is in the
-   **snapshot** pipeline, not here — work "Metrics snapshot missing or incomplete" above (note it
-   has no monitor of its own yet, so `/admin/system`'s `metrics-snapshot` row and
+1. **Skipped?** Read the `source:retention-prune-cron` log `aeci.retention.skipped` and its reason.
+   **`reason=concurrent_run`?** Both commit attempts saw changed row counts; nothing was deleted.
+   The next run retries. If this recurs, investigate overlapping prunes or backdated inserts. This
+   reason has no missing-day fields.
+
+   **`reason=metrics_daily_gap`?** The log carries `window_from`, `window_to`, `missing_count`, and
+   the first ten `missing_days`. The fault is in the **snapshot** pipeline — work "Metrics snapshot
+   missing or incomplete" above (note it has no monitor of its own yet, so `/admin/system`'s `metrics-snapshot` row and
    `aeci.metrics_snapshot.*` are the signals). Backfill the gap, then the prune resumes on its own
    the next night:
    ```bash
@@ -1670,8 +1682,8 @@ in staging and production.
 5. **`truncated` for several consecutive days?** The per-table budget is holding it back. That is
    fine for a catch-up (it will converge), and a real problem only if the window keeps shrinking.
 
-**Repair:** there is nothing to un-delete, which is the whole design. A skip needs the *snapshot*
-fixed, not the prune. A not-running cron is a Worker scheduling issue — escalate to whoever owns the
+**Repair:** there is nothing to un-delete, which is the whole design. Address a skip according to
+its reason above. A not-running cron is a Worker scheduling issue — escalate to whoever owns the
 API Worker's crons. If a window must be shortened urgently, set the env override rather than shipping
 a code change; values below **30 days** are ignored (D1 Time Travel's horizon) and logged as
 `aeci.retention.invalid_window_override`.
@@ -2409,7 +2421,7 @@ production. Each run needs Chris's go-ahead on the day.
 version, unless Chris rules on that bump that it is not needed. The consumer accepts days up to 370
 days old, so "full history" starts at the later of the earliest surviving day and that limit.
 `home.popular_products` counts only views with a row at the current version (AECI-1586). Without a backfill of at least the trailing 30 days,
-the next home stats recompute writes `[]`. The home's "Popular:" row then names categories, and
+the next home stats recompute writes `[]`. The home's "Most viewed" row then names categories, and
 rebuilds from one day of views at a time.
 
 **How it works.** The script sends one `traffic_classify` message carrying

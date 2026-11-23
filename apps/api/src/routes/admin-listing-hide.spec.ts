@@ -20,6 +20,11 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('../lib/algolia-sync', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../lib/algolia-sync')>();
+  return { ...real, syncIndexTargets: vi.fn(async () => []) };
+});
+
 import {
   auditLog,
   integrations,
@@ -31,6 +36,8 @@ import {
 } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
+import { syncIndexTargets, type IndexTargetIds } from '../lib/algolia-sync';
+import { resetAlgoliaWriteGuardWarning } from '../lib/algolia-write-guard';
 import { NOTIFICATION_SENT_ACTION } from '../lib/attestation-notify';
 import type { AuthzVariables } from '../lib/authz';
 import { checkProductLiveUnderHiddenVendor } from '../lib/data-quality';
@@ -189,11 +196,12 @@ type JsonBody = Record<string, any>;
 async function call(
   path: string,
   body?: unknown,
-  opts: { auth?: Auth; method?: 'GET' | 'POST'; factory?: DbFactory } = {},
+  opts: { auth?: Auth; method?: 'GET' | 'POST'; factory?: DbFactory; env?: Partial<Env> } = {},
 ): Promise<{ status: number; body: JsonBody; send: ReturnType<typeof vi.fn> }> {
   const send = vi.fn().mockResolvedValue(undefined);
   const env: Env = {
     ...TEST_ENV,
+    ...(opts.env ?? {}),
     CACHE_PURGE_QUEUE: { send } as unknown as Env['CACHE_PURGE_QUEUE'],
   };
   const execCtx = fakeExecutionContext();
@@ -557,6 +565,19 @@ describe('POST /api/admin/products/:id/hide and restore', () => {
     const restore = await call(`/api/admin/products/${P_SHARED}/restore`, { reason: 'Resolved.' });
     expect(restore.status).toBe(200);
     expect(await product(P_SHARED)).toMatchObject({ hiddenAt: null, hiddenHideId: null });
+  });
+
+  // AECI-1897: the vendor count is reach, so a hide moves the count of every
+  // counterpart's vendor. Bentley makes MicroStation, Revit's counterpart.
+  it('re-indexes the vendors of every counterpart product', async () => {
+    vi.mocked(syncIndexTargets).mockClear();
+    resetAlgoliaWriteGuardWarning();
+    const res = await call(`/api/admin/products/${P_REVIT}/hide`, HIDE_BODY, {
+      env: { ENV: 'staging', ALGOLIA_APP_ID: 'TESTAPP', ALGOLIA_ADMIN_KEY: 'test-admin-key' },
+    });
+    expect(res.status).toBe(200);
+    const targets = vi.mocked(syncIndexTargets).mock.calls[0]![4] as IndexTargetIds;
+    expect(targets.vendorsOfProducts).toEqual(expect.arrayContaining([P_REVIT, P_MICRO]));
   });
 
   it('refuses a product restore while its company is hidden', async () => {

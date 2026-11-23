@@ -33,6 +33,7 @@ import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { licenseActionErrorMessage, licenseActionIsStale } from './vendor-license-action-errors';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /** When the license comes off its product. */
 type ReleaseTiming = 'renewal' | 'now';
@@ -156,7 +157,7 @@ type MenuAction = 'release' | 'keep';
       </p>
     }
 
-    <brn-dialog #releaseDialog="brnDialog">
+    <brn-dialog [role]="'alertdialog'" [autoFocus]="'first-heading'" #releaseDialog="brnDialog">
       <ng-template brnDialogContent>
         <div
           class="max-h-[85vh] w-[min(92vw,32rem)] overflow-y-auto rounded-(--radius-lg) border border-(--border-default) bg-(--surface-base) p-6 text-start text-(--text-primary) md:p-8"
@@ -164,7 +165,8 @@ type MenuAction = 'release' | 'keep';
           <div class="flex items-start justify-between gap-4">
             <h2
               brnDialogTitle
-              class="font-display text-xl font-semibold text-(--text-primary)"
+              tabindex="-1"
+              class="font-display text-xl font-semibold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
               i18n="@@vendor.billing.release.heading"
             >
               Release subscription
@@ -199,7 +201,7 @@ type MenuAction = 'release' | 'keep';
             {{ description() }}
           </p>
 
-          <form class="mt-6 space-y-5" (submit)="submit($event)" novalidate>
+          <form method="dialog" class="mt-6 space-y-5" (submit)="submit($event)" novalidate>
             <fieldset class="space-y-3">
               <legend class="sr-only" i18n="@@vendor.billing.release.when">
                 When should the subscription come off?
@@ -408,6 +410,7 @@ export class VendorLicenseActions {
   }
 
   protected async submit(event: Event): Promise<void> {
+    if (isReplayedEvent(event)) return;
     event.preventDefault();
     if (this.busy()) return;
     if (this.timing() === 'now') await this.requestNow();

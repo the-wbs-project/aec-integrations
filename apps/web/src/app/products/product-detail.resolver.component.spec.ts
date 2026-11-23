@@ -92,6 +92,9 @@ registerDetailResolverSuite<ProductDetail>({
           via: null,
           powered_by_product: null,
           data_object_slugs: [],
+          data_objects: [],
+          partner_categories: [],
+          agreement: null,
           created_at: '2024-01-01T00:00:00.000Z',
           updated_at: '2024-01-01T00:00:00.000Z',
         },
@@ -111,6 +114,9 @@ registerDetailResolverSuite<ProductDetail>({
           via: { id: 'v1', name: 'Agave ERP Sync', slug: 'agave-erp-sync', logo_url: null },
           powered_by_product: null,
           data_object_slugs: [],
+          data_objects: [],
+          partner_categories: [],
+          agreement: null,
           created_at: '2024-01-01T00:00:00.000Z',
           updated_at: '2024-01-01T00:00:00.000Z',
         },
@@ -128,6 +134,9 @@ registerDetailResolverSuite<ProductDetail>({
           via: null,
           powered_by_product: null,
           data_object_slugs: [],
+          data_objects: [],
+          partner_categories: [],
+          agreement: null,
           created_at: '2024-01-01T00:00:00.000Z',
           updated_at: '2024-01-01T00:00:00.000Z',
         },
@@ -247,6 +256,31 @@ describe('productDetailResolver — product-specific', () => {
     ]);
   });
 
+  it('tags every similar product the page renders (AECI-1785)', async () => {
+    // Each card renders that product's name and logo (CACHE_STRATEGY.md §3 rule 9).
+    const item = (slug: string) => ({ ...buildProduct(), slug, name: slug });
+    const product = buildProduct({
+      vendor: null,
+      related_products: [item('bluebeam'), item('plangrid')],
+    });
+    const ctx = createRequestContext(buildClient(async () => product));
+
+    const { run } = setup({
+      platform: 'server',
+      ctx,
+      responseInit: { status: 200 },
+      request: new Request('https://aecintegrations.com/products/procore'),
+      meta: { setEntityMeta: vi.fn(), setProductJsonLd: vi.fn() } as Partial<MetaService>,
+    });
+
+    await run();
+
+    expect(ctx.embedded).toEqual([
+      { type: 'product', slug: 'bluebeam' },
+      { type: 'product', slug: 'plangrid' },
+    ]);
+  });
+
   it('does NOT tag the connector of a Convention-A edge, which renders no heading', async () => {
     // §13.2(a) keeps a self-referential powered edge in the DIRECT lane, so the
     // page never names the connector. Tagging on the raw FK instead of on the
@@ -269,6 +303,9 @@ describe('productDetailResolver — product-specific', () => {
           via: null,
           powered_by_product: aquifer, // the connector is also an ENDPOINT
           data_object_slugs: [],
+          data_objects: [],
+          partner_categories: [],
+          agreement: null,
           created_at: '2024-01-01T00:00:00.000Z',
           updated_at: '2024-01-01T00:00:00.000Z',
         },
@@ -291,6 +328,53 @@ describe('productDetailResolver — product-specific', () => {
     expect(ctx.embedded).toEqual([
       { type: 'integration', id: 'int-conv-a' },
       { type: 'product', slug: 'aquifer' },
+    ]);
+  });
+
+  it("tags each row's partner vendor, whose name the row prints (AECI-1720)", async () => {
+    // A vendor rename purges `vendor:{slug}` only, so a page printing "by {vendor}"
+    // must carry that tag. A partner with no vendor on record adds none.
+    const row = (id: string, slug: string, vendorSlug: string | null) => ({
+      id,
+      name: `Procore ↔ ${slug}`,
+      mechanism_kind: 'native' as const,
+      mechanism_name: null,
+      direction: null,
+      context_direction: null,
+      source: { id: 's1', name: 'Procore', slug: 'procore', logo_url: null },
+      target: { id: `t-${slug}`, name: slug, slug, logo_url: null },
+      via: null,
+      powered_by_product: null,
+      data_object_slugs: [],
+      data_objects: [],
+      partner_categories: [],
+      partner_vendor_name: vendorSlug ? 'Some Vendor' : null,
+      partner_vendor_slug: vendorSlug,
+      agreement: null,
+      created_at: '2024-01-01T00:00:00.000Z',
+      updated_at: '2024-01-01T00:00:00.000Z',
+    });
+    const product = buildProduct({
+      vendor: null,
+      integrations_as_source: [row('i1', 'sage', 'sage-group'), row('i2', 'bare', null)],
+    });
+    const ctx = createRequestContext(buildClient(async () => product));
+    const { run } = setup({
+      platform: 'server',
+      ctx,
+      responseInit: { status: 200 },
+      request: new Request('https://aecintegrations.com/products/procore'),
+      meta: { setEntityMeta: vi.fn(), setProductJsonLd: vi.fn() } as Partial<MetaService>,
+    });
+
+    await run();
+
+    expect(ctx.embedded).toEqual([
+      { type: 'integration', id: 'i1' },
+      { type: 'product', slug: 'sage' },
+      { type: 'vendor', slug: 'sage-group' },
+      { type: 'integration', id: 'i2' },
+      { type: 'product', slug: 'bare' },
     ]);
   });
 
@@ -448,6 +532,9 @@ describe('productDetailResolver — title and description (AECI-802)', () => {
       via: null,
       powered_by_product: null,
       data_object_slugs: [],
+      data_objects: [],
+      partner_categories: [],
+      agreement: null,
       created_at: '2024-01-01T00:00:00.000Z',
       updated_at: '2024-01-01T00:00:00.000Z',
     };

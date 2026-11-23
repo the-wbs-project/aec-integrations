@@ -150,7 +150,7 @@ describe('DocsPageComponent', () => {
     const widget = host.querySelector('app-docs-plans-comparison');
     expect(widget).not.toBeNull();
     expect(widget!.closest('.aec-prose')).toBeNull();
-    expect(widget!.querySelectorAll('.aec-plan-card')).toHaveLength(2);
+    expect(widget!.querySelectorAll('[data-plan-card]')).toHaveLength(2);
     expect(widget!.querySelector('table caption')?.textContent?.trim()).toBe(
       'What each plan includes',
     );

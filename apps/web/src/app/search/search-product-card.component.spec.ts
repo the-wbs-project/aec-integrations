@@ -46,6 +46,19 @@ function setup(initial: AlgoliaProductRecord = baseRecord) {
 }
 
 describe('SearchProductCard', () => {
+  // AECI-1769: the Algolia record carries `logo_url: null` for an unclaimed product
+  // (AECI-1618), so the hit shows the initial tile. A claimed product's logo shows.
+  it('shows the initial tile for an unclaimed hit and the logo for a claimed one', () => {
+    const unclaimed = setup({ ...baseRecord, logo_url: null });
+    expect(unclaimed.querySelector('aec-logo-or-initial img')).toBeNull();
+    expect(unclaimed.querySelector('aec-logo-or-initial span[aria-hidden]')).not.toBeNull();
+    TestBed.resetTestingModule();
+    const claimed = setup({ ...baseRecord, logo_url: 'https://cdn.example.com/p.png' });
+    expect(claimed.querySelector('aec-logo-or-initial img')?.getAttribute('src')).toBe(
+      'https://cdn.example.com/p.png',
+    );
+  });
+
   it('links the whole card to /products/:slug', () => {
     const el = setup();
     const link = el.querySelector('a[href="/products/procore"]');
@@ -98,5 +111,28 @@ describe('SearchProductCard', () => {
   it('uses the singular noun for one integration', () => {
     const el = setup({ ...baseRecord, integration_count: 1 });
     expect(el.textContent).toMatch(/1\s*integration(?!s)/);
+  });
+});
+
+describe('SearchProductCard surface (AECI-1765)', () => {
+  it('is a lifting card in a static hover host, with the link on the product name alone', () => {
+    const el = setup();
+    const host = el.querySelector('aec-search-product-card')!;
+    expect(host.classList.contains('group/card')).toBe(true);
+    const card = el.querySelector('div')!;
+    expect(card.classList.contains('shadow-card')).toBe(true);
+    expect(card.classList.contains('rounded-card')).toBe(true);
+    expect(card.classList.contains('motion-safe:group-hover/card:-translate-y-1')).toBe(true);
+    const link = el.querySelector('a')!;
+    expect(link.textContent?.trim()).toBe(baseRecord.name);
+    expect(link.hasAttribute('aria-label')).toBe(false);
+    expect(link.classList.contains('after:inset-0')).toBe(true);
+    // The vendor and the integration count are text outside the link name.
+    expect(card.textContent).toContain('12');
+    expect(card.textContent).toContain('Procore Technologies');
+    expect(link.textContent).not.toContain('Procore Technologies');
+    const title = el.querySelector('p')!;
+    expect(title.classList.contains('text-t-20')).toBe(true);
+    expect(title.classList.contains('leading-tight')).toBe(true);
   });
 });

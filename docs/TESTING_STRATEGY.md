@@ -140,7 +140,7 @@ than piling up unseen.
 - Branch coverage: 60%
 - Critical paths (auth, payments in Stage 4, audit logging) require 90%+ coverage explicitly
 
-Coverage is measured with Vitest's built-in **v8** provider (each package's `vitest.config.ts` records these numbers in its `thresholds` block). CI generates the report on every **push** to `main`. Since 2026-10 each unit job (`unit-api`, `unit-web`) runs its suites **once** with coverage on, with the thresholds zeroed on the command line so only a test failure fails the job. `scripts/ci/coverage-advisory.mjs` then compares the totals with each config's `thresholds` and raises a warning annotation on a miss. The lcov/HTML uploads as the `coverage-api` and `coverage-web` artifacts. A coverage drop **does not fail the build** (`docs/CICD_PLAN.md` §3.1). Since **AECI-917 (2026-09-14) it no longer runs on PRs**, where it cost ~2 min of the required `unit-tests` check to produce a report nobody read per PR. Note also that `apps/web`'s `test:coverage` is the plain vitest suite, so the `ng test` component specs are **not** measured. The thresholds are a documented target, not a merge gate: quality of tests matters more than the number. There is no Codecov integration today; if one is added later it would be for visualization, not enforcement.
+Coverage is measured with Vitest's built-in **v8** provider (each package's `vitest.config.ts` records these numbers in its `thresholds` block). CI generates the report on every **push** to `main`. Since 2026-10 the unit jobs run each suite **once** with coverage on, with the thresholds zeroed on the command line so only a test failure fails the job. Since AECI-1709 (2026-11) apps/api runs as two `unit-api` shards (`--shard=N/2`) that each write a vitest blob report, and `unit-api-coverage` merges them into one coverage report with `vitest run --merge-reports --coverage`. One unsharded coverage run had starved the vitest main process until a worker RPC timed out, which vitest counts as a failure with every test green (`docs/CICD_PLAN.md` §3.1). `scripts/ci/coverage-advisory.mjs` then compares the totals with each config's `thresholds` and raises a warning annotation on a miss. The lcov/HTML uploads as the `coverage-api` and `coverage-web` artifacts. A coverage drop **does not fail the build** (`docs/CICD_PLAN.md` §3.1). Since **AECI-917 (2026-09-14) it no longer runs on PRs**, where it cost ~2 min of the required `unit-tests` check to produce a report nobody read per PR. Note also that `apps/web`'s `test:coverage` is the plain vitest suite, so the `ng test` component specs are **not** measured. The thresholds are a documented target, not a merge gate: quality of tests matters more than the number. There is no Codecov integration today; if one is added later it would be for visualization, not enforcement.
 
 ### 3.4 Configuration
 
@@ -210,15 +210,36 @@ describe('SubmitReviewSchema', () => {
 
 A handful of tests exist to make a **written decision mechanically true** rather than to cover a code path. They look over-specified on purpose: a frozen literal list, an assertion that a builder emits *no* statement of some shape, an assertion that a set is empty. **Deleting or loosening one is a spec change, not a test cleanup** — the governing spec has to be reopened first, and each one names its spec section in a comment so a reviewer can tell the difference.
 
-Three ship with the Stage 2 entitlement model (`docs/STAGE_2_PAID_TIERS_SPEC.md` §10), and they are the reference shape:
+Three ship with the Stage 2 entitlement model (`docs/STAGE_2_PAID_TIERS_SPEC.md` §10), and they are the reference shape. The fourth, on-page ordering, joined in AECI-1814:
 
 | Test | Asserts | Why a test and not a comment |
 |---|---|---|
 | **Ranking disjointness** (`packages/shared/src/entitlements.spec.ts`) | The capability vocabulary and the union of every Algolia `searchableAttributes` ∪ `attributesForFaceting` ∪ `customRanking` are **disjoint sets**; no capability id matches a ranking-word regex; no entitlement concept (`verified`, `tier`, `entitlement`, `paid`, `plan`, …) appears in `INDEX_SETTINGS` at all | **No pay-for-placement** is the product's founding promise. Both tables are pure data in the same package, so the promise is *provable* — this is the one place a documented principle became an asserted property. It carries its own **non-vacuity** case (the ranking vocabulary is non-empty, and the `unordered()`/`desc()` wrappers really were stripped), because a broken strip helper would make every assertion below it pass trivially. **Since AECI-636 it also proves a computed attribute's inputs:** `listing_tier`'s declared inputs name no plan concept, and a recording `Proxy` shows the functions read nothing else, because a computed attribute can carry a plan while its own name stays clean. **Since AECI-1214 it also proves the edit path:** every `listing_tier` input is either not vendor-editable or written by a field whose capability (`PRODUCT_FIELD_CAPABILITIES` / `VENDOR_FIELD_CAPABILITIES`, the tables the vendor routes enforce) the Free tier holds, so no plan is needed to raise a listing's tier. **Since AECI-1181 (2026-10-02) it also proves a review reply never ranks:** block 6 asserts that no Algolia attribute, record field, sort key or `listing_tier` input names the reply table or its fields, and `apps/api/src/lib/review-reply-ranking-firewall.spec.ts` scans the files that compute ranking inputs for them (`STAGE_2_PAID_TIERS_SPEC.md` §3.2 assertion 6) |
 | **Mirror sole-writer** (`apps/api`, over the batch builders) | `grantSeatStatements` — and every route handler — emits **no statement touching `vendors.verified`**; only `lib/license.ts` does (it was `lib/vendor-entitlement.ts` until AECI-1358 deleted it), and never one side of the *iff* without the other. Plus: `vendors.updated_at` moves **iff** `vendors.verified` moves, in **both** directions | The ESLint sole-writer rule catches the syntax; this catches the semantics the rule cannot see. The both-directions clause exists because the un-verify direction had no writer at all until AECI-532, so nothing had ever exercised it |
 | **Reads are never gated** (`apps/api`) | `GET /api/vendor/me` returns **200** for a vendor whose entitlement is `revoked`/`expired`, carrying the downgraded `entitlement` block | A one-line mistake with total blast radius on exactly the cohort being billed: `vendorMeResolver` maps 403 onto a **404 render**, so gating this read would hide the renewal notice inside a 404 dashboard |
+| **On-page ordering** (`apps/api/src/lib/on-page-ordering-firewall.spec.ts`, `apps/web/src/app/products/on-page-ordering-firewall.spec.ts` and its `.component.spec.ts`; AECI-1814) | The registered on-page sorts, default orders and featured subsets do not move when a Managed-only input changes. The Managed-only capabilities are derived from `TIER_CAPABILITIES`. Behavioural cases set every non-order field rising and falling along the fixture, and load every paid input onto one group at a time, on fixtures with a tie at every comparator level. They cover the product page lanes, its filter and the 20-row `@defer` cut (the table view only since AECI-1891), the connector page hubs, and the pair page and `related_products` over the D1 harness, where the page product carries the paid inputs too. A component spec renders the product page Integrations section, where no filter selected must mean every row renders, the product page Similar products section (AECI-1785), which must keep the API order and every card, and the taxonomy index's "Most products" sort, on terms that tie on every declared input. Every row field is classified as an order input or not, so a new field fails until someone decides. Three source scans are tripwires, not proofs: the integration row writers and every route that passes them columns call no plan check, the product page section adds no comparator or filter, and every count read in a sort, count subtraction and count cut on the public pages is registered. A count reached without naming `product_count`, `.count` or `SORT_KEY` would pass the last one. Since AECI-1841 a fourth scan counts `orderBy`, `.sort(`, `.toSorted(` and sort-resolver definitions in the public read paths and checks each file against a classified list, so a new order cannot ship unregistered. It is a tripwire too: it sees tokens, not meaning, and it skips `lib/` files outside its list. A hand-written registry lists each ordered surface as covered, pending with its owning issue (shown as `todo`), or the one accepted exception, taxonomy term counts (Chris, 2026-11-14; permanent rule in AECI-1836; `STAGE_2_PAID_TIERS_SPEC.md` §3.2 assertion 8) | The Terms promise ranking is "never influenced by payment". The other firewall tests cover search attributes, sort keys and `listing_tier` inputs, but not the order of a list on a page. The redesign mock-ups ordered by "most evidence", which only a Managed vendor can add. A one-direction flip passed 30 of 57 mutations in review. The two-direction flips, ties, loaded groups and asymmetric paid inputs exist to kill them. Every mutation from both review rounds, as reconstructed for AECI-1814, now fails the test. Each behavioural case also has a non-vacuity case that changes an order input and sees the order move |
 
 Alongside them, per issue: the second-seat no-op matrix against the in-memory D1 harness; 422 idempotency on the admin `set`/`clear` (retired with its route by AECI-1375, 2026-10-17); `POST /api/promote` still cannot move `verified` (the AECI-520 regression guard); the expiry cron writes **no `status`** (asserted against generated SQL, since a `WHERE status = 'active'` guard is a read and must not be mistaken for a write; since AECI-1356 it stamps `licenses`, and the same test asserts no statement names `ended_at`, `assigned_product_id` or `vendors`); and a no-read-path guard asserting no read config in `lib/drizzle-helpers.ts` references `vendor_entitlements`. The same spec (`drizzle-helpers.read-path.spec.ts`) also asserts that no read config references `billing_accounts` or `licenses` and that neither has a `relations()` entry. Since AECI-1358 it also asserts that no non-spec module names the dropped `vendor_entitlements` table in code. Prose mentions pass.
+
+**The November 2026 redesign's guards (AECI-1720).** Each pins a design or legal decision that a component test cannot see. Most read source or built output rather than a rendered component.
+
+| Guard | Runs in | Pins |
+|---|---|---|
+| `apps/web/src/design-tokens.guard.spec.ts` | unit | Every token the source names exists in `styles.css`. Its source half also stops `font-display` beside a small size (the serif floor) |
+| `apps/web/src/design-tokens.hex.guard.spec.ts` | unit | Every colour token renders the hex its comment documents (AECI-1747) |
+| `apps/web/src/chip.guard.spec.ts`, `field-recipe-css.guard.spec.ts`, `pair-diff-edge.guard.spec.ts` | unit | The one chip recipe, the shared field recipe and the pair page's diff edge, read from `styles.css` |
+| `apps/web/src/prose.guard.spec.ts` | unit | The one prose style reads only type ramp tokens (AECI-1804) |
+| `apps/web/src/font-files.guard.spec.ts` | unit | Each self-hosted font file's bytes, because `/fonts/*` is cached for a year (AECI-1892) |
+| `apps/web/src/app/legal/legal-heading-ids.spec.ts` | unit | The heading ids on `/legal/*` and `/methodology` change no word of the page |
+| `apps/web/src/app/legal/legal-archive-freeze.spec.ts`, `app/docs/ranking-page-versions.spec.ts` | unit | Archived legal versions and ranking page versions keep their published bytes |
+| `apps/web/src/app/shared/form-field/early-input-coverage.spec.ts` | unit | Every component that binds a text field, select or radio imports `AecEarlyInput`, and every consent box carries `aecConsent` |
+| `scripts/check-conflict-markers.mjs` | `pnpm lint` | No tracked file holds git conflict markers (`ANGULAR_STYLE_GUIDE.md` §24) |
+| `apps/web/e2e/serif-floor.spec.ts` | e2e | No rendered Source Serif text is under 20px (AECI-1928) |
+| `apps/web/e2e/first-paint.spec.ts`, `font-loading.spec.ts` | e2e | First paint matches final paint, and fallback fonts take the same space (`ANGULAR_STYLE_GUIDE.md` §20b) |
+| `apps/web/e2e/hydration-class-recipe.spec.ts` | e2e | Nothing resolves an `aecButton` or `aecCard` style while hydration has it without its recipe (AECI-1937) |
+| `apps/web/e2e/forms-early-input.spec.ts` | e2e | Typed text survives hydration, and no tick does (§14.3) |
+
+The on-page ordering firewall in the table above is the redesign's legal guard.
 
 **A caveat worth generalizing.** An invariant asserted in a file where its subject is *mocked* passes vacuously. Where a cron-level suite mocks the sweep it is testing, the real obligation belongs in the sweep's own spec, and any exemption list in the mocking file should say which entries are genuinely exempt versus merely asserted elsewhere.
 
@@ -450,13 +471,13 @@ Critical user journeys:
 - **Browse and view product** — home → category → product page → all four tabs
 - **Search and filter** — search bar → results → faceted filter → result click
 - **Review submission** — product page → login (mock auth) → review form → submit → confirmation
-- **Vendor request submission** — product page → "Claim <Company>" → form → submit
+- **Vendor request submission** — product page → "Claim Vendor" → form → submit
 - **Account deletion** — login → account → delete → confirmation → verify reviews anonymized
 - **Theme switching** — toggle → verify CSS variables change → reload → persistence
 
 Anything that crosses multiple components or pages is a candidate for E2E.
 
-**Phase 3.12 implementation (AECI-145).** The "search → results → faceted filter → result click" journey is covered on the **API-backed listing path** (`apps/web/e2e/facets.spec.ts`): the AECI-143 facet sidebar on `/products` (facet click → `{kind}_id` + `page=1` in the URL, checkbox state, grid refresh, Clear-filters reset), the locked-kind sidebar on `/categories/:slug` (hides its own dimension), and the deterministic refine → product-card click → detail `<h1>` chain. This is the CI-runnable embodiment of the journey because **`/search` itself degrades in CI** — `dev:bound` boots without Algolia, so the InstantSearch results never render. The live `/search` box → hits → click → detail flow therefore lives in a **self-skipping block** in `search.spec.ts`, guarded on the `window.__AECI_ALGOLIA__` bootstrap (runs locally/preview with search creds, skips in CI). **Cache-key correctness** ("distinct facets → distinct cache entries") is proven by a unit test on the exported `cacheKeyFor()` (`cache-key-url.spec.ts`; it replaced `cacheKeyUrl()`, which WC-3 / AECI-317 removed with the manual `caches.default` pipeline and WC-4 / AECI-318 restored behind the gateway entrypoint) — HIT/MISS is unobservable on localhost (Miniflare ≠ Cloudflare edge) — with `facets.spec.ts` asserting the complement at the wire: distinct facet URLs are independently cacheable yet share one `Cache-Tag` (facets live in the key, not the tag).
+**Phase 3.12 implementation (AECI-145).** The "search → results → faceted filter → result click" journey is covered on the **API-backed listing path** (`apps/web/e2e/facets.spec.ts`): the AECI-143 facet sidebar on `/products` (facet click → `{kind}_id` + `page=1` in the URL, checkbox state, grid refresh, Clear-filters reset), the locked-kind sidebar on `/categories/:slug` (hides its own dimension), and the deterministic refine → product-card click → detail `<h1>` chain. This is the CI-runnable embodiment of the journey because **`/search` itself degrades in CI** — `dev:bound` boots without Algolia, so the InstantSearch results never render. The live `/search` box → hits → click → detail flow therefore lives in a **self-skipping block** in `search.spec.ts`, guarded on the `window.__AECI_ALGOLIA__` bootstrap (runs locally/preview with search creds, skips in CI). One `/search` results spec does run in CI: `search-load-more.spec.ts` (AECI-1906) answers every Algolia query from the fixed catalogue in `e2e/fake-algolia.ts`, held back 1.5 s, to pin that "Load more" during a pending filter search keeps the filtered first page. **A fixed Algolia (AECI-1899).** `apps/web/e2e/fake-algolia.ts` sets a stand-in config before the page loads and answers every multi-query from a small fixed catalogue on a Playwright route, so a `/search` spec runs the real InstantSearch code in CI with results that never move. It follows `facetFilters`, `numericFilters`, the query, `page` and `hitsPerPage`, and leaves an empty facet out as Algolia does. The checked-filter specs in `search.spec.ts` and the `/search` Back and Forward specs in `scroll-restoration.spec.ts` use it. No request reaches a live index. **Cache-key correctness** ("distinct facets → distinct cache entries") is proven by a unit test on the exported `cacheKeyFor()` (`cache-key-url.spec.ts`; it replaced `cacheKeyUrl()`, which WC-3 / AECI-317 removed with the manual `caches.default` pipeline and WC-4 / AECI-318 restored behind the gateway entrypoint) — HIT/MISS is unobservable on localhost (Miniflare ≠ Cloudflare edge) — with `facets.spec.ts` asserting the complement at the wire: distinct facet URLs are independently cacheable yet share one `Cache-Tag` (facets live in the key, not the tag).
 
 `cache-key-url.spec.ts` is the same proof for every later content-affecting param, and AECI-303 added the product-PAIR page's two version selectors to it. Two of those cases are worth knowing about because they guard against a *plausible* future change rather than a typo: one asserts that swapping the two values yields a **different** key (the pair is ordered), and one asserts a comma inside a version label survives verbatim — together they fail any attempt to add `context_version`/`other_version` to `MULTI_VALUE_CACHE_KEY_PARAMS` "for consistency", which would corrupt a legitimate `R2024,SP1` label rather than merely fragment the cache.
 
@@ -491,11 +512,12 @@ test('user can search and find a product', async ({ page }) => {
 });
 ```
 
-**Scroll with `behavior: 'instant'`.** The app sets `html { scroll-behavior: smooth }`, which
-`window.scrollTo` and `scrollIntoView` honour. A smooth scroll is still moving when the next
-assertion runs. An assertion that matches the start state then passes before the scroll lands.
-Pass `behavior: 'instant'` to every DOM scroll call in a spec, unless the spec tests the smooth
-scroll itself. The phone-bar test in `vendor-program.spec.ts` passed this way on Playwright 1.60
+**Scroll with `behavior: 'instant'`.** Smooth scrolling is on only while an in-page section link
+jumps (AECI-1752, `ANGULAR_STYLE_GUIDE.md`), but the switch back to a global smooth scroll can turn
+it on everywhere, and `window.scrollTo` and `scrollIntoView` honour it. A smooth scroll is still
+moving when the next assertion runs. An assertion that matches the start state then passes before
+the scroll lands. Pass `behavior: 'instant'` to every DOM scroll call in a spec, unless the spec
+tests the smooth scroll itself (`e2e/scroll-restoration.spec.ts` samples `scrollY` per frame). The phone-bar test in `vendor-program.spec.ts` passed this way on Playwright 1.60
 and failed on 1.64's newer Chromium (AECI-1383).
 
 **Never write a port into a spec.** Navigate with relative paths so `page.goto` follows the
@@ -504,11 +526,22 @@ request context, a cookie domain or a session mint, imports `E2E_BASE_URL` from
 `apps/web/e2e/base-url.ts`. That module is also what `playwright.config.ts` reads. A
 `localhost:8788` literal passes in CI and fails on every `dev:agent` port pair (AECI-1449).
 
+**Check sideways scroll with `expectNoSidewaysScroll(page)`.** It lives in
+`apps/web/e2e/no-sideways-scroll.ts` and passes when the root's `scrollWidth` is at most its
+`clientWidth`. Never assert that the two are equal, or that their difference is exactly 0. On
+Linux CI the root's `scrollWidth` leaves out the classic scrollbar gutter and `clientWidth` keeps
+it, so `scrollWidth` can be the smaller one on a page that fits. Three specs failed in CI that
+way. The helper is for the page root only. A check that compares an element's width with its
+container, such as a header row or a scroll strip, stays as it is. Its `tolerance` option keeps
+an older 1px allowance at the same strength. Do not raise it to make a real overflow pass.
+
 ### 7.5 Test data
 
 - The local environment uses a fixed seed data set in D1
 - Tests assume seed data exists (Procore, Autodesk, etc.)
 - Seed data lives in `apps/api/seed/*.sql` and is applied to the local D1 via `pnpm db:seed:local` (`db:setup:local` migrates + seeds). The chain's **last step is not SQL**: `db:grant-admin:local` runs `apps/api/scripts/grant-local-admin.mjs`, which upserts a `role='admin'` profile for `LOCAL_ADMIN_USER_ID` from `apps/api/.dev.vars` so `/admin/*` is reachable in a local browser (AECI-765), then `db:grant-vendor:local` seats `LOCAL_VENDOR_USER_ID` as a `vendor_admin` on `LOCAL_VENDOR_SLUG` (default `autodesk`) so `/vendor` is reachable too. Unset → each no-ops; both always exit 0 so they can never fail a seed run
+- `seed/long-list-fixtures.sql` (AECI-1868) seeds `fixture-long-list`: 14 integrations to 14 partner products in three local-only categories, so the product page's grouped integration list renders and `products-long-list.spec.ts` asserts against that slug instead of skipping. It adds 15 products, which gives `/products` a second page. Every name starts "Zz Fixture" and every `created_at` is 2020-01-01, so A to Z and Newest lists keep their top. The categories live in this file, not `taxonomy.sql`, because `taxonomy.sql` is applied to staging and production.
+- `seed/connector-lists-fixtures.sql` (AECI-1788) seeds `fixture-hybrid-via`, a hybrid with a Via lane past 20 rows that also powers 21 pairs, and `fixture-connector-hub`, a connector that powers 39 pairs, with two hubs and 25 partners. `products-connector-lists.spec.ts` asserts against those slugs and fails, never skips, when they are missing. It adds 29 products, all "Zz Fixture" names dated 2020-01-01, with one unverified vendor and no category or review. `src/test/seed-data-quality.spec.ts` runs the scheduled data-quality checks over the seed chain with and without this file and fails if it adds a finding at any severity. Since AECI-1920 the same spec also holds the whole chain to a floor: zero error-severity findings, and the only nonzero check is `products_without_vendor` at 28, all fixtures that are vendorless on purpose (the connector-lane endpoints, pyRevit, the long-list product and its partners, `fixture-acme-connector`). A new finding at any severity, or a changed count, fails it. A seeded review with no reviewer carries an `anonymized_at` stamp, the state an account deletion leaves, because the check reports a review with neither. Since AECI-1936 the spec also applies the by-hand review seeder's output (`db:seed-reviews`, `@aeci/shared/seed-reviews`) over the chain and fails on any error-severity finding, so the seeder's rows carry the same stamp.
 
 ### 7.6 Auth in tests
 
@@ -693,7 +726,7 @@ stubbed Supabase config (`addInitScript` plus `page.route`) and asserts the "Che
 run axe on the swapped-in state, the first axe scans of a post-submit view. `/account` needs a
 real session, so its persistent load-status region is asserted in `account.component.spec.ts`.
 
-**Phase 2 implementation (AECI-65).** `apps/web/e2e/phase2-a11y.spec.ts` runs axe against every live Phase 2 page type — product/vendor/integration index+detail, the **product-PAIR page** (added by AECI-303), category/audience/phase browse, the three flat taxonomy indexes (`/categories`, `/audiences`, `/phases`), and the 404 — in the **light theme** (14 URLs; the dark pass was removed in AECI-226), plus the open state of the AECI-155 taxonomy flyout nav, for 15 axe assertions in total. Detail pages run against committed fixtures (`apps/api/seed/phase2-fixtures.sql`, seeded into the local D1 by `dev:bound`); they self-skip if the fixtures aren't seeded so the suite never wedges CI. Both the header (incl. the new flyout nav) and the **footer** are in scope: the footer's former `.exclude('aec-site-footer')` carve-out covered dark-theme contrast debt only, and AECI-226 removed it after verifying the footer is WCAG-AA clean in the (now sole) light theme.
+**Phase 2 implementation (AECI-65).** `apps/web/e2e/phase2-a11y.spec.ts` runs axe against every live Phase 2 page type — product/vendor/integration index+detail, the **product-PAIR page** (added by AECI-303), category/audience/phase browse, the three flat taxonomy indexes (`/categories`, `/audiences`, `/phases`), and the 404 — in the **light theme** (14 URLs; the dark pass was removed in AECI-226), plus the open state of the header's Browse menu (AECI-1774; it replaced the AECI-155 taxonomy flyouts), for 15 axe assertions in total. Detail pages run against committed fixtures (`apps/api/seed/phase2-fixtures.sql`, seeded into the local D1 by `dev:bound`); they self-skip if the fixtures aren't seeded so the suite never wedges CI. Both the header (incl. the Browse menu) and the **footer** are in scope: the footer's former `.exclude('aec-site-footer')` carve-out covered dark-theme contrast debt only, and AECI-226 removed it after verifying the footer is WCAG-AA clean in the (now sole) light theme.
 
 **Phase 3.12 implementation (AECI-145).** `/search` axe coverage (zero WCAG-AA violations) ships in `apps/web/e2e/search.spec.ts` — against the graceful-degradation shell that renders in CI, where Algolia is absent. The `/products` listing + facet sidebar is covered by `products-index.spec.ts` (`tags wcag2a/2aa/21a/21aa`); the facet-interaction states add no new always-on surface beyond what those axe runs already scan.
 
@@ -923,7 +956,7 @@ Use Miniflare's in-memory storage. Reset between tests.
 
 Run against a local `dev:bound` server with seed data applied. The seed is a known, stable dataset.
 
-In an agent workspace, boot with `pnpm dev:agent` and set `AECI_WEB_PORT` to the web port it printed (`docs/local-dev.md` §3.1).
+In an agent workspace, boot with `pnpm dev:agent` and set `AECI_WEB_PORT` to the web port it printed (`docs/local-dev.md` §3.1). On that port Playwright never boots `dev:bound` itself. If no stack answers, the run fails fast (AECI-1955). `apps/web/e2e/web-server.unit.spec.ts` (Vitest, ignored by Playwright) pins each `webServer` branch: default port, agent port, `PLAYWRIGHT_BASE_URL` override, CI, and the guard script's exit.
 
 If a test needs to create data (e.g. submit a review), it creates it with a unique identifier (test-{timestamp}) so it doesn't conflict with other concurrent test runs.
 
@@ -968,6 +1001,18 @@ can cancel itself out. Wait with `untilHydrated` and click once instead. Replay 
 added in code (`addEventListener`, `Renderer2.listen`) or controls that render
 only on the client, so keep the remedy below.
 
+Signal Forms is the main listener added in code: `[formField]` adds its `input`
+listener with `addEventListener`, and hydration writes the model's starting value
+over the control. So a `fill` on a `[formField]` control before hydration was wiped
+(AECI-1720). `AecEarlyInput` now restores typed values from the inline recorder in
+`src/index.html`, so filling before hydration is what a visitor does and the form
+keeps it. A consent box is different: it is `disabled` until the app is live
+(`aecConsent`), and no tick crosses hydration. Playwright's `check()` waits for the
+box to be enabled, which is the right signal: do not wait on time. The claim form's
+earlier cold-run failure (the test ticked before hydration, and hydration unticked
+the box) cannot recur. `e2e/forms-early-input.spec.ts` pins both halves. A test that
+clicks a toggle and asserts in-app handling still gates on `untilHydrated`.
+
 There is now one clean DOM signal. Angular removes an element's `jsaction`
 attribute once the app is stable after hydration, and its listener is live from
 then on. `untilHydrated(locator)` in `apps/web/e2e/hydration.ts` waits for that.
@@ -979,13 +1024,23 @@ it is consumed before a default `goto` resolves.
 
 The same signal also covers content the client fetches at boot. App stability
 waits for pending `HttpClient` requests, `httpResource` included. So once
-`jsaction` is gone, the desktop nav flyouts hold their `TaxonomyNavStore` values.
+`jsaction` is gone, the desktop Browse menu holds its `TaxonomyNavStore` values.
 A listener can be live before that point while the list is still empty. In
 `e2e/nav-menu.spec.ts` "the flyout opens on keyboard", an ArrowDown sent before
 stability focused "View all", the only link yet. The values then rendered above
 it, so the first link was not focused (AECI-1675, 7 of 80 runs without the gate,
 0 of 1,120 with it). Gate on `untilHydrated` even when the listener seems to
 answer already.
+
+A computed colour read is a race too (AECI-1922). Hydration rewrites an element's
+`class` attribute in two steps: it first writes the template's static classes,
+then the host binding adds the rest on the next pass. An `aecButton` with a static
+`class` loses its fill for one frame when a frame paints between the two, and its
+`background-color` transition fades the fill back in. A read during the fade gets
+a part-transparent colour, and the canvas readback is one step off
+(`rgb(31, 58, 47)` for Forest, 2 of 50 local runs). Before reading a colour, move
+the pointer off, `untilHydrated` the element, and await `el.getAnimations()`
+(`e2e/button-migration.spec.ts`, `style()`).
 
   **Remedy: wait for hydration, then act once.** `await untilHydrated(control)`,
   then one plain click and the assertion. `e2e/facets.spec.ts` "criterion #1" and
@@ -1047,10 +1102,42 @@ bafflingly wrong assertion target ("expected Fixture Procore, received ConEst
 IntelliBid").
 
   **Remedy — gate on a rendered value that can only come from the new data**,
-  then snapshot. On the listing pages the lede total works (`(N in total)`),
-  because the lede and the grid are driven by the same `httpResource`. Where a
+  then snapshot. On the listing pages the footer's status line works
+  (`Showing X of N`), because the footer and the grid are driven by the same
+  `httpResource`. The `/products` lede no longer carries a count (AECI-1794). Where a
   test snapshots several fields off one element, read them in a single
   `locator.evaluate()` so they cannot describe two different records.
+
+  **`waitForLoadState` does not wait for a client navigation (AECI-1909).** A
+  load state belongs to the document. Once the first load reached `networkidle`,
+  every later `waitForLoadState('networkidle')` returns at once, so after a
+  filter click it waits for nothing. A listing keeps the previous rows on screen,
+  dimmed, while it refetches, so a "layout held still" check passes then too.
+  The `e2e/scroll-restoration.spec.ts` filter tests counted, scrolled and left
+  filter states whose rows had not arrived (190 to 560ms on the local stack),
+  and failed 15 of 165 runs. `clickFilter` there now waits for the new state's
+  rows and counts responses, then the caller waits for the layout to settle.
+  The footer's auto-load is the same trap. A scroll that brings the sentinel
+  within its 600px margin loads the next page, and the page holds still until
+  it lands. On `/search` the fake Algolia answers 300ms later, so the `/search`
+  restore tests recorded the rows without that page and failed 6 of 72 runs.
+  `layoutSettled` in that spec now also waits until no footer control carries
+  `aria-busy`.
+
+  **`check()` and `uncheck()` read the box again after the click (AECI-1923).**
+  Playwright clicks, waits for the navigation the click scheduled, then reads
+  the box's state. If the box has left the DOM by then, the action starts over
+  and waits for a box that matches the locator. On `/search` an unchecked value
+  whose group has no other values is removed, with its group, on the next
+  render. For Trades › Roofing on `/search?trades=Roofing&categories=…` that is
+  the render InstantSearch runs while the search is in flight, about 50ms after
+  the click and before Algolia answers. So `uncheck()` on such a box waited out the test timeout. It failed
+  3 of 200 runs on an idle machine. With the CPU slowed 4x and Algolia answering
+  in 150 to 750ms, the Roofing case failed 25 of 25. The app
+  was right: the box never read checked again. Use `click()` on a filter box,
+  then gate on what the new state renders (rows, the URL, a count). Use
+  `check()` or `uncheck()` only on a control that stays in the DOM, such as a
+  form's terms box.
 
 **(c) A visible overlay is not yet listening (AECI-1672).** A Spartan popover or
 dialog (`BrnPopover`, `BrnDialog`) renders its panel inside the click handler

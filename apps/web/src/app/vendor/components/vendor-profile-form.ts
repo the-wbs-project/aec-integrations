@@ -1,6 +1,7 @@
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import {
   Component,
+  DestroyRef,
   computed,
   effect,
   inject,
@@ -37,6 +38,7 @@ import { VendorLogoField, type SaveLogo } from './vendor-logo-field';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 import { isReplayedEvent } from '../../core/event-replay';
+import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
 
 /** The vendor-editable text fields (`founded_year` is the one numeric field; the
  *  discrete company facts are in `choiceFields`, handled separately). */
@@ -120,7 +122,7 @@ interface FieldConfig {
     VendorLockedNote,
   ],
   template: `
-    <form class="space-y-8" novalidate (submit)="onFormSubmit($event)">
+    <form method="dialog" class="space-y-8" novalidate (submit)="onFormSubmit($event)">
       <!--
         AECI-967 (section 6.9). The product form has always said what to do about
         its AECi-owned identity fields; this form said nothing at all, so a vendor
@@ -245,11 +247,7 @@ interface FieldConfig {
               <aec-vendor-hidden-note [hide]="hide" [noteId]="fieldId(cfg.key) + '-hidden'" />
             }
             @if (fieldErrors()[cfg.key]; as err) {
-              <p
-                [id]="fieldId(cfg.key) + '-error'"
-                class="text-xs font-medium text-(--text-primary)"
-                role="alert"
-              >
+              <p [id]="fieldId(cfg.key) + '-error'" [class]="errorClass" role="alert">
                 {{ err }}
               </p>
             }
@@ -321,11 +319,7 @@ interface FieldConfig {
               <aec-vendor-hidden-note [hide]="hide" [noteId]="fieldId(cfg.key) + '-hidden'" />
             }
             @if (fieldErrors()[cfg.key]; as err) {
-              <p
-                [id]="fieldId(cfg.key) + '-error'"
-                class="text-xs font-medium text-(--text-primary)"
-                role="alert"
-              >
+              <p [id]="fieldId(cfg.key) + '-error'" [class]="errorClass" role="alert">
                 {{ err }}
               </p>
             }
@@ -376,8 +370,11 @@ interface FieldConfig {
   styles: [':host { display: block; }'],
 })
 export class VendorProfileForm {
+  /** A field's inline error: the shared recipe (AECI-1984). */
+  protected readonly errorClass = FIELD_ERROR_CLASS;
   private readonly api = inject(VendorApi);
   private readonly store = inject(VendorPortalStore);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly vendor = input.required<VendorAccount>();
 
@@ -607,10 +604,17 @@ export class VendorProfileForm {
 
     // Tell the store when there is something to protect. `hasChanges` is a
     // computed boolean, so this only runs on the transitions.
-    effect(() => {
+    effect((onCleanup) => {
       if (this.hasChanges()) untracked(() => this.store.markDirty('profile'));
       else untracked(() => this.store.clearDirty('profile'));
+      // AECI-1943: a tab switch destroys this form. Its registration must not
+      // outlive it, or the store would hold `me` for a form nobody can see.
+      onCleanup(() => untracked(() => this.store.clearDirty('profile')));
     });
+    // AECI-1943: the effect's cleanup also runs when `hasChanges` flips, so it
+    // only withdraws the registration. Leaving the form for good also applies
+    // the refresh the store set aside while it was dirty.
+    this.destroyRef.onDestroy(() => this.store.releaseDirty('profile'));
   }
 
   /** Take the server's copy and drop the unsaved edits. Deliberately explicit:
@@ -699,8 +703,8 @@ export class VendorProfileForm {
     this.saved.set(false);
   }
 
-  /** The form's submit. Returns early on a replayed early submit, which the
-   *  browser already ran natively (`core/event-replay.ts`). */
+  /** The form's submit. Drops a replayed early submit. The form is `method="dialog"`,
+   *  so the native submit did nothing (AECI-1919, `core/event-replay.ts`). */
   protected onFormSubmit(event: Event): void {
     if (isReplayedEvent(event)) return;
     event.preventDefault();

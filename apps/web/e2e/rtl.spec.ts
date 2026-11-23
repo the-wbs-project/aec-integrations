@@ -19,8 +19,8 @@ import { expect, test, type Page } from '@playwright/test';
  *   1. Logical margin (`ms-1.5` on the Products-tab count) resolves to the
  *      physical LEFT under LTR and the physical RIGHT under RTL. This needs no
  *      Tailwind variant — it is the CSS logical property doing the work.
- *   2. The directional new-tab glyph — `aec-new-tab-icon`'s Lucide
- *      arrow-up-right SVG (mirrored via `rtl:-scale-x-100` since AECI-980,
+ *   2. The directional new-tab glyph — `aec-new-tab-icon`'s
+ *      `external` arrow, drawn by `aec-icon` (mirrored via `rtl:-scale-x-100` since AECI-980,
  *      which replaced the former `↗` text span) — carries no transform under
  *      LTR and a horizontal-flip transform under RTL.
  */
@@ -34,7 +34,7 @@ async function probe(page: Page) {
     // tabular-nums span inside a [role=tab] (the Overview tab has none).
     const count = document.querySelector('[role="tab"] span.tabular-nums');
     // The "Visit website" new-tab cue (decorative, mirrored): the
-    // aec-new-tab-icon SVG, the one place the arrow-up-right is drawn (AECI-980).
+    // aec-new-tab-icon SVG, drawn by aec-icon as the `external` icon (AECI-980, AECI-1753).
     const arrow = Array.from(document.querySelectorAll('svg[aria-hidden="true"]')).find((s) =>
       s.classList.contains('rtl:-scale-x-100'),
     );

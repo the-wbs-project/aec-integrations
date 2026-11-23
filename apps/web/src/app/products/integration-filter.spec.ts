@@ -4,10 +4,17 @@ import type { ProductIntegrationItem, ProductLink } from '@aeci/shared';
 
 import { splitIntegrationLanes } from './connector-lane-grouping';
 import {
+  NO_INTEGRATION_FILTER,
+  dataObjectOptions,
+  directionOptions,
   filterIntegrationLanes,
   filterPoweredHubView,
   isFilterActive,
+  isIntegrationFilterActive,
   normalizeFilterText,
+  partnerCategoryOptions,
+  rowsWithoutDataObjects,
+  toggleFacetValue,
 } from './integration-filter';
 import { groupPoweredIntegrations } from './powered-hub-grouping';
 
@@ -46,6 +53,9 @@ function edge(
     via: null,
     powered_by_product: null,
     data_object_slugs: [],
+    data_objects: [],
+    partner_categories: [],
+    agreement: null,
     created_at: '2026-01-01T00:00:00.000Z',
     updated_at: '2026-01-01T00:00:00.000Z',
     ...overrides,
@@ -303,5 +313,117 @@ describe('filterPoweredHubView', () => {
       expect(filterPoweredHubView(mechView, 'acme').pairCount).toBe(1);
       expect(filterPoweredHubView(mechView, 'zzz').pairCount).toBe(0);
     });
+  });
+});
+
+describe('the reader filter state (AECI-1782)', () => {
+  const page = link('procore', 'Procore');
+  const agave = link('agave-erp-sync', 'Agave ERP Sync');
+  const acc = { slug: 'accounting', name: 'Accounting' };
+  const field = { slug: 'field-management', name: 'Field management' };
+  const invoice = { slug: 'invoice', name: 'Invoices' };
+  const rfi = { slug: 'rfi', name: 'RFIs' };
+
+  const objects = (...terms: { slug: string; name: string }[]) => ({
+    data_objects: terms,
+    data_object_slugs: terms.map((t) => t.slug),
+  });
+
+  const view = splitIntegrationLanes(
+    [
+      edge(page, link('sage', 'Sage'), {
+        context_direction: 'outbound',
+        partner_categories: [acc],
+        ...objects(invoice, rfi),
+      }),
+      edge(page, link('fieldwire', 'Fieldwire'), {
+        context_direction: 'inbound',
+        partner_categories: [field],
+        ...objects(rfi),
+      }),
+      edge(page, link('xero', 'Xero'), {
+        context_direction: 'both',
+        partner_categories: [acc, field],
+      }),
+      edge(page, link('vista', 'Vista'), {
+        context_direction: null,
+        partner_categories: [],
+        ...objects(invoice),
+      }),
+      edge(page, link('quickbooks', 'QuickBooks'), {
+        via: agave,
+        context_direction: 'outbound',
+        partner_categories: [acc],
+      }),
+    ],
+    [],
+  );
+  const slugs = (v: typeof view) => [
+    ...v.direct.map((r) => r.other.slug),
+    ...v.via.flatMap((g) => g.rows.map((r) => r.other.slug)),
+  ];
+
+  it('no filter returns the view by identity', () => {
+    expect(filterIntegrationLanes(view, NO_INTEGRATION_FILTER)).toBe(view);
+    expect(isIntegrationFilterActive(NO_INTEGRATION_FILTER)).toBe(false);
+    expect(isIntegrationFilterActive({ ...NO_INTEGRATION_FILTER, query: '  ' })).toBe(false);
+  });
+
+  it('directions match ANY chosen direction, and a row with no direction never matches', () => {
+    const out = filterIntegrationLanes(view, {
+      ...NO_INTEGRATION_FILTER,
+      directions: ['outbound'],
+    });
+    expect(slugs(out)).toEqual(['sage', 'quickbooks']);
+    const two = filterIntegrationLanes(view, {
+      ...NO_INTEGRATION_FILTER,
+      directions: ['inbound', 'both'],
+    });
+    expect(slugs(two)).toEqual(['fieldwire', 'xero']);
+  });
+
+  it('partner categories match ANY chosen category', () => {
+    const f = filterIntegrationLanes(view, {
+      ...NO_INTEGRATION_FILTER,
+      partnerCategories: ['field-management'],
+    });
+    expect(slugs(f)).toEqual(['fieldwire', 'xero']);
+  });
+
+  it('data objects must ALL move, and rows with none on record are left out', () => {
+    const one = filterIntegrationLanes(view, { ...NO_INTEGRATION_FILTER, dataObjects: ['rfi'] });
+    expect(slugs(one)).toEqual(['fieldwire', 'sage']);
+    const both = filterIntegrationLanes(view, {
+      ...NO_INTEGRATION_FILTER,
+      dataObjects: ['rfi', 'invoice'],
+    });
+    expect(slugs(both)).toEqual(['sage']);
+    expect(rowsWithoutDataObjects(view)).toBe(2);
+  });
+
+  it('facets AND together with the query, and the counts stay the rendered set', () => {
+    const f = filterIntegrationLanes(view, {
+      query: 'a',
+      directions: ['outbound'],
+      dataObjects: [],
+      partnerCategories: ['accounting'],
+    });
+    // Sage matches "a" by name; the Agave lane matches "a" by its connector name.
+    expect(slugs(f)).toEqual(['sage', 'quickbooks']);
+    expect(f.rowCount).toBe(2);
+  });
+
+  it('option builders: directions in vocabulary order, terms A to Z by name', () => {
+    expect(directionOptions(view)).toEqual(['outbound', 'inbound', 'both']);
+    expect(partnerCategoryOptions(view).map((t) => t.name)).toEqual([
+      'Accounting',
+      'Field management',
+    ]);
+    expect(dataObjectOptions(view).map((t) => t.name)).toEqual(['Invoices', 'RFIs']);
+  });
+
+  it('toggleFacetValue adds and removes without reordering the rest', () => {
+    expect(toggleFacetValue(['a', 'b'], 'c')).toEqual(['a', 'b', 'c']);
+    expect(toggleFacetValue(['a', 'b', 'c'], 'b')).toEqual(['a', 'c']);
   });
 });

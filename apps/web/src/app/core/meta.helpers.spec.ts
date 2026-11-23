@@ -28,6 +28,7 @@ import {
   buildVendorJsonLd,
   buildWebSiteJsonLd,
   composeEntityDescription,
+  type PairSubjectLd,
   fitTitle,
   formatNameList,
   integrationPartnerNames,
@@ -44,8 +45,9 @@ import {
 } from './meta.helpers';
 
 /** A pair endpoint (`ProductListItem`, not `ProductDetail`). Defaults to Revit. */
-function makePairProduct(overrides: Partial<ProductListItem> = {}): ProductListItem {
-  const base: ProductListItem = {
+function makePairProduct(overrides: Partial<PairSubjectLd> = {}): PairSubjectLd {
+  const base: PairSubjectLd = {
+    claim_status: 'claimed',
     id: '00000000-0000-0000-0000-000000000001',
     slug: 'revit',
     name: 'Revit',
@@ -942,6 +944,15 @@ describe('buildPairJsonLd', () => {
     expect(ld.about[1]?.image).toBe('https://cdn.example/revit.png');
   });
 
+  // AECI-1851: the rule fails closed. An endpoint with no `claim_status` (an API that
+  // predates the field) carries no image.
+  it('drops the image of an endpoint whose claim status is missing', () => {
+    const { claim_status: _dropped, ...bare } = makePairProduct();
+    const ld = build({ context: bare as PairSubjectLd, other: makePairProduct() });
+    expect(ld.about[0]).not.toHaveProperty('image');
+    expect(ld.about[1]?.image).toBe('https://cdn.example/revit.png');
+  });
+
   // Nested nodes inherit the enclosing document's @context; repeating it is
   // legal but noisy, and Google's own examples omit it.
   it('carries no @context on the nested about nodes', () => {
@@ -1052,6 +1063,9 @@ function makeEdge(source: ProductLink, target: ProductLink): ProductIntegrationI
     context_direction: 'outbound',
     powered_by_product: null,
     data_object_slugs: [],
+    data_objects: [],
+    partner_categories: [],
+    agreement: null,
     created_at: '2024-01-01T00:00:00.000Z',
     updated_at: '2024-06-01T00:00:00.000Z',
   };

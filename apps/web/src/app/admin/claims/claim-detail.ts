@@ -3,6 +3,7 @@ import { Component, afterNextRender, computed, effect, inject, signal } from '@a
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import { foundViaLabel } from '../../shared/found-via/found-via-labels';
+import { injectInPageHref } from '../../shared/in-page-href';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 
 import type { AdminAuditRow, AdminClaimDetail, ClaimDuplicateSibling } from '@aeci/shared';
@@ -18,6 +19,7 @@ import { isStatus } from '../http-status';
 import { productRolesLabel } from '../product-roles/product-roles-label';
 import { seatLabel } from '../seat-label';
 import { ownedIntegrationsLabel } from '../product-roles/owned-integrations-label';
+import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 /** Same page size as the vendor and connector trails. */
 const AUDIT_PAGE_SIZE = 25;
@@ -68,12 +70,22 @@ const AUDIT_PAGE_SIZE = 25;
  */
 @Component({
   selector: 'aec-claim-detail',
-  imports: [AuditTrail, ClaimAccountConflict, DatePipe, DomainMatchSignal, NewTabIcon, RouterLink],
+  imports: [
+    AecFormSubmit,
+    AuditTrail,
+    ClaimAccountConflict,
+    DatePipe,
+    DomainMatchSignal,
+    NewTabIcon,
+    RouterLink,
+  ],
   templateUrl: './claim-detail.html',
 })
 export class ClaimDetail {
   private readonly api = inject(AdminClaimsApi);
   private readonly route = inject(ActivatedRoute);
+  /** `{path}#admin-claim-duplicate`. A bare `#id` resolves against `<base href="/">` (AECI-1839). */
+  protected readonly duplicateHref = injectInPageHref('admin-claim-duplicate');
 
   private readonly breadcrumbs = inject(AdminBreadcrumbStore);
 

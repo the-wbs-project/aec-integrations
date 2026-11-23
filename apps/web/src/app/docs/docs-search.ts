@@ -20,9 +20,12 @@
  * or still in flight, the combobox collapses, so `aria-expanded` never points
  * at a listbox that does not exist (AECI-1308). A settled query with no hit shows
  * "No matching sections" as plain text under the input. A polite live region announces the count either way. A real `label` names the input.
+ * No row is active until the first Down or Up (AECI-1860, `listboxEntry`):
+ * Down enters at the first row, Up at the last.
  *
  * **Choosing a row** navigates to its page and heading anchor with an absolute
- * path, then clears the box. Enter with no row active takes the first row.
+ * path, then clears the box. Enter with no row active takes the first row, the
+ * top match the live region has just counted.
  * Highlights are text runs with matched ones in `mark` (`docs-search-hits.ts`).
  * Nothing is bound to `innerHTML`.
  *
@@ -50,40 +53,42 @@ import { Router } from '@angular/router';
 
 import { readDocsSearchConfig } from '../search/algolia-config';
 import type { DocsGuide } from './docs-content';
+import { listboxEntry } from '../shared/listbox-entry/listbox-entry';
 import { DOCS_SEARCH_FACTORY } from './docs-search.factory';
 import type { DocsSearchFn, DocsSearchHit } from './docs-search-hits';
+import { AecIcon } from '../shared/icon/icon';
+import { FIELD_INPUT_CLASS } from '../shared/form-field/form-field-classes';
 
 /** Search-as-you-type debounce, ms. The header autocomplete's value. */
 export const DOCS_SEARCH_DEBOUNCE_MS = 180;
+
+/**
+ * The input: the shared field recipe (`FIELD_INPUT_CLASS`, 44px, the 3:1 field
+ * edge, 16px text), with the text moved to 48px for the leading glyph, as the
+ * `/search` query box does (AECI-1803). The browser's own clear button is off.
+ */
+export const DOCS_SEARCH_INPUT_CLASS = `${FIELD_INPUT_CLASS} min-w-0 ps-12 [&::-webkit-search-cancel-button]:hidden`;
 
 /** `pending` until hydration decides; `ready` with a client; `off` without config. */
 type State = 'pending' | 'ready' | 'off';
 
 @Component({
   selector: 'aec-docs-search',
-  imports: [Combobox, ComboboxPopup, ComboboxWidget, Listbox, Option, OverlayModule],
+  imports: [AecIcon, Combobox, ComboboxPopup, ComboboxWidget, Listbox, Option, OverlayModule],
   template: `
     @switch (state()) {
       @case ('pending') {
-        <div class="mb-4 h-9" data-docs-search-slot></div>
+        <div class="mb-4 h-11" data-docs-search-slot></div>
       }
       @case ('ready') {
         <div class="mb-4" role="search" [attr.aria-label]="label()">
           <label [attr.for]="inputId" class="sr-only">{{ label() }}</label>
           <div class="relative">
-            <svg
-              aria-hidden="true"
-              class="pointer-events-none absolute start-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-(--text-secondary)"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
+            <span
+              class="pointer-events-none absolute start-4 top-1/2 flex -translate-y-1/2 text-(--text-secondary)"
             >
-              <circle cx="11" cy="11" r="7" />
-              <path d="m20 20-3.5-3.5" />
-            </svg>
+              <aec-icon name="search" decorative [size]="5" />
+            </span>
             <input
               ngCombobox
               #combobox="ngCombobox"
@@ -98,7 +103,7 @@ type State = 'pending' | 'ready' | 'off';
               (focus)="onFocus()"
               (blur)="focused.set(false)"
               [placeholder]="placeholder"
-              class="h-9 w-full rounded-md border border-(--border-default) bg-(--surface-base) ps-8 pe-3 text-sm text-(--text-primary) placeholder:text-(--text-secondary) focus-visible:outline-2 [&::-webkit-search-cancel-button]:hidden focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              [class]="inputClass"
             />
           </div>
 
@@ -114,33 +119,32 @@ type State = 'pending' | 'ready' | 'off';
             <ng-template ngComboboxPopup [combobox]="combobox" popupType="listbox">
               <!-- The panel renders only with a row, never blank. -->
               @if (hits().length > 0) {
-                <div
-                  class="w-[min(24rem,calc(100vw-2rem))] rounded-md border border-(--border-default) bg-(--surface-raised) p-1.5"
-                >
+                <div class="aec-popover w-[min(24rem,calc(100vw-2rem))] p-2">
                   <ul
                     ngComboboxWidget
                     ngListbox
                     #listbox="ngListbox"
                     [(value)]="selected"
                     (valueChange)="onSelect($event)"
-                    [activeDescendant]="listbox.activeDescendant()"
+                    [activeDescendant]="navigated() ? listbox.activeDescendant() : undefined"
+                    [attr.data-navigated]="navigated()"
                     focusMode="activedescendant"
                     selectionMode="explicit"
                     [attr.aria-label]="listLabel()"
-                    class="m-0 flex max-h-[min(26rem,60vh)] list-none flex-col gap-0.5 overflow-y-auto p-0"
+                    class="group m-0 flex max-h-[min(26rem,60vh)] list-none flex-col gap-1 overflow-y-auto p-0"
                   >
                     @for (hit of hits(); track hit.objectID) {
                       <li
                         ngOption
                         [value]="hit"
                         [label]="optionLabel(hit)"
-                        class="flex cursor-pointer flex-col gap-0.5 rounded-sm px-3 py-2 data-[active=true]:bg-(--surface-sunken)"
+                        class="flex min-h-11 cursor-pointer flex-col justify-center gap-1 rounded-mark px-3 py-2 group-data-[navigated=true]:data-[active=true]:bg-(--surface-sunken)"
                       >
-                        <span class="truncate text-xs text-(--text-secondary)"
+                        <span class="truncate text-t-12 text-(--text-secondary)"
                           >{{ hit.section }} / {{ hit.pageTitle }}</span
                         >
                         <!-- Every run is an element, so no collapsed space lands between runs. -->
-                        <span class="text-sm font-medium text-(--text-primary)">
+                        <span class="text-t-14 font-semibold text-(--text-primary)">
                           @for (part of hit.heading; track $index) {
                             @if (part.match) {
                               <mark class="bg-transparent text-inherit underline">{{
@@ -152,10 +156,10 @@ type State = 'pending' | 'ready' | 'off';
                           }
                         </span>
                         @if (hit.snippet.length > 0) {
-                          <span class="line-clamp-2 text-xs text-(--text-secondary)">
+                          <span class="line-clamp-2 text-t-12 text-(--text-secondary)">
                             @for (part of hit.snippet; track $index) {
                               @if (part.match) {
-                                <mark class="bg-transparent font-medium text-(--text-primary)">{{
+                                <mark class="bg-transparent font-semibold text-(--text-primary)">{{
                                   part.text
                                 }}</mark>
                               } @else {
@@ -178,7 +182,7 @@ type State = 'pending' | 'ready' | 'off';
           -->
           @if (showEmpty()) {
             <p
-              class="m-0 mt-1.5 px-1 text-xs text-(--text-secondary)"
+              class="m-0 mt-2 px-1 text-t-12 text-(--text-secondary)"
               aria-hidden="true"
               i18n="@@app.docs.search.empty"
             >
@@ -197,6 +201,7 @@ export class DocsSearchComponent {
   readonly guide = input.required<DocsGuide>();
 
   protected readonly inputId = 'aec-docs-search';
+  protected readonly inputClass = DOCS_SEARCH_INPUT_CLASS;
   protected readonly placeholder = $localize`:@@app.docs.search.placeholder:Search`;
 
   protected readonly state = signal<State>('pending');
@@ -210,6 +215,15 @@ export class DocsSearchComponent {
   private readonly results = signal<readonly DocsSearchHit[]>([]);
   private readonly settled = signal(false);
   protected readonly hits = this.results.asReadonly();
+
+  /** The `ngListbox`, present only while the popup shows a row. */
+  private readonly popupListbox = viewChild<Listbox<DocsSearchHit>>(Listbox);
+  /** No row is active until the first arrow key (AECI-1860). Resets with the rows or the open state. */
+  protected readonly navigated = listboxEntry({
+    listbox: this.popupListbox,
+    count: () => this.results().length,
+    resetOn: () => [this.results(), this.expanded()],
+  });
 
   protected readonly label = computed(() =>
     this.guide() === 'vendor'
@@ -300,6 +314,7 @@ export class DocsSearchComponent {
   }
 
   protected onInput(event: Event): void {
+    this.navigated.set(false);
     this.setQuery((event.target as HTMLInputElement).value);
   }
 
@@ -313,6 +328,9 @@ export class DocsSearchComponent {
   /**
    * Enter. Aria commits an active option itself (then `onSelect` runs), so
    * this yields when one is active. With none active it takes the first row.
+   * `aria-activedescendant` is set only after the first arrow key, and
+   * `listboxEntry` stops Aria's relayed Enter until then, so the two paths
+   * never both run.
    */
   protected onEnterKey(event: Event): void {
     const field = event.target as HTMLInputElement;

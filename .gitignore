@@ -17,6 +17,8 @@ a11y-nightly-summary.json
 test-results/
 .lighthouseci/
 coverage/
+# Vitest blob reports from the sharded apps/api unit job (AECI-1709).
+.vitest-reports/
 out-tsc/
 # Vitest JSON reporter output from the CI integration job (AECI-90).
 integration-results.json
@@ -26,3 +28,13 @@ integration-results.json
 # hook, so they exist locally for tsc/wrangler but never bloat the repo or
 # pollute codebase search. Do NOT commit these.
 **/worker-configuration.d.ts
+
+# AECI-1720: the redesign screenshots were archived outside the repo by Chris on
+# 2026-11-23. `pnpm baseline:screenshots` still writes baseline/ (its README stays
+# tracked); these rules keep a re-run from adding the images back.
+docs/design/mockups/redesign-2026-11/baseline/*.png
+docs/design/mockups/redesign-2026-11/baseline/*.jpg
+docs/design/mockups/redesign-2026-11/baseline/*.jpeg
+docs/design/mockups/redesign-2026-11/screens/*.png
+docs/design/mockups/redesign-2026-11/screens/*.jpg
+docs/design/mockups/redesign-2026-11/screens/*.jpeg

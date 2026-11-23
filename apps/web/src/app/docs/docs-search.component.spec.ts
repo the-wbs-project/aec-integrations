@@ -87,14 +87,34 @@ async function type(
 }
 
 function key(input: HTMLInputElement, name: string): void {
-  input.dispatchEvent(new KeyboardEvent('keydown', { key: name, bubbles: true }));
+  input.dispatchEvent(new KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true }));
+}
+
+/** One key, then the relay effect, the first-key microtask and a render. */
+async function press(
+  fixture: Awaited<ReturnType<typeof render>>['fixture'],
+  input: HTMLInputElement,
+  name: string,
+) {
+  key(input, name);
+  fixture.detectChanges();
+  await fixture.whenStable();
+  await Promise.resolve();
+  fixture.detectChanges();
+  await fixture.whenStable();
 }
 
 describe('DocsSearchComponent', () => {
-  beforeEach(() => TestBed.resetTestingModule());
+  // jsdom has no scrollIntoView. The first arrow key scrolls the entered row into view.
+  const hadScroll = 'scrollIntoView' in Element.prototype;
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+    if (!hadScroll) Element.prototype.scrollIntoView = () => undefined;
+  });
   afterEach(() => {
     delete (globalThis as GlobalWithConfig).__AECI_ALGOLIA__;
     document.querySelectorAll('.cdk-overlay-container').forEach((n) => n.remove());
+    if (!hadScroll) delete (Element.prototype as Partial<Element>).scrollIntoView;
   });
 
   it('renders nothing when the config has no docs index', async () => {
@@ -120,6 +140,18 @@ describe('DocsSearchComponent', () => {
     fixture.componentRef.setInput('guide', 'vendor');
     fixture.detectChanges();
     expect(host.querySelector('label')?.textContent?.trim()).toBe('Search For vendors');
+  });
+
+  // AECI-1803: the box is the shared field recipe (44px, the 3:1 field edge),
+  // with its text moved past the leading glyph, as on /search.
+  it('draws the input on the shared field recipe', async () => {
+    (globalThis as GlobalWithConfig).__AECI_ALGOLIA__ = CONFIG;
+    const { host } = await render('help');
+    const input = host.querySelector('input')!;
+    expect(input.classList).toContain('aec-field-control');
+    expect(input.classList).toContain('ps-12');
+    expect(input.classList).toContain('text-t-16');
+    expect(input.className).not.toMatch(/\bh-9\b|border-\(--border-default\)/);
   });
 
   it('sends the guide filter of the shell it sits in', async () => {
@@ -188,44 +220,85 @@ describe('DocsSearchComponent', () => {
     expect(input.hasAttribute('aria-controls')).toBe(false);
   });
 
-  it('moves with the arrow keys and opens the active row on Enter', async () => {
+  // AECI-1860: nothing is active until the first arrow key (the cause AECI-1687 found).
+  it('has no active row when the list opens', async () => {
+    (globalThis as GlobalWithConfig).__AECI_ALGOLIA__ = CONFIG;
+    const { fixture, host } = await render('help');
+    const input = host.querySelector('input')!;
+    await type(fixture, input, 'before');
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(input.getAttribute('aria-expanded')).toBe('true');
+    expect(input.hasAttribute('aria-activedescendant')).toBe(false);
+    expect(document.querySelector('[role="listbox"]')?.getAttribute('data-navigated')).toBe(
+      'false',
+    );
+  });
+
+  it('enters at the first row on the first Down, then moves on', async () => {
+    (globalThis as GlobalWithConfig).__AECI_ALGOLIA__ = CONFIG;
+    const { fixture, host } = await render('help');
+    const input = host.querySelector('input')!;
+    await type(fixture, input, 'before');
+    const options = () => [...document.querySelectorAll('[role="option"]')];
+
+    await press(fixture, input, 'ArrowDown');
+    expect(input.getAttribute('aria-activedescendant')).toBe(options()[0]!.id);
+    expect(document.querySelector('[role="listbox"]')?.getAttribute('data-navigated')).toBe('true');
+    await press(fixture, input, 'ArrowDown');
+    expect(input.getAttribute('aria-activedescendant')).toBe(options()[1]!.id);
+  });
+
+  it('enters at the last row on the first Up', async () => {
+    (globalThis as GlobalWithConfig).__AECI_ALGOLIA__ = CONFIG;
+    const { fixture, host } = await render('help');
+    const input = host.querySelector('input')!;
+    await type(fixture, input, 'before');
+
+    await press(fixture, input, 'ArrowUp');
+    const options = [...document.querySelectorAll('[role="option"]')];
+    expect(input.getAttribute('aria-activedescendant')).toBe(options.at(-1)!.id);
+  });
+
+  it('starts over with no active row when the query changes', async () => {
+    (globalThis as GlobalWithConfig).__AECI_ALGOLIA__ = CONFIG;
+    const { fixture, host } = await render('help');
+    const input = host.querySelector('input')!;
+    await type(fixture, input, 'before');
+    await press(fixture, input, 'ArrowDown');
+    expect(input.hasAttribute('aria-activedescendant')).toBe(true);
+
+    await type(fixture, input, 'befor');
+    expect(input.hasAttribute('aria-activedescendant')).toBe(false);
+  });
+
+  it('opens the arrowed-to row on Enter', async () => {
     (globalThis as GlobalWithConfig).__AECI_ALGOLIA__ = CONFIG;
     const { fixture, host } = await render('help');
     const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
     const input = host.querySelector('input')!;
     await type(fixture, input, 'before');
 
-    // Aria keeps the first row current on open, so one ArrowDown reaches the second.
-    key(input, 'ArrowDown');
-    fixture.detectChanges();
-    await fixture.whenStable();
-    let active = input.getAttribute('aria-activedescendant');
-    expect(document.getElementById(active!)?.textContent).toContain('Signing in');
-    key(input, 'ArrowUp');
-    fixture.detectChanges();
-    await fixture.whenStable();
-    active = input.getAttribute('aria-activedescendant');
-    expect(document.getElementById(active!)?.textContent).toContain('Before');
-    key(input, 'ArrowDown');
-    fixture.detectChanges();
-    await fixture.whenStable();
-
-    key(input, 'Enter');
-    fixture.detectChanges();
-    await fixture.whenStable();
+    await press(fixture, input, 'ArrowDown');
+    await press(fixture, input, 'ArrowDown');
+    await press(fixture, input, 'Enter');
+    expect(navigate).toHaveBeenCalledTimes(1);
     expect(navigate).toHaveBeenCalledWith(['/docs/account/signing-in'], {});
     expect(input.value).toBe('');
   });
 
-  it('opens the first row on Enter when none is active, with its fragment', async () => {
+  it('opens the first row once on Enter when none is active, with its fragment', async () => {
     (globalThis as GlobalWithConfig).__AECI_ALGOLIA__ = CONFIG;
     const { fixture, host } = await render('help');
     const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
     const input = host.querySelector('input')!;
     await type(fixture, input, 'before');
-    input.removeAttribute('aria-activedescendant');
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
-    fixture.detectChanges();
+    expect(input.hasAttribute('aria-activedescendant')).toBe(false);
+
+    await press(fixture, input, 'Enter');
+    // Once: Aria's relayed Enter must not commit its silent default row as well.
+    expect(navigate).toHaveBeenCalledTimes(1);
     expect(navigate).toHaveBeenCalledWith(['/docs/reviewers/writing-a-review'], {
       fragment: 'before-you-start',
     });

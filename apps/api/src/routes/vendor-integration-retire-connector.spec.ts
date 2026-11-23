@@ -23,6 +23,11 @@ import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('../lib/algolia-sync', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../lib/algolia-sync')>();
+  return { ...real, syncIndexTargets: vi.fn(async () => []) };
+});
+
 import {
   attestations,
   auditLog,
@@ -38,6 +43,8 @@ import {
 } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
+import { syncIndexTargets, type IndexTargetIds } from '../lib/algolia-sync';
+import { resetAlgoliaWriteGuardWarning } from '../lib/algolia-write-guard';
 import { NOTIFICATION_SENT_ACTION } from '../lib/attestation-notify';
 import type { AuthzVariables } from '../lib/authz';
 import {
@@ -110,8 +117,11 @@ const ADMIN: AuthzVariables['auth'] = {
 };
 
 let t: TestDb;
+/** Spread over the call env; the Algolia cases set the credentials. */
+let callEnv: Partial<Env> = {};
 
 beforeEach(async () => {
+  callEnv = {};
   t = await makeTestDb();
   await t.db.insert(vendors).values([
     { id: V_A, slug: 'procore-inc', companyName: 'Procore Inc' },
@@ -222,6 +232,7 @@ async function call(
   const send = vi.fn().mockResolvedValue(undefined);
   const env: Env = {
     ...TEST_ENV,
+    ...callEnv,
     CACHE_PURGE_QUEUE: { send } as unknown as Env['CACHE_PURGE_QUEUE'],
   };
   const execCtx = fakeExecutionContext();
@@ -411,6 +422,25 @@ describe('owner retire on an evidenced pair (AECI-1091)', () => {
     expect(await auditsFor(INTEGRATION_RETIRED_ACTION)).toHaveLength(0);
     expect((await pair(PAIR_OWNED)).retiredBy).toBe('aeci');
   });
+});
+
+describe('a pair retire re-indexes the endpoint and connector vendors (AECI-1897)', () => {
+  // The vendor count is reach: both endpoints and the connector count the pair.
+  const cases = [
+    ['the owner', () => retire(CONN, PAIR_OWNED)],
+    ['AECi', () => adminRetire(PAIR_OWNED)],
+  ] as const;
+  for (const [who, run] of cases) {
+    it(`${who} names all three products for their vendors`, async () => {
+      vi.mocked(syncIndexTargets).mockClear();
+      resetAlgoliaWriteGuardWarning();
+      callEnv = { ENV: 'staging', ALGOLIA_APP_ID: 'TESTAPP', ALGOLIA_ADMIN_KEY: 'test-admin-key' };
+      const res = await run();
+      expect(res.status).toBe(200);
+      const targets = vi.mocked(syncIndexTargets).mock.calls[0]![4] as IndexTargetIds;
+      expect([...(targets.vendorsOfProducts ?? [])].sort()).toEqual([P_A, P_B, P_CONNECTOR].sort());
+    });
+  }
 });
 
 describe('contests on the pair (AECI-1091 over AECI-1092)', () => {

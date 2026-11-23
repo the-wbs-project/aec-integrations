@@ -82,6 +82,51 @@ describe('LegalPage', () => {
     expect(host.textContent).toContain('Version 1.1');
   });
 
+  it('puts the hero on the one Bone band and the body on the page wrap at a rem measure (AECI-1804)', () => {
+    const { host } = render('terms');
+    const bands = host.querySelectorAll('aec-bone-band');
+    expect(bands).toHaveLength(1);
+    expect(bands[0].querySelector('h1')).not.toBeNull();
+    const article = host.querySelector('article.aec-prose');
+    // rem, not ch: a ch measure re-wraps when the web font swaps in.
+    expect(article?.classList).toContain('max-w-[42rem]');
+    expect(article?.className).not.toMatch(/\dch\]/);
+    expect(article?.parentElement?.classList).toContain('max-w-[1328px]');
+    // The h1 is the Headline role: no size utility the unlayered h1 rule would kill.
+    expect(host.querySelector('h1')?.className).not.toMatch(/text-\d?xl|font-normal/);
+  });
+
+  // AECI-1720 layout pass: the article keeps its 42rem, and from lg the "On this
+  // page" list fills the column beside it. Its words are the page's own h2s.
+  it('lists the page headings beside the article and gives each a stable id', () => {
+    const { host } = render('terms');
+    const article = host.querySelector('article.aec-prose')!;
+    const h2s = Array.from(article.querySelectorAll('h2'));
+    expect(h2s.length).toBeGreaterThan(5);
+    for (const h of h2s) expect(h.id).toMatch(/^[a-z0-9-]+$/);
+    expect(h2s.find((h) => h.textContent?.trim() === 'Change history')?.id).toBe('change-history');
+    const toc = host.querySelector('aec-page-toc')!;
+    expect(toc.className).toContain('hidden');
+    expect(toc.className).toContain('lg:block');
+    expect(toc.className).toContain('lg:sticky');
+    expect(toc.parentElement).toBe(article.parentElement);
+    const links = Array.from(toc.querySelectorAll('nav a'));
+    expect(links.map((a) => a.textContent?.trim())).toEqual(h2s.map((h) => h.textContent?.trim()));
+    // An absolute path plus the fragment, never a bare #id (<base href> trap).
+    links.forEach((a, i) =>
+      expect(a.getAttribute('href')).toMatch(new RegExp(`^/.*#${h2s[i].id}$`)),
+    );
+  });
+
+  it('draws the version callouts on the control radius with in-text links (AECI-1804)', () => {
+    const { host } = render('terms', '1.0');
+    const notice = host.querySelector('[data-testid="legal-superseded"]');
+    expect(notice?.classList).toContain('rounded-control');
+    const link = notice?.querySelector('a');
+    expect(link?.classList).toContain('underline');
+    expect(link?.classList).toContain('hover:text-(--accent-primary-hover)');
+  });
+
   it('hides the effective-date chip while the draft frontmatter leaves it blank', () => {
     const { host } = render('terms');
     expect(host.textContent).not.toContain('Effective');
@@ -370,8 +415,9 @@ describe('LegalPage', () => {
     const heading = Array.from(article.querySelectorAll('h2')).find(
       (h) => h.textContent?.trim() === 'Renewal notice',
     )!;
-    let list: Element | null = heading.nextElementSibling;
-    while (list && list.tagName !== 'UL') list = list.nextElementSibling;
+    // The body after a heading is a `display: contents` run (AECI-1720 heading ids),
+    // so the list is inside the heading's next sibling.
+    const list = heading.nextElementSibling?.querySelector('ul') ?? null;
     const items = Array.from(list!.querySelectorAll('li')).map((li) => li.textContent?.trim());
     expect(items).toEqual([
       'the renewal or end date,',
@@ -508,6 +554,13 @@ describe('LegalPage', () => {
         lastUpdated: 'February 1, 2027',
       },
       html: '<h2>What changes</h2><p>New text.</p>',
+      blocks: [
+        {
+          heading: { id: 'what-changes', text: 'What changes', level: 2 },
+          html: '<p>New text.</p>',
+        },
+      ],
+      headings: [{ id: 'what-changes', text: 'What changes' }],
       effectiveOn: '2027-03-31',
     };
     const lookup: LegalDocLookup = {

@@ -72,7 +72,7 @@ import {
   productDetailConfig,
   productLinkColumns,
   toProductDetail,
-  toProductLink,
+  toOwnedProductLink,
 } from '../lib/drizzle-helpers';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { chunked } from '../lib/promote-claims';
@@ -99,7 +99,7 @@ async function productLinksById(db: Db, ids: readonly string[]): Promise<Map<str
       }),
     ),
   );
-  for (const row of pages.flat()) out.set(row.id, toProductLink(row));
+  for (const row of pages.flat()) out.set(row.id, toOwnedProductLink(row));
   return out;
 }
 
@@ -201,9 +201,9 @@ async function evidencedContestTargets(
     out.set(pair.id, {
       id: pair.id,
       name: pair.name,
-      context_product: toProductLink(context),
-      other_product: toProductLink(other),
-      connector: toProductLink(pair.connectorProduct),
+      context_product: toOwnedProductLink(context),
+      other_product: toOwnedProductLink(other),
+      connector: toOwnedProductLink(pair.connectorProduct),
       contestable_fields: contestable,
       endpoint_vendors: endpointVendors,
       owner: pair.builtByVendorId ? ref(pair.builtByVendorId) : null,

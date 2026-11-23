@@ -71,6 +71,11 @@ import {
   COORDINATED_START_MIN_MEMBER_SHARE,
   COORDINATED_START_WINDOW_SECONDS,
 } from './coordinated-identities';
+import {
+  BROWSER_REPORT_SETTLE_MINUTES,
+  INTERACTED_OVERRIDES_FAMILIES,
+  INTERACTED_RULE_SEAM_DAY,
+} from './traffic-shadow-browser-evidence';
 
 const DOC = readFileSync(
   join(process.cwd(), '..', '..', 'docs', 'BOT_TRAFFIC_CLASSIFICATION.md'),
@@ -244,6 +249,12 @@ describe('docs/BOT_TRAFFIC_CLASSIFICATION.md matches the code', () => {
     `\`COORDINATED_MAX_PAIR_OVERLAP\` (${COORDINATED_MAX_PAIR_OVERLAP})`,
     `\`COORDINATED_MIN_DISTINCT_PATH_RATIO\` (${COORDINATED_MIN_DISTINCT_PATH_RATIO})`,
     `\`COORDINATED_GROUP_SHARE\` (${COORDINATED_GROUP_SHARE})`,
+    // §2.15, the shadow-only browser-report candidates (AECI-1716).
+    `\`BROWSER_REPORT_SETTLE_MINUTES\` (${BROWSER_REPORT_SETTLE_MINUTES})`,
+    `\`INTERACTED_RULE_SEAM_DAY\` (${INTERACTED_RULE_SEAM_DAY})`,
+    `outweighs: ${INTERACTED_OVERRIDES_FAMILIES.slice(0, -1)
+      .map((f) => `\`${f}\``)
+      .join(', ')} and \`${INTERACTED_OVERRIDES_FAMILIES.at(-1)}\``,
     // §2.5, the rules beside the §2.15 values.
     `views ≥ ${SWARM_MIN_VIEWS}, and distinct ASNs ÷ views ≥ ${SWARM_MIN_ASN_RATIO}`,
     `Full-strength flag on ≥ ${SWARM_PRIOR_MIN_FLAGGED_DAYS} of the prior ${SWARM_PRIOR_LOOKBACK_DAYS} days: views ≥ ${SWARM_RECURRING_MIN_VIEWS}, and ratio ≥ ${SWARM_RECURRING_ASN_RATIO}`,
