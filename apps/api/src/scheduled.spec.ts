@@ -40,6 +40,7 @@ import { makeTestDb, type TestDb } from './test/d1';
 import { makeFakeR2Bucket } from './test/fake-r2';
 import { memoryKv } from './test/memory-kv';
 import { CRON_FAILURE_EMAIL_METRIC } from './lib/cron-failure-alert';
+import { PRUNABLE } from './lib/retention-prune';
 import { SITEMAP_DIRTY_KEY, SITEMAP_XML_KEY } from './lib/sitemap-store';
 
 vi.mock('./posthog', () => ({
@@ -2944,6 +2945,84 @@ describe('job_runs bookkeeping (§7.2)', () => {
 
     expect(await t.db.select().from(pageViews)).toHaveLength(0);
     expect((await retentionDetail()).archive).toMatchObject({ status: 'skipped' });
+  });
+
+  // ── AECI-1917: a lost race replans, and a second loss is a warn-level skip ────
+
+  /** A `job_runs` row past the 90-day window: no snapshot or archive gate applies. */
+  async function seedPrunableJobRun(): Promise<void> {
+    const old = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000).toISOString();
+    await t.db.insert(jobRuns).values({ job: 'home-stats', startedAt: old, outcome: 'ok' });
+  }
+  const raceError = () => new Error('D1_ERROR: malformed JSON');
+
+  it('records two lost races as skipped: concurrent_run at warn, not failed', async () => {
+    await seedPrunableJobRun();
+    const spy = vi
+      .spyOn(t.db, 'batch')
+      .mockRejectedValueOnce(raceError() as never)
+      .mockRejectedValueOnce(raceError() as never);
+
+    await scheduled(cronController(RETENTION_CRON), makeEnv(), ctx);
+    spy.mockRestore();
+
+    const run = (await jobRunRows()).find((r) => r.job === 'retention-prune');
+    expect(run).toMatchObject({ outcome: 'skipped' });
+    const detail = run?.detail as { reason: string; tables: unknown[]; missingDays?: unknown };
+    expect(detail).toMatchObject({ job: 'retention-prune', reason: 'concurrent_run' });
+    expect(detail.tables).toHaveLength(PRUNABLE.length);
+    expect(detail.missingDays).toBeUndefined();
+    // Nothing deleted, no audit row: the old row is still there beside the new entries.
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+    expect((await jobRunRows()).filter((r) => r.job === 'home-stats')).toHaveLength(1);
+    expect(logToPosthog).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        level: 'warn',
+        message: 'aeci.retention.skipped reason=concurrent_run',
+      }),
+    );
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.retention.prune',
+      1,
+      ['trigger:cron', 'outcome:skipped', 'reason:concurrent_run'],
+    );
+    expect(submitCount).not.toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.retention.prune',
+      1,
+      ['trigger:cron', 'outcome:failed'],
+    );
+  });
+
+  it('commits on the replan after one lost race, and records replanned', async () => {
+    await seedPrunableJobRun();
+    const spy = vi.spyOn(t.db, 'batch').mockRejectedValueOnce(raceError() as never);
+
+    await scheduled(cronController(RETENTION_CRON), makeEnv(), ctx);
+    spy.mockRestore();
+
+    const run = (await jobRunRows()).find((r) => r.job === 'retention-prune');
+    expect(run).toMatchObject({ outcome: 'ok' });
+    expect(run?.detail).toMatchObject({ rowsDeleted: 1, replanned: true });
+    const audits = await t.db.select().from(auditLog);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({ action: 'retention.pruned' });
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.retention.prune',
+      1,
+      ['trigger:cron', 'outcome:ok', 'replanned:true'],
+    );
   });
 
   it('records a thrown job as failed AND still retry()s it — the reconcile contract', async () => {
