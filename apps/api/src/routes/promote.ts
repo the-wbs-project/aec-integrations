@@ -173,7 +173,7 @@ import { extensionHostSlugs } from '../lib/product-extensions';
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { recomputeProductCounts } from '../lib/recompute-counts';
 import { markSitemapDirty, splitSitemapTag } from '../lib/sitemap-store';
-import { cacheTagsForPromote, touchedTradeSlugs } from './promote-cache-tags';
+import { cacheTagsForPromote, edgeProductSlugs, touchedTradeSlugs } from './promote-cache-tags';
 import { gscRecrawlEntriesForPromote } from './promote-gsc-recrawl-entries';
 import { affectedUrlsForPromote, type AffectedUrlOptions } from './promote-indexnow-urls';
 import { resolvePublishedTradeSlugs } from './promote-trade-publication';
@@ -1322,21 +1322,33 @@ export function logPurgeEnqueueFailure(rc: PromoteRunCtx, batch: string[], reaso
  * pushes them to the env's indexes via the Drizzle `algolia-sync` core, gated on
  * the Algolia secrets. Injected for tests. Never throws.
  */
-export type PromoteAlgoliaSync = (rc: PromoteRunCtx, response: PromoteResponse) => Promise<void>;
+export type PromoteAlgoliaSync = (
+  rc: PromoteRunCtx,
+  response: PromoteResponse,
+  extra?: PromoteAlgoliaExtra,
+) => Promise<void>;
 
-const defaultAlgoliaSync: PromoteAlgoliaSync = (rc, response) =>
+/** Hook inputs the response cannot carry (AECI-1897). */
+export type PromoteAlgoliaExtra = {
+  /** Vendors this promote REMOVED from the product. Their reach count moved, but they
+   *  are not on `response.vendors` and the post-commit lookup sees only the new joins. */
+  removedVendorIds?: readonly string[];
+};
+
+const defaultAlgoliaSync: PromoteAlgoliaSync = (rc, response, extra) =>
   // Post-commit best-effort re-read for indexing. It re-queries the just-promoted
   // rows by id, so it MUST see its own write: resume the write session via its
   // bookmark (`rc.bookmark()`, filled in from the commit step's result) rather than
   // starting a fresh `'first-unconstrained'` session, or a lagging replica could index
   // stale or missing rows. Falls back to the read
   // default when no bookmark exists (single-DB local/test). (AECI-250)
-  syncAlgoliaAfterPromote(rc, response, getDb(rc.env, { bookmark: rc.bookmark() }).db);
+  syncAlgoliaAfterPromote(rc, response, getDb(rc.env, { bookmark: rc.bookmark() }).db, extra);
 
 async function syncAlgoliaAfterPromote(
   rc: PromoteRunCtx,
   response: PromoteResponse,
   db: Db,
+  extra: PromoteAlgoliaExtra = {},
 ): Promise<void> {
   const creds = { appId: rc.env.ALGOLIA_APP_ID, apiKey: rc.env.ALGOLIA_ADMIN_KEY };
   const env: AlgoliaEnv = rc.env.ENV ?? 'development';
@@ -1344,7 +1356,10 @@ async function syncAlgoliaAfterPromote(
   try {
     const results = await syncPromoteTargets(db, fetch, creds, env, {
       product: response.product ? { id: response.product.id } : null,
-      vendors: response.vendors.map((v) => ({ id: v.id })),
+      vendors: [
+        ...response.vendors.map((v) => ({ id: v.id })),
+        ...(extra.removedVendorIds ?? []).map((id) => ({ id })),
+      ],
       integrations: response.integrations.map((i) => ({ id: i.id })),
       vendorsOfProductSlugs: edgeProductSlugs(response),
     });
@@ -1360,28 +1375,6 @@ async function syncAlgoliaAfterPromote(
   } catch (error) {
     logAlgoliaSyncFailure(rc, 'all', error instanceof Error ? error.message : String(error));
   }
-}
-
-/**
- * Every product slug an edge in this promote touches: both endpoints, the connector,
- * and the endpoints an edge moved away from. Their vendors' reach counts moved
- * (AECI-1897), so the Algolia hook re-indexes them beside the product's own vendors.
- * The slugs are already on the response for the cache-tag deriver, so this needs no
- * read of its own.
- */
-export function edgeProductSlugs(response: PromoteResponse): string[] {
-  const slugs = new Set<string>();
-  for (const edge of response.integrations) {
-    for (const slug of [
-      edge.sourceSlug,
-      edge.targetSlug,
-      edge.poweredBySlug,
-      ...(edge.movedFromSlugs ?? []),
-    ]) {
-      if (slug) slugs.add(slug);
-    }
-  }
-  return [...slugs].sort();
 }
 
 function logAlgoliaSyncFailure(rc: PromoteRunCtx, entity: string, reason: string): void {
@@ -1861,6 +1854,10 @@ export type PromoteIngestResult = {
   /** Trades this promote DROPPED from the product; the response echoes only what was
    *  SET, and a removal can still un-publish a trade page (AECI-542/546). */
   removedTradeSlugs: string[];
+  /** Vendors this promote REMOVED from the product (AECI-1897). The response lists
+   *  only the joins it set, and a removed vendor's reach count moved too. Optional so
+   *  an older ledger row and a hand-built result still read. */
+  removedVendorIds?: string[];
   /** False for an all-skipped promote, which wrote nothing and so needs no stats refresh.
    *  Computed from the entity statements BEFORE the AECI-571 ledger row joins the batch —
    *  the ledger is bookkeeping, not a change. */
@@ -1935,6 +1932,10 @@ export type PromoteJobLedger = {
   /** Hook input: trades this promote DROPPED (purge + trade-URL derivation). Not
    *  recoverable after the fact — it is a diff against pre-commit state. */
   removedTradeSlugs: string[];
+  /** Hook input: vendors this promote REMOVED from the product (AECI-1897). Absent on
+   *  rows written before it, which read as none. A diff against pre-commit state, so
+   *  not recoverable after the fact. */
+  removedVendorIds?: string[];
   /** Hook input: gates the home-stats refresh. Computed BEFORE the ledger statement
    *  joins the batch — see the `wrote` note in {@link runPromoteIngest}. */
   wrote: boolean;
@@ -1978,6 +1979,7 @@ function jsonByteLength(value: unknown): number {
 function buildPromoteJobLedger(input: {
   response: PromoteResponse;
   removedTradeSlugs: string[];
+  removedVendorIds: string[];
   wrote: boolean;
   auditEntries: AuditLogEntry[];
   staleSupabaseIds: PromoteStaleId[];
@@ -1987,6 +1989,7 @@ function buildPromoteJobLedger(input: {
     v: 1,
     response: input.response,
     removedTradeSlugs: input.removedTradeSlugs,
+    removedVendorIds: input.removedVendorIds,
     wrote: input.wrote,
     auditEntries: input.auditEntries.map(({ metadata: _metadata, ...rest }) => rest),
     staleSupabaseIds: input.staleSupabaseIds,
@@ -2036,6 +2039,7 @@ function parsePromoteJobLedger(stored: unknown): PromoteJobLedger | null {
     v: 1,
     response: candidate.response,
     removedTradeSlugs: candidate.removedTradeSlugs ?? [],
+    removedVendorIds: candidate.removedVendorIds ?? [],
     wrote: candidate.wrote ?? false,
     auditEntries: candidate.auditEntries ?? [],
     staleSupabaseIds: candidate.staleSupabaseIds ?? [],
@@ -2085,6 +2089,7 @@ async function replayPromoteJob(
   return {
     response: ledger.response,
     removedTradeSlugs: ledger.removedTradeSlugs,
+    removedVendorIds: ledger.removedVendorIds ?? [],
     wrote: ledger.wrote,
     // This session's bookmark, not the original's: having just read the ledger row off
     // the `'first-primary'` anchor, it is already at or past the commit — which is all
@@ -2590,6 +2595,8 @@ export async function runPromoteIngest(
   // sidebar, and the sitemap (`CACHE_STRATEGY.md` §2). Only an UPDATE can have
   // prior join rows, so a create skips the read.
   let removedTradeSlugs: string[] = [];
+  // AECI-1897: the vendors the product join replace below drops. Filled in there.
+  let removedVendorIds: string[] = [];
   if (writesProduct && p?.supabaseId) {
     const prior = await db
       .select({ slug: taxonomyTrades.slug })
@@ -2817,6 +2824,11 @@ export async function runPromoteIngest(
     // for a fresh product; on update they clear the prior joins.
     const pid = productId;
     stmts.push(db.delete(productVendors).where(eq(productVendors.productId, pid)));
+    // AECI-1897: a vendor this replace drops is not on `response.vendors`, but its
+    // reach count moved, so the Algolia hook must re-index it. The pre-read above
+    // holds the prior joins.
+    const keptVendorIds = new Set(payload.vendors.map((v) => vendorIdByRef.get(v.ref)));
+    removedVendorIds = existingProductVendorIds.filter((id) => !keptVendorIds.has(id));
     stmts.push(db.delete(productCategories).where(eq(productCategories.productId, pid)));
     stmts.push(db.delete(productAudiences).where(eq(productAudiences.productId, pid)));
     stmts.push(db.delete(productPhases).where(eq(productPhases.productId, pid)));
@@ -3034,6 +3046,13 @@ export async function runPromoteIngest(
      * content just vanished, and the one no other rule reaches.
      */
     movedFromIds: readonly [string, string] | null;
+    /**
+     * The connector this edge moved AWAY from, when this promote re-pointed it to a
+     * different product (AECI-1897), else `null`. Resolved to a slug below and echoed
+     * as `movedFromConnectorSlug`: the old connector's page still lists the edge, and
+     * its vendor's reach count moved.
+     */
+    movedFromConnectorId: string | null;
   }> = [];
   const affectedProducts = new Set<string>();
   if (productId) affectedProducts.add(productId);
@@ -3528,12 +3547,18 @@ export async function runPromoteIngest(
       integrationResults.push(result);
       // Endpoints AND the connector: §12.5 option B counts the edge for the
       // connector's own `integration_count` too, so it has to be recomputed.
+      // The connector before this write: the pair's own, or the `powered_by` of the
+      // `integrations` row it moved in from.
+      const priorConnectorId =
+        existingEvidenced?.connectorProductId ?? existing?.poweredByProductId ?? null;
       integrationEndpoints.push({
         result,
         sourceId,
         targetId,
         poweredById: connectorId,
         movedFromIds: evidencedMove,
+        movedFromConnectorId:
+          priorConnectorId && priorConnectorId !== connectorId ? priorConnectorId : null,
       });
       affectedProducts.add(sourceId);
       affectedProducts.add(targetId);
@@ -3824,12 +3849,17 @@ export async function runPromoteIngest(
     const poweredById =
       movedFromEvidenced?.connectorProductId ??
       (poweredBy.value === undefined ? (existing?.poweredByProductId ?? null) : poweredBy.value);
+    // A re-point from one connector to another. A de-route already names the old
+    // connector in `poweredById`, so it needs nothing here.
+    const priorPoweredById = existing?.poweredByProductId ?? null;
     integrationEndpoints.push({
       result,
       sourceId,
       targetId,
       poweredById,
       movedFromIds: endpointMove,
+      movedFromConnectorId:
+        priorPoweredById && priorPoweredById !== poweredById ? priorPoweredById : null,
     });
 
     // ── Claims (replace-by-ORIGIN — §6.2, reworked by AECI-604) ─────────────
@@ -3886,10 +3916,19 @@ export async function runPromoteIngest(
     const slugByProductId = new Map<string, string>();
     if (productId && productResult) slugByProductId.set(productId, productResult.slug);
     const needSlugs = new Set<string>();
-    for (const { sourceId, targetId, poweredById, movedFromIds } of integrationEndpoints) {
+    for (const {
+      sourceId,
+      targetId,
+      poweredById,
+      movedFromIds,
+      movedFromConnectorId,
+    } of integrationEndpoints) {
       if (!slugByProductId.has(sourceId)) needSlugs.add(sourceId);
       if (!slugByProductId.has(targetId)) needSlugs.add(targetId);
       if (poweredById && !slugByProductId.has(poweredById)) needSlugs.add(poweredById);
+      if (movedFromConnectorId && !slugByProductId.has(movedFromConnectorId)) {
+        needSlugs.add(movedFromConnectorId);
+      }
       // AECI-953 — the OLD endpoints. One of the two is usually still an endpoint and
       // already in the set; the one the edge moved away from is not, and it is the page
       // that just went stale.
@@ -3904,10 +3943,21 @@ export async function runPromoteIngest(
       });
       for (const row of rows) slugByProductId.set(row.id, row.slug);
     }
-    for (const { result, sourceId, targetId, poweredById, movedFromIds } of integrationEndpoints) {
+    for (const {
+      result,
+      sourceId,
+      targetId,
+      poweredById,
+      movedFromIds,
+      movedFromConnectorId,
+    } of integrationEndpoints) {
       result.sourceSlug = slugByProductId.get(sourceId);
       result.targetSlug = slugByProductId.get(targetId);
       if (poweredById) result.poweredBySlug = slugByProductId.get(poweredById);
+      if (movedFromConnectorId) {
+        const slug = slugByProductId.get(movedFromConnectorId);
+        if (slug) result.movedFromConnectorSlug = slug;
+      }
       if (movedFromIds) {
         const [a, b] = movedFromIds;
         const fromA = slugByProductId.get(a);
@@ -4031,6 +4081,7 @@ export async function runPromoteIngest(
         result: buildPromoteJobLedger({
           response,
           removedTradeSlugs,
+          removedVendorIds,
           wrote,
           auditEntries,
           staleSupabaseIds,
@@ -4164,6 +4215,7 @@ export async function runPromoteIngest(
   return {
     response,
     removedTradeSlugs,
+    removedVendorIds,
     wrote,
     bookmark: dbCtx.getBookmark(),
     auditEntries,
@@ -4248,7 +4300,11 @@ export function dispatchPromoteHooks(
     rc.env.ALGOLIA_ADMIN_KEY &&
     guardAlgoliaWrite(rc.env, 'promote algolia-sync hook')
   ) {
-    dispatchHook(rc, 'algolia-sync', syncAlgolia(rc, response));
+    dispatchHook(
+      rc,
+      'algolia-sync',
+      syncAlgolia(rc, response, { removedVendorIds: result.removedVendorIds ?? [] }),
+    );
   }
 
   // AECI-546: resolve the publication floor for any touched trade ONCE, for the

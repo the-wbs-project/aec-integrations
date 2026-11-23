@@ -68,7 +68,6 @@ import {
   PROPOSED_PRODUCT_REASON,
   bufferIndexNowAfterPromote,
   dispatchPromoteHooks,
-  edgeProductSlugs,
   refreshHomeStatsAfterPromote,
   runPromoteIngest,
   type PromoteAlgoliaSync,
@@ -77,7 +76,7 @@ import {
   type PromoteIngestDeps,
   type PromoteRunCtx,
 } from './promote';
-import { cacheTagsForPromote, touchedTradeSlugs } from './promote-cache-tags';
+import { cacheTagsForPromote, edgeProductSlugs, touchedTradeSlugs } from './promote-cache-tags';
 import { createProductDetailHandler } from './products';
 import { affectedUrlsForPromote, type AffectedUrlOptions } from './promote-indexnow-urls';
 
@@ -4787,8 +4786,15 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       skipped: [],
       preserved: [],
     };
+    // AECI-1897: both endpoints' product tags too. Each one's count moved, and so did
+    // the reach count on its vendor's page, which tags every product it lists.
     expect(new Set(cacheTagsForPromote(response))).toEqual(
-      new Set(['pair:navisworks__revit', 'product:agave-erp-sync']),
+      new Set([
+        'pair:navisworks__revit',
+        'product:agave-erp-sync',
+        'product:navisworks',
+        'product:revit',
+      ]),
     );
   });
 
@@ -4809,7 +4815,11 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       skipped: [],
       preserved: [],
     };
-    expect(cacheTagsForPromote(response)).toEqual(['pair:navisworks__revit']);
+    expect(cacheTagsForPromote(response).sort()).toEqual([
+      'pair:navisworks__revit',
+      'product:navisworks',
+      'product:revit',
+    ]);
   });
 
   it('never emits coarse route-class tags', () => {
@@ -5707,5 +5717,132 @@ describe('AECI-1310 promote company facts', () => {
       companySizeSourceUrl: 'https://facts.example/team',
       fundingStage: 'Series B',
     });
+  });
+});
+
+// ─── AECI-1897: a promote moves the reach count of every vendor it touches ─────
+//
+// The public vendor `integration_count` counts every live edge touching the vendor's
+// products. So a promote that adds, moves or re-points an edge changes the count of
+// each endpoint's and connector's vendor, and of a vendor the product join dropped.
+// The cached vendor page tags `product:{slug}` for each product it lists, so the
+// purge names every touched product. The Algolia hook re-indexes their vendors.
+describe('promote refreshes every vendor whose reach moved (AECI-1897)', () => {
+  const algoliaEnv = (send = vi.fn().mockResolvedValue(undefined)): Env => ({
+    ...baseEnv,
+    ENV: 'staging',
+    ALGOLIA_APP_ID: 'APP',
+    ALGOLIA_ADMIN_KEY: 'write-key',
+    CACHE_PURGE_QUEUE: { send, sendBatch: send } as unknown as Env['CACHE_PURGE_QUEUE'],
+  });
+
+  async function run(body: unknown) {
+    const send = vi.fn().mockResolvedValue(undefined);
+    const syncAlgolia = vi.fn<PromoteAlgoliaSync>(async () => {});
+    const execCtx = fakeExecutionContext();
+    const res = await buildApp({ syncAlgolia }).request(
+      '/api/promote',
+      post(body),
+      algoliaEnv(send),
+      execCtx,
+    );
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
+    const tags = send.mock.calls.flatMap((call) =>
+      (call[0] as { body: CachePurgeMessage }[]).flatMap((m) => m.body.tags ?? []),
+    );
+    return { res, tags, syncAlgolia };
+  }
+
+  it("purges the other endpoint's product tag on a new edge, so its vendor page repaints", async () => {
+    await seedProduct(uuid(1), 'navisworks', 'Navisworks');
+    const { res, tags, syncAlgolia } = await run({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: uuid(1) },
+          mechanismKind: 'native',
+        },
+      ],
+    });
+    expect(res.status).toBe(200);
+    expect(tags).toEqual(expect.arrayContaining(['product:revit', 'product:navisworks']));
+    const response = syncAlgolia.mock.calls[0]![1];
+    expect(edgeProductSlugs(response)).toEqual(['navisworks', 'revit']);
+  });
+
+  it('hands the Algolia hook the vendors the product join replace dropped', async () => {
+    await seedVendor(uuid(10), 'old-owner', 'Old Owner');
+    await seedVendor(uuid(11), 'new-owner', 'New Owner');
+    await seedProduct(uuid(1), 'revit', 'Revit');
+    await t.db.insert(productVendors).values({ productId: uuid(1), vendorId: uuid(10) });
+    const { res, syncAlgolia } = await run({
+      vendors: [{ ref: 'v1', supabaseId: uuid(11), companyName: 'New Owner' }],
+      product: { ref: 'p1', supabaseId: uuid(1), name: 'Revit' },
+    });
+    expect(res.status).toBe(200);
+    const [, response, extra] = syncAlgolia.mock.calls[0]!;
+    expect(response.vendors.map((v) => v.id)).toEqual([uuid(11)]);
+    expect(extra?.removedVendorIds).toEqual([uuid(10)]);
+  });
+
+  it('names the connector an evidenced pair moved away from, and purges its page', async () => {
+    await seedProduct(uuid(1), 'navisworks', 'Navisworks');
+    await seedProduct(uuid(2), 'agave-erp-sync', 'Agave ERP Sync', { productRole: 'connector' });
+    await seedProduct(uuid(3), 'zapier', 'Zapier', { productRole: 'connector' });
+    const edge = (connector: string, extra: Record<string, unknown> = {}) => ({
+      ref: 'i1',
+      sourceProduct: { ref: 'p1' },
+      targetProduct: { supabaseId: uuid(1) },
+      poweredByProduct: { supabaseId: connector },
+      mechanismKind: 'iPaaS',
+      ...extra,
+    });
+    const first = await run({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [edge(uuid(2))],
+    });
+    const created = (await first.res.json()) as PromoteResponse;
+    const productId = created.product!.id;
+    const pairId = created.integrations[0]!.id;
+    expect(await t.db.select().from(connectorEvidencedPairs)).toHaveLength(1);
+
+    const second = await run({
+      product: { ref: 'p1', supabaseId: productId, name: 'Revit' },
+      integrations: [edge(uuid(3), { supabaseId: pairId })],
+    });
+    const body = (await second.res.json()) as PromoteResponse;
+    expect(body.integrations[0]).toMatchObject({
+      poweredBySlug: 'zapier',
+      movedFromConnectorSlug: 'agave-erp-sync',
+    });
+    expect(second.tags).toEqual(
+      expect.arrayContaining(['product:zapier', 'product:agave-erp-sync', 'product:navisworks']),
+    );
+    expect(edgeProductSlugs(body)).toContain('agave-erp-sync');
+  });
+
+  it('carries the dropped vendors through a replay of the same job', async () => {
+    await seedVendor(uuid(10), 'old-owner', 'Old Owner');
+    await seedVendor(uuid(11), 'new-owner', 'New Owner');
+    await seedProduct(uuid(1), 'revit', 'Revit');
+    await t.db.insert(productVendors).values({ productId: uuid(1), vendorId: uuid(10) });
+    const payload = PromotePayloadSchema.parse({
+      vendors: [{ ref: 'v1', supabaseId: uuid(11), companyName: 'New Owner' }],
+      product: { ref: 'p1', supabaseId: uuid(1), name: 'Revit' },
+    });
+    const rc: PromoteRunCtx = {
+      env: baseEnv,
+      request: new Request('http://localhost:8787/api/promote'),
+      waitUntil: () => {},
+      bookmark: () => null,
+    };
+    const deps: PromoteIngestDeps = { dbFor: t.factory };
+    const first = await runPromoteIngest(rc, payload, deps, { jobId: 'job-1897' });
+    expect(first.removedVendorIds).toEqual([uuid(10)]);
+    // The replay reads the ledger row, not the joins, which no longer hold the old vendor.
+    const replay = await runPromoteIngest(rc, payload, deps, { jobId: 'job-1897' });
+    expect(replay.removedVendorIds).toEqual([uuid(10)]);
   });
 });
