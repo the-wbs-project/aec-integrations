@@ -1,0 +1,43 @@
+<!--
+  Mock-up 9w: the product page hero with the integration wheel (AECI-2018).
+  Built by src/9w-build.mjs from src/9w.css, src/9w-harness.css, src/9w.js,
+  src/9w-data.json and this note. Edit the sources, then run the build:
+    node docs/design/mockups/redesign-2026-11/mockups/src/9w-build.mjs
+
+  Open the file on its own and it becomes a control strip with the page in a frame
+  at 1440, 390 or 320 wide. Add ?frame=1 (plus any control as a query key, e.g.
+  ?frame=1&product=small&claim=unclaimed) to see the page alone at the window's
+  own width. With script off the file shows the server HTML of the default state.
+
+  Data: partners, vendors and partner categories are the review app's records on
+  2026-11-23, read tools only. "Live" products list only partners promoted to the
+  site. "Large" (first 140 A to Z) and "Largest" (all 387) list every partner record
+  of Procore Project Management, most not promoted yet, to show the catalog's upper
+  shape: no live product has more than 57 promoted partners today.
+  Not real: logos (stand-in marks, no vendor logo is used), which partners are
+  claimed (a stand-in rule, about 3 in 10), and the facts card under the hero.
+
+  Geometry, measured (gap 8px between tiles, 12px between rings, 6px edge for the
+  focus ring). Stage = the panel's inner width.
+    1440 / 1280, stage 476: one ring on the inner orbit 31 at 28px (36 at 24px);
+                            two rings 69 at 28px (79 at 24px); one ring at full width 38 at 28px.
+    1024, stage 336:        one ring 18 at 28px; two rings 43 at 28px (51 at 24px).
+    390, stage 294:         one ring 25 at 24px (22 at 28px). No second ring.
+    320, stage 224:         one ring 18 at 24px.
+  The default cut-off is "fit": a slide takes the first layout whose tiles stay at
+  or above the smallest size at the rendered width (28px beside the text, 24px on a
+  phone), else dots. The "Fixed numbers" control applies set numbers instead.
+
+  FINDINGS for the build:
+  1. The cut-offs depend on the width, not only the count. At 1024 the panel is 400px,
+     so a fixed "30 on one ring" overlaps there. The server HTML has to carry the phone
+     and the desktop layout of the first slide and switch by container query, or the
+     wheel shifts at hydration. Picture 19 shows the desktop layout scaled to a phone.
+  2. The ruled "second, outer ring" makes every one-ring slide sit on the inner orbit,
+     so the tile size jumps: 31 partners at 28px, 32 partners on two rings at 40px.
+  3. A dots slide's server HTML has no partner list. It links to the Integrations
+     section instead ("See all N in Integrations").
+  4. The product page 500s above roughly 155 to 160 partners in today's code: the
+     Cache-Tag header passes 16,384 bytes (apps/web/src/server/cache-tags.ts). Seen
+     locally with 390 Procore Project Management integrations: 39,981 bytes.
+-->
