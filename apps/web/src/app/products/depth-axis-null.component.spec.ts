@@ -25,6 +25,11 @@
  * the panel gained the Cards and Table toggle. Everything from the list row on, every
  * card included, is byte for byte the same. Recorded again when it met the shared card
  * recipe (#1392): the recording differs from the hold branch's in the toggle alone.
+ *
+ * AECI-1844 (2026-11-22) re-recorded all six for the radius and spacing sweep, not a
+ * depth-axis change: `mt-0.5` became `mt-1`, `gap-x-1.5` became `gap-x-2`, `px-5`
+ * became `px-6` and `rounded-sm` became `rounded-mark`. A word diff of the recording
+ * shows those class tokens and nothing else.
  */
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';

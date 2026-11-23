@@ -123,7 +123,7 @@ import {
           }
           @if (vendorLine(); as line) {
             <p
-              class="mt-0.5 break-words text-t-13 text-(--text-secondary)"
+              class="mt-1 break-words text-t-13 text-(--text-secondary)"
               data-testid="integration-card-vendor"
             >
               {{ line }}
@@ -167,7 +167,7 @@ import {
           i18n="@@products.detail.integrations.card.whatMoves"
           >What moves</span
         >
-        <p class="flex flex-wrap items-center gap-x-1.5 text-t-14 font-semibold">
+        <p class="flex flex-wrap items-center gap-x-2 text-t-14 font-semibold">
           <span class="sr-only" i18n="@@products.detail.integrations.direction.srLabel"
             >Direction:</span
           >
@@ -305,7 +305,7 @@ export class ProductIntegrationCard {
   protected readonly chipIconClass = MATCH_CHIP_ICON_CLASS;
   protected readonly footClass = `${MATCH_CARD_FOOT_CLASS} focus-visible:outline-0`;
   protected readonly goClass = MATCH_CARD_GO_CLASS;
-  protected readonly partnerLinkClass = `aec-partner-link relative z-10 -my-0.5 inline-block rounded-sm py-0.5 ${MATCH_CARD_NAME_TEXT_CLASS} transition-colors hover:text-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)`;
+  protected readonly partnerLinkClass = `aec-partner-link relative z-10 -my-0.5 inline-block rounded-mark py-0.5 ${MATCH_CARD_NAME_TEXT_CLASS} transition-colors hover:text-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)`;
   protected readonly icon = matchChipIcon;
 
   // The chip-row labels, in TS so one string is both the visible label and the list's

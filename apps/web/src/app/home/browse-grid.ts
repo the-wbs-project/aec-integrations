@@ -40,7 +40,7 @@ export type BrowseChipTerm = Pick<TaxonomyTermWithCount, 'slug' | 'name' | 'prod
         </h3>
         <a
           [routerLink]="indexPath()"
-          class="rounded-sm text-(--text-secondary) underline decoration-(--border-field)
+          class="rounded-mark text-(--text-secondary) underline decoration-(--border-field)
             underline-offset-4 transition-colors hover:text-(--accent-primary) hover:decoration-current
             focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
         >

@@ -44,7 +44,7 @@
 
   @if (isEmpty()) {
   <p
-    class="rounded-(--radius-lg) border border-dashed border-(--border-default) bg-(--surface-sunken) p-6 text-sm text-(--text-secondary)"
+    class="rounded-panel border border-dashed border-(--border-default) bg-(--surface-sunken) p-6 text-sm text-(--text-secondary)"
     i18n="@@products.detail.body.reviews.empty"
   >
     No reviews yet — be the first to review this product.
@@ -283,7 +283,7 @@
           <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
             <h5
               [id]="updateLabelId(r, i)"
-              class="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-(--text-primary)"
+              class="flex min-w-0 items-center gap-2 text-sm font-semibold text-(--text-primary)"
             >
               <!-- The aec-icon history glyph.
                    Decorative: the label says what the block is. -->
@@ -302,17 +302,17 @@
           </div>
           @if (u.rating_overall !== null && u.rating_onboarding !== null) {
           <div
-            class="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-(--text-secondary)"
+            class="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-(--text-secondary)"
             data-testid="review-update-ratings"
           >
-            <span class="flex items-center gap-1.5">
+            <span class="flex items-center gap-2">
               <span i18n="@@products.detail.reviews.update.overall">New overall rating</span>
               <aec-review-stars [rating]="u.rating_overall" kind="overall" />
               <b class="font-semibold tabular-nums text-(--text-primary)" aria-hidden="true"
                 >{{ u.rating_overall }}</b
               >
             </span>
-            <span class="flex items-center gap-1.5">
+            <span class="flex items-center gap-2">
               <span i18n="@@products.detail.reviews.update.onboarding">New onboarding rating</span>
               <aec-review-stars [rating]="u.rating_onboarding" kind="onboarding" />
               <b class="font-semibold tabular-nums text-(--text-primary)" aria-hidden="true"
@@ -339,7 +339,7 @@
           <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
             <h5
               [id]="replyLabelId(r, i)"
-              class="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-(--text-primary)"
+              class="flex min-w-0 items-center gap-2 text-sm font-semibold text-(--text-primary)"
             >
               <!-- The aec-icon corner-down-right glyph.
                    Decorative: the label says whose reply it is. -->

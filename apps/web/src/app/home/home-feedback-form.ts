@@ -65,7 +65,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   template: `
     @if (submitted()) {
       <p
-        class="rounded-(--radius-md) border border-(--border-default) bg-(--accent-warm) px-4 py-3 text-sm font-semibold text-(--text-primary)"
+        class="rounded-panel border border-(--border-default) bg-(--accent-warm) px-4 py-3 text-sm font-semibold text-(--text-primary)"
         role="status"
         aria-live="polite"
         i18n="@@home.feedback.status.success"
@@ -73,9 +73,9 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         Thanks. We read every suggestion.
       </p>
     } @else {
-      <form method="dialog" class="flex flex-col gap-5" novalidate (submit)="onSubmit($event)">
+      <form method="dialog" class="flex flex-col gap-6" novalidate (submit)="onSubmit($event)">
         <!-- Feature ideas -->
-        <div class="flex flex-col gap-1.5">
+        <div class="flex flex-col gap-2">
           <label
             for="home-feedback-features"
             [class]="labelClass"
@@ -95,7 +95,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         </div>
 
         <!-- Tool ideas -->
-        <div class="flex flex-col gap-1.5">
+        <div class="flex flex-col gap-2">
           <label for="home-feedback-tools" [class]="labelClass" i18n="@@home.feedback.tools.label"
             >Tools to cover</label
           >
@@ -123,7 +123,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         }
 
         <!-- Email (optional) -->
-        <div class="flex flex-col gap-1.5">
+        <div class="flex flex-col gap-2">
           <label for="home-feedback-email" [class]="labelClass" i18n="@@home.feedback.email.label"
             >Email (optional)</label
           >
@@ -161,7 +161,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         />
 
         <!-- Mailing-list opt-in -->
-        <label class="flex items-center gap-2.5 text-sm text-(--text-secondary)">
+        <label class="flex items-center gap-3 text-sm text-(--text-secondary)">
           <input
             type="checkbox"
             aecConsent

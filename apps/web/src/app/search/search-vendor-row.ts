@@ -38,7 +38,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
         <span class="flex min-w-0 flex-col">
           <a
             [routerLink]="['/vendors', record().slug]"
-            class="inline-block min-h-6 rounded-sm leading-6 text-(--text-primary) transition-colors hover:text-(--accent-primary) hover:underline hover:underline-offset-3 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
+            class="inline-block min-h-6 rounded-mark leading-6 text-(--text-primary) transition-colors hover:text-(--accent-primary) hover:underline hover:underline-offset-3 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
             >{{ record().company_name }}</a
           >
           <!-- Below md the Headquarters cell is hidden, so the value sits here,

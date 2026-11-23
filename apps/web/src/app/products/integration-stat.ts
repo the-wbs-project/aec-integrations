@@ -31,7 +31,7 @@ export type IntegrationStatVariant = 'inline' | 'badge';
           <span class="tabular-nums">{{ count() }}</span> {{ noun() }}
         </aec-chip>
       } @else {
-        <span class="inline-flex items-baseline gap-1.5 leading-[1.2] whitespace-nowrap">
+        <span class="inline-flex items-baseline gap-2 leading-[1.2] whitespace-nowrap">
           <span
             class="font-display text-t-20 leading-[1.1] font-semibold tabular-nums text-(--text-primary)"
             >{{ count() }}</span

@@ -3,7 +3,7 @@
  * `shared/claim-dialog/claim-dialog-flow.ts`), named once so the onboarding
  * "About you" form (AECI-1296) lays out the same way instead of drifting.
  *
- * The stack per field is: label, control, hint, error, inside `space-y-1.5`.
+ * The stack per field is: label, control, hint, error, inside `space-y-2`.
  * Fields sit `space-y-6` apart. The hint goes directly under the control
  * (`DESIGN.md` "Inputs / Fields"), and its id stays in `aria-describedby` from
  * first render, with the error id appended when the error shows.
@@ -70,7 +70,7 @@ export const FIELD_ERROR_CLASS =
  * when the input inside has `aria-invalid="true"`.
  */
 export const CHOICE_CARD_CLASS =
-  'aec-choice-card flex min-h-11 cursor-pointer items-center gap-3 rounded-(--radius-md) border bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) has-[:checked]:bg-(--accent-primary-soft) has-[:checked]:font-semibold';
+  'aec-choice-card flex min-h-11 cursor-pointer items-center gap-3 rounded-control border bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) has-[:checked]:bg-(--accent-primary-soft) has-[:checked]:font-semibold';
 
 /**
  * The native radio or checkbox, in a choice card or on its own.

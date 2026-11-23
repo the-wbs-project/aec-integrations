@@ -288,7 +288,7 @@ One page on `DetailLayout`'s band shell (`shell="bands"`), in this order:
 
 1. **Hero** (`product-hero.ts`, Forest): the breadcrumb, the mark and the name at Display, the vendor, the two ratings, and two equal actions, "Visit website" and "Write a review". An unclaimed listing shows the "Unclaimed · not affiliated with or endorsed by this vendor" note. On the right, the category hub with a pair finder under it (ruling R3, AECI-1787), A to Z by category name.
 2. **Facts card** (`product-facts-card.ts`): one elevated card pulled up over the hero's lower edge. It holds the integration count as a figure, the vendor, the categories, the resources, and the "Claim Vendor" and "Suggest a correction" buttons (AECI-1779, AECI-1925).
-3. **Section nav** (`aec-section-nav`), sticky, when the page has two sections or more. An unclaimed listing adds the "Unclaimed" tag after the name (ruling 41, AECI-1931).
+3. **Section nav** (`aec-section-nav`), sticky, when the page has two sections or more. It carries no "Unclaimed" tag: the ruling 41 trial tag was removed on 2026-11-23 (AECI-2012). The hero keeps the Unclaimed note.
 4. **About** (`#about`), the page's one Bone band: the description and "Who it is for" (AECI-1780).
 5. **How teams use it** (`#how-teams-use-it`), when the vendor has written it (`STAGE_2_5_SPEC.md` §12).
 6. **Integrations** (`#integrations`): cards by default, a Cards and Table toggle, the filter panel, and the long-list grouping (§13.3 of `STAGE_1_5_SPEC.md`). On a connector page "Integrations it powers" (`#powered-integrations`) sits after it, or before it where §13.6 swaps them.

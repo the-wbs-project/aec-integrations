@@ -725,12 +725,11 @@ function contrastOf(a: string, b: string): number {
 }
 
 /**
- * Ruling 41 (Q61, docs/LEGAL_COUNSEL_RECORD.md): on an unclaimed listing the stuck bar carries a
- * short "Unclaimed" tag beside the product name. A claimed listing's bar is unchanged. The tag
- * is listing data (`claim_status`), and the bar draws it only once stuck, so the cached server
- * HTML never carries it.
+ * AECI-2012 (Chris, 2026-11-23): the ruling 41 trial tag is out of the stuck bar. On an
+ * unclaimed listing and a claimed one alike, the stuck bar shows our wordmark and the name from
+ * md, our monogram below it, and never "Unclaimed". The hero keeps the Unclaimed note.
  */
-test.describe('the Unclaimed tag in the stuck bar (ruling 41)', () => {
+test.describe('no Unclaimed tag in the stuck bar (AECI-2012)', () => {
   const UNCLAIMED = 'revit';
   const CLAIMED = 'fixture-procore';
 
@@ -752,89 +751,29 @@ test.describe('the Unclaimed tag in the stuck bar (ruling 41)', () => {
     );
   });
 
-  /** Opens the product, hydrates, and scrolls well past the hero so the bar sticks. */
-  async function stuckOn(page: Page, slug: string) {
-    await page.goto(`/products/${slug}`);
-    const nav = page.locator('aec-section-nav');
-    await untilHydrated(nav);
-    await page.evaluate(() =>
-      document.getElementById('integrations')!.scrollIntoView({ behavior: 'instant' }),
-    );
-    await expect(nav).toHaveAttribute('data-stuck', '');
-    // The hero, and its Unclaimed note, have left the screen.
-    await expect(page.locator('aec-unclaimed-note').first()).not.toBeInViewport();
-    return nav;
-  }
-
-  // The tag lives inside the name element, so it shows exactly where the name does: from
-  // md (768px). Below md the bar shows our monogram and no name, so no tag either (the
-  // owner, 2026-11: never "Unclaimed" without the product name). 640px is a 1280px screen
-  // at 200% zoom.
-  for (const width of [1440, 768]) {
-    test(`an unclaimed product's stuck bar shows the name and the tag at ${width}px`, async ({
-      page,
-    }) => {
-      await page.setViewportSize({ width, height: 900 });
-      const nav = await stuckOn(page, UNCLAIMED);
-      const tag = nav.getByTestId('section-nav-unclaimed');
-      await expect(tag).toBeVisible();
-      await expect(tag).toHaveText('Unclaimed');
-      await expect(tag).toBeInViewport({ ratio: 1 });
-      // Information only: nothing to click or focus inside it.
-      await expect(tag.locator('a, button, [tabindex]')).toHaveCount(0);
-      // The name sits before it, in the same element.
-      const name = (await page.locator('aec-product-detail h1').first().innerText()).trim();
-      const nameEl = nav.getByTestId('section-nav-name');
-      await expect(nameEl).toBeVisible();
-      await expect(nameEl).toContainText(name);
-      // The tag never covers the links: at least one link sits fully clear of it, in the row.
-      const box = (await tag.boundingBox())!;
-      const clear = await nav.locator('nav a').evaluateAll((links, edge) => {
-        const row = links[0]!.closest('.aec-section-nav-row')!.getBoundingClientRect();
-        return links
-          .map((l) => l.getBoundingClientRect())
-          .filter((r) => r.left >= edge - 1 && r.right <= row.right + 1).length;
-      }, box.x + box.width);
-      expect(clear, 'a section link is fully visible beside the tag').toBeGreaterThan(0);
-      await expectNoSidewaysScroll(page, 'the tag never makes the page scroll sideways');
-      // The bar keeps its height.
-      expect(Math.round(await navBottom(page))).toBe(73);
-    });
-  }
-
-  for (const width of [640, 390, 320]) {
-    test(`an unclaimed product's stuck bar shows neither the name nor the tag at ${width}px`, async ({
-      page,
-    }) => {
-      await page.setViewportSize({ width, height: 760 });
-      const nav = await stuckOn(page, UNCLAIMED);
-      await expect(nav.getByTestId('section-nav-brand').locator('img:visible')).toHaveAttribute(
-        'src',
-        /monogram-light\.svg/,
-      );
-      await expect(nav.getByTestId('section-nav-name')).toBeHidden();
-      await expect(nav.getByTestId('section-nav-unclaimed')).toBeHidden();
-      expect(await nav.evaluate((el) => (el as HTMLElement).innerText)).not.toContain('Unclaimed');
-      await expectNoSidewaysScroll(page);
-      expect(Math.round(await navBottom(page))).toBe(65);
-    });
-  }
-
-  test("a claimed product's stuck bar has no tag", async ({ page }) => {
-    for (const width of [1440, 768, 390]) {
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto(`/products/${CLAIMED}`);
-      const nav = page.locator('aec-section-nav');
-      await untilHydrated(nav);
-      await page.evaluate(() =>
-        document.getElementById('integrations')!.scrollIntoView({ behavior: 'instant' }),
-      );
-      await expect(nav).toHaveAttribute('data-stuck', '');
-      await expect(nav.getByTestId('section-nav-brand')).toBeVisible();
-      await expect(nav.getByTestId('section-nav-unclaimed')).toHaveCount(0);
-      await expect(nav).not.toContainText('Unclaimed');
+  for (const slug of [UNCLAIMED, CLAIMED]) {
+    for (const width of [1440, 768, 390, 320]) {
+      test(`${slug}: the stuck bar has no tag at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(`/products/${slug}`);
+        const nav = page.locator('aec-section-nav');
+        await untilHydrated(nav);
+        await page.evaluate(() =>
+          document.getElementById('integrations')!.scrollIntoView({ behavior: 'instant' }),
+        );
+        await expect(nav).toHaveAttribute('data-stuck', '');
+        await expect(nav.getByTestId('section-nav-unclaimed')).toHaveCount(0);
+        expect(await nav.evaluate((el) => (el as HTMLElement).innerText)).not.toContain(
+          'Unclaimed',
+        );
+        const name = nav.getByTestId('section-nav-name');
+        if (width >= 768) await expect(name).toBeVisible();
+        else await expect(name).toBeHidden();
+        await expectNoSidewaysScroll(page);
+        expect(Math.round(await navBottom(page))).toBe(width >= 768 ? 73 : 65);
+      });
     }
-  });
+  }
 
   test('the server HTML carries no tag, so the cached page is the same for every visitor', async ({
     request,

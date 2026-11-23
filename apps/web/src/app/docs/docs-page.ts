@@ -99,7 +99,7 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
   ],
   template: `
     <div
-      class="px-4 pt-8 pb-14 md:px-6 lg:px-8 lg:pt-10 xl:grid xl:grid-cols-[minmax(0,1fr)_minmax(0,42rem)_minmax(0,1fr)] xl:gap-x-8"
+      class="px-4 pt-8 pb-16 md:px-6 lg:px-8 lg:pt-12 xl:grid xl:grid-cols-[minmax(0,1fr)_minmax(0,42rem)_minmax(0,1fr)] xl:gap-x-8"
     >
       <article class="mx-auto w-full max-w-[42rem] min-w-0 xl:col-start-2 xl:row-start-1">
         <header>
@@ -117,7 +117,7 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
              .aec-prose, so the prose list and table rules do not reach it. -->
         @for (segment of segments; track $index; let first = $first) {
           @if (segment.widget === 'plans-comparison') {
-            <app-docs-plans-comparison class="mt-5 mb-10" />
+            <app-docs-plans-comparison class="mt-6 mb-12" />
           } @else if (segment.widget === 'plans-actions') {
             <!-- The intro's pointer to the public vendor program page
                  (VENDOR_PROGRAM_PAGE_SPEC.md section 10), then the button pair. -->
@@ -132,7 +132,7 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
                 >{{ vendorProgram.link }}</a
               >{{ vendorProgram.after }}
             </p>
-            <aec-plan-cta-actions class="mt-6 mb-10" page="docs_plans" />
+            <aec-plan-cta-actions class="mt-6 mb-12" page="docs_plans" />
           } @else if (segment.widget === 'plans-cta') {
             <aec-plan-cta-panel class="mt-6 mb-6" page="docs_plans" />
           } @else {
@@ -178,7 +178,7 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
 
       @if (neighbours.prev || neighbours.next) {
         <nav
-          class="mx-auto mt-12 flex w-full max-w-[42rem] gap-6 border-t border-(--border-default) pt-5 text-t-14 xl:col-start-2 xl:row-start-2"
+          class="mx-auto mt-12 flex w-full max-w-[42rem] gap-6 border-t border-(--border-default) pt-6 text-t-14 xl:col-start-2 xl:row-start-2"
           i18n-aria-label="@@app.docs.pager.aria"
           aria-label="Previous and next articles"
         >
@@ -192,7 +192,7 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
                 >Previous</span
               >
               <span
-                class="mt-0.5 block font-semibold text-(--accent-primary) underline-offset-4 group-hover:underline"
+                class="mt-1 block font-semibold text-(--accent-primary) underline-offset-4 group-hover:underline"
                 >{{ prev.title }}</span
               >
             </a>
@@ -205,7 +205,7 @@ export function docsSegments(blocks: readonly DocsBlock[]): readonly DocsSegment
             >
               <span class="block text-(--text-secondary)" i18n="@@app.docs.pager.next">Next</span>
               <span
-                class="mt-0.5 block font-semibold text-(--accent-primary) underline-offset-4 group-hover:underline"
+                class="mt-1 block font-semibold text-(--accent-primary) underline-offset-4 group-hover:underline"
                 >{{ next.title }}</span
               >
             </a>

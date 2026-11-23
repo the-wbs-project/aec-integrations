@@ -114,7 +114,7 @@ import type { IntegrationLaneRow } from './connector-lane-grouping';
               <tr aria-hidden="true">
                 <td colspan="4" class="px-4 py-3">
                   <div
-                    class="h-16 animate-pulse rounded-(--radius-lg)
+                    class="h-16 animate-pulse rounded-mark
                       border border-(--border-default) bg-(--surface-sunken)"
                   ></div>
                 </td>

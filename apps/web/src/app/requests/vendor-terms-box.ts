@@ -43,7 +43,7 @@ import { AecConsentBox } from '../shared/form-field/consent-box';
 @Component({
   selector: 'aec-vendor-terms-box',
   imports: [FormField, AecConsentBox],
-  host: { class: 'block space-y-1.5' },
+  host: { class: 'block space-y-2' },
   template: `
     <p
       [id]="shortFormId()"
@@ -71,7 +71,7 @@ import { AecConsentBox } from '../shared/form-field/consent-box';
         [formField]="field()"
         [attr.aria-invalid]="showError() ? 'true' : null"
         [attr.aria-describedby]="describedBy()"
-        [class]="inputClass + ' mt-0.5'"
+        [class]="inputClass + ' mt-1'"
       />
       <label [attr.for]="inputId()" class="text-sm leading-relaxed text-(--text-primary)">
         <span i18n="@@requests.terms.label"

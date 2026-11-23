@@ -242,7 +242,7 @@ const URL_SYNC_DEBOUNCE_MS = 350;
                the only cue (ruling 9 of 2026-11-16). 44px tall. -->
           <div
             role="tablist"
-            class="mt-6 -mb-8 flex gap-1 overflow-x-auto md:-mb-10"
+            class="mt-6 -mb-8 flex gap-1 overflow-x-auto md:-mb-12"
             aria-label="Search results by type"
             i18n-aria-label="@@search.tablist.aria"
           >
@@ -257,14 +257,14 @@ const URL_SYNC_DEBOUNCE_MS = 350;
                 [tabindex]="activeTab() === tab ? 0 : -1"
                 (click)="selectTab(tab)"
                 (keydown)="onTabKeydown($event)"
-                class="aec-nav-tab min-h-11 shrink-0 cursor-pointer border-b-2 px-4 py-2.5 text-t-14 whitespace-nowrap transition-colors hover:text-(--text-primary) focus-visible:outline-3 focus-visible:-outline-offset-3 focus-visible:outline-(--accent-primary)"
+                class="aec-nav-tab min-h-11 shrink-0 cursor-pointer border-b-2 px-4 py-2 text-t-14 whitespace-nowrap transition-colors hover:text-(--text-primary) focus-visible:outline-3 focus-visible:-outline-offset-3 focus-visible:outline-(--accent-primary)"
                 [class.text-(--text-secondary)]="activeTab() !== tab"
                 [class.text-(--text-primary)]="activeTab() === tab"
                 [class.font-semibold]="activeTab() === tab"
               >
                 {{ tabLabel(tab) }}
                 @if (countFor(tab); as count) {
-                  <span class="ms-1.5 font-normal tabular-nums text-(--text-secondary)">{{
+                  <span class="ms-2 font-normal tabular-nums text-(--text-secondary)">{{
                     count
                   }}</span>
                 }
@@ -326,7 +326,7 @@ const URL_SYNC_DEBOUNCE_MS = 350;
       <div slot="grid">
         @if (degraded()) {
           <div
-            class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) px-6 py-10 text-center"
+            class="rounded-panel border border-(--border-default) bg-(--surface-raised) px-6 py-12 text-center"
             role="status"
           >
             <p
@@ -554,11 +554,9 @@ const URL_SYNC_DEBOUNCE_MS = 350;
               <div aecCard class="flex min-h-32 flex-col gap-4 p-6">
                 <div class="flex items-start justify-between gap-3">
                   <div
-                    class="h-9 w-9 shrink-0 animate-pulse rounded-(--radius-md) bg-(--surface-sunken)"
+                    class="h-9 w-9 shrink-0 animate-pulse rounded-mark bg-(--surface-sunken)"
                   ></div>
-                  <div
-                    class="h-6 w-24 animate-pulse rounded-(--radius-sm) bg-(--surface-sunken)"
-                  ></div>
+                  <div class="h-6 w-24 animate-pulse rounded-mark bg-(--surface-sunken)"></div>
                 </div>
                 <div class="h-6 w-2/3 animate-pulse rounded bg-(--surface-sunken)"></div>
                 <div class="h-4 w-1/2 animate-pulse rounded bg-(--surface-sunken)"></div>
@@ -567,7 +565,7 @@ const URL_SYNC_DEBOUNCE_MS = 350;
           }
         </ul>
         <div class="mt-6 flex justify-center border-t border-(--border-default) pt-6">
-          <div class="h-9 w-48 animate-pulse rounded-(--radius-md) bg-(--surface-sunken)"></div>
+          <div class="h-9 w-48 animate-pulse rounded-mark bg-(--surface-sunken)"></div>
         </div>
       </div>
     </ng-template>
@@ -575,7 +573,7 @@ const URL_SYNC_DEBOUNCE_MS = 350;
     <ng-template #facetsSkeleton>
       <div aria-hidden="true" class="space-y-6">
         @for (group of skeletonFacetGroups; track group) {
-          <div class="space-y-2.5">
+          <div class="space-y-3">
             <div class="h-4 w-24 animate-pulse rounded bg-(--surface-sunken)"></div>
             @for (row of skeletonFacetRows; track row) {
               <div class="h-3 w-full animate-pulse rounded bg-(--surface-sunken)"></div>

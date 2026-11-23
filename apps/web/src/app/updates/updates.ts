@@ -91,7 +91,7 @@ type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
                right, so the wide band reads as one composition instead of a lone
                card against empty space. Collapses to a single column below lg
                (the pitch stacks above the card). -->
-          <div class="grid gap-10 lg:grid-cols-2 lg:items-center lg:gap-16">
+          <div class="grid gap-12 lg:grid-cols-2 lg:items-center lg:gap-16">
             <div class="max-w-xl">
               <p class="aec-overline text-(--text-secondary)" i18n="@@app.updates.eyebrow">
                 Mailing list
@@ -113,7 +113,7 @@ type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
               <ul role="list" class="mt-8 flex flex-col gap-4">
                 @for (item of expectations; track item.id) {
                   <li class="flex items-start gap-3">
-                    <span class="mt-0.5 flex shrink-0 text-(--accent-primary)">
+                    <span class="mt-1 flex shrink-0 text-(--accent-primary)">
                       <aec-icon name="check" decorative [size]="5" />
                     </span>
                     <span class="text-t-16 leading-relaxed text-(--text-secondary)">{{

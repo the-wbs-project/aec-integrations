@@ -67,25 +67,23 @@ export type CompanyFactField = (typeof COMPANY_FACT_FIELDS)[number];
             <div>
               <dt class="text-xs leading-5 text-(--text-secondary)">{{ row.label }}</dt>
               @if (row.value === null) {
-                <dd class="mt-0.5" [attr.data-testid]="'company-fact-under-review-' + row.key">
+                <dd class="mt-1" [attr.data-testid]="'company-fact-under-review-' + row.key">
                   <aec-under-review />
                 </dd>
               } @else {
-                <dd
-                  class="mt-0.5 break-words text-sm leading-5 font-semibold text-(--text-primary)"
-                >
+                <dd class="mt-1 break-words text-sm leading-5 font-semibold text-(--text-primary)">
                   {{ row.value }}
                 </dd>
                 <!-- "Source" and its icon wrap as one, so the fallback font cannot leave the
                      icon alone on a second line that the web font then removes. -->
-                <dd class="mt-0.5 text-xs leading-5 text-(--text-secondary)">
+                <dd class="mt-1 text-xs leading-5 text-(--text-secondary)">
                   {{ row.note }}
                   @if (row.url; as url) {
                     <a
                       [href]="url"
                       target="_blank"
                       rel="noopener nofollow"
-                      class="whitespace-nowrap rounded-(--radius-sm) text-xs font-semibold text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) [&_svg]:inline"
+                      class="whitespace-nowrap rounded-mark text-xs font-semibold text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) [&_svg]:inline"
                     >
                       <span i18n="@@vendors.detail.companyFacts.source">Source</span>
                       <span class="sr-only">: {{ row.label }}</span>

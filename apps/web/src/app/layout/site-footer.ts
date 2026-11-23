@@ -270,7 +270,7 @@ import { BrandLogo } from './brand-logo';
 })
 export class SiteFooter {
   /** The brand area and the nav group, on the shared page wrap (ruling A2). */
-  protected readonly columnsClass = `${BAND_WRAP_CLASS} flex flex-col gap-10 pb-12 pt-16 lg:flex-row lg:justify-between lg:gap-16`;
+  protected readonly columnsClass = `${BAND_WRAP_CLASS} flex flex-col gap-12 pb-12 pt-16 lg:flex-row lg:justify-between lg:gap-16`;
   /** The copyright strip, on the same wrap so its text starts on the columns' edge. */
   protected readonly copyrightClass = `${BAND_WRAP_CLASS} pb-8 pt-6 text-sm text-(--text-on-brand)`;
   /**
@@ -279,7 +279,7 @@ export class SiteFooter {
    * 24px line box meets the 24px target size (WCAG 2.5.8).
    */
   protected readonly linkClass =
-    'inline-block rounded-(--radius-sm) text-base leading-6 text-(--text-on-brand) underline-offset-[3px] hover:underline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--focus-ring-on-brand)';
+    'inline-block rounded-mark text-base leading-6 text-(--text-on-brand) underline-offset-[3px] hover:underline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--focus-ring-on-brand)';
   protected readonly year = new Date().getFullYear();
   protected readonly accessibilityPublished = ACCESSIBILITY_STATEMENT_PUBLISHED;
 }
