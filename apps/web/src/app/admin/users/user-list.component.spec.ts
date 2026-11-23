@@ -1,24 +1,31 @@
 /**
  * `UserList` (`/admin/users`) — AECI-692.
  *
- * Three groups earn their keep:
+ * Five groups earn their keep:
  *
  *  1. **The tri-state renders as three different sentences.** "Unavailable",
  *     "No account" and "No email on file" mean different things, and the day a
  *     misconfigured service-role key read as ordinary missing data (2026-08-24)
  *     is why they are asserted separately rather than as "not blank".
- *  2. **`?banned=true` arrives filtered.** `/admin/reviewers` now redirects here
- *     with that query, so seeding from the URL is load-bearing, not a nicety.
+ *  2. **The URL is the state (AECI-1935).** Filters, search, sort, order and
+ *     page are read from the query string and written back by a push, so reload,
+ *     Back and a shared link restore the list. `/admin/reviewers` redirects here
+ *     with `?banned=true`, so that link must still arrive filtered. The list is
+ *     mounted at a real route so the params travel through the router.
  *  3. **No ban control on the list.** Asserted so a later PR cannot quietly add
  *     one — ban needs a reason, and its home is the detail page.
  *  4. **The last sign-in sort says when it did not run.** The API ranks through
  *     GoTrue, so with the seam down it orders by `created` instead. The arrow and a
  *     sentence have to follow what the server did, not what was clicked.
+ *  5. **A filter or sort change returns to page 1**, and drops `page` from the URL.
  */
 
 import { provideZonelessChangeDetection } from '@angular/core';
-import { ActivatedRoute, provideRouter } from '@angular/router';
+import { Location } from '@angular/common';
+import { provideLocationMocks } from '@angular/common/testing';
 import { TestBed } from '@angular/core/testing';
+import { Router, provideRouter } from '@angular/router';
+import { RouterTestingHarness } from '@angular/router/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AdminUserRow, AdminUsersListResponse } from '@aeci/shared';
@@ -70,11 +77,6 @@ function makeApiMock(page: AdminUsersListResponse = makePage()): ApiMock {
   return { listUsers: vi.fn(async () => structuredClone(page)) };
 }
 
-/** Drains `afterNextRender`'s async load. */
-function settle(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve));
-}
-
 function bodyRows(el: HTMLElement): HTMLTableRowElement[] {
   return [...el.querySelectorAll<HTMLTableRowElement>('tbody tr')];
 }
@@ -86,35 +88,64 @@ function header(el: HTMLElement, label: string): HTMLTableCellElement | undefine
   );
 }
 
+/** The harness of the test in progress, so `settle()` can flush it. */
+let current: RouterTestingHarness | undefined;
+
+/**
+ * Let a click finish its round trip: the push navigation, the URL signal, the
+ * load effect, the mocked fetch and the render. Three passes, because each hop
+ * is its own task.
+ */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 3; i++) {
+    await new Promise((resolve) => setTimeout(resolve));
+    current?.detectChanges();
+    await current?.fixture.whenStable();
+  }
+}
+
+/** Mounts the list at a real `admin/users` route, with the query string given. */
 async function setup(api: ApiMock = makeApiMock(), queryParams: Record<string, string> = {}) {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     providers: [
       provideZonelessChangeDetection(),
-      provideRouter([]),
+      provideRouter([{ path: 'admin/users', component: UserList }]),
+      // A history stack the test can walk: `Location.back()` pops synchronously.
+      provideLocationMocks(),
       { provide: AdminUsersApi, useValue: api },
-      {
-        provide: ActivatedRoute,
-        useValue: {
-          snapshot: {
-            queryParamMap: {
-              get: (key: string) => queryParams[key] ?? null,
-            },
-          },
-        },
-      },
     ],
   });
-  const fixture = TestBed.createComponent(UserList);
-  fixture.detectChanges();
-  await fixture.whenStable();
+  const harness = await RouterTestingHarness.create();
+  current = harness;
+  // Subscribes the router to location pops, as app bootstrap does, so a
+  // `Location.back()` reaches the component the way the browser's Back does.
+  TestBed.inject(Router).initialNavigation();
+  const query = new URLSearchParams(queryParams).toString();
+  await harness.navigateByUrl(query ? `/admin/users?${query}` : '/admin/users');
   await settle();
-  fixture.detectChanges();
-  return { fixture, api, el: fixture.nativeElement as HTMLElement };
+  const componentInstance = harness.routeDebugElement!.componentInstance as UserList &
+    Record<string, never>;
+  const fixture = {
+    componentInstance,
+    detectChanges: () => harness.detectChanges(),
+  };
+  return { fixture, harness, api, el: harness.routeNativeElement as HTMLElement };
+}
+
+function routerUrl(): string {
+  return TestBed.inject(Router).url;
+}
+
+function lastQuery(api: ApiMock): Record<string, unknown> {
+  return api.listUsers.mock.calls.at(-1)![0] as Record<string, unknown>;
 }
 
 beforeEach(() => TestBed.resetTestingModule());
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  current = undefined;
+  vi.restoreAllMocks();
+});
 
 describe('UserList', () => {
   it('lists people with their email and role', async () => {
@@ -300,9 +331,9 @@ describe('UserList', () => {
       expect(sent.page).toBe(1);
     });
 
-    it('reports the fixed server direction through aria-sort', async () => {
-      // `resolveAdminUserOrderBy` descends on both keys and takes no `order`
-      // param, so clicking selects a sort and never flips one.
+    it('reports the default server direction through aria-sort', async () => {
+      // Profile created is the default key, newest first. An inactive header
+      // reads "none" until it is chosen.
       const { el } = await setup();
       expect(header(el, 'Profile created')?.getAttribute('aria-sort')).toBe('descending');
       expect(header(el, 'Updated')?.getAttribute('aria-sort')).toBe('none');
@@ -384,5 +415,151 @@ describe('UserList', () => {
   it('announces the result count in the polite live region', async () => {
     const { el } = await setup(makeApiMock(makePage({ total: 7 })));
     expect(el.querySelector('[role="status"]')?.textContent).toContain('7');
+  });
+
+  describe('URL state (AECI-1935)', () => {
+    it('leaves the bare URL alone on a default load', async () => {
+      const { api } = await setup();
+      expect(routerUrl()).toBe('/admin/users');
+      expect(lastQuery(api)).toMatchObject({ page: 1, sort: 'created', order: 'desc' });
+    });
+
+    it('seeds every axis from the URL into the request and the controls', async () => {
+      const { api, fixture } = await setup(makeApiMock(makePage({ total: 100 })), {
+        role: 'vendor_admin',
+        banned: 'false',
+        has_seat: 'true',
+        search: 'rita',
+        sort: 'name',
+        order: 'desc',
+        page: '3',
+      });
+      expect(api.listUsers).toHaveBeenCalledTimes(1);
+      expect(lastQuery(api)).toEqual({
+        page: 3,
+        perPage: 24,
+        sort: 'name',
+        order: 'desc',
+        search: 'rita',
+        role: 'vendor_admin',
+        banned: 'false',
+        has_seat: 'true',
+      });
+      const c = fixture.componentInstance;
+      expect(c['role']()).toBe('vendor_admin');
+      expect(c['banned']()).toBe('false');
+      expect(c['hasSeat']()).toBe('true');
+      expect(c['searchDraft']()).toBe('rita');
+      expect(c['page']()).toBe(3);
+    });
+
+    it('reads junk values as their defaults', async () => {
+      for (const page of ['0', '-2', 'abc', '1.5']) {
+        const { api } = await setup(makeApiMock(), {
+          page,
+          sort: 'bogus',
+          order: 'up',
+          has_seat: 'maybe',
+        });
+        expect(lastQuery(api)).toEqual({ page: 1, perPage: 24, sort: 'created', order: 'desc' });
+      }
+    });
+
+    it('writes a filter change to the URL and drops it again at its default', async () => {
+      const { fixture, api } = await setup();
+      fixture.componentInstance['onRoleChange']('admin');
+      await settle();
+      expect(routerUrl()).toBe('/admin/users?role=admin');
+      expect(lastQuery(api)).toMatchObject({ role: 'admin', page: 1 });
+
+      fixture.componentInstance['onBannedChange']('true');
+      await settle();
+      fixture.componentInstance['onSeatChange']('false');
+      await settle();
+      expect(routerUrl()).toBe('/admin/users?role=admin&banned=true&has_seat=false');
+
+      fixture.componentInstance['onRoleChange']('any');
+      await settle();
+      fixture.componentInstance['onBannedChange']('any');
+      await settle();
+      fixture.componentInstance['onSeatChange']('any');
+      await settle();
+      expect(routerUrl()).toBe('/admin/users');
+    });
+
+    it('writes the search on submit and drops it on clear', async () => {
+      const { fixture } = await setup();
+      fixture.componentInstance['searchDraft'].set('  jane@acme.com ');
+      fixture.componentInstance['submitSearch']();
+      await settle();
+      expect(routerUrl()).toBe('/admin/users?search=jane@acme.com');
+      fixture.componentInstance['clearSearch']();
+      await settle();
+      expect(routerUrl()).toBe('/admin/users');
+    });
+
+    it('writes a header click as sort, and a second click as order', async () => {
+      const { el } = await setup();
+      header(el, 'Person')?.querySelector('button')?.click();
+      await settle();
+      expect(routerUrl()).toBe('/admin/users?sort=name');
+      header(el, 'Person')?.querySelector('button')?.click();
+      await settle();
+      expect(routerUrl()).toBe('/admin/users?sort=name&order=desc');
+      // Back to the default key at its natural direction writes nothing.
+      header(el, 'Profile created')?.querySelector('button')?.click();
+      await settle();
+      expect(routerUrl()).toBe('/admin/users');
+    });
+
+    it('writes the page, and a filter change on page 3 returns to page 1', async () => {
+      const { el, fixture, api } = await setup(makeApiMock(makePage({ total: 100 })));
+      const next = [...el.querySelectorAll('button')].find((b) =>
+        b.textContent?.trim().startsWith('Next'),
+      );
+      next?.click();
+      await settle();
+      expect(routerUrl()).toBe('/admin/users?page=2');
+      expect(lastQuery(api)).toMatchObject({ page: 2 });
+
+      fixture.componentInstance['goToPage'](3);
+      await settle();
+      expect(routerUrl()).toBe('/admin/users?page=3');
+
+      fixture.componentInstance['onBannedChange']('true');
+      await settle();
+      expect(routerUrl()).toBe('/admin/users?banned=true');
+      expect(lastQuery(api)).toMatchObject({ banned: 'true', page: 1 });
+    });
+
+    it('restores the previous filter and page on Back, and refetches', async () => {
+      const { fixture, api } = await setup(makeApiMock(makePage({ total: 100 })));
+      fixture.componentInstance['onRoleChange']('reviewer');
+      await settle();
+      fixture.componentInstance['goToPage'](2);
+      await settle();
+      fixture.componentInstance['onRoleChange']('admin');
+      await settle();
+      expect(routerUrl()).toBe('/admin/users?role=admin');
+      const calls = api.listUsers.mock.calls.length;
+
+      TestBed.inject(Location).back();
+      await settle();
+      expect(routerUrl()).toBe('/admin/users?role=reviewer&page=2');
+      expect(fixture.componentInstance['role']()).toBe('reviewer');
+      expect(api.listUsers.mock.calls.length).toBe(calls + 1);
+      expect(lastQuery(api)).toMatchObject({ role: 'reviewer', page: 2 });
+    });
+
+    it('keeps sort=last_sign_in in the URL when the seam is down', async () => {
+      // The URL records what was asked; only the arrow follows what the server did.
+      const { el } = await setup(
+        makeApiMock(makePage({ auth_available: false, data: [makeRow({ auth: null })] })),
+        { sort: 'last_sign_in' },
+      );
+      expect(routerUrl()).toBe('/admin/users?sort=last_sign_in');
+      expect(header(el, 'Profile created')?.getAttribute('aria-sort')).toBe('descending');
+      expect(header(el, 'Last sign-in')?.getAttribute('aria-sort')).toBe('none');
+    });
   });
 });

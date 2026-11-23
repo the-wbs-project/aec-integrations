@@ -98,9 +98,9 @@ type TriFilter = 'any' | 'true' | 'false';
  * A Claimed filter and a sortable Claimed on column, both over
  * `vendors.owned_at` (ADR 0042). Account active is the paid mirror and misses
  * every claimed vendor on the Free plan, which is most of them. The filter is
- * the same `<aec-select>` `/admin/users` uses for Banned. Unlike that screen,
- * this one keeps its filter, search and sort in the URL (see {@link queryParams}),
- * and any change resets to chunk 1.
+ * the same `<aec-select>` `/admin/users` uses for Banned. Both screens keep
+ * their filters, search and sort in the URL (see {@link queryParams}), and any
+ * change here resets to chunk 1.
  */
 @Component({
   selector: 'aec-vendor-list',
@@ -133,8 +133,8 @@ export class VendorList {
    * way `admin/audit/audit-log.ts` does. Each change is a history entry, so Back
    * walks back through the operator's filters. A default is left out, so the
    * bare `/admin/vendors` stays canonical. `/admin` is never edge-cached, so no
-   * cache key forks. `/admin/users` still seeds its filters one way and keeps
-   * its sort in memory (`ADMIN_PANEL_SPEC.md` §5.7).
+   * cache key forks. `/admin/users` does the same, with its page added
+   * (AECI-1935, `ADMIN_PANEL_SPEC.md` §5.8).
    *
    * A hand-edited junk value reads as the default rather than 400ing the request:
    * a bad link should narrow nothing, not break the screen.

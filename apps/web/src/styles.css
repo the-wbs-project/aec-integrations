@@ -1418,6 +1418,34 @@ button.aec-chip:focus-visible {
   }
 }
 
+/* The rest of the DESIGN.md "Inputs / Fields" error rule (AECI-1984): a red
+   edge, an inline message and an icon, so colour is never the only signal.
+   Unlayered for the same reason as `.aec-field-control`, and keyed off
+   `aria-invalid` the same way.
+
+   `.aec-choice-card` is the bordered row round a radio or checkbox
+   (CHOICE_CARD_CLASS). It turns red when the input inside is invalid. */
+.aec-choice-card {
+  border-color: var(--border-default);
+}
+
+.aec-choice-card:has([aria-invalid='true']) {
+  border-color: var(--status-error);
+}
+
+/* A native checkbox or radio with no card round it (CHOICE_INPUT_CLASS). A
+   native box cannot take a border colour, so it gets a red outline instead.
+   The focus ring wins while the box has keyboard focus. */
+.aec-choice-input[aria-invalid='true']:not(:focus-visible) {
+  outline: 2px solid var(--status-error);
+  outline-offset: 2px;
+}
+
+/* Inside a card the card's edge already turns red, so the box itself does not. */
+.aec-choice-card .aec-choice-input[aria-invalid='true']:not(:focus-visible) {
+  outline: none;
+}
+
 /* A scroll box whose last row may be clipped (the "About you" audience list).
    A bottom hairline from the `*` rule plus an always-drawn thin scrollbar, so
    the overflow reads as scrollable where overlay scrollbars hide. */

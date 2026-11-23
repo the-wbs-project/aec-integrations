@@ -41,7 +41,11 @@ import { RequestsApi } from '../../requests/requests-api';
 import { VendorTermsBox, isAcceptedTermsRejection } from '../../requests/vendor-terms-box';
 import type { AutocompleteSuggestion } from '../../search/autocomplete-mapping';
 import { SearchAutocomplete } from '../../search/search-autocomplete';
-import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../form-field/form-field-classes';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../form-field/form-field-classes';
 import { FoundViaField } from '../found-via/found-via-field';
 
 import {
@@ -460,7 +464,7 @@ interface ClaimDialogModel {
                       @if (invalid(form.listing_name)) {
                         <p
                           id="claim-dialog-listing-name-error"
-                          class="aec-field-error text-t-14 font-semibold text-(--status-error)"
+                          [class]="errorClass"
                           role="alert"
                           i18n="@@claimDialog.you.listingName.error"
                         >
@@ -492,7 +496,7 @@ interface ClaimDialogModel {
                       @if (invalid(form.website)) {
                         <p
                           id="claim-dialog-website-error"
-                          class="aec-field-error text-t-14 font-semibold text-(--status-error)"
+                          [class]="errorClass"
                           role="alert"
                           i18n="@@claimDialog.you.website.error"
                         >
@@ -569,7 +573,7 @@ interface ClaimDialogModel {
                   @if (invalid(form.body)) {
                     <p
                       id="claim-dialog-comments-error"
-                      class="aec-field-error text-t-14 font-semibold text-(--status-error)"
+                      [class]="errorClass"
                       role="alert"
                       i18n="@@requests.claim.body.error"
                     >
@@ -663,6 +667,8 @@ interface ClaimDialogModel {
   `,
 })
 export class ClaimDialogFlow implements OnInit {
+  /** A field's inline error: the shared recipe (AECI-1984). */
+  protected readonly errorClass = FIELD_ERROR_CLASS;
   private readonly api = inject(RequestsApi);
   private readonly analytics = inject(Analytics);
   private readonly session = inject(SessionStatus);

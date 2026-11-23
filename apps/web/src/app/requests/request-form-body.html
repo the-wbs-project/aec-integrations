@@ -257,11 +257,7 @@
     </div>
 
     @if (submitFailed() && variant() === 'page') {
-    <p
-      class="text-t-14 font-semibold text-(--text-primary)"
-      role="alert"
-      i18n="@@requests.submitFailed"
-    >
+    <p id="correction-email-error" [class]="errorClass" role="alert" i18n="@@requests.submitFailed">
       Something went wrong. Please try again.
     </p>
     }

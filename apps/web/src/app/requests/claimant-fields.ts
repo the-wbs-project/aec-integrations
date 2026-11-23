@@ -2,7 +2,11 @@ import { Component, computed, input } from '@angular/core';
 import { isFreeEmailAddress } from '@aeci/shared/free-email-domains';
 import { type FieldTree, FormField } from '@angular/forms/signals';
 
-import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../shared/form-field/form-field-classes';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../shared/form-field/form-field-classes';
 import { AecEarlyInput } from '../shared/form-field/early-input';
 
 /**
@@ -47,7 +51,7 @@ import { AecEarlyInput } from '../shared/form-field/early-input';
       @if (showError(name())) {
         <p
           [id]="idPrefix() + '-name-error'"
-          class="aec-field-error text-t-14 font-semibold text-(--status-error)"
+          [class]="errorClass"
           role="alert"
           i18n="@@requests.claim.name.error"
         >
@@ -76,7 +80,7 @@ import { AecEarlyInput } from '../shared/form-field/early-input';
       @if (showError(title())) {
         <p
           [id]="idPrefix() + '-title-error'"
-          class="aec-field-error text-t-14 font-semibold text-(--status-error)"
+          [class]="errorClass"
           role="alert"
           i18n="@@requests.claim.title.error"
         >
@@ -120,7 +124,7 @@ import { AecEarlyInput } from '../shared/form-field/early-input';
       @if (showError(linkedin())) {
         <p
           [id]="idPrefix() + '-linkedin-error'"
-          class="aec-field-error text-t-14 font-semibold text-(--status-error)"
+          [class]="errorClass"
           role="alert"
           i18n="@@requests.claim.linkedin.error"
         >
@@ -165,7 +169,7 @@ import { AecEarlyInput } from '../shared/form-field/early-input';
       @if (showError(email())) {
         <p
           [id]="idPrefix() + '-email-error'"
-          class="aec-field-error text-t-14 font-semibold text-(--status-error)"
+          [class]="errorClass"
           role="alert"
           i18n="@@requests.email.invalid"
         >
@@ -194,7 +198,7 @@ import { AecEarlyInput } from '../shared/form-field/early-input';
       @if (showError(legalName())) {
         <p
           [id]="idPrefix() + '-legal-name-error'"
-          class="aec-field-error text-t-14 font-semibold text-(--status-error)"
+          [class]="errorClass"
           role="alert"
           i18n="@@requests.claim.legalName.error"
         >
@@ -205,6 +209,8 @@ import { AecEarlyInput } from '../shared/form-field/early-input';
   `,
 })
 export class ClaimantFields {
+  /** A field's inline error: the shared recipe (AECI-1984). */
+  protected readonly errorClass = FIELD_ERROR_CLASS;
   readonly name = input.required<FieldTree<string>>();
   readonly title = input.required<FieldTree<string>>();
   readonly linkedin = input.required<FieldTree<string>>();
