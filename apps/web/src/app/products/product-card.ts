@@ -80,7 +80,7 @@ export type ProductRow = Pick<
         <span class="flex min-w-0 flex-col">
           <a
             [routerLink]="['/products', product().slug]"
-            class="inline-block min-h-6 rounded-sm leading-6 text-(--text-primary) transition-colors hover:text-(--accent-primary) hover:underline hover:underline-offset-3 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
+            class="inline-block min-h-6 rounded-mark leading-6 text-(--text-primary) transition-colors hover:text-(--accent-primary) hover:underline hover:underline-offset-3 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
             >{{ product().name }}</a
           >
           <!-- Below the md breakpoint the Vendor <td> is hidden (md:hidden here,
@@ -96,7 +96,7 @@ export type ProductRow = Pick<
                  24px minimum (WCAG 2.5.8). -->
             <a
               [routerLink]="['/vendors', v.slug]"
-              class="min-h-6 w-fit truncate rounded-sm text-t-13 leading-6 font-normal text-(--text-secondary) transition-colors hover:text-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary) md:hidden"
+              class="min-h-6 w-fit truncate rounded-mark text-t-13 leading-6 font-normal text-(--text-secondary) transition-colors hover:text-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary) md:hidden"
               >{{ v.name }}</a
             >
           }
@@ -107,7 +107,7 @@ export type ProductRow = Pick<
       @if (vendor(); as v) {
         <a
           [routerLink]="['/vendors', v.slug]"
-          class="rounded-sm text-(--text-secondary) transition-colors hover:text-(--accent-primary) hover:underline hover:underline-offset-3 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
+          class="rounded-mark text-(--text-secondary) transition-colors hover:text-(--accent-primary) hover:underline hover:underline-offset-3 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
           >{{ v.name }}</a
         >
       } @else {

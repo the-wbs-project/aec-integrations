@@ -57,7 +57,7 @@ const AUDIENCES: readonly Omit<AudienceGroup, 'sections'>[] = [
   template: `
     <!-- AECI-987: the index takes the docs content column. Measure lives on the
          intro and the summaries. From lg both lists run two columns. -->
-    <div class="px-4 pt-8 pb-14 md:px-6 lg:px-8 lg:pt-10" data-testid="page-canvas">
+    <div class="px-4 pt-8 pb-16 md:px-6 lg:px-8 lg:pt-12" data-testid="page-canvas">
       <div class="mx-auto max-w-6xl">
         <header class="max-w-[42rem]">
           <h1 class="aec-docs-title text-(--text-primary)" i18n="@@app.docs.home.heading">
@@ -86,7 +86,7 @@ const AUDIENCES: readonly Omit<AudienceGroup, 'sections'>[] = [
                 <p class="mt-1 max-w-[36rem] text-t-14 leading-relaxed text-(--text-secondary)">
                   {{ group.summary }}
                 </p>
-                <ul class="mt-1 flex flex-wrap gap-x-5 text-t-14">
+                <ul class="mt-1 flex flex-wrap gap-x-6 text-t-14">
                   @for (section of group.sections; track section.id) {
                     <li>
                       <a
@@ -102,7 +102,7 @@ const AUDIENCES: readonly Omit<AudienceGroup, 'sections'>[] = [
           </ul>
         </section>
 
-        <section class="mt-10" aria-labelledby="docs-sections-heading">
+        <section class="mt-12" aria-labelledby="docs-sections-heading">
           <h2
             id="docs-sections-heading"
             class="aec-overline text-(--text-secondary)"

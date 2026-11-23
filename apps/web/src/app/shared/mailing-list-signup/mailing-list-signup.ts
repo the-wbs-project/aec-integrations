@@ -152,7 +152,7 @@ type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
             <!-- The optional "How did you find us?" question (AECI-1063). It goes
                  in the same POST as the email and never blocks the submit. -->
             <aec-found-via-field
-              class="mt-5"
+              class="mt-6"
               idPrefix="mailing-list-found-via"
               [value]="form.found_via().value()"
               (valueChange)="form.found_via().value.set($event)"
@@ -168,9 +168,9 @@ type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
               @switch (status()) {
                 @case ('subscribed') {
                   <p
-                    class="aec-notice-success mt-4 flex items-start gap-2.5 rounded-(--radius-md) border bg-(--accent-primary-soft) px-4 py-3 text-sm font-semibold text-(--accent-primary)"
+                    class="aec-notice-success mt-4 flex items-start gap-2 rounded-panel border bg-(--accent-primary-soft) px-4 py-3 text-sm font-semibold text-(--accent-primary)"
                   >
-                    <span class="mt-0.5 flex shrink-0">
+                    <span class="flex h-5 shrink-0 items-center">
                       <aec-icon name="check" decorative [size]="4" />
                     </span>
                     <span i18n="@@mailing-list-signup.status.subscribed"
@@ -180,9 +180,9 @@ type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
                 }
                 @case ('exists') {
                   <p
-                    class="aec-notice-neutral mt-4 flex items-start gap-2.5 rounded-(--radius-md) border bg-(--accent-warm) px-4 py-3 text-sm font-semibold text-(--text-primary)"
+                    class="aec-notice-neutral mt-4 flex items-start gap-2 rounded-panel border bg-(--accent-warm) px-4 py-3 text-sm font-semibold text-(--text-primary)"
                   >
-                    <span class="mt-0.5 flex shrink-0">
+                    <span class="flex h-5 shrink-0 items-center">
                       <aec-icon name="info" decorative [size]="4" />
                     </span>
                     <span i18n="@@mailing-list-signup.status.exists"
@@ -192,9 +192,9 @@ type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
                 }
                 @case ('error') {
                   <p
-                    class="aec-notice-error mt-4 flex items-start gap-2.5 rounded-(--radius-md) border bg-(--surface-base) px-4 py-3 text-sm font-semibold text-(--status-error)"
+                    class="aec-notice-error mt-4 flex items-start gap-2 rounded-panel border bg-(--surface-base) px-4 py-3 text-sm font-semibold text-(--status-error)"
                   >
-                    <span class="mt-0.5 flex shrink-0">
+                    <span class="flex h-5 shrink-0 items-center">
                       <aec-icon name="alert-circle" decorative [size]="4" />
                     </span>
                     <span i18n="@@mailing-list-signup.status.error"

@@ -58,7 +58,7 @@ import { ProductIntegrationCategoryGroup } from './product-integration-category-
         </p>
         <ul
           role="list"
-          class="-mx-1 flex gap-2 overflow-x-auto p-1 lg:mx-0 lg:flex-col lg:gap-0.5 lg:overflow-visible lg:p-0"
+          class="-mx-1 flex gap-2 overflow-x-auto p-1 lg:mx-0 lg:flex-col lg:gap-1 lg:overflow-visible lg:p-0"
         >
           @for (group of groups(); track group.key) {
             <li class="shrink-0">

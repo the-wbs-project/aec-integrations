@@ -56,7 +56,7 @@ export function homeCrumb(): BreadcrumbItem {
               <a
                 [routerLink]="item.link"
                 [fragment]="item.fragment"
-                class="rounded-sm underline-offset-3 hover:underline focus-visible:outline-3 focus-visible:outline-offset-3"
+                class="rounded-mark underline-offset-3 hover:underline focus-visible:outline-3 focus-visible:outline-offset-3"
                 [class]="linkClass()"
                 >{{ item.label }}</a
               >

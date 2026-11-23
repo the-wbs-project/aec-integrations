@@ -46,7 +46,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
             >{{ record().name }}</a
           >
         </p>
-        <p class="mt-0.5 truncate text-sm text-(--text-secondary)">
+        <p class="mt-1 truncate text-sm text-(--text-secondary)">
           @if (record().vendor_name; as vendorName) {
             {{ vendorName }}
           } @else {

@@ -52,11 +52,11 @@
     } }
   </p>
   } @if (kind() === 'claim') {
-  <div aecCard nested class="p-4 sm:p-5" [class.mt-6]="variant() === 'page'">
+  <div aecCard nested class="p-4 sm:p-6" [class.mt-6]="variant() === 'page'">
     <p class="text-t-14 font-semibold text-(--text-primary)" i18n="@@requests.sent.next.heading">
       What happens next
     </p>
-    <ol class="mt-2 list-decimal space-y-1 ps-5 text-t-14 leading-relaxed text-(--text-secondary)">
+    <ol class="mt-2 list-decimal space-y-1 ps-6 text-t-14 leading-relaxed text-(--text-secondary)">
       @if (confirmationRequired()) {
       <!-- AECI-1435: the emailed link comes first; nothing is sent before it. -->
       <li data-testid="request-sent-confirm" i18n="@@requests.sent.claim.confirm.step">
@@ -175,7 +175,7 @@
 <form method="dialog" [class]="formClass()" novalidate (submit)="onFormSubmit($event)">
   <div [class]="fieldsClass()">
     <!-- What's wrong -->
-    <div class="space-y-1.5">
+    <div class="space-y-2">
       <label for="correction-body" [class]="labelClass" i18n="@@requests.correction.body.label">
         What should we fix?
       </label>
@@ -204,7 +204,7 @@
     </div>
 
     <!-- Source (optional) -->
-    <div class="space-y-1.5">
+    <div class="space-y-2">
       <label for="correction-source" [class]="labelClass" i18n="@@requests.correction.source.label">
         Source <span [class]="optionalClass">(optional)</span>
       </label>
@@ -230,7 +230,7 @@
     </div>
 
     <!-- Email -->
-    <div class="space-y-1.5">
+    <div class="space-y-2">
       <label for="correction-email" [class]="labelClass" i18n="@@requests.correction.email.label">
         Your email
       </label>
@@ -310,7 +310,7 @@
     />
 
     <!-- Additional comments: the claim body, relabelled by AECI-1293 (§15.6). -->
-    <div class="space-y-1.5">
+    <div class="space-y-2">
       <label for="claim-body" [class]="labelClass" i18n="@@requests.claim.comments.label">
         Additional comments
         <span [class]="optionalClass">(optional)</span>

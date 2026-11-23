@@ -58,7 +58,7 @@ export interface PairVersionOption {
   template: `
     <!-- AECI-1798: the label sits above the field, and the trigger is the shared form
          control (.aec-field-control): the 3:1 field edge, the control radius, 44px tall. -->
-    <div class="flex flex-col items-start gap-1.5">
+    <div class="flex flex-col items-start gap-2">
       <span [id]="labelId()" [class]="labelClass">{{ label() }}</span>
       <div #origin class="relative">
         <button
@@ -97,8 +97,8 @@ export interface PairVersionOption {
               focusMode="activedescendant"
               selectionMode="explicit"
               [attr.aria-label]="label()"
-              class="aec-popover z-50 flex max-h-[18rem] min-w-[10rem] list-none flex-col gap-0.5
-                overflow-y-auto p-1.5"
+              class="aec-popover z-50 flex max-h-[18rem] min-w-[10rem] list-none flex-col gap-1
+                overflow-y-auto p-2"
             >
               @for (opt of newestFirst(); track opt.label) {
                 <li
@@ -106,7 +106,7 @@ export interface PairVersionOption {
                   [value]="opt"
                   [label]="opt.label"
                   class="flex cursor-pointer items-center justify-between gap-3
-                    rounded-(--radius-sm) px-3 py-2 text-sm text-(--text-primary)
+                    rounded-mark px-3 py-2 text-sm text-(--text-primary)
                     data-[active=true]:bg-(--surface-sunken)"
                 >
                   <span>{{ opt.label }}</span>

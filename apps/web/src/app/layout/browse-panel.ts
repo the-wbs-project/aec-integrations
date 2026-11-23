@@ -132,11 +132,11 @@ export class BrowsePanel {
   protected readonly linkClass = LINK;
   protected readonly termLinkClass = `${LINK} py-2`;
   /** A key item and "All products": serif 24px at weight 400 (DESIGN.md §5 "Panel type"). */
-  protected readonly keyTextClass = `${TEXT} pt-0.5 font-serif text-t-24 leading-[1.1] tracking-[-0.01em]`;
+  protected readonly keyTextClass = `${TEXT} pt-1 font-serif text-t-24 leading-[1.1] tracking-[-0.01em]`;
   /** A term: 16px at weight 400, pinned so no row weight reaches the panel. */
   protected readonly termTextClass = `${TEXT} text-t-16 leading-tight`;
   /** A count: a quiet tabular number, tertiary ink on the white panel (4.83:1). */
-  protected readonly countClass = 'mt-0.5 mb-3 block text-t-13 tabular-nums text-(--text-tertiary)';
+  protected readonly countClass = 'mt-1 mb-3 block text-t-13 tabular-nums text-(--text-tertiary)';
 
   protected readonly columns = computed(() => {
     const menu = this.shown();

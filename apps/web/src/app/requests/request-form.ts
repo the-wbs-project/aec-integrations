@@ -47,7 +47,7 @@ export class RequestForm {
   /** The rail's docs link (AECI-987). Opens a new tab so a half-filled form survives.
    *  The in-text link look with a 44px target, as the claim receipt page (AECI-1807). */
   protected readonly docsLinkClass =
-    'mt-2 inline-flex min-h-11 items-center gap-1.5 text-t-14 font-semibold text-(--accent-primary) ' +
+    'mt-2 inline-flex min-h-11 items-center gap-2 text-t-14 font-semibold text-(--accent-primary) ' +
     'underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 ' +
     'focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
