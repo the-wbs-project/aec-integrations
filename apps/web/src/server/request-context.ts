@@ -31,6 +31,12 @@
  *      the old version as current (fail safe), and the runtime caches it briefly
  *      (`LEGAL_UNCERTAIN_TTL`) instead of on the 24 h `/legal/*` TTL.
  *
+ *   4. `edgeCacheable` — false when the runtime rendered on its non-cacheable branch
+ *      (no `ROUTE_CACHE_PATTERNS` match, or not a GET/HEAD). Such a response leaves
+ *      `private, no-store` unless it is a 404 (AECI-62), so the skip link's server href
+ *      may keep the whole query on a non-404 render (AECI-1848 review). Defaults to true,
+ *      which fails closed: the href then keeps only the cache key's params.
+ *
  * There is no page-view field. A resolver runs only on a cache MISS, so since
  * AECI-1297 the gateway writes the arrival from the path, on a HIT and a MISS
  * alike, and the API resolves the entity id from that path.
@@ -47,8 +53,17 @@ export interface AeciRequestContext {
   readonly api: ServerApiClient;
   embedded: CacheTagEntity[];
   legalStateUncertain: boolean;
+  readonly edgeCacheable: boolean;
 }
 
-export function createRequestContext(api: ServerApiClient): AeciRequestContext {
-  return { api, embedded: [], legalStateUncertain: false };
+export function createRequestContext(
+  api: ServerApiClient,
+  options: { edgeCacheable?: boolean } = {},
+): AeciRequestContext {
+  return {
+    api,
+    embedded: [],
+    legalStateUncertain: false,
+    edgeCacheable: options.edgeCacheable ?? true,
+  };
 }

@@ -36,6 +36,7 @@ import { VendorDocsLink } from '../components/vendor-docs-link';
 import { VendorLicenseActions } from '../components/vendor-license-actions';
 import { VendorLicenseAssign } from '../components/vendor-license-assign';
 import { VendorPendingGrantCard } from '../components/vendor-pending-grant-card';
+import { focusIsLost } from '../focus-is-lost';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 /** One acceptance row, with its labels and its link built once. */
@@ -699,7 +700,7 @@ export class VendorBillingSection {
       // while the re-read ran, leave them where they are.
       const doc = this.host.nativeElement.ownerDocument;
       const active = doc.activeElement;
-      const lost = !active || active === doc.body || !active.isConnected;
+      const lost = focusIsLost(doc);
       if (target && (lost || this.host.nativeElement.contains(active))) target.focus();
     });
   }
@@ -782,7 +783,7 @@ export class VendorBillingSection {
       () => {
         const doc = this.host.nativeElement.ownerDocument;
         const active = doc.activeElement;
-        const lost = !active || active === doc.body || !active.isConnected;
+        const lost = focusIsLost(doc);
         if (lost || this.host.nativeElement.contains(active)) {
           target()?.nativeElement.focus();
         }

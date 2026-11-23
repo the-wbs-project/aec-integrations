@@ -1464,6 +1464,10 @@ describe('createApp 404 handling (AC: §9.1b, not the pinned-404 trap)', () => {
     ['/account/missing', false],
     ['/auth/missing', false],
     ['/search', false],
+    // AECI-1848 — the email token pages.
+    ['/unsubscribe', false],
+    ['/claims/confirm', false],
+    ['/notifications/mute', false],
   ])('keeps a 404 on %s private and untagged (AECI-1442)', async (path, needsSession) => {
     const { binding } = recordingApiBinding();
     const app = createApp({
@@ -1544,6 +1548,29 @@ describe('createApp security headers on every SSR render (AECI-1478)', () => {
   });
 });
 
+// AECI-1848 review — the skip link keeps the whole query on a render the edge will not store,
+// so the runtime must say which branch it rendered on.
+describe('request context edgeCacheable (AECI-1848)', () => {
+  it.each([
+    ['/contact?topic=add-product', false],
+    ['/products/acme', true],
+  ])('%s renders with edgeCacheable %s', async (path, expected) => {
+    const { binding } = recordingApiBinding();
+    let seen: boolean | undefined;
+    const renderer: SsrRenderer = async (_req, ctx) => {
+      seen = ctx.edgeCacheable;
+      return htmlResponse('<p>ok</p>');
+    };
+    const app = createApp({ ssrRenderer: renderer });
+    await app.fetch(
+      new Request(`https://www.aecintegrations.com${path}`),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+    expect(seen).toBe(expected);
+  });
+});
+
 describe('isNeverCacheablePath (AECI-1442)', () => {
   it.each([
     '/auth',
@@ -1557,6 +1584,12 @@ describe('isNeverCacheablePath (AECI-1442)', () => {
     '/vendor/acme',
     '/search',
     '/search/x',
+    '/unsubscribe',
+    '/unsubscribe/x',
+    '/claims/confirm',
+    '/claims/confirm/x',
+    '/notifications/mute',
+    '/notifications/mute/x',
   ])('is true for %s', (path) => {
     expect(isNeverCacheablePath(path)).toBe(true);
   });
@@ -1571,6 +1604,11 @@ describe('isNeverCacheablePath (AECI-1442)', () => {
     '/authors',
     '/accounts',
     '/searching',
+    '/unsubscribed',
+    '/claims',
+    '/claims/confirmation',
+    '/notifications',
+    '/notifications/muted',
     '/this-route-does-not-exist',
   ])('is false for %s', (path) => {
     expect(isNeverCacheablePath(path)).toBe(false);
