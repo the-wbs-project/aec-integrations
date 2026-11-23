@@ -68,6 +68,7 @@ import {
   PROPOSED_PRODUCT_REASON,
   bufferIndexNowAfterPromote,
   dispatchPromoteHooks,
+  edgeProductSlugs,
   refreshHomeStatsAfterPromote,
   runPromoteIngest,
   type PromoteAlgoliaSync,
@@ -4197,6 +4198,29 @@ describe('Algolia index sync after promote (AECI-139)', () => {
     );
     expect(res.status).toBe(200);
     expect(syncAlgolia).toHaveBeenCalledTimes(1);
+  });
+
+  // AECI-1897: the vendor count is reach, so the vendors of every product an edge
+  // touches re-index, not only the promoted product's own.
+  it('names every product an edge touches, for their vendors', () => {
+    const response = {
+      vendors: [],
+      product: null,
+      integrations: [
+        { ref: 'i1', id: 'i1', operation: 'created', sourceSlug: 'revit', targetSlug: 'forma' },
+        {
+          ref: 'i2',
+          id: 'i2',
+          operation: 'updated',
+          sourceSlug: 'revit',
+          targetSlug: 'procore',
+          poweredBySlug: 'zapier',
+          movedFromSlugs: ['revit', 'acc'],
+        },
+        { ref: 'i3', id: 'i3', operation: 'updated' },
+      ],
+    } as unknown as PromoteResponse;
+    expect(edgeProductSlugs(response)).toEqual(['acc', 'forma', 'procore', 'revit', 'zapier']);
   });
 
   it('still returns 200 when the Algolia sync rejects (post-response, never fails the promote)', async () => {

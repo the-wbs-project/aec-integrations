@@ -261,10 +261,11 @@ The values below are quoted from `INDEX_SETTINGS` in `packages/shared/src/algoli
   arm is the exact complement on both tables (either endpoint unpromoted, or retired), so the
   08:00 sync removes a retired record and the 09:00 orphan sweep is only the backstop. The drift
   counter, both orphan id sets and the datatool rebuild apply the same rule. A retire also
-  re-indexes the integration, both product records (and the connector's, for a pair) and the
-  owner's vendor record by id right after commit. Retire changes no ranking signal's meaning:
-  it lowers `integration_count` on both products and the owner vendor, exactly as the edge being
-  gone would. `STAGE_1_5_SPEC.md` §13.5 holds the asserted site list.
+  re-indexes the integration, both product records (and the connector's, for a pair), the
+  owner's vendor record and the record of every vendor of those products, by id right after
+  commit. Retire changes no ranking signal's meaning: it lowers `integration_count` on both
+  products and on every vendor whose product the edge touched, exactly as the edge being gone
+  would. The vendor count is reach since AECI-1897. `STAGE_1_5_SPEC.md` §13.5 holds the asserted site list.
 
 ### 3.4 `pairs` (deferred to Stage 2, AECI-298)
 
@@ -400,7 +401,7 @@ After the textual-relevance criteria (typo…exact), ties resolve by each index'
 
 **`integration_count` changed meaning in AECI-721, on both indices.** It now counts delivered edges **regardless of which table holds them** — `integrations` plus `connector_evidenced_pairs` — and, per `STAGE_1_5_SPEC.md` §12.5 option B, a connector counts the edges it *powers*, not only the ones it terminates. Endpoint products' counts are unchanged by construction (a delivered-via-connector edge already counted for both endpoints); **connector products' counts rise** — in production Agave ERP Sync goes 0 → 12.
 
-That lifted connectors up `desc(integration_count)` here, in the `integration_count` numeric facet (§7.2), and in **both** `integration_count_desc` sort replicas (§5a). *(AECI-636 PR-B, 2026-09-22: the ranking and replica halves no longer hold. `integration_count` left both `customRanking` lists and both replicas were retired. Only the facet half still applies.)* The vendor rule is a *different* expression — a subquery on `built_by_vendor_id` — and gained the same second table, so connector vendors' counts do not collapse. This is the correction §13.5 records against AECI-708's "no ranking change" cross-reference: true of Addendum C in isolation, false of option B.
+That lifted connectors up `desc(integration_count)` here, in the `integration_count` numeric facet (§7.2), and in **both** `integration_count_desc` sort replicas (§5a). *(AECI-636 PR-B, 2026-09-22: the ranking and replica halves no longer hold. `integration_count` left both `customRanking` lists and both replicas were retired. Only the facet half still applies.)* The vendor rule is a *different* expression — a subquery on `built_by_vendor_id` — and gained the same second table, so connector vendors' counts do not collapse. *(AECI-1897, 2026-11-23: the vendor rule is now reach, the distinct live edges touching any of the vendor's visible products, on both tables. The facet buckets shift up for large vendors. Ranking does not move, because `integration_count` is in no custom ranking.)* This is the correction §13.5 records against AECI-708's "no ranking change" cross-reference: true of Addendum C in isolation, false of option B.
 
 When records tie on the full `customRanking` list, Algolia falls back to the records' internal order in the index — not stable or meaningful, so it must not be relied on for deterministic ordering.
 

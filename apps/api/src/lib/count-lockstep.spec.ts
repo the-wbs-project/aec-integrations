@@ -9,6 +9,7 @@ import {
   integrations,
   productCategories,
   products,
+  productVendors,
   taxonomyCategories,
   taxonomyDataObjects,
   vendors,
@@ -62,11 +63,17 @@ const CONNECTOR = 'p-agave';
 const ENDPOINT_A = 'p-procore';
 const ENDPOINT_B = 'p-sage';
 const BUILDER = 'v-agave';
+/** The vendor of `ENDPOINT_A`. It builds nothing, so only the reach rule counts for it. */
+const ENDPOINT_VENDOR = 'v-procore';
 
 /** Two endpoints, a connector, and a builder vendor — the shape of all 19 rows
- *  the migration moves in production (11 of them Agave's, built by Agave). */
+ *  the migration moves in production (11 of them Agave's, built by Agave). Agave
+ *  makes the connector and Procore makes endpoint A, so each vendor has reach. */
 async function seedCatalog(t: TestDb): Promise<void> {
-  await t.db.insert(vendors).values({ id: BUILDER, slug: 'agave', companyName: 'Agave' });
+  await t.db.insert(vendors).values([
+    { id: BUILDER, slug: 'agave', companyName: 'Agave' },
+    { id: ENDPOINT_VENDOR, slug: 'procore-technologies', companyName: 'Procore Technologies' },
+  ]);
   await t.db.insert(products).values([
     { id: ENDPOINT_A, slug: 'procore', name: 'Procore', promotionStatus: 'promoted' },
     { id: ENDPOINT_B, slug: 'sage-intacct', name: 'Sage Intacct', promotionStatus: 'promoted' },
@@ -78,6 +85,24 @@ async function seedCatalog(t: TestDb): Promise<void> {
       promotionStatus: 'promoted',
     },
   ]);
+  await t.db.insert(productVendors).values([
+    { productId: CONNECTOR, vendorId: BUILDER },
+    { productId: ENDPOINT_A, vendorId: ENDPOINT_VENDOR },
+  ]);
+}
+
+/** The public vendor `integration_count` per vendor id, from BOTH reach sites: the
+ *  Algolia record config (6a) and the public vendor list config (14a). Asserts the
+ *  two agree, so a case reads one number per vendor. */
+async function vendorReach(t: TestDb): Promise<Map<string, number>> {
+  const algolia = (await t.db.query.vendors.findMany({
+    ...algoliaVendorConfig,
+  })) as RawAlgoliaVendorRow[];
+  const list = await t.db.query.vendors.findMany({ ...vendorListConfig });
+  const fromAlgolia = new Map(algolia.map((r) => [r.id, r.integrationCount]));
+  const fromList = new Map(list.map((r) => [r.id, r.integrationCount]));
+  expect(fromList).toEqual(fromAlgolia);
+  return fromList;
 }
 
 async function seedEvidencedPair(t: TestDb, id = 'e1'): Promise<void> {
@@ -131,26 +156,19 @@ describe('integration_count lockstep — both tables (AECI-721, AECI-789 / §13.
     t.dispose();
   });
 
-  it('site 6 + D — the vendor rule is a DIFFERENT rule and needs its own second table', async () => {
+  it('sites 6a + 14a — the vendor reach rule needs its own second table', async () => {
     const t = await makeTestDb();
     await seedCatalog(t);
     await seedEvidencedPair(t);
 
-    // Not downstream of `products.integration_count`: a correlated subquery on
-    // `built_by_vendor_id`. Agave built 11 of the 19 edges that move, so a
-    // single-table version reports 0 for Agave the day the migration lands.
-    const [algoliaRow] = (await t.db.query.vendors.findMany({
-      ...algoliaVendorConfig,
-    })) as RawAlgoliaVendorRow[];
-    expect(algoliaRow?.integrationCount).toBe(1);
-
-    // …and the same expression again in `drizzle-helpers.vendorListConfig`, which
-    // feeds the public vendor list. §13.5 names only the two Algolia copies;
-    // there are five. (The ADMIN vendor list no longer selects this extra — its
-    // Integrations column was dropped — which is exactly why the lockstep is
-    // asserted on the config rather than on any one of its readers.)
-    const [listRow] = await t.db.query.vendors.findMany({ ...vendorListConfig });
-    expect(listRow?.integrationCount).toBe(1);
+    // Not downstream of `products.integration_count`: a correlated subquery over the
+    // edges that touch the vendor's products (AECI-1897). The pair lives only in
+    // `connector_evidenced_pairs`, so a single-table version reports 0 for Agave,
+    // whose connector powers it, and for Procore, whose product is an endpoint.
+    // Both the Algolia copy (6a) and the public vendor list (14a) read it.
+    const reach = await vendorReach(t);
+    expect(reach.get(BUILDER)).toBe(1);
+    expect(reach.get(ENDPOINT_VENDOR)).toBe(1);
     t.dispose();
   });
 
@@ -467,6 +485,13 @@ interface LockstepSite {
   evidencedReason?: string;
   deletes?: boolean;
   reason?: string;
+  /**
+   * The two vendor rules (AECI-1897, ruled 2026-11-23). `vendor-reach` is the public
+   * `integration_count`: live edges touching any of the vendor's visible products.
+   * `vendor-owner` is the admin owner test: live edges the vendor built. They answer
+   * different questions and must not be edited into each other.
+   */
+  vendorRule?: 'vendor-reach' | 'vendor-owner';
 }
 
 export const LOCKSTEP_SITES: readonly LockstepSite[] = [
@@ -514,6 +539,7 @@ export const LOCKSTEP_SITES: readonly LockstepSite[] = [
     marker: 'export const algoliaVendorConfig',
     proof: 'executed',
     arms: BOTH_ARMS,
+    vendorRule: 'vendor-reach',
   },
   {
     id: '6b',
@@ -521,6 +547,7 @@ export const LOCKSTEP_SITES: readonly LockstepSite[] = [
     marker: 'export async function buildVendorRecords',
     proof: 'scan',
     arms: BOTH_ARMS,
+    vendorRule: 'vendor-reach',
   },
   {
     id: '7',
@@ -592,15 +619,18 @@ export const LOCKSTEP_SITES: readonly LockstepSite[] = [
     marker: 'export const vendorListConfig',
     proof: 'executed',
     arms: BOTH_ARMS,
+    vendorRule: 'vendor-reach',
   },
   {
     // The vendor-detail count and, since AECI-1041, the /admin/claims owner test.
-    // Both read this one module, so the claim queue is not a site of its own.
+    // Both read this one module, so the claim queue is not a site of its own. The
+    // OWNER rule: built-by, unchanged by AECI-1897.
     id: '14b',
     file: 'src/lib/vendor-owned-integrations.ts',
     marker: 'export function selectOwnedIntegrationGroups',
     proof: 'executed',
     arms: BOTH_ARMS,
+    vendorRule: 'vendor-owner',
   },
   {
     id: '15',
@@ -937,16 +967,12 @@ describe('a retired row counts nowhere, on either arm (AECI-1010, AECI-1091 / §
   );
 
   proves(
-    'sites 6a and 14a: the vendor rule counts only the live row on each arm',
+    'sites 6a and 14a: the vendor reach rule counts only the live row on each arm',
     ['6a', '14a'],
     BOTH_ARMS,
     async (t) => {
-      const [algoliaRow] = (await t.db.query.vendors.findMany({
-        ...algoliaVendorConfig,
-      })) as RawAlgoliaVendorRow[];
-      expect(algoliaRow?.integrationCount).toBe(2);
-      const [listRow] = await t.db.query.vendors.findMany({ ...vendorListConfig });
-      expect(listRow?.integrationCount).toBe(2);
+      // Procore makes endpoint A, which every row touches: i1 + e1.
+      expect((await vendorReach(t)).get(ENDPOINT_VENDOR)).toBe(2);
     },
   );
 
@@ -1349,16 +1375,13 @@ describe('a row touching a hidden product counts nowhere, on either arm (AECI-12
   );
 
   proves(
-    'sites 6a, 14a and 14b: the vendor rule counts only the live row on each arm',
+    'sites 6a, 14a and 14b: both vendor rules count only the live row on each arm',
     ['6a', '14a', '14b'],
     BOTH_ARMS,
     async (t) => {
-      const [algoliaRow] = (await t.db.query.vendors.findMany({
-        ...algoliaVendorConfig,
-      })) as RawAlgoliaVendorRow[];
-      expect(algoliaRow?.integrationCount).toBe(2);
-      const [listRow] = await t.db.query.vendors.findMany({ ...vendorListConfig });
-      expect(listRow?.integrationCount).toBe(2);
+      // Reach: Procore makes endpoint A. Every hidden-endpoint row touches A too.
+      expect((await vendorReach(t)).get(ENDPOINT_VENDOR)).toBe(2);
+      // Owner: Agave built every row.
       const owned = (await loadOwnedIntegrations(t.db, [BUILDER])).get(BUILDER);
       expect(owned).toEqual({ integrations: 1, connector_evidenced: 1, total: 2 });
     },
@@ -1464,5 +1487,222 @@ describe('a row touching a hidden product counts nowhere, on either arm (AECI-12
     const block = sqlBlockAfter(source, '`UPDATE products SET integration_count =');
     expect(block).toContain('${integrationsHiddenFilter}');
     expect(block).toContain('${pairsHiddenFilter}');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// AECI-1897: the two vendor rules. The public vendor `integration_count` (sites 6a,
+// 6b, 14a) is REACH: the distinct live delivered edges touching any of the vendor's
+// visible products. The admin owner test (14b) stays BUILT-BY. Autodesk read 48
+// while its Forma product alone read 54, because the vendor figure counted only
+// the edges Autodesk built.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const VENDOR = 'v-acme';
+const PARTNER = 'v-partner';
+const OWN_1 = 'p-acme-one';
+const OWN_2 = 'p-acme-two';
+const OWN_HIDDEN = 'p-acme-hidden';
+const OWN_CONNECTOR = 'p-acme-connector';
+const OTHER_1 = 'p-other-one';
+const OTHER_2 = 'p-other-two';
+
+/** Acme makes two visible products, a hidden one and a connector. Partner makes two
+ *  products and builds every edge, so no edge here counts for Acme as an owner. */
+async function seedReach(t: TestDb): Promise<void> {
+  await t.db.insert(vendors).values([
+    { id: VENDOR, slug: 'acme', companyName: 'Acme' },
+    { id: PARTNER, slug: 'partner', companyName: 'Partner' },
+  ]);
+  const product = (id: string, extra: Partial<typeof products.$inferInsert> = {}) => ({
+    id,
+    slug: id.replace(/^p-/, ''),
+    name: id,
+    promotionStatus: 'promoted' as const,
+    ...extra,
+  });
+  await t.db
+    .insert(products)
+    .values([
+      product(OWN_1),
+      product(OWN_2),
+      product(OWN_HIDDEN, { hiddenAt: HIDDEN_AT }),
+      product(OWN_CONNECTOR, { productRole: 'connector' }),
+      product(OTHER_1),
+      product(OTHER_2),
+    ]);
+  await t.db.insert(productVendors).values([
+    { productId: OWN_1, vendorId: VENDOR },
+    { productId: OWN_2, vendorId: VENDOR },
+    { productId: OWN_HIDDEN, vendorId: VENDOR },
+    { productId: OWN_CONNECTOR, vendorId: VENDOR },
+    { productId: OTHER_1, vendorId: PARTNER },
+    { productId: OTHER_2, vendorId: PARTNER },
+  ]);
+}
+
+let edgeSeq = 0;
+async function edge(
+  t: TestDb,
+  source: string,
+  target: string,
+  extra: Partial<typeof integrations.$inferInsert> = {},
+): Promise<void> {
+  edgeSeq += 1;
+  await t.db.insert(integrations).values({
+    id: `ri${edgeSeq}`,
+    sourceProductId: source,
+    targetProductId: target,
+    mechanismKind: 'api',
+    direction: 'a_to_b',
+    builtByVendorId: PARTNER,
+    ...extra,
+  });
+}
+
+async function pair(
+  t: TestDb,
+  connector: string,
+  x: string,
+  y: string,
+  extra: Partial<typeof connectorEvidencedPairs.$inferInsert> = {},
+): Promise<void> {
+  edgeSeq += 1;
+  const [a, b] = x < y ? [x, y] : [y, x];
+  await t.db.insert(connectorEvidencedPairs).values({
+    id: `rp${edgeSeq}`,
+    connectorProductId: connector,
+    productAId: a,
+    productBId: b,
+    direction: 'a_to_b',
+    builtByVendorId: PARTNER,
+    listingUrl: `https://example.test/${edgeSeq}`,
+    ...extra,
+  });
+}
+
+describe('the vendor rules: reach for the public count, built-by for ownership (AECI-1897)', () => {
+  async function withReach(run: (t: TestDb) => Promise<void>): Promise<void> {
+    const t = await makeTestDb();
+    try {
+      await seedReach(t);
+      await run(t);
+    } finally {
+      t.dispose();
+    }
+  }
+
+  it("a partner-built edge into the vendor's product counts for the vendor, on both arms", () =>
+    withReach(async (t) => {
+      await edge(t, OTHER_1, OWN_1);
+      // The partner's second product stands in as the connector.
+      await pair(t, OTHER_2, OTHER_1, OWN_2);
+      const reach = await vendorReach(t);
+      expect(reach.get(VENDOR)).toBe(2);
+      // The owner test is unchanged: Acme built none of them.
+      expect((await loadOwnedIntegrations(t.db, [VENDOR])).get(VENDOR)?.total ?? 0).toBe(0);
+      expect((await loadOwnedIntegrations(t.db, [PARTNER])).get(PARTNER)?.total).toBe(2);
+    }));
+
+  it("an edge between two of the vendor's own products counts once", () =>
+    withReach(async (t) => {
+      await edge(t, OWN_1, OWN_2);
+      await pair(t, OTHER_1, OWN_1, OWN_2);
+      // Each row satisfies the OR once. A sum of the product counts would read 4.
+      expect((await vendorReach(t)).get(VENDOR)).toBe(2);
+    }));
+
+  it("a hidden product's edges count for no vendor", () =>
+    withReach(async (t) => {
+      await edge(t, OTHER_1, OWN_HIDDEN);
+      await pair(t, OTHER_2, OTHER_1, OWN_HIDDEN);
+      await edge(t, OTHER_1, OWN_1);
+      const reach = await vendorReach(t);
+      expect(reach.get(VENDOR)).toBe(1);
+      expect(reach.get(PARTNER)).toBe(1);
+    }));
+
+  it('a retired edge counts on neither arm', () =>
+    withReach(async (t) => {
+      await edge(t, OTHER_1, OWN_1, { retiredAt: RETIRED_AT, retiredBy: 'owner' });
+      await pair(t, OTHER_2, OTHER_1, OWN_1, { retiredAt: RETIRED_AT, retiredBy: 'aeci' });
+      const reach = await vendorReach(t);
+      expect(reach.get(VENDOR)).toBe(0);
+      expect(reach.get(PARTNER)).toBe(0);
+    }));
+
+  it("the pairs a vendor's connector powers count for that vendor (option B)", () =>
+    withReach(async (t) => {
+      // Acme's connector links two partner products; Acme makes neither endpoint.
+      await pair(t, OWN_CONNECTOR, OTHER_1, OTHER_2);
+      const reach = await vendorReach(t);
+      expect(reach.get(VENDOR)).toBe(1);
+      expect(reach.get(PARTNER)).toBe(1);
+    }));
+
+  it("the vendor total is at least each product's count and at most their sum", () =>
+    withReach(async (t) => {
+      await edge(t, OTHER_1, OWN_1);
+      await edge(t, OWN_2, OTHER_2);
+      await edge(t, OWN_1, OWN_2);
+      await pair(t, OWN_CONNECTOR, OWN_1, OTHER_2);
+      await pair(t, OTHER_1, OWN_2, OTHER_2);
+      const own = [OWN_1, OWN_2, OWN_CONNECTOR];
+      await recomputeProductCounts(t.db, new Set([...own, OTHER_1, OTHER_2]));
+      const counts = new Map(
+        (await t.db.select().from(products)).map((r) => [r.id, r.integrationCount]),
+      );
+      const perProduct = own.map((id) => counts.get(id) ?? 0);
+      const total = (await vendorReach(t)).get(VENDOR) ?? 0;
+      expect(total).toBe(5);
+      expect(total).toBeGreaterThanOrEqual(Math.max(...perProduct));
+      expect(total).toBeLessThanOrEqual(perProduct.reduce((x, y) => x + y, 0));
+    }));
+
+  it('the reach sites are 6a, 6b and 14a, and the owner site is 14b', async () => {
+    const byRule = (rule: LockstepSite['vendorRule']) =>
+      LOCKSTEP_SITES.filter((site) => site.vendorRule === rule).map((site) => site.id);
+    expect(byRule('vendor-reach')).toEqual(['6a', '6b', '14a']);
+    expect(byRule('vendor-owner')).toEqual(['14b']);
+
+    // 6a and 14a call the one builder. 6b is datatool's raw-SQL copy, which cannot
+    // import it, so its window must carry every disjunct and no built-by test.
+    for (const site of LOCKSTEP_SITES.filter((s) => s.vendorRule === 'vendor-reach')) {
+      const window = windowAfter(await readRaw(site.file), site.marker)!;
+      if (site.id === '6b') {
+        for (const leg of [
+          'ri.source_product_id IN (${owned})',
+          'ri.target_product_id IN (${owned})',
+          'rep.product_a_id IN (${owned})',
+          'rep.product_b_id IN (${owned})',
+          'rep.connector_product_id IN (${owned})',
+        ]) {
+          expect(window, `6b: missing ${leg}`).toContain(leg);
+        }
+        expect(window).toContain('WHERE pv.vendor_id = v.id AND ${visibleProductSqlIf(');
+      } else {
+        expect(window, `${site.id}: not on the shared builder`).toContain(
+          'vendorReachCountSql(\'"vendors"."id"\')',
+        );
+      }
+      expect(window, `${site.id}: the public count is reach, not built-by`).not.toMatch(
+        /built_by_vendor_id/,
+      );
+    }
+    const builder = windowAfter(
+      await readRaw('src/lib/live-integration.ts'),
+      'export function vendorReachCountSql',
+    )!;
+    for (const leg of [
+      'ri.source_product_id IN (',
+      'ri.target_product_id IN (',
+      'rep.product_a_id IN (',
+      'rep.product_b_id IN (',
+      'rep.connector_product_id IN (',
+    ]) {
+      expect(builder).toContain(leg);
+    }
+    expect(windowHasArm(builder, 'integrations')).toBe(true);
+    expect(windowHasArm(builder, 'evidenced')).toBe(true);
   });
 });

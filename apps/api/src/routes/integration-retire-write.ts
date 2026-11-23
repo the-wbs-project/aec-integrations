@@ -543,6 +543,9 @@ export function afterRetireCommit(c: VendorContext, db: Db, input: RetireCommitI
         integrations: [input.integrationId],
         products: [...input.productIds],
         vendors: input.owner ? [input.owner.id] : [],
+        // AECI-1897: the vendor count is reach, so every vendor of an endpoint (and
+        // of a pair's connector) moved, not only the owner.
+        vendorsOfProducts: [...input.productIds],
       },
       input.syncFailureMessage,
     ),
@@ -583,10 +586,12 @@ export function afterRetireCommit(c: VendorContext, db: Db, input: RetireCommitI
 /**
  * The post-commit search tail of an owner write: a by-id Algolia sync of the
  * records the write changed. Retire passes the integration, both endpoint products
- * and the owner vendor (the counts were committed in the batch, so the product and
- * vendor records read the new stored value). The AECI-1006 edit passes the
- * integration alone, because an edit changes no count. The AECI-1011 create passes
- * the same four records as retire. Never throws. Sequential by
+ * (and a pair's connector), the owner vendor, and the same products again as
+ * `vendorsOfProducts`, so every vendor whose reach count moved re-indexes
+ * (AECI-1897). The product counts were committed in the batch, and the vendor count
+ * is computed at read time, so both records read the new value. The AECI-1006 edit
+ * passes the integration alone, because an edit changes no count. The AECI-1011
+ * create passes the same records as retire. Never throws. Sequential by
  * construction (`syncIndexTargets`), so it holds at most one outbound connection at
  * a time. Each entity whose sync failed is logged under `failureMessage`, as the
  * promote tail does.

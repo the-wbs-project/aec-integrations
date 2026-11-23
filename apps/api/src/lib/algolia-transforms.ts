@@ -31,7 +31,6 @@ import {
 } from '@aeci/shared/algolia-records';
 import { publicCompanyFact } from '@aeci/shared/company-facts-display';
 import { listingTierField, productListingTier, vendorListingTier } from '@aeci/shared/listing-tier';
-import { liveEvidencedPairSql, liveIntegrationSql } from '@aeci/shared/live-integration';
 import { visibleProductSql } from '@aeci/shared/listing-visibility';
 import { sql } from 'drizzle-orm';
 
@@ -44,6 +43,7 @@ import {
   pickPrimaryVendor,
   toMechanismKind,
 } from './drizzle-helpers';
+import { vendorReachCountSql } from './live-integration';
 
 // ---------------------------------------------------------------------------
 // Leaf column sets
@@ -160,19 +160,12 @@ export const algoliaVendorConfig = {
         'product_count',
       ),
     integrationCount:
-      // AECI-721 / §13.5 item 6: a DIFFERENT rule from the product count — a
-      // correlated subquery on `built_by_vendor_id`, not a read of the
-      // denormalized `products.integration_count` column. It is therefore NOT
-      // downstream of `recompute-counts.ts` and drops every migrated edge on its
-      // own unless the evidenced table is summed here too. The ~20-row accountable
-      // residue §13.2 records is exactly this population: Agave built 11 of the 19
-      // edges that move, so without the second subquery Agave's vendor record
-      // reports 0 integrations the day the migration lands. Live rows only, in both
-      // tables (AECI-1010, AECI-1091).
-      sql<number>`((SELECT count(*) FROM integrations bi WHERE bi.built_by_vendor_id = "vendors"."id" AND ${sql.raw(liveIntegrationSql('bi'))})
-        + (SELECT count(*) FROM connector_evidenced_pairs cep WHERE cep.built_by_vendor_id = "vendors"."id" AND ${sql.raw(liveEvidencedPairSql('cep'))}))`.as(
-        'integration_count',
-      ),
+      // AECI-1897 (ruled 2026-11-23, §13.5): the vendor's REACH, the distinct live
+      // delivered edges touching any of its visible products, on both arms. Not the
+      // edges it built: that is the owner rule (`vendor-owned-integrations.ts`).
+      // Not a sum of the stored product counts either, which would count an edge
+      // between two of its products twice. One builder for every site.
+      vendorReachCountSql('"vendors"."id"').as('integration_count'),
   },
 } as const;
 

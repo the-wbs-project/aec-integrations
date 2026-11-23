@@ -16,6 +16,11 @@ import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('../lib/algolia-sync', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../lib/algolia-sync')>();
+  return { ...real, syncIndexTargets: vi.fn(async () => []) };
+});
+
 import {
   auditLog,
   claimThreadMessages,
@@ -35,6 +40,8 @@ import {
 } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
+import { syncIndexTargets, type IndexTargetIds } from '../lib/algolia-sync';
+import { resetAlgoliaWriteGuardWarning } from '../lib/algolia-write-guard';
 import { NOTIFICATION_SENT_ACTION } from '../lib/attestation-notify';
 import type { AuthzVariables } from '../lib/authz';
 import {
@@ -401,6 +408,24 @@ describe('GET /api/vendor/integrations — a retired row stays listed (ruled 202
       expect(entry.is_owner).toBe(auth === AUTH_B);
     }
   });
+});
+
+describe('retire and restore re-index every endpoint vendor (AECI-1897)', () => {
+  // The vendor count is reach, so a retire moves the count of both endpoints'
+  // vendors, not only the owner's.
+  for (const mode of ['retire', 'restore'] as const) {
+    it(`a ${mode} names both endpoint products for their vendors`, async () => {
+      if (mode === 'restore') await retire(AUTH_B, I_MAIN);
+      vi.mocked(syncIndexTargets).mockClear();
+      resetAlgoliaWriteGuardWarning();
+      callEnv = { ENV: 'staging', ALGOLIA_APP_ID: 'TESTAPP', ALGOLIA_ADMIN_KEY: 'test-admin-key' };
+      const res = await call(AUTH_B, `/api/vendor/integrations/${I_MAIN}/${mode}`);
+      expect(res.status).toBe(200);
+      const targets = vi.mocked(syncIndexTargets).mock.calls[0]![4] as IndexTargetIds;
+      expect(targets.vendors).toEqual([VENDOR_B]);
+      expect([...(targets.vendorsOfProducts ?? [])].sort()).toEqual([P_SOURCE, P_TARGET].sort());
+    });
+  }
 });
 
 describe('POST /api/vendor/integrations/:id/restore — the owner restores', () => {

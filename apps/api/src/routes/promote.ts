@@ -1346,6 +1346,7 @@ async function syncAlgoliaAfterPromote(
       product: response.product ? { id: response.product.id } : null,
       vendors: response.vendors.map((v) => ({ id: v.id })),
       integrations: response.integrations.map((i) => ({ id: i.id })),
+      vendorsOfProductSlugs: edgeProductSlugs(response),
     });
     const sink: SyncMetricSink = {
       count: (metric, value, tags) => submitCount(rc, rc.env, rc.request, metric, value, tags),
@@ -1359,6 +1360,28 @@ async function syncAlgoliaAfterPromote(
   } catch (error) {
     logAlgoliaSyncFailure(rc, 'all', error instanceof Error ? error.message : String(error));
   }
+}
+
+/**
+ * Every product slug an edge in this promote touches: both endpoints, the connector,
+ * and the endpoints an edge moved away from. Their vendors' reach counts moved
+ * (AECI-1897), so the Algolia hook re-indexes them beside the product's own vendors.
+ * The slugs are already on the response for the cache-tag deriver, so this needs no
+ * read of its own.
+ */
+export function edgeProductSlugs(response: PromoteResponse): string[] {
+  const slugs = new Set<string>();
+  for (const edge of response.integrations) {
+    for (const slug of [
+      edge.sourceSlug,
+      edge.targetSlug,
+      edge.poweredBySlug,
+      ...(edge.movedFromSlugs ?? []),
+    ]) {
+      if (slug) slugs.add(slug);
+    }
+  }
+  return [...slugs].sort();
 }
 
 function logAlgoliaSyncFailure(rc: PromoteRunCtx, entity: string, reason: string): void {

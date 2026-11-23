@@ -511,7 +511,9 @@ helper enqueues for all of them (`purgeTags` / `afterVendorWrite` in
   only vendor writes that change COUNTS: the pair page (its mechanism leaves, and with none left it goes `noindex`,
   which is baked into the cached HTML), both product pages and every browse page
   listing them (`integration_count` on the card, so `index:products` too), the owner's
-  vendor page (the `built_by_vendor_id` count), the four taxonomy index pages (per-term
+  vendor page, the vendor page of every endpoint's vendor (the count is reach since AECI-1897,
+  and each of those pages carries a `product:` tag per product it lists, so the two `product:`
+  tags reach them), the four taxonomy index pages (per-term
   integration counts carry the `taxonomy` tag), and the sitemap (the pair URL leaves the
   list, or returns on restore). `index:home` is deliberately
   **not** purged: the home numbers come from `stats_cache`, which only the daily cron
