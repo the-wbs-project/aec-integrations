@@ -1135,6 +1135,11 @@ const KEY_TABLE: readonly (readonly [string, string, CacheTtl | null])[] = [
   ['/api/health', '/api/health', null],
   ['/unsubscribe/abc123?n=1', '/unsubscribe/abc123', null],
   ['/unsubscribe?token=abc', '/unsubscribe', null],
+  // AECI-1848 — the email token pages are never cached, so the skip link keeps the token.
+  ['/unsubscribe?token=abc&utm_source=email', '/unsubscribe', null],
+  ['/claims/confirm?token=abc&utm_source=email', '/claims/confirm', null],
+  ['/notifications/mute?token=abc&utm_source=email', '/notifications/mute', null],
+  ['/claims?token=abc', '/claims', null],
   ['/claim/abc?utm_source=x', '/claim/abc', null],
   ['/contact?utm_source=x', '/contact', null],
   ['/totally-unknown', '/totally-unknown', null],

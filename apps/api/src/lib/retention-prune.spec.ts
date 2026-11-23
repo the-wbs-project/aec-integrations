@@ -64,8 +64,10 @@ import {
   PRUNABLE,
   PRUNE_CHUNK_ROWS,
   resolveRetentionDays,
+  isRetentionRaceError,
   resolveRetentionWindows,
   runRetentionPrune,
+  runRetentionPruneWithReplan,
   type RetentionPruneResult,
 } from './retention-prune';
 
@@ -538,7 +540,9 @@ describe('runRetentionPrune', () => {
     const result = await runRetentionPrune(t.db, NOW, WINDOWS);
 
     expect(result.status).toBe('skipped');
-    if (result.status !== 'skipped') throw new Error('unreachable');
+    if (result.status !== 'skipped' || result.reason === 'concurrent_run') {
+      throw new Error('unreachable');
+    }
     expect(result.missingCount).toBe(window.length);
     expect(result.missingDays).toHaveLength(10);
   });
@@ -1131,6 +1135,242 @@ describe('emitRetentionPruneMetrics', () => {
       'aeci.retention.prune',
       1,
       ['trigger:cron', 'outcome:skipped', `reason:${reason}`],
+    ]);
+  });
+});
+
+describe('two runs at once (AECI-1917)', () => {
+  const pruneRows = () =>
+    t.db.select().from(auditLog).where(eq(auditLog.action, 'retention.pruned'));
+
+  /** One classification per page view in `ids`. */
+  function seedClassifications(ids: number[]): void {
+    const insert = t.raw.prepare(
+      `INSERT INTO page_view_classifications
+         (page_view_id, class, reason_codes, classifier_version, evaluated_at,
+          evidence_from, evidence_to, view_day, created_at)
+       SELECT id, 'unresolved', '["no_corroboration"]', 'tc-test', created_at, created_at,
+              created_at, substr(created_at, 1, 10), created_at
+         FROM page_views WHERE id = ?`,
+    );
+    for (const id of ids) insert.run(id);
+  }
+  const pageViewIds = () =>
+    (t.raw.prepare(`SELECT id FROM page_views ORDER BY id`).all() as { id: number }[]).map(
+      (r) => r.id,
+    );
+
+  /** Due rows in an id table with a child (`page_views`), a plain id table (`job_runs`)
+   *  and the rowid table (`user_activity_daily`), so every sentinel shape runs. */
+  async function seedAllKinds(): Promise<void> {
+    await seedSnapshots([PV_LAST_PRUNED_DAY]);
+    await seedPageViews([PV_LAST_PRUNED_DAY, PV_LAST_PRUNED_DAY]);
+    seedClassifications(pageViewIds());
+    await seedJobRuns([shiftDay(JR_CUTOFF_DAY, -1)]);
+    await seedUserActivity([shiftDay(UA_CUTOFF_DAY, -1)]);
+  }
+
+  /**
+   * Hold the first batch until the second run reaches its own batch, then commit the
+   * first, then let the second commit. Both plans are read before either commit, which
+   * is the interleaving an overlapping run produces.
+   */
+  function interleave() {
+    const realBatch = t.db.batch.bind(t.db);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let first: Promise<unknown> | null = null;
+    let calls = 0;
+    return vi.spyOn(t.db, 'batch').mockImplementation((async (stmts: never) => {
+      calls += 1;
+      if (calls === 1) {
+        first = gate.then(() => realBatch(stmts));
+        return first;
+      }
+      if (calls === 2) {
+        release();
+        await first;
+      }
+      return realBatch(stmts);
+    }) as never);
+  }
+
+  it('commits once: the loser aborts, replans, finds nothing and writes no audit row', async () => {
+    await seedAllKinds();
+    const spy = interleave();
+
+    const [winner, loser] = await Promise.all([
+      runRetentionPruneWithReplan(t.db, NOW, WINDOWS),
+      runRetentionPruneWithReplan(t.db, NOW, WINDOWS),
+    ]);
+    spy.mockRestore();
+
+    const runs = await pruneRows();
+    expect(runs).toHaveLength(1);
+    expect(runs[0]!.metadata).toMatchObject({
+      rowsDeleted: 6,
+      tables: [
+        { table: 'page_view_classifications', rowsDeleted: 2 },
+        { table: 'page_views', rowsDeleted: 2 },
+        { table: 'job_runs', rowsDeleted: 1 },
+        { table: 'user_activity_daily', rowsDeleted: 1 },
+      ],
+    });
+    expect(await tally(pageViews)).toBe(0);
+    expect(await tally(jobRuns)).toBe(0);
+    expect(await tally(userActivityDaily)).toBe(0);
+
+    expect(winner).toMatchObject({ status: 'pruned', rowsDeleted: 6 });
+    expect(winner.status === 'pruned' && winner.replanned).toBeFalsy();
+    expect(loser).toMatchObject({ status: 'pruned', rowsDeleted: 0, replanned: true });
+    expect(loser.status === 'pruned' && loser.auditEntry).toBeFalsy();
+  });
+
+  it('without the replan, the losing batch throws a race error and deletes nothing', async () => {
+    await seedAllKinds();
+    const spy = interleave();
+    const results = await Promise.allSettled([
+      runRetentionPrune(t.db, NOW, WINDOWS),
+      runRetentionPrune(t.db, NOW, WINDOWS),
+    ]);
+    spy.mockRestore();
+    expect(results[0].status).toBe('fulfilled');
+    expect(results[1].status).toBe('rejected');
+    expect(isRetentionRaceError((results[1] as PromiseRejectedResult).reason)).toBe(true);
+    expect(await pruneRows()).toHaveLength(1);
+  });
+
+  it.each([
+    [
+      'an id table alone (job_runs)',
+      async () => seedJobRuns([shiftDay(JR_CUTOFF_DAY, -1), shiftDay(JR_CUTOFF_DAY, -2)]),
+      2,
+    ],
+    [
+      'the rowid table alone (user_activity_daily)',
+      async () => seedUserActivity([shiftDay(UA_CUTOFF_DAY, -1), shiftDay(UA_CUTOFF_DAY, -2)]),
+      2,
+    ],
+    [
+      'page_views with classifications',
+      async () => {
+        await seedSnapshots([PV_LAST_PRUNED_DAY]);
+        await seedPageViews([PV_LAST_PRUNED_DAY]);
+        seedClassifications(pageViewIds());
+      },
+      2,
+    ],
+  ])('the sentinel of %s stops a second claim of the same rows', async (_name, seed, total) => {
+    await seed();
+    const spy = interleave();
+    const results = await Promise.allSettled([
+      runRetentionPrune(t.db, NOW, WINDOWS),
+      runRetentionPrune(t.db, NOW, WINDOWS),
+    ]);
+    spy.mockRestore();
+    expect(results[1].status).toBe('rejected');
+    const runs = await pruneRows();
+    expect(runs).toHaveLength(1);
+    expect(runs[0]!.metadata).toMatchObject({ rowsDeleted: total });
+  });
+
+  it('a backdated row inside a planned range aborts the batch rather than going uncounted', async () => {
+    // Ids 1 and 3 are due; id 2 is free. After planning, a backdated row lands at id 2,
+    // inside the planned range, as a backdated import would.
+    await seedJobRuns([0, 1, 2].map((n) => shiftDay(JR_CUTOFF_DAY, -1 - n)));
+    t.raw.prepare(`DELETE FROM job_runs WHERE id = 2`).run();
+    const realBatch = t.db.batch.bind(t.db);
+    const spy = vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: never) => {
+      t.raw
+        .prepare(`INSERT INTO job_runs (id, job, started_at) VALUES (2, 'home-stats', ?)`)
+        .run(at(shiftDay(JR_CUTOFF_DAY, -5)));
+      return realBatch(stmts);
+    }) as never);
+    await expect(runRetentionPrune(t.db, NOW, WINDOWS)).rejects.toSatisfy(isRetentionRaceError);
+    spy.mockRestore();
+    expect(await pruneRows()).toEqual([]);
+    expect(await tally(jobRuns)).toBe(3);
+  });
+
+  it.each([
+    [
+      'job_runs',
+      `INSERT INTO job_runs (id, job, started_at) VALUES (?, 'home-stats', ?)`,
+      (k: number, ts: string) => [k, ts],
+    ],
+    [
+      'user_activity_daily',
+      `INSERT INTO user_activity_daily (rowid, user_id, day, role, first_seen_at, last_seen_at)
+         VALUES (?, ?, substr(?, 1, 10), 'vendor_admin', ?, ?)`,
+      (k: number, ts: string) => [k, `u-neg${k}`, ts, ts, ts],
+    ],
+  ])(
+    'a %s row at key 0 or below, never planned, does not block the run',
+    async (table, insert, args) => {
+      // The plan reads keys above 0 only, so these rows were never deleted before
+      // AECI-1917 either. The sentinel must use the same lower bound, or it would
+      // count them and abort every run forever.
+      const old = at(shiftDay(table === 'job_runs' ? JR_CUTOFF_DAY : UA_CUTOFF_DAY, -3));
+      for (const key of [0, -1]) t.raw.prepare(insert).run(...args(key, old));
+      if (table === 'job_runs') await seedJobRuns([shiftDay(JR_CUTOFF_DAY, -1)]);
+      else await seedUserActivity([shiftDay(UA_CUTOFF_DAY, -1)]);
+
+      const first = await runRetentionPruneWithReplan(t.db, NOW, WINDOWS);
+      expect(first).toMatchObject({ status: 'pruned', rowsDeleted: 1 });
+      expect(first.status === 'pruned' && first.replanned).toBeFalsy();
+      const again = await runRetentionPruneWithReplan(t.db, NOW, WINDOWS);
+      expect(again).toMatchObject({ status: 'pruned', rowsDeleted: 0 });
+      expect(await pruneRows()).toHaveLength(1);
+    },
+  );
+
+  it('a second race in a row is reported as skipped: concurrent_run, not thrown', async () => {
+    await seedAllKinds();
+    const spy = vi
+      .spyOn(t.db, 'batch')
+      .mockRejectedValue(new Error('D1_ERROR: malformed JSON') as never);
+    const result = await runRetentionPruneWithReplan(t.db, NOW, WINDOWS);
+    spy.mockRestore();
+    expect(result).toMatchObject({ status: 'skipped', reason: 'concurrent_run', rowsDeleted: 0 });
+    expect(result.tables.map((x) => x.table)).toEqual([...PRUNABLE]);
+    expect(result.tables.every((x) => x.rowsDeleted === 0)).toBe(true);
+    expect(await pruneRows()).toEqual([]);
+  });
+
+  it('any other error still throws', async () => {
+    await seedAllKinds();
+    const spy = vi.spyOn(t.db, 'batch').mockRejectedValue(new Error('D1_ERROR: network') as never);
+    await expect(runRetentionPruneWithReplan(t.db, NOW, WINDOWS)).rejects.toThrow('network');
+    spy.mockRestore();
+  });
+
+  it('tags a lost race and a replanned run in the metrics', () => {
+    const counts: Array<[string, number, string[]]> = [];
+    const sink = {
+      count: (m: string, v: number, tags: string[]) => counts.push([m, v, tags]),
+      distribution: () => undefined,
+    };
+    emitRetentionPruneMetrics(
+      sink,
+      { status: 'skipped', reason: 'concurrent_run', tables: [], rowsDeleted: 0 },
+      1,
+    );
+    emitRetentionPruneMetrics(
+      sink,
+      { status: 'pruned', tables: [], rowsDeleted: 0, replanned: true },
+      1,
+    );
+    expect(counts).toContainEqual([
+      'aeci.retention.prune',
+      1,
+      ['trigger:cron', 'outcome:skipped', 'reason:concurrent_run'],
+    ]);
+    expect(counts).toContainEqual([
+      'aeci.retention.prune',
+      1,
+      ['trigger:cron', 'outcome:ok', 'replanned:true'],
     ]);
   });
 });

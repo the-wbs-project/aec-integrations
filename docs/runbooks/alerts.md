@@ -1606,7 +1606,7 @@ combined** cron-failure alert, now the `cron-job-failed-alert` email (AECI-1587)
 it.
 
 **Metrics:**
-- `aeci.retention.prune{outcome:ok|skipped|failed}` — one heartbeat per completed run; the always-emitted series is the liveness signal. On a skip, `reason` is `metrics_daily_gap`, `archive_gap` or `archive_mismatch` (AECI-1228).
+- `aeci.retention.prune{outcome:ok|skipped|failed}` — one heartbeat per completed run; the always-emitted series is the liveness signal. On a skip, `reason` is `metrics_daily_gap`, `archive_gap` or `archive_mismatch` (AECI-1228), or `concurrent_run` (AECI-1917). `concurrent_run` means the planned row counts changed before both commit attempts, so this run deleted nothing. An overlapping prune or a backdated insert can cause it. The next run retries; investigate if skips persist. An ok run tagged `replanned:true` lost one such race and completed on its replan.
 - `aeci.retention.rows_deleted{table}` — rows removed per table, **emitted every run including zeros**.
 - `aeci.retention.prune.truncated{table}` — the per-table run budget (10,000 rows) stopped the run short.
 - `aeci.retention.prune.duration_ms` — run duration.
@@ -1632,10 +1632,14 @@ in staging and production.
 
 **First checks**
 
-1. **Skipped?** Read the `source:retention-prune-cron` log `aeci.retention.skipped` — it carries
-   `window_from`, `window_to`, `missing_count`, and the first ten `missing_days`. The fault is in the
-   **snapshot** pipeline, not here — work "Metrics snapshot missing or incomplete" above (note it
-   has no monitor of its own yet, so `/admin/system`'s `metrics-snapshot` row and
+1. **Skipped?** Read the `source:retention-prune-cron` log `aeci.retention.skipped` and its reason.
+   **`reason=concurrent_run`?** Both commit attempts saw changed row counts; nothing was deleted.
+   The next run retries. If this recurs, investigate overlapping prunes or backdated inserts. This
+   reason has no missing-day fields.
+
+   **`reason=metrics_daily_gap`?** The log carries `window_from`, `window_to`, `missing_count`, and
+   the first ten `missing_days`. The fault is in the **snapshot** pipeline — work "Metrics snapshot
+   missing or incomplete" above (note it has no monitor of its own yet, so `/admin/system`'s `metrics-snapshot` row and
    `aeci.metrics_snapshot.*` are the signals). Backfill the gap, then the prune resumes on its own
    the next night:
    ```bash
@@ -1678,8 +1682,8 @@ in staging and production.
 5. **`truncated` for several consecutive days?** The per-table budget is holding it back. That is
    fine for a catch-up (it will converge), and a real problem only if the window keeps shrinking.
 
-**Repair:** there is nothing to un-delete, which is the whole design. A skip needs the *snapshot*
-fixed, not the prune. A not-running cron is a Worker scheduling issue — escalate to whoever owns the
+**Repair:** there is nothing to un-delete, which is the whole design. Address a skip according to
+its reason above. A not-running cron is a Worker scheduling issue — escalate to whoever owns the
 API Worker's crons. If a window must be shortened urgently, set the env override rather than shipping
 a code change; values below **30 days** are ignored (D1 Time Travel's horizon) and logged as
 `aeci.retention.invalid_window_override`.

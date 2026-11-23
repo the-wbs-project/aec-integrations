@@ -277,15 +277,17 @@ export function relaxedSwarm(
   return w.verifiedHops === 0 && relaxedSwarmBeforeVeto(w, cell);
 }
 
-/** A family a candidate can add to a row: a classifier family, or the new distinct one. */
 /**
  * A family a candidate can add. `coordinated_identities` is the AECI-1659 group
  * candidate (`traffic-shadow-coordinated.ts`), overlaid the same way.
+ * `no_browser_report` is the AECI-1716 missing-report candidate
+ * (`traffic-shadow-browser-evidence.ts`).
  */
 export type CandidateFamily =
   | keyof typeof SIGNAL_FAMILIES
   | 'hash_crawl_shape'
-  | 'coordinated_identities';
+  | 'coordinated_identities'
+  | 'no_browser_report';
 
 const CODE_FAMILY: ReadonlyMap<ReasonCode, keyof typeof SIGNAL_FAMILIES> = new Map(
   (Object.keys(SIGNAL_FAMILIES) as (keyof typeof SIGNAL_FAMILIES)[]).flatMap((family) =>

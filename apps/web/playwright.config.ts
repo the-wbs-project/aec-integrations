@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
-import { E2E_BASE_URL, E2E_WEB_PORT } from './e2e/base-url';
+import { E2E_BASE_URL } from './e2e/base-url';
+import { resolveWebServer } from './e2e/web-server';
 
 // AECI-235: the Playwright runner process doesn't inherit the Workers' `.dev.vars`,
 // but `authed-console.spec.ts` mints a real Supabase session from `process.env`. For
@@ -37,8 +38,10 @@ loadDevVarsAuthEnv();
 // Playwright config for the SSR Worker (apps/web).
 //
 // Local: launches `pnpm dev:bound` (parallel API + SSR Workers) via `webServer`
-// so the service binding `env.API` resolves end-to-end.
-// CI (preview-URL job): `PLAYWRIGHT_BASE_URL` is set; `webServer` is skipped.
+// so the service binding `env.API` resolves end-to-end. On a non-default
+// `AECI_WEB_PORT` (an agent's `dev:agent` pair) it only reuses a running stack
+// and fails fast when none answers (AECI-1955).
+// CI boots `dev:bound` in its own step and sets `PLAYWRIGHT_BASE_URL`, so `webServer` is skipped.
 //
 // Phase 1.19: chromium-only smoke + axe. There is no cross-browser / mobile
 // lane (removed by AECI-1269); see `docs/TESTING_STRATEGY.md` §7.7.
@@ -49,7 +52,6 @@ loadDevVarsAuthEnv();
 // (a deployed tier such as staging) still takes precedence and skips the local webServer.
 // The derivation lives in `e2e/base-url.ts` so specs that need the origin
 // outside a test share it (AECI-1449).
-const WEB_PORT = E2E_WEB_PORT;
 const BASE_URL = E2E_BASE_URL;
 const IS_CI = !!process.env['CI'];
 
@@ -73,28 +75,10 @@ export default defineConfig({
     },
   ],
   // Only launch the local web server when targeting localhost. When a deployed
-  // URL is supplied via env, the Workers are already deployed.
-  webServer: process.env['PLAYWRIGHT_BASE_URL']
-    ? undefined
-    : {
-        // `pnpm dev:bound` boots both API (:8787) and SSR (:8788) Workers in
-        // parallel so the SSR Worker's service binding (`env.API`) resolves.
-        // `cwd: '../..'` is the monorepo root from this config's location.
-        command: 'pnpm dev:bound',
-        cwd: '../..',
-        // Probe `/api/health`, NOT the SSR root `/`. The SSR Worker answers `/`
-        // with 200 the instant it boots — before the API Worker has registered
-        // its service binding — so gating on `/` lets the first API-dependent
-        // test fire into a `Worker "aeci-api" not found` failure that
-        // the SSR layer renders as a 404 (the cold-start flake this guards
-        // against). `/api/health` proxies through `env.API` and only returns 200
-        // once the binding is connected AND `SELECT 1` succeeds; binding-down /
-        // DB-down return 5xx, which Playwright (ready iff status in [200,404))
-        // keeps polling past. So tests don't start until the API is serving.
-        url: `http://localhost:${WEB_PORT}/api/health`,
-        reuseExistingServer: !IS_CI,
-        timeout: 180_000,
-        stdout: 'pipe',
-        stderr: 'pipe',
-      },
+  // URL is supplied via env, the Workers are already deployed. The branch logic
+  // (default port, agent port, override) lives in `e2e/web-server.ts` so a unit
+  // spec pins it (AECI-1955).
+  webServer: resolveWebServer(process.env),
+  // `*.unit.spec.ts` under `e2e/` are Vitest specs for the e2e helpers.
+  testIgnore: '**/*.unit.spec.ts',
 });

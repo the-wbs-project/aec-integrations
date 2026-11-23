@@ -138,7 +138,17 @@ export interface IndexView<T> {
   readonly hasMore: Signal<boolean>;
   /** True from `loadMore()` until the next page lands (drives the footer spinner). */
   readonly loadingMore: Signal<boolean>;
-  /** Append the next page. No-op while a page is in flight or none remain. */
+  /**
+   * Append the next page. No-op while a page is in flight, while none remain,
+   * and while ANY search is in flight (AECI-1906). A query, filter or sort
+   * change resets to page 1; a `showMore()` sent before that answer lands asks
+   * for page 2 of the new state, and InstantSearch caches a page only when no
+   * other search is pending, so page 1 was never kept. The reader saw page 2
+   * alone. So the call is deferred, not dropped: it runs once that search
+   * settles, when page 1 is cached. Dropping it stalled infinite scroll. The
+   * footer's sentinel reports once and re-arms only when the row count
+   * changes, which a 24-row page replacing a 24-row page does not do.
+   */
   loadMore(): void;
   readonly refinementLists: readonly RefinementListView[];
   readonly numericMenus: readonly NumericMenuView[];
@@ -176,6 +186,17 @@ export interface InstantSearchInstance extends WidgetHost {
    * error on the payload.
    */
   on(event: 'error', handler: (payload: { error: Error }) => void): void;
+  /**
+   * Subscribe to the instance render event. It fires after every render of the
+   * widgets, once `status` is already updated. The controller replays a
+   * deferred `loadMore` here (AECI-1906).
+   */
+  on(event: 'render', handler: () => void): void;
+  /**
+   * `'loading'` or `'stalled'` while a search is in flight; `'idle'` once it
+   * landed; `'error'` after a failure. `loadMore` reads it (AECI-1906).
+   */
+  readonly status: 'idle' | 'loading' | 'stalled' | 'error';
 }
 
 /** Render-state shapes (the subset of each connector's output we consume). */
@@ -585,6 +606,8 @@ export class SearchController {
   private lastSearchEmittedFor: string | null = null;
   /** One per index: clears its `loadingMore` when a search fails. */
   private readonly loadingMoreResets: (() => void)[] = [];
+  /** One per index: runs a `loadMore` deferred while a search was in flight. */
+  private readonly deferredLoads: (() => void)[] = [];
   private readonly onFiltersChange: (filters: SearchFilters) => void;
   /** The filters last seen or applied, to tell a filter change from any other. */
   private lastFilters: SearchFilters;
@@ -732,6 +755,13 @@ export class SearchController {
       for (const reset of this.loadingMoreResets) reset();
       this.error.set(true);
       this.emitSearchFailed();
+    });
+
+    // A `loadMore` refused while a search was in flight runs once the instance
+    // is idle again: the new page 1 has rendered and is cached (AECI-1906).
+    this.search.on('render', () => {
+      if (this.search.status !== 'idle') return;
+      for (const replay of this.deferredLoads) replay();
     });
   }
 
@@ -927,7 +957,13 @@ export class SearchController {
     let showMore: (() => void) | null = null;
     let lastResults: unknown;
     let resultsAtLoad: unknown;
-    this.loadingMoreResets.push(() => loadingMore.set(false));
+    /** A `loadMore` arrived while a search was in flight (AECI-1906). */
+    let deferred = false;
+    this.loadingMoreResets.push(() => {
+      loadingMore.set(false);
+      // A failed search drops the deferred page too; "Load more" retries.
+      deferred = false;
+    });
 
     // Sort (AECI-175): one replica per sort, the same set and order as
     // `/products`. The primary is not an option: Relevance was dropped on
@@ -1091,18 +1127,35 @@ export class SearchController {
       };
     };
 
+    const loadMore = (): void => {
+      if (loadingMore() || !hasMore() || !showMore) return;
+      // A search for a changed state is in flight: its page 1 has not landed,
+      // so a page-2 request now would replace it. Hold it until the search
+      // settles (AECI-1906).
+      if (this.search.status === 'loading' || this.search.status === 'stalled') {
+        deferred = true;
+        return;
+      }
+      deferred = false;
+      loadingMore.set(true);
+      resultsAtLoad = lastResults;
+      showMore();
+    };
+    this.deferredLoads.push(() => {
+      if (!deferred) return;
+      deferred = false;
+      // Re-checks `hasMore` against the new results: a filter with one page
+      // has nothing to append.
+      loadMore();
+    });
+
     return {
       entity,
       hits,
       nbHits,
       hasMore,
       loadingMore,
-      loadMore: () => {
-        if (loadingMore() || !hasMore() || !showMore) return;
-        loadingMore.set(true);
-        resultsAtLoad = lastResults;
-        showMore();
-      },
+      loadMore,
       refinementLists,
       numericMenus,
       ranges,

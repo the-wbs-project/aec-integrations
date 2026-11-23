@@ -346,6 +346,9 @@ async function afterListingCommit(
             vendors: targets.vendors.slice(i, i + SYNC_ID_CHUNK),
             products: targets.products.slice(i, i + SYNC_ID_CHUNK),
             integrations: targets.integrations.slice(i, i + SYNC_ID_CHUNK),
+            // AECI-1897: the vendor count is reach, so the vendors of every
+            // counterpart and connector moved too, not only the joined companies.
+            vendorsOfProducts: targets.products.slice(i, i + SYNC_ID_CHUNK),
           },
           'aeci.api.admin.listing_hide_algolia_sync_failed',
         );

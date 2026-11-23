@@ -93,8 +93,9 @@
  *     is a build flag rather than standard SQLite, and it cannot report a count.
  *   - **`… WHERE id IN (?, ?, …)`** would put the chunk size into the bound
  *     parameter count, and D1's documented per-query parameter cap is well below
- *     {@link PRUNE_CHUNK_ROWS}. Every statement below binds three regardless of
- *     chunk size, so the limit is simply not reachable.
+ *     {@link PRUNE_CHUNK_ROWS}. Every delete below binds three regardless of
+ *     chunk size, and every AECI-1917 sentinel four, so the limit is simply not
+ *     reachable.
  *
  * **`user_activity_daily` has no integer id** (AECI-1208): its key is
  * `(user_id, day)`. It pages the implicit `rowid` instead, with the same shape:
@@ -107,6 +108,19 @@
  * better-sqlite3, not workerd, so a divergence in SQLite build options passes
  * every spec and fails in production — see the `SQLITE_MAX_COMPOUND_SELECT = 5`
  * note in `routes/admin-system.ts` for one that actually bit.
+ *
+ * ─── Overlapping runs (AECI-1917) ────────────────────────────────────────────
+ *
+ * The count comes from the plan's reads, so a plan that went stale before its batch
+ * committed would claim rows another run already deleted. Two runs can overlap: a
+ * duplicate cron fire, or a `{ job: 'retention' }` message pushed to a job queue during
+ * the 03:00 run. So the batch opens with one count sentinel per planned table: the rows
+ * up to the last planned key must still number what the plan counted, or the batch
+ * aborts with nothing deleted and no audit row. A D1 batch is one serialized
+ * transaction, so a sentinel that passes holds for every statement after it.
+ * {@link runRetentionPruneWithReplan} replans once after an abort, and a second abort is
+ * `skipped: 'concurrent_run'`, not a failure. The pattern is AECI-1638's in
+ * `./legal-retention-prune`.
  */
 
 import {
@@ -119,7 +133,7 @@ import {
   USER_ACTIVITY_RETENTION_DAYS,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import { and, asc, count, gt, gte, inArray, lt, lte, min, sql } from 'drizzle-orm';
+import { and, asc, count, gt, gte, inArray, lt, lte, min, sql, type SQL } from 'drizzle-orm';
 
 import type { SQLiteColumn, SQLiteTable } from 'drizzle-orm/sqlite-core';
 
@@ -165,6 +179,10 @@ export const MAX_CHUNKS_PER_TABLE = 20;
  * date strings into a `job_runs.detail` payload and a Datadog log line.
  */
 const MAX_REPORTED_MISSING_DAYS = 10;
+
+/** The sentinel's abort token. SQLite has no `RAISE()` outside triggers, so malformed
+ *  JSON is the in-statement abort, as in `./legal-retention-prune` (AECI-1917). */
+export const RETENTION_RACE_TOKEN = 'retention-changed';
 
 /**
  * The complete list of tables this module may delete from. Rule 3 of §7.4 in
@@ -350,6 +368,16 @@ export type RetentionPruneResult =
       /** The one summary row written in the same batch, for the §26.5 forward.
        *  Absent when `rowsDeleted` is 0 — no delete, no batch, no audit row. */
       auditEntry?: AuditLogEntry;
+      /** True when a first plan lost a race and this result is the replan's (AECI-1917). */
+      replanned?: boolean;
+    }
+  | {
+      status: 'skipped';
+      /** The plan lost a race twice in a row, so this run deleted nothing (AECI-1917,
+       *  {@link runRetentionPruneWithReplan}). No gate fired, so there are no days. */
+      reason: 'concurrent_run';
+      tables: PrunedTable[];
+      rowsDeleted: 0;
     }
   | {
       status: 'skipped';
@@ -484,6 +512,9 @@ export async function findArchiveGap(
 // ---------------------------------------------------------------------------
 
 interface ChunkPlan {
+  /** Count checks that abort the batch when the planned rows moved (AECI-1917). They
+   *  must run before every delete in the batch. */
+  sentinels: BatchStmt[];
   statements: BatchStmt[];
   rowsDeleted: number;
   truncated: boolean;
@@ -516,6 +547,37 @@ async function planChunks(db: Db, table: WindowedTable, cutoffIso: string): Prom
   const src = SOURCES[table];
   if (src.kind === 'day') return planDayChunks(db, src, cutoffIso);
 
+  // AECI-1917: the chunks cover every row with `0 < id <= cursor` under the age
+  // predicate, because the cursor starts at 0 and each chunk starts where the last one
+  // stopped. So the count over that range must still equal the plan's at commit time.
+  // The lower bound is the plan's own: a row at id 0 or below is never planned, and
+  // counting it would abort every run forever.
+  const finish = (truncated: boolean): ChunkPlan => {
+    const sentinels: BatchStmt[] = [];
+    if (rowsDeleted > 0) {
+      const upTo = and(lt(src.age, cutoffIso), gt(src.id, 0), lte(src.id, cursor));
+      sentinels.push(
+        abortWhen(
+          db,
+          sql`(${db.select({ n: count() }).from(src.table).where(upTo)}) <> ${rowsDeleted}`,
+        ),
+      );
+      if (table === 'page_views' && childRowsDeleted > 0) {
+        const children = db
+          .select({ n: count() })
+          .from(pageViewClassifications)
+          .where(
+            inArray(
+              pageViewClassifications.pageViewId,
+              db.select({ id: pageViews.id }).from(pageViews).where(upTo),
+            ),
+          );
+        sentinels.push(abortWhen(db, sql`(${children}) <> ${childRowsDeleted}`));
+      }
+    }
+    return { sentinels, statements, rowsDeleted, truncated, childRowsDeleted };
+  };
+
   for (let chunk = 0; chunk < MAX_CHUNKS_PER_TABLE; chunk += 1) {
     const ids = (
       await db
@@ -526,9 +588,7 @@ async function planChunks(db: Db, table: WindowedTable, cutoffIso: string): Prom
         .limit(PRUNE_CHUNK_ROWS)
     ).map((r) => r.id as number);
 
-    if (ids.length === 0) {
-      return { statements, rowsDeleted, truncated: false, childRowsDeleted };
-    }
+    if (ids.length === 0) return finish(false);
 
     const lastId = ids[ids.length - 1] as number;
     // The date predicate is repeated on purpose: the id range is pagination, the
@@ -557,19 +617,17 @@ async function planChunks(db: Db, table: WindowedTable, cutoffIso: string): Prom
     rowsDeleted += ids.length;
     cursor = lastId;
 
-    if (ids.length < PRUNE_CHUNK_ROWS) {
-      return { statements, rowsDeleted, truncated: false, childRowsDeleted };
-    }
+    if (ids.length < PRUNE_CHUNK_ROWS) return finish(false);
   }
 
-  return { statements, rowsDeleted, truncated: true, childRowsDeleted };
+  return finish(true);
 }
 
 /**
  * {@link planChunks} for a table with no integer id (AECI-1208). Pages the
  * implicit `rowid` under the same caps, so the chunk size, the per-table ceiling,
- * the exact count and the "predicate is the authority" rule are all unchanged.
- * `cutoffDay` is a `YYYY-MM-DD` compared against the table's day column.
+ * the exact count, the "predicate is the authority" rule and the sentinel are all
+ * unchanged. `cutoffDay` is a `YYYY-MM-DD` compared against the table's day column.
  */
 async function planDayChunks(
   db: Db,
@@ -581,6 +639,27 @@ async function planDayChunks(
   let cursor = 0;
   const rowid = sql<number>`rowid`;
 
+  const finish = (truncated: boolean): ChunkPlan => ({
+    sentinels:
+      rowsDeleted > 0
+        ? [
+            abortWhen(
+              db,
+              sql`(${db
+                .select({ n: count() })
+                .from(src.table)
+                .where(
+                  and(lt(src.age, cutoffDay), gt(rowid, 0), lte(rowid, cursor)),
+                )}) <> ${rowsDeleted}`,
+            ),
+          ]
+        : [],
+    statements,
+    rowsDeleted,
+    truncated,
+    childRowsDeleted: 0,
+  });
+
   for (let chunk = 0; chunk < MAX_CHUNKS_PER_TABLE; chunk += 1) {
     const rowids = (
       await db
@@ -591,8 +670,7 @@ async function planDayChunks(
         .limit(PRUNE_CHUNK_ROWS)
     ).map((r) => Number(r.rowid));
 
-    if (rowids.length === 0)
-      return { statements, rowsDeleted, truncated: false, childRowsDeleted: 0 };
+    if (rowids.length === 0) return finish(false);
 
     const last = rowids[rowids.length - 1] as number;
     statements.push(
@@ -601,12 +679,30 @@ async function planDayChunks(
     rowsDeleted += rowids.length;
     cursor = last;
 
-    if (rowids.length < PRUNE_CHUNK_ROWS) {
-      return { statements, rowsDeleted, truncated: false, childRowsDeleted: 0 };
-    }
+    if (rowids.length < PRUNE_CHUNK_ROWS) return finish(false);
   }
 
-  return { statements, rowsDeleted, truncated: true, childRowsDeleted: 0 };
+  return finish(true);
+}
+
+/** A sentinel that aborts the batch when `condition` is true at commit time. */
+function abortWhen(db: Db, condition: SQL): BatchStmt {
+  return db
+    .select({ guard: sql`CASE WHEN ${condition} THEN json(${RETENTION_RACE_TOKEN}) END` })
+    .from(sql`(SELECT 1)`);
+}
+
+/** True when a batch failed because one of this module's sentinels fired. */
+export function isRetentionRaceError(error: unknown): boolean {
+  const parts: string[] = [];
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    parts.push(String((current as { message?: unknown }).message ?? current));
+    current = (current as { cause?: unknown }).cause;
+  }
+  return /malformed JSON/i.test(parts.join(' | '));
 }
 
 // ---------------------------------------------------------------------------
@@ -619,7 +715,8 @@ async function planDayChunks(
  * Never throws for an operational reason — a snapshot gap or an archive gap is
  * reported as `status: 'skipped'`, not raised. A genuine D1 failure DOES
  * propagate: the caller records `outcome: 'failed'` and the batch (being atomic)
- * has changed nothing.
+ * has changed nothing. So does a sentinel abort (AECI-1917, a stale plan), which
+ * {@link runRetentionPruneWithReplan} catches and replans; the job calls that.
  *
  * `archiveRequired` turns on rule 5. The job sets it when the `PAGE_VIEWS_ARCHIVE`
  * bucket is bound, and in production always. Off, the run behaves as it did before
@@ -682,6 +779,7 @@ export async function runRetentionPrune(
     }
   }
 
+  const sentinels: BatchStmt[] = [];
   const statements: BatchStmt[] = [];
   const tables: PrunedTable[] = [];
 
@@ -705,6 +803,7 @@ export async function runRetentionPrune(
       continue;
     }
     const plan = await planChunks(db, table, limit);
+    sentinels.push(...plan.sentinels);
     statements.push(...plan.statements);
     if (table === 'page_views') {
       // Truncation is shared: the child is deleted chunk by chunk with its parent,
@@ -743,11 +842,60 @@ export async function runRetentionPrune(
         .map((t) => ({ table: t.table, cutoff: t.cutoff, rowsDeleted: t.rowsDeleted })),
     },
   };
-  statements.push(auditInsert(db, auditEntry));
-
-  await db.batch(statements as BatchTuple);
+  // STATEMENT ORDER IS LOAD-BEARING (AECI-1917). Every sentinel comes before every
+  // delete: a `page_views` chunk deletes its classifications first, so a sentinel placed
+  // after them would count a state this batch already changed. A D1 batch is one
+  // serialized transaction, so the sentinels that pass hold for the rest of it. The
+  // `retention.pruned` insert comes last.
+  const batch: BatchStmt[] = [...sentinels, ...statements, auditInsert(db, auditEntry)];
+  await db.batch(batch as BatchTuple);
 
   return { status: 'pruned', tables, rowsDeleted, auditEntry };
+}
+
+/**
+ * {@link runRetentionPrune}, replanned once when its batch lost a race (AECI-1917).
+ *
+ * A sentinel abort means the planned rows moved between the plan and the commit: an
+ * overlapping run of this job deleted them first, or a backdated row landed inside a
+ * planned range. Nothing was deleted. One replan, at once, reads the state as it is now:
+ * after an overlapping run it finds nothing left and writes no audit row. A second abort in
+ * a row is reported as `skipped: 'concurrent_run'`, not thrown, so a run that only lost a
+ * race never fails its `job_runs` row or sends the failure email. The next night plans
+ * from scratch. Any other error is thrown, as before.
+ */
+export async function runRetentionPruneWithReplan(
+  db: Db,
+  now: Date,
+  windows: Record<WindowedTable, number>,
+  options: { archiveRequired?: boolean } = {},
+): Promise<RetentionPruneResult> {
+  try {
+    return await runRetentionPrune(db, now, windows, options);
+  } catch (error) {
+    if (!isRetentionRaceError(error)) throw error;
+  }
+  try {
+    const result = await runRetentionPrune(db, now, windows, options);
+    return result.status === 'pruned' ? { ...result, replanned: true } : result;
+  } catch (error) {
+    if (!isRetentionRaceError(error)) throw error;
+    const pageViewsCutoff = cutoffFor(now, windows.page_views).iso;
+    return {
+      status: 'skipped',
+      reason: 'concurrent_run',
+      tables: PRUNABLE.map((table) => ({
+        table,
+        cutoff:
+          table === 'page_view_classifications'
+            ? pageViewsCutoff
+            : cutoffFor(now, windows[table]).iso,
+        rowsDeleted: 0,
+        truncated: false,
+      })),
+      rowsDeleted: 0,
+    };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -790,7 +938,7 @@ export function emitRetentionPruneMetrics(
     1,
     result.status === 'skipped'
       ? [...base, 'outcome:skipped', `reason:${result.reason}`]
-      : [...base, 'outcome:ok'],
+      : [...base, 'outcome:ok', ...(result.replanned ? ['replanned:true'] : [])],
   );
   sink.distribution(RETENTION_DURATION_METRIC, durationMs, base);
 }

@@ -509,6 +509,9 @@ Every page sets:
   - **The vendor number is `product_count`, never `integration_count`.** A vendor's
     `integration_count` counts integrations that vendor *built* (`built_by_vendor_id`), not
     integrations across its products, and it is zero for almost every vendor.
+    *(AECI-1897, 2026-11-23: the public vendor `integration_count` now counts the distinct live
+    integrations touching any of the vendor's products, so that reason no longer holds. The
+    snippet still uses `product_count`. Changing it is a separate SEO decision.)*
   - **The trust line must not claim verification.** `/methodology` states that vendor accounts opened in
     September 2026, that most claims and integrations are still recorded by AEC Integrations, and
     that readers will see "Listed by AEC Integrations" nearly everywhere (wording since AECI-1142; "Unverified · AECi" from AECI-1023) (`STAGE_2_5_SPEC.md` §7.1). A snippet saying

@@ -71,7 +71,8 @@ constant (`LOCKSTEP_SITES` in `apps/api/src/lib/count-lockstep.spec.ts`). A drif
 and user-visible.
 - [ ] **Retire a claimed integration in the portal, then restore it** (AECI-1010). After the retire:
       the pair page drops the mechanism (and goes `noindex` if it was the only one), both product
-      counts fall by one, the owner's vendor count falls by one, the search record is gone, and the
+      counts fall by one, each endpoint vendor's count falls by one (the count is reach since
+      AECI-1897), the search record is gone, and the
       other endpoint vendor's portal shows the row marked retired. After the restore, all of it
       comes back.
 - [ ] Product card count == product detail count == taxonomy index count == search facet count, for the same product.

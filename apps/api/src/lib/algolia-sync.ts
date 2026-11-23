@@ -47,6 +47,7 @@ import {
   fieldOverrides,
   integrations,
   products,
+  productVendors,
   statsCache,
   vendors,
 } from '../db/schema';
@@ -518,6 +519,13 @@ export type PromoteIndexTargets = {
   product: { id: string } | null;
   vendors: Array<{ id: string }>;
   integrations: Array<{ id: string }>;
+  /**
+   * Slugs of every product an edge in this promote touches: endpoints, connectors and
+   * any endpoint an edge moved away from (AECI-1897). Their vendors join the vendor
+   * targets, because a vendor's `integration_count` is its reach and an edge into
+   * its product moved it. Optional; absent means none.
+   */
+  vendorsOfProductSlugs?: readonly string[];
 };
 
 /**
@@ -532,18 +540,110 @@ export async function syncPromoteTargets(
   env: AlgoliaEnv,
   targets: PromoteIndexTargets,
 ): Promise<IndexEntityResult[]> {
+  const results: IndexEntityResult[] = [];
+  const vendorIds = await withEndpointVendors(
+    db,
+    env,
+    targets.vendors.map((v) => v.id),
+    { slugs: targets.vendorsOfProductSlugs ?? [] },
+    results,
+  );
   const byEntity: Array<[IndexEntity, string[]]> = [
     ['products', targets.product ? [targets.product.id] : []],
-    ['vendors', targets.vendors.map((v) => v.id)],
+    ['vendors', vendorIds],
     ['integrations', targets.integrations.map((i) => i.id)],
   ];
 
-  const results: IndexEntityResult[] = [];
-  for (const [entity, ids] of byEntity) {
-    if (ids.length === 0) continue;
-    results.push(await indexEntity(db, fetchImpl, creds, env, entity, { type: 'ids', ids }));
-  }
+  await indexIdChunks(db, fetchImpl, creds, env, byEntity, results);
   return results;
+}
+
+/** Ids per by-id `indexEntity` call. The id filter is one `IN (...)`, and D1 caps a
+ *  statement at 100 bound parameters. The endpoint vendors can push a list past it. */
+const SYNC_ID_CHUNK = 80;
+
+/** Index each entity's ids by id, one chunk at a time: sequential, so at most one
+ *  outbound connection is held (the AECI-666 budget). */
+async function indexIdChunks(
+  db: Db,
+  fetchImpl: typeof fetch,
+  creds: AlgoliaBatchCredentials,
+  env: AlgoliaEnv,
+  byEntity: Array<[IndexEntity, string[]]>,
+  results: IndexEntityResult[],
+): Promise<void> {
+  for (const [entity, ids] of byEntity) {
+    for (let i = 0; i < ids.length; i += SYNC_ID_CHUNK) {
+      const chunk = ids.slice(i, i + SYNC_ID_CHUNK);
+      results.push(
+        await indexEntity(db, fetchImpl, creds, env, entity, { type: 'ids', ids: chunk }),
+      );
+    }
+  }
+}
+
+/** Bound parameters per `vendorIdsForProducts` read, under D1's 100-per-statement cap. */
+const VENDOR_LOOKUP_CHUNK = 90;
+
+/**
+ * The vendors joined to any of these products, by product id or slug (AECI-1897).
+ * An edge write moves the reach count of every vendor whose product it touches,
+ * not just the owner's, so the by-id syncs re-index all of them. One read per
+ * chunk of {@link VENDOR_LOOKUP_CHUNK} values; a write passes two or three, so one
+ * read. A D1 read holds no outbound connection.
+ */
+export async function vendorIdsForProducts(
+  db: Db,
+  of: { ids?: readonly string[]; slugs?: readonly string[] },
+): Promise<string[]> {
+  const out = new Set<string>();
+  const ids = [...new Set(of.ids ?? [])];
+  for (let i = 0; i < ids.length; i += VENDOR_LOOKUP_CHUNK) {
+    const rows = await db
+      .selectDistinct({ id: productVendors.vendorId })
+      .from(productVendors)
+      .where(inArray(productVendors.productId, ids.slice(i, i + VENDOR_LOOKUP_CHUNK)));
+    for (const row of rows) out.add(row.id);
+  }
+  const slugs = [...new Set(of.slugs ?? [])];
+  for (let i = 0; i < slugs.length; i += VENDOR_LOOKUP_CHUNK) {
+    const rows = await db
+      .selectDistinct({ id: productVendors.vendorId })
+      .from(productVendors)
+      .innerJoin(products, eq(products.id, productVendors.productId))
+      .where(inArray(products.slug, slugs.slice(i, i + VENDOR_LOOKUP_CHUNK)));
+    for (const row of rows) out.add(row.id);
+  }
+  return [...out].sort();
+}
+
+/**
+ * `explicit` plus the vendors of `of`, deduplicated. A failed lookup does not stop
+ * the sync: it records a failed `vendors` result in `results` and returns the
+ * explicit ids, so the owner's record still refreshes.
+ */
+async function withEndpointVendors(
+  db: Db,
+  env: AlgoliaEnv,
+  explicit: readonly string[],
+  of: { ids?: readonly string[]; slugs?: readonly string[] },
+  results: IndexEntityResult[],
+): Promise<string[]> {
+  if ((of.ids?.length ?? 0) === 0 && (of.slugs?.length ?? 0) === 0) return [...new Set(explicit)];
+  try {
+    return [...new Set([...explicit, ...(await vendorIdsForProducts(db, of))])];
+  } catch (error) {
+    results.push({
+      entity: 'vendors',
+      indexName: localizedIndexNamesFor(env).vendors,
+      saved: 0,
+      deleted: 0,
+      transformErrors: 0,
+      ok: false,
+      error: `endpoint vendor lookup failed: ${error instanceof Error ? error.message : String(error)}`,
+    });
+    return [...new Set(explicit)];
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -555,6 +655,12 @@ export type IndexTargetIds = {
   products: readonly string[];
   vendors: readonly string[];
   integrations: readonly string[];
+  /**
+   * Product ids whose vendors also re-index (AECI-1897). An edge write passes every
+   * product the edge touches, because the vendor count is reach: an edge into a
+   * partner's product moves the partner's count too. Optional; absent means none.
+   */
+  vendorsOfProducts?: readonly string[];
 };
 
 /**
@@ -568,9 +674,12 @@ export type IndexTargetIds = {
  * one Algolia request each, so this holds at most one connection at a time (the
  * AECI-666 budget). Never throws.
  *
- * The vendor is the piece with no other refresh path. Its `integration_count` is a
- * correlated subquery over `built_by_vendor_id`, and a retire does not touch
- * `vendors.updated_at`, so the 08:00 watermark window would never pick it up.
+ * The vendors are the records with no other refresh path. A vendor's
+ * `integration_count` is its reach, a correlated subquery over the live edges that
+ * touch its products (`vendorReachCountSql`, AECI-1897). An edge write does not touch
+ * `vendors.updated_at`, so the 08:00 watermark window would never pick it up. Pass
+ * the edge's products in `vendorsOfProducts` and every vendor whose count moved is
+ * re-indexed, not only the owner.
  */
 export async function syncIndexTargets(
   db: Db,
@@ -579,15 +688,19 @@ export async function syncIndexTargets(
   env: AlgoliaEnv,
   targets: IndexTargetIds,
 ): Promise<IndexEntityResult[]> {
+  const results: IndexEntityResult[] = [];
+  const vendorIds = await withEndpointVendors(
+    db,
+    env,
+    targets.vendors,
+    { ids: targets.vendorsOfProducts ?? [] },
+    results,
+  );
   const byEntity: Array<[IndexEntity, string[]]> = [
     ['integrations', [...new Set(targets.integrations)]],
     ['products', [...new Set(targets.products)]],
-    ['vendors', [...new Set(targets.vendors)]],
+    ['vendors', vendorIds],
   ];
-  const results: IndexEntityResult[] = [];
-  for (const [entity, ids] of byEntity) {
-    if (ids.length === 0) continue;
-    results.push(await indexEntity(db, fetchImpl, creds, env, entity, { type: 'ids', ids }));
-  }
+  await indexIdChunks(db, fetchImpl, creds, env, byEntity, results);
   return results;
 }

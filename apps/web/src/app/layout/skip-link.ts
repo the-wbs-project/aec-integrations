@@ -11,8 +11,9 @@ import { injectInPageHref } from '../shared/in-page-href';
  *
  * The href is `{path}#main`, never a bare `#main`: `<base href="/">` resolves a bare
  * fragment to `/#main` and loads the home page (AECI-1839). The server render keeps only the
- * query params the edge cache key keeps (all of them on never-cached routes); the browser
- * keeps the whole query, so the jump never reloads the page or loses filters.
+ * query params the edge cache key keeps. It keeps all of them on never-cached routes, and on
+ * any non-404 render the edge will not store (AECI-1848). The browser keeps the whole query,
+ * so the jump never reloads the page or loses filters.
  */
 @Component({
   selector: 'aec-skip-link',

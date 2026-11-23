@@ -15,6 +15,10 @@ const QUERY_CASES: readonly [string, string][] = [
     '/products/revit/integrations/procore?view=basic#main',
   ],
   ['/search?q=x', '/search?q=x#main'],
+  // AECI-1848 — an email token page is never cached, so the token survives the SSR href.
+  ['/unsubscribe?token=x', '/unsubscribe?token=x#main'],
+  // AECI-1848 review — /contact is not edge-cached, so its 200 render keeps the topic.
+  ['/contact?topic=add-product', '/contact?topic=add-product#main'],
   ['/products?utm_source=x&page=2', '/products?page=2#main'],
 ];
 
@@ -35,6 +39,17 @@ test.describe('skip link (AECI-1839)', () => {
         );
       });
     }
+
+    // AECI-1848 — with JavaScript off, Enter on the skip link is a real navigation. It must
+    // keep the token, or the page falls back to the "open the link in the email" state.
+    test('Enter on the skip link keeps the unsubscribe token', async ({ page }) => {
+      await page.goto('/unsubscribe?token=x');
+      await page.keyboard.press('Tab');
+      await expect(page.getByRole('link', { name: 'Skip to main content' })).toBeFocused();
+      await page.keyboard.press('Enter');
+      await expect(page).toHaveURL(/\/unsubscribe\?token=x#main$/);
+      await expect(page.getByRole('button', { name: 'Unsubscribe' })).toBeVisible();
+    });
   });
 
   test('server HTML carries a path-preserving href, never a bare fragment', async ({ request }) => {

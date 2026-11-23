@@ -14,6 +14,11 @@ import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('../lib/algolia-sync', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../lib/algolia-sync')>();
+  return { ...real, syncIndexTargets: vi.fn(async () => []) };
+});
+
 import {
   auditLog,
   gscRecrawlQueue,
@@ -26,6 +31,8 @@ import {
 } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
+import { syncIndexTargets, vendorIdsForProducts, type IndexTargetIds } from '../lib/algolia-sync';
+import { resetAlgoliaWriteGuardWarning } from '../lib/algolia-write-guard';
 import { NOTIFICATION_SENT_ACTION } from '../lib/attestation-notify';
 import type { AuthzVariables } from '../lib/authz';
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
@@ -257,6 +264,22 @@ describe('POST /api/vendor/integrations — the happy path', () => {
         'taxonomy',
         'vendor:autodesk',
       ].sort(),
+    );
+  });
+
+  // AECI-1897: the vendor count is reach, so the counterpart's vendor moved too.
+  it('re-indexes the owner and every endpoint vendor in Algolia', async () => {
+    vi.mocked(syncIndexTargets).mockClear();
+    resetAlgoliaWriteGuardWarning();
+    callEnv = { ENV: 'staging', ALGOLIA_APP_ID: 'TESTAPP', ALGOLIA_ADMIN_KEY: 'test-admin-key' };
+    const res = await create(AUTH_A, valid());
+    expect(res.status).toBe(201);
+    expect(syncIndexTargets).toHaveBeenCalledTimes(1);
+    const targets = vi.mocked(syncIndexTargets).mock.calls[0]![4] as IndexTargetIds;
+    expect(targets.vendors).toEqual([VENDOR_A]);
+    expect([...(targets.vendorsOfProducts ?? [])].sort()).toEqual([P_OWN, P_OTHER].sort());
+    expect(await vendorIdsForProducts(t.db, { ids: targets.vendorsOfProducts })).toEqual(
+      [VENDOR_A, VENDOR_B].sort(),
     );
   });
 

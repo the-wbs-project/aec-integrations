@@ -46,6 +46,8 @@ function makeFakeLib() {
     sortBy: [] as Captured[],
   };
   const instance = {
+    /** InstantSearch's `status`; a test sets `'loading'` to model a pending search. */
+    status: 'idle' as 'idle' | 'loading' | 'stalled' | 'error',
     started: 0,
     disposed: 0,
     /** Captured `on('error', …)` handlers (AECI-174). */
@@ -67,8 +69,15 @@ function makeFakeLib() {
     dispose: () => {
       instance.disposed++;
     },
-    on: (_event: 'error', handler: (payload: { error: Error }) => void) => {
-      instance.errorHandlers.push(handler);
+    /** Captured `on('render', …)` handlers (AECI-1906). */
+    renderHandlers: [] as (() => void)[],
+    on: (event: 'error' | 'render', handler: (payload: { error: Error }) => void) => {
+      if (event === 'render') instance.renderHandlers.push(handler as () => void);
+      else instance.errorHandlers.push(handler);
+    },
+    /** Test helper: the instance finished a render (`status` as the test set it). */
+    triggerRender: () => {
+      for (const h of instance.renderHandlers) h();
     },
     /** Test helper: fire the captured error handlers. */
     triggerError: () => {
@@ -414,6 +423,69 @@ describe('SearchController render-state → signal mapping', () => {
     expect(controller.products.hits()).toEqual(items);
     expect(controller.products.loadingMore()).toBe(false);
     expect(controller.products.hasMore()).toBe(false);
+    controller.products.loadMore();
+    expect(showMore).toHaveBeenCalledTimes(1);
+  });
+
+  it('defers loadMore while a search is in flight, then runs it once idle (AECI-1906)', () => {
+    const { calls, controller, instance } = build();
+    const showMore = vi.fn();
+    const page1 = { items: [{ objectID: 'a' }], isLastPage: false, showMore, results: {} };
+    calls.hits[0].renderFn(page1, false);
+    // A filter tick sent a page-1 search that has not landed yet.
+    instance.status = 'loading';
+    controller.products.loadMore();
+    instance.status = 'stalled';
+    controller.products.loadMore();
+    instance.triggerRender();
+    expect(showMore).not.toHaveBeenCalled();
+    expect(controller.products.loadingMore()).toBe(false);
+    // The filtered page 1 lands and renders with the instance idle: the
+    // deferred load runs once, so the scroll sentinel's report is not lost.
+    instance.status = 'idle';
+    calls.hits[0].renderFn({ ...page1, results: {} }, false);
+    instance.triggerRender();
+    expect(showMore).toHaveBeenCalledTimes(1);
+    expect(controller.products.loadingMore()).toBe(true);
+    // Only once: a later idle render does not load again.
+    calls.hits[0].renderFn({ ...page1, results: {} }, false);
+    instance.triggerRender();
+    expect(showMore).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops a deferred loadMore when the new results have no more pages', () => {
+    const { calls, controller, instance } = build();
+    const showMore = vi.fn();
+    calls.hits[0].renderFn({ items: [{ objectID: 'a' }], isLastPage: false, showMore }, false);
+    instance.status = 'loading';
+    controller.products.loadMore();
+    instance.status = 'idle';
+    calls.hits[0].renderFn(
+      { items: [{ objectID: 'a' }], isLastPage: true, showMore, results: {} },
+      false,
+    );
+    instance.triggerRender();
+    expect(showMore).not.toHaveBeenCalled();
+  });
+
+  it('drops a deferred loadMore when the search fails', () => {
+    const { calls, controller, instance } = build();
+    const showMore = vi.fn();
+    calls.hits[0].renderFn({ items: [{ objectID: 'a' }], isLastPage: false, showMore }, false);
+    instance.status = 'loading';
+    controller.products.loadMore();
+    instance.status = 'error';
+    instance.triggerError();
+    instance.status = 'idle';
+    instance.triggerRender();
+    expect(showMore).not.toHaveBeenCalled();
+  });
+
+  it('allows loadMore after a failed search (status "error"), so the reader can retry', () => {
+    const { calls, controller, instance } = build();
+    const showMore = vi.fn();
+    calls.hits[0].renderFn({ items: [{ objectID: 'a' }], isLastPage: false, showMore }, false);
+    instance.status = 'error';
     controller.products.loadMore();
     expect(showMore).toHaveBeenCalledTimes(1);
   });
