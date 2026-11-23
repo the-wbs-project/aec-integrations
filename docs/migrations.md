@@ -371,6 +371,7 @@ change and no `wrangler.jsonc` change.
 
 - The same four scripts run from the repo root without the filter as `pnpm db:generate`, `pnpm db:migrate:local`, `pnpm db:seed:local` and `pnpm db:setup:local`. `db:setup:local` runs the migrate and then the seed.
 - `apps/api`'s `dev` and `dev:preview` scripts run `pnpm db:setup:local` before booting `wrangler dev`, so `pnpm dev` and `dev:preview` always start against a migrated and seeded local D1.
+- `db:migrate:local` sets `CI=1`. In a real terminal, such as the Conductor Run window, wrangler otherwise stops at an "About to apply N migration(s)… continue? (Y/n)" prompt. Under `pnpm --parallel` that prompt is buried in the output, so the boot looks hung and the API Worker never starts. The SSR Worker then logs `Worker "aeci-api" not found`. `CI=1` makes wrangler accept the prompt itself.
 - The retired Supabase-CLI, `prisma migrate` and `prisma db pull` workflow no longer applies to the app DB.
 
 ---

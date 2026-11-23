@@ -14,7 +14,7 @@
     "tail:production": "wrangler tail --env production",
     "cf-typegen": "wrangler types",
     "db:generate": "drizzle-kit generate",
-    "db:migrate:local": "wrangler d1 migrations apply aeci-app-preview --local",
+    "db:migrate:local": "CI=1 wrangler d1 migrations apply aeci-app-preview --local",
     "db:seed:taxonomy:local": "wrangler d1 execute aeci-app-preview --local --file=seed/taxonomy.sql",
     "db:seed:data-objects:local": "wrangler d1 execute aeci-app-preview --local --file=seed/data-objects.sql",
     "db:seed:trades:local": "wrangler d1 execute aeci-app-preview --local --file=seed/trades.sql",
