@@ -455,6 +455,8 @@ The job is **non-blocking** today (intentionally not in `deploy-staging`'s `need
 
 End-to-end tests drive a real browser. In CI they run against a local `dev:bound` server (the per-PR preview tier was retired 2026-10-10, AECI-1268). Highest fidelity, slowest, used for critical user journeys.
 
+Since AECI-2026 (2026-11) CI runs the suite as four Playwright shards (`--shard=N/4`). Each shard boots its own `dev:bound` and seeds its own local D1, so a shard never shares a server or a database. A merge job joins the shards' blob reports into one HTML report, the `playwright-report` artifact. Sharding changes which tests share a database, so **a test must not depend on rows another test wrote**. Each test gets the seed state plus whatever earlier tests on the same shard wrote. The job layout is in `docs/CICD_PLAN.md` §3. Locally, `pnpm test:e2e` still runs every test in one process.
+
 ### 7.1 Why Playwright over Cypress
 
 - Faster (no constant context-switching between test runner and app)

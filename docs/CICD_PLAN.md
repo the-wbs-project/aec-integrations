@@ -176,8 +176,8 @@ Runs in parallel where possible to minimize wall time. Goal: under 10 minutes to
 > `lint-and-types` / `unit-tests` / `build-web` / `e2e-and-integration` and **deploys nothing**.
 > The `pull_request` trigger carries **no `paths-ignore`** (removed — a docs-only skip starved the
 > required checks and deadlocked the merge; see the §8 resolution note): the three required jobs run
-> on every PR, and the docs-only cost control now lives on the non-required `e2e-and-integration`
-> job via the `changes` job. The `push` docs-only filter is an ordered `paths` list since AECI-1270:
+> on every PR, and the docs-only cost control lives on the non-required `e2e-shard` jobs and their
+> `e2e-and-integration` gate via the `changes` job. The `push` docs-only filter is an ordered `paths` list since AECI-1270:
 > `'**'`, `'!**/*.md'`, `'!docs/**'`, then `'apps/web/src/content/**'` back in, so a Markdown-only
 > help-center edit deploys staging and re-pushes the docs search index. Later patterns override
 > earlier ones, so the order is load-bearing. The `paths` (auth/JWKS input set) filter is unchanged.
@@ -245,7 +245,7 @@ Runs in parallel where possible to minimize wall time. Goal: under 10 minutes to
 > always `'true'`. Docs-only PRs ran the full E2E lane. `every` fixes that but cannot re-include a
 > path, which is why `content` is a second filter rather than a fourth pattern.
 
-> Only `e2e-and-integration` reads this output, and it **fails open** (`!= 'false'`, not
+> Only the E2E jobs read this output (`e2e-shard` and its `e2e-and-integration` gate, AECI-2026), and both **fail open** (`!= 'false'`, not
 > `== 'true'`) — see §10. The three required jobs never `needs:` it.
 
 **Job: `lint-and-types`** (~2 min)
@@ -335,8 +335,8 @@ PRs skip coverage entirely (AECI-917). There is no Codecov integration today.
 
 The real job is `build-web` (check `Build SSR Worker`). In the lite lane it builds only when
 apps/web is in scope. It stays in that lane because it is cheap and catches template and build
-breaks that lint and unit tests miss. It exposes `outputs.lane`, which `e2e-and-integration` reads
-to skip itself in the lite lane.
+breaks that lint and unit tests miss. It exposes `outputs.lane`, which `e2e-shard` and its `e2e-and-integration` gate read
+to skip themselves in the lite lane.
 
 **Per-PR preview deploy** — retired 2026-10-10 (AECI-1268). `pr-preview.yml` is deleted and no PR deploys a Worker. A PR runs lint, typecheck, unit tests, build, and E2E plus axe against a local `dev:bound` server. Migration safety on a PR is the D1 schema drift check (`drift-check.yml`). Review happens on staging after merge.
 
@@ -345,8 +345,25 @@ to skip itself in the lite lane.
 3. Capture screenshots and traces on failure
 4. Upload Playwright report as artifact
 
-> The E2E suite that actually gates PRs is the local **`e2e-and-integration`** job
-> (against `dev:bound`). The parked preview-URL job was deleted in AECI-1268. Its Playwright step also
+> The local E2E suite runs against `dev:bound` on code PRs and gates the staging deploy,
+> but is not a required merge check. The parked preview-URL job was deleted in AECI-1268.
+>
+> **AECI-2026 (2026-11): E2E runs as four shards.** The redesign (AECI-1720) doubled the suite
+> from 582 to 1,081 tests. On one runner and one worker, Playwright took 21.3 min and the push
+> lane took 25 to 30 min to reach staging. The work now splits into three jobs:
+>
+> | Job | Check name | What it does |
+> |---|---|---|
+> | `e2e-shard` (matrix `shard: [1, 2, 3, 4]`) | `E2E (shard N/4)` | Boots its own `dev:bound` and local D1, runs `playwright test --shard=N/4 --reporter=github,blob`, uploads `blob-e2e-N`. Shard 1 also runs the edge-cache script. `fail-fast: false`, `timeout-minutes: 15` |
+> | `e2e-and-integration` | `E2E + axe + edge-cache (local)` | The gate. Same `if:` as the shards, plus `!cancelled()`. Fails unless the shards' result is `success`. `deploy-staging` needs this job |
+> | `e2e-report` | `E2E report (merge shards)` | Merges the blobs into one HTML report, uploaded as `playwright-report`. Nothing needs it, and the gate does not wait for it |
+>
+> Playwright deals out single tests by count (`fullyParallel`), not by time, so one shard can run
+> longer than the rest. The crawl assertions in `internal-link-graph.spec.ts` run as a serial
+> group on one shard, but Playwright picks which. Only that shard uploads its
+> `internal-link-graph-report-N` file. Each shard keeps CI's single worker. `workers: 2` inside a shard is the next step if the
+> lane is still too slow. Expected push lane: about 3.5 min to `build-web`, about 7.5 min per
+> shard, about 3 min of deploy. Its Playwright step also
 > passes `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_TEST_USER_EMAIL` /
 > `SUPABASE_TEST_USER_PASSWORD` (AECI-235) so `authed-console.spec.ts` can mint a real
 > admin session and console-check the auth-gated Phase 5 pages — warn-and-skip when the
@@ -848,7 +865,7 @@ Two checks run **advisory / non-blocking** rather than as merge gates: coverage 
 
 **axe + Lighthouse wiring (AECI-65 / Phase 2.19).** Both harnesses (scaffolded in AECI-33) run against **every Phase 2 page type** on a local `dev:bound` server, using committed seed fixtures (`apps/api/seed/phase2-fixtures.sql`, seeded into the local D1 by `dev:bound`'s `db:setup:local` → `db:seed:fixtures:local`):
 
-- **axe** runs in the `e2e-and-integration` job of `deploy.yml` (`apps/web/e2e/phase2-a11y.spec.ts`) across all **14 page types** — the 13 originals plus the product-PAIR page added by AECI-303 — plus the open taxonomy-flyout state, for **15 axe assertions**. One pass per URL in the **sole light theme**: AECI-226 removed the dark theme, so there is no second pass and no `emulateMedia` (`CLAUDE.md` §"Light only (Stage 1)"). **Zero AA violations**, with **no carve-outs** — header and footer are both fully in scope, the footer's former `.exclude('aec-site-footer')` went away with the dark theme it existed for, and AECI-166 removed the contrast-debt foreground allowlist by fixing the tokens. On **gating**: a red run fails the job and `deploy-staging` needs it, so it **blocks the staging deploy** — but it is **not a required merge check** (see the branch-protection table below, which lists only `Lint & typecheck` / `Unit tests` / `Build SSR Worker`), and the job is **skipped on docs-only PRs** by the `changes` paths filter. So "runs on every code PR", not every PR. The accessibility statement (`/accessibility`, AECI-1673, hidden until AECI-1687) says "we test each release with automated accessibility checks (axe)" on the strength of this job and its staging block. Removing or weakening either is a legal-impact change (`docs/LEGAL_IMPACT_REVIEW.md` §3).
+- **axe** runs in the `e2e-shard` jobs of `deploy.yml`, behind the `e2e-and-integration` gate (AECI-2026) (`apps/web/e2e/phase2-a11y.spec.ts`) across all **14 page types** — the 13 originals plus the product-PAIR page added by AECI-303 — plus the open taxonomy-flyout state, for **15 axe assertions**. One pass per URL in the **sole light theme**: AECI-226 removed the dark theme, so there is no second pass and no `emulateMedia` (`CLAUDE.md` §"Light only (Stage 1)"). **Zero AA violations**, with **no carve-outs** — header and footer are both fully in scope, the footer's former `.exclude('aec-site-footer')` went away with the dark theme it existed for, and AECI-166 removed the contrast-debt foreground allowlist by fixing the tokens. On **gating**: a red run fails the job and `deploy-staging` needs it, so it **blocks the staging deploy** — but it is **not a required merge check** (see the branch-protection table below, which lists only `Lint & typecheck` / `Unit tests` / `Build SSR Worker`), and the job is **skipped on docs-only PRs** by the `changes` paths filter. So "runs on every code PR", not every PR. The accessibility statement (`/accessibility`, AECI-1673, hidden until AECI-1687) says "we test each release with automated accessibility checks (axe)" on the strength of this job and its staging block. Removing or weakening either is a legal-impact change (`docs/LEGAL_IMPACT_REVIEW.md` §3).
 - **Lighthouse** (mobile, simulated throttle, median of 3 runs) runs in its own [`lighthouse.yml`](../.github/workflows/lighthouse.yml) workflow. It runs nightly at 09:00 UTC and as the promote-to-demo gate. It never runs on PRs or merges. §11c has the triggers, the `lighthouse` commit status, and the alert. Budgets (§12 of `STAGE_1_PHASE_2_SPEC.md`: scores ≥ 90, LCP ≤ 2.5s, CLS ≤ 0.1, detail-page JS ≤ 200 KB) are **partially enforced**. Accessibility, Best-Practices, SEO and the `/search` TTFB assert at `'error'`. Performance, LCP, CLS, TBT and the JS budgets stay `'warn'` (`.lighthouserc.cjs`). Budgets must not be lowered to pass, per the AECI-65 note. A red nightly means `main` regressed. Fix forward or revert.
 
 **Search wiring (AECI-145 / Phase 3.12).** The same jobs extend to the search/listing surfaces without any workflow change (both already run every `e2e/*.spec.ts` and `lhci autorun`): `/search` is in the Lighthouse collection as a `noindex`, SEO-exempt page (AECI-146), and AECI-145 adds its **MISS-only TTFB budget** (`server-response-time`, since it's `private, no-store`, now error-level); the AECI-143 facet sidebar gets interaction E2E (`apps/web/e2e/facets.spec.ts`) plus a cache-key unit test (originally `cacheKeyUrl()`, removed in WC-3 / AECI-317 with the manual `caches.default` pipeline; **restored in WC-4 / AECI-318 as `cacheKeyFor()` in `cache-key-url.spec.ts`**, now behind the gateway entrypoint) that proves distinct facets → distinct cache entries. The **Lighthouse run measures `/search` with the real InstantSearch SDK** — `lighthouse.yml` provisions the shared `ALGOLIA_SEARCH_KEY` into `apps/web/.dev.vars` (AECI-188; the key must cover the `staging_*` indexes, which local runs read since AECI-1268) so the `/search` JS-transfer budget and a11y numbers reflect the production page, not the degraded shell. The Playwright live-results flow still self-skips in `deploy.yml` (no Algolia there); see `TESTING_STRATEGY.md` §7.2/§8/§10.5.
@@ -1312,14 +1329,16 @@ Independent jobs run in parallel. The real `deploy.yml` dependency graph is:
 
 ```
 lint-and-types ──→ build-web ──┐
-                               ├─→ e2e-and-integration ────────────────┐
-changes  ──────────────────────┘                                       │
- (advisory)                                                            ├─→ deploy-staging
-unit-api (1/2, 2/2) ─┬─→ unit-api-coverage ─┐                          │   (push + refs/heads/main
-                     └──────────────────────┼─→ unit-tests ────────────┤    + STAGING_ENABLED)
-unit-web ───────────────────────────────────┘   (gate, if: always())   │
-lint-and-types ────────────────────────────────────────────────────────┘
+                               ├─→ e2e-shard (1/4 … 4/4) ─┬─→ e2e-and-integration ─┐
+changes  ──────────────────────┘                          │   (gate)               │
+ (advisory)                                               └─→ e2e-report (HTML)    │
+unit-api (1/2, 2/2) ─┬─→ unit-api-coverage ─┐                                      ├─→ deploy-staging
+                     └──────────────────────┼─→ unit-tests ────────────────────────┤   (push + refs/heads/main
+unit-web ───────────────────────────────────┘   (gate, if: always())               │    + STAGING_ENABLED)
+lint-and-types ────────────────────────────────────────────────────────────────────┘
 ```
+
+The report job runs independently; `deploy-staging` does not wait for it.
 
 > **2026-10:** the single `unit-tests` job became `unit-api` + `unit-web` behind a `unit-tests`
 > gate that keeps the required `Unit tests` name (§3.1). We have not measured the split yet. The
@@ -1348,7 +1367,7 @@ lint-and-types ─────────────────────�
 > projection on runner variance rather than structure, with lint at 1:14 against 1:02, build at 1:22
 > against 1:05, and E2E at 6:55 against 6:43.
 
-`changes` has no `needs:` and nothing gates on it except `e2e-and-integration`, which reads it
+`changes` has no `needs:` and nothing gates on it except `e2e-shard` and its `e2e-and-integration` gate, which read it
 **fail-open** (§3.1 / §11.3). The three **required** contexts are `lint-and-types` / `unit-tests` /
 `build-web` — none of them `needs:` `changes`, so the filter can never block a merge. `unit-tests`
 does `needs:` the two unit jobs, which is why it runs under `if: always()` and checks each result.
@@ -1368,7 +1387,7 @@ required jobs still run and report there. They skip steps, never the job.
 > passing — so a docs-only PR blocks on checks that will never run and needs the
 > `enforce_admins: false` bypass to merge (this was the §8 quirk; see its resolution note). The
 > implemented pattern: the three required jobs run on every PR (no `pull_request` `paths-ignore`),
-> and the docs-skip lives on the expensive non-required jobs (`e2e-and-integration`), gated by the
+> and the docs-skip lives on the expensive non-required jobs (`e2e-shard` and its `e2e-and-integration` gate), gated by the
 > `changes` job's `code` output. The `push` docs-only filter stays (an ordered `paths` list since
 > AECI-1270) — post-merge runs are not merge-gating.
 

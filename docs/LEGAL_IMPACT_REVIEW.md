@@ -158,7 +158,7 @@ Not a `/legal/*` page and not versioned (`docs/STAGE_1_SPEC.md` §27.6), but a p
 
 | Change class | Section | What it promises today |
 |---|---|---|
-| Removing or weakening the axe job (`deploy.yml` `e2e-and-integration`), its WCAG 2.1 AA tags, or its block on `deploy-staging` | How we test | "We test each release with automated accessibility checks (axe)." |
+| Removing or weakening the axe job (`deploy.yml` `e2e-shard`, gated by `e2e-and-integration`), its WCAG 2.1 AA tags, or its block on `deploy-staging` | How we test | "We test each release with automated accessibility checks (axe)." |
 | Changing the manual-pass cadence in `docs/a11y-manual-testing-checklist.md` | How we test | "Before major releases we also work through a manual keyboard and screen-reader checklist." |
 | Changing the production `SUPPORT_EMAIL` or retiring the support inbox | Report a barrier | The barrier report goes to `support@aecintegrations.com`. A spec fails when the two differ. |
 | Changing the reply window, or the runbook step that meets it | Report a barrier | "We reply within 10 business days." Ruling 22 set it. A change is `decision`. |
