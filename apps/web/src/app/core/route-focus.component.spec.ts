@@ -47,6 +47,9 @@ function buildPage(): void {
   const row = add(main, 'nav', 'section-row');
   row.setAttribute('data-route-focus-keep', '');
   add(row, 'a', 'row-link', 'Billing').setAttribute('href', '/vendor/acme/billing');
+  // A dropdown panel in the row, as the admin row's Operations group renders.
+  const panel = add(row, 'div', 'row-panel');
+  add(panel, 'a', 'panel-link', 'Reviews').setAttribute('href', '/admin/reviews');
   add(main, 'a', 'in-page', 'A card').setAttribute('href', '/b');
   add(main, 'input', 'search');
 }
@@ -169,6 +172,15 @@ describe('RouteFocus (AECI-1855)', () => {
     start('/vendor/acme/billing');
     el('row-link').remove(); // the new page renders the row without it
     end('/vendor/acme/billing');
+    expect(document.activeElement).toBe(el('title'));
+  });
+
+  it('moves focus to the h1 when the pressed row link sits in a panel that is now [hidden]', () => {
+    const { start, end } = setup();
+    el('panel-link').focus();
+    start('/admin/reviews');
+    el('row-panel').hidden = true; // the dropdown closed as its link was pressed
+    end('/admin/reviews');
     expect(document.activeElement).toBe(el('title'));
   });
 

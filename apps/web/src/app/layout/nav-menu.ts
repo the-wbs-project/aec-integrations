@@ -79,7 +79,7 @@ import { AdminSummaryStore } from '../admin/admin-summary.store';
 import { SessionStatus } from '../auth/session-status';
 import { injectSignInQueryParams } from '../auth/sign-in-link';
 import { isReplayedEvent } from '../core/event-replay';
-import { RouteFocus } from '../core/route-focus';
+import { RouteFocus, focusIsLost } from '../core/route-focus';
 import { TaxonomyNavStore } from '../core/taxonomy/taxonomy-nav.store';
 import { SearchAutocomplete } from '../search/search-autocomplete';
 import type { AutocompleteSuggestion } from '../search/autocomplete-mapping';
@@ -281,7 +281,7 @@ export class NavMenu {
         if (!event.matches) return;
         const wasOpen = this.isOpen();
         this.close(false);
-        if (wasOpen && (this.focusInHost() || this.focusIsLost())) {
+        if (wasOpen && (this.focusInHost() || focusIsLost(this.document))) {
           this.routeFocus.focusPage();
         }
       };
@@ -296,12 +296,6 @@ export class NavMenu {
   private focusInHost(): boolean {
     const active = this.document.activeElement;
     return active !== null && this.host.contains(active);
-  }
-
-  /** Focus is on `<body>` or gone. */
-  private focusIsLost(): boolean {
-    const active = this.document.activeElement;
-    return active === null || active === this.document.body || !active.isConnected;
   }
 
   /** Close from outside the host: the page dimmer. Focus returns to the toggle. */

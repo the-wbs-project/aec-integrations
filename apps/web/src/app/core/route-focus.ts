@@ -54,12 +54,27 @@ export const ROUTE_FOCUS_ATTR = 'data-route-focus';
 export const ROUTE_FOCUS_KEEP_ATTR = 'data-route-focus-keep';
 
 /**
- * Whether an element is rendered. `checkVisibility()` where the browser has it
- * (Chrome 105, Firefox 106, Safari 17.4), else only a `[hidden]` ancestor counts.
+ * Whether an element is rendered and visible. `checkVisibility({ visibilityProperty: true })`
+ * where the browser has it (Chrome 121, Firefox 122, Safari 17.4 for the option; an older
+ * engine that has the method ignores the option and still checks `display`). It is false
+ * for an element under `display: none`, `content-visibility: hidden` or `visibility:
+ * hidden`. A browser with no `checkVisibility` at all counts only a `[hidden]` ancestor.
  */
-function isRendered(element: Element): boolean {
+export function isRendered(element: Element): boolean {
   if (element.closest('[hidden]')) return false;
-  return typeof element.checkVisibility === 'function' ? element.checkVisibility() : true;
+  return typeof element.checkVisibility === 'function'
+    ? element.checkVisibility({ visibilityProperty: true })
+    : true;
+}
+
+/**
+ * Focus is nowhere a reader can act from: on `<body>`, on nothing, on an element no longer
+ * in the document, or on one that is hidden. The one test for "focus was lost", shared by
+ * `RouteFocus` and the mobile menu (`layout/nav-menu.ts`).
+ */
+export function focusIsLost(doc: Document): boolean {
+  const active = doc.activeElement;
+  return !active || active === doc.body || !active.isConnected || !isRendered(active);
 }
 
 /** The path of a router URL: no query, no fragment. */
@@ -139,10 +154,8 @@ export class RouteFocus {
     afterNextRender({ read: fn }, { injector: this.injector });
   }
 
-  /** Focus is nowhere a reader can act from: `<body>`, gone, or hidden. */
   private focusIsLost(): boolean {
-    const active = this.document.activeElement;
-    return !active || active === this.document.body || !active.isConnected || !isRendered(active);
+    return focusIsLost(this.document);
   }
 
   /**
