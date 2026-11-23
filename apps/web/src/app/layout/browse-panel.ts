@@ -135,8 +135,9 @@ export class BrowsePanel {
   protected readonly keyTextClass = `${TEXT} pt-1 font-serif text-t-24 leading-[1.1] tracking-[-0.01em]`;
   /** A term: 16px at weight 400, pinned so no row weight reaches the panel. */
   protected readonly termTextClass = `${TEXT} text-t-16 leading-tight`;
-  /** A count: a quiet tabular number, tertiary ink on the white panel (4.83:1). */
-  protected readonly countClass = 'mt-1 mb-3 block text-t-13 tabular-nums text-(--text-tertiary)';
+  /** A count: a quiet tabular number at the 12px floor, tertiary ink on the white panel (4.83:1). */
+  protected readonly countClass =
+    'mt-0.5 mb-3 block text-t-12 leading-4 tabular-nums text-(--text-tertiary)';
 
   protected readonly columns = computed(() => {
     const menu = this.shown();

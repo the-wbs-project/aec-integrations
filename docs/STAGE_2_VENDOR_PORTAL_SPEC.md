@@ -2902,7 +2902,7 @@ Permitted sources are in the review repo's `docs/company-data-sources.md`. Crunc
 
 **Surfaces.**
 
-- `GET /api/vendors/:slug` returns `company_facts`, and the vendor page shows them in the Company facts cell of its facts card (`vendors/company-facts.ts`, AECI-1797). They replace the hero's HQ and Founded chips. Ownership and parent company are separate rows, because each has its own source.
+- `GET /api/vendors/:slug` returns `company_facts`, and the vendor page shows them in the Company facts cell of its facts card (`vendors/company-facts.ts`, AECI-1797). They replace the hero's HQ and Founded chips. Ownership and parent company are separate rows, because each has its own source. Each row shows the label and value. Its source line (the table above) is one click away, in the "Sources" pop-out behind the "i" beside the Company facts heading (2026-11-23). The pop-out is the browser's own popover, so the source lines stay in the server HTML.
 - `GET /api/products/:slug` returns `vendor_facts`, and the product page's vendor card shows one line, such as "51–200 employees · Private". This line carries no source, so it does not read corrections.
 - Search cards, `VendorListItem` and Algolia records do not carry the six-fact block or any source. They carry headquarters and founded year as bare values, through the same rule (below).
 

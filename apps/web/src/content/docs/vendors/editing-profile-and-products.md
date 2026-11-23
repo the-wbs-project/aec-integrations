@@ -3,7 +3,7 @@ title: Editing your profile and products
 description: Editing your company details, logos and each product's description, links, categories and "How teams use it", adding a product, what each plan can edit, and when a change shows.
 section: vendors
 order: 5
-last_updated: November 17, 2026
+last_updated: November 23, 2026
 ---
 
 Anyone with a seat can edit your company's details and each product's listing. Owners and members can edit the same things. Only owners can add a product or decide a proposed one. Some product fields need the Managed plan, and each one says so in the portal.
@@ -118,7 +118,7 @@ Google, Bing and other search engines visit your pages on their own schedule, so
 
 **Contact email** and **phone number** are not shown on your public pages. They are for AEC Integrations to reach your company.
 
-Your headquarters, founded year, company size, ownership, parent company and funding stage show on your company page, marked "Set by the vendor" with the date you saved them. A value AEC Integrations researched shows its source until you change it.
+Your headquarters, founded year, company size, ownership, parent company and funding stage show on your company page. Select the information icon beside **Company facts** to see who set each fact and when. A value AEC Integrations researched also shows its source there until you change it.
 
 ## What readers see
 

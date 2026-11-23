@@ -10,12 +10,12 @@
 export const FILTER_LEGEND_CLASS = 'aec-overline mb-1 p-0 text-(--text-secondary)';
 
 /**
- * One row: a `<label>` 44px tall (the input floor), so the whole row is the
- * target. The 8px inset puts the hover wash past the checkbox edge without
+ * One row: a `<label>` 36px tall, so the whole row is the target. 36px keeps the
+ * list dense and still clears the 24px target floor (WCAG 2.5.8) by 12px. The 8px inset puts the hover wash past the checkbox edge without
  * moving the checkbox off the column's start line.
  */
 export const FILTER_ROW_CLASS =
-  '-mx-2 flex min-h-11 cursor-pointer items-center gap-3 rounded-mark px-2 text-t-14 text-(--text-primary) hover:bg-(--surface-muted)';
+  '-mx-2 flex min-h-9 cursor-pointer items-center gap-3 rounded-mark px-2 text-t-14 text-(--text-primary) hover:bg-(--surface-muted)';
 
 /** The checkbox or radio: 20px, Forest when checked, the 3px focus ring. */
 export const FILTER_INPUT_CLASS =

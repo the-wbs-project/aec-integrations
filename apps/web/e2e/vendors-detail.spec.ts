@@ -238,3 +238,29 @@ test.describe('vendor detail — band shell (AECI-1797)', () => {
     expect((await sizeOf()).fontSize).toBe('20px');
   });
 });
+
+// The Company facts sources sit behind the "i" in the browser's own popover, so they are
+// in the server HTML and open with no script (DESIGN.md "Open by default").
+test.describe('vendor detail — company facts sources with JavaScript off', () => {
+  test.use({ javaScriptEnabled: false });
+  const SLUG = 'fixture-procore-technologies';
+
+  test('the "i" opens the sources popover with no script', async ({ page, request }) => {
+    const res = await request.get(`/api/vendors/${SLUG}`);
+    const facts = res.ok()
+      ? ((await res.json()) as { company_facts?: Record<string, unknown> }).company_facts
+      : undefined;
+    test.skip(!facts || !Object.values(facts).some(Boolean), `seed missing facts: ${SLUG}`);
+    await page.goto(`/vendors/${SLUG}`);
+
+    const panel = page.getByTestId('company-facts-sources');
+    await expect(panel).toBeHidden();
+    await expect(panel).toContainText('Set by');
+
+    await page.getByTestId('company-facts-sources-trigger').click();
+    await expect(panel).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Sources' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(panel).toBeHidden();
+  });
+});

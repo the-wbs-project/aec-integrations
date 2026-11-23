@@ -19,7 +19,7 @@ const ROW = `group flex flex-wrap items-baseline justify-between gap-x-3 rounded
 const NAME =
   'min-w-0 wrap-anywhere underline decoration-transparent decoration-[length:1.5px] underline-offset-4 transition-colors duration-base ease-standard group-hover:decoration-(--accent-secondary)';
 /** A count: a quiet tabular number, tertiary ink on the white panel (4.83:1). */
-const COUNT = 'shrink-0 text-t-13 font-normal tabular-nums text-(--text-tertiary)';
+const COUNT = 'shrink-0 text-t-12 font-normal tabular-nums text-(--text-tertiary)';
 /** A top-level row ("Categories", "How we rank"): serif 600 at 20px, 58px high. */
 const TOP_ROW = `group flex min-h-[58px] w-full items-center justify-between gap-3 rounded-mark text-start font-serif text-t-20 leading-tight font-semibold tracking-[-0.01em] text-(--text-primary) no-underline ${RING}`;
 
