@@ -12,7 +12,11 @@
  * stack) wins; otherwise `AECI_WEB_PORT` on localhost; otherwise the reserved
  * conductor/CI port 8788. An agent workspace sets `AECI_WEB_PORT` to the web
  * port `dev:agent` printed and nothing else.
+ *
+ * `RESERVED_WEB_PORT` is that default. On any other port the config never boots
+ * `dev:bound` itself; it fails fast when nothing answers (AECI-1955).
  */
-export const E2E_WEB_PORT = process.env['AECI_WEB_PORT'] ?? '8788';
+export const RESERVED_WEB_PORT = '8788';
+export const E2E_WEB_PORT = process.env['AECI_WEB_PORT'] ?? RESERVED_WEB_PORT;
 export const E2E_BASE_URL =
   process.env['PLAYWRIGHT_BASE_URL'] ?? `http://localhost:${E2E_WEB_PORT}`;
