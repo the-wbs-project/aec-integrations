@@ -586,14 +586,13 @@ test.describe('product facts card claim button (AECI-1925)', () => {
 });
 
 /**
- * Ruling 41 (Q61, docs/LEGAL_COUNSEL_RECORD.md): once the hero has scrolled away, the stuck
- * bar keeps the unclaimed status on screen with an "Unclaimed" tag. The bar follows the hero:
- * the tag shows exactly where the hero shows the Unclaimed note, and only beside the product
- * name. Below 768px the bar shows no name, so it shows no tag either (the owner, 2026-11).
- * `fixture-acme-connector` is the product with no vendor record, `revit` an unclaimed one with a
- * vendor, `fixture-procore` the claimed one. `e2e/section-nav.spec.ts` covers the fit.
+ * AECI-2012 (Chris, 2026-11-23): "remove it from the sticky bar for now, but still show." The
+ * ruling 41 trial tag is out of the stuck bar at every width. An unclaimed product still shows
+ * the Unclaimed note in the hero, under its name. A claimed product shows no Unclaimed marking
+ * anywhere. `revit` is an unclaimed product with a vendor, `fixture-acme-connector` one with no
+ * vendor record, `fixture-procore` the claimed one.
  */
-test.describe('product sticky bar Unclaimed tag (ruling 41, AECI-1931)', () => {
+test.describe('product page Unclaimed marking: in the hero, never in the stuck bar (AECI-2012)', () => {
   test.beforeEach(async ({ page }) => {
     // Any PostHog request is answered here, so nothing leaves the machine.
     await page.route(
@@ -604,7 +603,7 @@ test.describe('product sticky bar Unclaimed tag (ruling 41, AECI-1931)', () => {
 
   for (const width of [1440, 390]) {
     for (const slug of ['revit', 'fixture-acme-connector', 'fixture-procore']) {
-      test(`${slug} at ${width}px: the tag shows only where the hero note and the name do`, async ({
+      test(`${slug} at ${width}px: the hero carries the note when unclaimed, the bar never`, async ({
         page,
         request,
       }) => {
@@ -613,13 +612,21 @@ test.describe('product sticky bar Unclaimed tag (ruling 41, AECI-1931)', () => {
         const claim = ((await res.json()) as { claim_status?: string }).claim_status;
         await page.setViewportSize({ width, height: 900 });
         await page.goto(`/products/${slug}`);
+        const note = page.locator('aec-hero-band aec-unclaimed-note');
+        if (claim === 'unclaimed') {
+          await expect(note).toHaveCount(1);
+          await expect(note).toBeVisible();
+          await expect(note).toBeInViewport();
+          await expect(note).toHaveText(
+            'Unclaimed · not affiliated with or endorsed by this vendor',
+          );
+        } else {
+          await expect(page.locator('aec-unclaimed-note')).toHaveCount(0);
+        }
+
         const nav = page.locator('aec-section-nav');
         test.skip((await nav.count()) === 0, `${slug} has too few sections for the bar`);
         await untilHydrated(nav);
-        const note = page.locator('aec-unclaimed-note');
-        await expect(note).toHaveCount(claim === 'unclaimed' ? 1 : 0);
-
-        // Scroll the bar to the top and past it, so the hero leaves the screen.
         await page.evaluate(() => {
           const bar = document.querySelector('aec-section-nav')!;
           window.scrollTo({
@@ -628,19 +635,10 @@ test.describe('product sticky bar Unclaimed tag (ruling 41, AECI-1931)', () => {
           });
         });
         await expect(nav).toHaveAttribute('data-stuck', '');
-        const tag = nav.getByTestId('section-nav-unclaimed');
-        if (claim === 'unclaimed' && width >= 768) {
-          await expect(note).not.toBeInViewport();
-          await expect(nav.getByTestId('section-nav-name')).toBeVisible();
-          await expect(tag).toBeVisible();
-          await expect(tag).toHaveText('Unclaimed');
-        } else if (claim === 'unclaimed') {
-          // A phone bar shows no name, so never the tag alone.
-          await expect(nav.getByTestId('section-nav-name')).toBeHidden();
-          await expect(tag).toBeHidden();
-        } else {
-          await expect(tag).toHaveCount(0);
-        }
+        await expect(nav.getByTestId('section-nav-unclaimed')).toHaveCount(0);
+        expect(await nav.evaluate((el) => (el as HTMLElement).innerText)).not.toContain(
+          'Unclaimed',
+        );
         await expectNoSidewaysScroll(page);
       });
     }

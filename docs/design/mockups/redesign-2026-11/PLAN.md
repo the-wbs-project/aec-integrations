@@ -334,7 +334,7 @@ Clash 27 decided that one mega-menu replaces the four dropdowns.
 ![Sticky section nav](screens/product-sticky-nav.jpg)
 
 - **It reads "AEC Integrations › Bluebeam Revu".** Our wordmark holds the brand position.
-- **An unclaimed listing adds an "Unclaimed" tag after the name** (ruling 41, AECI-1931). It shows only beside the name, so below `md`, where the bar shows no name, it is not shown. A claimed listing's bar is unchanged. DESIGN.md §5 "The section nav and the sticky bar" has the recipe.
+- **No "Unclaimed" tag in the bar** (AECI-2012). Ruling 41 tried one after the name (AECI-1931). Chris removed it on 2026-11-23. The hero keeps the Unclaimed note. DESIGN.md §5 "The section nav and the sticky bar" has the rule.
 - **Items are plain text links.** The current one is weight 600 with a 3px Clay bar on the bar's bottom edge.
 - **Counts are quiet tabular numbers**, not badges.
 - **The bar is a solid surface.** No blur.

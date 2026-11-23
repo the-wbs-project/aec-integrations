@@ -1456,49 +1456,36 @@ describe('ProductDetailPage unclaimed wording (AECI-1618)', () => {
   });
 });
 
-// Ruling 41 (Q61, docs/LEGAL_COUNSEL_RECORD.md): the sticky bar carries an "Unclaimed" tag on
-// an unclaimed listing. The page hands the bar the same `claim_status` the hero note reads. The
-// bar draws the tag only once stuck, so the page's server HTML is unchanged (the bar's own spec
-// covers the tag itself and the stuck render).
-describe('ProductDetailPage sticky bar claim status (ruling 41)', () => {
+// AECI-2012 (Chris, 2026-11-23): the ruling 41 trial tag is out of the sticky bar. The page no
+// longer hands the bar a claim status. An unclaimed listing keeps the full Unclaimed note in the
+// hero, under the name. A claimed listing shows neither.
+describe('ProductDetailPage Unclaimed marking: the hero note, never the bar (AECI-2012)', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
-  const barClaim = (product: ProductDetail) => {
+  const marking = (product: ProductDetail) => {
     const { fixture, el } = setup(product);
     const nav = fixture.debugElement.query(By.directive(SectionNav));
     expect(nav).not.toBeNull();
+    const navEl = nav.nativeElement as HTMLElement;
     return {
-      claim: (nav.componentInstance as SectionNav).claimStatus(),
-      note: el.querySelector('aec-unclaimed-note') !== null,
-      tag: el.querySelector('[data-testid="section-nav-unclaimed"]') !== null,
+      barTakesClaim: 'claimStatus' in (nav.componentInstance as object),
+      barSaysUnclaimed: (navEl.textContent ?? '').includes('Unclaimed'),
+      heroNote: el.querySelector('aec-unclaimed-note') !== null,
     };
   };
 
-  it('passes unclaimed to the bar on an unclaimed listing, as the hero note does', () => {
-    const r = barClaim(
+  it('an unclaimed listing shows the note in the hero and nothing in the bar', () => {
+    const r = marking(
       buildProduct({ claim_status: 'unclaimed', description: 'Construction management.' }),
     );
-    expect(r).toEqual({ claim: 'unclaimed', note: true, tag: false });
+    expect(r).toEqual({ barTakesClaim: false, barSaysUnclaimed: false, heroNote: true });
   });
 
-  it('passes claimed on a claimed listing, so the bar is unchanged', () => {
-    const r = barClaim(
+  it('a claimed listing shows no Unclaimed marking anywhere', () => {
+    const r = marking(
       buildProduct({ claim_status: 'claimed', description: 'Construction management.' }),
     );
-    expect(r).toEqual({ claim: 'claimed', note: false, tag: false });
-  });
-
-  // A product with no vendor record is unclaimed (no joined vendor holds it), and the hero
-  // shows the note. The bar follows the hero.
-  it('follows the hero for a product with no vendor record', () => {
-    const r = barClaim(
-      buildProduct({
-        vendor: null,
-        claim_status: 'unclaimed',
-        description: 'Construction management.',
-      }),
-    );
-    expect(r).toEqual({ claim: 'unclaimed', note: true, tag: false });
+    expect(r).toEqual({ barTakesClaim: false, barSaysUnclaimed: false, heroNote: false });
   });
 });
 

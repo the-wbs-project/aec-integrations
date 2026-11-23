@@ -15,11 +15,9 @@ import {
 } from '@angular/core';
 
 import { Router, RouterLink } from '@angular/router';
-import type { ClaimStatus } from '@aeci/shared';
 
 import { SMOOTH_SCROLL_CLASS } from '../../core/in-page-smooth-scroll';
 import { BrandLogo } from '../../layout/brand-logo';
-import { Chip } from '../chip/chip';
 import { injectInPageHrefFor } from '../in-page-href';
 
 /**
@@ -52,10 +50,10 @@ const FADE_PX = 40;
  * the bar is stuck, so it never sits beside the header's own home link, and the server HTML
  * (never stuck) carries neither it nor the name.
  *
- * **An unclaimed listing adds an "Unclaimed" tag** beside the name (ruling 41, Q61 in
- * `docs/LEGAL_COUNSEL_RECORD.md`), from `claimStatus`. It is the stuck cluster's last item, so
- * it too renders only while stuck. It lives inside the name element, so it is hidden wherever
- * the name is (below `md`, or a page with no name). A static chip, no link.
+ * **No "Unclaimed" tag in the bar (AECI-2012).** Chris ruled on 2026-11-23 to take the
+ * ruling 41 trial tag out of the bar. Counsel (Q61 in `docs/LEGAL_COUNSEL_RECORD.md`) said the
+ * bar may show the name without the not-affiliated line, and offered the tag only as optional
+ * extra margin. An unclaimed product still carries the full note under its name in the hero.
  *
  * **Links keep the query (AECI-1843).** The app ships `<base href="/">`, so a bare `href="#id"`
  * resolves to `/#id`. The hrefs come from `injectInPageHrefFor()` (`shared/in-page-href.ts`):
@@ -119,7 +117,7 @@ const FADE_PX = 40;
  */
 @Component({
   selector: 'aec-section-nav',
-  imports: [BrandLogo, Chip, NgOptimizedImage, RouterLink],
+  imports: [BrandLogo, NgOptimizedImage, RouterLink],
   // Sticky lives on the HOST, not an inner element: position:sticky only travels within its
   // containing block. The host itself must be projected into DetailLayout's `nav` slot, which
   // renders it bare into the page container, so it stays pinned for the whole page.
@@ -218,31 +216,13 @@ const FADE_PX = 40;
             aria-label="AEC Integrations home"
             ><img ngSrc="/branding/monogram-light.svg" width="32" height="32" alt=""
           /></a>
-          <!-- The name and, on an unclaimed listing, the "Unclaimed" tag share one wrapper
-               (ruling 41, Q61 in LEGAL_COUNSEL_RECORD.md: "beside the product name"). The tag
-               exists only inside the name element, so wherever the name is hidden (below md,
-               or no name at all) the tag is hidden with it. The hero's status chip recipe.
-               Information, not a link. It never shrinks; the name truncates first. -->
           @if (pageName(); as name) {
             <span
-              class="hidden min-w-0 items-center gap-3 md:inline-flex"
+              class="hidden min-w-12 max-w-[200px] items-center gap-3 text-t-16 text-(--text-secondary) md:inline-flex"
               data-testid="section-nav-name"
             >
-              <span
-                class="inline-flex min-w-12 max-w-[200px] items-center gap-3 text-t-16 text-(--text-secondary)"
-              >
-                <span aria-hidden="true" class="shrink-0">›</span>
-                <span class="truncate">{{ name }}</span>
-              </span>
-              @if (claimStatus() === 'unclaimed') {
-                <aec-chip
-                  class="shrink-0"
-                  tone="quiet"
-                  data-testid="section-nav-unclaimed"
-                  i18n="@@products.detail.nav.unclaimed"
-                  >Unclaimed</aec-chip
-                >
-              }
+              <span aria-hidden="true" class="shrink-0">›</span>
+              <span class="truncate">{{ name }}</span>
             </span>
           }
         </div>
@@ -316,13 +296,6 @@ export class SectionNav {
    * Integrations › Bluebeam Revu"). Text only: the bar never draws the entity's logo.
    */
   readonly pageName = input<string | null>(null);
-  /**
-   * The page subject's claim status, from its payload (`claim_status`). `'unclaimed'` adds the
-   * "Unclaimed" tag beside the name once the bar sticks (ruling 41, Q61). Listing data, never
-   * visitor state, and the tag renders only while stuck, so the server HTML is unchanged.
-   * Null (the default) or `'claimed'` adds nothing.
-   */
-  readonly claimStatus = input<ClaimStatus | null>(null);
   /**
    * The bar at rest. `solid` (default) is white with its hairline at rest and stuck. `clear` is
    * for a bar that sits on a band at rest (the product band shell, where it crosses the Bone
