@@ -381,6 +381,8 @@ test.describe('product hero integrations wheel (AECI-2018)', () => {
   ];
   for (const width of [1280, 1024, 430, 390, 375, 360, 320]) {
     test(`no layout shift anywhere on the page at ${width}px`, async ({ page }) => {
+      // Five page loads, each waiting for the network to settle.
+      test.setTimeout(120_000);
       await page.setViewportSize({ width, height: 900 });
       await page.addInitScript(() => {
         type Entry = { t: number; value: number; sources: string[]; inStage: boolean };
