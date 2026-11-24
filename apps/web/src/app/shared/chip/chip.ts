@@ -24,6 +24,8 @@ export type ChipDensity = 'default' | 'dense';
  * `forest` is Forest text and edge on the raised ground. `wash` is the
  * Forest-soft fill with Forest text and a Forest edge (a selected filter chip,
  * or "Confirmed by both companies"). `error` is the one red.
+ *
+ * The rest are the console's status tones ({@link ConsoleChipTone}).
  */
 export type ChipTone =
   | 'neutral'
@@ -33,7 +35,36 @@ export type ChipTone =
   | 'strong-sunken'
   | 'forest'
   | 'wash'
-  | 'error';
+  | 'error'
+  | ConsoleChipTone;
+
+/**
+ * The seven status tones of the admin console (AECI-1813, mock-up 14's legend).
+ * Words always carry the state, so a tone is never the only signal. Contrast of
+ * the text on its own fill:
+ *
+ * | Tone        | Look                                                    | Ratio   |
+ * |-------------|---------------------------------------------------------|---------|
+ * | `count`     | Forest fill, white text. A queue count, not a status    | 12.34:1 |
+ * | `neutral`   | Raised fill, default edge, primary ink. A fact          | 18.97:1 |
+ * | `waiting`   | White fill, strong edge, primary ink, a hollow ring     | 19.80:1 |
+ * | `positive`  | Forest-soft fill, Forest edge and ink. Live or done     | 10.80:1 |
+ * | `quiet`     | Raised fill, default edge, secondary ink. Closed        |  7.41:1 |
+ * | `attention` | Raised fill, strong edge, Clay-deep ink. Look first     |  5.59:1 |
+ * | `critical`  | White fill, error edge and ink. A fault. The only red   |  6.54:1 |
+ *
+ * `neutral` and `quiet` are the ladder's own steps. `positive` draws as `wash` and
+ * `critical` as `error`. Which status takes which tone is one map:
+ * `ADMIN_STATUS_TONES` in `admin/console/status-tones.ts`.
+ */
+export type ConsoleChipTone =
+  | 'count'
+  | 'neutral'
+  | 'waiting'
+  | 'positive'
+  | 'quiet'
+  | 'attention'
+  | 'critical';
 
 /**
  * `aec-chip` (AECI-1763; DESIGN.md §5 Badges, "The public chip", clash 22).
@@ -109,10 +140,56 @@ export type ChipTone =
       </span>
     }
   `,
+  // The four console tones the ladder lacks (AECI-1813). The ladder lives in
+  // `styles.css`; these sit here so the chip stays the only file that owns its
+  // tones. They set colour and edge only, so density still sets the size. The
+  // count is the exception: a fixed 24px pill with tabular figures.
   styles: `
     :host {
       display: inline-flex;
       max-width: 100%;
+    }
+    .aec-chip[data-tone='positive'] {
+      border-color: var(--accent-primary);
+      background-color: var(--accent-primary-soft);
+      color: var(--accent-primary);
+    }
+    .aec-chip[data-tone='critical'] {
+      border-color: var(--status-error);
+      background-color: var(--surface-base);
+      color: var(--status-error);
+    }
+    .aec-chip[data-tone='waiting'] {
+      gap: 0.5rem;
+      border-color: var(--border-strong);
+      background-color: var(--surface-base);
+      color: var(--text-primary);
+    }
+    .aec-chip[data-tone='waiting']::before {
+      content: '';
+      flex: none;
+      width: 0.5rem;
+      height: 0.5rem;
+      border: 2px solid var(--text-secondary);
+      border-radius: 50%;
+    }
+    .aec-chip[data-tone='attention'] {
+      border-color: var(--border-strong);
+      background-color: var(--surface-raised);
+      color: var(--accent-secondary-deep);
+    }
+    .aec-chip[data-tone='count'] {
+      justify-content: center;
+      min-width: 1.5rem;
+      height: 1.5rem;
+      padding: 0 0.5rem;
+      border-color: transparent;
+      background-color: var(--accent-primary);
+      color: var(--surface-base);
+      font-size: var(--t-13);
+      font-weight: 600;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
     }
   `,
 })
