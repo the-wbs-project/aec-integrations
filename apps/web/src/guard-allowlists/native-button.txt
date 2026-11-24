@@ -28,8 +28,6 @@ admin/threads/thread-list.html 1
 admin/traffic/traffic.html 4
 admin/users/user-detail.html 6
 admin/users/user-list.html 3
-admin/vendors/suspension-cost-log.html 6
-admin/vendors/suspension-terminate.html 4
 admin/vendors/vendor-detail.html 1
 vendor/components/vendor-billing-email-form.ts 3
 vendor/components/vendor-billing-legal-name-form.ts 3

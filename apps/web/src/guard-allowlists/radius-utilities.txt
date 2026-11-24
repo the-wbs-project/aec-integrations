@@ -13,8 +13,6 @@ admin/legal/litigation-holds.html 4
 admin/legal/litigation-holds.ts 2
 admin/users/user-detail.html 13
 admin/users/user-list.html 7
-admin/vendors/suspension-terminate.html 3
-admin/vendors/vendor-suspension-model.ts 1
 vendor/components/vendor-billing-licenses.ts 3
 vendor/components/vendor-billing-stripe-panel.ts 2
 vendor/components/vendor-billing-summary.ts 1
