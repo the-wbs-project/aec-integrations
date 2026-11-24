@@ -3,7 +3,7 @@ import {
   type CdkConnectedOverlayConfig,
   type ConnectedPosition,
 } from '@angular/cdk/overlay';
-import { DatePipe } from '@angular/common';
+import { DOCUMENT, DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import {
   Component,
@@ -39,12 +39,33 @@ import {
 } from '@aeci/shared';
 import { compareText } from '@aeci/shared/text-sort';
 
+import { AdminPaginator } from '../admin-paginator';
 import { AdminSummaryStore } from '../admin-summary.store';
+import { CONSOLE_LABEL_CLASS, CONSOLE_TABLE } from '../console/console-table';
+import { AdminDisclosureButton } from '../console/disclosure-button';
+import { adminStatusTone, type AdminStatusKey } from '../console/status-tones';
 import { ReviewerBansApi } from '../reviewers/reviewer-bans-api';
 import { AdminReviewsApi } from './admin-reviews-api';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
 import { AecEarlyInput } from '../../shared/form-field/early-input';
-import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
+import { AecButton } from '../../shared/button/button';
+import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { AecIcon } from '../../shared/icon/icon';
+import {
+  QUEUE_BODY_CLASS,
+  QUEUE_DETAIL_GRID_CLASS,
+  QUEUE_FACTS_CLASS,
+  QUEUE_FAILED_CLASS,
+  QUEUE_FILTER,
+  QUEUE_FORM_CLASS,
+  QUEUE_HELP_CLASS,
+  QUEUE_NOTICE_CLASS,
+} from './queue-filter-classes';
 
 /** Score at/above which a review is flagged "high toxicity" and styled with a
  *  warning. 70 is our cutoff on the 0–100 toxicity score; the default sort
@@ -55,6 +76,10 @@ const HIGH_TOXICITY_THRESHOLD = 70;
  *  at 100; client-side sorting (toxicity/product/reviewer) only reorders what's
  *  loaded, so we load the max and surface a note if the server reports more. */
 const QUEUE_PAGE_SIZE = 100;
+
+/** Rows per screen. The loaded set (at most `QUEUE_PAGE_SIZE`) is cut into pages
+ *  of this size in the browser, because the sorts run over the loaded set. */
+const SCREEN_PAGE_SIZE = 25;
 
 type SortKey = 'toxicity' | 'queue_age' | 'product' | 'reviewer';
 
@@ -98,11 +123,25 @@ const BanReasonSchema = z.object({
  * on a pending review, Remove on an approved one, nothing on rejected or removed.
  * Remove needs a reason and a second, deliberate confirm, the same inline two-step
  * the review-updates queue uses. A remove does not touch the pending badge.
+ *
+ * ── THE TABLE (AECI-2102, mock-up 14, ruled 2026-11-24) ──────────────────────
+ * One row per review on the console table recipe. The review text, its facts and
+ * the decision forms sit in the row's detail, opened by its leading disclosure.
+ * Previous and Next page the loaded set (`SCREEN_PAGE_SIZE` a page); the capped-set
+ * note is unchanged. Focus: after a decision removes a row it moves to the
+ * disclosure of the row that took its place, or to the queue heading when none
+ * is left. A failed decision moves it to the row's alert, because the disabled
+ * button would otherwise drop it to the body.
  */
 @Component({
   selector: 'aec-review-queue',
   imports: [
+    AdminDisclosureButton,
+    AdminPaginator,
+    AecButton,
     AecFormSubmit,
+    AecIcon,
+    Chip,
     DatePipe,
     OverlayModule,
     RouterLink,
@@ -118,6 +157,22 @@ const BanReasonSchema = z.object({
 export class ReviewQueue {
   /** A field's inline error: the shared recipe (AECI-1984). */
   protected readonly errorClass = FIELD_ERROR_CLASS;
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly f = QUEUE_FILTER;
+  protected readonly labelClass = CONSOLE_LABEL_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  protected readonly noticeClass = QUEUE_NOTICE_CLASS;
+  protected readonly detailGridClass = QUEUE_DETAIL_GRID_CLASS;
+  protected readonly bodyClass = QUEUE_BODY_CLASS;
+  protected readonly factsClass = QUEUE_FACTS_CLASS;
+  protected readonly helpClass = QUEUE_HELP_CLASS;
+  protected readonly formClass = QUEUE_FORM_CLASS;
+  protected readonly failedClass = QUEUE_FAILED_CLASS;
+  /** The table's columns, for the detail cell's `colspan`. */
+  protected readonly columnCount = 9;
+  protected readonly pageSize = SCREEN_PAGE_SIZE;
+  private readonly document = inject(DOCUMENT);
   private readonly api = inject(AdminReviewsApi);
   private readonly bansApi = inject(ReviewerBansApi);
   private readonly summaryStore = inject(AdminSummaryStore);
@@ -184,6 +239,21 @@ export class ReviewQueue {
   });
 
   protected readonly loadedCount = computed(() => this.reviews().length);
+
+  // ── AECI-2102 the table: open rows and the screen page ─────────────────────
+  /** Ids of the rows whose detail is open. The parent owns it, per the recipe. */
+  private readonly openIds = signal<ReadonlySet<string>>(new Set());
+  /** The page asked for. `currentPage` clamps it when decisions shrink the set. */
+  private readonly page = signal(1);
+  protected readonly currentPage = computed(() => {
+    const pages = Math.max(1, Math.ceil(this.reviews().length / SCREEN_PAGE_SIZE));
+    return Math.min(this.page(), pages);
+  });
+  /** The rows on screen: one page of the sorted, loaded set. */
+  protected readonly pagedReviews = computed(() => {
+    const start = (this.currentPage() - 1) * SCREEN_PAGE_SIZE;
+    return this.sortedReviews().slice(start, start + SCREEN_PAGE_SIZE);
+  });
   /** True when the server has more pending than we loaded (note shown). */
   protected readonly truncated = computed(() => this.total() > this.reviews().length);
 
@@ -276,10 +346,35 @@ export class ReviewQueue {
     void this.load();
   }
 
+  protected isOpen(id: string): boolean {
+    return this.openIds().has(id);
+  }
+
+  protected toggleRow(id: string): void {
+    this.openIds.update((ids) => {
+      const next = new Set(ids);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  /** The row's name, true open or closed: `aria-expanded` carries the state. */
+  protected rowLabel(r: AdminReview): string {
+    const product = r.product.name;
+    const reviewer = r.reviewer_email ?? $localize`:@@admin.reviews.meta.anonymized:Anonymized`;
+    return $localize`:@@admin.reviews.row.label:Review of ${product}:product: by ${reviewer}:reviewer:`;
+  }
+
+  protected setPage(page: number): void {
+    this.page.set(page);
+  }
+
   /** Switch the status tab: close any open form and reload that status. */
   protected setStatus(status: ReviewStatus): void {
     if (this.statusFilter() === status) return;
     this.statusFilter.set(status);
+    this.page.set(1);
     this.cancelReject();
     this.closeRemove();
     this.failedAction.set(null);
@@ -309,6 +404,26 @@ export class ReviewQueue {
 
   protected setSort(key: SortKey): void {
     this.sortKey.set(key);
+    this.page.set(1);
+  }
+
+  /** A console chip tone, by the console's word for the status. */
+  protected tone(key: AdminStatusKey): ConsoleChipTone {
+    return adminStatusTone(key);
+  }
+
+  /** The chip tone for a review status. Exhaustive: a new status fails to compile. */
+  protected statusTone(status: ReviewStatus): ConsoleChipTone {
+    switch (status) {
+      case 'pending':
+        return adminStatusTone('pending');
+      case 'approved':
+        return adminStatusTone('approved');
+      case 'rejected':
+        return adminStatusTone('rejected');
+      case 'removed':
+        return adminStatusTone('removed');
+    }
   }
 
   protected isHighToxicity(score: number | null): boolean {
@@ -553,11 +668,35 @@ export class ReviewQueue {
       return;
     }
     this.failedAction.set({ id, reason: 'generic' });
+    this.focusAfterRender(`review-${id}-failed`);
   }
 
+  /** Drop a decided row, then move focus to the row that took its place on this
+   *  page, or to the queue heading when the page is empty. */
   private removeRow(id: string): void {
+    const index = this.pagedReviews().findIndex((r) => r.id === id);
     this.reviews.update((list) => list.filter((r) => r.id !== id));
     this.total.update((n) => Math.max(0, n - 1));
+    this.openIds.update((ids) => {
+      if (!ids.has(id)) return ids;
+      const next = new Set(ids);
+      next.delete(id);
+      return next;
+    });
+    const rows = this.pagedReviews();
+    const next = rows.length > 0 ? rows[Math.min(Math.max(index, 0), rows.length - 1)] : null;
+    afterNextRender(
+      {
+        write: () => {
+          const host = this.host.nativeElement;
+          const target = next
+            ? host.querySelector<HTMLElement>(`[aria-controls="review-${next.id}-detail"]`)
+            : host.querySelector<HTMLElement>('#admin-reviews-heading');
+          target?.focus();
+        },
+      },
+      { injector: this.injector },
+    );
   }
 
   // ── AECI-218 ban actions ───────────────────────────────────────────────────
@@ -603,11 +742,19 @@ export class ReviewQueue {
         this.closeBan();
         this.repeatOffenderPrompt.set(null);
         this.liveMessage.set($localize`:@@admin.reviews.ban.announce.banned:Reviewer banned.`);
+        // The notice and its "Ban reviewer" button are gone, so focus the heading.
+        this.focusAfterRender('admin-reviews-heading');
       } catch (err) {
         // Keep the dialog open so the admin can retry; surface an inline error.
         const lastSeatVendorId = lastSeatRefusalVendorId(err);
         if (lastSeatVendorId) this.banLastSeatVendorId.set(lastSeatVendorId);
         else this.banFailed.set(true);
+        // The dialog is in the CDK overlay, outside this host, so look it up on the document.
+        const alertId = lastSeatVendorId ? 'ban-last-seat' : 'ban-failed';
+        afterNextRender(
+          { write: () => this.document.getElementById(alertId)?.focus() },
+          { injector: this.injector },
+        );
       } finally {
         this.banSubmitting.set(false);
       }
