@@ -45,8 +45,15 @@ Run each surface with **(a) keyboard only**, then **(b) VoiceOver**, then **(c) 
 > hidden one; the skip link puts focus in `main` with no page load; no Tab stop navigates or opens a popup;
 > every dialog, menu and dropdown opens by keyboard, closes on `Esc` and returns focus to its trigger,
 > a modal dialog traps `Tab` and `Shift+Tab`, and any other popup closes or keeps focus inside it on `Tab`; and focus is not left on the page after a client navigation. It does not judge
-> whether the order matches reading order, check the focus indicator (AECI-1878), or run outside Chrome
-> (AECI-1885). The manual pass above keeps its full scope and cadence.
+> whether the order matches reading order, or run outside Chrome (AECI-1885). The manual pass above keeps
+> its full scope and cadence.
+>
+> **Focus indicator, automated nightly in Chrome (AECI-1878, `TESTING_STRATEGY.md` §8.4.5).** On every
+> Tab stop of every surface in §1, the nightly checks that focus changes what is drawn, that the
+> indicator reaches 3:1 against the ground it is drawn on, and that no other element sits at the stop's
+> centre. It also checks that text fields, selects, comboboxes, checkboxes and radios show an edge at
+> 3:1. It counts pixels, so it cannot judge whether a ring is easy to notice. The manual pass above keeps
+> its full scope and cadence.
 
 **Screen reader (VoiceOver + NVDA, every surface):**
 - [ ] Page has a correct, unique title and a single logical `h1`; heading levels don't skip.

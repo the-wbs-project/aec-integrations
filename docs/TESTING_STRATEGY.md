@@ -989,7 +989,7 @@ exports from `e2e-a11y/support/`:
 
 | Export | File | What it does |
 |---|---|---|
-| `tabWalk(page, { key?, maxPresses?, until? })` | `tab-walk.ts` | Real Tab presses until the cycle closes. Returns the stops and how the walk ended. Asserts nothing |
+| `tabWalk(page, { key?, maxPresses?, until?, onStop? })` | `tab-walk.ts` | Real Tab presses until the cycle closes. Returns the stops and how the walk ended. Asserts nothing. `onStop` runs at each new stop while it has focus (AECI-1878, §8.4.5) |
 | `tabTo(page, key, options?)` | `tab-walk.ts` | Tab until the element with that probe key has focus |
 | `walkSnapshot(stops)`, `normalizeName(name)` | `tab-walk.ts` | The committed snapshot text |
 | `collectElementFacts(page)`, `focusFacts(page)`, `popupFacts`, `triggerFacts`, `haspopupFacts`, `locatorForKey` | `probe.ts` | Read the page. Never move focus |
@@ -1125,6 +1125,90 @@ pnpm --filter @aeci/web exec playwright test -c playwright.a11y-nightly.config.t
 ```
 
 Set `AECI_WEB_PORT` and `PLAYWRIGHT_BASE_URL` to the port `dev:agent` printed, as for §8.4.
+
+#### 8.4.5 Focus ring on every Tab stop (AECI-1878)
+
+axe cannot tell whether a focus indicator can be seen. `e2e-a11y/focus-ring.spec.ts` looks at every Tab
+stop of every surface in the manifest, public pages included. It covers WCAG 2.4.7, the focus part of
+1.4.11, 2.4.11, and the control-boundary part of 1.4.11. It scripts the first line of
+`docs/a11y-manual-testing-checklist.md` §2, "A visible focus indicator is present on every interactive
+element".
+
+**One walk.** Each surface gets one Tab walk, the keyboard suite's `tabWalk` (§8.4.1). The checks run in
+its `onStop` hook, while the stop has focus. Nothing walks the page a second way, and nothing calls
+`el.focus()`.
+
+**The four checks.** Each stop is pictured twice with `page.screenshot`, clipped to the stop and 8px
+around it: once focused, and once unfocused. The clip also takes in an ancestor that draws an outline
+while the stop has focus, such as an interactive card. Pictures are taken at `scale: 'css'`, with
+animations stopped and the caret hidden. Colours are read from computed styles and from pixels, never
+from class names.
+
+| Check | WCAG | Fails when |
+|---|---|---|
+| Visible | 2.4.7 | The focused and unfocused pictures are identical, pixel for pixel |
+| Contrast | 1.4.11 | Too few changed pixels reach 3:1 against the same pixel unfocused. A changed pixel is the indicator, and the unfocused pixel is the ground it is drawn on. The 3:1 pixels must add up to a line 1 CSS px wide round the stop's on-screen sides |
+| Not obscured | 2.4.11 | `elementFromPoint` at the centre of each on-screen box of the stop finds neither the stop nor something inside it. A link that wraps has a box per line. A visually hidden input is judged on its labels |
+| Control boundary | 1.4.11 | A text field, select, combobox, checkbox or radio has no edge at 3:1 against the ground just outside it. The edge can be every border it has, its own fill, or, for a box the browser draws, its strongest pixel. The ground is the median pixel 2px outside the control, unfocused |
+
+A Forest ring 3px wide on white gives about three times the pixels the contrast check needs. A ring that
+vanishes on its ground, or a faint background tint, gives far less. Buttons and links are not boundary
+checked: their text names them.
+
+**The unfocused picture** of a stop is taken after focus has moved on to a stop whose ring is clear of
+it. The page is scrolled back to where the stop was focused, pictured, and scrolled forward again.
+Scrolling moves no focus, so the walk goes on from the focused stop. The last few are pictured after the
+walk with focus removed. A stop whose scroll position cannot be restored fails as `unmeasured`.
+
+**Stable results.** Before it reads a stop, the probe waits for finite animations on the stop and its
+ancestors, then for the stop's box to hold still for two frames. Leaving a field can render its error a
+frame later and push the next field down. The check judges where the stop ends up. Three one-worker runs
+gave the same findings.
+
+**The site header and footer** are the same components on every page. They are measured in full once
+per persona, on the surface `headerOwnerFor` names (§8.4.1). Elsewhere their stops run only the obscured
+check, which needs no picture. An iframe and a stop with no box are not measured. The keyboard suite
+already fails a stop with no box.
+
+**The code.**
+
+| File | What it holds |
+|---|---|
+| `focus-ring.spec.ts` | One test per surface, `ALLOW_LIST` and `KNOWN_FOCUS_BARRIERS` |
+| `support/focus-check.ts` | `measureWalk(page, checksSharedChrome)`: the walk, the two pictures, and the verdicts |
+| `support/focus-probe.ts` | The in-page reads: the stop's box, the clip, the hit test, computed colours, scroll save and restore |
+| `support/focus-pixels.ts` | Pure: the WCAG contrast ratio, a PNG decoder, the pixel rules. Pinned by `focus-pixels.unit.spec.ts` against known colour pairs, in the plain Vitest runner |
+
+**The allow-list.** `ALLOW_LIST` holds findings where the check is wrong about the element, each with its
+reason. It is empty on landing. A real barrier never goes there.
+
+**Known barriers on landing (2026-11-24).** `KNOWN_FOCUS_BARRIERS` has the same shape as the keyboard
+suite's. A surface with a barrier gets a `known focus barriers: <check>` test, marked with
+`knownFailure`. It passes while the finding is there and turns red when it is fixed. The walk test
+ignores only the findings a barrier covers, so a new finding on the same surface still fails it.
+
+| Issue | What the check finds | Surfaces |
+|---|---|---|
+| AECI-2097 | The vendor portal section nav clips the top and bottom of its links' focus ring. About half a 1px line reaches 3:1 | Both vendor portal surfaces |
+| AECI-2098 | The portal Integrations filters, Search and "Integrates with", have a 1.22:1 edge on their `#FAFAFA` panel | Vendor portal integrations |
+
+AECI-2100 came out of the same work but is not a known failure. After Tab, the review form's "Your
+review" shows only its top 25px, partly under the consent banner. Part of it stays visible, so it passes
+2.4.11 (AA). It fails the AAA version, 2.4.12, which the nightly does not check.
+
+**Limits.** `elementFromPoint` skips an element with `pointer-events: none`, so an overlay that ignores
+the pointer is not caught. The pictures are Chromium at 1280 by 720 only. The checks do not judge a ring's
+shape or thickness beyond the pixel count, so WCAG 2.4.13 (AAA) is out of scope.
+
+**Run it** alone with one worker:
+
+```bash
+pnpm --filter @aeci/web exec playwright test -c playwright.a11y-nightly.config.ts focus-ring --workers=1
+```
+
+Set `AECI_WEB_PORT` and `PLAYWRIGHT_BASE_URL` to the port `dev:agent` printed, as for §8.4. It took
+5.6 to 6.5 minutes on one local worker. The four listing pages take about 40 seconds each. The CI time
+is not measured yet. Read it off the first nightly against the `suite` job's 30-minute limit.
 
 ---
 
