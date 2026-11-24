@@ -20,7 +20,7 @@ import { AdminCursorPaginator } from '../admin-cursor-paginator';
 import { AdminPaginator } from '../admin-paginator';
 import { CONSOLE_TABLE } from '../console/console-table';
 import { AecButton } from '../../shared/button/button';
-import { AecIcon } from '../../shared/icon/icon';
+import { AdminDisclosureButton } from '../console/disclosure-button';
 import { describeAuditAction } from './audit-action-labels';
 import {
   CONSOLE_FAILED_TEXT_CLASS,
@@ -121,7 +121,7 @@ export const AUDIT_TRAIL_RESULT_ID = 'audit-trail-result';
   selector: 'aec-audit-trail',
   imports: [
     AdminCursorPaginator,
-    AecIcon,
+    AdminDisclosureButton,
     AdminPaginator,
     AecButton,
     RelativeTime,
