@@ -11,6 +11,8 @@ import { RouterLink } from '@angular/router';
 
 import type { VendorEntitlementBlock } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
+import { AecCard, type AecCardTone } from '../../shared/card/card';
 import { isCatalogueSeat } from '../vendor-capabilities';
 import {
   noPlanChangesLine,
@@ -87,16 +89,27 @@ import { VendorRemovalElection } from './vendor-removal-election';
 @Component({
   selector: 'aec-vendor-plan-panel',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgTemplateOutlet, RouterLink, VendorDocsLink, VendorPlanBadge, VendorRemovalElection],
+  imports: [
+    NgTemplateOutlet,
+    RouterLink,
+    AecButton,
+    AecCard,
+    VendorDocsLink,
+    VendorPlanBadge,
+    VendorRemovalElection,
+  ],
   template: `
     <section
+      aecCard
+      [tone]="cardTone()"
+      class="block p-6"
       [attr.aria-labelledby]="headingId()"
-      [class]="shellClass()"
       [attr.data-plan-state]="state()"
     >
       <div class="flex flex-wrap items-start justify-between gap-3">
-        <h2 [id]="headingId()" class="font-display text-xl font-semibold text-(--text-primary)">
-          <span i18n="@@vendor.plan.panel.heading">This product's plan</span>
+        <!-- The card title size: the global h2 is 24px, so the 20px sits on the span. -->
+        <h2 [id]="headingId()">
+          <span class="text-t-20" i18n="@@vendor.plan.panel.heading">This product's plan</span>
         </h2>
         <aec-vendor-plan-badge [plan]="plan()" />
       </div>
@@ -150,14 +163,21 @@ import { VendorRemovalElection } from './vendor-removal-election';
         @case ('expiring') {
           @if (billingLink(); as link) {
             <a
+              aecButton
+              variant="secondary"
               [routerLink]="link"
-              [class]="ctaClass"
+              class="mt-5"
               data-testid="plan-manage-renewal"
               i18n="@@vendor.plan.cta.manageRenewal"
               >Manage renewal</a
             >
           } @else {
-            <a routerLink="/contact" [class]="ctaClass" i18n="@@vendor.plan.cta.renew"
+            <a
+              aecButton
+              variant="secondary"
+              routerLink="/contact"
+              class="mt-5"
+              i18n="@@vendor.plan.cta.renew"
               >Renew Managed</a
             >
           }
@@ -186,14 +206,21 @@ import { VendorRemovalElection } from './vendor-removal-election';
     <ng-template #endedCta>
       @if (billingLink(); as link) {
         <a
+          aecButton
+          variant="secondary"
           [routerLink]="link"
-          [class]="ctaClass"
+          class="mt-5"
           data-testid="plan-get-licenses"
           i18n="@@vendor.plan.cta.getLicenses"
           >Go to Billing</a
         >
       } @else {
-        <a routerLink="/contact" [class]="ctaClass" i18n="@@vendor.plan.cta.askProduct"
+        <a
+          aecButton
+          variant="secondary"
+          routerLink="/contact"
+          class="mt-5"
+          i18n="@@vendor.plan.cta.askProduct"
           >Ask about Managed for this product</a
         >
       }
@@ -324,20 +351,15 @@ export class VendorPlanPanel {
     }
   });
 
-  /** Bordered, never a fill. `expiring` and `overdue` take the warm Bone wash
-   *  because a term running out is a calendar fact, not a failure. */
-  protected readonly shellClass = computed(() => {
-    const base = 'block rounded-(--radius-md) border p-5 md:p-6';
+  /** The shared white card (AECI-1810). `expiring` and `overdue` take the warm Bone
+   *  card because a term running out is a calendar fact, not a failure. */
+  protected readonly cardTone = computed<AecCardTone>(() => {
     const state = this.state();
-    return state === 'expiring' || state === 'overdue'
-      ? `${base} border-(--border-strong) bg-(--accent-warm)`
-      : `${base} border-(--border-default) bg-(--surface-raised)`;
+    return state === 'expiring' || state === 'overdue' ? 'warm' : 'base';
   });
 
   // `aec-overline` beats the unlayered h3 rule in styles.css; a size utility does not.
   protected readonly listHeadingClass = 'aec-overline mt-5 text-(--text-secondary)';
   protected readonly listClass =
-    'mt-2 list-disc space-y-1.5 ps-5 text-sm leading-relaxed text-(--text-secondary)';
-  protected readonly ctaClass =
-    'mt-5 inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-semibold text-(--text-primary) no-underline transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+    'mt-2 list-disc space-y-2 ps-5 text-sm leading-relaxed text-(--text-secondary)';
 }

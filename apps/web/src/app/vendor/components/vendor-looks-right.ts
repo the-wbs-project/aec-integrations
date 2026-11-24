@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 
+import { AecButton } from '../../shared/button/button';
+import { AecIcon } from '../../shared/icon/icon';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { readVendorApiError } from '../vendor-api-error';
 import { VendorApi } from '../vendor-api';
@@ -33,11 +35,14 @@ export type LooksRightTarget = 'profile' | 'product' | 'integrations';
 @Component({
   selector: 'aec-vendor-looks-right',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [AecButton, AecIcon],
   template: `
     <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
       <button
+        aecButton
+        variant="secondary"
+        compact
         type="button"
-        [class]="buttonClass"
         [disabled]="saving()"
         [attr.aria-describedby]="error() ? errorId() : null"
         (click)="confirm()"
@@ -51,21 +56,12 @@ export type LooksRightTarget = 'profile' | 'product' | 'integrations';
       </button>
       @if (showDone()) {
         <span
-          class="inline-flex items-center gap-1.5 text-xs font-medium text-(--text-secondary)"
+          class="inline-flex items-center gap-1 text-t-13 font-semibold text-(--text-secondary)"
           data-testid="looks-right-done"
         >
-          <svg
-            aria-hidden="true"
-            class="h-3.5 w-3.5 text-(--accent-primary)"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2.5"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path d="M20 6 9 17l-5-5" />
-          </svg>
+          <span class="flex text-(--accent-primary)">
+            <aec-icon name="check" decorative [size]="3.5" />
+          </span>
           <span i18n="@@vendor.looksRight.checked">Checked</span>
         </span>
       }
@@ -73,7 +69,7 @@ export type LooksRightTarget = 'profile' | 'product' | 'integrations';
         <p
           [id]="errorId()"
           role="alert"
-          class="basis-full text-xs font-medium text-(--text-primary)"
+          class="basis-full text-t-13 font-semibold text-(--text-primary)"
           data-testid="looks-right-error"
         >
           {{ msg }}
@@ -105,9 +101,6 @@ export class VendorLooksRight {
   protected readonly errorId = computed(
     () => `looks-right-${this.target()}-${this.productId() ?? 'company'}-error`,
   );
-
-  protected readonly buttonClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-3 py-1.5 text-sm font-semibold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-60';
 
   protected async confirm(): Promise<void> {
     if (this.saving()) return;
