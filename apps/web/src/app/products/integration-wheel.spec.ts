@@ -1,0 +1,186 @@
+/**
+ * AECI-2018: the wheel's geometry (`integration-wheel.ts`). The cut-offs are not
+ * hard-coded anywhere: they come from the ring maths, and these pin what that maths gives
+ * at the mock-up's measured stage widths (476 at 1280 and up, 336 at 1024, 294 at 390,
+ * 279 at 375, 224 at 320). Order and membership are pinned in
+ * `on-page-ordering-firewall.spec.ts`; the rendering in the component spec.
+ */
+import type { ProductIntegrationItem } from '@aeci/shared';
+import { describe, expect, it } from 'vitest';
+
+import {
+  TILE_MIN_DESKTOP,
+  TILE_MIN_PHONE,
+  WHEEL_BANDS,
+  isPhoneStage,
+  layoutSlide,
+  wheelLayout,
+  wheelModel,
+  wheelModeAt,
+  wheelTileSize,
+  type WheelSlide,
+} from './integration-wheel';
+
+/** The "All" slide's mode for n products, with the product's own tile size. */
+const modeOfAll = (n: number, d: number) => {
+  const tile = wheelTileSize([n], d);
+  return tile === null ? 'dots' : wheelModeAt(n, d, tile);
+};
+
+/** The largest n that takes each mode, and the first n that is dots. */
+function cutOffs(d: number) {
+  let one = 0;
+  let two = 0;
+  let n = 1;
+  for (; n < 400; n++) {
+    const mode = modeOfAll(n, d);
+    if (mode === 'one') one = n;
+    else if (mode === 'two') two = n;
+    else break;
+  }
+  return { one, two, dotsFrom: n };
+}
+
+describe('the wheel cut-offs (the "All" slide)', () => {
+  it.each([
+    [476, { one: 20, two: 69, dotsFrom: 70 }],
+    [336, { one: 20, two: 43, dotsFrom: 44 }],
+    [294, { one: 25, two: 0, dotsFrom: 26 }],
+    [279, { one: 23, two: 0, dotsFrom: 24 }],
+    [224, { one: 18, two: 0, dotsFrom: 19 }],
+  ])('at a %ipx stage', (d, expected) => {
+    expect(cutOffs(d)).toEqual(expected);
+  });
+
+  it('the second ring opens after 20 products beside the text, never on a phone', () => {
+    expect(isPhoneStage(294)).toBe(true);
+    expect(isPhoneStage(336)).toBe(false);
+    expect(modeOfAll(20, 476)).toBe('one');
+    expect(modeOfAll(21, 476)).toBe('two');
+    expect(modeOfAll(25, 294)).toBe('one');
+  });
+
+  it('one-ring tiles are as large as fit, up to 48px; two-ring up to 40px', () => {
+    expect(wheelTileSize([6], 476)).toBe(48);
+    expect(wheelTileSize([20], 476)).toBe(48);
+    expect(wheelTileSize([21], 476)).toBe(40);
+    expect(wheelTileSize([69], 476)).toBe(TILE_MIN_DESKTOP);
+    // The known step at 1024: 37px at 20 on one ring, 40px at 21 on two.
+    expect(wheelTileSize([20], 336)).toBe(37);
+    expect(wheelTileSize([21], 336)).toBe(40);
+    // Phones: one ring, up to 40px, never under 24px.
+    expect(wheelTileSize([6], 294)).toBe(40);
+    expect(wheelTileSize([25], 294)).toBe(TILE_MIN_PHONE);
+    expect(wheelTileSize([19], 224)).toBeNull();
+  });
+
+  it('every server band lays a tile at or above the minimum for its width', () => {
+    for (const d of WHEEL_BANDS) {
+      const min = isPhoneStage(d) ? TILE_MIN_PHONE : TILE_MIN_DESKTOP;
+      for (let n = 1; n < 80; n++) {
+        const tile = wheelTileSize([n], d);
+        if (tile !== null) expect(tile, `${n} at ${d}`).toBeGreaterThanOrEqual(min);
+      }
+    }
+  });
+});
+
+let seq = 0;
+const link = (slug: string, name: string) => ({ id: `id-${slug}`, slug, name, logo_url: null });
+const page = link('page', 'Page');
+
+function row(partner: string, categories: string[]): ProductIntegrationItem {
+  seq += 1;
+  return {
+    id: `00000000-0000-4000-8000-${String(seq).padStart(12, '0')}`,
+    name: `${partner} link`,
+    mechanism_kind: 'native',
+    mechanism_name: null,
+    direction: null,
+    context_direction: null,
+    source: page,
+    target: link(partner, partner),
+    via: null,
+    powered_by_product: null,
+    data_object_slugs: [],
+    data_objects: [],
+    partner_categories: categories.map((c) => ({ slug: c, name: c })),
+    agreement: null,
+    caption: null,
+    corrections: [],
+    under_review: [],
+    created_at: '2026-01-01T00:00:00.000Z',
+    updated_at: '2026-01-01T00:00:00.000Z',
+  } as ProductIntegrationItem;
+}
+
+/** n partners named p00.. with the first `inSmall` also in category "small". */
+function rows(n: number, inSmall = 0): ProductIntegrationItem[] {
+  return Array.from({ length: n }, (_, i) =>
+    row(`p${String(i).padStart(2, '0')}`, i < inSmall ? ['small', 'all-of-them'] : ['all-of-them']),
+  );
+}
+
+describe('the wheel layout per slide', () => {
+  it('the ring count is decided per slide, at the product tile size', () => {
+    const model = wheelModel(rows(40, 5), [], []);
+    const all = layoutSlide(model, 0, 476);
+    const small = layoutSlide(
+      model,
+      model.slides.findIndex((s) => s.key === 'small'),
+      476,
+    );
+    expect(all.mode).toBe('two');
+    expect(small.mode).toBe('one');
+    // One size per product, so stepping never resizes a tile.
+    expect(small.tilePx).toBe(all.tilePx);
+  });
+
+  it('a one-ring slide sits on the outer circle; on two rings A to Z fills the inner first', () => {
+    const one = layoutSlide(wheelModel(rows(6), [], []), 0, 476);
+    const radius = (p: { x: number; y: number }) => Math.hypot(p.x, p.y);
+    for (const p of one.points) expect(radius(p)).toBeCloseTo(one.outer, 1);
+    // The first tile is at 12 o'clock.
+    expect(one.points[0]).toEqual({ x: 0, y: -one.outer });
+
+    const two = layoutSlide(wheelModel(rows(40), [], []), 0, 476);
+    const inner = two.points.filter((p) => Math.abs(radius(p) - two.inner!) < 0.1);
+    const outer = two.points.filter((p) => Math.abs(radius(p) - two.outer) < 0.1);
+    expect(inner.length + outer.length).toBe(40);
+    expect(two.points.slice(0, inner.length)).toEqual(inner);
+    // Split by circumference, so both rings keep the same spacing.
+    expect(inner.length / outer.length).toBeCloseTo(two.inner! / two.outer, 0);
+  });
+
+  it('a slide too big for tiles shows one dot per integration and no product', () => {
+    const slide: WheelSlide = {
+      key: 'all',
+      name: null,
+      products: wheelModel(rows(90), [], []).slides[0]!.products,
+      integrations: 212,
+    };
+    const layout = wheelLayout(slide, 476, null);
+    expect(layout.mode).toBe('dots');
+    expect(layout.points).toEqual([]);
+    expect(layout.dotRings.reduce((n, r) => n + r.dots, 0)).toBe(212);
+    // Outer ring first.
+    const radii = layout.dotRings.map((r) => r.r);
+    expect([...radii].sort((a, b) => b - a)).toEqual(radii);
+  });
+
+  it('dots follow the integration count, not the product count', () => {
+    // Two rows to each of 90 products: 180 dots for 90 products.
+    const twice = [...rows(90), ...rows(90).map((r) => ({ ...r, id: `${r.id}-b`, name: 'Again' }))];
+    const model = wheelModel(twice, [], []);
+    expect(model.slides[0]!.products).toHaveLength(90);
+    const layout = layoutSlide(model, 0, 476);
+    expect(layout.mode).toBe('dots');
+    expect(layout.dotRings.reduce((n, r) => n + r.dots, 0)).toBe(180);
+  });
+
+  it('names show under the tiles on slides of 8 or fewer, and never under a 260px stage', () => {
+    expect(layoutSlide(wheelModel(rows(8), [], []), 0, 476).names).toBe(true);
+    expect(layoutSlide(wheelModel(rows(9), [], []), 0, 476).names).toBe(false);
+    expect(layoutSlide(wheelModel(rows(8), [], []), 0, 224).names).toBe(false);
+  });
+});

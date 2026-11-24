@@ -85,6 +85,7 @@ import type {
   VendorListItem,
   VendorOwnedIntegrations,
   VendorProductRoles,
+  WheelMark,
 } from '@aeci/shared';
 import {
   claimVersionStatus,
@@ -3375,6 +3376,39 @@ function evidencedPairsForEndpoint(
 }
 
 /**
+ * The integrations wheel's marks (AECI-2018, ruling 64, 2026-11-24): one per partner of
+ * the page product's endpoint rows, both tables and both orientations, with the
+ * partner's STORED logo and its claim state.
+ *
+ * Ruling 64 lets a wheel tile show a product's logo whenever we hold one, claimed or
+ * not. It widens the AECI-1769 rule for the wheel only, so this is the one public field
+ * that carries an unclaimed product's logo off its own page. The rows themselves still
+ * go through `toProductLink`, which withholds it, so every list, card, row and search
+ * record is unchanged. The logo is `products.logo_url`, the value the partner's own page
+ * shows: a removal on objection nulls it, and the `product:{partner}` purge that removal
+ * sends reaches this page, which carries that tag for every partner.
+ *
+ * Unordered: the wheel orders its tiles itself, A to Z by name (ruling R1).
+ */
+function wheelMarksOf(raw: RawProductDetailRow): WheelMark[] {
+  const marks = new Map<string, WheelMark>();
+  const add = (partner: RawProductLink) => {
+    if (partner.id === raw.id || marks.has(partner.id)) return;
+    marks.set(partner.id, {
+      product_id: partner.id,
+      logo_url: partner.logoUrl,
+      claim_status: claimStatusOf(Boolean(partner.claimed)),
+    });
+  };
+  for (const row of raw.sourceIntegrations) add(row.targetProduct);
+  for (const row of raw.targetIntegrations) add(row.sourceProduct);
+  for (const row of [...raw.evidencedPairsAsA, ...raw.evidencedPairsAsB]) {
+    add(partnerOf(row.productA, row.productB, raw.id));
+  }
+  return [...marks.values()];
+}
+
+/**
  * Every partner a product is already DELIVERED to, across both delivered tables
  * and both orientations, read off the two endpoint buckets `toProductDetail`
  * builds (the reasoning is at its call site there). Exported so the vendor
@@ -3485,6 +3519,8 @@ export function toProductDetail(
     // §13.3's split is a sourcing question, never a rendering one.
     integrations_as_source: asSource,
     integrations_as_target: asTarget,
+    // AECI-2018, ruling 64: the wheel's own marks. The rows above keep the logo rule.
+    wheel_marks: wheelMarksOf(raw),
     // Connector bucket: this product is the mechanism, not an endpoint — bare
     // list items (no context_direction; direction is between source and target).
     //

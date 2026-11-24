@@ -397,6 +397,86 @@ describe('the public mappers', () => {
   });
 });
 
+// AECI-2018, ruling 64 (2026-11-24): a wheel tile shows a product's logo whenever we hold
+// one, claimed or not. It widens the logo rule for the wheel ONLY, so these pin both
+// halves: the wheel's own field carries the logo, and every other read is unchanged.
+describe("the integrations wheel's marks (ruling 64)", () => {
+  const PARTNER_LOGO = 'https://cdn.example/p.png';
+  const detail = async () =>
+    toProductDetail(
+      (await t.db.query.products.findFirst({
+        ...productDetailConfig,
+        where: eq(products.id, PRODUCT),
+      }))!,
+      [],
+    );
+  const listPartner = async () =>
+    toProductListItem(
+      (await t.db.query.products.findFirst({
+        ...productListConfig,
+        where: eq(products.id, PARTNER),
+      }))!,
+    );
+
+  beforeEach(async () => {
+    // PRODUCT (claimed through Acme) integrates with PARTNER, which has no vendor, so is
+    // unclaimed, and holds a logo.
+    await t.db.insert(integrations).values({
+      id: u(40),
+      sourceProductId: PRODUCT,
+      targetProductId: PARTNER,
+      name: 'Edge',
+    } as never);
+  });
+
+  it("carries an unclaimed partner's stored logo, and says it is unclaimed", async () => {
+    expect((await detail()).wheel_marks).toEqual([
+      { product_id: PARTNER, logo_url: PARTNER_LOGO, claim_status: 'unclaimed' },
+    ]);
+  });
+
+  it("leaves the row's own link, the list card and the integration list as they were", async () => {
+    const page = await detail();
+    expect(page.integrations_as_source[0]!.target).toMatchObject({
+      id: PARTNER,
+      logo_url: null,
+    });
+    expect((await listPartner()).logo_url).toBeNull();
+    const item = toIntegrationListItem(
+      (await t.db.query.integrations.findFirst({
+        ...integrationListConfig,
+        where: eq(integrations.id, u(40)),
+      }))!,
+    );
+    expect(item.target.logo_url).toBeNull();
+  });
+
+  it('reads a claimed partner as claimed, and the page product is never its own mark', async () => {
+    await t.db.insert(productVendors).values({ productId: PARTNER, vendorId: VENDOR });
+    expect((await detail()).wheel_marks).toEqual([
+      { product_id: PARTNER, logo_url: PARTNER_LOGO, claim_status: 'claimed' },
+    ]);
+  });
+
+  it('lists a partner once, whichever side and however many rows', async () => {
+    await t.db.insert(integrations).values([
+      { id: u(41), sourceProductId: PARTNER, targetProductId: PRODUCT, name: 'Back' },
+      { id: u(42), sourceProductId: PRODUCT, targetProductId: PARTNER, name: 'Again' },
+    ] as never);
+    expect((await detail()).wheel_marks!.map((m) => m.product_id)).toEqual([PARTNER]);
+  });
+
+  // A logo removed on objection clears `logo_url` (routes/logos.ts), so the wheel holds
+  // nothing to show. The purge that removal sends is `product:{partner}`, which every
+  // product page carries for each partner (the web resolver spec pins that half).
+  it('shows no logo once the logo is removed', async () => {
+    await t.db.update(products).set({ logoUrl: null }).where(eq(products.id, PARTNER));
+    expect((await detail()).wheel_marks).toEqual([
+      { product_id: PARTNER, logo_url: null, claim_status: 'unclaimed' },
+    ]);
+  });
+});
+
 describe('the ops backfills (AECI-1618)', () => {
   const ops = join(process.cwd(), '..', '..', 'scripts', 'ops', '2026-11-brand-asset-backfill');
   const file = (name: string) => readFileSync(join(ops, name), 'utf8');

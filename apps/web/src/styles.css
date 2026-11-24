@@ -1615,36 +1615,696 @@ textarea:-webkit-autofill:focus {
   animation: aeci-drawer-in var(--duration-slow) var(--ease-standard);
 }
 
-/* The product hero's category hub (AECI-1787, DESIGN.md §5 "The hero diagram").
-   Its one entrance: the list fades in and rises 4px over the slow step. Opacity
-   and transform only, so nothing moves in layout. It runs only when the visitor
-   has not asked for reduced motion, so under that setting the list is simply
-   there. Hydration reuses the server's nodes, so the entrance does not replay. */
-@keyframes aec-category-hub-in {
+/* The product hero's integrations wheel (AECI-2018, DESIGN.md §5 "The hero diagram",
+   mock-up 9w). `product-integration-wheel.ts` renders it and `integration-wheel.ts`
+   lays it out. Plain CSS here, because the layout is chosen by container query and the
+   server's markup carries one set of positions per stage width.
+
+   HOW THE SERVER HTML PICKS A LAYOUT. The server cannot know the width, so it lays the
+   first slide out at each of the five stage widths in WHEEL_BANDS (224, 279, 294, 336
+   and 476px) and writes them as custom properties: `--x{k}` / `--y{k}` on each tile,
+   `--t{k}` (tile size) and `--i{k}` (initial size) on the stage, and the slide's mode
+   per band as `data-m{k}` (`one`, `two`, `dots`) on the wheel, with `data-n{k}` when
+   names show under the tiles. One container query per band copies its values into
+   `--x`, `--y` and `--t`, and shows what that mode shows. Positions are percentages of
+   the stage, and each band applies from its own width up, so a tile is never smaller
+   than the size it was laid out at. After hydration the component lays the slide out at
+   the measured width under the key `l`, sets `data-live`, and the `[data-live]` rules
+   win. Every mode rule only shows, so the band and live rules never fight. */
+.aec-wheel {
+  container: aec-wheel / inline-size;
+  position: relative;
+}
+
+/* The head: an arrow either side of the title. Under 260px the title takes the first
+   row and the arrows sit under it, so a long name is not squeezed between them. */
+.aec-wheel-head {
+  position: relative;
+  display: grid;
+  grid-template-columns: 2.75rem minmax(0, 1fr) 2.75rem;
+  align-items: center;
+  gap: 0.25rem;
+}
+.aec-wheel-head-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+@container aec-wheel (width < 260px) {
+  .aec-wheel-head:not(.aec-wheel-head-single) .aec-wheel-title {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+  .aec-wheel-head:not(.aec-wheel-head-single) > .aec-wheel-step:first-child {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .aec-wheel-head:not(.aec-wheel-head-single) > .aec-wheel-step:nth-of-type(2) {
+    grid-column: 3;
+    grid-row: 2;
+  }
+}
+.aec-wheel-step {
+  display: grid;
+  width: 2.75rem;
+  height: 2.75rem;
+  place-items: center;
+  border: 1px solid var(--border-on-brand-strong);
+  border-radius: var(--radius-control);
+  background-color: var(--surface-on-brand-wash);
+  color: var(--text-on-brand);
+  cursor: pointer;
+  transition:
+    background-color var(--duration-base) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
+}
+.aec-wheel-step:hover {
+  background-color: var(--surface-on-brand-wash-hover);
+}
+.aec-wheel-step:active {
+  transform: translateY(1px) scale(0.98);
+}
+.aec-wheel-title {
+  position: relative;
+  min-width: 0;
+  margin: 0;
+  text-align: center;
+  font-family: var(--font-body);
+  font-weight: 400;
+}
+.aec-wheel-jump,
+.aec-wheel-static {
+  display: inline-flex;
+  max-width: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.125rem;
+  padding: 0.375rem 0.5rem;
+}
+.aec-wheel-jump {
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  cursor: pointer;
+}
+.aec-wheel-jump:hover {
+  background-color: var(--surface-on-brand-wash);
+}
+.aec-wheel-jump .aec-wheel-name svg {
+  display: inline-block;
+  margin-inline-start: 0.25rem;
+  vertical-align: -0.125rem;
+  transition: transform var(--duration-base) var(--ease-standard);
+}
+.aec-wheel-jump[aria-expanded='true'] .aec-wheel-name svg {
+  transform: rotate(180deg);
+}
+/* The slide name is the serif at 20px, the floor (DESIGN.md §3 "The Serif-Floor Rule"). */
+.aec-wheel-name {
+  display: block;
+  max-width: 100%;
+  font: 600 var(--t-20) / 1.3 var(--font-display);
+  text-wrap: balance;
+  color: var(--text-on-brand);
+}
+.aec-wheel-count {
+  font-size: var(--t-13);
+  line-height: 1.4;
+  color: var(--text-on-brand-secondary);
+}
+/* The static title: a product with one slide, and every wheel with no script. */
+.aec-wheel-static {
+  display: none;
+}
+.aec-wheel-head-single .aec-wheel-static {
+  display: inline-flex;
+}
+@media (scripting: none) {
+  .aec-wheel-step {
+    visibility: hidden;
+  }
+  .aec-wheel-jump {
+    display: none;
+  }
+  .aec-wheel-static {
+    display: inline-flex;
+  }
+}
+
+/* The jump list: a popover surface under the title, over the wheel. */
+.aec-wheel-list {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 0.5rem);
+  left: 50%;
+  width: min(20rem, calc(100vw - 3rem));
+  max-height: 22.5rem;
+  margin: 0;
+  overflow-y: auto;
+  padding: 0.375rem;
+  list-style: none;
+  text-align: start;
+  translate: -50% 0;
+}
+.aec-wheel-list[hidden] {
+  display: none;
+}
+.aec-wheel-option {
+  display: flex;
+  width: 100%;
+  min-height: 2.5rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 0;
+  border-radius: var(--radius-mark);
+  background: none;
+  color: var(--text-primary);
+  font-size: var(--t-14);
+  text-align: start;
+  cursor: pointer;
+}
+.aec-wheel-option:hover {
+  background-color: var(--surface-sunken);
+}
+.aec-wheel .aec-wheel-option:focus-visible {
+  outline: 3px solid var(--accent-primary);
+  outline-offset: -3px;
+}
+.aec-wheel-option[aria-current='true'] {
+  background-color: var(--accent-primary-soft);
+  font-weight: 600;
+}
+.aec-wheel-option-count {
+  font-size: var(--t-13);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The stage: a square, at most 476px. */
+.aec-wheel-stage {
+  position: relative;
+  width: 100%;
+  max-width: 29.75rem;
+  aspect-ratio: 1;
+  margin: 1rem auto 0;
+}
+.aec-wheel-art {
+  position: absolute;
+  inset: 0;
+}
+.aec-wheel-guides,
+.aec-wheel-dots {
+  position: absolute;
+  inset: 0;
+  display: none;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.aec-wheel-guides circle {
+  fill: none;
+  stroke: var(--border-on-brand-subtle);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.aec-wheel-guides .aec-wheel-frame {
+  stroke-dasharray: 2 6;
+}
+.aec-wheel-guides .aec-wheel-orbit {
+  stroke: var(--border-on-brand);
+}
+/* The inner orbit fades out on a one-ring slide and back on a two-ring one. */
+.aec-wheel-guides .aec-wheel-orbit-inner {
+  transition: opacity var(--duration-slow) var(--ease-standard);
+}
+.aec-wheel-guides .aec-wheel-orbit-inner.is-off {
+  opacity: 0;
+}
+/* A to Z starts at 12 o'clock: one short Clay stroke marks it. */
+.aec-wheel-start {
+  stroke: var(--accent-secondary);
+  stroke-width: 2;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.aec-wheel-dots circle {
+  fill: none;
+  stroke: var(--text-on-brand-secondary);
+}
+
+/* The ring: a real list of links. Hidden until a mode rule shows it. */
+.aec-wheel-ring {
+  position: absolute;
+  inset: 0;
+  display: none;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.aec-wheel-ring > li {
+  position: absolute;
+  left: calc(50% + var(--x) * 1%);
+  top: calc(50% + var(--y) * 1%);
+  width: calc(var(--t) * 1%);
+  height: calc(var(--t) * 1%);
+  translate: -50% -50%;
+}
+.aec-wheel-tile {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-mark);
+  text-decoration: none;
+  -webkit-touch-callout: none;
+  transition: transform var(--duration-base) var(--ease-standard);
+}
+/* Every logo sits inset on the same neutral tile as an initial: no ground, ring or
+   border from the vendor, claimed or not (ruling 34, kept by ruling 64). */
+.aec-wheel-tile aec-logo-or-initial > * {
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.16);
+}
+.aec-wheel-tile:hover {
+  transform: scale(1.08);
+  text-decoration: none;
+}
+.aec-wheel-tile:hover aec-logo-or-initial > *,
+.aec-wheel-tile.is-active aec-logo-or-initial > * {
+  box-shadow: 0 0 0 2px var(--text-on-brand);
+}
+.aec-wheel .aec-wheel-tile:focus-visible {
+  outline: 3px solid var(--focus-ring-on-brand);
+  outline-offset: 3px;
+}
+/* A tile's name: read by a screen reader always, shown under the tile on a slide of
+   eight or fewer (the `data-n` rules). */
+.aec-wheel-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* The centre: the page's own product on a tile slide, the count on a dots slide. */
+.aec-wheel-hub {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  translate: -50% -50%;
+  text-align: center;
+  pointer-events: none;
+}
+.aec-wheel-hub-mark {
+  display: none;
+  width: clamp(2.75rem, 13.5cqw, 4rem);
+  aspect-ratio: 1;
+  border-radius: var(--radius-mark);
+  box-shadow:
+    0 0 0 6px var(--border-on-brand-subtle),
+    var(--shadow-card);
+}
+.aec-wheel-hub-count {
+  display: none;
+  max-width: 11rem;
+  margin: 0;
+  color: var(--text-on-brand);
+}
+.aec-wheel-hub-figure {
+  display: block;
+  font: 600 var(--t-48) / 1 var(--font-display);
+  letter-spacing: -0.01em;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+.aec-wheel-hub-words {
+  display: block;
+  margin-top: 0.5rem;
+  font: 400 var(--t-20) / 1.3 var(--font-display);
+}
+/* The lines under the wheel: 13px, 400, the secondary on-brand ink on the panel. The
+   block widens into the panel's padding so the logo line takes fewer rows, and each
+   phrase keeps together. */
+.aec-wheel-lines {
+  display: none;
+  margin: 1rem -0.75rem 0;
+  font-size: var(--t-13);
+  line-height: 1.4;
+  text-align: center;
+  color: var(--text-on-brand-secondary);
+}
+@media (width >= 48rem) {
+  .aec-wheel-lines {
+    margin-inline: -1rem;
+  }
+}
+.aec-wheel-line {
+  display: block;
+}
+.aec-wheel-line + .aec-wheel-line {
+  margin-top: 0.25rem;
+}
+.aec-wheel-phrase {
+  display: inline-block;
+}
+/* With no script a dots slide links to the list it stands for. */
+.aec-wheel-more {
+  display: none;
+  margin: 0.5rem 0 0;
+  text-align: center;
+  font-size: var(--t-14);
+  font-weight: 600;
+}
+.aec-wheel-more a {
+  text-decoration-line: underline;
+  text-decoration-color: var(--border-on-brand-strong);
+  text-underline-offset: 4px;
+}
+@media (scripting: enabled) {
+  .aec-wheel .aec-wheel-more {
+    display: none !important;
+  }
+}
+
+@container aec-wheel (width < 279px) {
+  .aec-wheel-stage {
+    --t: var(--t0);
+    --aec-wheel-initial: var(--i0);
+  }
+  .aec-wheel-ring > li {
+    --x: var(--x0);
+    --y: var(--y0);
+  }
+  .aec-wheel-guides[data-band='0'],
+  .aec-wheel-dots[data-band='0'] {
+    display: block;
+  }
+  .aec-wheel[data-m0='one'] .aec-wheel-ring,
+  .aec-wheel[data-m0='two'] .aec-wheel-ring,
+  .aec-wheel[data-m0='one'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m0='two'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m0='one'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m0='two'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m0='dots'] .aec-wheel-hub-count,
+  .aec-wheel[data-m0='dots'] .aec-wheel-lines-dots,
+  .aec-wheel[data-m0='dots'] .aec-wheel-more {
+    display: block;
+  }
+  .aec-wheel[data-n0] .aec-wheel-label {
+    position: absolute;
+    top: calc(100% + 0.375rem);
+    left: 50%;
+    width: max-content;
+    max-width: 7.5rem;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+    translate: -50% 0;
+    font-size: var(--t-13);
+    line-height: 1.3;
+    text-align: center;
+    color: var(--text-on-brand-secondary);
+    pointer-events: none;
+  }
+  .aec-wheel[data-n0] .aec-wheel-stage {
+    margin-bottom: 2.5rem;
+  }
+}
+@container aec-wheel (279px <= width < 294px) {
+  .aec-wheel-stage {
+    --t: var(--t1);
+    --aec-wheel-initial: var(--i1);
+  }
+  .aec-wheel-ring > li {
+    --x: var(--x1);
+    --y: var(--y1);
+  }
+  .aec-wheel-guides[data-band='1'],
+  .aec-wheel-dots[data-band='1'] {
+    display: block;
+  }
+  .aec-wheel[data-m1='one'] .aec-wheel-ring,
+  .aec-wheel[data-m1='two'] .aec-wheel-ring,
+  .aec-wheel[data-m1='one'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m1='two'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m1='one'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m1='two'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m1='dots'] .aec-wheel-hub-count,
+  .aec-wheel[data-m1='dots'] .aec-wheel-lines-dots,
+  .aec-wheel[data-m1='dots'] .aec-wheel-more {
+    display: block;
+  }
+  .aec-wheel[data-n1] .aec-wheel-label {
+    position: absolute;
+    top: calc(100% + 0.375rem);
+    left: 50%;
+    width: max-content;
+    max-width: 7.5rem;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+    translate: -50% 0;
+    font-size: var(--t-13);
+    line-height: 1.3;
+    text-align: center;
+    color: var(--text-on-brand-secondary);
+    pointer-events: none;
+  }
+  .aec-wheel[data-n1] .aec-wheel-stage {
+    margin-bottom: 2.5rem;
+  }
+}
+@container aec-wheel (294px <= width < 336px) {
+  .aec-wheel-stage {
+    --t: var(--t2);
+    --aec-wheel-initial: var(--i2);
+  }
+  .aec-wheel-ring > li {
+    --x: var(--x2);
+    --y: var(--y2);
+  }
+  .aec-wheel-guides[data-band='2'],
+  .aec-wheel-dots[data-band='2'] {
+    display: block;
+  }
+  .aec-wheel[data-m2='one'] .aec-wheel-ring,
+  .aec-wheel[data-m2='two'] .aec-wheel-ring,
+  .aec-wheel[data-m2='one'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m2='two'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m2='one'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m2='two'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m2='dots'] .aec-wheel-hub-count,
+  .aec-wheel[data-m2='dots'] .aec-wheel-lines-dots,
+  .aec-wheel[data-m2='dots'] .aec-wheel-more {
+    display: block;
+  }
+  .aec-wheel[data-n2] .aec-wheel-label {
+    position: absolute;
+    top: calc(100% + 0.375rem);
+    left: 50%;
+    width: max-content;
+    max-width: 7.5rem;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+    translate: -50% 0;
+    font-size: var(--t-13);
+    line-height: 1.3;
+    text-align: center;
+    color: var(--text-on-brand-secondary);
+    pointer-events: none;
+  }
+  .aec-wheel[data-n2] .aec-wheel-stage {
+    margin-bottom: 2.5rem;
+  }
+}
+@container aec-wheel (336px <= width < 476px) {
+  .aec-wheel-stage {
+    --t: var(--t3);
+    --aec-wheel-initial: var(--i3);
+  }
+  .aec-wheel-ring > li {
+    --x: var(--x3);
+    --y: var(--y3);
+  }
+  .aec-wheel-guides[data-band='3'],
+  .aec-wheel-dots[data-band='3'] {
+    display: block;
+  }
+  .aec-wheel[data-m3='one'] .aec-wheel-ring,
+  .aec-wheel[data-m3='two'] .aec-wheel-ring,
+  .aec-wheel[data-m3='one'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m3='two'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m3='one'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m3='two'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m3='dots'] .aec-wheel-hub-count,
+  .aec-wheel[data-m3='dots'] .aec-wheel-lines-dots,
+  .aec-wheel[data-m3='dots'] .aec-wheel-more {
+    display: block;
+  }
+  .aec-wheel[data-n3] .aec-wheel-label {
+    position: absolute;
+    top: calc(100% + 0.375rem);
+    left: 50%;
+    width: max-content;
+    max-width: 7.5rem;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+    translate: -50% 0;
+    font-size: var(--t-13);
+    line-height: 1.3;
+    text-align: center;
+    color: var(--text-on-brand-secondary);
+    pointer-events: none;
+  }
+  .aec-wheel[data-n3] .aec-wheel-stage {
+    margin-bottom: 2.5rem;
+  }
+}
+@container aec-wheel (width >= 476px) {
+  .aec-wheel-stage {
+    --t: var(--t4);
+    --aec-wheel-initial: var(--i4);
+  }
+  .aec-wheel-ring > li {
+    --x: var(--x4);
+    --y: var(--y4);
+  }
+  .aec-wheel-guides[data-band='4'],
+  .aec-wheel-dots[data-band='4'] {
+    display: block;
+  }
+  .aec-wheel[data-m4='one'] .aec-wheel-ring,
+  .aec-wheel[data-m4='two'] .aec-wheel-ring,
+  .aec-wheel[data-m4='one'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m4='two'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m4='one'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m4='two'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m4='dots'] .aec-wheel-hub-count,
+  .aec-wheel[data-m4='dots'] .aec-wheel-lines-dots,
+  .aec-wheel[data-m4='dots'] .aec-wheel-more {
+    display: block;
+  }
+  .aec-wheel[data-n4] .aec-wheel-label {
+    position: absolute;
+    top: calc(100% + 0.375rem);
+    left: 50%;
+    width: max-content;
+    max-width: 7.5rem;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+    translate: -50% 0;
+    font-size: var(--t-13);
+    line-height: 1.3;
+    text-align: center;
+    color: var(--text-on-brand-secondary);
+    pointer-events: none;
+  }
+  .aec-wheel[data-n4] .aec-wheel-stage {
+    margin-bottom: 2.5rem;
+  }
+}
+/* After hydration: the one live layout, at the measured width. */
+.aec-wheel[data-live] .aec-wheel-stage {
+  --t: var(--tl);
+  --aec-wheel-initial: var(--il);
+}
+.aec-wheel[data-live] .aec-wheel-ring > li {
+  --x: var(--xl);
+  --y: var(--yl);
+}
+.aec-wheel-guides[data-band='l'],
+.aec-wheel-dots[data-band='l'] {
+  display: block;
+}
+.aec-wheel[data-ml='one'] .aec-wheel-ring,
+.aec-wheel[data-ml='two'] .aec-wheel-ring,
+.aec-wheel[data-ml='one'] .aec-wheel-hub-mark,
+.aec-wheel[data-ml='two'] .aec-wheel-hub-mark,
+.aec-wheel[data-ml='one'] .aec-wheel-lines-tiles,
+.aec-wheel[data-ml='two'] .aec-wheel-lines-tiles,
+.aec-wheel[data-ml='dots'] .aec-wheel-hub-count,
+.aec-wheel[data-ml='dots'] .aec-wheel-lines-dots {
+  display: block;
+}
+.aec-wheel[data-nl] .aec-wheel-label {
+  position: absolute;
+  top: calc(100% + 0.375rem);
+  left: 50%;
+  width: max-content;
+  max-width: 7.5rem;
+  height: auto;
+  overflow: visible;
+  clip-path: none;
+  white-space: normal;
+  translate: -50% 0;
+  font-size: var(--t-13);
+  line-height: 1.3;
+  text-align: center;
+  color: var(--text-on-brand-secondary);
+  pointer-events: none;
+}
+.aec-wheel[data-nl] .aec-wheel-stage {
+  margin-bottom: 2.5rem;
+}
+
+/* The card a tile opens: a popover in the CDK overlay, so the hero never clips it. */
+.aec-wheel-card {
+  display: grid;
+  width: min(16.5rem, calc(100vw - 1rem));
+  grid-template-columns: 3rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+}
+/* "Unclaimed" sits beside the name, and wraps under it with no indent when it does not fit. */
+.aec-wheel-card-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.5rem;
+  margin: 0;
+  font: 600 var(--t-20) / 1.25 var(--font-display);
+  overflow-wrap: anywhere;
+}
+.aec-wheel-card-unclaimed {
+  font: 600 var(--t-13) / 1.4 var(--font-body);
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+.aec-wheel-card-vendor {
+  margin: 0.125rem 0 0;
+  font-size: var(--t-14);
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+/* The one entrance: the art fades in and settles, once, on first paint. Opacity and
+   transform only, so nothing moves in layout. Hydration reuses the server's nodes and
+   the animated wrapper is never replaced, so it does not replay. A step settles it for
+   good. Under reduced motion the wheel is simply there. */
+@keyframes aec-wheel-in {
   from {
     opacity: 0;
-    transform: translateY(0.25rem);
+    transform: scale(0.96) rotate(-6deg);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: none;
   }
 }
-
 @media (prefers-reduced-motion: no-preference) {
-  .aec-category-hub {
-    animation: aec-category-hub-in var(--duration-slow) var(--ease-standard) both;
-  }
-}
-
-/* The product hero's panel below lg (AECI-1787). There it stacks under the hero
-   text and holds the category hub alone: the pair finder shows from lg. A product
-   with no hub has nothing to show there, so the panel goes rather than leave an
-   empty box. Keyed on the caller's marker class, so the shared band
-   (`shared/hero-band/hero-band.ts`) is unchanged for every other page. */
-@media (width < 64rem) {
-  .aec-hero-panel:has(> .aec-hero-panel-lg-only) {
-    display: none;
+  .aec-wheel:not([data-settled]) .aec-wheel-art {
+    animation: aec-wheel-in calc(var(--duration-slow) * 2) var(--ease-standard) both;
   }
 }
 
