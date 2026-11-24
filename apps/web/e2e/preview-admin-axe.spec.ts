@@ -27,6 +27,7 @@ import { untilAppStable } from './hydration';
 const ROUTES = [
   '/preview/admin-activity',
   '/preview/admin-brand-asset-removals',
+  '/preview/admin-console-legend',
   '/preview/admin-contests',
   '/preview/admin-email',
   '/preview/admin-field-corrections',

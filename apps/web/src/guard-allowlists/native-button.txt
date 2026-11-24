@@ -3,9 +3,7 @@
 # One line per file: its path from src/app and its count. A count only goes down.
 # Lower your line when you fix some. Delete it when the file reaches zero. Never add a line.
 admin/activity/activity-feed.html 3
-admin/admin-cursor-paginator.ts 3
 admin/admin-nav-dropdown.ts 1
-admin/admin-paginator.ts 2
 admin/audience/audience.html 4
 admin/audit/audit-log.html 3
 admin/audit/audit-trail.html 2
@@ -23,7 +21,6 @@ admin/email/email-activity.html 7
 admin/email/email-switches.html 5
 admin/legal/legal-versions.html 7
 admin/legal/litigation-holds.html 7
-admin/overview/overview.html 2
 admin/reindex/reindex-history.html 4
 admin/reindex/reindex-list.html 7
 admin/requests/license-release-queue.html 6
@@ -33,7 +30,6 @@ admin/review-responses/review-response-queue.html 10
 admin/review-updates/review-update-queue.html 10
 admin/reviews/review-queue.html 20
 admin/subscribers/subscriber-list.html 3
-admin/system/system-status.html 2
 admin/threads/thread-detail.html 1
 admin/threads/thread-list.html 1
 admin/traffic/traffic.html 5

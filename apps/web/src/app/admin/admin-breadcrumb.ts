@@ -1,18 +1,11 @@
 import { Component, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { NavigationEnd, Router, RouterLink } from '@angular/router';
+import { NavigationEnd, Router } from '@angular/router';
 import { filter, map } from 'rxjs';
 
+import { AecBreadcrumb, type BreadcrumbItem } from '../shared/breadcrumb/breadcrumb';
 import { AdminBreadcrumbStore } from './admin-breadcrumb.store';
 import { ADMIN_DETAIL_FALLBACK_LABELS, adminNavPosition } from './admin-nav';
-
-/** One rendered crumb. `path` null means plain text — either a category, which
- *  has no route, or the page you are already on. */
-interface Crumb {
-  readonly label: string;
-  readonly path: string | null;
-  readonly current: boolean;
-}
 
 /** The trail's root. Links to `/admin`, which redirects to the Overview. */
 const ROOT_LABEL = $localize`:@@admin.breadcrumb.root:Admin`;
@@ -69,48 +62,15 @@ const ROOT_LABEL = $localize`:@@admin.breadcrumb.root:Admin`;
  */
 @Component({
   selector: 'aec-admin-breadcrumb',
-  imports: [RouterLink],
-  template: `
-    <nav i18n-aria-label="@@admin.breadcrumb.aria" aria-label="Breadcrumb" class="mt-4">
-      <ol class="m-0 flex flex-wrap items-center gap-2 p-0 text-sm text-(--text-secondary)">
-        @for (crumb of crumbs(); track $index; let last = $last) {
-          @if (crumb.path) {
-            <li class="min-w-0">
-              <a [routerLink]="crumb.path" [class]="linkClass">{{ crumb.label }}</a>
-            </li>
-          } @else if (crumb.current) {
-            <li class="min-w-0 break-words text-(--text-primary)" aria-current="page">
-              {{ crumb.label }}
-            </li>
-          } @else {
-            <li class="min-w-0">{{ crumb.label }}</li>
-          }
-
-          @if (!last) {
-            <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
-          }
-        }
-      </ol>
-    </nav>
-  `,
+  imports: [AecBreadcrumb],
+  // AECI-1813: the public site's one breadcrumb (`shared/breadcrumb`), as ruled on
+  // 2026-11-24. This component only derives the trail.
+  template: `<aec-breadcrumb class="mt-4" [items]="crumbs()" />`,
   styles: [':host { display: block; }'],
 })
 export class AdminBreadcrumb {
   private readonly router = inject(Router);
   private readonly store = inject(AdminBreadcrumbStore);
-
-  /**
-   * Link treatment: the public site's index/browse dialect, which is the one
-   * with a focus ring — and the ring is the same treatment the deleted "Back to
-   * …" links already used, so keyboard behaviour is unchanged. The colour is
-   * pinned to `--text-secondary` because the layered `a { color: accent }` base
-   * rule would otherwise paint every crumb accent, which reads as four calls to
-   * action in a row.
-   */
-  protected readonly linkClass =
-    'rounded-(--radius-sm) text-(--text-secondary) no-underline transition-colors ' +
-    'hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 ' +
-    'focus-visible:outline-(--accent-primary)';
 
   /** Current path, query and fragment stripped: `?banned=true` changes the
    *  filter, not where you are. `urlAfterRedirects` so `/admin/reviewers` shows
@@ -123,7 +83,9 @@ export class AdminBreadcrumb {
     { initialValue: this.router.url },
   );
 
-  protected readonly crumbs = computed<readonly Crumb[]>(() => {
+  /** A crumb with no `link` is text: the category, which has no route, or the
+   *  page you are on, which the shared breadcrumb marks `aria-current`. */
+  protected readonly crumbs = computed<readonly BreadcrumbItem[]>(() => {
     const path = (this.url().split(/[?#]/)[0] ?? '').split('/').filter(Boolean);
     const [, section, id] = path;
 
@@ -131,20 +93,20 @@ export class AdminBreadcrumb {
     // route added to the router but not to the nav). Show where they are and
     // stop — an invented trail is worse than a short one.
     const position = section ? adminNavPosition(`/admin/${section}`) : null;
-    if (!position) return [{ label: ROOT_LABEL, path: null, current: true }];
+    if (!position) return [{ label: ROOT_LABEL }];
 
-    const root: Crumb = { label: ROOT_LABEL, path: '/admin', current: false };
-    const category: Crumb = { label: position.groupHeading, path: null, current: false };
+    const root: BreadcrumbItem = { label: ROOT_LABEL, link: '/admin' };
+    const category: BreadcrumbItem = { label: position.groupHeading };
 
     if (id === undefined) {
-      return [root, category, { label: position.label, path: null, current: true }];
+      return [root, category, { label: position.label }];
     }
 
     return [
       root,
       category,
-      { label: position.label, path: `/admin/${section}`, current: false },
-      { label: this.entityLabel(section as string, id), path: null, current: true },
+      { label: position.label, link: `/admin/${section}` },
+      { label: this.entityLabel(section as string, id) },
     ];
   });
 
