@@ -3,6 +3,9 @@ import { RouterLink } from '@angular/router';
 
 import { compareText } from '@aeci/shared/text-sort';
 
+import { AecCard } from '../../shared/card/card';
+import { Chip } from '../../shared/chip/chip';
+import { AecIcon } from '../../shared/icon/icon';
 import { LogoOrInitial } from '../../shared/logo-or-initial/logo-or-initial';
 import { VendorPlanBadge } from '../components/vendor-plan-badge';
 import { VendorProductCreate } from '../components/vendor-product-create';
@@ -26,11 +29,19 @@ import { VendorPortalStore } from '../vendor-portal-store';
  */
 @Component({
   selector: 'aec-vendor-product-list-page',
-  imports: [RouterLink, LogoOrInitial, VendorPlanBadge, VendorProductCreate],
+  imports: [
+    RouterLink,
+    AecCard,
+    AecIcon,
+    Chip,
+    LogoOrInitial,
+    VendorPlanBadge,
+    VendorProductCreate,
+  ],
   template: `
     @if (me(); as m) {
       <div>
-        <h2 class="font-display text-xl font-semibold text-(--text-primary)">
+        <h2>
           <span i18n="@@vendor.section.products">Products</span>
           <span class="ms-1 text-(--text-secondary)">({{ products().length }})</span>
         </h2>
@@ -50,24 +61,26 @@ import { VendorPortalStore } from '../vendor-portal-store';
           <!-- Claimed vendor, empty catalog. Not an error: promote has simply not
                landed a product against this vendor yet. -->
           <p
-            class="mt-4 rounded-(--radius-md) border border-(--border-default)
-              bg-(--surface-raised) p-4 text-sm leading-relaxed text-(--text-primary)"
+            aecCard
+            class="mt-6 p-6 text-sm leading-relaxed text-(--text-primary)"
             i18n="@@vendor.products.empty"
           >
             {{ m.vendor.company_name }} has no products listed yet.
           </p>
         } @else {
+          <!-- AECI-1810: the portal's own list on the shared white card, rows divided
+               by hairlines. Not the admin table recipe. -->
           <ul
-            class="m-0 mt-4 list-none divide-y divide-(--border-default) rounded-(--radius-md)
-              border border-(--border-default) bg-(--surface-raised) p-0"
+            aecCard
+            class="m-0 mt-6 list-none divide-y divide-(--border-default) overflow-hidden p-0"
           >
             @for (p of products(); track p.id) {
               <li>
                 <a
                   [routerLink]="[p.slug]"
-                  class="flex items-center gap-4 px-4 py-3 text-(--text-primary) no-underline
-                    hover:bg-(--surface-sunken) focus-visible:outline-2
-                    focus-visible:-outline-offset-2 focus-visible:outline-(--accent-primary)"
+                  class="group/row flex min-h-16 flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 text-(--text-primary)
+                    no-underline transition-colors hover:bg-(--surface-sunken) focus-visible:outline-3
+                    focus-visible:-outline-offset-3 focus-visible:outline-(--accent-primary) sm:px-6"
                 >
                   <aec-logo-or-initial
                     [claimStatus]="'stored'"
@@ -75,15 +88,13 @@ import { VendorPortalStore } from '../vendor-portal-store';
                     [name]="p.name"
                     size="sm"
                   />
-                  <span class="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
-                    <span class="min-w-0 font-medium break-words">{{ p.name }}</span>
+                  <span class="flex min-w-40 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+                    <span
+                      class="min-w-0 font-semibold break-words group-hover/row:text-(--accent-primary)"
+                      >{{ p.name }}</span
+                    >
                     @if (p.is_primary) {
-                      <span
-                        class="rounded-(--radius-sm) bg-(--surface-sunken) px-2 py-0.5 text-xs
-                          text-(--text-secondary)"
-                        i18n="@@vendor.products.primary"
-                        >Primary</span
-                      >
+                      <aec-chip density="dense" i18n="@@vendor.products.primary">Primary</aec-chip>
                     }
                   </span>
                   <!--
@@ -91,10 +102,10 @@ import { VendorPortalStore } from '../vendor-portal-store';
                     row. The score waits on GET /api/vendor/checklist; until it lands
                     the column is empty rather than a guess.
                   -->
-                  <span class="flex shrink-0 items-center gap-3">
+                  <span class="ms-auto flex shrink-0 items-center gap-3">
                     @if (scores().get(p.id); as sc) {
                       <span
-                        class="text-end text-xs leading-tight text-(--text-secondary)"
+                        class="text-end text-t-12 text-(--text-secondary)"
                         data-testid="product-checklist-score"
                       >
                         <span class="block">{{ scoreLabel(sc.complete) }}</span>
@@ -105,18 +116,9 @@ import { VendorPortalStore } from '../vendor-portal-store';
                     }
                     <!-- A fixed column, so Free and Managed line up down a long list. -->
                     <span class="flex w-20"><aec-vendor-plan-badge [plan]="p.plan" /></span>
-                    <svg
-                      aria-hidden="true"
-                      class="h-4 w-4 text-(--text-secondary) rtl:-scale-x-100"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <path d="m9 18 6-6-6-6" />
-                    </svg>
+                    <span class="flex text-(--text-tertiary)">
+                      <aec-icon name="chevron-right" decorative [size]="4" [mirrorRtl]="true" />
+                    </span>
                   </span>
                 </a>
               </li>
