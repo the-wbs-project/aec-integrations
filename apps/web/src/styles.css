@@ -683,6 +683,15 @@ h3 {
   letter-spacing: normal;
 }
 
+/* The portal notice's heading (AECI-1809, `vendor/shared/portal-notice.ts`): a banner's
+   `h2` sits at the Card title size, `--t-20`. A size utility on the `h2` would be dead
+   (the Unlayered-Heading Rule), so the notice recipe carries it, unlayered, one class
+   above the element rule. */
+.aec-portal-notice h2 {
+  font-size: var(--t-20);
+  line-height: 1.25;
+}
+
 /* The overline role (DESIGN.md §3, AECI-230): eyebrows, kickers, and sidebar
    microheadings — the one sanctioned uppercase in the system. Components apply
    this class (plus a text color utility) on whatever element carries the right
@@ -855,7 +864,8 @@ h1.aec-docs-title,
   }
 }
 
-/* Tab-style nav items: the vendor portal's section row (`vendor-nav.ts`).
+/* Tab-style nav items: the `/search` entity tabs, the docs guide toggle and the admin
+   row. The vendor portal's row left this class with AECI-1809 (a drawn `::after` bar).
    Why this and the edge classes below are unlayered: until AECI-2088 the `*`
    border rule above was unlayered too, and an unlayered rule beats every layered
    rule whatever its specificity. So `border-transparent` and
@@ -864,10 +874,8 @@ h1.aec-docs-title,
    utility works. These classes still win over a utility beside them, because a
    class outside any layer beats every layer. New code may use either.
 
-   `aria-current` is the state, in both spellings the row uses: `page` on the
-   four routed links (from `routerLinkActive`) and `true` on the Products
-   disclosure button, which has no `routerLink` to hang the directive on.
-   The `/search` entity tabs (`search-page.ts`) reuse the class; there the state
+   `aria-current` is the state on a routed link (`page` from `routerLinkActive`,
+   or `true` for a section). The `/search` entity tabs (`search-page.ts`) reuse the class; there the state
    is `aria-selected="true"` on the `role="tab"` button. */
 .aec-nav-tab {
   border-bottom-color: transparent;

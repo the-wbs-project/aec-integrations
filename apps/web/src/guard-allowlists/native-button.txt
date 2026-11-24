@@ -71,7 +71,6 @@ vendor/components/vendor-glance-band.ts 1
 vendor/components/vendor-integration-create.ts 11
 vendor/components/vendor-integration-edit-form.ts 2
 vendor/components/vendor-integrations-section.ts 3
-vendor/components/vendor-legal-acceptance.ts 5
 vendor/components/vendor-license-actions.ts 6
 vendor/components/vendor-license-assign.ts 3
 vendor/components/vendor-logo-field.ts 6
@@ -111,5 +110,3 @@ vendor/sections/vendor-overview-section.ts 1
 vendor/sections/vendor-product-overview-page.ts 1
 vendor/sections/vendor-proposals-section.ts 1
 vendor/sections/vendor-threads-page.ts 5
-vendor/vendor-invite-page.ts 1
-vendor/vendor-suspended-notice.ts 1
