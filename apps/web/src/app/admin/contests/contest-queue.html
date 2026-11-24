@@ -592,7 +592,19 @@
 
                   <!-- Decisions (open AECi rows only) -->
                   @if (isActionable(c)) {
-                  <div class="flex flex-wrap items-center gap-3">
+                  <!-- AECI-2104: Decline is the shared danger form. It opens under its
+                       opener. Accept keeps its own form below: it approves. -->
+                  <p
+                    [id]="'contest-' + c.id + '-accept-help'"
+                    [class]="helpClass"
+                    i18n="@@admin.contests.accept.help2"
+                  >
+                    Accepting files a REVIEW issue in Linear (playbook AECI-1025). On an integration
+                    nobody has claimed, the live listing changes only at the next promote. On one
+                    its owner has claimed, or when you approve a vendor as the owner, the change
+                    goes live now.
+                  </p>
+                  <div class="flex flex-wrap items-start gap-3">
                     <button
                       aecButton
                       [id]="'contest-' + c.id + '-accept-open'"
@@ -605,27 +617,23 @@
                     >
                       Accept
                     </button>
-                    <button
-                      aecButton
-                      variant="secondary"
-                      [id]="'contest-' + c.id + '-decline-open'"
-                      (click)="openForm(c.id, 'decline')"
-                      [disabled]="pendingActionId() === c.id || formOpenId() === c.id"
-                      i18n="@@admin.contests.decline"
-                    >
-                      Decline
-                    </button>
+                    <aec-admin-danger-action
+                      class="min-w-0 flex-1"
+                      [openerLabel]="declineCopy.opener"
+                      [confirmLabel]="declineCopy.confirm"
+                      [busyLabel]="declineCopy.busy"
+                      [reasonLabel]="declineCopy.label"
+                      [reasonHelp]="declineCopy.help"
+                      [reasonRequired]="null"
+                      [maxLength]="declineMax"
+                      [cancelLabel]="declineCopy.cancel"
+                      [openerDisabled]="declineBlocked(c.id)"
+                      [busy]="pendingActionId() === c.id"
+                      [open]="formOpenId() === c.id && formMode() === 'decline'"
+                      (openChange)="onDeclineOpen(c.id, $event)"
+                      (confirmed)="confirm(c.id, 'decline', $event)"
+                    />
                   </div>
-                  <p
-                    [id]="'contest-' + c.id + '-accept-help'"
-                    [class]="helpClass"
-                    i18n="@@admin.contests.accept.help2"
-                  >
-                    Accepting files a REVIEW issue in Linear (playbook AECI-1025). On an integration
-                    nobody has claimed, the live listing changes only at the next promote. On one
-                    its owner has claimed, or when you approve a vendor as the owner, the change
-                    goes live now.
-                  </p>
 
                   @if (formOpenId() === c.id && formMode() === 'accept') {
                   <form
@@ -774,64 +782,6 @@
                         (click)="dismissForm(c.id)"
                         [disabled]="pendingActionId() === c.id"
                         i18n="@@admin.contests.form.cancel"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </form>
-                  } @if (formOpenId() === c.id && formMode() === 'decline') {
-                  <form
-                    method="dialog"
-                    novalidate
-                    (aecSubmit)="confirm(c.id, 'decline')"
-                    (keydown.escape)="dismissForm(c.id)"
-                    [class]="formClass"
-                  >
-                    <label
-                      [attr.for]="'contest-reason-' + c.id"
-                      [class]="labelClass"
-                      i18n="@@admin.contests.decline.label"
-                    >
-                      Why you are declining (recommended)
-                    </label>
-                    <p
-                      [id]="'contest-reason-' + c.id + '-help'"
-                      [class]="hintClass"
-                      i18n="@@admin.contests.decline.help"
-                    >
-                      Shown to the vendor that filed the contest. A reason tells them what evidence
-                      would change the answer.
-                    </p>
-                    <textarea
-                      [id]="'contest-reason-' + c.id"
-                      rows="3"
-                      maxlength="2000"
-                      [attr.aria-describedby]="'contest-reason-' + c.id + '-help'"
-                      [value]="formText()"
-                      (input)="onFormInput($event)"
-                      [class]="inputClass"
-                      class="min-h-24 resize-y py-3"
-                    ></textarea>
-                    <div class="mt-2 flex flex-wrap gap-3">
-                      <button
-                        aecButton
-                        variant="danger"
-                        compact
-                        type="submit"
-                        [disabled]="pendingActionId() === c.id"
-                      >
-                        @if (pendingActionId() === c.id) {
-                        <span i18n="@@admin.contests.declining">Declining…</span>
-                        } @else {
-                        <span i18n="@@admin.contests.decline.confirm">Confirm decline</span>
-                        }
-                      </button>
-                      <button
-                        aecButton
-                        variant="ghost"
-                        (click)="dismissForm(c.id)"
-                        [disabled]="pendingActionId() === c.id"
-                        i18n="@@admin.contests.form.cancel2"
                       >
                         Cancel
                       </button>

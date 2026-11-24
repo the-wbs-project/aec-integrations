@@ -32,6 +32,7 @@ import {
 import { AdminSummaryStore } from '../admin-summary.store';
 import { CONSOLE_FILTER } from '../console/console-filter';
 import { CONSOLE_LABEL_CLASS, CONSOLE_TABLE } from '../console/console-table';
+import { AdminDangerAction } from '../console/danger-action';
 import { AdminDisclosureButton } from '../console/disclosure-button';
 import { adminStatusTone, type AdminStatusKey } from '../console/status-tones';
 import {
@@ -108,6 +109,7 @@ const QUEUE_PAGE_SIZE = 100;
 @Component({
   selector: 'aec-contest-queue',
   imports: [
+    AdminDangerAction,
     AdminDisclosureButton,
     AecButton,
     AecFormSubmit,
@@ -224,6 +226,17 @@ export class ContestQueue {
    *  a vendor. */
   protected readonly internalNote = signal('');
   protected readonly internalNoteMax = ADMIN_REASON_MAX;
+  /** Decline's reason is optional and natively capped, as before. */
+  protected readonly declineMax = 2000;
+  /** Decline's words (AECI-2104: the shared danger form). */
+  protected readonly declineCopy = {
+    opener: $localize`:@@admin.contests.decline:Decline`,
+    label: $localize`:@@admin.contests.decline.label:Why you are declining (recommended)`,
+    help: $localize`:@@admin.contests.decline.help:Shown to the vendor that filed the contest. A reason tells them what evidence would change the answer.`,
+    confirm: $localize`:@@admin.contests.decline.confirm:Confirm decline`,
+    busy: $localize`:@@admin.contests.declining:Declining…`,
+    cancel: $localize`:@@admin.contests.form.cancel2:Cancel`,
+  } as const;
   /**
    * AECI-1628: an accept that writes a vendor-held field here is shown publicly as AECi's
    * correction, so it names where AECi read the value. The list says so per row
@@ -457,11 +470,33 @@ export class ContestQueue {
     this.sourceProblem.set(null);
     this.formMode.set(mode);
     this.formOpenId.set(id);
-    // The opener disables itself, so move focus into the form it opened.
-    this.focusAfterRender(mode === 'accept' ? `contest-note-${id}` : `contest-reason-${id}`);
+    // The opener disables itself, so move focus into the form it opened. Only
+    // Accept opens here: Decline is the danger form, which focuses its own field.
+    this.focusAfterRender(`contest-note-${id}`);
   }
 
-  /** Cancel or Escape in the accept or decline form: close it and return focus to its opener. */
+  /** The decline form opened or closed (its opener, Cancel or Escape). It shares
+   *  the one-form-at-a-time state with Accept. The danger form starts each open
+   *  clean, focuses its own field and ignores a close while the request runs. */
+  protected onDeclineOpen(id: string, open: boolean): void {
+    if (open) {
+      this.closeForm();
+      this.failedActionId.set(null);
+      this.formMode.set('decline');
+      this.formOpenId.set(id);
+    } else if (this.formOpenId() === id && this.formMode() === 'decline') {
+      this.closeForm();
+    }
+  }
+
+  /** Decline is blocked while this row's accept form is open or its request runs,
+   *  as the opener was before. Its own open form keeps the opener live. */
+  protected declineBlocked(id: string): boolean {
+    if (this.formOpenId() === id && this.formMode() === 'decline') return false;
+    return this.pendingActionId() === id || this.formOpenId() === id;
+  }
+
+  /** Cancel or Escape in the accept form: close it and return focus to its opener. */
   protected dismissForm(id: string): void {
     if (this.pendingActionId() === id) return;
     const mode = this.formMode();
@@ -493,9 +528,15 @@ export class ContestQueue {
     if (this.noteMissing()) this.noteMissing.set(false);
   }
 
-  protected async confirm(id: string, decision: ContestDecision): Promise<void> {
+  /** `typed` is the danger form's trimmed reason on a decline; the accept form's
+   *  note is read from `formText`. */
+  protected async confirm(
+    id: string,
+    decision: ContestDecision,
+    typed: string = this.formText(),
+  ): Promise<void> {
     if (this.pendingActionId()) return;
-    const note = this.formText().trim();
+    const note = typed.trim();
     // Read before the row is dropped: only an open AECi row is in the count.
     const row = this.contests().find((c) => c.id === id);
     if (decision === 'accept' && !note && row && this.acceptNoteRequired(row)) {

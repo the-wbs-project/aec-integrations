@@ -108,8 +108,10 @@ test.describe('/admin/review-responses — approve and reject as an admin (AECI-
   test('approves one reply and rejects another, with axe clean on the queue', async ({ page }) => {
     await page.goto(LIST_PATH);
     const heading = page.getByRole('heading', { name: 'Review replies', level: 2 });
-    // The queue's own live region. The shell may carry others.
+    // The queue's own live region. The shell may carry others, and so does each open
+    // danger form (its busy status, AECI-2104), so name the queue's own paragraph.
     const queue = page.locator('section[aria-labelledby="admin-replies-heading"]');
+    const queueStatus = queue.locator('p[role="status"]');
     await expect(heading).toBeVisible();
 
     // AECI-2102: one table row per reply. Each disclosure opens its detail row.
@@ -135,7 +137,7 @@ test.describe('/admin/review-responses — approve and reject as an admin (AECI-
 
     // Approve: one click, the row leaves, the outcome is announced.
     await approveCard.getByRole('button', { name: 'Approve', exact: true }).click();
-    await expect(queue.getByRole('status')).toContainText('Reply approved');
+    await expect(queueStatus).toContainText('Reply approved');
     await expect(approveRecord).toHaveCount(0);
 
     // Reject: the reason is required, then the row leaves.
@@ -151,7 +153,7 @@ test.describe('/admin/review-responses — approve and reject as an admin (AECI-
       formAxe.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious'),
     ).toEqual([]);
     await rejectCard.getByRole('button', { name: 'Confirm rejection' }).click();
-    await expect(queue.getByRole('status')).toContainText('Reply rejected');
+    await expect(queueStatus).toContainText('Reply rejected');
     await expect(rejectRecord).toHaveCount(0);
 
     // The decisions landed: each reply is on its new tab.
