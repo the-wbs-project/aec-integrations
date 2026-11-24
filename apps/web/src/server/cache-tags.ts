@@ -39,6 +39,12 @@ export type CacheTagEntity = {
   slug?: string;
   /** ID for id-keyed entities (currently `integration:<id>`). */
   id?: string;
+  /**
+   * AECI-2025: set on a `vendor:` entity whose logo the page renders, which a logo
+   * upload or objection purges through `vendor:{slug}` alone. A cut tag list never drops
+   * it quietly: losing it makes the page uncacheable. Ignored on other types.
+   */
+  lead?: boolean;
 };
 
 export type CacheTagInputs = {
@@ -49,8 +55,41 @@ export type CacheTagInputs = {
   taxonomy?: boolean;
 };
 
-/** Cloudflare's documented Cache-Tag header limit (§2 line 18). */
+/**
+ * Cloudflare's limits on a `Cache-Tag` header, which Workers Cache shares with the zone
+ * cache (`docs/CACHE_STRATEGY.md` §3 "A page never fails on its tag list"):
+ * the whole value at most 16 KB, at most 1,000 tags, each tag at most 1,024 printable
+ * ASCII characters. Cloudflare silently drops an invalid tag at storage time.
+ */
 export const CACHE_TAG_MAX_BYTES = 16_384;
+export const CACHE_TAG_MAX_COUNT = 1_000;
+export const CACHE_TAG_MAX_TAG_LENGTH = 1_024;
+
+/** Printable ASCII, `0x21`–`0x7E`. A space is not printable here: Cloudflare strips it. */
+const PRINTABLE_ASCII = /^[\x21-\x7e]+$/;
+
+/**
+ * What a composed tag list kept and what it left out (AECI-2025).
+ *
+ * - `truncated` is true when any tag was left out, for the budget or for being invalid.
+ * - `cacheable` is false when a left-out tag is one an "at once" purge travels by: a
+ *   mandatory tag, a `pair:` tag, a `product:` tag, or the page's lead `vendor:` tag. Such
+ *   a page must not be stored, so nothing a purge removes can be served stale (Tier B).
+ *   A page that is `truncated` and still `cacheable` is Tier A: cached on a short TTL.
+ * - `total` counts distinct tags before the cap, `kept` the tags in `value`.
+ * - `droppedByType` counts the left-out tags by prefix (`integration`, `vendor`, ...).
+ * - `invalid` counts tags left out for length or characters, inside `droppedByType` too.
+ */
+export type CacheTagComposition = {
+  value: string;
+  bytes: number;
+  truncated: boolean;
+  cacheable: boolean;
+  total: number;
+  kept: number;
+  droppedByType: Record<string, number>;
+  invalid: number;
+};
 
 function entityTag(entity: CacheTagEntity): string | null {
   const value = entity.slug ?? entity.id;
@@ -58,44 +97,133 @@ function entityTag(entity: CacheTagEntity): string | null {
   return `${entity.type}:${value}`;
 }
 
+/** Lower ranks are kept first. Ranks at or under `MUST_KEEP_RANK` must never be dropped. */
+const RANK_MANDATORY = 0;
+const RANK_PAIR_OR_LEAD_VENDOR = 1;
+const RANK_PRODUCT = 2;
+const MUST_KEEP_RANK = RANK_PRODUCT;
+const RANK_VENDOR = 3;
+const RANK_OTHER = 4;
+const RANK_INTEGRATION = 5;
+
+function embeddedRank(type: string, isLeadVendor: boolean): number {
+  if (type === 'pair') return RANK_PAIR_OR_LEAD_VENDOR;
+  if (type === 'vendor') return isLeadVendor ? RANK_PAIR_OR_LEAD_VENDOR : RANK_VENDOR;
+  if (type === 'product') return RANK_PRODUCT;
+  if (type === 'integration') return RANK_INTEGRATION;
+  return RANK_OTHER;
+}
+
+function tagType(tag: string): string {
+  const colon = tag.indexOf(':');
+  return colon === -1 ? tag : tag.slice(0, colon);
+}
+
 /**
- * Builds the `Cache-Tag` header value per `docs/CACHE_STRATEGY.md` §2–3:
+ * Composes the `Cache-Tag` value per `docs/CACHE_STRATEGY.md` §2–3 and never throws:
  *
  *   - always emits `route:<route>`
  *   - emits the entity tag (`<type>:<slug|id>`) when `entity` is set
  *   - emits one tag per embedded entity
  *   - emits `taxonomy` when `opts.taxonomy === true`
  *
- * The string is deduplicated, comma-joined, contains no spaces, and is
- * ≤ `CACHE_TAG_MAX_BYTES`. Exceeding the limit throws — that's a programmer
- * error (a page with thousands of embedded entities), not a runtime condition
- * worth handling at the call site.
+ * The list is deduplicated, comma-joined and space-free. When it fits Cloudflare's limits
+ * it is exactly what it always was, in push order. When it does not, tags are kept by
+ * rank, and by push order within a rank: the mandatory tags (`route:*`, the page's own
+ * entity, `taxonomy`), then `pair:` and the lead vendor, then `product:`, then the other
+ * `vendor:` tags, then the term and index tags, then `integration:`. A lead vendor is a
+ * `vendor:` entity pushed with `lead: true`: on a product page, the product's own vendor,
+ * whose logo the facts card renders. A tag is added when it still fits, so a later short
+ * tag can fill room a long one could not. The kept tags keep their push order.
  */
-export function buildCacheTags(opts: CacheTagInputs): string {
-  const tags = new Set<string>();
-  tags.add(`route:${opts.route}`);
+export function composeCacheTags(opts: CacheTagInputs): CacheTagComposition {
+  type Candidate = { tag: string; rank: number; order: number };
+  const byTag = new Map<string, Candidate>();
+  const candidates: Candidate[] = [];
+  const add = (tag: string | null, rank: number): void => {
+    if (!tag) return;
+    const existing = byTag.get(tag);
+    // A repeat keeps its first slot but takes the higher rank, so a lead mark on a
+    // later push of the same vendor still protects it.
+    if (existing) {
+      existing.rank = Math.min(existing.rank, rank);
+      return;
+    }
+    const candidate = { tag, rank, order: candidates.length };
+    byTag.set(tag, candidate);
+    candidates.push(candidate);
+  };
 
-  if (opts.entity) {
-    const tag = entityTag(opts.entity);
-    if (tag) tags.add(tag);
+  add(`route:${opts.route}`, RANK_MANDATORY);
+  if (opts.entity) add(entityTag(opts.entity), RANK_MANDATORY);
+  // `taxonomy` is mandatory, but it has always been emitted last. Its rank is fixed
+  // here and its slot after the embedded tags, so an under-limit header is unchanged.
+  for (const e of opts.embedded ?? []) {
+    add(entityTag(e), embeddedRank(e.type, e.type === 'vendor' && e.lead === true));
   }
+  if (opts.taxonomy) add('taxonomy', RANK_MANDATORY);
 
-  if (opts.embedded) {
-    for (const e of opts.embedded) {
-      const tag = entityTag(e);
-      if (tag) tags.add(tag);
+  const droppedByType: Record<string, number> = {};
+  let cacheable = true;
+  let invalid = 0;
+  const drop = (c: Candidate): void => {
+    const type = tagType(c.tag);
+    droppedByType[type] = (droppedByType[type] ?? 0) + 1;
+    if (c.rank <= MUST_KEEP_RANK) cacheable = false;
+  };
+
+  const valid: Candidate[] = [];
+  for (const c of candidates) {
+    if (c.tag.length > CACHE_TAG_MAX_TAG_LENGTH || !PRINTABLE_ASCII.test(c.tag)) {
+      invalid += 1;
+      drop(c);
+    } else {
+      valid.push(c);
     }
   }
 
-  if (opts.taxonomy) tags.add('taxonomy');
-
-  const value = [...tags].join(',');
-  if (value.length > CACHE_TAG_MAX_BYTES) {
-    throw new Error(
-      `Cache-Tag value exceeds ${CACHE_TAG_MAX_BYTES} bytes (got ${value.length}); reduce embedded entities`,
-    );
+  // Every tag is printable ASCII now, so a character is a byte. Each tag after the first
+  // costs one more byte for its comma.
+  const fullBytes = valid.reduce((sum, c) => sum + c.tag.length, 0) + Math.max(0, valid.length - 1);
+  let kept: Candidate[];
+  if (fullBytes <= CACHE_TAG_MAX_BYTES && valid.length <= CACHE_TAG_MAX_COUNT) {
+    kept = valid;
+  } else {
+    const byRank = [...valid].sort((a, b) => a.rank - b.rank || a.order - b.order);
+    kept = [];
+    let bytes = 0;
+    for (const c of byRank) {
+      const cost = c.tag.length + (kept.length > 0 ? 1 : 0);
+      if (kept.length < CACHE_TAG_MAX_COUNT && bytes + cost <= CACHE_TAG_MAX_BYTES) {
+        kept.push(c);
+        bytes += cost;
+      } else {
+        drop(c);
+      }
+    }
+    kept.sort((a, b) => a.order - b.order);
   }
-  return value;
+
+  const value = kept.map((c) => c.tag).join(',');
+  return {
+    value,
+    bytes: value.length,
+    truncated: kept.length < candidates.length,
+    cacheable,
+    total: candidates.length,
+    kept: kept.length,
+    droppedByType,
+    invalid,
+  };
+}
+
+/**
+ * The `Cache-Tag` header value for `opts`: {@link composeCacheTags}'s `value`. It never
+ * throws. A caller that must know whether tags were left out, and whether the page may
+ * still be stored, reads `composeCacheTags` instead (the SSR runtime does).
+ */
+export function buildCacheTags(opts: CacheTagInputs): string {
+  return composeCacheTags(opts).value;
 }
 
 /**

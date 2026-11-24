@@ -128,9 +128,15 @@ import { nextLegalEffectiveMomentMs } from './app/legal/legal-in-force-state';
 import { LEGAL_UPCOMING, type LegalUpcomingEntry } from './app/legal/legal-manifest';
 import { LEGAL_NOTICES, nextLegalNoticeBoundaryMs } from './app/legal/legal-notices';
 import type { WebEnv } from './env';
-import { submitCount, submitDistribution } from './server-posthog';
+import { logToPosthog, submitCount, submitDistribution } from './server-posthog';
 import { createServerApiClient, isServerApiError } from './server-api-client';
-import { buildCacheTags, cacheTagInputsForPath, type CacheTagInputs } from './server/cache-tags';
+import {
+  cacheTagInputsForPath,
+  composeCacheTags,
+  type CacheTagComposition,
+  type CacheTagEntity,
+  type CacheTagInputs,
+} from './server/cache-tags';
 import { createRequestContext, type AeciRequestContext } from './server/request-context';
 import { buildRobotsTxt } from './server/robots';
 import { NOINDEX_DIRECTIVE, indexingAllowed, pathForcesNoindex } from './server/robots-policy';
@@ -470,6 +476,31 @@ export function legalPageTtl(
     ...capped,
     edge: Math.min(capped.edge, LEGAL_UNCERTAIN_TTL.edge),
     browser: Math.min(capped.browser, LEGAL_UNCERTAIN_TTL.browser),
+  };
+}
+
+/**
+ * AECI-2025 — the TTL of a page whose `Cache-Tag` list was cut to fit Cloudflare's limits,
+ * when only tags no "at once" promise depends on were left out (Tier A). A purge on a
+ * left-out tag cannot reach the page, so it lives a minute at the edge and never in the
+ * browser. `CACHE_STRATEGY.md` §3 "A page never fails on its tag list".
+ */
+export const TAG_OVERFLOW_TTL: CacheTtl = { edge: 60, browser: 0 };
+
+/**
+ * The smaller of `ttl` and {@link TAG_OVERFLOW_TTL}, applied after the legal caps the way
+ * {@link LEGAL_UNCERTAIN_TTL} is. `stale-while-revalidate` keeps the route's value, never
+ * over 60 s. `stale-if-error` is the route's: it serves a stale copy only while the origin
+ * is failing, the same accepted lag as for the legal notice band.
+ */
+export function tagOverflowTtl(ttl: CacheTtl): CacheTtl {
+  return {
+    ...ttl,
+    edge: Math.min(ttl.edge, TAG_OVERFLOW_TTL.edge),
+    browser: Math.min(ttl.browser, TAG_OVERFLOW_TTL.browser),
+    ...(ttl.staleWhileRevalidate != null
+      ? { staleWhileRevalidate: Math.min(ttl.staleWhileRevalidate, TAG_OVERFLOW_TTL.edge) }
+      : {}),
   };
 }
 
@@ -935,6 +966,50 @@ function withCacheHeaders(
   routeTtl: CacheTtl,
   tagInputs: CacheTagInputs | null,
 ): Response {
+  return withCacheHeadersAndTags(response, routeTtl, tagInputs).response;
+}
+
+/**
+ * {@link withCacheHeaders}, plus the tag composition it used on a 2xx (`null` otherwise),
+ * so the caller can report a cut tag list (AECI-2025). Three outcomes on a 2xx:
+ *
+ * - The tags fit: the route TTL and the full list, exactly as before.
+ * - Tier A, some tags left out but none an "at once" purge needs: the kept list and
+ *   {@link tagOverflowTtl}.
+ * - Tier B, a mandatory, `pair:`, `product:` or lead `vendor:` tag left out: `private,
+ *   no-store` and no `Cache-Tag`, so the shared cache never stores the page. It still
+ *   returns 200 with the SEO and security headers.
+ */
+function withCacheHeadersAndTags(
+  response: Response,
+  routeTtl: CacheTtl,
+  tagInputs: CacheTagInputs | null,
+): { response: Response; tags: CacheTagComposition | null } {
+  const isOk = response.status >= 200 && response.status < 300;
+  const tags = isOk && tagInputs ? composeCacheTags(tagInputs) : null;
+  if (tags && !tags.cacheable) {
+    const headers = new Headers(response.headers);
+    headers.set('Cache-Control', 'private, no-store');
+    headers.delete('Cache-Tag');
+    applySeoHeaders(headers);
+    return {
+      response: new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      }),
+      tags,
+    };
+  }
+  const ttl = tags?.truncated ? tagOverflowTtl(routeTtl) : routeTtl;
+  return { response: applyCacheHeaders(response, ttl, tags), tags };
+}
+
+function applyCacheHeaders(
+  response: Response,
+  routeTtl: CacheTtl,
+  tags: CacheTagComposition | null,
+): Response {
   const isOk = response.status >= 200 && response.status < 300;
   const is404 = response.status === 404;
 
@@ -962,8 +1037,8 @@ function withCacheHeaders(
   const ttl = is404 ? NOT_FOUND_TTL : routeTtl;
   const headers = new Headers(response.headers);
   headers.set('Cache-Control', buildCacheControl(ttl));
-  if (isOk && tagInputs) {
-    headers.set('Cache-Tag', buildCacheTags(tagInputs));
+  if (isOk && tags) {
+    headers.set('Cache-Tag', tags.value);
   }
   if (is404) {
     headers.set('Cache-Tag', CACHE_TAG_NOT_FOUND);
@@ -1350,7 +1425,7 @@ function firePageView(
  */
 function mergeEmbeddedTags(
   base: CacheTagInputs | null,
-  embedded: readonly { type: string; slug?: string; id?: string }[],
+  embedded: readonly CacheTagEntity[],
 ): CacheTagInputs | null {
   if (!base) return null;
   if (embedded.length === 0) return base;
@@ -1358,6 +1433,97 @@ function mergeEmbeddedTags(
     ...base,
     embedded: base.embedded ? [...base.embedded, ...embedded] : [...embedded],
   };
+}
+
+/** The metric a cut `Cache-Tag` list emits (AECI-2025, `docs/OBSERVABILITY.md`). */
+export const CACHE_TAGS_TRUNCATED_METRIC = 'aeci.cache.tags.truncated';
+
+/** A Tier B path logs at most once per isolate in this window (AECI-2025). */
+export const TIER_B_LOG_INTERVAL_MS = 10 * 60 * 1000;
+
+/** Paths an isolate holds a Tier B sample for. Past this, the oldest entry goes. */
+const TIER_B_LOG_MAX_PATHS = 500;
+
+/**
+ * Per-isolate Tier B log sample: path → when it last logged and how many it skipped
+ * since. Module state is deliberate: it is a rate limit on a log line, lost on isolate
+ * restart at the cost of one extra line, and never read by a response.
+ */
+const tierBLogState = new Map<string, { loggedAtMs: number; skipped: number }>();
+
+/**
+ * Whether a Tier B render of `path` logs now. Returns the count of renders skipped since
+ * the last line, or `null` to skip this one.
+ */
+function tierBLogSample(path: string, nowMs: number): number | null {
+  const entry = tierBLogState.get(path);
+  if (entry && nowMs - entry.loggedAtMs < TIER_B_LOG_INTERVAL_MS) {
+    entry.skipped += 1;
+    return null;
+  }
+  const skipped = entry?.skipped ?? 0;
+  tierBLogState.delete(path);
+  if (tierBLogState.size >= TIER_B_LOG_MAX_PATHS) {
+    const oldest = tierBLogState.keys().next().value;
+    if (oldest !== undefined) tierBLogState.delete(oldest);
+  }
+  tierBLogState.set(path, { loggedAtMs: nowMs, skipped: 0 });
+  return skipped;
+}
+
+/** Test seam: forget every Tier B log sample. */
+export function resetTierBLogSampling(): void {
+  tierBLogState.clear();
+}
+
+/**
+ * Counts and logs a render whose `Cache-Tag` list did not fit (AECI-2025). `reason` is
+ * `degraded_ttl` for Tier A (cached on {@link TAG_OVERFLOW_TTL}) and
+ * `uncacheable_product_tags_dropped` for Tier B (not stored). The metric carries only
+ * `route_class` and `reason`: 3 × 2 series. Path and counts go on the warn log.
+ *
+ * The metric counts every occurrence. The Tier B log is sampled: a Tier B page is never
+ * stored, so a busy one renders on every visit. It logs at most once per path per isolate
+ * per {@link TIER_B_LOG_INTERVAL_MS}, and the line carries how many it skipped. Tier A
+ * logs every time: its page is cached, so a MISS comes at most once a minute per key.
+ */
+function reportTruncatedTags(
+  execCtx: WaitUntilContext,
+  env: Bindings,
+  request: Request,
+  routeClass: string | undefined,
+  path: string,
+  tags: CacheTagComposition,
+  nowMs: number = Date.now(),
+): void {
+  const reason = tags.cacheable ? 'degraded_ttl' : 'uncacheable_product_tags_dropped';
+  const route = routeClass ?? 'unknown';
+  submitCount(execCtx, env, request, CACHE_TAGS_TRUNCATED_METRIC, 1, [
+    `route_class:${route}`,
+    `reason:${reason}`,
+  ]);
+  let skipped = 0;
+  if (!tags.cacheable) {
+    const sample = tierBLogSample(path, nowMs);
+    if (sample === null) return;
+    skipped = sample;
+  }
+  logToPosthog(execCtx, env, request, {
+    level: 'warn',
+    message: CACHE_TAGS_TRUNCATED_METRIC,
+    source: 'ssr-cache-tags',
+    path,
+    route_class: route,
+    reason,
+    ...(tags.cacheable ? {} : { skipped_since_last_log: skipped }),
+    tags_total: tags.total,
+    tags_kept: tags.kept,
+    tags_bytes: tags.bytes,
+    tags_invalid: tags.invalid,
+    dropped_by_type: Object.entries(tags.droppedByType)
+      .map(([type, count]) => `${type}:${count}`)
+      .join(','),
+  });
 }
 
 async function handleSsr(
@@ -1471,11 +1637,14 @@ async function handleSsr(
   // `start` was read before the render. A clock read after it could put a page
   // rendered just before a boundary on a full TTL past that boundary. Every page also
   // ends at the next legal effective moment (AECI-1689).
-  const response = withCacheHeaders(
+  const { response, tags } = withCacheHeadersAndTags(
     transformed,
     legalPageTtl(ttl, localePath, start, reqCtx.legalStateUncertain),
     tagInputs,
   );
+  // AECI-2025: this branch runs only on a native-cache MISS, so a cut tag list is
+  // reported once per render that could have been stored, never on a HIT.
+  if (tags?.truncated) reportTruncatedTags(execCtx, env, request, routeClass, url.pathname, tags);
   emitRenderMetric(response.status);
   emitRenderCount('miss', response.status);
 
