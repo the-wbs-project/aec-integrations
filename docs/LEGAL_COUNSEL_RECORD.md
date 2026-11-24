@@ -78,6 +78,7 @@ Governing docs: `docs/LEGAL_IMPACT_REVIEW.md` for the verdict rule, `apps/web/sr
 | Q68 | Vendor Terms | Does changing a policy that our Vendor Terms incorporate count as changing the Vendor Terms | Travis Russell | 2026-11-19 |
 | Q69 | Vendor Terms | Giving the first in-force Vendor Terms a new version number | Travis Russell | 2026-11-19 |
 | Q70 | Terms of Service | Three sentences changed since your colleagues' reviews: a wording check | Alexander Coffin | 2026-11-19 |
+| Q72 | Privacy Policy | Email consent in Canada and the United Kingdom for one unticked opt-in box | Alexander Coffin | 2026-11-24 |
 
 ## Questions and answers
 
@@ -1865,6 +1866,34 @@ Deletion screen. Mostly fine. "No longer linked to your account" is odd once the
 Legal process. This one is close. The catch is that receiving legal process doesn't always create a legal duty to preserve. A preservation request under 18 U.S.C. § 2703(f) does. A subpoena or a reasonably anticipated lawsuit is less clear, and suits can trigger holds the law doesn't strictly "require." So if you ever preserve in those situations, the sentence understates what you do. Suggested: "We also keep a copy of information we are legally required to preserve, or that we need to keep for an actual or reasonably anticipated legal claim, for as long as that need lasts.\"
 
 **What we did:** All three sentences change. The legal-process sentence is applied in legal branch 7 on 2026-11-19 (item 14.14). The other two are not. Counsel gave wording for each. The ranking sentence is the weak one, and counsel's wording may be used only if it is true of every paid feature. Read with Q62, it is not true today: Managed-only trade and audience tags feed search matching and category pages. Ruling 52 settles the ranking sentence. The deletion-screen wording needs one check first: that a deleted account's display name and photo really come off its reviews.
+
+Q71 and Q72 are batch 7, asked on 2026-11-23. They restate the Q62 and Q56 follow-ups, which got no reply.
+
+### Q72. Email consent in Canada and the United Kingdom for one unticked opt-in box
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website for construction-industry software. Florida law governs. This is one question about Canada and the United Kingdom only.
+
+A signed-in reader may save a private list of the software their firm uses. We plan to email that reader when something relevant changes, for example: "Product X now integrates with Product Y, which is on your list." We write and send the email. No vendor pays for it or receives the reader's address.
+
+When a reader first saves a list, we show one unticked box: "Email me when something changes for software on my list." We send these emails only to readers who tick it. The text beside the box names us, says what the emails cover, and says the reader can withdraw at any time. We record who ticked it, when, and the wording shown. Every email carries an unsubscribe link and our postal address.
+
+Your colleague advised us on November 16, 2026 that this is enough in the United States, and that in the EU we should also send a confirmation email before the first send. That answer did not cover Canada or the United Kingdom.
+
+Our view: the same box, text and record give valid express consent under Canada's anti-spam law (CASL) and under the UK's Privacy and Electronic Communications Regulations, with no further step.
+
+Question: for a reader in Canada under CASL, and a reader in the United Kingdom under PECR, is that box with that text and record enough, or what else must sit beside the box or be done after it?
+
+**Answer (Alexander Coffin, 2026-11-24):**
+
+In the UK, yes. In Canada, nearly, but you need one addition beside the box. Canada. I'm assuming these emails count as commercial electronic messages. They point readers to products, so the CRTC would probably say they do. The unticked box is fine, and so is your record of who ticked it and when. The gap is in what sits beside the box. Under s. 10(1) of CASL and the CRTC's Electronic Commerce Protection Regulations, the consent request has to:
+
+name you; say what the emails are for; say the reader can withdraw; give your mailing address plus one other contact point (a phone number, email address or web address).
+
+You've covered the first three. You haven't covered the fourth. So add the postal address and a link or email address next to the box, or link to a contact page. Also check how the emails work. Each one needs a working unsubscribe that stays live for 60 days, and you must act on an unsubscribe within 10 business days. CASL doesn't require a confirmation email, although sending one does no harm. UK. Regulation 22 requires consent to the UK GDPR standard: freely given, specific, informed and unambiguous. An unticked box that names you and says what the emails cover, with withdrawal available at any time, meets that. Your record helps show consent if the ICO asks. Regulation 23 covers the rest, since every email identifies you and gives a valid opt-out. Double opt-in isn't required. The UK GDPR does expect a privacy notice, so a link next to the box is sensible. One point in your favour: many readers will use firm addresses. Regulation 22 doesn't apply to corporate subscribers, so for them only regulation 23 matters (sole traders and some partnerships still count as individuals). The Data (Use and Access) Act 2025 raised PECR fines, which makes it worth getting this right, but it doesn't change this analysis.
+
+**What we did:** Our view holds in the UK and nearly holds in Canada. Nothing built yet. This completes Q56, whose follow-up got no reply. Build rules for the box, in every country: beside it sit our postal address and one other contact point, or a link to a contact page that has both, and a link to the Privacy Policy. Every email's unsubscribe link works for at least 60 days, and we act on it within 10 business days. No confirmation email is needed for Canada or the UK.
 
 ## Chris's rulings
 
