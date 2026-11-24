@@ -1,101 +1,86 @@
+<!-- AECI-2124: a part of the vendor page's Suspension panel. The log is the console table,
+     a void opens in the entry's detail row, and the add form opens in place of its
+     secondary opener. Both confirms are primary: a logged cost can be voided, and a void
+     gives back to the vendor what the entry would have deducted. -->
 @if (!readOnly()) {
-<p class="text-sm text-(--text-secondary)" i18n="@@admin.vendors.suspension.cost.rule">
+<p [class]="captionClass" class="max-w-[42rem]" i18n="@@admin.vendors.suspension.cost.rule">
   Write each entry at the time, by task, and only for costs the breach caused. Staff time counts at
   {{ '$' + hourlyRate }} an hour. A recovery is money recovered elsewhere, credited against the
   cost.
 </p>
 } @if (entries().length === 0) {
-<p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.suspension.cost.empty">
-  No costs logged.
-</p>
+<p [class]="captionClass" i18n="@@admin.vendors.suspension.cost.empty">No costs logged.</p>
 } @else {
-<div class="mt-3 overflow-x-auto">
-  <table class="w-full min-w-[48rem] border-collapse text-sm">
-    <caption class="sr-only" i18n="@@admin.vendors.suspension.cost.caption">
+<div
+  [class]="t.region"
+  role="region"
+  tabindex="0"
+  [attr.aria-labelledby]="idPrefix() + '-cost-caption'"
+>
+  <table [class]="t.table" class="min-w-[48rem]">
+    <caption
+      [attr.id]="idPrefix() + '-cost-caption'"
+      [class]="t.caption"
+      i18n="@@admin.vendors.suspension.cost.caption"
+    >
       Abuse cost log entries
     </caption>
     <thead>
-      <tr class="border-b border-(--border-strong)">
-        <th
-          scope="col"
-          class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-          i18n="@@admin.vendors.suspension.cost.col.date"
-        >
-          Date
-        </th>
-        <th
-          scope="col"
-          class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-          i18n="@@admin.vendors.suspension.cost.col.description"
-        >
+      <tr>
+        <th scope="col" [class]="t.head" i18n="@@admin.vendors.suspension.cost.col.date">Date</th>
+        <th scope="col" [class]="t.head" i18n="@@admin.vendors.suspension.cost.col.description">
           Description
         </th>
-        <th
-          scope="col"
-          class="py-2 pe-4 text-end font-bold text-(--text-secondary)"
-          i18n="@@admin.vendors.suspension.cost.col.quantity"
-        >
+        <th scope="col" [class]="t.headNum" i18n="@@admin.vendors.suspension.cost.col.quantity">
           Minutes or amount
         </th>
-        <th
-          scope="col"
-          class="py-2 pe-4 text-end font-bold text-(--text-secondary)"
-          i18n="@@admin.vendors.suspension.cost.col.cents"
-        >
+        <th scope="col" [class]="t.headNum" i18n="@@admin.vendors.suspension.cost.col.cents">
           Counts for
         </th>
-        <th
-          scope="col"
-          class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-          i18n="@@admin.vendors.suspension.cost.col.logged"
-        >
+        <th scope="col" [class]="t.head" i18n="@@admin.vendors.suspension.cost.col.logged">
           Logged (UTC)
         </th>
-        <th
-          scope="col"
-          class="py-2 text-end font-bold text-(--text-secondary)"
-          i18n="@@admin.vendors.suspension.cost.col.state"
-        >
+        <th scope="col" [class]="t.headNum" i18n="@@admin.vendors.suspension.cost.col.state">
           State
         </th>
       </tr>
     </thead>
     <tbody>
       @for (entry of entries(); track entry.id) {
-      <tr class="border-b border-(--border-default) align-top" [attr.data-entry]="entry.id">
-        <td class="py-2 pe-4 whitespace-nowrap text-(--text-primary)">{{ entry.work_date }}</td>
-        <td class="py-2 pe-4 text-(--text-primary)">
-          <span class="block text-xs font-medium text-(--text-secondary)"
-            >{{ kindLabel(entry.kind) }}</span
-          >
+      <tr [class]="voidingId() === entry.id ? t.rowOpen : t.row" [attr.data-entry]="entry.id">
+        <td [class]="t.nowrap">{{ entry.work_date }}</td>
+        <td [class]="t.cell">
+          <span [class]="t.sub">{{ kindLabel(entry.kind) }}</span>
           {{ entry.description }}
         </td>
-        <td class="py-2 pe-4 text-end whitespace-nowrap text-(--text-primary)">
+        <td [class]="t.num">
           @if (entry.minutes !== null) {
           <span i18n="@@admin.vendors.suspension.cost.minutes">{{ entry.minutes }} min</span>
           } @else if (entry.amount_cents !== null) { {{ money(entry.amount_cents) }} }
         </td>
-        <td class="py-2 pe-4 text-end whitespace-nowrap font-medium text-(--text-primary)">
-          {{ money(entry.cents) }}
-        </td>
-        <td class="py-2 pe-4 whitespace-nowrap text-(--text-secondary)">
+        <td [class]="t.num" class="font-semibold">{{ money(entry.cents) }}</td>
+        <td [class]="t.nowrap" class="text-(--text-secondary)">
           {{ entry.logged_at | date: 'medium' : 'UTC' }}
         </td>
-        <td class="py-2 text-end text-(--text-secondary)">
+        <td [class]="t.act" class="text-(--text-secondary)">
           @if (entry.voided_at) {
           <span
-            class="font-medium text-(--text-primary)"
+            class="font-semibold whitespace-normal text-(--text-primary)"
             i18n="@@admin.vendors.suspension.cost.voided"
             >Voided {{ entry.voided_at | date: 'mediumDate' : 'UTC' }}. Does not count.</span
           >
           @if (entry.void_reason) {
-          <span class="block text-xs">{{ entry.void_reason }}</span>
+          <span [class]="t.sub" class="whitespace-normal">{{ entry.void_reason }}</span>
           } } @else if (readOnly()) {
           <span i18n="@@admin.vendors.suspension.cost.live">Counted</span>
           } @else {
           <button
+            aecButton
+            variant="secondary"
+            compact
             type="button"
-            [class]="buttonClass"
+            [id]="idPrefix() + '-void-open-' + entry.id"
+            [attr.aria-expanded]="voidingId() === entry.id"
             [disabled]="voidPending()"
             (click)="askVoid(entry.id)"
             i18n="@@admin.vendors.suspension.cost.void"
@@ -106,59 +91,73 @@
         </td>
       </tr>
       @if (voidingId() === entry.id) {
-      <tr class="border-b border-(--border-default)">
-        <td colspan="6" class="bg-(--surface-sunken) px-3 py-3">
-          <form method="dialog" novalidate (aecSubmit)="confirmVoid(entry.id)">
-            <label
-              class="block text-sm font-medium text-(--text-primary)"
-              [attr.for]="idPrefix() + '-void-reason-' + entry.id"
-              i18n="@@admin.vendors.suspension.cost.voidReason"
+      <tr [class]="t.detailRow">
+        <td colspan="6" [class]="t.detailCell">
+          <div [class]="t.detailInner">
+            <form
+              method="dialog"
+              novalidate
+              [class]="voidFormClass"
+              [attr.aria-busy]="voidPending() ? 'true' : null"
+              (aecSubmit)="confirmVoid(entry.id)"
+              (keydown.escape)="onVoidEscape($event)"
             >
-              Why are you voiding this entry? (required)
-            </label>
-            <textarea
-              rows="2"
-              [class]="inputClass"
-              [attr.id]="idPrefix() + '-void-reason-' + entry.id"
-              [attr.maxlength]="reasonMax"
-              [attr.aria-invalid]="voidReasonError() ? 'true' : null"
-              [attr.aria-describedby]="voidReasonError() ? idPrefix() + '-void-reason-error' : null"
-              aria-required="true"
-              [value]="voidReason()"
-              (input)="onVoidReasonInput($event)"
-            ></textarea>
-            @if (voidReasonError()) {
-            <p
-              class="mt-1 text-sm font-medium text-(--text-primary)"
-              [attr.id]="idPrefix() + '-void-reason-error'"
-              i18n="@@admin.vendors.suspension.cost.voidReasonError"
-            >
-              Write a reason before voiding the entry.
-            </p>
-            } @if (voidFailedMessage()) {
-            <p class="mt-2 text-sm font-medium text-(--text-primary)" role="alert">
-              {{ voidFailedMessage() }}
-            </p>
-            }
-            <div class="mt-3 flex flex-wrap gap-2">
-              <button type="submit" [class]="buttonClass" [disabled]="voidPending()">
-                @if (voidPending()) {
-                <span i18n="@@admin.vendors.suspension.cost.voidPending">Voiding…</span>
-                } @else {
-                <span i18n="@@admin.vendors.suspension.cost.voidConfirm">Void this entry</span>
+              <div [class]="fieldClass">
+                <label
+                  [class]="labelClass"
+                  [attr.for]="idPrefix() + '-void-reason-' + entry.id"
+                  i18n="@@admin.vendors.suspension.cost.voidReason"
+                >
+                  Why are you voiding this entry? (required)
+                </label>
+                <textarea
+                  rows="2"
+                  [class]="inputClass"
+                  class="min-h-20 resize-y"
+                  [attr.id]="idPrefix() + '-void-reason-' + entry.id"
+                  [attr.maxlength]="reasonMax"
+                  [attr.aria-invalid]="voidReasonError() ? 'true' : null"
+                  [attr.aria-describedby]="voidReasonError() ? idPrefix() + '-void-reason-error' : null"
+                  aria-required="true"
+                  [value]="voidReason()"
+                  (input)="onVoidReasonInput($event)"
+                ></textarea>
+                @if (voidReasonError()) {
+                <p
+                  [class]="errorClass"
+                  [attr.id]="idPrefix() + '-void-reason-error'"
+                  i18n="@@admin.vendors.suspension.cost.voidReasonError"
+                >
+                  Write a reason before voiding the entry.
+                </p>
                 }
-              </button>
-              <button
-                type="button"
-                [class]="buttonClass"
-                [disabled]="voidPending()"
-                (click)="cancelVoid()"
-                i18n="@@admin.vendors.suspension.cost.voidCancel"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
+              </div>
+              @if (voidFailedMessage()) {
+              <p #voidFailedAlert tabindex="-1" [class]="failedClass" role="alert">
+                {{ voidFailedMessage() }}
+              </p>
+              }
+              <div [class]="actionsClass">
+                <button aecButton compact type="submit" [disabled]="voidPending()">
+                  @if (voidPending()) {
+                  <span i18n="@@admin.vendors.suspension.cost.voidPending">Voiding…</span>
+                  } @else {
+                  <span i18n="@@admin.vendors.suspension.cost.voidConfirm">Void this entry</span>
+                  }
+                </button>
+                <button
+                  aecButton
+                  variant="ghost"
+                  type="button"
+                  [disabled]="voidPending()"
+                  (click)="cancelVoid()"
+                  i18n="@@admin.vendors.suspension.cost.voidCancel"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
         </td>
       </tr>
       } }
@@ -166,34 +165,36 @@
   </table>
 </div>
 } @if (!readOnly()) { @if (!formOpen()) {
-<button
-  type="button"
-  class="mt-3"
-  [class]="buttonClass"
-  (click)="openForm()"
-  i18n="@@admin.vendors.suspension.cost.open"
->
-  Add a cost entry
-</button>
+<div>
+  <button
+    aecButton
+    variant="secondary"
+    compact
+    type="button"
+    [id]="idPrefix() + '-cost-open'"
+    (click)="openForm()"
+    i18n="@@admin.vendors.suspension.cost.open"
+  >
+    Add a cost entry
+  </button>
+</div>
 } @else {
 <form
   method="dialog"
   novalidate
-  class="mt-4 space-y-3 border-t border-(--border-default) pt-4"
+  [class]="formClass"
+  [attr.aria-busy]="pending() ? 'true' : null"
   (aecSubmit)="submit()"
+  (keydown.escape)="onEscape($event)"
 >
-  <fieldset>
-    <legend
-      class="text-sm font-medium text-(--text-primary)"
-      i18n="@@admin.vendors.suspension.cost.field.kind"
-    >
-      Kind
-    </legend>
-    <div class="mt-2 flex flex-wrap gap-4">
+  <fieldset class="m-0 border-0 p-0">
+    <legend [class]="labelClass" i18n="@@admin.vendors.suspension.cost.field.kind">Kind</legend>
+    <div class="mt-2 flex flex-wrap gap-x-6 gap-y-2">
       @for (option of kindOptions; track option) {
-      <label class="flex items-center gap-2 text-sm text-(--text-primary)">
+      <label class="flex min-h-11 items-center gap-2 text-t-14 text-(--text-primary)">
         <input
           type="radio"
+          [class]="choiceClass"
           [attr.name]="idPrefix() + '-cost-kind'"
           [attr.id]="idPrefix() + '-cost-kind-' + option"
           [checked]="kind() === option"
@@ -205,10 +206,10 @@
     </div>
   </fieldset>
 
-  <div class="grid gap-3 sm:grid-cols-2">
-    <div>
+  <div class="grid gap-4 sm:grid-cols-2">
+    <div [class]="fieldClass">
       <label
-        class="block text-sm font-medium text-(--text-primary)"
+        [class]="labelClass"
         [attr.for]="idPrefix() + '-cost-date'"
         i18n="@@admin.vendors.suspension.cost.field.date"
       >
@@ -227,7 +228,7 @@
       />
       @if (showErrors() && !dateValid()) {
       <p
-        class="mt-1 text-sm font-medium text-(--text-primary)"
+        [class]="errorClass"
         [attr.id]="idPrefix() + '-cost-date-error'"
         i18n="@@admin.vendors.suspension.cost.field.dateError"
       >
@@ -235,10 +236,10 @@
       </p>
       }
     </div>
-    <div>
+    <div [class]="fieldClass">
       @if (kind() === 'staff') {
       <label
-        class="block text-sm font-medium text-(--text-primary)"
+        [class]="labelClass"
         [attr.for]="idPrefix() + '-cost-quantity'"
         i18n="@@admin.vendors.suspension.cost.field.minutes"
       >
@@ -246,7 +247,7 @@
       </label>
       } @else {
       <label
-        class="block text-sm font-medium text-(--text-primary)"
+        [class]="labelClass"
         [attr.for]="idPrefix() + '-cost-quantity'"
         i18n="@@admin.vendors.suspension.cost.field.amount"
       >
@@ -265,15 +266,12 @@
         (input)="onInput('quantity', $event)"
       />
       @if (kind() === 'staff' && staffPreview(); as counts) {
-      <p
-        class="mt-1 text-xs text-(--text-secondary)"
-        i18n="@@admin.vendors.suspension.cost.field.counts"
-      >
+      <p [class]="hintClass" i18n="@@admin.vendors.suspension.cost.field.counts">
         Counts for {{ counts }}.
       </p>
       } @if (showErrors() && !quantityValid()) {
       <p
-        class="mt-1 text-sm font-medium text-(--text-primary)"
+        [class]="errorClass"
         [attr.id]="idPrefix() + '-cost-quantity-error'"
         i18n="@@admin.vendors.suspension.cost.field.quantityError"
       >
@@ -283,9 +281,9 @@
     </div>
   </div>
 
-  <div>
+  <div [class]="fieldClass">
     <label
-      class="block text-sm font-medium text-(--text-primary)"
+      [class]="labelClass"
       [attr.for]="idPrefix() + '-cost-description'"
       i18n="@@admin.vendors.suspension.cost.field.description"
     >
@@ -294,6 +292,7 @@
     <textarea
       rows="2"
       [class]="inputClass"
+      class="min-h-20 resize-y"
       [attr.id]="idPrefix() + '-cost-description'"
       [attr.maxlength]="descriptionMax"
       [attr.aria-invalid]="showErrors() && !descriptionValid() ? 'true' : null"
@@ -304,7 +303,7 @@
     ></textarea>
     @if (showErrors() && !descriptionValid()) {
     <p
-      class="mt-1 text-sm font-medium text-(--text-primary)"
+      [class]="errorClass"
       [attr.id]="idPrefix() + '-cost-description-error'"
       i18n="@@admin.vendors.suspension.cost.field.descriptionError"
     >
@@ -314,10 +313,10 @@
   </div>
 
   @if (failedMessage()) {
-  <p class="text-sm font-medium text-(--text-primary)" role="alert">{{ failedMessage() }}</p>
+  <p #failedAlert tabindex="-1" [class]="failedClass" role="alert">{{ failedMessage() }}</p>
   }
-  <div class="flex flex-wrap gap-2">
-    <button type="submit" [class]="buttonClass" [disabled]="pending()">
+  <div [class]="actionsClass">
+    <button aecButton compact type="submit" [disabled]="pending()">
       @if (pending()) {
       <span i18n="@@admin.vendors.suspension.cost.pending">Logging…</span>
       } @else {
@@ -325,8 +324,9 @@
       }
     </button>
     <button
+      aecButton
+      variant="ghost"
       type="button"
-      [class]="buttonClass"
       [disabled]="pending()"
       (click)="closeForm()"
       i18n="@@admin.vendors.suspension.cost.cancel"

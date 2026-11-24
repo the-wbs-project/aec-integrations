@@ -9,6 +9,7 @@ import {
   input,
   output,
   signal,
+  viewChild,
 } from '@angular/core';
 
 import {
@@ -20,14 +21,28 @@ import {
 
 import { AdminVendorSuspensionApi } from './admin-vendor-suspension-api';
 import {
-  SUSPENSION_BUTTON,
-  SUSPENSION_INPUT,
   formatCents,
   isStaleError,
   parseDollarsToCents,
   suspensionErrorMessage,
 } from './vendor-suspension-model';
+import { AecButton } from '../../shared/button/button';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import {
+  CHOICE_INPUT_CLASS,
+  FIELD_ERROR_CLASS,
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { CONSOLE_CAPTION_CLASS, CONSOLE_TABLE } from '../console/console-table';
+import { QUEUE_FAILED_CLASS } from '../reviews/queue-classes';
+import {
+  VENDOR_ACTIONS_CLASS,
+  VENDOR_FIELD_CLASS,
+  VENDOR_FORM_CLASS,
+  VENDOR_PANEL_FORM_CLASS,
+} from './vendor-console-classes';
 
 type CostKind = AbuseCostEntry['kind'];
 
@@ -44,10 +59,17 @@ const utcToday = (): string => new Date().toISOString().slice(0, 10);
  * entry is voided, never edited. `readOnly` shows a resolved suspension's log.
  *
  * No heading and no live region: the section owns the heading, `VendorDetail` the region.
+ *
+ * ── LOOK AND FOCUS (AECI-2124) ──────────────────────────────────────────────
+ * A part of the Suspension panel: the console table, a void in the entry's detail row,
+ * the add form in place of its secondary opener. Both confirms are primary: a logged
+ * cost can be voided, and a void gives back what the entry would have deducted. Cancel
+ * and Escape close a form and return focus to its opener. Escape does nothing while the
+ * request runs. A refused write focuses its message.
  */
 @Component({
   selector: 'aec-suspension-cost-log',
-  imports: [AecFormSubmit, DatePipe],
+  imports: [AecButton, AecFormSubmit, DatePipe],
   templateUrl: './suspension-cost-log.html',
 })
 export class SuspensionCostLog {
@@ -67,8 +89,20 @@ export class SuspensionCostLog {
   readonly stale = output<void>();
   readonly announce = output<string>();
 
-  protected readonly buttonClass = SUSPENSION_BUTTON;
-  protected readonly inputClass = SUSPENSION_INPUT;
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly errorClass = FIELD_ERROR_CLASS;
+  protected readonly choiceClass = CHOICE_INPUT_CLASS;
+  protected readonly failedClass = QUEUE_FAILED_CLASS;
+  protected readonly formClass = VENDOR_FORM_CLASS;
+  protected readonly voidFormClass = VENDOR_PANEL_FORM_CLASS;
+  protected readonly fieldClass = VENDOR_FIELD_CLASS;
+  protected readonly actionsClass = VENDOR_ACTIONS_CLASS;
+  private readonly failedAlert = viewChild<ElementRef<HTMLElement>>('failedAlert');
+  private readonly voidFailedAlert = viewChild<ElementRef<HTMLElement>>('voidFailedAlert');
   protected readonly reasonMax = ADMIN_REASON_MAX;
   protected readonly descriptionMax = DESCRIPTION_MAX;
   /** $150 an hour, from the one constant the API charges by. */
@@ -141,10 +175,35 @@ export class SuspensionCostLog {
     this.showErrors.set(false);
     this.failedMessage.set('');
     this.formOpen.set(true);
+    // The opener is gone: focus the form's first field, not the page body.
+    this.focusSelector(`[id="${this.idPrefix()}-cost-kind-staff"]`);
   }
 
   protected closeForm(): void {
     this.formOpen.set(false);
+    this.focusSelector(`[id="${this.idPrefix()}-cost-open"]`);
+  }
+
+  /** Escape is Cancel, except while the entry is being logged. */
+  protected onEscape(event: Event): void {
+    event.stopPropagation();
+    if (!this.pending()) this.closeForm();
+  }
+
+  /** Escape is the void's Cancel, except while the void runs. */
+  protected onVoidEscape(event: Event): void {
+    event.stopPropagation();
+    if (!this.voidPending()) this.cancelVoid();
+  }
+
+  private focusSelector(selector: string): void {
+    afterNextRender(() => this.host.nativeElement.querySelector<HTMLElement>(selector)?.focus(), {
+      injector: this.injector,
+    });
+  }
+
+  private focusAfterRender(target: () => ElementRef<HTMLElement> | undefined): void {
+    afterNextRender(() => target()?.nativeElement.focus(), { injector: this.injector });
   }
 
   protected onKindChange(kind: CostKind): void {
@@ -179,6 +238,7 @@ export class SuspensionCostLog {
       );
     } catch (err) {
       this.failedMessage.set(suspensionErrorMessage(err));
+      this.focusAfterRender(() => this.failedAlert());
       if (isStaleError(err)) this.stale.emit();
     } finally {
       this.pending.set(false);
@@ -212,7 +272,9 @@ export class SuspensionCostLog {
   }
 
   protected cancelVoid(): void {
+    const id = this.voidingId();
     this.voidingId.set(null);
+    if (id) this.focusSelector(`[id="${this.idPrefix()}-void-open-${id}"]`);
   }
 
   protected onVoidReasonInput(event: Event): void {
@@ -238,6 +300,7 @@ export class SuspensionCostLog {
       );
     } catch (err) {
       this.voidFailedMessage.set(suspensionErrorMessage(err));
+      this.focusAfterRender(() => this.voidFailedAlert());
       if (isStaleError(err)) this.stale.emit();
     } finally {
       this.voidPending.set(false);
