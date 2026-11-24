@@ -9,7 +9,9 @@
  * first render, with the error id appended when the error shows.
  *
  * Users today: the claim dialog flow, `ClaimantFields`, `ProfileDetailsForm`,
- * `/welcome` and the `/account` "About you" section.
+ * `/welcome` and the `/account` "About you" section. The label constants also
+ * reach the sign-in email label and the search box's visible label, which the
+ * home pair finder and the claim dialog use (AECI-2003).
  * Light only. The strings are byte-identical to what the claim dialog had
  * inline, so moving them here changed no rendered class. The two button
  * constants are the exception: since AECI-1758 they are the `aecButton` recipe.
