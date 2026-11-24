@@ -15,9 +15,19 @@ import {
 
 import type { AdminVendorProductRow } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
+import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { AdminPaginator } from '../admin-paginator';
+import { CONSOLE_CAPTION_CLASS, CONSOLE_TABLE } from '../console/console-table';
+import { adminStatusTone, type AdminStatusKey } from '../console/status-tones';
 import { ListingHideForm, type ListingHideMode } from './listing-hide-form';
+import {
+  VENDOR_FAILED_TEXT_CLASS,
+  VENDOR_LOAD_FAILED_CLASS,
+  VENDOR_STANDALONE_LINK_CLASS,
+  VENDOR_STATUS_LINE_CLASS,
+} from './vendor-console-classes';
 
 /**
  * The Products tab on `/admin/vendors/:id` — the vendor's catalogue as a table
@@ -59,12 +69,56 @@ import { ListingHideForm, type ListingHideMode } from './listing-hide-form';
 @Component({
   selector: 'aec-vendor-products-table',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [AdminLogoEditor, AdminPaginator, DatePipe, DecimalPipe, ListingHideForm, NewTabIcon],
+  imports: [
+    AdminLogoEditor,
+    AdminPaginator,
+    AecButton,
+    Chip,
+    DatePipe,
+    DecimalPipe,
+    ListingHideForm,
+    NewTabIcon,
+  ],
   templateUrl: './vendor-products-table.html',
 })
 export class VendorProductsTable {
   readonly announce = output<string>();
   protected readonly editingLogo = signal<string | null>(null);
+
+  // AECI-2112: the console table recipe (mock-up 14).
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly linkClass = VENDOR_STANDALONE_LINK_CLASS;
+  protected readonly statusLineClass = VENDOR_STATUS_LINE_CLASS;
+  protected readonly loadFailedClass = VENDOR_LOAD_FAILED_CLASS;
+  protected readonly failedTextClass = VENDOR_FAILED_TEXT_CLASS;
+
+  /** A console chip tone, by the console's word for the status. */
+  protected tone(key: AdminStatusKey): ConsoleChipTone {
+    return adminStatusTone(key);
+  }
+
+  /** A row with its logo editor or its listing form open takes the open fill. */
+  protected rowOpen(row: AdminVendorProductRow): boolean {
+    return this.editingLogo() === row.id || this.listingFormFor()?.id === row.id;
+  }
+
+  protected logoTriggerId(row: AdminVendorProductRow): string {
+    return `product-logo-trigger-${row.id}`;
+  }
+
+  protected toggleLogo(row: AdminVendorProductRow): void {
+    this.editingLogo.set(this.editingLogo() === row.id ? null : row.id);
+  }
+
+  /** Escape inside the editor closes it and gives focus back to Edit logo. */
+  protected closeLogo(row: AdminVendorProductRow): void {
+    if (this.editingLogo() !== row.id) return;
+    this.editingLogo.set(null);
+    afterNextRender(() => this.document.getElementById(this.logoTriggerId(row))?.focus(), {
+      injector: this.injector,
+    });
+  }
 
   readonly rows = input.required<readonly AdminVendorProductRow[]>();
   readonly page = input.required<number>();
