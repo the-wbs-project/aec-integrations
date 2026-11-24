@@ -53,6 +53,9 @@ class TestNavHost {
   protected readonly label = hostLabel;
 }
 
+/** A tab's visible label. The link also holds an aria-hidden weight-600 copy. */
+const tabLabel = (el: Element) => el.querySelector('[data-tab-label]')?.textContent?.trim();
+
 async function mount(
   url = '/portal/overview',
   items: readonly VendorNavItem[] = VENDOR_NAV_ITEMS,
@@ -111,7 +114,7 @@ describe('VendorPortalNav', () => {
     const harness = await mount();
 
     expect(root(harness).querySelector('nav')?.getAttribute('aria-label')).toBe('Portal sections');
-    expect(items(harness).map((el) => el.textContent?.trim())).toEqual(NAV_LABELS);
+    expect(items(harness).map((el) => tabLabel(el))).toEqual(NAV_LABELS);
   });
 
   it('resolves its links relative to whichever route mounted it', async () => {
@@ -134,34 +137,41 @@ describe('VendorPortalNav', () => {
     );
   });
 
-  it('carries the underline on the item itself, so it overlaps the row rule', async () => {
-    // Geometry, not decoration: `-mb-px` + `border-b-2` on the item is what
-    // turns a differently-coloured link into a tab. On the <li> it would sit a
-    // pixel off; anywhere else it would not touch the row's border at all.
-    //
-    // The COLOUR is `.aec-nav-tab[aria-current]` in `styles.css`, not a Tailwind
-    // utility, because the global unlayered `*` border-color rule outranks every
-    // border-color utility in the app. So what this asserts is the pair the CSS
-    // keys off: the hook class and `aria-current`.
+  it('marks the current tab Forest at 600 with an underline keyed off aria-current', async () => {
+    // AECI-1809 (mock-up 13): the underline is the link's own ::after bar, shown by the
+    // `aria-[current=page]` variant, so nothing here relies on a border colour. The type
+    // comes from routerLinkActive.
     const harness = await mount('/portal/profile');
-    const profile = items(harness).find((el) => el.textContent?.trim() === 'Profile')!;
+    const profile = items(harness).find((el) => tabLabel(el) === 'Profile')!;
 
-    expect(profile.className).toContain('-mb-px');
-    expect(profile.className).toContain('border-b-2');
-    expect(profile.className).toContain('aec-nav-tab');
+    expect(profile.className).toContain('aria-[current=page]:after:opacity-100');
+    expect(profile.className).toContain('after:bg-(--accent-primary)');
     expect(profile.className).toContain('text-(--accent-primary)');
+    expect(profile.className).toContain('font-semibold');
+    expect(profile.className).toContain('text-t-16');
     expect(profile.getAttribute('aria-current')).toBe('page');
 
-    const seats = items(harness).find((el) => el.textContent?.trim() === 'Seats')!;
-    expect(seats.className).toContain('aec-nav-tab');
+    const seats = items(harness).find((el) => tabLabel(el) === 'Seats')!;
+    expect(seats.className).not.toContain('font-semibold');
     expect(seats.getAttribute('aria-current')).toBeNull();
+  });
+
+  it('reserves each label’s weight-600 width, hidden from assistive tech', async () => {
+    // The hidden bold copy is what keeps the row from shifting when a tab turns current.
+    const harness = await mount('/portal/profile');
+    const seats = items(harness).find((el) => tabLabel(el) === 'Seats')!;
+    const copy = seats.querySelector('[aria-hidden="true"]');
+
+    expect(copy?.textContent?.trim()).toBe('Seats');
+    expect(copy?.className).toContain('font-semibold');
+    expect(copy?.className).toContain('invisible');
   });
 
   it('makes Products a plain link to the product list', async () => {
     // It was a filterable dropdown; §6.11 gave the catalog its own page, which
     // is also where the Products breadcrumb points.
     const harness = await mount('/portal/products');
-    const products = items(harness).find((el) => el.textContent?.trim() === 'Products')!;
+    const products = items(harness).find((el) => tabLabel(el) === 'Products')!;
 
     expect(products.tagName).toBe('A');
     expect(products.getAttribute('aria-current')).toBe('page');
@@ -187,7 +197,7 @@ describe('VendorPortalNav', () => {
       '/portal/products/revit/reviews',
     ]);
     const current = items(harness).filter((el) => el.getAttribute('aria-current') === 'page');
-    expect(current.map((el) => el.textContent?.trim())).toEqual(['Audiences']);
+    expect(current.map((el) => tabLabel(el))).toEqual(['Audiences']);
   });
 
   it('scrolls the row rather than wrapping it, and renders it exactly once', async () => {
@@ -201,12 +211,48 @@ describe('VendorPortalNav', () => {
     expect(list.className).toContain('overflow-y-hidden');
     expect(list.className).toContain('whitespace-nowrap');
     // AECI-958: `overflow-x-auto` computes `overflow-y` to `auto` on its own,
-    // and the items' `-mb-px` overflows the row by exactly 1px — enough to
-    // paint a permanent vertical scrollbar under "Show scroll bars: Always".
-    // The two utilities are one pairing; this is what stops a later edit
-    // separating them.
+    // which painted a permanent vertical scrollbar under "Show scroll bars:
+    // Always". The two utilities are one pairing; this is what stops a later
+    // edit separating them. The scrollbar itself is hidden (AECI-1809).
     expect(list.className).toContain('overflow-y-hidden');
     expect(root(harness).querySelectorAll('nav')).toHaveLength(1);
     expect(items(harness)).toHaveLength(NAV_LABELS.length);
+  });
+
+  it('fades an edge only while more tabs lie past it (AECI-1809)', async () => {
+    // jsdom has no layout, so the row's scroll geometry is stood in for.
+    const harness = await mount();
+    const list = root(harness).querySelector('nav ul') as HTMLElement;
+    const geometry = (scrollWidth: number, clientWidth: number, scrollLeft: number) => {
+      Object.defineProperty(list, 'scrollWidth', { configurable: true, value: scrollWidth });
+      Object.defineProperty(list, 'clientWidth', { configurable: true, value: clientWidth });
+      list.scrollLeft = scrollLeft;
+      list.dispatchEvent(new Event('scroll'));
+      harness.detectChanges();
+    };
+
+    geometry(300, 300, 0);
+    expect(list.classList.contains('aec-fade-start')).toBe(false);
+    expect(list.classList.contains('aec-fade-end')).toBe(false);
+
+    geometry(900, 300, 0);
+    expect(list.classList.contains('aec-fade-start')).toBe(false);
+    expect(list.classList.contains('aec-fade-end')).toBe(true);
+
+    geometry(900, 300, 200);
+    expect(list.classList.contains('aec-fade-start')).toBe(true);
+    expect(list.classList.contains('aec-fade-end')).toBe(true);
+
+    geometry(900, 300, 600);
+    expect(list.classList.contains('aec-fade-start')).toBe(true);
+    expect(list.classList.contains('aec-fade-end')).toBe(false);
+  });
+
+  it('hides the scrollbar and keeps the focus ring inside each tab (AECI-1809)', async () => {
+    const harness = await mount();
+    const list = root(harness).querySelector('nav ul')!;
+
+    expect(list.classList.contains('aec-portal-tabs')).toBe(true);
+    expect(items(harness)[0]!.className).toContain('focus-visible:-outline-offset-2');
   });
 });
