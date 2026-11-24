@@ -18,12 +18,14 @@
   are claimed (a stand-in rule, about 3 in 10), and the facts card under the hero.
 
   Geometry, measured (gap 8px between tiles, 12px between rings, 6px edge for the
-  focus ring). Stage = the panel's inner width.
-    1440 / 1280, stage 476: one ring on the inner orbit 31 at 28px (36 at 24px);
-                            two rings 69 at 28px (79 at 24px); one ring at full width 38 at 28px.
-    1024, stage 336:        one ring 18 at 28px; two rings 43 at 28px (51 at 24px).
-    390, stage 294:         one ring 25 at 24px (22 at 28px). No second ring.
+  focus ring). Stage = the panel's inner width. One ring sits on the outer circle.
+  Capacity at a tile size (one ring / two rings):
+    1440 / 1280, stage 476: 48px 23 / 39; 40px 27 / 47; 28px 38 / 69.
+    1024, stage 336:        48px 15 / 23; 40px 18 / 29; 28px 25 / 43.
+    390, stage 294:         one ring 25 at 24px. No second ring on a phone.
+    375, stage 279:         one ring 23 at 24px.
     320, stage 224:         one ring 18 at 24px.
+
   Rulings of 2026-11-23. Chris ruled the wording. He left the other five to the
   orchestrator ("your call"), so items 2 to 6 are the orchestrator's decisions:
   1. Chris: the wheel's text says products and integrations, never partners. The
@@ -68,26 +70,44 @@
   - The centre of a tile slide still shows the page's own product by the old rule.
   The "Listings" control (mixed, all claimed, all unclaimed) changes only the card label.
 
-  Final cut-offs, for the "All" slide (re-measured under rule 3: unchanged):
+  Final pass, 2026-11-24. Chris said "build it". Item 1 is his; 2 to 5 are the
+  orchestrator's decisions:
+  1. Chris: the card opens toward the centre of the wheel. It stays inside the stage from
+     top to bottom, so it never covers the title or the lines under the wheel, and inside
+     the screen from side to side.
+  2. The lines under the wheel take the panel's padding as well (16px each side from 768,
+     12px below), so the logo line wraps less. Rows, line 1 + line 2: 1440 1+2, 1024 1+2,
+     390 1+2, 375 1+3, 320 1+3. The logo line needs 552px at 13px and the panel is 540px
+     at its widest, so two rows in total does not fit at any width.
+  3. On desktop a slide with more than 20 products takes two rings ("Second ring from"
+     compares 18, 20 and 24 in the control strip; 20 is the recommendation by eye). Tiles
+     stay large: 48px on one ring, 40px when the second ring opens, shrinking to 28px.
+  4. Ring count is decided per slide at the product's one tile size. The inner guide
+     circle fades out on a one-ring slide and back on a two-ring slide (280ms, off under
+     reduced motion).
+  5. A one-ring slide sits on the outer circle, so the wheel is the same size on every
+     slide. Items 4 and 5 replace "one-ring slides sit on the inner orbit".
+
+  Final cut-offs, for the "All" slide (second ring from 21):
     width   stage   one ring   two rings   dots from
-    1440    476     1 to 31    32 to 69    70
-    1280    476     1 to 31    32 to 69    70
-    1024    336     1 to 18    19 to 43    44
+    1440    476     1 to 20    21 to 69    70
+    1280    476     1 to 20    21 to 69    70
+    1024    336     1 to 20    21 to 43    44
     390     294     1 to 25    none        26
+    375     279     1 to 23    none        24
     320     224     1 to 18    none        19
-  Tile size per product at 1440: 48px up to 16 on one ring, then down to 28px
-  at 31; 40px at 32 on two rings, then down to 28px at 69.
+  Tile size at 1440: 48px up to 20 on one ring; 40px from 21 to 40 on two rings, then down
+  to 28px at 69. At 1024 the one-ring tile shrinks from 48px to 37px at 20, then two rings
+  start at 40px.
 
   FINDINGS for the build:
   1. The cut-offs depend on the width, not only the count. At 1024 the panel is 400px,
      so a fixed "30 on one ring" overlaps there. The server HTML has to carry the phone
      and the desktop layout of the first slide and switch by container query, or the
      wheel shifts at hydration. Picture 19 shows the desktop layout scaled to a phone.
-  2. One tile size per product stops tiles resizing between slides. Between products
-     the jump stays: a product with 31 shows 28px tiles on one ring, one with 32 shows
-     40px tiles on two rings, because the outer ring is held empty on one-ring slides.
-     A category of a product whose size came from a two-ring "All" may sit on two rings
-     even under 31, because it takes the product's larger tile.
+  2. Fixed 2026-11-24: one-ring slides sit on the outer circle and the second ring opens
+     at 21, so the tile size only shrinks as a product grows (48px, then 40px, then down to
+     28px). At 1024 the one-ring tile reaches 37px at 20 and two rings start at 40px.
   5. Under 260px the title takes the first row and the arrows sit in a row below it, so
      a long category name ("BIM Coordination") is not squeezed between the arrows.
   3. A dots slide's server HTML has no product list. It links to the Integrations

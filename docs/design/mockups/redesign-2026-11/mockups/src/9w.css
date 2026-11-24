@@ -182,6 +182,8 @@ html:not(.js) .wheel-head { display: none; }
 .stage .guides { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
 .guides circle { fill: none; stroke: var(--border-on-brand-subtle); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .guides circle.orbit { stroke: var(--border-on-brand); }
+.guides circle.orbit.inner { transition: opacity var(--duration-slow) var(--ease-standard); }
+.guides circle.orbit.off { opacity: 0; }
 .guides circle.frame { stroke-dasharray: 2 6; }
 .guides .start { stroke: var(--accent-secondary); stroke-width: 2; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 .ring { position: absolute; inset: 0; }
@@ -217,9 +219,11 @@ html:not(.js) .wheel-head { display: none; }
 .stage.dots .ring { display: none; }
 .stage:not(.dots) .dotfield { display: none; }
 
-.wheel-foot { margin-top: 16px; font-size: var(--t-13); line-height: 1.4; text-align: center; color: var(--text-on-brand-secondary); }
+.wheel-foot { margin-inline: -12px; margin-top: 16px; font-size: var(--t-13); line-height: 1.4; text-align: center; color: var(--text-on-brand-secondary); }
 /* Ruling 64: two lines, each its own block, balanced so no word sits alone. */
 .wheel-foot .fl { display: block; }
+/* The lines take the panel's padding too, so the logo line wraps less. */
+@media (min-width: 768px) { .wheel-foot { margin-inline: -16px; } }
 .wheel-foot .fl + .fl { margin-top: 4px; }
 /* Each phrase keeps together where it can, so a line never breaks mid-phrase. */
 .wheel-foot .ph { display: inline-block; text-wrap: balance; }
@@ -241,7 +245,8 @@ html.js .wheel-more { display: none; }
 .pcard[hidden] { display: none; }
 .pcard .mk { width: 48px; height: 48px; }
 .pcard .nm { font: 600 var(--t-20)/1.25 var(--font-display); overflow-wrap: anywhere; }
-.pcard .uc { margin-left: 8px; font: 600 var(--t-13)/1.4 var(--font-body); color: var(--text-secondary); white-space: nowrap; }
+.pcard .nm { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; }
+.pcard .uc { font: 600 var(--t-13)/1.4 var(--font-body); color: var(--text-secondary); white-space: nowrap; }
 .pcard .by { margin-top: 2px; font-size: var(--t-14); line-height: 1.4; color: var(--text-secondary); }
 .pcard .go { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; padding-top: 12px; border-top: 1px solid var(--border-default);
   font-size: var(--t-13); color: var(--text-secondary); }

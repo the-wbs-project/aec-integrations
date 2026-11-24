@@ -25,7 +25,7 @@
     one: 30, // fixed: one ring up to this many products
     two: 70, // fixed: two rings up to this many, dots above
     phone: 18, // fixed: phone, one ring up to this many, dots above
-    base: 'inner', // inner | full: where the one-ring slides sit on desktop
+    split: 20, // desktop: a slide with more products than this takes two rings (ruling 3)
     names: 'on', // on | off: names under tiles on slides of 8 or fewer (orchestrator's decision: on)
     first: 0, // boundary test: only the first N products A to Z (0 = all)
     slide: 0,
@@ -171,48 +171,52 @@
     return D < PHONE_BELOW;
   }
   W.isPhone = isPhone;
-  function radii(D, t, base, twoOk) {
+  // Ruling 5 (orchestrator, 2026-11-24): a one-ring slide sits on the OUTER circle, so the
+  // wheel is the same size on every slide. The second ring, when a slide needs it, is inside.
+  function radii(D, t) {
     var R = D / 2 - EDGE;
     var outer = R - t / 2;
     var inner = outer - t - RING_GAP;
-    return { outer: outer, inner: inner, one: twoOk && base === 'inner' ? inner : outer };
+    return { outer: outer, inner: inner };
   }
   // The largest product count one ring, or two, can hold at tile size t.
-  function capacity(D, t, base) {
-    var twoOk = !isPhone(D);
-    var r = radii(D, t, base, twoOk);
-    return { one: cap(r.one, t), two: twoOk ? cap(r.inner, t) + cap(r.outer, t) : 0 };
+  function capacity(D, t) {
+    var r = radii(D, t);
+    return { one: cap(r.outer, t), two: isPhone(D) ? 0 : cap(r.inner, t) + cap(r.outer, t) };
   }
   W.capacity = capacity;
 
-  // The mode a count takes at tile size t: one ring while it fits, then two (not on a
-  // phone), then dots.
-  function modeAt(n, D, t, base) {
-    var c = capacity(D, t, base);
-    return n <= c.one ? 'one' : !isPhone(D) && n <= c.two ? 'two' : 'dots';
+  /* The mode of a slide at tile size t (rulings 3 and 4, orchestrator, 2026-11-24).
+     Desktop: one ring while the slide has no more products than the second-ring threshold
+     ("split", 20 by default) and they fit; else two rings while they fit; else dots.
+     Phone: one ring while it fits, then dots. */
+  function modeAt(n, D, t, state) {
+    var c = capacity(D, t);
+    if (isPhone(D)) return n <= c.one ? 'one' : 'dots';
+    if (n <= state.split && n <= c.one) return 'one';
+    return n <= c.two ? 'two' : 'dots';
   }
   // The largest tile in [tmin, top] at which n still fits in the given mode.
-  function largestTile(n, D, mode, tmin, base) {
+  function largestTile(n, D, mode, tmin) {
     var t = mode === 'two' ? TMAX_TWO : isPhone(D) ? TMAX_PHONE : TMAX_DESK;
     for (; t > tmin; t--) {
-      var c = capacity(D, t, base);
+      var c = capacity(D, t);
       if (mode === 'one' ? n <= c.one : n <= c.two) break;
     }
     return t;
   }
-  /* One tile size per product (orchestrator's decision, 2026-11-23). The size is set once,
-     from the "All" slide, or from the largest slide that is tiled when "All" is dots. Its
-     mode is the one that fits at the smallest tile. Every tiled slide of the product then
-     uses that size, so stepping never resizes the tiles. */
+  /* One tile size per product. It is set once, from the largest slide that is tiled at the
+     smallest tile, at the largest size that slide fits in its mode. Every tiled slide uses
+     it, and takes its own ring count at that size (ruling 4), so tiles never resize. */
   function productTile(slides, D, state) {
     var tmin = isPhone(D) ? TMIN_PHONE : state.tmin;
     var ref = null;
     for (var i = 0; i < slides.length; i++) {
       var n = slides[i].partners.length;
-      if (modeAt(n, D, tmin, state.base) !== 'dots' && (!ref || n > ref)) ref = n;
+      if (modeAt(n, D, tmin, state) !== 'dots' && (!ref || n > ref)) ref = n;
     }
     if (!ref) return tmin;
-    return largestTile(ref, D, modeAt(ref, D, tmin, state.base), tmin, state.base);
+    return largestTile(ref, D, modeAt(ref, D, tmin, state), tmin);
   }
   W.productTile = productTile;
 
@@ -222,23 +226,23 @@
     var tmin = twoOk ? state.tmin : TMIN_PHONE;
     var mode, tFixed = 0;
     if (state.cut === 'fit') {
-      // The product's one tile size decides; every slide takes the first mode that fits at it.
       tFixed = productTile(slides || [slide], D, state);
-      mode = modeAt(n, D, tFixed, state.base);
+      mode = modeAt(n, D, tFixed, state);
     } else if (!twoOk) mode = n <= state.phone ? 'one' : 'dots';
     else mode = n <= state.one ? 'one' : n <= state.two ? 'two' : 'dots';
     var out = { mode: mode, D: D, n: n, items: [], rings: [], warn: '' };
     if (mode === 'dots') return dotLayout(slide, D, out);
     // The fixed-numbers comparison may force a count past capacity; that is warned.
-    // Two rings cap the tile lower than one ring does, so a full wheel stays calm.
-    var t = tFixed || largestTile(n, D, mode, tmin, state.base);
-    var rr = radii(D, t, state.base, twoOk);
-    var c2 = capacity(D, t, state.base);
+    var t = tFixed || largestTile(n, D, mode, tmin);
+    var rr = radii(D, t);
+    var c2 = capacity(D, t);
     if (mode === 'one' && n > c2.one) out.warn = 'Over capacity: ' + n + ' products on one ring that holds ' + c2.one + ' at ' + t + 'px.';
     if (mode === 'two' && n > c2.two) out.warn = 'Over capacity: ' + n + ' products on two rings that hold ' + c2.two + ' at ' + t + 'px.';
     out.t = t;
+    out.rOuter = rr.outer;
+    out.rInner = twoOk ? rr.inner : 0;
     var groups;
-    if (mode === 'one') groups = [[rr.one, n]];
+    if (mode === 'one') groups = [[rr.outer, n]];
     else {
       // A to Z fills the inner ring, then continues on the outer ring. The split keeps
       // the same spacing on both rings, so neither looks emptier.
@@ -298,7 +302,12 @@
     h += '<circle class="frame" r="' + rf.toFixed(2) + '"/>';
     // A to Z starts at 12 o'clock: one short Clay stroke marks it.
     h += '<path class="start" d="M0 ' + (-rf - 1.4).toFixed(2) + 'V' + (-rf + 2.2).toFixed(2) + '"/>';
-    if (L.mode !== 'dots') L.rings.forEach(function (r) { h += '<circle class="orbit" r="' + ((r * 100) / L.D).toFixed(2) + '"/>'; });
+    // The orbits: the outer one always; the inner one only while a slide needs a second ring.
+    // It fades out and back as slides change (ruling 4).
+    if (L.mode !== 'dots') {
+      h += '<circle class="orbit" r="' + ((L.rOuter * 100) / L.D).toFixed(2) + '"/>';
+      if (L.rInner > 0) h += '<circle class="orbit inner' + (L.mode === 'two' ? '' : ' off') + '" r="' + ((L.rInner * 100) / L.D).toFixed(2) + '"/>';
+    }
     h += '</svg>';
     // The ring: a real list of links, A to Z, one tab stop.
     var label = s.name + ', ' + countLine(s) + ', A to Z';
@@ -438,7 +447,7 @@
 
     function report() {
       if (win.parent !== win) {
-        var s = m.slides[cur], L = lastLayout, c = capacity(L.D, isPhone(L.D) ? TMIN_PHONE : state.tmin, state.base);
+        var s = m.slides[cur], L = lastLayout, c = capacity(L.D, isPhone(L.D) ? TMIN_PHONE : state.tmin);
         win.parent.postMessage({ wheel: { slide: s.name, i: cur, of: m.slides.length, n: s.partners.length, m: s.integrations, mode: L.mode, t: L.t, D: L.D, rings: L.rings.length, cap1: c.one, cap2: c.two, warn: L.warn } }, '*');
       }
       W.last = { slide: m.slides[cur].name, mode: lastLayout.mode, t: lastLayout.t, D: lastLayout.D, n: m.slides[cur].partners.length, warn: lastLayout.warn };
@@ -458,7 +467,15 @@
       hideCard();
       stage.className = 'stage' + (L.mode === 'dots' ? ' dots' : '');
       stage.dataset.mode = L.mode;
+      var wasOn = !!stage.querySelector('.orbit.inner:not(.off)');
       setHtml(stage, stageInner(m, s, L, state));
+      var inner = stage.querySelector('.orbit.inner');
+      if (inner && wasOn !== (L.mode === 'two')) {
+        // Start from the old state, then let the transition run to the new one.
+        inner.classList.toggle('off', !wasOn);
+        inner.getBoundingClientRect();
+        inner.classList.toggle('off', L.mode !== 'two');
+      }
       jump.querySelector('.nm span').textContent = s.name;
       jump.querySelector('.ct').textContent = countLine(s);
       setHtml(section.querySelector('#wheel-foot'), footHtml(L.mode));
@@ -545,25 +562,27 @@
       place(a);
     }
     W.showCard = function (i) { showCard(stage.querySelectorAll('.tile')[i]); };
+    /* Ruling 1 (Chris, 2026-11-24): the card opens toward the centre of the wheel. It is
+       kept inside the stage from top to bottom, so it never covers the title above the
+       wheel or the two lines below it, and inside the screen from side to side. */
     function place(a) {
       var r = a.getBoundingClientRect(), st = stage.getBoundingClientRect();
-      var cw = card.offsetWidth, ch = card.offsetHeight, vw = doc.documentElement.clientWidth, vh = win.innerHeight, M = 8;
+      var cw = card.offsetWidth, ch = card.offsetHeight, vw = doc.documentElement.clientWidth, M = 8, G = 12;
       var cx = st.left + st.width / 2, cy = st.top + st.height / 2;
       var tx = r.left + r.width / 2, ty = r.top + r.height / 2;
-      var dx = tx - cx, dy = ty - cy;
+      var dx = cx - tx, dy = cy - ty; // toward the centre
       var x, y;
-      // Outward from the hub: beside the tile on its side of the circle, else above or below it.
       if (Math.abs(dx) >= Math.abs(dy) * 0.6) {
-        x = dx >= 0 ? r.right + 12 : r.left - 12 - cw;
+        // A side tile: the card goes beside it, on the centre's side.
+        x = dx >= 0 ? r.right + G : r.left - G - cw;
         y = ty - ch / 2;
-        if (x + cw > vw - M || x < M) { x = tx - cw / 2; y = dy >= 0 ? r.bottom + 12 : r.top - 12 - ch; }
       } else {
+        // A top or bottom tile: the card goes below or above it, toward the centre.
         x = tx - cw / 2;
-        y = dy >= 0 ? r.bottom + 12 : r.top - 12 - ch;
+        y = dy >= 0 ? r.bottom + G : r.top - G - ch;
       }
       x = Math.max(M, Math.min(vw - M - cw, x));
-      if (y < M) y = r.bottom + 12;
-      if (y + ch > vh - M) y = Math.max(M, r.top - 12 - ch);
+      y = Math.max(st.top, Math.min(st.bottom - ch, y));
       card.style.left = Math.round(x) + 'px';
       card.style.top = Math.round(y) + 'px';
     }
@@ -664,7 +683,7 @@
     ['two', 'Fixed: two rings up to', 'number'],
     ['phone', 'Fixed: phone ring up to', 'number'],
     ['first', 'Only the first N products', 'number'],
-    ['base', 'One-ring slides sit', 'radio', [['inner', 'On the inner ring'], ['full', 'At full width']]],
+    ['split', 'Second ring from', 'radio', [['18', 'Over 18'], ['20', 'Over 20'], ['24', 'Over 24']]],
     ['names', 'Names under tiles, 8 or fewer', 'radio', [['off', 'Off'], ['on', 'On']]],
     ['script', 'Script', 'radio', [['on', 'On'], ['off', 'Off: server HTML']]],
   ];
