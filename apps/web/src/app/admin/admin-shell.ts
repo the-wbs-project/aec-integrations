@@ -18,6 +18,7 @@ import {
   type AdminNavItem,
 } from './admin-nav';
 import { AdminSummaryStore } from './admin-summary.store';
+import { useAdminChipTones } from './console/chip-tones';
 
 /** One category as the row renders it. Derived once, at module scope: the IA is
  *  a static array, so recomputing per instance would buy nothing. */
@@ -186,6 +187,9 @@ export class AdminShell {
   );
 
   constructor() {
+    // AECI-1813: the console chip tones, a stylesheet only the console loads.
+    useAdminChipTones();
+
     // The parent `/admin` route data is fixed for this shell instance's lifetime
     // (navigating between children never re-runs the resolver; a fresh visit
     // re-instantiates the shell), so seed the shared store synchronously here —

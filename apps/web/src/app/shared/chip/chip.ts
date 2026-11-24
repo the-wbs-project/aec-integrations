@@ -53,9 +53,12 @@ export type ChipTone =
  * | `attention` | Raised fill, strong edge, Clay-deep ink. Look first     |  5.59:1 |
  * | `critical`  | White fill, error edge and ink. A fault. The only red   |  6.54:1 |
  *
- * `neutral` and `quiet` are the ladder's own steps. `positive` draws as `wash` and
- * `critical` as `error`. Which status takes which tone is one map:
- * `ADMIN_STATUS_TONES` in `admin/console/status-tones.ts`.
+ * `neutral` and `quiet` are the ladder's own steps, in `styles.css`. The other
+ * five (`positive` draws as `wash`, `critical` as `error`) are drawn by a stylesheet
+ * only the admin console loads (`admin/console/chip-tones.ts`), so the public bundle
+ * carries none of them and a public page that set one would get the resting chip.
+ * Which status takes which tone is one map: `ADMIN_STATUS_TONES` in
+ * `admin/console/status-tones.ts`.
  */
 export type ConsoleChipTone =
   | 'count'
@@ -69,10 +72,11 @@ export type ConsoleChipTone =
 /**
  * `aec-chip` (AECI-1763; DESIGN.md §5 Badges, "The public chip", clash 22).
  *
- * The one chip recipe. The look lives in `styles.css` under `.aec-chip`, which is
- * unlayered. It was written while a `border-color` utility never reached an
- * element (the `*` rule won, until AECI-2088). This component only chooses the element and sets the data
- * attributes the CSS keys off.
+ * The one chip recipe. The public look lives in `styles.css` under `.aec-chip`,
+ * which is unlayered. It was written while a `border-color` utility never reached
+ * an element (the `*` rule won, until AECI-2088). The admin console's five extra
+ * tones live in `admin/console/chip-tones.ts`, which only the console loads. This
+ * component only chooses the element and sets the data attributes the CSS keys off.
  *
  * Three elements, one look:
  *   - static (default): a `<span>`. It has no hover, no pointer and no focus
@@ -86,7 +90,9 @@ export type ConsoleChipTone =
  * and a 3px focus ring at 3px offset. In forced-colours mode a selected chip maps
  * to `Highlight` and `HighlightText`.
  *
- * Chips never take Clay and never take a shadow. Sentence case. Light theme only.
+ * Public chips never take Clay. The one exception is admin only: the console's
+ * `attention` tone sets its text in Clay deep (5.59:1 on the raised fill). Chips
+ * never take a shadow. Sentence case. Light theme only.
  */
 @Component({
   selector: 'aec-chip',
@@ -140,56 +146,10 @@ export type ConsoleChipTone =
       </span>
     }
   `,
-  // The four console tones the ladder lacks (AECI-1813). The ladder lives in
-  // `styles.css`; these sit here so the chip stays the only file that owns its
-  // tones. They set colour and edge only, so density still sets the size. The
-  // count is the exception: a fixed 24px pill with tabular figures.
   styles: `
     :host {
       display: inline-flex;
       max-width: 100%;
-    }
-    .aec-chip[data-tone='positive'] {
-      border-color: var(--accent-primary);
-      background-color: var(--accent-primary-soft);
-      color: var(--accent-primary);
-    }
-    .aec-chip[data-tone='critical'] {
-      border-color: var(--status-error);
-      background-color: var(--surface-base);
-      color: var(--status-error);
-    }
-    .aec-chip[data-tone='waiting'] {
-      gap: 0.5rem;
-      border-color: var(--border-strong);
-      background-color: var(--surface-base);
-      color: var(--text-primary);
-    }
-    .aec-chip[data-tone='waiting']::before {
-      content: '';
-      flex: none;
-      width: 0.5rem;
-      height: 0.5rem;
-      border: 2px solid var(--text-secondary);
-      border-radius: 50%;
-    }
-    .aec-chip[data-tone='attention'] {
-      border-color: var(--border-strong);
-      background-color: var(--surface-raised);
-      color: var(--accent-secondary-deep);
-    }
-    .aec-chip[data-tone='count'] {
-      justify-content: center;
-      min-width: 1.5rem;
-      height: 1.5rem;
-      padding: 0 0.5rem;
-      border-color: transparent;
-      background-color: var(--accent-primary);
-      color: var(--surface-base);
-      font-size: var(--t-13);
-      font-weight: 600;
-      line-height: 1;
-      font-variant-numeric: tabular-nums;
     }
   `,
 })

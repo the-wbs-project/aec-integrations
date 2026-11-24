@@ -81,7 +81,7 @@ function navLinks(root: HTMLElement): string[] {
 function categoryTriggers(root: HTMLElement): HTMLButtonElement[] {
   return [
     ...root.querySelectorAll<HTMLButtonElement>(
-      'nav[aria-label="Admin sections"] button[aria-haspopup]',
+      'nav[aria-label="Admin sections"] button[aria-controls]',
     ),
   ];
 }
@@ -465,7 +465,9 @@ describe('AdminShell', () => {
     it('wires each trigger to the panel it controls', () => {
       const root = render({ pending_reviews: 3 });
       for (const trigger of categoryTriggers(root)) {
-        expect(trigger.getAttribute('aria-haspopup')).toBe('true');
+        // Disclosure navigation, not a menu: no aria-haspopup (AECI-1813).
+        expect(trigger.hasAttribute('aria-haspopup')).toBe(false);
+        expect(trigger.getAttribute('aria-expanded')).toBe('false');
         const id = trigger.getAttribute('aria-controls');
         expect(id).toBeTruthy();
         expect(root.querySelector(`#${id}`)).not.toBeNull();

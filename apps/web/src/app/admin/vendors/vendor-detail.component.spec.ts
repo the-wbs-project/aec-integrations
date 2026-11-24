@@ -259,7 +259,7 @@ async function setup(
   return { fixture, api, provisionApi, el: fixture.nativeElement as HTMLElement };
 }
 
-/** The page on its Audit Trail tab. The trail is no longer on the landing tab,
+/** The page on its Audit trail tab. The trail is no longer on the landing tab,
  *  so every spec that asserts on it has to open the one it lives on. */
 function setupAudit(api: ApiMock) {
   return setup(api, { provisionSeat: vi.fn() }, 'audit');

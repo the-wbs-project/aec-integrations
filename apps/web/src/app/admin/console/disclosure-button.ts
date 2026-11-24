@@ -15,8 +15,10 @@ import { AecIcon } from '../../shared/icon/icon';
  * </td>
  * ```
  *
- * `label` names the row ("Open the review of Fieldline Takeoff"), already
- * localised. The name stays the same open and closed: `aria-expanded` says which.
+ * `label` names what the row opens, already localised, with no verb: "Review of
+ * Fieldline Takeoff", never "Open the review of …". The name stays the same open
+ * and closed, and `aria-expanded` says which, so a verb would be wrong in one of
+ * the two states. The piece carries no English of its own.
  */
 @Component({
   selector: 'aec-admin-disclosure-button',
@@ -44,7 +46,7 @@ export class AdminDisclosureButton {
   readonly expanded = input.required<boolean>();
   /** The id of the detail row this button opens. */
   readonly controls = input.required<string>();
-  /** The button's accessible name, already localised. */
+  /** The button's accessible name: what the row opens, localised, no verb. */
   readonly label = input.required<string>();
   readonly toggled = output<void>();
 }

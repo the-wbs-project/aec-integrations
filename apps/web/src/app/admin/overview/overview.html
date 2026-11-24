@@ -117,10 +117,7 @@
       >
         Page requests by class over the last 30 days
       </h3>
-      <!-- The chart's visually hidden table does not shrink to sr-only's 1px box
-           (a table never does), so this wrapper clips it: without it the page
-           scrolled sideways by the table's width. -->
-      <div class="relative mt-4 overflow-x-clip">
+      <div class="mt-4">
         <aec-stacked-bar-chart
           [points]="trafficPoints()"
           [seriesLabels]="trafficSeriesLabels"
