@@ -32,13 +32,11 @@ admin/vendors/vendor-integrations-panel.html 2
 admin/vendors/vendor-suspension-section.html 6
 vendor/components/vendor-contest-form.ts 3
 vendor/components/vendor-contest-protest.ts 3
-vendor/components/vendor-contests-list.ts 1
 vendor/components/vendor-license-assign.ts 1
 vendor/components/vendor-logo-field.ts 2
 vendor/components/vendor-not-ours.ts 2
 vendor/components/vendor-product-form.ts 1
 vendor/components/vendor-profile-form.ts 3
-vendor/components/vendor-reviews-list.ts 1
 vendor/integration-detail/integration-answer-form.ts 3
 vendor/integration-detail/integration-change-requests.ts 1
 vendor/integration-detail/integration-request-form.ts 3
