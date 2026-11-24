@@ -76,3 +76,33 @@ test('/products: the Connector type filter narrows the grid by kind (AECI-1662)'
   }).toPass();
   await expect(page.locator('a[href="/products/fx-mindcloud"]').first()).toBeVisible();
 });
+
+// AECI-2046: the Sync Service page. `fx-agave` carries three curated facts and a claimed
+// pair whose owner removed Cost Codes (seed/sync-service-owner-fixtures.sql), so the
+// "What it syncs" block lists the other two types of data and never Cost Codes. No
+// connector page carries the hero pair finder. `fx-aardvark-sync` only delivers its
+// pair, so it has no bare "Integrations" section and no nav link to one.
+test('a Sync Service page: the What it syncs block and the connector fixes (AECI-2046)', async ({
+  page,
+}) => {
+  await page.goto('/products/fx-agave');
+  const block = page.locator('#what-it-syncs');
+  await expect(block.getByRole('heading', { level: 2 })).toHaveText('What Agave (fixture) syncs');
+  await expect(block.getByTestId('what-it-syncs-fact-sync_frequency')).toContainText(
+    'Every 15 minutes',
+  );
+  await expect(block.getByTestId('what-it-syncs-facts-source')).toContainText(
+    'Recorded by AEC Integrations on November 20, 2026.',
+  );
+  const objects = block.getByTestId('what-it-syncs-object');
+  await expect(objects).toHaveCount(2);
+  await expect(objects.nth(0)).toContainText('Budgets');
+  await expect(objects.nth(1)).toContainText('Projects & Jobs');
+  await expect(block).not.toContainText('Cost Codes');
+  await expect(page.getByTestId('product-pair-finder')).toHaveCount(0);
+
+  await page.goto('/products/fx-aardvark-sync');
+  await expect(page.locator('#powered-integrations')).toHaveCount(1);
+  await expect(page.locator('#integrations')).toHaveCount(0);
+  await expect(page.locator('aec-section-nav a[href$="#integrations"]')).toHaveCount(0);
+});

@@ -276,6 +276,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `GRANT_CONFLICT` | 409 | Vendor-claim grant would violate role/vendor exclusivity — the claimant account is a site `admin`, or is already linked to a different vendor (AECI-519; `details.reason` ∈ `already_admin` \| `other_vendor`). Also returned by `POST /api/vendor/seats/invites` when the address already holds a live invite, and by the invite accept when the redeemer is a site admin or belongs to another vendor (AECI-664) |
 | `CATALOG_REVIEW_MANAGED` | 409 | The inverse of `CATALOG_VENDOR_MANAGED` (AECI-724). A mapping edit (`PATCH /api/admin/connector-stub-mappings/:id` or `PATCH /api/vendor/connector-stub-mappings/:id`) addressed a catalogue whose `managed_by` is still `review`, so the review-app sync authors it and its next page would overwrite the edit. Nothing is written. Re-checked inside the batch by a sentinel, so a lane reclaimed mid-request also answers this. Resolved only by an operator handing the catalogue over through `PATCH /api/admin/connector-catalogs/:id` |
 | `CONNECTOR_KIND_NOT_CONNECTOR` | 409 | `PATCH /api/admin/products/:id/connector-kind` (AECI-2036) named an `application` product. Only a `connector` or `hybrid` product carries a kind. `details.product_role` names the product's role. Nothing is written. Also answered when a promote moved the product to `application` between the read and the batch: a sentinel aborts the batch |
+| `SYNC_FACTS_NOT_SYNC_SERVICE` | 409 | `PATCH /api/admin/products/:id/sync-facts` (AECI-2046) named a product that is not a Sync Service (`isSyncService`): an `application`, an Integration platform or a connector with no kind. `details` carries `product_role` and `connector_kind`. Nothing is written. Also answered when the kind or role changed between the read and the batch: a sentinel aborts the batch |
 | `CONNECTOR_KIND_SUBSCRIBED` | 409 | `PATCH /api/admin/products/:id/connector-kind` (AECI-2044) would take a product that holds a live subscription (any vendor's) from a kind that can hold one to a kind that cannot: a Sync Service to Integration platform or blank. Nothing is written. Move or end the subscription first. A sentinel in the batch answers the same when a subscription lands after the read. |
 | `MAPPING_CONFLICT` | 409 | A mapping edit would collide with another row on the same listing (AECI-724): the same product twice (`connector_stub_mappings_pair_idx`), or a second listing-level decision (`connector_stub_mappings_decision_idx`). Nothing is written. Edit the other row instead |
 | `CATALOG_VENDOR_MANAGED` | 409 | The connector catalogue a promote page addresses is **vendor-managed** on AECi, so the review lane is frozen for it and the page was not written (AECI-720). Raised from `planConnectorCatalogPage` before any statement is built, so nothing at all is committed — no rows, no `promote_jobs` ledger row, no `audit_log` row — and it reaches the caller on the job poll, not the kick-off. Re-checked inside the page's batch by a sentinel (AECI-1084), so a catalogue flipped to `vendor` between plan and commit also answers this, with the whole batch rolled back. **Not re-sendable**, which is precisely why it is an error and not a `skipped[]` entry: every connector skip kind means "this could not be resolved *yet*". A catalogue returns to review authorship only through `PATCH /api/admin/connector-catalogs/:id` |
@@ -601,8 +602,28 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   //
   // Zero-defaulted so a database with no connector rows parses rather than fails.
   reachable_pair_count: z.number().int().min(0).default(0),
+  // AECI-2046 (`STAGE_1_5_SPEC.md` §13.13): a Sync Service's "What it syncs" block. Both
+  // null (or absent) unless the product is a Sync Service. Source:
+  // `packages/shared/src/api/sync-service.ts`.
+  sync_facts: SyncFactsSchema.nullable().optional(),       // { sync_frequency, sync_support,
+                                                           //   sync_setup, source_url,
+                                                           //   recorded_at }, each string | null
+  what_it_syncs: WhatItSyncsSchema.nullable().optional(),  // { pair_count, pairs_with_flows,
+                                                           //   objects: [{ slug, name, pair_count,
+                                                           //   both_ways, one_way }] }
 });
 ```
+
+**`sync_facts` and `what_it_syncs` (AECI-2046).** Both are `null` unless `isSyncService`
+holds for the product now. `sync_facts` is the three AECi-curated columns, trimmed, and
+`null` when none is recorded. `what_it_syncs` is computed per request by `rollUpWhatItSyncs`
+(`apps/api/src/lib/what-it-syncs.ts`) over the rows already loaded for
+`integrations_as_connector`: the rows with the page product as an endpoint are left out, rows
+for one pair are one pair, and the flows are the public ones after the owner's answers, minus
+refuted flows, as `data_object_slugs` counts them. `objects` is A to Z by name with
+`compareText`, the slug breaking a tie. Each object's `both_ways + one_way = pair_count`.
+`PoweredIntegrationItem` also carries `endpoint_categories` (optional, absent reads `[]`): the
+two endpoints' categories, unioned, for the hero's category hub on a connector page.
 
 **`reachable_pair_count` is derived per request, not stored.** It is the only field on
 `ProductDetail` with no column behind it: `createProductDetailHandler` runs
@@ -1213,6 +1234,10 @@ export const ProductPairMechanismSchema = z.object({
                                         // of `powered_by_product` or `via`. See below.
   connector_kind: ConnectorKindSchema.nullable().optional(),   // AECI-2043: the kind of
                                         // `powered_by_product` or `via`. See below.
+  connector_rating: z.object({          // AECI-2046: the connector product's own rating.
+    review_count: z.number().int().min(0),
+    rating_overall_avg: z.number().nullable(),   // null below the §5.5 five-review floor
+  }).nullable().optional(),
   claims: z.array(ProductPairClaimSchema).default([]),   // Layer B: [] for an unseeded mechanism
 });
 
@@ -1290,6 +1315,7 @@ export type ProductPairResponse = z.infer<typeof ProductPairResponseSchema>;
 - **`moved_to`** (AECI-953 / `STAGE_1_5_SPEC.md` §7.2a) is `{ context_slug, other_slug }` when this pair is **empty AND its edges were re-pointed onto another product**, else `null`. A re-pointed endpoint keeps the edge's id and updates its row in place, but a pair page is keyed by two product slugs — so the URL moves and the old one used to serve 200 + `noindex` forever. The SSR resolver turns a non-null value into a **301**. Four rules: it is set **only** when both anchor tables returned nothing (a pair that lost one edge of two is smaller, not moved, and redirecting it would hide live rows); it is read from the moved edge's **live** row, so it always names a pair that currently holds that edge and a chain of moves resolves to its end; a deleted edge yields `null`, so a retraction still leaves a noindexed empty page; and it is **already oriented** for the requesting URL — the endpoint that did not move stays in the reader's frame, because §7.1's alphabetical rule is a canonical concern the destination page applies itself. It is **not** a slug alias. A retired *endpoint slug* is a different mechanism on a different branch: `slug_redirects` rewrites the pair route's path prefix on its **404**, since AECI-991 (`STAGE_1_5_SPEC.md` §7.2b). `moved_to` can only ride a 200, so it structurally cannot answer a pair URL whose endpoint product has been deleted — which is why both exist.
 - **`pricing_url`** (AECI-1154, specified 2026-09-28) is the mechanism row's pricing page link, read from `integrations` or `connector_evidenced_pairs` alike, `null` when unset. It sits beside the `pricing_model`, `maturity` and `last_reviewed_at` fields that AECI-1142 adds on its own PR, and follows the same rule: additive and `.optional()`, absent meaning `null`. It feeds the "Price" fact in the card's "At a glance" row: the price text links to it when both are set, and "See pricing" links to it when only the URL is. **Rendered since AECI-1158** (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.11 as-built note); the web re-checks the scheme before it sets `href`. The owner writes it (`PATCH /api/vendor/integrations/:id`). Promote never does. It is an absolute `http(s)` URL, so it renders as an ordinary external link with `rel="noopener nofollow"`, the card links' recipe. **As built:** the pair read carries it only when it is an absolute `http(s)` URL and reads anything else as `null`, as defence in depth behind the writers' own check (security review, AECI-1154).
 - **`connector_vendor_id`** (AECI-933) is the primary vendor of the mechanism's connector product: `powered_by_product` on an `integrations` row, `via` on a connector-evidenced pair. It is `null` when there is no connector or the connector has no vendor. "Primary" is `pickPrimaryVendor`, the rule behind `ProductListItem.vendor`. It has one reader, the pair page's outbound-click analytics. A curated `listing_url` / `docs_url` click on a row with no `built_by_vendor` is owned by this vendor (`VENDOR_PERFORMANCE_SPEC.md` §3.2). It is a new field rather than a vendor on `ProductLinkSchema`, which many responses share. Additive and `.optional()`, absent meaning `null`. The join is on the pair read only: `connectorEvidencedPairListConfig`, which other reads spread, stays bare.
+- **`connector_rating`** (AECI-2046) is the connector product's own approved review count and overall average, the average `null` below the five-review floor as on that product's page. `null` with no connector. The pair page prints it on a Sync Service card only, beside the two endpoint cards' ratings. The page carries the connector's `product:` tag, so a review decision on it purges the page. Additive and `.optional()`.
 - **`connector_kind`** (AECI-2043) is the kind of the mechanism's connector product, `powered_by_product` on an `integrations` row and `via` on a connector-evidenced pair, through `connectorKindFor` (`STAGE_1_5_SPEC.md` §13.13). It is `null` with no connector, for an unclassified connector, and for a product whose role is now `application`. Two readers. The pair page renders its "Not offered or endorsed by" line on `sync_service` cards only. The mapper orders the cards with it: `toProductPairResponse` keeps the read's order (integrations A to Z by name then id, then evidenced pairs the same way) and moves every `sync_service` card last, A to Z by `built_by_vendor.name` case folded, an unknown vendor last, then `id` (`orderPairMechanisms`, ruling 14 on AECI-2035). The join adds two columns to the connector read the pair already makes. `ProductLinkSchema` stays bare. Additive and `.optional()`, absent meaning `null`.
 - **Errors / status:** `NOT_FOUND` when either slug is unknown **or the two slugs are equal**. Since AECI-991 the SSR resolver turns that 404 into a **301** when either slug is mapped in `slug_redirects` — the API itself is unchanged and still answers `NOT_FOUND`. A valid-but-unconnected pair (both products exist, no integration between them) is a **200** with `mechanisms: []` — and, since AECI-953, possibly a non-null `moved_to` the SSR layer renders as a 301. The API itself never redirects. A bad `context_version` / `other_version` is **not** an error — see the degrade rule above.
 - SSR caching (pair page): detail TTL, `Cache-Tag: route:detail,pair:{min}__{max},product:{slug}×2` (see `CACHE_STRATEGY.md`). The selector params are in `PAIR_PAGE_CACHE_KEY_PARAMS` in `apps/web/src/app/core/route-cache-key.ts` (`CACHE_STRATEGY.md` §4a), and a non-default selection is `noindex` with the canonical pointing at the default pair URL (§7.2). A `moved_to` 301 is the one response on this route that carries neither — it sets its own `public, max-age=3600, s-maxage=86400` and the **old** pair's tag, because `withCacheHeaders` applies a route TTL and a path-derived tag to 2xx and 404 only. The AECI-991 retired-endpoint 301 does the same with four tags (both pair tags plus `product:` per changed slug — `CACHE_STRATEGY.md` §3 rule 6).
@@ -3639,6 +3665,50 @@ in the next 08:00 UTC sync. An unchanged value or a refused write syncs nothing.
 vendor notice and no review-app mirror message: the kind is AECi's classification and the
 review app does not carry it. Promote never writes or clears the column
 (`REVIEW_APP_PROMOTE_API.md`).
+
+#### `PATCH /api/admin/products/:id/sync-facts` (AECI-2046)
+
+Sets or clears a Sync Service's three curated facts: how often it syncs, who supports it,
+how setup works (`STAGE_1_5_SPEC.md` §13.13, ruling 15 on AECI-2035). Driven by the facts
+form on the Products tab above (`ADMIN_PANEL_SPEC.md` §5.7). Behind `requireAdmin()`, then
+`rateLimit('write')`. Source: `packages/shared/src/api/sync-service.ts`.
+
+```typescript
+export const AdminSetSyncFactsSchema = z
+  .object({
+    sync_frequency: syncFact(120),   // string, trimmed; '' or null clears it
+    sync_support: syncFact(160),
+    sync_setup: syncFact(280),
+    source_url: HttpsUrlSchema.nullable(),  // '' reads null. Required while any fact is set
+  })
+  .strict();                         // all four keys required. Clearing every fact clears
+                                     // the source too
+export const AdminSetSyncFactsResponseSchema = SyncFactsSchema.extend({
+  id: z.string().uuid(),
+  changed: z.boolean(),              // false: nothing written, audited or purged
+});
+```
+
+| Order | Check | Answer |
+|---|---|---|
+| 1 | Body | `400 VALIDATION_FAILED`: a missing or extra key, a non-string, a value over its cap, a set fact with no `source_url`, a source that is not an https link |
+| 2 | Product exists | `404 NOT_FOUND` |
+| 3 | `isSyncService(role, kind)` | `409 SYNC_FACTS_NOT_SYNC_SERVICE` with `details.product_role` and `details.connector_kind` |
+| 4 | Every value unchanged | `200 { changed: false }`. No write, no audit row, no purge |
+| 5 | One `db.batch`: a still-a-Sync-Service sentinel, the `UPDATE` (with `updated_at`), the audit row | `200 { changed: true }`. A sentinel abort re-reads and answers step 3's 409 |
+
+The audit row is `product.updated` with `entity_type = 'product'`, before and after state
+holding only the changed fields, `metadata { source: 'admin-panel', fields: [...] }`. The
+`UPDATE` stamps `sync_facts_recorded_at`, which the response returns as `recorded_at`, and
+nulls it with the last fact. `SyncFacts` on the read is `{ sync_frequency, sync_support,
+sync_setup, source_url, recorded_at }`: the page marks the facts as ours with this source and
+date, as the Terms promise for text we write on a listing a vendor maintains.
+Post-commit it purges `product:{slug}` with `source: 'moderation'`. No Algolia sync: the
+record does not carry the facts. No vendor notice. A later kind change keeps the stored
+values and hides them from readers. Promote never writes or clears them.
+
+`AdminVendorProductRow` carries `sync_facts` (optional, the stored values whatever the kind)
+for the form.
 
 #### `GET /api/admin/products/:id/delivered-pairs` (AECI-2045)
 

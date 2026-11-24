@@ -228,28 +228,82 @@ describe('ProductHero visual: the category hub (AECI-1787)', () => {
     expect(el.querySelector('[data-testid="product-pair-finder"]')).not.toBeNull();
   });
 
-  it('a connector reads none of its powered rows into the hub', () => {
+  // AECI-2046: the connector page reads the categories of the products it reaches, and
+  // has no pair finder (it would route to an empty pair page with the connector as an
+  // endpoint). This replaces the AECI-1787 pin that a connector's hub stays empty.
+  const powered = (
+    id: number,
+    a: ProductLink,
+    b: ProductLink,
+    endpoint_categories: { slug: string; name: string }[],
+  ) => ({
+    id: `00000000-0000-4000-8000-${String(900 + id).padStart(12, '0')}`,
+    name: `${a.name} to ${b.name}`,
+    mechanism_kind: null,
+    mechanism_name: null,
+    direction: null,
+    source: a,
+    target: b,
+    via: null,
+    data_object_slugs: [],
+    endpoint_categories,
+    created_at: '2026-01-01T00:00:00.000Z',
+    updated_at: '2026-01-01T00:00:00.000Z',
+  });
+  const erp = { slug: 'erp', name: 'ERP' };
+  const pm = { slug: 'project-management', name: 'Project management' };
+
+  it('a connector hub counts each pair it powers once under each endpoint category', () => {
+    const procore = link('procore', 'Procore');
     const { el } = setup(
       buildProduct({
+        slug: 'rivets-sync',
         product_role: 'connector',
         integrations_as_connector: [
-          {
-            id: '00000000-0000-4000-8000-000000000099',
-            name: 'A to B',
-            mechanism_kind: null,
-            mechanism_name: null,
-            direction: null,
-            source: link('a', 'A'),
-            target: link('b', 'B'),
-            via: null,
-            data_object_slugs: [],
-            created_at: '2026-01-01T00:00:00.000Z',
-            updated_at: '2026-01-01T00:00:00.000Z',
-          },
+          powered(1, procore, link('acumatica', 'Acumatica'), [pm, erp]),
+          powered(2, procore, link('qbo', 'QuickBooks Online'), [pm, erp]),
+          // A duplicate row of the first pair counts once.
+          powered(3, link('acumatica', 'Acumatica'), procore, [erp, pm]),
+          // Convention A: the connector itself as an endpoint is left out.
+          powered(4, link('rivets-sync', 'Rivets Sync'), procore, [pm, { slug: 'x', name: 'X' }]),
         ],
       }),
     );
+    const items = [...el.querySelectorAll('[data-testid="product-category-hub"] li')].map((li) =>
+      li.textContent!.replace(/\s+/g, ' ').trim(),
+    );
+    expect(items).toHaveLength(2);
+    expect(items[0]).toContain('ERP');
+    expect(items[0]).toContain('2');
+    expect(items[1]).toContain('Project management');
+    expect(items[1]).toContain('2');
+  });
+
+  it('a connector has no pair finder, and no panel when its hub is empty too', () => {
+    const { el } = setup(
+      buildProduct({
+        product_role: 'connector',
+        integrations_as_connector: [powered(5, link('a', 'A'), link('b', 'B'), [])],
+      }),
+    );
+    expect(el.querySelector('[data-testid="product-pair-finder"]')).toBeNull();
     expect(el.querySelector('[data-testid="product-category-hub"]')).toBeNull();
+    expect(el.querySelector('[data-testid="product-hero-visual"]')).toBeNull();
+  });
+
+  it('a connector with a hub shows the hub without the finder', () => {
+    const { el } = setup(
+      buildProduct({
+        product_role: 'connector',
+        integrations_as_connector: [powered(6, link('a', 'A'), link('b', 'B'), [erp])],
+      }),
+    );
+    expect(el.querySelector('[data-testid="product-category-hub"]')).not.toBeNull();
+    expect(el.querySelector('[data-testid="product-pair-finder"]')).toBeNull();
+  });
+
+  it('a hybrid keeps the pair finder, because it is an endpoint too', () => {
+    const { el } = setup(buildProduct({ product_role: 'hybrid' }));
     expect(el.querySelector('[data-testid="product-pair-finder"]')).not.toBeNull();
   });
 });

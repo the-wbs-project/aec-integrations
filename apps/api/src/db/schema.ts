@@ -286,6 +286,27 @@ export const products = sqliteTable(
      * validates the value instead (`ConnectorKindSchema`).
      */
     connectorKind: text('connector_kind', { enum: ['integration_platform', 'sync_service'] }),
+    /**
+     * A Sync Service's three curated facts (AECI-2046, ruling 15 on AECI-2035,
+     * `STAGE_1_5_SPEC.md` §13.13): how often it syncs, who supports it, and how setup
+     * works. Short free text, AECi-curated: only an AECi admin writes them, through
+     * `PATCH /api/admin/products/:id/sync-facts`, and only while the product is a Sync
+     * Service. The vendor does not edit them (a vendor-editable version is a legal
+     * `decision`). Promote never writes or clears them. A kind change keeps them stored,
+     * and readers show them only while the product is a Sync Service. Zod caps the
+     * length (`SYNC_FACT_MAX_LENGTH`). Plain `ADD COLUMN`s, never a table-level CHECK
+     * (a CHECK recreates `products`, `docs/migrations.md` §0).
+     *
+     * The source and the date go with them because the Terms promise that text we write
+     * on a listing a vendor maintains "is marked as ours, with its source and date": the
+     * https link the facts came from (required while any fact is set), and when the
+     * write last changed them. Both clear with the last fact.
+     */
+    syncFrequency: text('sync_frequency'),
+    syncSupport: text('sync_support'),
+    syncSetup: text('sync_setup'),
+    syncFactsSourceUrl: text('sync_facts_source_url'),
+    syncFactsRecordedAt: text('sync_facts_recorded_at'),
     logoUrl: text('logo_url'),
     logoSource: text('logo_source', { enum: ['vendor', 'admin'] }),
     /** The AECi logo, kept when a local save first overwrites it (AECI-1618). Promote

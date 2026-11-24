@@ -16,6 +16,7 @@ import { ProductFieldCaptionsSchema } from './field-captions';
 import { UnderReviewSchema } from './hidden-fields';
 import { PoweredIntegrationItemSchema, ProductIntegrationItemSchema } from './integrations';
 import { PublicReviewSchema } from './reviews';
+import { SyncFactsSchema, WhatItSyncsSchema } from './sync-service';
 
 /**
  * Product role enum. Mirrors the `product_role` column on the `products`
@@ -193,6 +194,15 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   // on this payload, and no "Corrected by" caption names it. Never the reason, note or
   // source. The vendor's hidden facts in `vendor_facts` are `null` too, silently.
   under_review: UnderReviewSchema,
+  // AECI-2046 (ruling 15 on AECI-2035, `STAGE_1_5_SPEC.md` §13.13): the "What it
+  // syncs" block. Both `null` unless the product is a Sync Service (`isSyncService`).
+  // `sync_facts` is AECi-curated (admin-set, never promoted, never vendor-written);
+  // it is `null` too when none of the three is recorded. `what_it_syncs` is the
+  // record-type roll-up across the pairs it delivers (`apps/api/src/lib/what-it-syncs.ts`),
+  // after the owner's answers (`STAGE_2_ATTESTATIONS_SPEC.md` §14.10). Optional, read
+  // as `null`, so an older payload and a hand-built fixture still parse.
+  sync_facts: SyncFactsSchema.nullable().optional(),
+  what_it_syncs: WhatItSyncsSchema.nullable().optional(),
 });
 
 export type ProductDetail = z.infer<typeof ProductDetailSchema>;

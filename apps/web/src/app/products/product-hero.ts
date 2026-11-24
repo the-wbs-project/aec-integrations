@@ -285,21 +285,28 @@ import { RoleBadge } from './role-badge';
            waits for lg: the finder there added about 200px above the facts card. With no
            hub the panel holds nothing below lg, so styles.css hides it
            (.aec-hero-panel-lg-only). -->
-      <div
-        heroPanel
-        class="flex flex-col gap-6"
-        [class.aec-hero-panel-lg-only]="hub().length === 0"
-        data-testid="product-hero-visual"
-      >
-        @if (hub().length > 0) {
-          <aec-product-category-hub [entries]="hub()" (expandedChange)="onHubToggle($event)" />
-        }
-        <aec-product-pair-finder
-          class="max-lg:hidden"
-          [productSlug]="p.slug"
-          [productName]="p.name"
-        />
-      </div>
+      <!-- AECI-2046: on a connector the finder is not rendered, because it would
+           send the visitor to a pair page with the connector as an endpoint, which is
+           almost always empty. With no hub either, there is no panel at all. -->
+      @if (hub().length > 0 || showFinder()) {
+        <div
+          heroPanel
+          class="flex flex-col gap-6"
+          [class.aec-hero-panel-lg-only]="hub().length === 0"
+          data-testid="product-hero-visual"
+        >
+          @if (hub().length > 0) {
+            <aec-product-category-hub [entries]="hub()" (expandedChange)="onHubToggle($event)" />
+          }
+          @if (showFinder()) {
+            <aec-product-pair-finder
+              class="max-lg:hidden"
+              [productSlug]="p.slug"
+              [productName]="p.name"
+            />
+          }
+        </div>
+      }
     </aec-hero-band>
   `,
 })
@@ -334,9 +341,23 @@ export class ProductHero {
 
   protected readonly hub = computed(() => {
     const p = this.product();
-    return categoryHub(p.integrations_as_source, p.integrations_as_target);
+    return categoryHub(
+      p.integrations_as_source,
+      p.integrations_as_target,
+      p.integrations_as_connector,
+      p.slug,
+    );
   });
   protected readonly websiteLabel = correctionLabel('website');
+
+  /**
+   * Whether the hero's pair finder renders (AECI-2046). Not on a `connector` product: its
+   * question, "Does {product} connect to...?", routes to a pair page with the connector as
+   * an endpoint, and that page is almost always empty and `noindex`. The pairs a
+   * connector delivers are listed on its own page instead. A `hybrid` keeps it, because
+   * it is an endpoint too.
+   */
+  protected readonly showFinder = computed(() => this.product().product_role !== 'connector');
 
   protected readonly crumbs = computed<BreadcrumbItem[]>(() => [
     homeCrumb(),

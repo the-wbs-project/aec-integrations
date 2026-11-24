@@ -38,3 +38,17 @@ INSERT INTO claim_owner_answers (id, claim_id, vendor_id, asserted, retracted_at
   ('00000000-0000-4000-8000-0000000008e2','00000000-0000-4000-8000-0000000008c2','00000000-0000-4000-8000-000000000795',0,NULL,'2026-11-02T00:00:00.000Z','2026-11-02T00:00:00.000Z'),
   ('00000000-0000-4000-8000-0000000008e3','00000000-0000-4000-8000-0000000008c3','00000000-0000-4000-8000-000000000795',1,NULL,'2026-11-02T00:00:00.000Z','2026-11-02T00:00:00.000Z')
 ON CONFLICT (id) DO NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- AECI-2046: Agave's three curated Sync Service facts, so its "What it syncs" block
+-- renders locally with all three (ruling 15 on AECI-2035, STAGE_1_5_SPEC.md §13.13).
+-- AECi curates them. An UPDATE, as the kind is, because the product INSERT is
+-- `DO NOTHING` on a re-seed.
+-- ---------------------------------------------------------------------------
+UPDATE products
+  SET sync_frequency = 'Every 15 minutes, and on demand from either product',
+      sync_support = 'Agave Inc. (fixture) supports the sync, by email and chat',
+      sync_setup = 'Agave connects both accounts in a guided setup call, usually under an hour',
+      sync_facts_source_url = 'https://example.com/agave/sync',
+      sync_facts_recorded_at = '2026-11-20T00:00:00.000Z'
+  WHERE id = '00000000-0000-4000-8000-000000000791';

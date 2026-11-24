@@ -168,6 +168,9 @@ const POWERED_PAYLOAD_FIELDS = [
   'direction',
   'via',
   'data_object_slugs',
+  // AECI-2046: the endpoints' categories, read only by the hero's category hub, whose
+  // order is A to Z by name (`product-page-hero-visual`). The hub rows never read them.
+  'endpoint_categories',
   'created_at',
   'updated_at',
 ] as const;
@@ -199,6 +202,7 @@ function paidValue(field: string, level: number): unknown {
           ? 'confirmed'
           : (['unverified', 'single_source', 'confirmed', 'conflict'] as const)[level % 4];
     case 'partner_categories':
+    case 'endpoint_categories':
       return many.map((slug) => ({ slug, name: slug }));
     case 'caption':
       return level === 0

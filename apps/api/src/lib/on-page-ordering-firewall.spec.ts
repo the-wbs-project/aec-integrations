@@ -235,6 +235,13 @@ const SURFACES: readonly Surface[] = [
     order: 'Renders related_products in the API order (A to Z, R1); adds no sort, filter or cut',
   },
   {
+    key: 'product-page-what-it-syncs',
+    status: 'covered',
+    spec: 'api',
+    order:
+      'New list (R1, AECI-2046): a Sync Service page lists the record types across the pairs it delivers, A to Z by the vocabulary name with compareText, slug breaking a tie, none cut; the pair counts describe and never order',
+  },
+  {
     key: 'taxonomy-term-product-count',
     status: 'exception',
     capability: 'product.taxonomy.edit',
@@ -1188,6 +1195,140 @@ async function relatedOrder(world: World, renameLast = false) {
   return body.related_products.map((p) => p.id);
 }
 
+// ─── The Sync Service "What it syncs" block (AECI-2046) ───────────────────────
+
+/** Record types named so case and input order cannot decide the order. */
+const SYNC_OBJECT_NAME: Readonly<Record<number, string>> = {
+  61: 'Timesheets',
+  62: 'budgets',
+  63: 'Change Orders',
+  64: 'Budgets & Forecasts',
+  65: 'RFIs',
+};
+const SYNC_OBJECT_ORDER = Object.entries(SYNC_OBJECT_NAME)
+  .sort(([an, a], [bn, b]) => compareText(a, b) || Number(an) - Number(bn))
+  .map(([n]) => `o${n}`);
+
+/**
+ * A Sync Service (the page product) delivering three evidenced pairs over four endpoint
+ * products, every record type on every pair. The paid worlds load the Managed profile
+ * and both companies' confirmations onto the endpoints of the objects that sort last
+ * (or first), so an order that rewarded a plan or an agreement state would move.
+ */
+async function seedWhatItSyncs(db: Db, world: World, renameLast = false) {
+  await db.insert(products).values([
+    {
+      id: u(1),
+      slug: 'page',
+      name: 'Page',
+      promotionStatus: 'promoted',
+      productRole: 'connector',
+      connectorKind: 'sync_service',
+    },
+    ...[2, 3, 4, 5].map((n) => ({
+      id: u(n),
+      slug: `p${n}`,
+      name: `P${n}`,
+      promotionStatus: 'promoted' as const,
+    })),
+  ]);
+  await db.insert(taxonomyDataObjects).values(
+    Object.entries(SYNC_OBJECT_NAME).map(([n, name]) => ({
+      id: u(Number(n)),
+      slug: `o${n}`,
+      name: renameLast && n === '65' ? 'Aardvark records' : name,
+    })),
+  );
+  const pairs: [number, number][] = [
+    [2, 3],
+    [2, 4],
+    [3, 5],
+  ];
+  for (const [i, [a, b]] of pairs.entries()) {
+    await db.insert(connectorEvidencedPairs).values({
+      id: u(200 + i),
+      productAId: u(a),
+      productBId: u(b),
+      connectorProductId: u(1),
+      direction: 'both',
+    });
+    // Inserted in reverse vocabulary order, so a stored order would differ too.
+    for (const n of Object.keys(SYNC_OBJECT_NAME).map(Number).reverse()) {
+      await db.insert(claims).values({
+        id: u(1000 + i * 100 + n),
+        connectorEvidencedPairId: u(200 + i),
+        dataObjectId: u(n),
+        direction: 'both',
+      });
+    }
+  }
+  if (world === 'free') return;
+
+  await seedTwoVendors(db);
+  await seedFacetTerms(db);
+  const loaded = world === 'last' ? [61, 65] : [62, 64];
+  for (const [n, vendorId] of [
+    [2, ACME],
+    [3, GLOBEX],
+  ] as const) {
+    await db.insert(productVendors).values({ productId: u(n), vendorId, isPrimary: true });
+    await giveManagedProfile(db, u(n), vendorId, n);
+  }
+  for (const object of loaded) {
+    await db.insert(attestations).values([
+      {
+        id: u(5000 + object),
+        claimId: u(1000 + object),
+        source: 'vendor_a',
+        asserted: true,
+        attestedByVendorId: ACME,
+      },
+      {
+        id: u(6000 + object),
+        claimId: u(1000 + object),
+        source: 'vendor_b',
+        asserted: true,
+        attestedByVendorId: GLOBEX,
+      },
+    ]);
+  }
+}
+
+async function whatItSyncsOrder(world: World, renameLast = false) {
+  const body = ProductDetailSchema.parse(
+    await readWorld((db) => seedWhatItSyncs(db, world, renameLast), detailRoute),
+  );
+  return (body.what_it_syncs?.objects ?? []).map((o) => o.slug);
+}
+
+describe('on-page ordering firewall: the "What it syncs" block', () => {
+  it(
+    '[surface:product-page-what-it-syncs] A to Z by name with compareText, slug on a tie, none cut',
+    async () => {
+      expect(await whatItSyncsOrder('free')).toEqual(SYNC_OBJECT_ORDER);
+    },
+    DB_TIMEOUT,
+  );
+
+  for (const world of ['last', 'first'] as const) {
+    it(
+      `[surface:product-page-what-it-syncs] does not move when the paid inputs load the ${world} record types`,
+      async () => {
+        expect(await whatItSyncsOrder(world)).toEqual(SYNC_OBJECT_ORDER);
+      },
+      DB_TIMEOUT,
+    );
+  }
+
+  it(
+    'sees a move when an order input changes (the comparison is not vacuous)',
+    async () => {
+      expect((await whatItSyncsOrder('free', true))[0]).toBe('o65');
+    },
+    DB_TIMEOUT,
+  );
+});
+
 describe('on-page ordering firewall: related_products', () => {
   it(
     '[surface:related-products] A to Z by name whatever the case, id breaking a tie across the sixth place, six shown',
@@ -1579,6 +1720,7 @@ const PUBLIC_READ_LIB = [
   'field-hides',
   'listing-hide',
   'pair-mechanism-order',
+  'what-it-syncs',
 ];
 
 interface OrderSite {
@@ -1630,7 +1772,7 @@ const ORDER_SITES: readonly OrderSite[] = [
   },
   {
     file: 'apps/api/src/lib/drizzle-helpers.ts',
-    count: 17,
+    count: 18,
     registered: ['pair-page-claims', 'pair-page-closest-matches'],
     allowed: `term lists by display_order or name, attestation timelines by created_at, vendor products A to Z; ${NEVER_PLAN}`,
   },
@@ -1668,6 +1810,11 @@ const ORDER_SITES: readonly OrderSite[] = [
     file: 'apps/api/src/lib/pair-mechanism-order.ts',
     count: 1,
     registered: ['pair-page-mechanisms'],
+  },
+  {
+    file: 'apps/api/src/lib/what-it-syncs.ts',
+    count: 1,
+    registered: ['product-page-what-it-syncs'],
   },
   {
     file: 'apps/api/src/lib/pair-redirect.ts',

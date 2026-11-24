@@ -5744,6 +5744,34 @@ describe('AECI-2036 promote leaves the connector kind alone', () => {
     });
     expect(created?.connectorKind).toBeNull();
   });
+
+  // AECI-2046: the three curated Sync Service facts are AECi's too. Promote has no field
+  // for them, so an update keeps them and a sender's copy is stripped.
+  it('keeps the curated sync facts across an update push, and ignores a sender copy', async () => {
+    const facts = {
+      syncFrequency: 'Every 15 minutes',
+      syncSupport: 'Rivets supports it',
+      syncSetup: 'Rivets sets it up',
+      syncFactsSourceUrl: 'https://example.com/rivets',
+      syncFactsRecordedAt: '2026-11-20T00:00:00.000Z',
+    };
+    await t.db.update(products).set(facts).where(eq(products.id, productId));
+    const res = await promote({
+      product: {
+        ref: 'p',
+        supabaseId: productId,
+        name: 'Rivets Sync',
+        productRole: 'connector',
+        description: 'Changed upstream.',
+        syncFrequency: null,
+        sync_frequency: 'Daily',
+        sync_setup: null,
+      },
+    });
+    expect(res.status).toBe(200);
+    const row = await t.db.query.products.findFirst({ where: eq(products.id, productId) });
+    expect(row).toMatchObject(facts);
+  });
 });
 
 describe('AECI-1310 promote company facts', () => {

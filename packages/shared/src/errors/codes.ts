@@ -42,6 +42,10 @@ export const ApiErrorCode = {
   // product. Only a `connector` or `hybrid` product carries a kind (409). Nothing is
   // written. `details.product_role` names the role the product has.
   CONNECTOR_KIND_NOT_CONNECTOR: 'CONNECTOR_KIND_NOT_CONNECTOR',
+  // AECI-2046: `PATCH /api/admin/products/:id/sync-facts` named a product that is not a
+  // Sync Service (`isSyncService`). Only a Sync Service carries the three curated facts
+  // (409). Nothing is written. `details` names the role and the kind the product has.
+  SYNC_FACTS_NOT_SYNC_SERVICE: 'SYNC_FACTS_NOT_SYNC_SERVICE',
   INVALID_STATE_TRANSITION: 'INVALID_STATE_TRANSITION',
   // AECI-1203: `PATCH /api/admin/reviews/:id` lost a race with another moderator.
   // Both passed the pending check, the other batch committed first, and this one

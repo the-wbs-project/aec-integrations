@@ -526,6 +526,27 @@ describe('every other public reader applies the owner answers', () => {
     expect(await slugsOnHub()).toEqual([]);
   });
 
+  // AECI-2046: the "What it syncs" roll-up reads the same public flows as the hub.
+  it('the connector page "What it syncs" roll-up names no removed flow', async () => {
+    const objectsOnBlock = async () => {
+      const body = (await call(AUTH_E, '/api/products/rivets-sync', 'GET')).body;
+      const block = body.what_it_syncs as JsonBody;
+      return (block.objects as JsonBody[]).map((o) => `${o.slug}:${o.pair_count}`);
+    };
+    expect(await objectsOnBlock()).toEqual(['rfis:1']);
+
+    const added = await add(AUTH_C, E_SS, 'invoices', 'outbound');
+    expect(await objectsOnBlock()).toEqual(['invoices:1', 'rfis:1']);
+
+    await answer(CLAIM_SEED, false);
+    expect(await objectsOnBlock()).toEqual(['invoices:1']);
+    const invoices = added.body.flows.find((f: JsonBody) => f.data_object_slug === 'invoices');
+    await answer(invoices.id, false);
+    expect(await objectsOnBlock()).toEqual([]);
+    const body = (await call(AUTH_E, '/api/products/rivets-sync', 'GET')).body;
+    expect(body.what_it_syncs).toMatchObject({ pair_count: 1, pairs_with_flows: 0 });
+  });
+
   it('the endpoint product page and the alternatives lanes drop a removed flow', async () => {
     await t.db
       .insert(products)

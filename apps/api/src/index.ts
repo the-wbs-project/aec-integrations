@@ -62,6 +62,7 @@ import {
 } from './routes/admin-claims';
 import { createSetConnectorCatalogManagementHandler } from './routes/admin-connector-catalogs';
 import { createAdminSetConnectorKindHandler } from './routes/admin-connector-kind';
+import { createAdminSetSyncFactsHandler } from './routes/admin-sync-facts';
 import {
   createAdminDeliveredPairsHandler,
   createAdminSetIntegrationOwnerHandler,
@@ -1063,6 +1064,14 @@ authAdmin.patch(
   requireAdmin(),
   rateLimit('write'),
   createAdminSetConnectorKindHandler(),
+);
+// AECI-2046: a Sync Service's three curated facts (frequency, support, setup), for its
+// "What it syncs" block (`STAGE_1_5_SPEC.md` §13.13). A write: `rateLimit('write')`.
+authAdmin.patch(
+  '/api/admin/products/:id/sync-facts',
+  requireAdmin(),
+  rateLimit('write'),
+  createAdminSetSyncFactsHandler(),
 );
 // AECI-2045: every pair a connector product delivers, in both tables, without a
 // catalogue row. A read: no `rateLimit()`.

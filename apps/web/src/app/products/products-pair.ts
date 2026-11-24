@@ -505,6 +505,16 @@ interface MechanismView {
    * on a Sync Service card only, else `null` (`syncServiceEndorsementLine`).
    */
   readonly endorsementLine: string | null;
+  /**
+   * AECI-2046: the Sync Service's own rating on its card, in the shape the two endpoint
+   * cards read, or `null`. Only on a Sync Service card, and only with a shown average
+   * (the §5.5 five-review floor), exactly as an endpoint card shows its rating.
+   */
+  readonly connectorRating: {
+    readonly name: string;
+    readonly rating_overall_avg: number;
+    readonly review_count: number;
+  } | null;
   /** The mechanism's corrections that point at something the card renders (§4.5.8). */
   readonly corrections: readonly FieldCorrection[];
   /** AECI-1238 (§11d.7): AECi hid the description while it checks it. */
@@ -1116,6 +1126,23 @@ function writePairViewCookie(mode: PairViewMode): void {
                     <p class="text-sm text-(--text-secondary)" data-testid="pair-not-endorsed">
                       {{ m.endorsementLine }}
                     </p>
+                  }
+                  <!-- AECI-2046: the Sync Service's own rating, the same span and
+                     accessible name as the two endpoint cards' ratings. -->
+                  @if (m.connectorRating; as r) {
+                    <span
+                      class="flex w-fit items-center gap-1 text-xs text-(--text-secondary)"
+                      data-testid="pair-connector-rating"
+                      [attr.aria-label]="ratingAria(r)"
+                    >
+                      <span class="font-semibold text-(--text-primary)">{{ r.name }}</span>
+                      <span aria-hidden="true" class="text-(--accent-rating)">★</span>
+                      <span class="tabular-nums">{{ r.rating_overall_avg.toFixed(1) }}</span>
+                      <span
+                        >· {{ r.review_count }}
+                        <ng-container i18n="@@pair.reviews.count">reviews</ng-container></span
+                      >
+                    </span>
                   }
 
                   <!-- The Stage 1 §4.4 "Offered by" / "Powered by" byline lives in the
@@ -1750,6 +1777,16 @@ export class ProductsPairPage {
         context: endpoints.context,
         other: endpoints.other,
       }),
+      connectorRating:
+        m.connector_kind === 'sync_service' &&
+        connector &&
+        m.connector_rating?.rating_overall_avg != null
+          ? {
+              name: connector.name,
+              rating_overall_avg: m.connector_rating.rating_overall_avg,
+              review_count: m.connector_rating.review_count,
+            }
+          : null,
       corrections: correctionsInSlots(m.corrections, this.correctionSlots(m)),
       descriptionUnderReview: isUnderReview(m.under_review, 'description'),
       underReview: (m.under_review ?? [])
@@ -1827,7 +1864,11 @@ export class ProductsPairPage {
     return formatDate(parsed, 'MMMM d, y', this.locale, 'UTC');
   }
 
-  protected ratingAria(product: ProductPairResponse['context_product']): string {
+  protected ratingAria(product: {
+    readonly name: string;
+    readonly rating_overall_avg: number | null;
+    readonly review_count: number;
+  }): string {
     const avg = product.rating_overall_avg?.toFixed(1) ?? '';
     return $localize`:@@pair.rating.aria:${product.name}:name: rated ${avg}:rating: out of 5 from ${product.review_count}:count: reviews`;
   }

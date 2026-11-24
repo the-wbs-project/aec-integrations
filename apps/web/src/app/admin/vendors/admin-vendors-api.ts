@@ -24,6 +24,8 @@ import type {
   AdminSetIntegrationOwnerResponse,
   AdminSetConnectorKindInput,
   AdminSetConnectorKindResponse,
+  AdminSetSyncFactsInput,
+  AdminSetSyncFactsResponse,
   ConnectorKind,
   AdminVendorIntegrationsQuery,
   AdminVendorIntegrationsResponse,
@@ -192,6 +194,22 @@ export class AdminVendorsApi {
       this.http.patch<AdminSetConnectorKindResponse>(
         `/api/admin/products/${encodeURIComponent(productId)}/connector-kind`,
         body,
+      ),
+    );
+  }
+
+  /**
+   * `PATCH /api/admin/products/:id/sync-facts` (AECI-2046): set or clear a Sync
+   * Service's three curated facts. The endpoint refuses any other product with 409.
+   */
+  setSyncFacts(
+    productId: string,
+    facts: AdminSetSyncFactsInput,
+  ): Promise<AdminSetSyncFactsResponse> {
+    return firstValueFrom(
+      this.http.patch<AdminSetSyncFactsResponse>(
+        `/api/admin/products/${encodeURIComponent(productId)}/sync-facts`,
+        facts,
       ),
     );
   }

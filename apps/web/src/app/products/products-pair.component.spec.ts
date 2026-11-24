@@ -2628,4 +2628,32 @@ describe('ProductsPairPage: the Sync Service "Not offered or endorsed by" line (
     const { el } = setup({ ...pair, mechanisms: [rest] });
     expect(line(el)).toBeNull();
   });
+  // AECI-2046: the Sync Service's own rating beside the card it delivers.
+  const withRating = (
+    kind: 'sync_service' | 'integration_platform' | null,
+    rating: { review_count: number; rating_overall_avg: number | null } | undefined,
+  ): ProductPairResponse => {
+    const pair = pairWith(kind);
+    return { ...pair, mechanisms: [{ ...pair.mechanisms[0]!, connector_rating: rating }] };
+  };
+  const rating = (el: HTMLElement) => el.querySelector('[data-testid="pair-connector-rating"]');
+
+  it('shows the Sync Service rating on its card, with the endpoint cards accessible name', () => {
+    const { el } = setup(withRating('sync_service', { review_count: 7, rating_overall_avg: 4.25 }));
+    const r = rating(el)!;
+    expect(r.textContent!.replace(/\s+/g, ' ').trim()).toBe('Rivets Sync★4.3· 7 reviews');
+    expect(r.getAttribute('aria-label')).toBe('Rivets Sync rated 4.3 out of 5 from 7 reviews');
+  });
+
+  it('shows no rating below the review floor, on another kind, or from an older API', () => {
+    for (const [kind, value] of [
+      ['sync_service', { review_count: 3, rating_overall_avg: null }],
+      ['integration_platform', { review_count: 7, rating_overall_avg: 4.2 }],
+      ['sync_service', undefined],
+    ] as const) {
+      TestBed.resetTestingModule();
+      const { el } = setup(withRating(kind, value));
+      expect(rating(el), String(kind)).toBeNull();
+    }
+  });
 });

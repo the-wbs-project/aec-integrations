@@ -282,6 +282,15 @@ export type ProductIntegrationItem = z.infer<typeof ProductIntegrationItemSchema
  */
 export const PoweredIntegrationItemSchema = IntegrationListItemSchema.extend({
   data_object_slugs: z.array(z.string()).default([]),
+  /**
+   * The categories of the row's two endpoints, unioned and deduped by slug
+   * (AECI-2046). Ordered as a product's own categories are: curated `display_order`,
+   * NULLs last, then name, then slug. Row data for the hero's category hub on a
+   * connector page, which counts each pair once under each category either endpoint
+   * carries. No order of rows on the server reads it. `[]` when neither endpoint has a
+   * category. Optional: absent (an older API, a hand-built fixture) reads as `[]`.
+   */
+  endpoint_categories: z.array(IntegrationTermSchema).optional(),
 });
 
 export type PoweredIntegrationItem = z.infer<typeof PoweredIntegrationItemSchema>;

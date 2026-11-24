@@ -13,12 +13,13 @@ import {
   signal,
 } from '@angular/core';
 
-import type { AdminVendorProductRow } from '@aeci/shared';
+import type { AdminVendorProductRow, SyncFacts } from '@aeci/shared';
 import { roleTakesConnectorKind } from '@aeci/shared/api/connector-kind';
 
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { AdminPaginator } from '../admin-paginator';
 import { ConnectorKindControl } from './connector-kind-control';
+import { SyncFactsControl } from './sync-facts-control';
 import { DeliveredPairsPanel } from './delivered-pairs-panel';
 import { ListingHideForm, type ListingHideMode } from './listing-hide-form';
 
@@ -70,6 +71,7 @@ import { ListingHideForm, type ListingHideMode } from './listing-hide-form';
     AdminLogoEditor,
     AdminPaginator,
     ConnectorKindControl,
+    SyncFactsControl,
     DatePipe,
     DeliveredPairsPanel,
     DecimalPipe,
@@ -150,6 +152,15 @@ export class VendorProductsTable {
   }
 
   protected readonly isEmpty = computed(() => this.rows().length === 0);
+
+  /** AECI-2046: what the facts form starts from when a row carries none. */
+  protected readonly noSyncFacts: SyncFacts = {
+    sync_frequency: null,
+    sync_support: null,
+    sync_setup: null,
+    source_url: null,
+    recorded_at: null,
+  };
 
   /** AECI-2036: only a connector or hybrid product carries a kind. */
   /** AECI-2045: the connector row whose delivered pairs are open, or `null`. One at a time. */

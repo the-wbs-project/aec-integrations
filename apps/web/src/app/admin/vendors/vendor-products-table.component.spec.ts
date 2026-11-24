@@ -194,6 +194,39 @@ describe('VendorProductsTable connector kind (AECI-2036)', () => {
     expect(controls).toHaveLength(2);
     expect(el.querySelector(`#connector-kind-${PRODUCT_ID}-trigger`)).toBeNull();
   });
+
+  // AECI-2046: the curated facts form sits under the kind control on a Sync Service only.
+  it('shows the Sync Service facts form on a Sync Service row only', async () => {
+    const { el } = await setup([
+      makeRow({
+        id: '00000000-0000-4000-8000-000000000031',
+        slug: 'sync',
+        product_role: 'connector',
+        connector_kind: 'sync_service',
+        sync_facts: {
+          sync_frequency: 'Hourly',
+          sync_support: null,
+          sync_setup: null,
+          source_url: 'https://example.com/sync',
+          recorded_at: '2026-11-20T00:00:00.000Z',
+        },
+      }),
+      makeRow({
+        id: '00000000-0000-4000-8000-000000000033',
+        slug: 'platform',
+        product_role: 'connector',
+        connector_kind: 'integration_platform',
+      }),
+      makeRow({ id: '00000000-0000-4000-8000-000000000032', slug: 'hy', product_role: 'hybrid' }),
+    ]);
+    const forms = el.querySelectorAll('aec-sync-facts-control');
+    expect(forms).toHaveLength(1);
+    expect(
+      el.querySelector<HTMLInputElement>(
+        '#sync-facts-sync_frequency-00000000-0000-4000-8000-000000000031',
+      )!.value,
+    ).toBe('Hourly');
+  });
 });
 
 describe('VendorProductsTable delivered pairs (AECI-2045)', () => {

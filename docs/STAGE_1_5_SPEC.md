@@ -954,6 +954,9 @@ between `#integrations` and `#reviews`, with a matching "Integrations it powers"
   a host, and the §13.7 reach line. The test is the page's powered view having at least one pair
   (the post-§13.4(2) pair count), passed to the section as `poweredPairCount`. A product with no
   rows of either kind keeps its empty state.
+  ⚠️ **Amended by AECI-2046 (ruled 2026-11-24):** with no host and no reach line either, the
+  section left only a bare heading. It is now hidden, with its nav link (§13.13 "Connector page
+  fixes").
 - **Heading: "Integrations it powers (N)"** (`@@products.detail.body.powers.heading`). A noun
   phrase, parallel to the endpoint "Integrations (N)" heading directly above it, because on a
   connector page **both sections can be populated at once** — NetSuite Connector by Appficiency
@@ -2336,6 +2339,9 @@ review-side). And AECI-1065's endpoint-vendor mapping proposals, which were prec
     The two figures answer different questions about the same edges — _how many products does this
     reach_ (hero) versus _how many pairs does it sit in the middle of_ (section heading, §12.3) —
     and on a Convention-A connector the honest answers are 43 and 0.
+  - **AECI-2046:** the hero has no pair finder on a `connector`, and its category hub reads the
+    categories of the products the connector reaches (§13.13 "Connector page fixes"). A Sync
+    Service page also gains the "What it syncs" block (§13.13).
   - **No role gate.** This bullet states only the `N > 0` condition and the build honours that
     literally: a mis-roled `application` that powers edges is described just as accurately by the
     line, which is the same data-driven reading §12.3's render condition already takes. Contrast the
@@ -2879,6 +2885,85 @@ cards. Every other fixture connector stays NULL.
 - **Legal impact: text.** The line applies the Terms of Service sentence "we are not affiliated
   with, endorsed by, or acting on behalf of the vendors we list" to a card. No `/legal` page
   changes. The ranking page gains the order rule.
+
+**The "What it syncs" block (AECI-2046, 2026-11-24).** Chris ruled on 2026-11-24 (AECI-2035):
+
+> **Ruling 15.** A "What it syncs" block is added, with frequency, support and setup. AECi
+> curates it at first.
+
+- **Where.** On a Sync Service's product page (`isSyncService`), as `#what-it-syncs`, after
+  About and "How teams use it" and before "Integrations it delivers". It has a section-nav
+  entry, "What it syncs", on the same render test. Component:
+  `apps/web/src/app/products/product-what-it-syncs.ts`.
+- **What it syncs.** `ProductDetail.what_it_syncs`, rolled up by the API
+  (`apps/api/src/lib/what-it-syncs.ts`) from the pairs the product delivers, both tables.
+  The pair set is the one "Integrations it delivers" counts: a row with the Sync Service as
+  an endpoint is left out (§13.4(2)), and two rows for one pair are one pair. The flows are
+  the public ones, after the owner's answers and `publicClaims`, minus refuted flows
+  (`STAGE_2_ATTESTATIONS_SPEC.md` §14.10). So a flow the owner removed is named nowhere.
+  Each record type reads its `data_object` vocabulary name, which way it moves, and on how
+  many pairs: "Both ways, on all 8 integrations", "One way, on 3 of 8 integrations", or
+  "Both ways on 5 and one way on 3 of 8 integrations". Per pair a record type is both ways
+  when a flow says `both`, or both one-way flows are there. A note says how many pairs list
+  no record type yet, so partial data never reads as "does not sync". The confirmed badge
+  is not repeated here: the block summarises, and the pair page carries each flow's state.
+- **The order.** A new list, so ruling R1: A to Z by name through `compareText`, the slug
+  breaking a tie. Nothing is cut. The counts describe and never order. No plan input reaches
+  it. `on-page-ordering-firewall.spec.ts` covers it as `product-page-what-it-syncs`.
+- **Three curated facts.** `ProductDetail.sync_facts`: how often it syncs, who supports it,
+  how setup works. Three nullable text columns on `products` (`sync_frequency`,
+  `sync_support`, `sync_setup`), plain `ADD COLUMN`s with no CHECK (`DATABASE_SCHEMA.md`
+  §4.2). Zod caps them at 120, 160 and 280 characters. One writer:
+  `PATCH /api/admin/products/:id/sync-facts`, from the Products tab of `/admin/vendors/:id`
+  (`ADMIN_PANEL_SPEC.md` §5.7, `API_CONTRACTS.md`). It refuses any product that is not a
+  Sync Service with `409 SYNC_FACTS_NOT_SYNC_SERVICE`, writes its `product.updated` audit
+  row in the same batch and purges `product:{slug}`. The vendor cannot write them: a
+  vendor-editable version is a legal `decision` nobody has ruled on. Promote never writes or
+  clears them (`promote.spec.ts`).
+- **Marked as ours, with its source and date.** The Terms say "Where we write or correct
+  text on a listing a vendor maintains, that text is marked as ours, with its source and
+  date." A claimed Sync Service is such a listing. So the write takes a required https
+  `source_url` while any fact is set, stamps `sync_facts_recorded_at`, and the block prints
+  "Recorded by AEC Integrations on {date}." with a Source link under the facts. Both clear
+  with the last fact. Columns `sync_facts_source_url` and `sync_facts_recorded_at`.
+- **A blank renders nothing.** A blank fact is not shown. A block with no record type and no
+  fact is not rendered, and has no nav entry.
+- **A kind change keeps the facts.** The columns keep their values, and readers show them,
+  and the roll-up, only while the product is a Sync Service. Both are `null` on any other
+  product, as `connectorKindFor` hides a stale kind.
+- **Cache.** Visitor-neutral: product data only. The page's tags already cover it: every
+  delivered row adds `integration:{id}` and both endpoint `product:` tags (§12.4), an owner
+  flow write purges the connector's `product:` tag (§14.10), and the facts write purges it
+  too. `Vary` stays `Accept-Language`.
+- **SEO.** The meta description and JSON-LD are unchanged (§13.6). The block claims nothing
+  for the endpoint vendors.
+- **Legal impact: text.** The facts are AECi's statements, not a vendor's, so no new
+  vendor-published field. No `/legal` page changes. The help pages say AEC Integrations
+  records these facts and how a vendor asks for a correction. The provisional ranking page
+  1.2 gains the block's order rule, edited in place (`apps/web/src/content/legal/README.md`).
+
+**Connector page fixes (AECI-2046, 2026-11-24).**
+
+- **No bare "Integrations" heading** (ruled by Chris 2026-11-24, after AECI-2050). A page
+  that lists pairs under "Integrations it powers" or "Integrations it delivers" hides
+  `#integrations` and its nav link when that section has no endpoint row, no §13.3b
+  "runs inside {host}" sentence and no §13.7 reach line. The test is data-driven, like the
+  powered section's own render rule, so it holds for any role. A product with no
+  integrations of any kind keeps the section and its empty state.
+- **No hero pair finder on a `connector`.** "Does {product} connect to...?" routed to a pair
+  page with the connector as an endpoint, which is almost always an empty `noindex` page.
+  The smaller of the two options was taken: the finder is not rendered on a `connector`
+  product. A `hybrid` keeps it, because it is an endpoint too. With no category hub either,
+  the hero has no panel.
+- **The category hub reads the products it reaches.** On a connector page the hub also
+  counts the pairs the product powers: each pair once under each category either endpoint
+  carries (`PoweredIntegrationItem.endpoint_categories`), with the §13.4(2) rows left out.
+  The order stays A to Z (`product-page-hero-visual`).
+- **The pair page shows the Sync Service's rating.** A Sync Service card prints the Sync
+  Service product's rating beside the two endpoint cards' ratings, with the same accessible
+  name, from `ProductPairMechanism.connector_rating`. Like theirs, it shows only above the
+  five-review floor. The page already carries the connector's `product:` tag, so a review
+  decision on it purges the page.
 
 ### Operating notes (moved from CLAUDE.md, 2026-09-23)
 

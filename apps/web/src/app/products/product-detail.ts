@@ -38,6 +38,7 @@ import { ProductPoweredHub } from './product-powered-hub';
 import { ProductReviews } from './product-reviews';
 import { ProductSimilarProducts } from './product-similar-products';
 import { ProductUsefulnessSection } from './product-usefulness';
+import { ProductWhatItSyncs, hasWhatItSyncs } from './product-what-it-syncs';
 import { ProductWhoItIsFor, hasWhoItIsFor } from './product-who-it-is-for';
 
 /** A product field group, as the provenance panel names it (AECI-1666). */
@@ -130,6 +131,7 @@ const UNDER_REVIEW_MARKED_FIELDS = [
     ProductReviews,
     ProductSimilarProducts,
     ProductUsefulnessSection,
+    ProductWhatItSyncs,
     ProductWhoItIsFor,
     RequestDrawer,
     SectionNav,
@@ -203,6 +205,21 @@ const UNDER_REVIEW_MARKED_FIELDS = [
             />
           }
 
+          <!-- AECI-2046 (ruling 15 on AECI-2035): a Sync Service's "What it syncs"
+               block, ahead of the pairs it delivers. The API sends both parts as null
+               on any other product, and the page mounts it only with something in it. -->
+          @if (showWhatItSyncs()) {
+            <section
+              aec-product-what-it-syncs
+              id="what-it-syncs"
+              aria-labelledby="what-it-syncs-title"
+              data-testid="what-it-syncs"
+              [productName]="p.name"
+              [syncs]="p.what_it_syncs ?? null"
+              [syncFacts]="p.sync_facts ?? null"
+            ></section>
+          }
+
           <!-- Powered ("this product IS the connector") integrations, per Stage
                1.5 Addendum B. Distinct from the endpoint table: these edges name
                this product in powered_by_product_id, so it is neither endpoint and
@@ -230,20 +247,24 @@ const UNDER_REVIEW_MARKED_FIELDS = [
             <ng-container [ngTemplateOutlet]="poweredSection" />
           }
 
-          <section
-            aec-product-integrations-section
-            id="integrations"
-            aria-labelledby="integrations-title"
-            class="scroll-mt-20 space-y-4"
-            [slug]="p.slug"
-            [asSource]="p.integrations_as_source"
-            [asTarget]="p.integrations_as_target"
-            [reachableCount]="p.reachable_pair_count"
-            [productName]="p.name"
-            [hosts]="p.extension_of"
-            [product]="p"
-            [poweredPairCount]="poweredView().pairCount"
-          ></section>
+          <!-- AECI-2046 (ruled 2026-11-24): hidden, with its nav link, on a page that
+               only powers pairs and has nothing of its own to say here. -->
+          @if (showIntegrations()) {
+            <section
+              aec-product-integrations-section
+              id="integrations"
+              aria-labelledby="integrations-title"
+              class="scroll-mt-20 space-y-4"
+              [slug]="p.slug"
+              [asSource]="p.integrations_as_source"
+              [asTarget]="p.integrations_as_target"
+              [reachableCount]="p.reachable_pair_count"
+              [productName]="p.name"
+              [hosts]="p.extension_of"
+              [product]="p"
+              [poweredPairCount]="poweredView().pairCount"
+            ></section>
+          }
 
           @if (showPowered() && !leadWithPowered()) {
             <ng-container [ngTemplateOutlet]="poweredSection" />
@@ -483,6 +504,31 @@ export class ProductDetailPage {
   });
 
   /**
+   * Whether the "What it syncs" block renders (AECI-2046): a Sync Service with at least
+   * one record type or one curated fact. The nav entry reads the same test.
+   */
+  protected readonly showWhatItSyncs = computed(() => {
+    const p = this.product();
+    return !!p && hasWhatItSyncs(p.what_it_syncs, p.sync_facts);
+  });
+
+  /**
+   * Whether `#integrations` renders (AECI-2046, ruled by Chris 2026-11-24). It hides,
+   * with its nav link, on a page that lists pairs under "Integrations it powers" and
+   * has nothing of its own for that section: no endpoint row, no "runs inside {host}"
+   * sentence and no §13.7 reach line. After AECI-2050 that section would print only its
+   * heading. A product with no integrations of any kind keeps the section and its empty
+   * state, because the powered count is zero there.
+   */
+  protected readonly showIntegrations = computed(() => {
+    const p = this.product();
+    if (!p) return false;
+    if (this.poweredView().pairCount === 0) return true;
+    const endpointRows = p.integrations_as_source.length + p.integrations_as_target.length;
+    return endpointRows > 0 || p.extension_of.length > 0 || p.reachable_pair_count > 0;
+  });
+
+  /**
    * The page product's connector kind (AECI-2037), or `null`: the powered section's
    * heading, empty state and nav label read it.
    */
@@ -560,10 +606,18 @@ export class ProductDetailPage {
         label: $localize`:@@products.detail.nav.usefulness:How teams use it`,
       });
     }
-    const integrations: SectionNavItem = {
-      id: 'integrations',
-      label: $localize`:@@products.detail.nav.integrations:Integrations`,
-    };
+    // AECI-2046: the block leads the integrations sections, so its entry does too.
+    if (this.showWhatItSyncs()) {
+      items.push({
+        id: 'what-it-syncs',
+        label: $localize`:@@products.detail.nav.whatItSyncs:What it syncs`,
+      });
+    }
+    // AECI-2046: gated on the section's own condition, so the nav never links to it
+    // when it is hidden.
+    const integrations: SectionNavItem | null = this.showIntegrations()
+      ? { id: 'integrations', label: $localize`:@@products.detail.nav.integrations:Integrations` }
+      : null;
     // Gated on the same condition as the section itself, or the nav would link
     // to an anchor that isn't on the page. Label matches the section heading
     // verbatim (minus the count) so the two never read as different sections —
@@ -579,9 +633,10 @@ export class ProductDetailPage {
     // these two together. No anchor id changes, so there is no link, sitemap or
     // cache-tag churn to manage.
     if (powered && this.leadWithPowered()) {
-      items.push(powered, integrations);
+      items.push(powered);
+      if (integrations) items.push(integrations);
     } else {
-      items.push(integrations);
+      if (integrations) items.push(integrations);
       if (powered) items.push(powered);
     }
     // Gated on the same condition as the section, after every integrations

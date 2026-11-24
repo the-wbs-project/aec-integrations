@@ -346,6 +346,20 @@ export const ProductPairMechanismSchema = z.object({
    */
   connector_kind: ConnectorKindSchema.nullable().optional(),
   /**
+   * The connector product's own rating (AECI-2046): its approved review count and its
+   * overall average, the average `null` below the §5.5 five-review floor, exactly as
+   * the product's own page shows it. `null` when there is no connector. The pair page
+   * prints it on a Sync Service card only, beside the two endpoint products' ratings.
+   * `.optional()` for SSR/API deploy skew: absent means `null`.
+   */
+  connector_rating: z
+    .object({
+      review_count: z.number().int().min(0),
+      rating_overall_avg: z.number().nullable(),
+    })
+    .nullable()
+    .optional(),
+  /**
    * The owner's pricing page link (AECI-1154 / `STAGE_2_VENDOR_PORTAL_SPEC.md`
    * §6.17.11), from `integrations` or `connector_evidenced_pairs` alike. It feeds
    * the "Price" fact of the card's "At a glance" row (AECI-1142): the price text

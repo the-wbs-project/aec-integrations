@@ -1,4 +1,8 @@
-import type { ProductIntegrationItem } from '@aeci/shared';
+import {
+  orderedPairSlugs,
+  type PoweredIntegrationItem,
+  type ProductIntegrationItem,
+} from '@aeci/shared';
 import { compareText } from '@aeci/shared/text-sort';
 
 import { splitIntegrationLanes } from './connector-lane-grouping';
@@ -20,8 +24,14 @@ export interface CategoryHubEntry {
  * the section's own `rowCount`, so the hub and the list count the same things. A row is
  * counted once under EACH category its partner carries, the way a partner category
  * filter matches it. So the counts can add up to more than the row count. A partner with
- * no category adds to no entry. Connector-powered rows (`integrations_as_connector`)
- * carry no partner categories and are not read.
+ * no category adds to no entry.
+ *
+ * On a connector page (AECI-2046) it also counts the pairs the product powers
+ * (`integrations_as_connector`), the pairs "Integrations it powers" lists: rows with the
+ * page product as an endpoint are left out (§13.4(2), already counted above), and rows
+ * for the same two products count once. A pair counts once under each category either
+ * endpoint carries (`endpoint_categories`). So a pure connector's hub reads the
+ * categories of the products it reaches, where it used to be empty.
  *
  * What it orders. A new list, so ruling R1 applies: A to Z by category name through
  * `compareText`, with the slug as the tie-break. The count never orders and never cuts.
@@ -33,21 +43,34 @@ export interface CategoryHubEntry {
 export function categoryHub(
   asSource: readonly ProductIntegrationItem[],
   asTarget: readonly ProductIntegrationItem[],
+  powered: readonly PoweredIntegrationItem[] = [],
+  selfSlug = '',
 ): CategoryHubEntry[] {
   const view = splitIntegrationLanes(asSource, asTarget);
   const rows = [...view.direct, ...view.via.flatMap((g) => g.rows)];
   const bySlug = new Map<string, { name: string; count: number }>();
-  for (const row of rows) {
-    // A partner listed with one category twice still counts once for this row.
+  const countRow = (terms: readonly { slug: string; name: string }[]) => {
+    // A row listed with one category twice still counts once.
     const seen = new Set<string>();
-    for (const term of row.integration.partner_categories) {
+    for (const term of terms) {
       if (seen.has(term.slug)) continue;
       seen.add(term.slug);
       const entry = bySlug.get(term.slug);
       if (entry) entry.count += 1;
       else bySlug.set(term.slug, { name: term.name, count: 1 });
     }
+  };
+  for (const row of rows) countRow(row.integration.partner_categories);
+
+  // AECI-2046: the powered pairs, one per pair, the page product's own rows left out.
+  const pairs = new Map<string, { slug: string; name: string }[]>();
+  for (const item of powered) {
+    if (item.source.slug === selfSlug || item.target.slug === selfSlug) continue;
+    if (item.source.slug === item.target.slug) continue;
+    const key = orderedPairSlugs(item.source.slug, item.target.slug).join('::');
+    pairs.set(key, [...(pairs.get(key) ?? []), ...(item.endpoint_categories ?? [])]);
   }
+  for (const terms of pairs.values()) countRow(terms);
   return [...bySlug.entries()]
     .map(([slug, { name, count }]) => ({ slug, name, count }))
     .sort(

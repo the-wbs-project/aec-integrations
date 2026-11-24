@@ -115,6 +115,16 @@
             (saved)="retry.emit()"
             (announce)="announce.emit($event)"
           />
+          <!-- AECI-2046: the three curated facts, on a Sync Service row only. -->
+          @if (row.connector_kind === 'sync_service') {
+          <aec-sync-facts-control
+            [productId]="row.id"
+            [productName]="row.name"
+            [facts]="row.sync_facts ?? noSyncFacts"
+            (saved)="retry.emit()"
+            (announce)="announce.emit($event)"
+          />
+          }
           <!-- AECI-2045: every pair this connector delivers, with its owner. -->
           <button
             type="button"

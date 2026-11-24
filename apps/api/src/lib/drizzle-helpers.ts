@@ -37,6 +37,7 @@ import {
   ProductUsefulnessSchema,
   RATING_VISIBILITY_MIN_REVIEWS,
   isHttpUrl,
+  isSyncService,
   storedFoundVia,
   type ListedEndpointEdge,
 } from '@aeci/shared';
@@ -88,6 +89,8 @@ import type {
   VendorListItem,
   VendorOwnedIntegrations,
   VendorProductRoles,
+  SyncFacts,
+  WhatItSyncs,
 } from '@aeci/shared';
 import {
   claimVersionStatus,
@@ -151,6 +154,7 @@ import {
 import { noHiddenEndpointOn, visibleProductWhere } from './listing-visibility';
 import { toPairVendorLinks, type StoredVendorLink } from './integration-vendor-links';
 import { compareTermsByDisplayOrder, compareTermsByName } from './taxonomy-order';
+import { rollUpWhatItSyncs, type WhatItSyncsFlow, type WhatItSyncsRow } from './what-it-syncs';
 
 // ---------------------------------------------------------------------------
 // Shared read orderings
@@ -225,7 +229,14 @@ const pairConnectorProductConfig = {
   ...publicProductLinkConfig,
   // AECI-2043: the role and the stored kind, for `ProductPairMechanism.connector_kind`
   // (`connectorKindFor`). Never serialised as columns: the mapper keeps the kind only.
-  columns: { ...productLinkColumns, productRole: true, connectorKind: true },
+  columns: {
+    ...productLinkColumns,
+    productRole: true,
+    connectorKind: true,
+    // AECI-2046: the connector's own rating, for `ProductPairMechanism.connector_rating`.
+    reviewCount: true,
+    ratingOverallAvg: true,
+  },
   with: { productVendors: { with: { vendor: { columns: vendorLinkColumns } } } },
 } as const;
 const taxonomyLinkWithOrderColumns = { ...taxonomyLinkColumns, displayOrder: true } as const;
@@ -470,14 +481,31 @@ export const connectorEvidencedPairDetailConfig = {
  * Hence `origin`, the live attestations and the owner's live answers.
  */
 const poweredClaimsConfig = {
-  columns: { origin: true },
+  // AECI-2046: `direction` and the object's name feed a Sync Service's "What it syncs"
+  // roll-up (`what-it-syncs.ts`). The hub itself still reads the slug only.
+  columns: { origin: true, direction: true },
   with: {
-    dataObject: { columns: { slug: true } },
+    dataObject: { columns: { slug: true, name: true } },
     attestations: {
       columns: { source: true, asserted: true, attestedByVendorId: true, retractedAt: true },
       where: liveAttestationsWhere,
     },
     ownerAnswers: ownerAnswersRelationConfig,
+  },
+} as const;
+
+/**
+ * An endpoint of a powered row, with its categories (AECI-2046): the hero's category
+ * hub on a connector page reads them as `PoweredIntegrationItem.endpoint_categories`.
+ * A nested relation, so the read stays one statement.
+ */
+const poweredEndpointLinkConfig = {
+  ...publicProductLinkConfig,
+  with: {
+    productCategories: {
+      columns: {},
+      with: { category: { columns: taxonomyLinkWithOrderColumns } },
+    },
   },
 } as const;
 
@@ -492,13 +520,22 @@ export const poweredIntegrationConfig = {
     claimedAt: true,
     ...ownerFlowRowColumns,
   },
-  with: { ...integrationListConfig.with, claims: poweredClaimsConfig },
+  with: {
+    sourceProduct: poweredEndpointLinkConfig,
+    targetProduct: poweredEndpointLinkConfig,
+    claims: poweredClaimsConfig,
+  },
 } as const;
 
 /** The same bucket's `connector_evidenced_pairs` arm (AECI-1080). */
 export const connectorEvidencedPairPoweredConfig = {
   columns: { ...connectorEvidencedPairListConfig.columns, claimedAt: true, ...ownerFlowRowColumns },
-  with: { ...connectorEvidencedPairListConfig.with, claims: poweredClaimsConfig },
+  with: {
+    ...connectorEvidencedPairListConfig.with,
+    productA: poweredEndpointLinkConfig,
+    productB: poweredEndpointLinkConfig,
+    claims: poweredClaimsConfig,
+  },
 } as const;
 
 /**
@@ -665,7 +702,11 @@ export interface RawProductEvidencedPairRow extends RawConnectorEvidencedPairRow
  *  public-claim filter's inputs (AECI-2039). Optional so a hand-built fixture without
  *  them reads as an AECi-seeded claim with no votes and no owner answer. */
 export interface RawPoweredClaimRow {
-  dataObject: { slug: string };
+  /** `name` (AECI-2046) feeds the "What it syncs" roll-up. Optional for fixtures. */
+  dataObject: { slug: string; name?: string };
+  /** AECI-2046: the flow's direction in the row's A/B frame. Optional for fixtures,
+   *  which then read as one way. */
+  direction?: string;
   origin?: string;
   attestations?: RawAgreementVoteRow[];
   ownerAnswers?: RawOwnerAnswer[];
@@ -1372,6 +1413,12 @@ export const productDetailConfig = {
     usefulnessEditedAt: true,
     managedEditedAt: true,
     managedEndedAt: true,
+    // AECI-2046: a Sync Service's three curated facts. Shown only while it is one.
+    syncFrequency: true,
+    syncSupport: true,
+    syncSetup: true,
+    syncFactsSourceUrl: true,
+    syncFactsRecordedAt: true,
   },
   with: {
     productVendors: {
@@ -1741,6 +1788,26 @@ interface RawPairConnectorProduct extends RawProductLink {
   /** AECI-2043: read by {@link pairConnectorKind}. Optional for hand-built fixtures. */
   productRole?: string | null;
   connectorKind?: string | null;
+  /** AECI-2046: read by {@link pairConnectorRating}. Optional for hand-built fixtures. */
+  reviewCount?: number | null;
+  ratingOverallAvg?: number | null;
+}
+
+/**
+ * The connector's own rating (AECI-2046), with the §5.5 floor: the average is `null`
+ * below `RATING_VISIBILITY_MIN_REVIEWS`, as on the connector's own page. `null` with no
+ * connector.
+ */
+function pairConnectorRating(
+  connector: RawPairConnectorProduct | null,
+): { review_count: number; rating_overall_avg: number | null } | null {
+  if (!connector) return null;
+  const reviews = connector.reviewCount ?? 0;
+  return {
+    review_count: reviews,
+    rating_overall_avg:
+      reviews >= RATING_VISIBILITY_MIN_REVIEWS ? (connector.ratingOverallAvg ?? null) : null,
+  };
 }
 
 /** The kind of the connector behind a pair mechanism, or `null` (AECI-2043). */
@@ -2092,6 +2159,13 @@ export interface RawProductDetailRow extends RawProductListRow, RawMaintenanceCo
   evidencedPairsAsB: RawProductEvidencedPairRow[];
   poweredIntegrations: RawPoweredIntegrationRow[];
   evidencedPairsAsConnector: RawPoweredEvidencedPairRow[];
+  /** AECI-2046: a Sync Service's curated facts. Optional so a hand-built fixture
+   *  without them reads as unset. */
+  syncFrequency?: string | null;
+  syncSupport?: string | null;
+  syncSetup?: string | null;
+  syncFactsSourceUrl?: string | null;
+  syncFactsRecordedAt?: string | null;
 }
 
 export interface RawPublicReviewRow {
@@ -2504,7 +2578,89 @@ export function toPoweredIntegrationItem(
   return {
     ...toIntegrationListItem(raw),
     data_object_slugs: productDetailDataObjectSlugs(poweredPublicClaims(raw.claims, ctx)),
+    endpoint_categories: endpointCategories(raw.sourceProduct, raw.targetProduct),
   };
+}
+
+/**
+ * The categories of a powered row's two endpoints (AECI-2046), unioned and deduped by
+ * slug, in a product's own category order (AECI-1242): `display_order`, NULLs last,
+ * then name, then slug. The hero's category hub reads them on a connector page.
+ */
+function endpointCategories(a: RawProductLink, b: RawProductLink): IntegrationTerm[] {
+  const bySlug = new Map<string, RawTaxonomyLinkWithOrder>();
+  for (const { category } of [...(a.productCategories ?? []), ...(b.productCategories ?? [])]) {
+    if (!bySlug.has(category.slug)) bySlug.set(category.slug, category);
+  }
+  return [...bySlug.values()]
+    .sort(compareTermsByDisplayOrder)
+    .map(({ slug, name }) => ({ slug, name }));
+}
+
+/**
+ * A powered row's public flows for the "What it syncs" roll-up (AECI-2046): the hub's
+ * public claims (`poweredPublicClaims`, after the owner's answers), minus refuted ones,
+ * the same set the row's `data_object_slugs` counts. A flow the owner removed is gone.
+ */
+function whatItSyncsFlows(
+  claims: readonly RawPoweredClaimRow[],
+  ctx: OwnerFlowContext,
+): WhatItSyncsFlow[] {
+  return poweredPublicClaims(claims, ctx)
+    .filter((claim) => !claim.attestations || !isClaimRefuted(claim.attestations))
+    .map((claim) => ({
+      slug: claim.dataObject.slug,
+      name: claim.dataObject.name ?? claim.dataObject.slug,
+      direction: claim.direction ?? 'a_to_b',
+    }));
+}
+
+/**
+ * The Sync Service block (AECI-2046, `STAGE_1_5_SPEC.md` §13.13): the three curated
+ * facts and the record-type roll-up, or `null` for both unless the product is a Sync
+ * Service now. A kind change keeps the facts stored, and this hides them. An
+ * `integrations` row's flows are framed source → target. An evidenced pair's are framed
+ * A → B (`claim-frame.ts`). The roll-up turns both into one frame.
+ */
+function toSyncServiceBlock(raw: RawProductDetailRow): {
+  sync_facts: SyncFacts | null;
+  what_it_syncs: WhatItSyncs | null;
+} {
+  if (!isSyncService(raw.productRole, raw.connectorKind)) {
+    return { sync_facts: null, what_it_syncs: null };
+  }
+  const facts: SyncFacts = {
+    sync_frequency: blankToNull(raw.syncFrequency),
+    sync_support: blankToNull(raw.syncSupport),
+    sync_setup: blankToNull(raw.syncSetup),
+    source_url: blankToNull(raw.syncFactsSourceUrl),
+    recorded_at: blankToNull(raw.syncFactsRecordedAt),
+  };
+  const anyFact = !!(facts.sync_frequency || facts.sync_support || facts.sync_setup);
+  const rows: WhatItSyncsRow[] = [
+    ...raw.poweredIntegrations.map((row) => ({
+      aId: row.sourceProduct.id,
+      bId: row.targetProduct.id,
+      flows: whatItSyncsFlows(
+        row.claims,
+        integrationOwnerFlowContext({ ...row, poweredByProduct: raw }),
+      ),
+    })),
+    ...raw.evidencedPairsAsConnector.map((row) => ({
+      aId: row.productA.id,
+      bId: row.productB.id,
+      flows: whatItSyncsFlows(row.claims, ownerFlowContextOf(row, raw)),
+    })),
+  ];
+  return {
+    sync_facts: anyFact ? facts : null,
+    what_it_syncs: rollUpWhatItSyncs(rows, raw.id),
+  };
+}
+
+function blankToNull(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? '';
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 /** The `connector_evidenced_pairs` arm of the same bucket (AECI-1080). A claim's
@@ -2518,6 +2674,7 @@ export function toPoweredIntegrationItemFromEvidencedPair(
   return {
     ...toIntegrationListItemFromEvidencedPair(raw),
     data_object_slugs: productDetailDataObjectSlugs(poweredPublicClaims(raw.claims, ctx)),
+    endpoint_categories: endpointCategories(raw.productA, raw.productB),
   };
 }
 
@@ -2801,6 +2958,8 @@ function toProductPairMechanism(
     connector_vendor_id: connectorVendorId(raw.poweredByProduct),
     // AECI-2043: the connector's kind, for the "Not offered or endorsed by" line.
     connector_kind: pairConnectorKind(raw.poweredByProduct),
+    // AECI-2046: the connector's own rating, shown on a Sync Service card.
+    connector_rating: pairConnectorRating(raw.poweredByProduct),
     // AECI-1154: the owner's pricing page link. Owner-written only; promote never.
     pricing_url: publicPricingUrl(raw.pricingUrl),
     // Sort FIRST, then drop: ordering stays this mapper's job and is independent
@@ -2885,6 +3044,8 @@ function toProductPairMechanismFromEvidencedPair(
     connector_vendor_id: connectorVendorId(raw.connectorProduct),
     // AECI-2043: the same fact as the `integrations` arm, read from `via`'s product.
     connector_kind: pairConnectorKind(raw.connectorProduct),
+    // AECI-2046: the same fact as the `integrations` arm, read from `via`'s product.
+    connector_rating: pairConnectorRating(raw.connectorProduct),
     // AECI-1154: the owner edits it here too (AECI-1090). Promote never does.
     pricing_url: publicPricingUrl(raw.pricingUrl),
     // Same sort-then-drop as `toProductPairMechanism`; only the frame flag differs.
@@ -3802,6 +3963,7 @@ export function toProductDetail(
     extensions: extensionRows.extensions.map(toProductListItem),
     reviews,
     reachable_pair_count: reachOnlyPartnerCount(reachablePartnerIds, deliveredPartnerIds),
+    ...toSyncServiceBlock(raw),
     maintenance: toMaintenance(raw),
     captions: {
       ...productGroupCaptions({
