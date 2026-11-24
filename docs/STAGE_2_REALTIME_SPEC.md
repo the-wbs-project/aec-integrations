@@ -561,6 +561,7 @@ The entitlement flip, the session count and the hoist all shipped; the three as-
 > | `vendor-product-form.ts:195` | a product save succeeded | Products | **keep**; **moved to the channel by AECI-1810** |
 > | `vendor-add-claim-form.ts:218` | the lane being composed already exists | **Integrations** | **keep** |
 > | `vendor-attestation-control.ts` divergence notice | two owned slots record different details | **Integrations** | **role removed 2026-08-19** |
+> | `vendor-seat-invite-form.ts` "Invite sent to" line | an invite was sent from the Invite dialog | Seats | **keep** (AECI-1812). The dialog is modal, and the CDK hides everything outside it from assistive tech while it is open, the shell's live region included. The announcer would say nothing, so this line stays beside the control just used. The roster's own result line moved to the channel in the same issue |
 >
 > **Both Integrations-tab rows are retired by AECI-1156** (2026-09-28, see the note in §6.3 above and
 > `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17): this finding's file names are history, not current locations.
