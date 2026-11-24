@@ -133,7 +133,7 @@ const SPY_TOP_PX = 80;
                 size="sm"
               />
             </span>
-            <p class="min-w-0 truncate font-display text-t-16 font-semibold text-(--text-primary)">
+            <p class="min-w-0 truncate font-display text-t-20 font-semibold text-(--text-primary)">
               {{ title() }}
             </p>
             <aec-vendor-tip

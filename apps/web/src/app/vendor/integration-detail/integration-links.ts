@@ -101,9 +101,7 @@ interface SideGroup {
     <div class="mt-4 space-y-8 text-sm">
       <div>
         <div class="flex items-center gap-1">
-          <h4 class="aec-overline text-(--text-secondary)" i18n="@@vendor.im.links.record">
-            On the integration
-          </h4>
+          <h4 [class]="overline" i18n="@@vendor.im.links.record">On the integration</h4>
           <aec-vendor-tip [label]="aboutRecord" [lines]="[recordTip()]" />
         </div>
         @if (connector()) {
@@ -653,6 +651,7 @@ export class IntegrationLinksSection {
   }
 
   protected readonly input = INPUT;
+  protected readonly overline = 'aec-overline text-(--text-secondary)';
   protected readonly alert = ALERT;
   protected readonly valueLinkClass =
     'inline-flex min-w-0 items-center gap-2 rounded-mark text-(--text-primary) underline decoration-(--border-strong) underline-offset-4 hover:text-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';

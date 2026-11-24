@@ -81,7 +81,7 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
             statusLabel(p.status)
           }}</aec-chip>
         </div>
-        <dl class="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-sm">
+        <dl class="grid gap-x-3 gap-y-1 text-sm sm:grid-cols-[max-content_minmax(0,1fr)]">
           <dt class="text-(--text-secondary)" i18n="@@vendor.protest.basis">Asked because</dt>
           <dd class="text-(--text-primary)">
             @if (p.basis === 'silence') {

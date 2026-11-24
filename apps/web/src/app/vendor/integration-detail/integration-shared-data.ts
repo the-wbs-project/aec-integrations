@@ -248,7 +248,7 @@ import { isReplayedEvent } from '../../core/event-replay';
       </p>
     } @else {
       <div
-        class="mt-3 overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        class="relative mt-4 overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
         tabindex="0"
         role="region"
         [attr.aria-label]="caption()"

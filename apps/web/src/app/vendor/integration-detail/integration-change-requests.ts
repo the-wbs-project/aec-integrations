@@ -687,7 +687,7 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                   >
                     <aec-icon name="chevron-right" decorative [size]="4" [mirrorRtl]="true" />
                   </span>
-                  <span class="min-w-0 flex-1 text-(--text-primary)">{{
+                  <span class="min-w-0 flex-[1_1_12rem] text-(--text-primary)">{{
                     change(item.contest)
                   }}</span>
                   <aec-chip
