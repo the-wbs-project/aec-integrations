@@ -14,10 +14,7 @@ import { RouterLink } from '@angular/router';
 import { AecButton } from '../../shared/button/button';
 import { Chip } from '../../shared/chip/chip';
 import { foundViaLabel } from '../../shared/found-via/found-via-labels';
-import {
-  FIELD_HINT_CLASS,
-  FIELD_INPUT_CLASS,
-} from '../../shared/form-field/form-field-classes';
+import { FIELD_HINT_CLASS, FIELD_INPUT_CLASS } from '../../shared/form-field/form-field-classes';
 import { AecIcon } from '../../shared/icon/icon';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 

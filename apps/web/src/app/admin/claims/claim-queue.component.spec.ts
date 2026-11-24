@@ -190,7 +190,9 @@ describe('ClaimQueue', () => {
     expect(el.textContent).toContain('Procore');
     expect(el.textContent).toContain('amy@vendor.test');
     expect(el.textContent).toContain('claim the listing');
-    expect(el.querySelector('th[scope="row"] a')?.getAttribute('href')).toContain('/products/procore');
+    expect(el.querySelector('th[scope="row"] a')?.getAttribute('href')).toContain(
+      '/products/procore',
+    );
   });
 
   it('links a vendor target to the vendor detail page', async () => {
@@ -203,7 +205,9 @@ describe('ClaimQueue', () => {
         }),
       ]),
     );
-    expect(el.querySelector('th[scope="row"] a')?.getAttribute('href')).toContain('/vendors/autodesk');
+    expect(el.querySelector('th[scope="row"] a')?.getAttribute('href')).toContain(
+      '/vendors/autodesk',
+    );
   });
 
   it('renders a non-linked fallback when the target is missing', async () => {
@@ -1001,7 +1005,9 @@ describe('ClaimQueue', () => {
       expect(el.querySelectorAll(RECORD)).toHaveLength(2);
 
       const card = cardFor(el, 'Procore');
-      const toggle = card.querySelector<HTMLButtonElement>('button[aria-controls="claim-c1-detail"]')!;
+      const toggle = card.querySelector<HTMLButtonElement>(
+        'button[aria-controls="claim-c1-detail"]',
+      )!;
       const detail = card.querySelector<HTMLElement>('#claim-c1-detail')!;
       expect(toggle.getAttribute('aria-expanded')).toBe('false');
       expect(toggle.textContent?.trim()).toBe('Claim on Procore by Sam Submitter');

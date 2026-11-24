@@ -5,12 +5,20 @@
  */
 
 /**
- * A link inside a detail row or a panel: primary ink, underlined at rest so it
- * reads as a link outside a table cell, Forest on hover. The table's own `link`
- * part is for the identity cell, where the row already says "this is a record".
+ * A link inside a detail row or a panel (mock-up 14 `.inlink`): Forest, underlined
+ * at rest so it reads as a link outside a table cell. The table's own `link` part is
+ * for the identity cell, where the row already says "this is a record".
  */
 export const CLAIM_INLINE_LINK_CLASS =
-  'inline-flex items-center gap-1 rounded-mark font-semibold text-(--text-primary) underline decoration-(--border-strong) underline-offset-3 hover:text-(--accent-primary) hover:decoration-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-3';
+  'inline-flex items-center gap-1 rounded-mark text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-3 focus-visible:outline-offset-3';
+
+/** A detail page's facts (mock-up 14 `.facts-dl`): label over value, auto-fill columns. */
+export const DETAIL_FACTS_CLASS =
+  'grid grid-cols-[repeat(auto-fill,minmax(8rem,1fr))] gap-x-6 gap-y-4 md:grid-cols-[repeat(auto-fill,minmax(12rem,1fr))]';
+
+/** A value under a detail page's fact label. */
+export const DETAIL_FACT_VALUE_CLASS =
+  'mt-1 text-t-16 text-(--text-primary) [overflow-wrap:anywhere]';
 
 /**
  * A neutral flag box: a fact the operator should see before acting that is not a
