@@ -66,7 +66,7 @@ HEADER = f"""<a class="skip" href="#main">Skip to main content</a>
     </nav>
     <div class="head-actions">
       <button class="acct" type="button" aria-expanded="false" aria-haspopup="true">{ico("user")}<span class="sr">Account menu, </span><span class="badge" aria-hidden="true">7</span><span class="sr">7 reviews awaiting moderation</span></button>
-      <button class="menu-btn" type="button" aria-label="Menu" aria-expanded="false">{ico("menu")}</button>
+      <button class="menu-btn" type="button" aria-expanded="false">{ico("menu")}<span class="sr">Menu, 7 reviews awaiting moderation</span><span class="badge" aria-hidden="true">7</span></button>
     </div>
   </div>
 </header>"""
@@ -217,14 +217,14 @@ def review_rows():
 </tr>
 <tr class="xrow" id="{rid}-x" hidden>
   <td colspan="9">
-    <div class="xgrid">
+    <div class="xin"><div class="xgrid">
       <div>
         <p class="rv-title">{e(title)}</p>
         <p class="rv-body">{e(body)}</p>
         <p class="rv-meta"><span>{role}</span>{yrs_html}<span>{rec}</span></p>
       </div>
       {decide_form(rid, demo=open_)}
-    </div>
+    </div></div>
   </td>
 </tr>""")
     return "\n".join(out)
@@ -246,7 +246,7 @@ def decide_form(rid, demo):
           <label class="lbl" for="{rid}-reason">Reason for rejection</label>
           <textarea class="field ta" id="{rid}-reason" rows="3" maxlength="500" aria-describedby="{rid}-help{(' ' + rid + '-err') if demo else ''}"{' data-demo-invalid' if demo else ''}></textarea>
           {err}
-          <p class="help" id="{rid}-help">The reviewer reads this on their account page. Name the guideline the review breaks.</p>
+          <p class="help" id="{rid}-help">Shown to the reviewer on their account page. Name the guideline the review breaks.</p>
           <div class="btns"><button class="btn btn-primary" type="submit">Confirm rejection</button><button class="btn btn-ghost" type="button" data-reject-cancel>Cancel</button></div>
         </form>
       </div>"""
@@ -318,14 +318,14 @@ def seat_rows():
         fl = " ".join(chip(f, "critical" if f == "Banned" else "neutral") for f in flags) or dash("No flags")
         demo = i == 2
         out.append(f"""<tr data-row>
-  <th scope="row">{e(name)}<span class="sub">{e(mail)}</span></th>
+  <th scope="row"><a href="#">{e(name)}<span class="sr"> (open user page)</span></a><span class="sub">{e(mail)}</span></th>
   <td>{role}</td>
   <td><span class="chips" style="display:flex;flex-wrap:wrap;gap:4px">{fl}</span></td>
   <td class="nowrap">{created}</td>
-  <td class="act"><a class="btn btn-ghost btn-compact" href="#">Open user page</a><button class="btn btn-secondary btn-compact" type="button" aria-expanded="false" aria-controls="seat{i}-x" data-disc{' data-demo-open' if demo else ''}>Remove seat<span class="sr">: {e(name)}</span></button></td>
+  <td class="act"><button class="btn btn-secondary btn-compact" type="button" aria-expanded="false" aria-controls="seat{i}-x" data-disc{' data-demo-open' if demo else ''}>Remove seat<span class="sr">: {e(name)}</span></button></td>
 </tr>
 <tr class="xrow" id="seat{i}-x" hidden><td colspan="5" style="padding-left:12px">
-  <form class="fld" method="dialog" novalidate style="max-width:36rem;padding-top:8px">
+  <div class="xin"><form class="fld" method="dialog" novalidate style="max-width:36rem;padding-top:8px">
     <p class="warnbox">Remove this seat? They lose portal access immediately and keep their AECi account. Only a fresh grant restores it. There is no undo on this screen.</p>
     <label class="lbl" for="seat{i}-r">Reason shown to the vendor (required)</label>
     <textarea class="field ta" id="seat{i}-r" rows="3" aria-describedby="seat{i}-h{(' seat' + str(i) + '-e') if demo else ''}"{' data-demo-invalid' if demo else ''}></textarea>
@@ -334,7 +334,7 @@ def seat_rows():
     <label class="lbl" for="seat{i}-n">Internal note (optional, never shown to the vendor)</label>
     <textarea class="field ta" id="seat{i}-n" rows="2"></textarea>
     <div class="btns" style="margin-top:8px"><button class="btn btn-danger" type="submit">Confirm removal</button><button class="btn btn-ghost" type="button" data-close>Cancel</button></div>
-  </form>
+  </form></div>
 </td></tr>""")
     return "\n".join(out)
 
@@ -425,7 +425,7 @@ DETAIL = f"""<section class="pg pg-detail" aria-labelledby="v-h">
       <section class="panel" aria-labelledby="su-h">
         <h3 id="su-h">Suspension</h3>
         <p class="caption" style="margin-top:12px">This vendor is not suspended. To end a vendor, suspend it first: the vendor gets a notice and 7 business days before Terminate is possible.</p>
-        <div class="btns" style="margin-top:16px"><button class="btn btn-danger btn-compact" type="button" aria-expanded="false" aria-controls="su-f" data-ictl>Suspend</button></div>
+        <div class="btns" style="margin-top:16px"><button class="btn btn-secondary btn-compact" type="button" aria-expanded="false" aria-controls="su-f" data-ictl>Suspend</button></div>
         <form class="formbox" id="su-f" method="dialog" novalidate hidden>
           <p class="warnbox">This locks every seat out at once and sends the notice to the owner seats and the billing email. The listing stays live and billing is untouched.</p>
           <div class="fld"><span class="lbl" id="su-k">Kind</span><button class="field select-like" type="button" aria-haspopup="listbox" aria-labelledby="su-k su-kv"><span id="su-kv">Identity not proven</span>{ico("chev", "s")}</button></div>
@@ -515,7 +515,8 @@ def chart_table():
         day = f"Oct {25 + i}" if i < 7 else f"Nov {i - 6}"
         rows.append(f"<tr><th scope=\"row\">{day}</th>{''.join(f'<td>{x:,}</td>' for x in v)}</tr>")
     head = "".join(f'<th scope="col">{e(n)}</th>' for n, _ in CLASSES)
-    return f'<table class="sr"><caption>Page requests per day over the last 30 UTC days, by traffic class</caption><thead><tr><th scope="col">UTC day</th>{head}</tr></thead><tbody>{"".join(rows)}</tbody></table>'
+    # The wrapper carries .sr: a table will not shrink to the 1px box itself.
+    return f'<div class="sr"><table><caption>Page requests per day over the last 30 UTC days, by traffic class</caption><thead><tr><th scope="col">UTC day</th>{head}</tr></thead><tbody>{"".join(rows)}</tbody></table></div>'
 
 
 def ranked(items):
@@ -545,9 +546,9 @@ OVERVIEW = f"""<section class="pg pg-overview" aria-labelledby="o-h">
   </section>
 
   <div class="tiles">
-    <section class="panel tile" aria-labelledby="t1"><h3 class="lbl" id="t1">Unique visitors</h3><p class="tile-fig s-full">412</p><p class="tile-fig nm s-empty">Not measured</p><p class="tile-delta s-full">+38 vs 374 the prior day</p><p class="caption">UTC day 2026-11-23. A visitor is a distinct browser-and-network pair.</p></section>
-    <section class="panel tile" aria-labelledby="t2"><h3 class="lbl" id="t2">New sign-ins</h3><p class="tile-fig s-full">6</p><p class="tile-fig nm s-empty">Not measured</p><p class="tile-delta s-full">No change vs the prior day</p><p class="caption">UTC day 2026-11-23</p></section>
-    <section class="panel tile" aria-labelledby="t3"><h3 class="lbl" id="t3">Active subscribers</h3><p class="tile-fig">128</p><p class="caption">Live total as of now, not a daily figure.</p></section>
+    <section class="panel ovtile" aria-labelledby="t1"><p class="lbl" id="t1">Unique visitors</p><p class="tile-fig s-full">412</p><p class="tile-fig nm s-empty">Not measured</p><p class="tile-delta s-full">+38 vs 374 the prior day</p><p class="caption">UTC day 2026-11-23. A visitor is a distinct browser-and-network pair.</p></section>
+    <section class="panel ovtile" aria-labelledby="t2"><p class="lbl" id="t2">New sign-ins</p><p class="tile-fig s-full">6</p><p class="tile-fig nm s-empty">Not measured</p><p class="tile-delta s-full">No change vs the prior day</p><p class="caption">UTC day 2026-11-23</p></section>
+    <section class="panel ovtile" aria-labelledby="t3"><p class="lbl" id="t3">Active subscribers</p><p class="tile-fig">128</p><p class="caption">Live total as of now, not a daily figure.</p></section>
   </div>
 
   <div class="ovgrid">
@@ -556,7 +557,7 @@ OVERVIEW = f"""<section class="pg pg-overview" aria-labelledby="o-h">
       <div class="s-full">
         <div class="chart">
           {chart_svg()}
-          <span class="ylab" style="top:0">1,400</span><span class="ylab" style="top:50%">700</span>
+          <span class="ylab" style="top:6px" aria-hidden="true">1,400</span><span class="ylab" style="top:110px" aria-hidden="true">700</span><span class="ylab" style="top:214px" aria-hidden="true">0</span>
           <div class="axis" aria-hidden="true"><span>Oct 25</span><span>Nov 8</span><span>Nov 23</span></div>
         </div>
         <ul class="legend">{''.join(f'<li><span class="key" style="background:{c}" aria-hidden="true"></span>{e(n)}</li>' for n, c in CLASSES)}</ul>
@@ -777,13 +778,16 @@ SCRIPT = """<script>
     var s = readHash();
     ['page', 'state', 'panel', 'density', 'labels', 'grace', 'crumb'].forEach(function (k) { root.dataset[k] = s[k]; });
     root.dataset.vtab = s.vtab || root.dataset.vtab || 'vendor';
+    // #legend=off hides the legend panel, for pictures of the page alone.
+    root.dataset.legend = new URLSearchParams(location.hash.slice(1)).get('legend') || 'on';
+    q('[data-vtab-link]').forEach(function (a) { if (a.dataset.vtabLink === root.dataset.vtab) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
     document.title = { queue: 'Review queue', detail: 'Northbeam Software', overview: 'Overview' }[s.page] + ' · Admin · AEC Integrations (mock-up 14)';
     resetDemo();
     var cur = { queue: ['ops', 'Review queue'], detail: ['ops', 'Vendors'], overview: ['ins', 'Overview'] }[s.page];
     q('.sec-trigger').forEach(function (b) { if (b.dataset.groupBtn === cur[0]) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current'); });
     q('.menu a').forEach(function (a) { if (a.dataset.item === cur[1]) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
     if (s.state === 'expanded' || s.state === 'error') {
-      var pg = document.querySelector('.pg-' + s.page);
+      var pg = document.querySelector('section.pg-' + s.page);
       q('[data-demo-open]', pg).forEach(function (b) {
         if (b.closest('.tabpane') && !b.closest('.tab-' + root.dataset.vtab)) return;
         setOpen(b, true);
@@ -808,13 +812,14 @@ SCRIPT = """<script>
     }
     var r = ev.target.closest('[data-reject-open]');
     if (r) {
-      var d = r.closest('.decide'); d.querySelector('[data-choose]').hidden = true;
+      var d = r.closest('.decide'); r.setAttribute('aria-expanded', 'true'); d.querySelector('[data-choose]').hidden = true;
       var f = d.querySelector('[data-reject-form]'); f.hidden = false; f.querySelector('textarea').focus(); return;
     }
     var rc = ev.target.closest('[data-reject-cancel]');
     if (rc) {
       var d2 = rc.closest('.decide'); d2.querySelector('[data-reject-form]').hidden = true;
-      d2.querySelector('[data-choose]').hidden = false; d2.querySelector('[data-reject-open]').focus(); return;
+      var ro = d2.querySelector('[data-reject-open]'); ro.setAttribute('aria-expanded', 'false');
+      d2.querySelector('[data-choose]').hidden = false; ro.focus(); return;
     }
     var seg = ev.target.closest('.seg button');
     if (seg) { q('button', seg.parentNode).forEach(function (x) { x.setAttribute('aria-pressed', String(x === seg)); }); return; }

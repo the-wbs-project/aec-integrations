@@ -13,6 +13,9 @@
   --chart-grid: var(--border-default);
 }
 
+/* A display rule never beats the hidden attribute. */
+[hidden] { display: none !important; }
+
 /* ---------- Harness: the control strip and the page frame (mock-up chrome only) ---------- */
 [data-mode='harness'] body { overflow: hidden; background: #3A3A3A; }
 [data-mode='harness'] .site { display: none; }
@@ -32,8 +35,9 @@
 .stage iframe { flex: none; height: 100%; border: 0; background: #FFF; box-shadow: 0 0 0 1px #000; }
 
 /* ---------- Shell ---------- */
-.adm { padding: 48px 0 96px; }
-@media (max-width: 767px) { .adm { padding: 32px 0 64px; } }
+/* Block padding only: the band wrap owns the side gutters (24, 32, 48px). */
+.adm { padding-block: 48px 96px; }
+@media (max-width: 767px) { .adm { padding-block: 32px 64px; } }
 /* Headings at their global sizes: h1 --t-fig, h2 --t-24, h3 --t-20 (the Unlayered-Heading Rule). */
 .adm h1 { font-size: var(--t-fig); line-height: 1.15; letter-spacing: -0.005em; }
 .adm h2 { font-size: var(--t-24); line-height: 1.25; }
@@ -53,6 +57,8 @@
 /* The dropdown panel: the shared popover (white, hairline, 12px, menu shadow). */
 .dd-panel { position: absolute; top: 100%; left: 0; z-index: 40; padding-top: 4px; }
 .dd-panel.end { left: auto; right: 0; }
+/* From md the row has room to the right, so the wide Operations panel hangs from its start. */
+@media (min-width: 768px) { .dd-panel.end { left: 0; right: auto; } }
 .dd-panel[hidden] { display: none; }
 .menu { width: 16rem; padding: 8px; border: 1px solid var(--border-default); border-radius: var(--radius-control); background: var(--surface-base); box-shadow: var(--shadow-menu); }
 .menu.two { width: 34rem; display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
@@ -117,7 +123,7 @@
 .hint-btn { display: inline-grid; place-items: center; width: 24px; height: 24px; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); background: var(--surface-base); color: var(--text-secondary); font: 600 var(--t-13)/1 var(--font-body); cursor: pointer; }
 
 /* Panels: flat bordered at the panel radius, or the shared card (Options). */
-.panel { padding: 24px; border: 1px solid var(--border-default); border-radius: var(--radius-panel); background: var(--surface-base); min-width: 0; }
+.panel { position: relative; padding: 24px; border: 1px solid var(--border-default); border-radius: var(--radius-panel); background: var(--surface-base); min-width: 0; }
 [data-panel='card'] .panel { border-color: transparent; border-radius: var(--radius-card); box-shadow: var(--shadow-card); }
 .panel > h3 + *, .panel > .ph + * { margin-top: 16px; }
 .ph { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; }
@@ -127,7 +133,8 @@
 .dgrid > div { display: grid; gap: 24px; min-width: 0; }
 
 /* Facts list. */
-.facts-dl { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: 16px 24px; }
+.facts-dl { display: grid; grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr)); gap: 16px 24px; }
+@media (min-width: 768px) { .facts-dl { grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); } }
 .facts-dl dd { margin-top: 4px; font-size: var(--t-16); overflow-wrap: anywhere; }
 .facts-dl dd .caption { display: block; }
 .idrow { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; margin-top: 16px; }
@@ -144,7 +151,13 @@
 [data-vtab='vendor'] .tab-vendor, [data-vtab='billing'] .tab-billing { display: block; }
 
 /* ---------- The console table ---------- */
-.tw { overflow-x: auto; }
+/* position: relative keeps visually hidden text inside the clip; without it a hidden
+   header label at x = 1000 widens the whole document on a phone. */
+.tw { position: relative; overflow-x: auto; container-type: inline-size; }
+/* An expanded row's content stays in view while the table scrolls sideways: it sticks
+   to the region's start edge and is never wider than the region. */
+.xin { position: sticky; left: 0; width: calc(100cqw - 24px); max-width: 100%; }
+@media (min-width: 768px) { .xin { width: calc(100cqw - 68px); } }
 .tw:focus-visible { outline-offset: 0; }
 .ct { width: 100%; border-collapse: collapse; font-size: var(--t-14); line-height: 24px; }
 .ct caption { text-align: start; }
@@ -231,15 +244,16 @@
 .tile-fig { margin-top: 8px; font: 600 var(--t-36)/1 var(--font-display); letter-spacing: -0.01em; color: var(--accent-primary); font-variant-numeric: tabular-nums lining-nums; }
 .tile-fig.nm { font: 400 var(--t-16)/1.5 var(--font-body); color: var(--text-secondary); letter-spacing: 0; }
 .tile-delta { margin-top: 8px; font-size: var(--t-14); }
-.tile .caption { margin-top: 8px; }
+.ovtile .caption { margin-top: 8px; }
 .ovgrid { display: grid; gap: 24px; margin-top: 24px; }
 @media (min-width: 1024px) { .ovgrid { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: start; } }
 .totals { display: flex; flex-wrap: wrap; gap: 16px 48px; }
 .totals dd { margin-top: 4px; font: 600 var(--t-24)/1.25 var(--font-display); font-variant-numeric: tabular-nums lining-nums; }
-.chart { position: relative; margin-top: 16px; }
+/* Axis labels are HTML in a 48px gutter, positioned by percentage over the SVG. */
+.chart { position: relative; margin-top: 16px; padding-left: 48px; }
 .chart svg { display: block; width: 100%; height: 220px; }
 .chart .axis { display: flex; justify-content: space-between; margin-top: 8px; font-size: var(--t-13); color: var(--text-secondary); font-variant-numeric: tabular-nums; }
-.chart .ylab { position: absolute; left: 0; font-size: var(--t-13); line-height: 1; color: var(--text-secondary); background: var(--surface-base); padding-right: 4px; font-variant-numeric: tabular-nums; }
+.chart .ylab { position: absolute; left: 0; width: 40px; text-align: end; transform: translateY(-50%); font-size: var(--t-13); line-height: 1; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .legend { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-top: 16px; font-size: var(--t-14); }
 .legend li { display: inline-flex; align-items: center; gap: 8px; }
 .key { width: 12px; height: 12px; border-radius: 2px; flex: none; }
@@ -257,7 +271,11 @@
 
 /* ---------- Header: the signed-in account trigger ---------- */
 .acct { position: relative; display: inline-grid; place-items: center; width: 44px; height: 44px; border: 1px solid var(--border-on-brand-strong); border-radius: var(--radius-control); background: var(--surface-on-brand-wash); color: var(--text-on-brand); }
-.acct .badge { position: absolute; top: -8px; right: -8px; min-width: 24px; height: 24px; padding: 0 4px; border: 2px solid var(--text-on-brand); border-radius: var(--radius-pill); background: var(--status-error); color: var(--surface-base); font: 600 var(--t-12)/20px var(--font-body); text-align: center; }
+/* Below lg the account block lives in the mobile menu, so the badge moves to the menu button. */
+.menu-btn { position: relative; }
+@media (max-width: 1023px) { .acct { display: none; } }
+@media (min-width: 1024px) { .menu-btn .badge { display: none; } }
+.acct .badge, .menu-btn .badge { position: absolute; top: -8px; right: -8px; min-width: 24px; height: 24px; padding: 0 4px; border: 2px solid var(--text-on-brand); border-radius: var(--radius-pill); background: var(--status-error); color: var(--surface-base); font: 600 var(--t-12)/20px var(--font-body); text-align: center; }
 
 /* ---------- The legend panel (mock-up notes, not part of the page) ---------- */
 .legend-panel { padding: 64px 0 96px; background: var(--surface-raised); border-top: 2px dashed var(--border-strong); }
@@ -270,3 +288,5 @@
 .legend-panel ol.find li + li { margin-top: 8px; }
 .legend-panel code { font-size: 0.875em; }
 .legend-panel .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+
+[data-legend='off'] .legend-panel { display: none; }

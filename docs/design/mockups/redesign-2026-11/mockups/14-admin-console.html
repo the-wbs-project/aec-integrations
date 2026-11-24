@@ -272,6 +272,9 @@ tbody tr:hover, tbody tr:focus-within { background: var(--surface-muted); }
   --chart-grid: var(--border-default);
 }
 
+/* A display rule never beats the hidden attribute. */
+[hidden] { display: none !important; }
+
 /* ---------- Harness: the control strip and the page frame (mock-up chrome only) ---------- */
 [data-mode='harness'] body { overflow: hidden; background: #3A3A3A; }
 [data-mode='harness'] .site { display: none; }
@@ -291,8 +294,9 @@ tbody tr:hover, tbody tr:focus-within { background: var(--surface-muted); }
 .stage iframe { flex: none; height: 100%; border: 0; background: #FFF; box-shadow: 0 0 0 1px #000; }
 
 /* ---------- Shell ---------- */
-.adm { padding: 48px 0 96px; }
-@media (max-width: 767px) { .adm { padding: 32px 0 64px; } }
+/* Block padding only: the band wrap owns the side gutters (24, 32, 48px). */
+.adm { padding-block: 48px 96px; }
+@media (max-width: 767px) { .adm { padding-block: 32px 64px; } }
 /* Headings at their global sizes: h1 --t-fig, h2 --t-24, h3 --t-20 (the Unlayered-Heading Rule). */
 .adm h1 { font-size: var(--t-fig); line-height: 1.15; letter-spacing: -0.005em; }
 .adm h2 { font-size: var(--t-24); line-height: 1.25; }
@@ -312,6 +316,8 @@ tbody tr:hover, tbody tr:focus-within { background: var(--surface-muted); }
 /* The dropdown panel: the shared popover (white, hairline, 12px, menu shadow). */
 .dd-panel { position: absolute; top: 100%; left: 0; z-index: 40; padding-top: 4px; }
 .dd-panel.end { left: auto; right: 0; }
+/* From md the row has room to the right, so the wide Operations panel hangs from its start. */
+@media (min-width: 768px) { .dd-panel.end { left: 0; right: auto; } }
 .dd-panel[hidden] { display: none; }
 .menu { width: 16rem; padding: 8px; border: 1px solid var(--border-default); border-radius: var(--radius-control); background: var(--surface-base); box-shadow: var(--shadow-menu); }
 .menu.two { width: 34rem; display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
@@ -376,7 +382,7 @@ tbody tr:hover, tbody tr:focus-within { background: var(--surface-muted); }
 .hint-btn { display: inline-grid; place-items: center; width: 24px; height: 24px; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); background: var(--surface-base); color: var(--text-secondary); font: 600 var(--t-13)/1 var(--font-body); cursor: pointer; }
 
 /* Panels: flat bordered at the panel radius, or the shared card (Options). */
-.panel { padding: 24px; border: 1px solid var(--border-default); border-radius: var(--radius-panel); background: var(--surface-base); min-width: 0; }
+.panel { position: relative; padding: 24px; border: 1px solid var(--border-default); border-radius: var(--radius-panel); background: var(--surface-base); min-width: 0; }
 [data-panel='card'] .panel { border-color: transparent; border-radius: var(--radius-card); box-shadow: var(--shadow-card); }
 .panel > h3 + *, .panel > .ph + * { margin-top: 16px; }
 .ph { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; }
@@ -386,7 +392,8 @@ tbody tr:hover, tbody tr:focus-within { background: var(--surface-muted); }
 .dgrid > div { display: grid; gap: 24px; min-width: 0; }
 
 /* Facts list. */
-.facts-dl { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: 16px 24px; }
+.facts-dl { display: grid; grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr)); gap: 16px 24px; }
+@media (min-width: 768px) { .facts-dl { grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); } }
 .facts-dl dd { margin-top: 4px; font-size: var(--t-16); overflow-wrap: anywhere; }
 .facts-dl dd .caption { display: block; }
 .idrow { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; margin-top: 16px; }
@@ -403,7 +410,13 @@ tbody tr:hover, tbody tr:focus-within { background: var(--surface-muted); }
 [data-vtab='vendor'] .tab-vendor, [data-vtab='billing'] .tab-billing { display: block; }
 
 /* ---------- The console table ---------- */
-.tw { overflow-x: auto; }
+/* position: relative keeps visually hidden text inside the clip; without it a hidden
+   header label at x = 1000 widens the whole document on a phone. */
+.tw { position: relative; overflow-x: auto; container-type: inline-size; }
+/* An expanded row's content stays in view while the table scrolls sideways: it sticks
+   to the region's start edge and is never wider than the region. */
+.xin { position: sticky; left: 0; width: calc(100cqw - 24px); max-width: 100%; }
+@media (min-width: 768px) { .xin { width: calc(100cqw - 68px); } }
 .tw:focus-visible { outline-offset: 0; }
 .ct { width: 100%; border-collapse: collapse; font-size: var(--t-14); line-height: 24px; }
 .ct caption { text-align: start; }
@@ -490,15 +503,16 @@ tbody tr:hover, tbody tr:focus-within { background: var(--surface-muted); }
 .tile-fig { margin-top: 8px; font: 600 var(--t-36)/1 var(--font-display); letter-spacing: -0.01em; color: var(--accent-primary); font-variant-numeric: tabular-nums lining-nums; }
 .tile-fig.nm { font: 400 var(--t-16)/1.5 var(--font-body); color: var(--text-secondary); letter-spacing: 0; }
 .tile-delta { margin-top: 8px; font-size: var(--t-14); }
-.tile .caption { margin-top: 8px; }
+.ovtile .caption { margin-top: 8px; }
 .ovgrid { display: grid; gap: 24px; margin-top: 24px; }
 @media (min-width: 1024px) { .ovgrid { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: start; } }
 .totals { display: flex; flex-wrap: wrap; gap: 16px 48px; }
 .totals dd { margin-top: 4px; font: 600 var(--t-24)/1.25 var(--font-display); font-variant-numeric: tabular-nums lining-nums; }
-.chart { position: relative; margin-top: 16px; }
+/* Axis labels are HTML in a 48px gutter, positioned by percentage over the SVG. */
+.chart { position: relative; margin-top: 16px; padding-left: 48px; }
 .chart svg { display: block; width: 100%; height: 220px; }
 .chart .axis { display: flex; justify-content: space-between; margin-top: 8px; font-size: var(--t-13); color: var(--text-secondary); font-variant-numeric: tabular-nums; }
-.chart .ylab { position: absolute; left: 0; font-size: var(--t-13); line-height: 1; color: var(--text-secondary); background: var(--surface-base); padding-right: 4px; font-variant-numeric: tabular-nums; }
+.chart .ylab { position: absolute; left: 0; width: 40px; text-align: end; transform: translateY(-50%); font-size: var(--t-13); line-height: 1; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .legend { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-top: 16px; font-size: var(--t-14); }
 .legend li { display: inline-flex; align-items: center; gap: 8px; }
 .key { width: 12px; height: 12px; border-radius: 2px; flex: none; }
@@ -516,7 +530,11 @@ tbody tr:hover, tbody tr:focus-within { background: var(--surface-muted); }
 
 /* ---------- Header: the signed-in account trigger ---------- */
 .acct { position: relative; display: inline-grid; place-items: center; width: 44px; height: 44px; border: 1px solid var(--border-on-brand-strong); border-radius: var(--radius-control); background: var(--surface-on-brand-wash); color: var(--text-on-brand); }
-.acct .badge { position: absolute; top: -8px; right: -8px; min-width: 24px; height: 24px; padding: 0 4px; border: 2px solid var(--text-on-brand); border-radius: var(--radius-pill); background: var(--status-error); color: var(--surface-base); font: 600 var(--t-12)/20px var(--font-body); text-align: center; }
+/* Below lg the account block lives in the mobile menu, so the badge moves to the menu button. */
+.menu-btn { position: relative; }
+@media (max-width: 1023px) { .acct { display: none; } }
+@media (min-width: 1024px) { .menu-btn .badge { display: none; } }
+.acct .badge, .menu-btn .badge { position: absolute; top: -8px; right: -8px; min-width: 24px; height: 24px; padding: 0 4px; border: 2px solid var(--text-on-brand); border-radius: var(--radius-pill); background: var(--status-error); color: var(--surface-base); font: 600 var(--t-12)/20px var(--font-body); text-align: center; }
 
 /* ---------- The legend panel (mock-up notes, not part of the page) ---------- */
 .legend-panel { padding: 64px 0 96px; background: var(--surface-raised); border-top: 2px dashed var(--border-strong); }
@@ -529,6 +547,8 @@ tbody tr:hover, tbody tr:focus-within { background: var(--surface-muted); }
 .legend-panel ol.find li + li { margin-top: 8px; }
 .legend-panel code { font-size: 0.875em; }
 .legend-panel .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+
+[data-legend='off'] .legend-panel { display: none; }
 </style>
 </head>
 <body>
@@ -577,7 +597,7 @@ tbody tr:hover, tbody tr:focus-within { background: var(--surface-muted); }
     </nav>
     <div class="head-actions">
       <button class="acct" type="button" aria-expanded="false" aria-haspopup="true"><svg class="ico" aria-hidden="true" focusable="false"><use href="#i-user"/></svg><span class="sr">Account menu, </span><span class="badge" aria-hidden="true">7</span><span class="sr">7 reviews awaiting moderation</span></button>
-      <button class="menu-btn" type="button" aria-label="Menu" aria-expanded="false"><svg class="ico" aria-hidden="true" focusable="false"><use href="#i-menu"/></svg></button>
+      <button class="menu-btn" type="button" aria-expanded="false"><svg class="ico" aria-hidden="true" focusable="false"><use href="#i-menu"/></svg><span class="sr">Menu, 7 reviews awaiting moderation</span><span class="badge" aria-hidden="true">7</span></button>
     </div>
   </div>
 </header>
@@ -649,7 +669,7 @@ tbody tr:hover, tbody tr:focus-within { background: var(--surface-muted); }
 </tr>
 <tr class="xrow" id="rv0-x" hidden>
   <td colspan="9">
-    <div class="xgrid">
+    <div class="xin"><div class="xgrid">
       <div>
         <p class="rv-title">Fast takeoffs, slow export</p>
         <p class="rv-body">Takeoffs on a 40-sheet set take an afternoon instead of two days.
@@ -666,11 +686,11 @@ The export to our estimating tool drops the assembly codes, so we still retype t
           <label class="lbl" for="rv0-reason">Reason for rejection</label>
           <textarea class="field ta" id="rv0-reason" rows="3" maxlength="500" aria-describedby="rv0-help"></textarea>
           
-          <p class="help" id="rv0-help">The reviewer reads this on their account page. Name the guideline the review breaks.</p>
+          <p class="help" id="rv0-help">Shown to the reviewer on their account page. Name the guideline the review breaks.</p>
           <div class="btns"><button class="btn btn-primary" type="submit">Confirm rejection</button><button class="btn btn-ghost" type="button" data-reject-cancel>Cancel</button></div>
         </form>
       </div>
-    </div>
+    </div></div>
   </td>
 </tr>
 <tr id="rv1" data-row>
@@ -686,7 +706,7 @@ The export to our estimating tool drops the assembly codes, so we still retype t
 </tr>
 <tr class="xrow" id="rv1-x" hidden>
   <td colspan="9">
-    <div class="xgrid">
+    <div class="xin"><div class="xgrid">
       <div>
         <p class="rv-title">Do not buy this</p>
         <p class="rv-body">Support never answered. The sync wiped two days of model changes and the vendor blamed our server. Whoever built this should be ashamed.</p>
@@ -702,11 +722,11 @@ The export to our estimating tool drops the assembly codes, so we still retype t
           <label class="lbl" for="rv1-reason">Reason for rejection</label>
           <textarea class="field ta" id="rv1-reason" rows="3" maxlength="500" aria-describedby="rv1-help rv1-err" data-demo-invalid></textarea>
           <p class="ferr s-err" id="rv1-err" role="alert"><svg class="ico" aria-hidden="true" focusable="false"><use href="#i-alert"/></svg><span>Enter a reason between 1 and 500 characters so the reviewer understands the decision.</span></p>
-          <p class="help" id="rv1-help">The reviewer reads this on their account page. Name the guideline the review breaks.</p>
+          <p class="help" id="rv1-help">Shown to the reviewer on their account page. Name the guideline the review breaks.</p>
           <div class="btns"><button class="btn btn-primary" type="submit">Confirm rejection</button><button class="btn btn-ghost" type="button" data-reject-cancel>Cancel</button></div>
         </form>
       </div>
-    </div>
+    </div></div>
   </td>
 </tr>
 <tr id="rv2" data-row>
@@ -722,7 +742,7 @@ The export to our estimating tool drops the assembly codes, so we still retype t
 </tr>
 <tr class="xrow" id="rv2-x" hidden>
   <td colspan="9">
-    <div class="xgrid">
+    <div class="xin"><div class="xgrid">
       <div>
         <p class="rv-title">Job costing finally matches the field</p>
         <p class="rv-body">We moved 14 active jobs over a weekend. Cost codes map one to one with our schedule of values.</p>
@@ -738,11 +758,11 @@ The export to our estimating tool drops the assembly codes, so we still retype t
           <label class="lbl" for="rv2-reason">Reason for rejection</label>
           <textarea class="field ta" id="rv2-reason" rows="3" maxlength="500" aria-describedby="rv2-help"></textarea>
           
-          <p class="help" id="rv2-help">The reviewer reads this on their account page. Name the guideline the review breaks.</p>
+          <p class="help" id="rv2-help">Shown to the reviewer on their account page. Name the guideline the review breaks.</p>
           <div class="btns"><button class="btn btn-primary" type="submit">Confirm rejection</button><button class="btn btn-ghost" type="button" data-reject-cancel>Cancel</button></div>
         </form>
       </div>
-    </div>
+    </div></div>
   </td>
 </tr>
 <tr id="rv3" data-row>
@@ -758,7 +778,7 @@ The export to our estimating tool drops the assembly codes, so we still retype t
 </tr>
 <tr class="xrow" id="rv3-x" hidden>
   <td colspan="9">
-    <div class="xgrid">
+    <div class="xin"><div class="xgrid">
       <div>
         <p class="rv-title">Good once it is set up</p>
         <p class="rv-body">The resource view is clear. Getting our crews and calendars in took three calls with support.</p>
@@ -774,11 +794,11 @@ The export to our estimating tool drops the assembly codes, so we still retype t
           <label class="lbl" for="rv3-reason">Reason for rejection</label>
           <textarea class="field ta" id="rv3-reason" rows="3" maxlength="500" aria-describedby="rv3-help"></textarea>
           
-          <p class="help" id="rv3-help">The reviewer reads this on their account page. Name the guideline the review breaks.</p>
+          <p class="help" id="rv3-help">Shown to the reviewer on their account page. Name the guideline the review breaks.</p>
           <div class="btns"><button class="btn btn-primary" type="submit">Confirm rejection</button><button class="btn btn-ghost" type="button" data-reject-cancel>Cancel</button></div>
         </form>
       </div>
-    </div>
+    </div></div>
   </td>
 </tr>
 <tr id="rv4" data-row>
@@ -794,7 +814,7 @@ The export to our estimating tool drops the assembly codes, so we still retype t
 </tr>
 <tr class="xrow" id="rv4-x" hidden>
   <td colspan="9">
-    <div class="xgrid">
+    <div class="xin"><div class="xgrid">
       <div>
         <p class="rv-title">Supers actually use it</p>
         <p class="rv-body">Photo logs attach to the right day without anyone thinking about it.</p>
@@ -810,11 +830,11 @@ The export to our estimating tool drops the assembly codes, so we still retype t
           <label class="lbl" for="rv4-reason">Reason for rejection</label>
           <textarea class="field ta" id="rv4-reason" rows="3" maxlength="500" aria-describedby="rv4-help"></textarea>
           
-          <p class="help" id="rv4-help">The reviewer reads this on their account page. Name the guideline the review breaks.</p>
+          <p class="help" id="rv4-help">Shown to the reviewer on their account page. Name the guideline the review breaks.</p>
           <div class="btns"><button class="btn btn-primary" type="submit">Confirm rejection</button><button class="btn btn-ghost" type="button" data-reject-cancel>Cancel</button></div>
         </form>
       </div>
-    </div>
+    </div></div>
   </td>
 </tr>
 <tr id="rv5" data-row>
@@ -830,7 +850,7 @@ The export to our estimating tool drops the assembly codes, so we still retype t
 </tr>
 <tr class="xrow" id="rv5-x" hidden>
   <td colspan="9">
-    <div class="xgrid">
+    <div class="xin"><div class="xgrid">
       <div>
         <p class="rv-title">Licensing is a mess</p>
         <p class="rv-body">Seats are tied to machines, not people. Every laptop swap is a support ticket.</p>
@@ -846,11 +866,11 @@ The export to our estimating tool drops the assembly codes, so we still retype t
           <label class="lbl" for="rv5-reason">Reason for rejection</label>
           <textarea class="field ta" id="rv5-reason" rows="3" maxlength="500" aria-describedby="rv5-help"></textarea>
           
-          <p class="help" id="rv5-help">The reviewer reads this on their account page. Name the guideline the review breaks.</p>
+          <p class="help" id="rv5-help">Shown to the reviewer on their account page. Name the guideline the review breaks.</p>
           <div class="btns"><button class="btn btn-primary" type="submit">Confirm rejection</button><button class="btn btn-ghost" type="button" data-reject-cancel>Cancel</button></div>
         </form>
       </div>
-    </div>
+    </div></div>
   </td>
 </tr>
 <tr id="rv6" data-row>
@@ -866,7 +886,7 @@ The export to our estimating tool drops the assembly codes, so we still retype t
 </tr>
 <tr class="xrow" id="rv6-x" hidden>
   <td colspan="9">
-    <div class="xgrid">
+    <div class="xin"><div class="xgrid">
       <div>
         <p class="rv-title">Review cycles cut in half</p>
         <p class="rv-body">Architects comment in the same place we track the log. No more PDF ping-pong.</p>
@@ -882,11 +902,11 @@ The export to our estimating tool drops the assembly codes, so we still retype t
           <label class="lbl" for="rv6-reason">Reason for rejection</label>
           <textarea class="field ta" id="rv6-reason" rows="3" maxlength="500" aria-describedby="rv6-help"></textarea>
           
-          <p class="help" id="rv6-help">The reviewer reads this on their account page. Name the guideline the review breaks.</p>
+          <p class="help" id="rv6-help">Shown to the reviewer on their account page. Name the guideline the review breaks.</p>
           <div class="btns"><button class="btn btn-primary" type="submit">Confirm rejection</button><button class="btn btn-ghost" type="button" data-reject-cancel>Cancel</button></div>
         </form>
       </div>
-    </div>
+    </div></div>
   </td>
 </tr>
 <tr id="rv7" data-row>
@@ -902,7 +922,7 @@ The export to our estimating tool drops the assembly codes, so we still retype t
 </tr>
 <tr class="xrow" id="rv7-x" hidden>
   <td colspan="9">
-    <div class="xgrid">
+    <div class="xin"><div class="xgrid">
       <div>
         <p class="rv-title">Works for small models</p>
         <p class="rv-body">Fine under 200 MB. Above that the sync times out and we split the model.</p>
@@ -918,11 +938,11 @@ The export to our estimating tool drops the assembly codes, so we still retype t
           <label class="lbl" for="rv7-reason">Reason for rejection</label>
           <textarea class="field ta" id="rv7-reason" rows="3" maxlength="500" aria-describedby="rv7-help"></textarea>
           
-          <p class="help" id="rv7-help">The reviewer reads this on their account page. Name the guideline the review breaks.</p>
+          <p class="help" id="rv7-help">Shown to the reviewer on their account page. Name the guideline the review breaks.</p>
           <div class="btns"><button class="btn btn-primary" type="submit">Confirm rejection</button><button class="btn btn-ghost" type="button" data-reject-cancel>Cancel</button></div>
         </form>
       </div>
-    </div>
+    </div></div>
   </td>
 </tr>
 <tr id="rv8" data-row>
@@ -938,7 +958,7 @@ The export to our estimating tool drops the assembly codes, so we still retype t
 </tr>
 <tr class="xrow" id="rv8-x" hidden>
   <td colspan="9">
-    <div class="xgrid">
+    <div class="xin"><div class="xgrid">
       <div>
         <p class="rv-title">Solid, plan the rollout</p>
         <p class="rv-body">The AP approvals are the best part. Budget a month for the chart of accounts.</p>
@@ -954,11 +974,11 @@ The export to our estimating tool drops the assembly codes, so we still retype t
           <label class="lbl" for="rv8-reason">Reason for rejection</label>
           <textarea class="field ta" id="rv8-reason" rows="3" maxlength="500" aria-describedby="rv8-help"></textarea>
           
-          <p class="help" id="rv8-help">The reviewer reads this on their account page. Name the guideline the review breaks.</p>
+          <p class="help" id="rv8-help">Shown to the reviewer on their account page. Name the guideline the review breaks.</p>
           <div class="btns"><button class="btn btn-primary" type="submit">Confirm rejection</button><button class="btn btn-ghost" type="button" data-reject-cancel>Cancel</button></div>
         </form>
       </div>
-    </div>
+    </div></div>
   </td>
 </tr>
 <tr id="rv9" data-row>
@@ -974,7 +994,7 @@ The export to our estimating tool drops the assembly codes, so we still retype t
 </tr>
 <tr class="xrow" id="rv9-x" hidden>
   <td colspan="9">
-    <div class="xgrid">
+    <div class="xin"><div class="xgrid">
       <div>
         <p class="rv-title">Overpriced</p>
         <p class="rv-body">Paying per project is ridiculous for what is basically a form app. Total ripoff.</p>
@@ -990,11 +1010,11 @@ The export to our estimating tool drops the assembly codes, so we still retype t
           <label class="lbl" for="rv9-reason">Reason for rejection</label>
           <textarea class="field ta" id="rv9-reason" rows="3" maxlength="500" aria-describedby="rv9-help"></textarea>
           
-          <p class="help" id="rv9-help">The reviewer reads this on their account page. Name the guideline the review breaks.</p>
+          <p class="help" id="rv9-help">Shown to the reviewer on their account page. Name the guideline the review breaks.</p>
           <div class="btns"><button class="btn btn-primary" type="submit">Confirm rejection</button><button class="btn btn-ghost" type="button" data-reject-cancel>Cancel</button></div>
         </form>
       </div>
-    </div>
+    </div></div>
   </td>
 </tr>
 <tr id="rv10" data-row>
@@ -1010,7 +1030,7 @@ The export to our estimating tool drops the assembly codes, so we still retype t
 </tr>
 <tr class="xrow" id="rv10-x" hidden>
   <td colspan="9">
-    <div class="xgrid">
+    <div class="xin"><div class="xgrid">
       <div>
         <p class="rv-title">Look-ahead reports save my Mondays</p>
         <p class="rv-body">Three-week look-aheads print the way the owner wants them.</p>
@@ -1026,11 +1046,11 @@ The export to our estimating tool drops the assembly codes, so we still retype t
           <label class="lbl" for="rv10-reason">Reason for rejection</label>
           <textarea class="field ta" id="rv10-reason" rows="3" maxlength="500" aria-describedby="rv10-help"></textarea>
           
-          <p class="help" id="rv10-help">The reviewer reads this on their account page. Name the guideline the review breaks.</p>
+          <p class="help" id="rv10-help">Shown to the reviewer on their account page. Name the guideline the review breaks.</p>
           <div class="btns"><button class="btn btn-primary" type="submit">Confirm rejection</button><button class="btn btn-ghost" type="button" data-reject-cancel>Cancel</button></div>
         </form>
       </div>
-    </div>
+    </div></div>
   </td>
 </tr>
 <tr id="rv11" data-row>
@@ -1046,7 +1066,7 @@ The export to our estimating tool drops the assembly codes, so we still retype t
 </tr>
 <tr class="xrow" id="rv11-x" hidden>
   <td colspan="9">
-    <div class="xgrid">
+    <div class="xin"><div class="xgrid">
       <div>
         <p class="rv-title">Clean, missing spec links</p>
         <p class="rv-body">Submittals look good. I want to link a spec section, and it only takes free text.</p>
@@ -1062,11 +1082,11 @@ The export to our estimating tool drops the assembly codes, so we still retype t
           <label class="lbl" for="rv11-reason">Reason for rejection</label>
           <textarea class="field ta" id="rv11-reason" rows="3" maxlength="500" aria-describedby="rv11-help"></textarea>
           
-          <p class="help" id="rv11-help">The reviewer reads this on their account page. Name the guideline the review breaks.</p>
+          <p class="help" id="rv11-help">Shown to the reviewer on their account page. Name the guideline the review breaks.</p>
           <div class="btns"><button class="btn btn-primary" type="submit">Confirm rejection</button><button class="btn btn-ghost" type="button" data-reject-cancel>Cancel</button></div>
         </form>
       </div>
-    </div>
+    </div></div>
   </td>
 </tr>
         </tbody>
@@ -1125,14 +1145,14 @@ The export to our estimating tool drops the assembly codes, so we still retype t
             <thead><tr><th scope="col">Person</th><th scope="col">Role</th><th scope="col">Flags</th><th scope="col">Account created</th><th scope="col" class="num">Actions</th></tr></thead>
             <tbody>
 <tr data-row>
-  <th scope="row">Ines Rowe<span class="sub">i.rowe@northbeam.example</span></th>
+  <th scope="row"><a href="#">Ines Rowe<span class="sr"> (open user page)</span></a><span class="sub">i.rowe@northbeam.example</span></th>
   <td>Owner</td>
   <td><span class="chips" style="display:flex;flex-wrap:wrap;gap:4px"><span class="chip dense" data-tone="neutral">Can manage seats</span> <span class="chip dense" data-tone="neutral">Work email verified</span></span></td>
   <td class="nowrap">Mar 3, 2026</td>
-  <td class="act"><a class="btn btn-ghost btn-compact" href="#">Open user page</a><button class="btn btn-secondary btn-compact" type="button" aria-expanded="false" aria-controls="seat0-x" data-disc>Remove seat<span class="sr">: Ines Rowe</span></button></td>
+  <td class="act"><button class="btn btn-secondary btn-compact" type="button" aria-expanded="false" aria-controls="seat0-x" data-disc>Remove seat<span class="sr">: Ines Rowe</span></button></td>
 </tr>
 <tr class="xrow" id="seat0-x" hidden><td colspan="5" style="padding-left:12px">
-  <form class="fld" method="dialog" novalidate style="max-width:36rem;padding-top:8px">
+  <div class="xin"><form class="fld" method="dialog" novalidate style="max-width:36rem;padding-top:8px">
     <p class="warnbox">Remove this seat? They lose portal access immediately and keep their AECi account. Only a fresh grant restores it. There is no undo on this screen.</p>
     <label class="lbl" for="seat0-r">Reason shown to the vendor (required)</label>
     <textarea class="field ta" id="seat0-r" rows="3" aria-describedby="seat0-h"></textarea>
@@ -1141,17 +1161,17 @@ The export to our estimating tool drops the assembly codes, so we still retype t
     <label class="lbl" for="seat0-n">Internal note (optional, never shown to the vendor)</label>
     <textarea class="field ta" id="seat0-n" rows="2"></textarea>
     <div class="btns" style="margin-top:8px"><button class="btn btn-danger" type="submit">Confirm removal</button><button class="btn btn-ghost" type="button" data-close>Cancel</button></div>
-  </form>
+  </form></div>
 </td></tr>
 <tr data-row>
-  <th scope="row">Theo Banerjee<span class="sub">t.banerjee@northbeam.example</span></th>
+  <th scope="row"><a href="#">Theo Banerjee<span class="sr"> (open user page)</span></a><span class="sub">t.banerjee@northbeam.example</span></th>
   <td>Member</td>
   <td><span class="chips" style="display:flex;flex-wrap:wrap;gap:4px"><span class="chip dense" data-tone="neutral">Work email verified</span></span></td>
   <td class="nowrap">Apr 18, 2026</td>
-  <td class="act"><a class="btn btn-ghost btn-compact" href="#">Open user page</a><button class="btn btn-secondary btn-compact" type="button" aria-expanded="false" aria-controls="seat1-x" data-disc>Remove seat<span class="sr">: Theo Banerjee</span></button></td>
+  <td class="act"><button class="btn btn-secondary btn-compact" type="button" aria-expanded="false" aria-controls="seat1-x" data-disc>Remove seat<span class="sr">: Theo Banerjee</span></button></td>
 </tr>
 <tr class="xrow" id="seat1-x" hidden><td colspan="5" style="padding-left:12px">
-  <form class="fld" method="dialog" novalidate style="max-width:36rem;padding-top:8px">
+  <div class="xin"><form class="fld" method="dialog" novalidate style="max-width:36rem;padding-top:8px">
     <p class="warnbox">Remove this seat? They lose portal access immediately and keep their AECi account. Only a fresh grant restores it. There is no undo on this screen.</p>
     <label class="lbl" for="seat1-r">Reason shown to the vendor (required)</label>
     <textarea class="field ta" id="seat1-r" rows="3" aria-describedby="seat1-h"></textarea>
@@ -1160,17 +1180,17 @@ The export to our estimating tool drops the assembly codes, so we still retype t
     <label class="lbl" for="seat1-n">Internal note (optional, never shown to the vendor)</label>
     <textarea class="field ta" id="seat1-n" rows="2"></textarea>
     <div class="btns" style="margin-top:8px"><button class="btn btn-danger" type="submit">Confirm removal</button><button class="btn btn-ghost" type="button" data-close>Cancel</button></div>
-  </form>
+  </form></div>
 </td></tr>
 <tr data-row>
-  <th scope="row">Grace Liu<span class="sub">g.liu@gmail.example</span></th>
+  <th scope="row"><a href="#">Grace Liu<span class="sr"> (open user page)</span></a><span class="sub">g.liu@gmail.example</span></th>
   <td>Member</td>
   <td><span class="chips" style="display:flex;flex-wrap:wrap;gap:4px"><span aria-hidden="true">–</span><span class="sr">No flags</span></span></td>
   <td class="nowrap">Oct 2, 2026</td>
-  <td class="act"><a class="btn btn-ghost btn-compact" href="#">Open user page</a><button class="btn btn-secondary btn-compact" type="button" aria-expanded="false" aria-controls="seat2-x" data-disc data-demo-open>Remove seat<span class="sr">: Grace Liu</span></button></td>
+  <td class="act"><button class="btn btn-secondary btn-compact" type="button" aria-expanded="false" aria-controls="seat2-x" data-disc data-demo-open>Remove seat<span class="sr">: Grace Liu</span></button></td>
 </tr>
 <tr class="xrow" id="seat2-x" hidden><td colspan="5" style="padding-left:12px">
-  <form class="fld" method="dialog" novalidate style="max-width:36rem;padding-top:8px">
+  <div class="xin"><form class="fld" method="dialog" novalidate style="max-width:36rem;padding-top:8px">
     <p class="warnbox">Remove this seat? They lose portal access immediately and keep their AECi account. Only a fresh grant restores it. There is no undo on this screen.</p>
     <label class="lbl" for="seat2-r">Reason shown to the vendor (required)</label>
     <textarea class="field ta" id="seat2-r" rows="3" aria-describedby="seat2-h seat2-e" data-demo-invalid></textarea>
@@ -1179,17 +1199,17 @@ The export to our estimating tool drops the assembly codes, so we still retype t
     <label class="lbl" for="seat2-n">Internal note (optional, never shown to the vendor)</label>
     <textarea class="field ta" id="seat2-n" rows="2"></textarea>
     <div class="btns" style="margin-top:8px"><button class="btn btn-danger" type="submit">Confirm removal</button><button class="btn btn-ghost" type="button" data-close>Cancel</button></div>
-  </form>
+  </form></div>
 </td></tr>
 <tr data-row>
-  <th scope="row">Paul Okonkwo<span class="sub">p.okonkwo@northbeam.example</span></th>
+  <th scope="row"><a href="#">Paul Okonkwo<span class="sr"> (open user page)</span></a><span class="sub">p.okonkwo@northbeam.example</span></th>
   <td>Member</td>
   <td><span class="chips" style="display:flex;flex-wrap:wrap;gap:4px"><span class="chip dense" data-tone="critical">Banned</span></span></td>
   <td class="nowrap">Jun 9, 2026</td>
-  <td class="act"><a class="btn btn-ghost btn-compact" href="#">Open user page</a><button class="btn btn-secondary btn-compact" type="button" aria-expanded="false" aria-controls="seat3-x" data-disc>Remove seat<span class="sr">: Paul Okonkwo</span></button></td>
+  <td class="act"><button class="btn btn-secondary btn-compact" type="button" aria-expanded="false" aria-controls="seat3-x" data-disc>Remove seat<span class="sr">: Paul Okonkwo</span></button></td>
 </tr>
 <tr class="xrow" id="seat3-x" hidden><td colspan="5" style="padding-left:12px">
-  <form class="fld" method="dialog" novalidate style="max-width:36rem;padding-top:8px">
+  <div class="xin"><form class="fld" method="dialog" novalidate style="max-width:36rem;padding-top:8px">
     <p class="warnbox">Remove this seat? They lose portal access immediately and keep their AECi account. Only a fresh grant restores it. There is no undo on this screen.</p>
     <label class="lbl" for="seat3-r">Reason shown to the vendor (required)</label>
     <textarea class="field ta" id="seat3-r" rows="3" aria-describedby="seat3-h"></textarea>
@@ -1198,7 +1218,7 @@ The export to our estimating tool drops the assembly codes, so we still retype t
     <label class="lbl" for="seat3-n">Internal note (optional, never shown to the vendor)</label>
     <textarea class="field ta" id="seat3-n" rows="2"></textarea>
     <div class="btns" style="margin-top:8px"><button class="btn btn-danger" type="submit">Confirm removal</button><button class="btn btn-ghost" type="button" data-close>Cancel</button></div>
-  </form>
+  </form></div>
 </td></tr>
             </tbody>
           </table>
@@ -1221,7 +1241,7 @@ The export to our estimating tool drops the assembly codes, so we still retype t
       <section class="panel" aria-labelledby="su-h">
         <h3 id="su-h">Suspension</h3>
         <p class="caption" style="margin-top:12px">This vendor is not suspended. To end a vendor, suspend it first: the vendor gets a notice and 7 business days before Terminate is possible.</p>
-        <div class="btns" style="margin-top:16px"><button class="btn btn-danger btn-compact" type="button" aria-expanded="false" aria-controls="su-f" data-ictl>Suspend</button></div>
+        <div class="btns" style="margin-top:16px"><button class="btn btn-secondary btn-compact" type="button" aria-expanded="false" aria-controls="su-f" data-ictl>Suspend</button></div>
         <form class="formbox" id="su-f" method="dialog" novalidate hidden>
           <p class="warnbox">This locks every seat out at once and sends the notice to the owner seats and the billing email. The listing stays live and billing is untouched.</p>
           <div class="fld"><span class="lbl" id="su-k">Kind</span><button class="field select-like" type="button" aria-haspopup="listbox" aria-labelledby="su-k su-kv"><span id="su-kv">Identity not proven</span><svg class="ico s" aria-hidden="true" focusable="false"><use href="#i-chev"/></svg></button></div>
@@ -1306,9 +1326,9 @@ The export to our estimating tool drops the assembly codes, so we still retype t
   </section>
 
   <div class="tiles">
-    <section class="panel tile" aria-labelledby="t1"><h3 class="lbl" id="t1">Unique visitors</h3><p class="tile-fig s-full">412</p><p class="tile-fig nm s-empty">Not measured</p><p class="tile-delta s-full">+38 vs 374 the prior day</p><p class="caption">UTC day 2026-11-23. A visitor is a distinct browser-and-network pair.</p></section>
-    <section class="panel tile" aria-labelledby="t2"><h3 class="lbl" id="t2">New sign-ins</h3><p class="tile-fig s-full">6</p><p class="tile-fig nm s-empty">Not measured</p><p class="tile-delta s-full">No change vs the prior day</p><p class="caption">UTC day 2026-11-23</p></section>
-    <section class="panel tile" aria-labelledby="t3"><h3 class="lbl" id="t3">Active subscribers</h3><p class="tile-fig">128</p><p class="caption">Live total as of now, not a daily figure.</p></section>
+    <section class="panel ovtile" aria-labelledby="t1"><p class="lbl" id="t1">Unique visitors</p><p class="tile-fig s-full">412</p><p class="tile-fig nm s-empty">Not measured</p><p class="tile-delta s-full">+38 vs 374 the prior day</p><p class="caption">UTC day 2026-11-23. A visitor is a distinct browser-and-network pair.</p></section>
+    <section class="panel ovtile" aria-labelledby="t2"><p class="lbl" id="t2">New sign-ins</p><p class="tile-fig s-full">6</p><p class="tile-fig nm s-empty">Not measured</p><p class="tile-delta s-full">No change vs the prior day</p><p class="caption">UTC day 2026-11-23</p></section>
+    <section class="panel ovtile" aria-labelledby="t3"><p class="lbl" id="t3">Active subscribers</p><p class="tile-fig">128</p><p class="caption">Live total as of now, not a daily figure.</p></section>
   </div>
 
   <div class="ovgrid">
@@ -1317,11 +1337,11 @@ The export to our estimating tool drops the assembly codes, so we still retype t
       <div class="s-full">
         <div class="chart">
           <svg viewBox="0 0 600 200" preserveAspectRatio="none" aria-hidden="true" focusable="false"><line x1="0" x2="600" y1="200.0" y2="200.0" stroke="var(--chart-grid)" stroke-width="1" vector-effect="non-scaling-stroke"/><line x1="0" x2="600" y1="150.0" y2="150.0" stroke="var(--chart-grid)" stroke-width="1" vector-effect="non-scaling-stroke"/><line x1="0" x2="600" y1="100.0" y2="100.0" stroke="var(--chart-grid)" stroke-width="1" vector-effect="non-scaling-stroke"/><line x1="0" x2="600" y1="50.0" y2="50.0" stroke="var(--chart-grid)" stroke-width="1" vector-effect="non-scaling-stroke"/><line x1="0" x2="600" y1="0.0" y2="0.0" stroke="var(--chart-grid)" stroke-width="1" vector-effect="non-scaling-stroke"/><rect x="2.0" y="131.3" width="16.0" height="68.7" fill="var(--text-secondary)"/><rect x="2.0" y="100.4" width="16.0" height="28.9" fill="var(--border-input)"/><rect x="2.0" y="86.3" width="16.0" height="12.1" fill="var(--accent-primary)"/><rect x="2.0" y="75.3" width="16.0" height="9.0" fill="var(--accent-secondary-deep)" rx="2"/><rect x="22.0" y="128.4" width="16.0" height="71.6" fill="var(--text-secondary)"/><rect x="22.0" y="95.1" width="16.0" height="31.3" fill="var(--border-input)"/><rect x="22.0" y="79.6" width="16.0" height="13.6" fill="var(--accent-primary)"/><rect x="22.0" y="67.1" width="16.0" height="10.4" fill="var(--accent-secondary-deep)" rx="2"/><rect x="42.0" y="125.6" width="16.0" height="74.4" fill="var(--text-secondary)"/><rect x="42.0" y="89.7" width="16.0" height="33.9" fill="var(--border-input)"/><rect x="42.0" y="72.7" width="16.0" height="15.0" fill="var(--accent-primary)"/><rect x="42.0" y="58.7" width="16.0" height="12.0" fill="var(--accent-secondary-deep)" rx="2"/><rect x="62.0" y="122.6" width="16.0" height="77.4" fill="var(--text-secondary)"/><rect x="62.0" y="84.1" width="16.0" height="36.4" fill="var(--border-input)"/><rect x="62.0" y="65.7" width="16.0" height="16.4" fill="var(--accent-primary)"/><rect x="62.0" y="53.7" width="16.0" height="10.0" fill="var(--accent-secondary-deep)" rx="2"/><rect x="82.0" y="119.7" width="16.0" height="80.3" fill="var(--text-secondary)"/><rect x="82.0" y="78.7" width="16.0" height="39.0" fill="var(--border-input)"/><rect x="82.0" y="58.9" width="16.0" height="17.9" fill="var(--accent-primary)"/><rect x="82.0" y="45.3" width="16.0" height="11.6" fill="var(--accent-secondary-deep)" rx="2"/><rect x="102.0" y="116.9" width="16.0" height="83.1" fill="var(--text-secondary)"/><rect x="102.0" y="79.7" width="16.0" height="35.1" fill="var(--border-input)"/><rect x="102.0" y="58.4" width="16.0" height="19.3" fill="var(--accent-primary)"/><rect x="102.0" y="43.4" width="16.0" height="13.0" fill="var(--accent-secondary-deep)" rx="2"/><rect x="122.0" y="113.9" width="16.0" height="86.1" fill="var(--text-secondary)"/><rect x="122.0" y="74.1" width="16.0" height="37.7" fill="var(--border-input)"/><rect x="122.0" y="51.4" width="16.0" height="20.7" fill="var(--accent-primary)"/><rect x="122.0" y="38.3" width="16.0" height="11.1" fill="var(--accent-secondary-deep)" rx="2"/><rect x="142.0" y="111.0" width="16.0" height="89.0" fill="var(--text-secondary)"/><rect x="142.0" y="68.7" width="16.0" height="40.3" fill="var(--border-input)"/><rect x="142.0" y="50.6" width="16.0" height="16.1" fill="var(--accent-primary)"/><rect x="142.0" y="35.9" width="16.0" height="12.7" fill="var(--accent-secondary-deep)" rx="2"/><rect x="162.0" y="128.6" width="16.0" height="71.4" fill="var(--text-secondary)"/><rect x="162.0" y="92.7" width="16.0" height="33.9" fill="var(--border-input)"/><rect x="162.0" y="77.3" width="16.0" height="13.4" fill="var(--accent-primary)"/><rect x="162.0" y="63.7" width="16.0" height="11.6" fill="var(--accent-secondary-deep)" rx="2"/><rect x="182.0" y="125.6" width="16.0" height="74.4" fill="var(--text-secondary)"/><rect x="182.0" y="87.1" width="16.0" height="36.4" fill="var(--border-input)"/><rect x="182.0" y="70.1" width="16.0" height="15.0" fill="var(--accent-primary)"/><rect x="182.0" y="58.4" width="16.0" height="9.7" fill="var(--accent-secondary-deep)" rx="2"/><rect x="202.0" y="122.7" width="16.0" height="77.3" fill="var(--text-secondary)"/><rect x="202.0" y="88.1" width="16.0" height="32.6" fill="var(--border-input)"/><rect x="202.0" y="69.7" width="16.0" height="16.4" fill="var(--accent-primary)"/><rect x="202.0" y="56.6" width="16.0" height="11.1" fill="var(--accent-secondary-deep)" rx="2"/><rect x="222.0" y="119.9" width="16.0" height="80.1" fill="var(--text-secondary)"/><rect x="222.0" y="82.7" width="16.0" height="35.1" fill="var(--border-input)"/><rect x="222.0" y="62.9" width="16.0" height="17.9" fill="var(--accent-primary)"/><rect x="222.0" y="48.1" width="16.0" height="12.7" fill="var(--accent-secondary-deep)" rx="2"/><rect x="242.0" y="116.9" width="16.0" height="83.1" fill="var(--text-secondary)"/><rect x="242.0" y="77.1" width="16.0" height="37.7" fill="var(--border-input)"/><rect x="242.0" y="55.9" width="16.0" height="19.3" fill="var(--accent-primary)"/><rect x="242.0" y="43.1" width="16.0" height="10.7" fill="var(--accent-secondary-deep)" rx="2"/><rect x="262.0" y="114.0" width="16.0" height="86.0" fill="var(--text-secondary)"/><rect x="262.0" y="71.7" width="16.0" height="40.3" fill="var(--border-input)"/><rect x="262.0" y="49.0" width="16.0" height="20.7" fill="var(--accent-primary)"/><rect x="262.0" y="34.7" width="16.0" height="12.3" fill="var(--accent-secondary-deep)" rx="2"/><rect x="282.0" y="111.1" width="16.0" height="88.9" fill="var(--text-secondary)"/><rect x="282.0" y="66.4" width="16.0" height="42.7" fill="var(--border-input)"/><rect x="282.0" y="48.3" width="16.0" height="16.1" fill="var(--accent-primary)"/><rect x="282.0" y="32.4" width="16.0" height="13.9" fill="var(--accent-secondary-deep)" rx="2"/><rect x="302.0" y="128.6" width="16.0" height="71.4" fill="var(--text-secondary)"/><rect x="302.0" y="96.6" width="16.0" height="30.0" fill="var(--border-input)"/><rect x="302.0" y="81.1" width="16.0" height="13.4" fill="var(--accent-primary)"/><rect x="302.0" y="69.9" width="16.0" height="9.3" fill="var(--accent-secondary-deep)" rx="2"/><rect x="322.0" y="125.7" width="16.0" height="74.3" fill="var(--text-secondary)"/><rect x="322.0" y="91.1" width="16.0" height="32.6" fill="var(--border-input)"/><rect x="322.0" y="74.3" width="16.0" height="14.9" fill="var(--accent-primary)"/><rect x="322.0" y="61.4" width="16.0" height="10.9" fill="var(--accent-secondary-deep)" rx="2"/><rect x="342.0" y="122.9" width="16.0" height="77.1" fill="var(--text-secondary)"/><rect x="342.0" y="85.7" width="16.0" height="35.1" fill="var(--border-input)"/><rect x="342.0" y="67.4" width="16.0" height="16.3" fill="var(--accent-primary)"/><rect x="342.0" y="53.1" width="16.0" height="12.3" fill="var(--accent-secondary-deep)" rx="2"/><rect x="362.0" y="119.9" width="16.0" height="80.1" fill="var(--text-secondary)"/><rect x="362.0" y="80.1" width="16.0" height="37.7" fill="var(--border-input)"/><rect x="362.0" y="60.3" width="16.0" height="17.9" fill="var(--accent-primary)"/><rect x="362.0" y="47.9" width="16.0" height="10.4" fill="var(--accent-secondary-deep)" rx="2"/><rect x="382.0" y="117.0" width="16.0" height="83.0" fill="var(--text-secondary)"/><rect x="382.0" y="74.9" width="16.0" height="40.1" fill="var(--border-input)"/><rect x="382.0" y="53.6" width="16.0" height="19.3" fill="var(--accent-primary)"/><rect x="382.0" y="39.7" width="16.0" height="11.9" fill="var(--accent-secondary-deep)" rx="2"/><rect x="402.0" y="114.0" width="16.0" height="86.0" fill="var(--text-secondary)"/><rect x="402.0" y="75.7" width="16.0" height="36.3" fill="var(--border-input)"/><rect x="402.0" y="53.0" width="16.0" height="20.7" fill="var(--accent-primary)"/><rect x="402.0" y="37.6" width="16.0" height="13.4" fill="var(--accent-secondary-deep)" rx="2"/><rect x="422.0" y="111.1" width="16.0" height="88.9" fill="var(--text-secondary)"/><rect x="422.0" y="70.3" width="16.0" height="38.9" fill="var(--border-input)"/><rect x="422.0" y="52.1" width="16.0" height="16.1" fill="var(--accent-primary)"/><rect x="422.0" y="38.7" width="16.0" height="11.4" fill="var(--accent-secondary-deep)" rx="2"/><rect x="442.0" y="128.7" width="16.0" height="71.3" fill="var(--text-secondary)"/><rect x="442.0" y="94.1" width="16.0" height="32.6" fill="var(--border-input)"/><rect x="442.0" y="78.7" width="16.0" height="13.4" fill="var(--accent-primary)"/><rect x="442.0" y="66.3" width="16.0" height="10.4" fill="var(--accent-secondary-deep)" rx="2"/><rect x="462.0" y="125.7" width="16.0" height="74.3" fill="var(--text-secondary)"/><rect x="462.0" y="88.6" width="16.0" height="35.1" fill="var(--border-input)"/><rect x="462.0" y="71.7" width="16.0" height="14.9" fill="var(--accent-primary)"/><rect x="462.0" y="57.9" width="16.0" height="11.9" fill="var(--accent-secondary-deep)" rx="2"/><rect x="482.0" y="122.9" width="16.0" height="77.1" fill="var(--text-secondary)"/><rect x="482.0" y="83.3" width="16.0" height="37.6" fill="var(--border-input)"/><rect x="482.0" y="65.0" width="16.0" height="16.3" fill="var(--accent-primary)"/><rect x="482.0" y="53.0" width="16.0" height="10.0" fill="var(--accent-secondary-deep)" rx="2"/><rect x="502.0" y="120.0" width="16.0" height="80.0" fill="var(--text-secondary)"/><rect x="502.0" y="84.3" width="16.0" height="33.7" fill="var(--border-input)"/><rect x="502.0" y="64.6" width="16.0" height="17.7" fill="var(--accent-primary)"/><rect x="502.0" y="51.0" width="16.0" height="11.6" fill="var(--accent-secondary-deep)" rx="2"/><rect x="522.0" y="117.0" width="16.0" height="83.0" fill="var(--text-secondary)"/><rect x="522.0" y="78.7" width="16.0" height="36.3" fill="var(--border-input)"/><rect x="522.0" y="57.4" width="16.0" height="19.3" fill="var(--accent-primary)"/><rect x="522.0" y="42.4" width="16.0" height="13.0" fill="var(--accent-secondary-deep)" rx="2"/><rect x="542.0" y="114.1" width="16.0" height="85.9" fill="var(--text-secondary)"/><rect x="542.0" y="73.3" width="16.0" height="38.9" fill="var(--border-input)"/><rect x="542.0" y="50.6" width="16.0" height="20.7" fill="var(--accent-primary)"/><rect x="542.0" y="37.4" width="16.0" height="11.1" fill="var(--accent-secondary-deep)" rx="2"/><rect x="562.0" y="111.3" width="16.0" height="88.7" fill="var(--text-secondary)"/><rect x="562.0" y="67.9" width="16.0" height="41.4" fill="var(--border-input)"/><rect x="562.0" y="49.7" width="16.0" height="16.1" fill="var(--accent-primary)"/><rect x="562.0" y="35.1" width="16.0" height="12.6" fill="var(--accent-secondary-deep)" rx="2"/><rect x="582.0" y="128.7" width="16.0" height="71.3" fill="var(--text-secondary)"/><rect x="582.0" y="91.7" width="16.0" height="35.0" fill="var(--border-input)"/><rect x="582.0" y="76.3" width="16.0" height="13.4" fill="var(--accent-primary)"/><rect x="582.0" y="62.7" width="16.0" height="11.6" fill="var(--accent-secondary-deep)" rx="2"/></svg>
-          <span class="ylab" style="top:0">1,400</span><span class="ylab" style="top:50%">700</span>
+          <span class="ylab" style="top:6px" aria-hidden="true">1,400</span><span class="ylab" style="top:110px" aria-hidden="true">700</span><span class="ylab" style="top:214px" aria-hidden="true">0</span>
           <div class="axis" aria-hidden="true"><span>Oct 25</span><span>Nov 8</span><span>Nov 23</span></div>
         </div>
         <ul class="legend"><li><span class="key" style="background:var(--text-secondary)" aria-hidden="true"></span>Identified automation</li><li><span class="key" style="background:var(--border-input)" aria-hidden="true"></span>Suspected automation</li><li><span class="key" style="background:var(--accent-primary)" aria-hidden="true"></span>Browser activity with supporting human evidence</li><li><span class="key" style="background:var(--accent-secondary-deep)" aria-hidden="true"></span>Unresolved</li></ul>
-        <table class="sr"><caption>Page requests per day over the last 30 UTC days, by traffic class</caption><thead><tr><th scope="col">UTC day</th><th scope="col">Identified automation</th><th scope="col">Suspected automation</th><th scope="col">Browser activity with supporting human evidence</th><th scope="col">Unresolved</th></tr></thead><tbody><tr><th scope="row">Oct 25</th><td>495</td><td>216</td><td>99</td><td>63</td></tr><tr><th scope="row">Oct 26</th><td>515</td><td>233</td><td>109</td><td>73</td></tr><tr><th scope="row">Oct 27</th><td>535</td><td>251</td><td>119</td><td>84</td></tr><tr><th scope="row">Oct 28</th><td>556</td><td>269</td><td>129</td><td>70</td></tr><tr><th scope="row">Oct 29</th><td>576</td><td>287</td><td>139</td><td>81</td></tr><tr><th scope="row">Oct 30</th><td>596</td><td>260</td><td>149</td><td>91</td></tr><tr><th scope="row">Oct 31</th><td>617</td><td>278</td><td>159</td><td>78</td></tr><tr><th scope="row">Nov 1</th><td>637</td><td>296</td><td>127</td><td>89</td></tr><tr><th scope="row">Nov 2</th><td>514</td><td>251</td><td>108</td><td>81</td></tr><tr><th scope="row">Nov 3</th><td>535</td><td>269</td><td>119</td><td>68</td></tr><tr><th scope="row">Nov 4</th><td>555</td><td>242</td><td>129</td><td>78</td></tr><tr><th scope="row">Nov 5</th><td>575</td><td>260</td><td>139</td><td>89</td></tr><tr><th scope="row">Nov 6</th><td>596</td><td>278</td><td>149</td><td>75</td></tr><tr><th scope="row">Nov 7</th><td>616</td><td>296</td><td>159</td><td>86</td></tr><tr><th scope="row">Nov 8</th><td>636</td><td>313</td><td>127</td><td>97</td></tr><tr><th scope="row">Nov 9</th><td>514</td><td>224</td><td>108</td><td>65</td></tr><tr><th scope="row">Nov 10</th><td>534</td><td>242</td><td>118</td><td>76</td></tr><tr><th scope="row">Nov 11</th><td>554</td><td>260</td><td>128</td><td>86</td></tr><tr><th scope="row">Nov 12</th><td>575</td><td>278</td><td>139</td><td>73</td></tr><tr><th scope="row">Nov 13</th><td>595</td><td>295</td><td>149</td><td>83</td></tr><tr><th scope="row">Nov 14</th><td>616</td><td>268</td><td>159</td><td>94</td></tr><tr><th scope="row">Nov 15</th><td>636</td><td>286</td><td>127</td><td>80</td></tr><tr><th scope="row">Nov 16</th><td>513</td><td>242</td><td>108</td><td>73</td></tr><tr><th scope="row">Nov 17</th><td>534</td><td>260</td><td>118</td><td>83</td></tr><tr><th scope="row">Nov 18</th><td>554</td><td>277</td><td>128</td><td>70</td></tr><tr><th scope="row">Nov 19</th><td>574</td><td>250</td><td>138</td><td>81</td></tr><tr><th scope="row">Nov 20</th><td>595</td><td>268</td><td>149</td><td>91</td></tr><tr><th scope="row">Nov 21</th><td>615</td><td>286</td><td>159</td><td>78</td></tr><tr><th scope="row">Nov 22</th><td>635</td><td>304</td><td>127</td><td>88</td></tr><tr><th scope="row">Nov 23</th><td>513</td><td>259</td><td>108</td><td>81</td></tr></tbody></table>
+        <div class="sr"><table><caption>Page requests per day over the last 30 UTC days, by traffic class</caption><thead><tr><th scope="col">UTC day</th><th scope="col">Identified automation</th><th scope="col">Suspected automation</th><th scope="col">Browser activity with supporting human evidence</th><th scope="col">Unresolved</th></tr></thead><tbody><tr><th scope="row">Oct 25</th><td>495</td><td>216</td><td>99</td><td>63</td></tr><tr><th scope="row">Oct 26</th><td>515</td><td>233</td><td>109</td><td>73</td></tr><tr><th scope="row">Oct 27</th><td>535</td><td>251</td><td>119</td><td>84</td></tr><tr><th scope="row">Oct 28</th><td>556</td><td>269</td><td>129</td><td>70</td></tr><tr><th scope="row">Oct 29</th><td>576</td><td>287</td><td>139</td><td>81</td></tr><tr><th scope="row">Oct 30</th><td>596</td><td>260</td><td>149</td><td>91</td></tr><tr><th scope="row">Oct 31</th><td>617</td><td>278</td><td>159</td><td>78</td></tr><tr><th scope="row">Nov 1</th><td>637</td><td>296</td><td>127</td><td>89</td></tr><tr><th scope="row">Nov 2</th><td>514</td><td>251</td><td>108</td><td>81</td></tr><tr><th scope="row">Nov 3</th><td>535</td><td>269</td><td>119</td><td>68</td></tr><tr><th scope="row">Nov 4</th><td>555</td><td>242</td><td>129</td><td>78</td></tr><tr><th scope="row">Nov 5</th><td>575</td><td>260</td><td>139</td><td>89</td></tr><tr><th scope="row">Nov 6</th><td>596</td><td>278</td><td>149</td><td>75</td></tr><tr><th scope="row">Nov 7</th><td>616</td><td>296</td><td>159</td><td>86</td></tr><tr><th scope="row">Nov 8</th><td>636</td><td>313</td><td>127</td><td>97</td></tr><tr><th scope="row">Nov 9</th><td>514</td><td>224</td><td>108</td><td>65</td></tr><tr><th scope="row">Nov 10</th><td>534</td><td>242</td><td>118</td><td>76</td></tr><tr><th scope="row">Nov 11</th><td>554</td><td>260</td><td>128</td><td>86</td></tr><tr><th scope="row">Nov 12</th><td>575</td><td>278</td><td>139</td><td>73</td></tr><tr><th scope="row">Nov 13</th><td>595</td><td>295</td><td>149</td><td>83</td></tr><tr><th scope="row">Nov 14</th><td>616</td><td>268</td><td>159</td><td>94</td></tr><tr><th scope="row">Nov 15</th><td>636</td><td>286</td><td>127</td><td>80</td></tr><tr><th scope="row">Nov 16</th><td>513</td><td>242</td><td>108</td><td>73</td></tr><tr><th scope="row">Nov 17</th><td>534</td><td>260</td><td>118</td><td>83</td></tr><tr><th scope="row">Nov 18</th><td>554</td><td>277</td><td>128</td><td>70</td></tr><tr><th scope="row">Nov 19</th><td>574</td><td>250</td><td>138</td><td>81</td></tr><tr><th scope="row">Nov 20</th><td>595</td><td>268</td><td>149</td><td>91</td></tr><tr><th scope="row">Nov 21</th><td>615</td><td>286</td><td>159</td><td>78</td></tr><tr><th scope="row">Nov 22</th><td>635</td><td>304</td><td>127</td><td>88</td></tr><tr><th scope="row">Nov 23</th><td>513</td><td>259</td><td>108</td><td>81</td></tr></tbody></table></div>
       </div>
       <p class="empty-note s-empty">No page views recorded in the last 30 days.</p>
     </section>
@@ -1466,13 +1486,16 @@ The export to our estimating tool drops the assembly codes, so we still retype t
     var s = readHash();
     ['page', 'state', 'panel', 'density', 'labels', 'grace', 'crumb'].forEach(function (k) { root.dataset[k] = s[k]; });
     root.dataset.vtab = s.vtab || root.dataset.vtab || 'vendor';
+    // #legend=off hides the legend panel, for pictures of the page alone.
+    root.dataset.legend = new URLSearchParams(location.hash.slice(1)).get('legend') || 'on';
+    q('[data-vtab-link]').forEach(function (a) { if (a.dataset.vtabLink === root.dataset.vtab) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
     document.title = { queue: 'Review queue', detail: 'Northbeam Software', overview: 'Overview' }[s.page] + ' · Admin · AEC Integrations (mock-up 14)';
     resetDemo();
     var cur = { queue: ['ops', 'Review queue'], detail: ['ops', 'Vendors'], overview: ['ins', 'Overview'] }[s.page];
     q('.sec-trigger').forEach(function (b) { if (b.dataset.groupBtn === cur[0]) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current'); });
     q('.menu a').forEach(function (a) { if (a.dataset.item === cur[1]) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
     if (s.state === 'expanded' || s.state === 'error') {
-      var pg = document.querySelector('.pg-' + s.page);
+      var pg = document.querySelector('section.pg-' + s.page);
       q('[data-demo-open]', pg).forEach(function (b) {
         if (b.closest('.tabpane') && !b.closest('.tab-' + root.dataset.vtab)) return;
         setOpen(b, true);
@@ -1497,13 +1520,14 @@ The export to our estimating tool drops the assembly codes, so we still retype t
     }
     var r = ev.target.closest('[data-reject-open]');
     if (r) {
-      var d = r.closest('.decide'); d.querySelector('[data-choose]').hidden = true;
+      var d = r.closest('.decide'); r.setAttribute('aria-expanded', 'true'); d.querySelector('[data-choose]').hidden = true;
       var f = d.querySelector('[data-reject-form]'); f.hidden = false; f.querySelector('textarea').focus(); return;
     }
     var rc = ev.target.closest('[data-reject-cancel]');
     if (rc) {
       var d2 = rc.closest('.decide'); d2.querySelector('[data-reject-form]').hidden = true;
-      d2.querySelector('[data-choose]').hidden = false; d2.querySelector('[data-reject-open]').focus(); return;
+      var ro = d2.querySelector('[data-reject-open]'); ro.setAttribute('aria-expanded', 'false');
+      d2.querySelector('[data-choose]').hidden = false; ro.focus(); return;
     }
     var seg = ev.target.closest('.seg button');
     if (seg) { q('button', seg.parentNode).forEach(function (x) { x.setAttribute('aria-pressed', String(x === seg)); }); return; }
