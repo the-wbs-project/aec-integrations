@@ -328,7 +328,7 @@ than a Worker metric.
 | `aeci.plan_snapshot.run` | count | `apps/api/src/scheduled.ts` (`runPlanSnapshotJob`, the `plan-snapshot` job, `11-59/15 * * * *`; metric name `PLAN_SNAPSHOT_RUN_METRIC` in `apps/api/src/lib/plan-snapshot-sweep.ts`) — **AECI-1621** | `trigger` (cron / manual), `outcome` (ok / skipped / failed) — **always emitted, so this doubles as the cron-liveness heartbeat.** `skipped` means no `UPLOADS` binding, which no deployed tier has. A row that fails is recorded on the row and retried next run, so the run stays `ok`; a crash throws and the queue retries. `due`, `written`, `adopted` and `failed` are in `job_runs.detail` and in the `aeci.plan_snapshot` log line (sent only when something was due, `warn` when a row failed). Log lines `.crashed` and `.enqueue_failed`, source `plan-snapshot-sweep`. Overdue rows are the `plan_snapshot_overdue` data-quality check. Cardinality: 3 cron series, 3 for a manual force-run |
 | `aeci.acceptance_chain.run` | count | `apps/api/src/scheduled.ts` (`runAcceptanceChainJob`, the `acceptance-chain` job, `0 18 * * *`; metric name `ACCEPTANCE_CHAIN_RUN_METRIC` in `apps/api/src/lib/acceptance-chain-export.ts`), **AECI-1680** | `trigger` (cron / manual), `outcome` (ok / skipped / failed). **Always emitted, so this doubles as the cron-liveness heartbeat.** `skipped` means no `UPLOADS` binding, which no deployed tier has. A failed DigiCert timestamp does not fail the run: each one is a `warn` log `aeci.acceptance_chain.timestamp_failed` naming the seq and the reason, and a later run backfills it. A crash throws and the queue retries. `seq`, `entries`, `rows`, `adopted`, `tsa`, `backfilled` and `tsaFailed` are in `job_runs.detail`. ADR 0057 |
 | `aeci.metrics_snapshot.run.duration_ms` | distribution | `apps/api/src/lib/metrics-snapshot.ts` (`emitMetricsSnapshotMetrics`) | `trigger` (cron) |
-| `aeci.metrics_snapshot.metric` | count | `apps/api/src/lib/metrics-snapshot.ts` (`emitMetricsSnapshotMetrics`) | `trigger` (cron), `metric` (the `metrics_daily` key. `ADMIN_SNAPSHOT_METRIC_KEYS` holds 21, and the snapshot writes 20 of them: `traffic.page_views_human_after_automation` is in `FROZEN_METRIC_KEYS` since AECI-1460, 2026-10-23), `outcome` (written / failed) |
+| `aeci.metrics_snapshot.metric` | count | `apps/api/src/lib/metrics-snapshot.ts` (`emitMetricsSnapshotMetrics`) | `trigger` (cron), `metric` (the `metrics_daily` key. `ADMIN_SNAPSHOT_METRIC_KEYS` holds 29 since AECI-818 added the eight search console stocks, and the snapshot writes 28 of them: `traffic.page_views_human_after_automation` is in `FROZEN_METRIC_KEYS` since AECI-1460, 2026-10-23), `outcome` (written / absent / failed. `absent` is the one key that writes no row by design, `queue.reindex_oldest_tier12_age_days`, on a day with no tier-1 or tier-2 re-index row) |
 | `aeci.metrics_snapshot.recheck.run` | count | `apps/api/src/lib/metrics-snapshot.ts` (`emitMetricsRecheckMetrics`, the AECI-827 trailing pass) | `trigger` (cron), `outcome` (ok / skipped / failed) — a **separate family** from the primary counters on purpose: the two halves of this cron fail for different reasons and a monitor must be able to say which one broke without reading `job_runs.detail`. Always emitted, including on a quiet night, so "the pass stopped correcting" is distinguishable from "there was nothing to correct". `skipped` is a deliberate refusal (see ADR 0027), not a fault |
 | `aeci.metrics_snapshot.recheck.run.duration_ms` | distribution | `apps/api/src/lib/metrics-snapshot.ts` (`emitMetricsRecheckMetrics`) | `trigger` (cron) |
 | `aeci.metrics_snapshot.recheck.correction` | count | `apps/api/src/lib/metrics-snapshot.ts` (`emitMetricsRecheckMetrics`) | `trigger` (cron), `metric` (the `traffic.*` key rewritten). One per `(day, metric)` corrected, and **only on a run that wrote** — a `skipped` run reports what *would* have moved in `job_runs.detail.recheck.corrections` but emits no count here, so this counter never overstates the pass. Zero is the normal steady state — a handful a month is retro-join drift converging |
@@ -472,13 +472,13 @@ contributes ≈490 between them.
 | `aeci.email.switches.unavailable` | 2 `layer` (AECI-1224) | 2 |
 | `aeci.email.delivery` | recorded: ≤30 `template` (28 email ids including `mailing-list-welcome-operator-copy`, `supabase-sign-in`, `unknown`) × 5 `event` × 1 `tier` per project + replays of the same; drops: 5 `event` × ~7 `tier` × 3 `outcome` with `template:unknown` (AECI-1222). Worst case ≈300. Real volume is a few emails a day, so the series that actually appear in a window are far fewer: a template only makes series for the events it gets | ≤300 (worst), ~20 (expected) |
 | `aeci.cache.purge` | consumer (3 × 4) + `/admin/purge` (3 × 3 × 4 `mode`) | ~48 |
-| `aeci.metrics_snapshot.metric` | 20 written `metrics_daily` keys (21 in `ADMIN_SNAPSHOT_METRIC_KEYS`, less the one frozen by AECI-1460) × 2 `outcome` | 40 |
+| `aeci.metrics_snapshot.metric` | 28 written `metrics_daily` keys (29 in `ADMIN_SNAPSHOT_METRIC_KEYS`, less the one frozen by AECI-1460) × 2 `outcome`, plus `absent` on one key (AECI-818) | 57 |
 | `aeci.job_runs.write` | 2 `phase` × 9 jobs × 2 `outcome` | 36 |
 | `aeci.linear.sync` | `outcome` × `kind` × `to_status` × `reason` | ~32 |
 | `aeci.stats.compute.key.duration_ms` | 2 `trigger` × 12 keys | 24 |
 | `aeci.algolia.sync` | 2 `trigger` × 4 `entity` × 3 `outcome` | 24 |
 | *(remaining ~50 metrics)* | mostly `outcome` × one dimension | ≈490 |
-| **Steady-state total** | | **≈936** |
+| **Steady-state total** | | **≈953** |
 | **During a deploy overlap** | ×2 for `version` | **≈1,872** |
 
 > **AECI-1587 adds `aeci.cron.failure_email`: 24 `job` × 6 `outcome`, 144 series at worst.** A
@@ -778,9 +778,9 @@ trigger-agnostic, so a failed *promote* refresh alerts the same as a failed cron
 `aeci.metrics_snapshot.*` (AECI-581 / `ADMIN_PANEL_SPEC.md` §7.1) is the same shape one layer over:
 the daily 00:15 UTC cron that captures the prior **complete** UTC day into `metrics_daily`, the admin
 panel's long memory. A completed run emits one job-level `aeci.metrics_snapshot.run` count
-(`outcome:ok` = every one of the 21 metrics written, `partial` = some wrote + some failed, `failed` =
+(`outcome:ok` = no metric failed, `partial` = some wrote + some failed, `failed` =
 nothing wrote), one `aeci.metrics_snapshot.run.duration_ms` distribution, and a per-metric
-`aeci.metrics_snapshot.metric{outcome:written|failed}` so a dashboard sees *which* key failed without
+`aeci.metrics_snapshot.metric{outcome:written|absent|failed}` so a dashboard sees *which* key failed without
 reading logs. The pre-compute crash path (a DB-client-init throw before `runMetricsSnapshot`) stays an
 inline single `aeci.metrics_snapshot.run{outcome:failed}` count, exactly as `aeci.stats.compute` does.
 

@@ -4303,13 +4303,21 @@ flows are readable through the timeseries endpoint today (the stocks await
 | `audience.feedback_total` | stock | `feedback` | not backfilled |
 | `queue.reviews_pending` | stock | `reviews` where `status='pending'` | not backfilled |
 | `queue.requests_open` | stock | `vendor_requests` where `status='open'` | not backfilled |
+| `seo.catalog_urls` | stock | `listCatalogUrls` (`lib/catalog-urls.ts`), the catalog half of the sitemap (AECI-818) | not backfilled |
+| `seo.crawled_urls_google` | stock | catalog URLs with a verified `Googlebot` `page_views` fetch in the `SEO_CRAWL_LOOKBACK_DAYS` window ending at the end of the filed day (`lib/seo-queue.ts`) | not backfilled |
+| `seo.crawled_urls_bing` | stock | the same for `Bingbot` | not backfilled |
+| `seo.uncrawled_urls_google` | stock | Panel 1's Google "Not crawled" lane. Pages inside `SEO_UNCRAWLED_GRACE_DAYS` are left out, so it is not `catalog_urls − crawled_urls` | not backfilled |
+| `seo.uncrawled_urls_bing` | stock | the same for Bing | not backfilled |
+| `seo.pairs_without_reviews` | stock | catalog pair URLs where both endpoints have `products.review_count = 0` | not backfilled |
+| `queue.reindex_pending` | stock | `gsc_recrawl_queue`, every row: the same number as `pending_reindex` | not backfilled |
+| `queue.reindex_oldest_tier12_age_days` | stock, days, REAL | age at the sample instant of the oldest `gsc_recrawl_queue` row with `priority <= 2`, one decimal. **No row** on a day with no such row, because 0 would mean "a row queued just now". The run records that key as `absent`, which is neither a write nor a failure | not backfilled |
 
-**Specified, not written yet (AECI-817).** `ADMIN_PANEL_SPEC.md` §5.24.8 names eight more snapshot
-stocks (`seo.*`, `queue.reindex_pending`, `queue.reindex_oldest_tier12_age_days`) and Bing's
-ingest keys (`search.bing.*`). None needs a migration. They join this table when AECI-818 and
-AECI-821 write them. AECI-820 narrowed the `findSnapshotGap` probe first: a day counts as captured
-only by a row for one of `ADMIN_SNAPSHOT_METRIC_KEYS`, so an ingest row can never clear the prune
-(§5.24.8).
+**The search console keys (AECI-818).** The eight rows above were specified by
+`ADMIN_PANEL_SPEC.md` §5.24.8 and are written by the 00:15 snapshot from the first run after
+AECI-818 deployed. Earlier days have none, and Panel 2 reads them as not recorded. None needed a
+migration. Bing's ingest keys (`search.bing.*`) join this table when AECI-821 writes them.
+AECI-820 narrowed the `findSnapshotGap` probe first: a day counts as captured only by a row for
+one of `ADMIN_SNAPSHOT_METRIC_KEYS`, so an ingest row can never clear the prune (§5.24.8).
 
 **The Google ingest keys (AECI-820).** All `source = 'measured'`. "Pacific" means the row's `day` is
 Google's Pacific date.

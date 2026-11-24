@@ -123,6 +123,11 @@ export type AdminWindow = z.infer<typeof AdminWindowSchema>;
  * | `classification_is_heuristic` | AECI-1345. An `info`, **unconditional** with the classification block: the four classes are a heuristic judgement about requests, and `browser_with_human_evidence` is not "humans". A standing caveat under §13 D15(d) |
  * | `collection_method_seam` | AECI-1346. An `info`, **gated** on a `POST_LAUNCH_MONITORING.md` §3d row for this tier falling inside the 30-day chart window (`COLLECTION_METHOD_CHANGES`). One note per row. `params`: `changed_at` (ISO timestamp), `tier`, `summary`, `comparable` (`'true'` or `'false'`). On a `'false'` row the class `delta_day` values that span it are null. On a `'true'` row the note is informational and the deltas stand |
  * | `tables_unclassified` | AECI-1460. An `info`, **gated**: the reported day has no `page_view_classifications` rows, so `top_products` and `top_sources` are NOT filtered by class. On a classified day they drop views classed `identified_automation` or `suspected_automation` on the day's latest classifier version |
+ * | `crawl_coverage_is_gateway_arrivals` | AECI-818. An `info`, unconditional on every search-console read that reports crawl coverage: the count is the SSR gateway's `page_views` arrival rows, so a change to where that row is written would read as a crawl collapse (§5.24.4) |
+ * | `crawler_label_unverified` | AECI-818. A `warn`, gated: the crawl window reaches before edge verification started (`params.since`), so rows before that date count on the user-agent label alone |
+ * | `crawl_window_clamped` | AECI-818. An `info`, gated: the crawl window was clamped to `CONCRETE_PATH_SINCE` (`params.from`), because older rows carry no concrete path |
+ * | `crawler_label_includes_inspection_tool` | AECI-818. An `info`, unconditional on every Google crawl figure: the `Googlebot` label also covers Google-InspectionTool, so an operator's live URL test reads as a crawl |
+ * | `public_site_url_unset` | AECI-818. A `warn`: `PUBLIC_SITE_URL` is unset or unparseable, so no public URL can be built and the queue lists no lanes |
  * | `stub_actions_never_fetched` | `params.never_fetched` of `params.total` stubs on this page carry `actions IS NULL`, which means the per-listing inventory has never been fetched — **not** that the listing has no actions. The inventory is ~73k actions across MindCloud alone and is fetched lazily, so most stubs carry null indefinitely (§9a.3) |
  */
 export const AdminNoteCodeSchema = z.enum([
@@ -180,6 +185,12 @@ export const AdminNoteCodeSchema = z.enum([
   // AECI-1460 — the top products and top sources tables on a day with no stored
   // classes, which therefore print unfiltered.
   'tables_unclassified',
+  // AECI-818 — the search console (`admin-seo.ts`, `ADMIN_PANEL_SPEC.md` §5.24.4).
+  'crawl_coverage_is_gateway_arrivals',
+  'crawler_label_unverified',
+  'crawl_window_clamped',
+  'crawler_label_includes_inspection_tool',
+  'public_site_url_unset',
 ]);
 export type AdminNoteCode = z.infer<typeof AdminNoteCodeSchema>;
 
@@ -968,6 +979,19 @@ export const ADMIN_SNAPSHOT_STOCK_METRIC_KEYS = [
   'audience.feedback_total',
   'queue.reviews_pending',
   'queue.requests_open',
+  // AECI-818 — the search console stocks (`ADMIN_PANEL_SPEC.md` §5.24.8). The crawl
+  // keys use a `SEO_CRAWL_LOOKBACK_DAYS` window ending at the end of the filed day.
+  'seo.catalog_urls',
+  'seo.crawled_urls_google',
+  'seo.crawled_urls_bing',
+  'seo.uncrawled_urls_google',
+  'seo.uncrawled_urls_bing',
+  'seo.pairs_without_reviews',
+  /** `gsc_recrawl_queue` rows: the same number as `pending_reindex` on `/summary`. */
+  'queue.reindex_pending',
+  /** Days, REAL. NO row on a day with no tier-1 or tier-2 row, because 0 would
+   *  mean "a row queued just now". */
+  'queue.reindex_oldest_tier12_age_days',
 ] as const;
 
 /**

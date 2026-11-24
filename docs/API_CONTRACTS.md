@@ -5525,9 +5525,10 @@ stale click cannot land on a different row.
 
 ---
 
-#### Search console: `GET /api/admin/seo/queue`, `GET /api/admin/seo/trend`, `GET /api/admin/seo/funnel` (specified by AECI-817, not built)
+#### Search console: `GET /api/admin/seo/queue`, `GET /api/admin/seo/trend`, `GET /api/admin/seo/funnel` (specified by AECI-817; queue and trend shipped by AECI-818)
 
-The three reads behind `/admin/seo` (`ADMIN_PANEL_SPEC.md` §5.24). Nothing here is built.
+The three reads behind `/admin/seo` (`ADMIN_PANEL_SPEC.md` §5.24). AECI-818 built the queue and
+the trend. The funnel is not built.
 Contract file `packages/shared/src/api/admin-seo.ts`, handlers `apps/api/src/routes/admin-seo.ts`.
 All three register on `authAdmin` behind `requireAdmin()`.
 
@@ -5538,7 +5539,9 @@ Every response carries `generated_at` and `notes`, the console envelope, because
 can be wrong in the ways §5.24.4 lists. That is the opposite of `/api/admin/reindex`, whose
 queue depth cannot be qualified. Engines are `google` and `bing` in every shape, from the start.
 
-**Note codes this surface adds to `AdminNoteCodeSchema`.** The change is additive.
+**Note codes this surface adds to `AdminNoteCodeSchema`.** The change is additive. AECI-818 added
+the five codes the queue and the trend emit. `indexed_is_impression_lower_bound` and
+`search_ingest_absent` are the funnel's, and land with AECI-823.
 
 | Code | Severity | When |
 |---|---|---|
@@ -5550,7 +5553,7 @@ queue depth cannot be qualified. Engines are `google` and `bing` in every shape,
 | `search_ingest_absent` | `info` | An engine has no ingest data for the window. `params.engine` names it |
 | `public_site_url_unset` | `warn` | `PUBLIC_SITE_URL` is unset or unparseable, so no URL can be built |
 
-##### `GET /api/admin/seo/queue` (AECI-818)
+##### `GET /api/admin/seo/queue` (AECI-818, shipped)
 
 Panel 1. The lane summary, plus one page of one lane's URLs.
 
@@ -5562,8 +5565,7 @@ GET /api/admin/seo/queue?lane=uncrawled&engine=google&page=1&perPage=25
     lanes: [
       { lane: "reindex",               engine: "google", count: 37,  oldest_tier12_age_days: 3.2, href: "/admin/reindex" },
       { lane: "uncrawled",             engine: "google", count: 412, oldest_tier12_age_days: null, href: null },
-      { lane: "uncrawled",             engine: "bing",   count: 96,  oldest_tier12_age_days: null, href: null },
-      { lane: "pairs_without_reviews", engine: null,     count: 880, oldest_tier12_age_days: null, href: null }
+      { lane: "uncrawled",             engine: "bing",   count: 96,  oldest_tier12_age_days: null, href: null }
     ],
     items: {
       lane: "uncrawled",
@@ -5583,20 +5585,26 @@ GET /api/admin/seo/queue?lane=uncrawled&engine=google&page=1&perPage=25
   }
 ```
 
-**Query.** `PageQuerySchema` plus two optional parameters.
+**Query.** `PageQuerySchema` plus two optional parameters. `perPage` defaults to 25
+(`SEO_QUEUE_PAGE_SIZE`), the panel's page, and is still capped at 100.
 
 | Param | Shape | Meaning |
 |---|---|---|
-| `lane` | `uncrawled` \| `pairs_without_reviews` | The lane whose URLs fill `items`. Default `uncrawled`. `reindex` is not accepted, because its rows live on `/api/admin/reindex` |
-| `engine` | `google` \| `bing` | For `uncrawled` only. Default `google`. Sent with `pairs_without_reviews` it is `VALIDATION_FAILED` (400) |
+| `lane` | `uncrawled` | The lane whose URLs fill `items`. Default `uncrawled`, the only listable lane. `reindex` is not accepted, because its rows live on `/api/admin/reindex`. `pairs_without_reviews` is not accepted, because it is not a lane (below) |
+| `engine` | `google` \| `bing` | Default `google` |
+
+**Pair pages with no reviews are not a lane.** Chris ruled on 2026-11-24 that they are a count
+only, shown week over week by `/trend` from the `seo.pairs_without_reviews` snapshot key. An
+operator cannot clear such a row. It clears only when a reviewer writes a review, so it is a trend
+and not a work list.
 
 **`window`** is the crawl lookback, `SEO_CRAWL_LOOKBACK_DAYS` ending at the request time, so a
 page crawled an hour ago leaves the list now. The daily snapshot uses the same length ending at
 the end of the day it files under. The window is clamped to `CONCRETE_PATH_SINCE` when it would
-start earlier.
+start earlier. A window that ends before that instant is empty: `from` equals `to`.
 
-**`lanes`** always lists every lane in this order: re-index, Google uncrawled, Bing uncrawled,
-pairs. A lane with no rows has `count: 0`. `oldest_tier12_age_days` is set on the re-index lane
+**`lanes`** always lists every lane in this order: re-index, Google uncrawled, Bing uncrawled.
+A lane with no rows has `count: 0`. `oldest_tier12_age_days` is set on the re-index lane
 only, and is null there when no tier-1 or tier-2 row exists. `href` is the relative admin route
 for a lane whose rows live elsewhere.
 
@@ -5604,7 +5612,7 @@ for a lane whose rows live elsewhere.
 `phase` or `trade`, an open `string` like `reindex.reason`. `published_at` is the publish anchor
 from §5.24.5, an ISO datetime or null. `age_days` is whole days since `published_at`, or null.
 `last_fetch_at` is the newest verified fetch by the lane's engine since `CONCRETE_PATH_SINCE`, or
-null. It is always null for `pairs_without_reviews`.
+null.
 
 **Ordering is `published_at ASC` with nulls last, then `url ASC`.** No `sort` parameter. Every
 term is a timestamp or a URL, so all stay BINARY (§3.2). The set is built in memory from the
@@ -5613,11 +5621,10 @@ catalog URL list and sliced into the page.
 **Envelope.** Not the bare `paginatedResponseSchema`. `items` is that schema plus `lane` and
 `engine`, nested inside the console envelope.
 
-Errors: `VALIDATION_FAILED` (400) on an unknown `lane` or `engine`, or `engine` with the pairs
-lane. When `PUBLIC_SITE_URL` cannot be parsed the response is a 200 with `lanes: []`, an empty
+Errors: `VALIDATION_FAILED` (400) on an unknown `lane` or `engine`. When `PUBLIC_SITE_URL` cannot be parsed the response is a 200 with `lanes: []`, an empty
 `items` and the `public_site_url_unset` note, because the tier has no public URLs to list.
 
-##### `GET /api/admin/seo/trend` (AECI-822)
+##### `GET /api/admin/seo/trend` (specified under AECI-822, shipped by AECI-818)
 
 Panel 2. Week over week.
 
@@ -5655,20 +5662,28 @@ GET /api/admin/seo/trend?weeks=12
 **`weeks`** lists complete ISO weeks, Monday to Sunday UTC, newest first. The current week is
 never included. `week_start` is the Monday as `YYYY-MM-DD`.
 
-**`lanes`** reads `metrics_daily` on the week's Sunday. If Sunday has no row, it reads the latest
+**`lanes`** reads `metrics_daily` on the week's Sunday. `pairs_without_reviews` is here and only
+here: it is a Panel 2 count, not a Panel 1 lane (Chris, 2026-11-24). If Sunday has no row, it reads the latest
 day in that week that has one. A key with no row in the whole week is **null**, never 0, so a
 week before the keys began reads as not recorded. Each lane is reported on its own, so one
 missing key does not null the others.
 
 **`cohort`** is product and vendor pages whose publish anchor falls in the week, and how many
 had a verified fetch within `SEO_CRAWL_COHORT_DAYS` of it. A fetch is matched on
-`page_views.product_id` or `vendor_id`, not on path. `rate` is `crawled ÷ published`, or null
+`page_views.product_id` or `vendor_id`, not on path, and on the detail route pattern
+(`page_views.path` is `/products/:slug` or `/vendors/:slug`), because ingest can set `product_id`
+on other rows too (§5.24.14 item 8). `rate` is `crawled ÷ published`, four decimals, or null
 when `published` is 0. A cohort whose fetch window has not closed yet carries the rate it has so
 far and `cohort.open: true`.
 
 **`requests_self_reported`** counts `recrawl_submissions` rows with `channel = 'gsc_manual'` and
 `outcome = 'requested'` whose `submitted_at` falls in the week. It is the operator's own answer
 in the Done dialog, not a measurement. The UI labels it so.
+
+**Notes.** The two standing crawl caveats, `crawl_coverage_is_gateway_arrivals` and
+`crawler_label_includes_inspection_tool`, on every response. `crawler_label_unverified` when the
+oldest week starts before edge verification. The cohort is matched on an entity id rather than
+`concrete_path`, so `crawl_window_clamped` never applies here.
 
 ##### `GET /api/admin/seo/funnel` (AECI-823)
 

@@ -1243,7 +1243,7 @@ The Google re-crawl worklist. `STAGE_1_SPEC.md` §20.2 owns the contract and
 IA and the write are this doc's business.
 
 **The search console is §5.24, not this section.** Epic AECI-816 was written against §5.11
-before AECI-946 took the number. Its sub-issues anchor to §5.24. Under a provisional ruling there,
+before AECI-946 took the number. Its sub-issues anchor to §5.24. Chris ruled on 2026-11-24 that
 `/admin/seo` shows this queue as one lane with a link here, and this screen is unchanged.
 
 **Why it exists.** Bing and Yandex are fed automatically: a write buffers URLs into
@@ -2533,11 +2533,14 @@ console's `AecSelect`.
 
 The endpoints are in §6 and in `API_CONTRACTS.md` §6.10 "Copyright notices".
 
-### 5.24 Search console (`/admin/seo`): SPECIFIED, NOT BUILT (AECI-817, 2026-11-24)
+### 5.24 Search console (`/admin/seo`): SPECIFIED (AECI-817), BACKEND PARTLY BUILT (AECI-818, AECI-820, 2026-11-24)
 
-**Status.** Only the Google ingest is built (AECI-820, §5.24.10). The rest is not. It is the
-contract for epic AECI-816. Every
-sub-issue below anchors here. The endpoint shapes are in `API_CONTRACTS.md` §6.10 "Search
+**Status.** AECI-820 built the Google ingest (§5.24.10). AECI-818 built the backend half of
+Panels 1 and 2: the derivation in `apps/api/src/lib/seo-queue.ts`, the shared catalog URL list,
+the `seo.*` and `queue.*` snapshot keys, and `GET /api/admin/seo/queue` and
+`GET /api/admin/seo/trend`. The `/trend` read was listed under AECI-822 below. It shipped with
+AECI-818, so AECI-822 is the screen only. Nothing else here is built. It is the contract for epic
+AECI-816. Every sub-issue below anchors here. The endpoint shapes are in `API_CONTRACTS.md` §6.10 "Search
 console". Open decisions are listed at the end of this section, and the ones that need Chris are
 marked.
 
@@ -2547,7 +2550,7 @@ marked.
 | AECI-819 | The weekly SEO email (`digest-seo`) and its cron | AECI-818 |
 | AECI-820 | Google Search Console ingest into `metrics_daily` | AECI-818 for the URL set |
 | AECI-821 | Bing Webmaster Tools ingest into `metrics_daily` | AECI-818 for the URL set |
-| AECI-822 | `/admin/seo` Panel 1 and Panel 2, `GET /api/admin/seo/trend` | AECI-818 |
+| AECI-822 | `/admin/seo` Panel 1 and Panel 2. `GET /api/admin/seo/trend` shipped with AECI-818 | AECI-818 |
 | AECI-823 | Panel 3, `GET /api/admin/seo/funnel` | AECI-820, AECI-821 |
 | AECI-824 | The analysis: is manual Request Indexing worth the time | eight weeks of AECI-822 data |
 
@@ -2582,7 +2585,7 @@ epic adds no domain-state write and no `audit_log` row.
 | Request history, including the self-reported answer | `recrawl_submissions` (`DATABASE_SCHEMA.md` §9.6a) | Panel 2's "requests recorded" row, and AECI-824's request-volume proxy |
 | Google URL Inspection, daily | `gsc-inspect` cron `0 13 * * *`, `lib/gsc-inspect-job.ts`, `lib/gsc-inspection.ts` | Unchanged. Its service account (`GSC_SA_KEY_JSON`, scope `webmasters.readonly`, property `sc-domain:aecintegrations.com`) is the credential AECI-820 reuses |
 | IndexNow to Bing and Yandex, daily | `indexnow_queue`, the 00:20 UTC GitHub Actions runner (AECI-1476) | Unchanged. Context for the Bing lane |
-| The catalog URL set | `buildCatalogSitemap` in `lib/sitemap-build.ts` | The universe every Panel 1 lane and every funnel rate is computed over |
+| The catalog URL set | `listCatalogUrls` in `lib/catalog-urls.ts`, which `buildCatalogSitemap` in `lib/sitemap-build.ts` renders (AECI-818) | The universe every Panel 1 lane and every funnel rate is computed over |
 | Absolute public URLs | `publicSiteBase` and the builders in `lib/public-urls.ts` | Every URL this surface returns |
 | Crawler labels | `classifyTraffic` in `lib/bot-classification.ts`, stored on `page_views.is_bot` and `bot_name` | Which rows count as a fetch (§5.24.4) |
 | Edge verification | `isEdgeVerified` in `lib/traffic-classifier.ts`, `page_views.cf_verified_bot_category` | The verified half of the crawl predicate |
@@ -2654,7 +2657,9 @@ Two limits of this predicate, stated rather than hidden:
 - **Verification has a start date.** `cf_verified_bot_category` is populated only on rows written
   after AECI-1301 reached production. A window that reaches before that date uses the UA label
   alone for the earlier rows, and the response carries the `crawler_label_unverified` note.
-  AECI-818 records the date as a constant beside `CONCRETE_PATH_SINCE`.
+  AECI-818 records the date as `EDGE_VERIFIED_SINCE` beside `CONCRETE_PATH_SINCE` in
+  `lib/seo-queue.ts`. Its value, `2026-10-14T00:00:00.000Z`, is inferred from migration `0072`'s
+  date and is not yet read from production (§5.24.14 item 4).
 
 **`concrete_path` has a start date too.** It is trustworthy from 2026-08-18 03:49 UTC
 (`ANALYTICS_BASELINE.md`, "What AECI-585 started recording"). Rows before it have a NULL
@@ -2713,7 +2718,7 @@ The publish anchor is the date a page went live:
 | Re-index queue | Google | **Yes** | `count(*)` of `gsc_recrawl_queue`, and the age in days of the oldest row with `priority <= 2` by `queued_at`. Links to `/admin/reindex`. No URL list here |
 | Not crawled | Google | **Yes** | Catalog URLs whose publish anchor is more than `SEO_UNCRAWLED_GRACE_DAYS` old, or null, with no verified Googlebot fetch (§5.24.4) in the last `SEO_CRAWL_LOOKBACK_DAYS` |
 | Not crawled | Bing | **Yes** | The same, for Bingbot |
-| Pair pages with no reviews | none | **Yes** | Catalog pair URLs where both endpoint products have `products.review_count = 0`. The column is what the pair page renders, so the lane matches what a crawler sees |
+| Pair pages with no reviews | none | Yes, but **a count, not a lane** | Catalog pair URLs where both endpoint products have `products.review_count = 0`. The column is what the pair page renders, so the count matches what a crawler sees. Ruled by Chris, 2026-11-24: shown on Panel 2 only (§5.24.6) |
 | Products with no trade tag | none | Yes, but **dropped** | Not a backlog. §5.24.3 point 5 |
 | Soft 404s in the sitemap | Google | **No** | D1 holds no HTTP status for a crawl and no Google verdict per URL. `gsc_recrawl_queue.coverage_state` holds Google's verdict only for queued rows, which `/admin/reindex` already shows. There is no bulk coverage API (AECI-820). Revisit if the ingest research finds one |
 | Sitemap not read recently | Google, Bing | **No**, not from D1 | Needs the Sitemaps read from AECI-820 and the Bing equivalent from AECI-821. Added as a lane when that data exists, read from the ingest's stored state |
@@ -2726,9 +2731,11 @@ null was never fetched in the record.
 no sort parameter. The oldest undone item is the most urgent, and a queue that sorts any other
 way trains the operator to skim it (the §5.11 rule).
 
-**The pair lane is expected to be large.** Reviews are per product, and few products have one.
-We do not know the number. AECI-818 measures it on production before the panel is built. If it
-is most pair pages, the lane shows a count and the list only on request.
+**Pair pages with no reviews are a count, not a lane.** Ruled by Chris, 2026-11-24. An operator
+cannot clear such a row, because it clears only when a reviewer writes a review. So it is a trend
+and not a work list. The queue lists no pair lane and no pair URLs. The
+`seo.pairs_without_reviews` snapshot key records the count daily, and Panel 2 shows it week over
+week.
 
 **Live, not snapshotted.** Every lane is computed on each request. The catalog is about 1,500
 URLs, so the set is built in memory and sliced into pages. The daily snapshot stores the counts
@@ -2743,6 +2750,7 @@ UTC). The current week is excluded, because it is partial.
 |---|---|---|---|
 | Crawled within 7 days | For product and vendor pages published in each week, the share with a verified fetch within `SEO_CRAWL_COHORT_DAYS` of the anchor. Google and Bing | `page_views` matched on `product_id` or `vendor_id`, not on path, so a slug change does not lose the fetch | Live. `page_views` keeps 400 days |
 | Lane depth | Each Panel 1 lane's count on the last day of each week, with the change from the week before | `metrics_daily`: the `seo.*` and `queue.*` keys in §5.24.8 | Stored. A stock cannot be rebuilt later |
+| Pair pages with no reviews | The count on the last day of each week, with the change from the week before. A trend, never a work list (§5.24.5) | `metrics_daily`: `seo.pairs_without_reviews` | Stored |
 | Oldest re-index row | Age of the oldest tier-1 or tier-2 row on the last day of each week | `metrics_daily`: `queue.reindex_oldest_tier12_age_days` | Stored |
 | Requests recorded (self-reported) | Count of `recrawl_submissions` rows with `channel = 'gsc_manual'` and `outcome = 'requested'` per week | `recrawl_submissions` | Live. The table is append-only and §7.4 does not prune it |
 
@@ -2813,7 +2821,7 @@ day, and never backfilled. The window for the crawl keys ends at the end of that
 | `seo.crawled_urls_bing` | count | The same for Bingbot |
 | `seo.uncrawled_urls_google` | count | Panel 1's Google "Not crawled" lane. It excludes pages inside the grace period, so it is not `catalog_urls − crawled_urls` |
 | `seo.uncrawled_urls_bing` | count | The same for Bing |
-| `seo.pairs_without_reviews` | count | Panel 1's pair lane |
+| `seo.pairs_without_reviews` | count | Catalog pair URLs where neither endpoint product has a review. Panel 2's pair row, not a Panel 1 lane |
 | `queue.reindex_pending` | count | `gsc_recrawl_queue` rows. The same number as `pending_reindex` on `GET /api/admin/summary` |
 | `queue.reindex_oldest_tier12_age_days` | days, REAL | Age of the oldest row with `priority <= 2`. **No row** on a day with no such row, because 0 would mean "a row queued just now". This follows the `quality.arrival_cf_coverage` precedent of writing no row rather than a misleading value |
 
@@ -3020,7 +3028,8 @@ The constants land with AECI-818, and move to `POST_LAUNCH_MONITORING.md` §3 wh
 - **Submitting anything to a search engine.** The surface reads. Google has no submit API for
   our content (ADR 0031). IndexNow is unchanged.
 - **A second self-attested item**, including a "console read" stamp or a typed-in indexed count.
-- **Editing the re-index queue from `/admin/seo`**, under the provisional ruling.
+- **Editing the re-index queue from `/admin/seo`.** Chris ruled on 2026-11-24 that Panel 1 sits
+  beside `/admin/reindex` and links to it (§5.24.5).
 - **Static and docs pages.** They are not in D1, so no lane covers them.
 - **AI-answer appearances in BWT.** They overlap AECI-762. Decide there.
 - **Alerting.** The email is a digest, not an alert. ADR 0031's declined depth alert stays
@@ -3043,13 +3052,18 @@ In priority order. "Chris" marks a ruling only he can make.
    so it is a classifier change under `POST_LAUNCH_MONITORING.md` §3c.
 3. **No "console read" stamp.** Ruled by Chris, 2026-11-24: it stays out, because the one
    self-attested item is spent (§5.24.1).
-4. **Edge verification start date.** AECI-818 reads it from production and records it.
-5. **The pair lane's size.** AECI-818 measures it. If it is most pairs, show the count and list
-   on request. If no operator action follows from it, drop the lane.
+4. **Edge verification start date.** AECI-818 records it as `EDGE_VERIFIED_SINCE`. The value is
+   inferred, not read from production. An operator reads the real date and replaces it
+   (`POST_LAUNCH_MONITORING.md` §3, "Search console tunables").
+5. **The pair lane's size.** Ruled by Chris, 2026-11-24: count only, shown in Panel 2. A row
+   clears only when a reviewer writes a review, so it is a trend and not a work list. The size
+   no longer decides anything, so it is not measured.
 6. **Email send hour.** Ruled by Chris, 2026-11-24: Monday 01:00 UTC.
 7. **Bing stage 1 before AECI-821.** Recommended: show it (§5.24.7).
-8. **`page_views.product_id` scope.** AECI-818 confirms it is set only on the product detail page,
-   or narrows the cohort match by `path`.
+8. **`page_views.product_id` scope.** Resolved by AECI-818: narrowed. Ingest sets `product_id` from
+   an explicit `entity_type` as well as from a detail-page arrival (`resolveEntity` in
+   `routes/page-views.ts`), so it is not provably detail-only. The cohort match therefore also
+   requires `path = '/products/:slug'`, or `'/vendors/:slug'` for a vendor.
 
 ## 6. API surface
 
@@ -3112,8 +3126,8 @@ All endpoints are admin-gated and register on the existing `authAdmin` sub-route
 | `PATCH /api/admin/claims/:id` | §5.10 claim decision — pre-existing (Stage 2, AECI-519; row added by AECI-1671) | **A decision write** the claim screen drives. Approve grants the verified-account seat; reject records the reason. One `db.batch` behind `claimUndecidedSentinel` — the guarded UPDATE, its audit row, the workflow transition — so a lost race (`409 CLAIM_ALREADY_DECIDED`) writes nothing. Post-commit: the claim-decision email (AECI-528) and the Linear issue close (AECI-1421), both fail-open without their keys. No limiter. Contract in `API_CONTRACTS.md` §6.10 |
 | `GET /api/admin/reindex` | §5.11 worklist — **SHIPPED (AECI-946)** | The Google re-crawl queue, most important first. `PageQuerySchema` + `?priority=` (1–4). **Ordering is fixed and carries no `sort` parameter**, because a worklist the operator can re-order no longer has the right next action on top. `id ASC` is the third `ORDER BY` term per AECI-825: rows from one promote share a `queued_at` to the millisecond, and a paginated list without a unique trailing term can drop or duplicate a row |
 | `DELETE /api/admin/reindex/:id` | §5.11 Done — **SHIPPED (AECI-946)** | **The fifth write in this table**, and *queue consumption* — no catalog row, no account row, nothing a visitor can see. Audit row in the same `db.batch` as the delete, `action='reindex.cleared'`, attributed to the admin rather than `'system'`. This is **not** §26.1's scheduled-deletion case, so it audits per row rather than one summary row per run. Carries **no** `rateLimit()`. Which admin writes do carry one is listed in `waf-rate-limits.md` §6.2, not here, because a list in this row went stale. A row another tab already cleared is a flat 404. Since AECI-1185 `?outcome=requested\|not_requested` is required (400 otherwise). `requested` also writes one `gsc_manual` `recrawl_submissions` row and its causes in the same batch |
-| `GET /api/admin/seo/queue` | §5.24 Panel 1. **Specified, not built (AECI-818)** | Read-only. The lane counts plus one page of the selected lane's absolute URLs, oldest first. `PageQuerySchema` + `?lane=` + `?engine=`. Console envelope with `notes`, because crawl coverage can be wrong. No audit row, no limiter |
-| `GET /api/admin/seo/trend` | §5.24 Panel 2. **Specified, not built (AECI-822)** | Read-only. Weekly lane depths from `metrics_daily`, live cohort crawl rates, and the self-reported request count. `?weeks=` (1–26, default 12). No audit row, no limiter |
+| `GET /api/admin/seo/queue` | §5.24 Panel 1. **SHIPPED (AECI-818)** | Read-only. The lane counts plus one page of the selected lane's absolute URLs, oldest first. `PageQuerySchema` (default `perPage` 25) + `?lane=` + `?engine=`. Console envelope with `notes`, because crawl coverage can be wrong. No audit row, no limiter. Contract in `packages/shared/src/api/admin-seo.ts` |
+| `GET /api/admin/seo/trend` | §5.24 Panel 2. **SHIPPED (AECI-818)**, though specified under AECI-822 | Read-only. Weekly lane depths from `metrics_daily`, live cohort crawl rates, and the self-reported request count. `?weeks=` (1–26, default 12). No audit row, no limiter. Same contract file |
 | `GET /api/admin/seo/funnel` | §5.24 Panel 3. **Specified, not built (AECI-823)** | Read-only. Per-engine stages as rates and counts, each with its host filter. A stage with no data is omitted. No audit row, no limiter |
 | `GET /api/admin/contests` | §5.12 queue — **SHIPPED (AECI-1008)** | `PageQuerySchema` + `?status=` (default `open`) + `?routed_to=` (default `aeci`; `owner` is the read-only view). Ordered `created_at DESC, id ASC`. Bare `paginatedResponseSchema`, same reasoning as §5.11. Contract in `packages/shared/src/api/integration-contests.ts` |
 | `PATCH /api/admin/contests/:id` | §5.12 accept / decline — **SHIPPED (AECI-1008)** | **A decision write, not a catalog write** (the eighth §2 exception). Accept files a `REVIEW - ` Linear issue after commit. It writes catalog data only on a claimed row, where promote no longer can (AECI-1005, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.6). **Since AECI-1191 an accept that changes a vendor-held value requires `note`** (`400 VALIDATION_FAILED`, `error.field = 'note'`, nothing written), recorded in the decision audit row's `metadata.reason`; the list read carries `accept_note_required`. **Since AECI-1159 the body also takes an optional `internalNote`** (`AdminDecideContestSchema`), and that note is shown to the displaced owner as the reason (`reasonVisibility = 'vendor'`). Audit row, workflow transition and the submitter's `notification.sent` ride one `db.batch` behind a race sentinel. Carries `rateLimit('write')`. `409 CONTEST_NOT_OPEN` / `CONTEST_ROUTED_TO_OWNER` |
@@ -3245,7 +3259,9 @@ vocabulary is `ADMIN_SNAPSHOT_METRIC_KEYS` in `packages/shared/src/api/admin-pan
 tabulated in `DATABASE_SCHEMA.md` §9.3 — **21 keys**: the 9 flow keys the
 timeseries endpoint already served, 11 stocks (catalog totals, subscriber
 counts, queue depths), and since AECI-869 one **data-quality** key,
-`quality.arrival_cf_coverage` (§13 **D20**). That third family is a per-day RATIO
+`quality.arrival_cf_coverage` (§13 **D20**). AECI-818 added eight more stocks, the `seo.*` and
+`queue.reindex_*` keys of §5.24.8. One of them, `queue.reindex_oldest_tier12_age_days`, writes no
+row on a day with no tier-1 or tier-2 re-index row, and the run records it as `absent`. That third family is a per-day RATIO
 rather than a count, and it is in `ADMIN_SNAPSHOT_QUALITY_METRIC_KEYS` rather than
 `ADMIN_METRIC_KEYS` because the endpoint's read path rounds a stored value to an
 integer — which would turn a failing 0.94 into a passing 1. The stocks are written from day one but **not yet readable
@@ -3388,7 +3404,8 @@ Six properties are load-bearing; ADR 0027 carries the full reasoning.
 2. **Three keys, and the narrowed type is the guard.** Only `traffic.page_views_human`,
    `traffic.page_views_bot` and `traffic.unique_visitors` are diffed
    (`ADMIN_RETROACTIVE_METRIC_KEYS`). Re-running the primary producers for an old day would **destroy
-   data** — the eleven stock producers ignore their `day` argument and count as of now — so handing
+   data** — the stock producers count as of now. The AECI-818 `seo.*` crawl keys end their window at
+   their day, but they read today's catalog — so handing
    the pass a stock key is a compile error rather than a comment. Note `accounts.sign_ins_new` also
    moves retroactively (a deleted profile decrements the day it was created on) and is excluded for a
    *different* reason: "3 people signed in on 20 August" is a fact that does not un-happen.

@@ -166,6 +166,7 @@ import {
   createAdminReindexSubmissionsHandler,
   createClearReindexRowHandler,
 } from './routes/admin-reindex';
+import { createAdminSeoQueueHandler, createAdminSeoTrendHandler } from './routes/admin-seo';
 import { createAdminOverviewHandler } from './routes/admin-overview';
 import { createAdminTimeseriesHandler } from './routes/admin-metrics';
 import { createAdminPageViewsHandler } from './routes/admin-page-views';
@@ -1318,6 +1319,10 @@ authAdmin.get(
   createAdminReindexSubmissionsHandler(),
 );
 authAdmin.delete('/api/admin/reindex/:id', requireAdmin(), createClearReindexRowHandler());
+// §5.24 / AECI-818 — the search console, Panels 1 and 2. Two READS: no audit row,
+// no `rateLimit()` (ADR 0026, reads are never limited).
+authAdmin.get('/api/admin/seo/queue', requireAdmin(), createAdminSeoQueueHandler());
+authAdmin.get('/api/admin/seo/trend', requireAdmin(), createAdminSeoTrendHandler());
 // §5.14 / AECI-1223 — the email screen. Three READS over `notification_sends` and
 // `notification_delivery_events`; no audit row, no `rateLimit()` (reads are never
 // limited). The address search is a POST so the address rides the body and never a

@@ -11,6 +11,7 @@ export * from './admin-panel';
 export * from './admin-reason';
 export * from './admin-reindex';
 export * from './admin-requests';
+export * from './admin-seo';
 export * from './admin-reviewers';
 export * from './admin-vendor-suspension';
 export * from './admin-threads';
