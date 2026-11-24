@@ -31,6 +31,12 @@ import {
 import { mappingConfidenceLabel, mappingStatusLabel } from './connector-labels';
 import { MappingEditApi } from './mapping-edit-api';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import { AecButton } from '../../shared/button/button';
+import {
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
 
 /**
  * Edit one mapping on a VENDOR-MANAGED catalogue (AECI-724 — `ADMIN_PANEL_SPEC.md`
@@ -57,12 +63,16 @@ import { AecFormSubmit } from '../../shared/form-field/form-submit';
  */
 @Component({
   selector: 'aec-mapping-edit-control',
-  imports: [AecFormSubmit, AecSelect, ProductCombobox],
+  imports: [AecButton, AecFormSubmit, AecSelect, ProductCombobox],
   templateUrl: './mapping-edit-control.html',
 })
 export class MappingEditControl {
   private readonly api = inject(MappingEditApi);
   private readonly injector = inject(Injector);
+
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly hintClass = FIELD_HINT_CLASS;
 
   readonly mapping = input.required<AdminConnectorMapping>();
   /** The listing's label, for copy that names what is being edited. */

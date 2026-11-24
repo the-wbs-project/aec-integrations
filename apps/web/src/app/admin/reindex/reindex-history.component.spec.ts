@@ -166,6 +166,10 @@ describe('ReindexHistory', () => {
     expect(causes[0]!.textContent).toContain('Autodesk Build');
     expect(causes[1]!.textContent).toContain('MicroStation');
     expect(el.textContent).toContain('1 submission matches.');
+    // AECI-2125: the outcome is a dense console chip, its words carrying the state.
+    const chip = row.querySelector('[data-tone]');
+    expect(chip?.textContent?.trim()).toBe('Accepted');
+    expect(chip?.getAttribute('data-tone')).toBe('positive');
   });
 
   it('labels the audit action with the shared audit vocabulary', async () => {

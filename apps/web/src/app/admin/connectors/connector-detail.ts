@@ -18,13 +18,25 @@ import {
 } from '@aeci/shared';
 
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
+import { AecButton } from '../../shared/button/button';
+import { Chip } from '../../shared/chip/chip';
+import { FIELD_INPUT_CLASS } from '../../shared/form-field/form-field-classes';
+import { AecIcon } from '../../shared/icon/icon';
+import { CONSOLE_FILTER } from '../console/console-filter';
+import {
+  CONSOLE_CAPTION_CLASS,
+  CONSOLE_LABEL_CLASS,
+  CONSOLE_PANEL_CLASS,
+  CONSOLE_TABLE,
+} from '../console/console-table';
+import { adminStatusTone } from '../console/status-tones';
 import { AdminBreadcrumbStore } from '../admin-breadcrumb.store';
 import { ADMIN_DETAIL_FALLBACK_LABELS } from '../admin-nav';
 import { AdminNotes } from '../admin-notes';
 import { AdminPaginator } from '../admin-paginator';
 import { AuditTrail } from '../audit/audit-trail';
 import { AdminConnectorsApi } from './admin-connectors-api';
-import { mappingStatusLabel } from './connector-labels';
+import { mappingStatusLabel, mappingStatusTone } from './connector-labels';
 import { ManagedByControl } from './managed-by-control';
 import { MappingEditControl } from './mapping-edit-control';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
@@ -67,7 +79,10 @@ type StubState =
 @Component({
   selector: 'aec-connector-detail',
   imports: [
+    AecButton,
     AecFormSubmit,
+    AecIcon,
+    Chip,
     DatePipe,
     AecSelect,
     AdminNotes,
@@ -84,6 +99,27 @@ export class ConnectorDetail {
   private readonly api = inject(AdminConnectorsApi);
   private readonly route = inject(ActivatedRoute);
   private readonly breadcrumbs = inject(AdminBreadcrumbStore);
+
+  // AECI-2125: the console recipe.
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly f = CONSOLE_FILTER;
+  protected readonly panelClass = CONSOLE_PANEL_CLASS;
+  protected readonly labelClass = CONSOLE_LABEL_CLASS;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly tone = adminStatusTone;
+  protected readonly statusTone = mappingStatusTone;
+  /** Facts as label over value, in as many columns as fit (mock-up 14 `.facts-dl`). */
+  protected readonly factsClass =
+    'grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-x-6 gap-y-4';
+  protected readonly factValueClass =
+    'mt-1 text-t-16 text-(--text-primary) [overflow-wrap:anywhere]';
+  /** A link in a panel or a cell's body: Forest, underlined at rest. */
+  protected readonly inlineLinkClass =
+    'inline-flex items-center gap-1 rounded-mark text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-3 focus-visible:outline-offset-3';
+  /** A neutral box for a fact or a section's own failure: sunken, hairline. */
+  protected readonly neutralBoxClass =
+    'rounded-control border border-(--border-default) bg-(--surface-sunken) p-4';
 
   protected readonly catalogId = signal(this.route.snapshot.paramMap.get('id') ?? '');
 

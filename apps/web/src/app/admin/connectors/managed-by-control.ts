@@ -11,6 +11,8 @@ import type {
 import { AdminVendorsApi } from '../vendors/admin-vendors-api';
 import { ManagedByApi } from './managed-by-api';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import { AecButton } from '../../shared/button/button';
+import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
 
 /**
  * The `managed_by` flip control (AECI-722's UI over AECI-720's endpoint).
@@ -42,12 +44,15 @@ import { AecFormSubmit } from '../../shared/form-field/form-submit';
  */
 @Component({
   selector: 'aec-managed-by-control',
-  imports: [AecFormSubmit],
+  imports: [AecButton, AecFormSubmit],
   templateUrl: './managed-by-control.html',
 })
 export class ManagedByControl {
   private readonly api = inject(ManagedByApi);
   private readonly vendorsApi = inject(AdminVendorsApi);
+
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
 
   readonly catalogId = input.required<string>();
   readonly managedBy = input.required<ConnectorManagedBy>();

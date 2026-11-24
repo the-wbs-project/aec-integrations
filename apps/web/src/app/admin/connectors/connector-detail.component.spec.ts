@@ -485,6 +485,13 @@ describe('ConnectorDetail', () => {
       expect(el.querySelectorAll('aec-mapping-edit-control')).toHaveLength(1);
     });
 
+    it('shows the mapping status as a console chip in its ruled tone (AECI-2125)', async () => {
+      const { el } = await setup(withMapping('review'));
+      const chip = el.querySelector('tbody li [data-tone]');
+      expect(chip?.textContent?.trim()).toBe('Matched');
+      expect(chip?.getAttribute('data-tone')).toBe('positive');
+    });
+
     it('renders NO edit control on a review-managed catalogue: the sync would clobber it', async () => {
       const { el } = await setup(withMapping('review'));
       expect(el.querySelector('aec-mapping-edit-control')).toBeNull();
@@ -509,6 +516,10 @@ describe('ConnectorDetail', () => {
       const { el } = await setup(makeApiMock());
       for (const table of el.querySelectorAll('table')) {
         expect(table.querySelector('caption')?.textContent?.trim()).toBeTruthy();
+        // AECI-2125: each table sits in a focusable region named by its caption.
+        const region = table.closest('[role="region"]');
+        expect(region?.getAttribute('tabindex')).toBe('0');
+        expect(region?.getAttribute('aria-labelledby')).toBe(table.querySelector('caption')?.id);
         for (const th of table.querySelectorAll('thead th')) {
           expect(th.getAttribute('scope')).toBe('col');
         }
