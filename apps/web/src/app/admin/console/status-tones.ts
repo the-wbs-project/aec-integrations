@@ -61,6 +61,8 @@ export const ADMIN_STATUS_TONES = {
   queued: 'waiting',
   /** A research job (`RESEARCH_STATUSES` in_progress). */
   inProgress: 'waiting',
+  /** An upcoming legal version not yet recorded on `/admin/legal` (`legal/legal-versions.ts`). */
+  notPublished: 'waiting',
 
   // positive: live, or done as intended.
   approved: 'positive',

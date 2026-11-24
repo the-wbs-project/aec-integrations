@@ -336,6 +336,47 @@ describe('EmailActivity', () => {
   });
 });
 
+describe('EmailActivity on the console recipe (AECI-2128)', () => {
+  const sendsRow = (el: HTMLElement) =>
+    el.querySelector<HTMLTableRowElement>(
+      'section[aria-labelledby="admin-email-sends-heading"] tbody tr',
+    )!;
+
+  it('shows the outcome and the delivery report as console chips in their ruled tones', async () => {
+    const { el } = await setup();
+    const chips = [...sendsRow(el).querySelectorAll('.aec-chip')];
+    expect(chips.map((c) => [c.textContent?.trim(), c.getAttribute('data-tone')])).toEqual([
+      ['Sent', 'positive'],
+      ['Bounced', 'critical'],
+    ]);
+  });
+
+  it('ticks the pressed window and moves the tick with it', async () => {
+    const { el, rerender } = await setup();
+    const pressed = () =>
+      [...el.querySelectorAll<HTMLButtonElement>('button[aria-pressed="true"]')].map((b) => [
+        b.textContent?.trim(),
+        b.querySelector('aec-icon') !== null,
+      ]);
+    expect(pressed()).toEqual([['Last 7 days', true]]);
+    [...el.querySelectorAll<HTMLButtonElement>('button[aria-pressed]')]
+      .find((b) => b.textContent?.includes('Last 30 days'))!
+      .click();
+    await rerender();
+    expect(pressed()).toEqual([['Last 30 days', true]]);
+    expect(el.querySelectorAll('button[aria-pressed] aec-icon')).toHaveLength(1);
+  });
+
+  it('labels each table region by its caption', async () => {
+    const { el } = await setup();
+    for (const region of el.querySelectorAll('[role="region"]')) {
+      const id = region.getAttribute('aria-labelledby')!;
+      expect(region.querySelector(`caption#${id}`)).not.toBeNull();
+      expect(region.getAttribute('tabindex')).toBe('0');
+    }
+  });
+});
+
 describe('EmailActivity and the sending switches (AECI-1224)', () => {
   it('shows a Paused column in the summary with its count', async () => {
     const summary = makeSummary();

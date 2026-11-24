@@ -21,15 +21,11 @@ import {
 } from '@aeci/shared';
 
 import { AdminLegalApi } from './admin-legal-api';
+import { AecButton } from '../../shared/button/button';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
-
-/** The console's button styles, as the suspension section and the publish form use them. */
-const BUTTON_BASE =
-  'cursor-pointer rounded-(--radius-sm) border px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-export const HOLD_BUTTON = `${BUTTON_BASE} border-(--border-default) text-(--text-primary)`;
-export const HOLD_CONFIRM_BUTTON = `${BUTTON_BASE} border-(--text-primary) bg-(--text-primary) text-(--surface-base)`;
-export const HOLD_INPUT =
-  'mt-2 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+import { FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
+import { CONSOLE_LABEL_CLASS } from '../console/console-table';
+import { LEGAL_CLASSES } from './legal-classes';
 
 /** The message for a failed hold write, in plain words. */
 export function holdErrorMessage(error: unknown): string {
@@ -72,7 +68,7 @@ type Load =
  */
 @Component({
   selector: 'aec-admin-litigation-holds',
-  imports: [AecFormSubmit, DatePipe, RouterLink],
+  imports: [AecButton, AecFormSubmit, DatePipe, RouterLink],
   host: { class: 'block' },
   templateUrl: './litigation-holds.html',
 })
@@ -81,9 +77,11 @@ export class AdminLitigationHolds {
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
 
-  protected readonly buttonClass = HOLD_BUTTON;
-  protected readonly confirmClass = HOLD_CONFIRM_BUTTON;
-  protected readonly inputClass = HOLD_INPUT;
+  protected readonly c = LEGAL_CLASSES;
+  /** A field's label or a radio group's legend: the Label role. */
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  /** A term in a hold's facts. */
+  protected readonly dtClass = CONSOLE_LABEL_CLASS;
   protected readonly reasonMax = ADMIN_REASON_MAX;
   protected readonly matterMax = LITIGATION_HOLD_MATTER_MAX;
 
@@ -134,10 +132,21 @@ export class AdminLitigationHolds {
     void this.fetch();
   }
 
-  private focus(selector: string): void {
-    afterNextRender(() => this.host.nativeElement.querySelector<HTMLElement>(selector)?.focus(), {
-      injector: this.injector,
-    });
+  /** Focus the first of `selectors` that is rendered, tried in order. */
+  private focus(...selectors: string[]): void {
+    afterNextRender(
+      () => {
+        const root = this.host.nativeElement;
+        for (const selector of selectors) {
+          const target = root.querySelector<HTMLElement>(selector);
+          if (target) {
+            target.focus();
+            return;
+          }
+        }
+      },
+      { injector: this.injector },
+    );
   }
 
   protected textOf(event: Event): string {
@@ -159,6 +168,15 @@ export class AdminLitigationHolds {
 
   protected cancelPlace(): void {
     this.placeOpen.set(false);
+    this.focus('#admin-hold-place-open');
+  }
+
+  /** Escape closes the place form, as Cancel does, except while it sends (AECI-2128). */
+  protected onPlaceEscape(event: Event): void {
+    // An open control inside the form (none today) that handled Escape keeps it.
+    if (event.defaultPrevented) return;
+    event.preventDefault();
+    if (!this.placing()) this.cancelPlace();
   }
 
   protected vendorMissing(): boolean {
@@ -190,8 +208,10 @@ export class AdminLitigationHolds {
           : $localize`:@@admin.legal.holds.announce.placedVendor:Vendor hold placed. That vendor's records are kept. Other records are deleted on schedule.`,
       );
       await this.fetch();
+      this.focus('#admin-hold-place-open');
     } catch (error) {
       this.placeError.set(holdErrorMessage(error));
+      this.focus('#admin-hold-place-failed');
     } finally {
       this.placing.set(false);
     }
@@ -208,7 +228,16 @@ export class AdminLitigationHolds {
   }
 
   protected cancelRelease(): void {
+    const id = this.releasingId();
     this.releasingId.set(null);
+    if (id) this.focus(`[id="admin-hold-release-open-${id}"]`);
+  }
+
+  /** Escape closes the release form, as Cancel does, except while it sends (AECI-2128). */
+  protected onReleaseEscape(event: Event, hold: LitigationHold): void {
+    if (event.defaultPrevented) return;
+    event.preventDefault();
+    if (!this.releasing() && this.releasingId() === hold.id) this.cancelRelease();
   }
 
   protected async submitRelease(hold: LitigationHold): Promise<void> {
@@ -228,8 +257,12 @@ export class AdminLitigationHolds {
         $localize`:@@admin.legal.holds.announce.released:Hold released. The retention prune resumes on its next run.`,
       );
       await this.fetch();
+      // "Place a hold" is not rendered while the place form is open, so fall back to
+      // the section heading rather than letting focus drop to the body.
+      this.focus('#admin-hold-place-open', '#admin-legal-holds-h');
     } catch (error) {
       this.releaseError.set(holdErrorMessage(error));
+      this.focus(`[id="admin-hold-release-failed-${hold.id}"]`);
     } finally {
       this.releasing.set(false);
     }

@@ -21,7 +21,13 @@ import {
 } from '@aeci/shared';
 
 import { AdminPaginator } from '../admin-paginator';
+import { CONSOLE_TABLE } from '../console/console-table';
+import { adminStatusTone, type AdminStatusKey } from '../console/status-tones';
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
+import { AecButton } from '../../shared/button/button';
+import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
+import { FIELD_INPUT_CLASS } from '../../shared/form-field/form-field-classes';
+import { USER_CLASSES } from './user-console-classes';
 import { SortHeader } from '../../shared/sort-header/sort-header';
 import { AdminUsersApi } from './admin-users-api';
 import {
@@ -84,7 +90,7 @@ type RoleFilter = 'any' | 'reviewer' | 'vendor_admin' | 'admin';
  */
 @Component({
   selector: 'aec-user-list',
-  imports: [RouterLink, AdminPaginator, AecSelect, SortHeader, DatePipe],
+  imports: [RouterLink, AdminPaginator, AecButton, AecSelect, Chip, SortHeader, DatePipe],
   templateUrl: './user-list.html',
 })
 export class UserList {
@@ -92,6 +98,11 @@ export class UserList {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly locale = inject(LOCALE_ID);
+
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly c = USER_CLASSES;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly tone = (key: AdminStatusKey): ConsoleChipTone => adminStatusTone(key);
 
   protected readonly users = signal<readonly AdminUserRow[]>([]);
   protected readonly total = signal(0);

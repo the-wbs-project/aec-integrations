@@ -5,6 +5,8 @@ import type { AdminLegalAcceptanceVersion } from '@aeci/shared';
 
 import { formatTermDate } from '../../shared/term-date/format-term-date';
 import { AdminLegalApi } from './admin-legal-api';
+import { CONSOLE_LABEL_CLASS } from '../console/console-table';
+import { LEGAL_CLASSES } from './legal-classes';
 
 type Load =
   | { state: 'loading' }
@@ -23,76 +25,56 @@ type Load =
   imports: [RouterLink],
   host: { class: 'block' },
   template: `
-    <section class="mt-12" aria-labelledby="admin-legal-acceptances-h">
-      <h2
-        id="admin-legal-acceptances-h"
-        class="font-display text-xl font-semibold text-(--text-primary)"
-        i18n="@@admin.legal.acceptances.heading"
-      >
-        Who has accepted
-      </h2>
-      <p
-        class="mt-2 max-w-prose text-sm text-(--text-secondary)"
-        i18n="@@admin.legal.acceptances.lead"
-      >
-        Each version that is in force, dated or published, and the companies that hold an acceptance
-        of it or a later version. An acceptance of a draft never counts. Vendor Terms count every
-        company with a seat. The Managed plan agreement counts companies with a live monthly card
-        subscription.
-      </p>
+    <section class="grid gap-4" aria-labelledby="admin-legal-acceptances-h">
+      <div class="grid gap-2">
+        <h2 id="admin-legal-acceptances-h" i18n="@@admin.legal.acceptances.heading">
+          Who has accepted
+        </h2>
+        <p [class]="c.caption" i18n="@@admin.legal.acceptances.lead">
+          Each version that is in force, dated or published, and the companies that hold an
+          acceptance of it or a later version. An acceptance of a draft never counts. Vendor Terms
+          count every company with a seat. The Managed plan agreement counts companies with a live
+          monthly card subscription.
+        </p>
+      </div>
 
       @switch (load().state) {
         @case ('loading') {
-          <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.legal.acceptances.loading">
-            Loading…
-          </p>
+          <p [class]="c.statusLine" i18n="@@admin.legal.acceptances.loading">Loading…</p>
         }
         @case ('error') {
-          <p
-            class="mt-4 text-sm font-medium text-(--text-primary)"
-            role="alert"
-            i18n="@@admin.legal.acceptances.error"
-          >
+          <p [class]="c.failedText" role="alert" i18n="@@admin.legal.acceptances.error">
             Could not load the acceptance counts. Reload the page to try again.
           </p>
         }
         @default {
           @for (v of versions(); track v.document + v.version) {
             <article
-              class="mt-6 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-5"
+              [class]="c.panel"
               [attr.aria-labelledby]="'acc-' + v.document + '-' + v.version"
               data-testid="acceptances-version"
             >
-              <h3
-                [id]="'acc-' + v.document + '-' + v.version"
-                class="text-base font-bold text-(--text-primary)"
-              >
-                {{ titleOf(v) }}
-              </h3>
-              <p class="mt-1 text-sm text-(--text-secondary)">{{ statusOf(v) }}</p>
-              <dl class="mt-3 grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1 text-sm">
-                <dt class="text-(--text-secondary)" i18n="@@admin.legal.acceptances.accepted">
-                  Accepted
-                </dt>
-                <dd class="tabular-nums text-(--text-primary)" data-testid="acceptances-accepted">
+              <div class="grid gap-1">
+                <h3 [id]="'acc-' + v.document + '-' + v.version">{{ titleOf(v) }}</h3>
+                <p [class]="c.caption">{{ statusOf(v) }}</p>
+              </div>
+              <dl [class]="c.pairs">
+                <dt [class]="dtClass" i18n="@@admin.legal.acceptances.accepted">Accepted</dt>
+                <dd [class]="c.countValue" data-testid="acceptances-accepted">
                   {{ v.accepted_count }}
                 </dd>
-                <dt class="text-(--text-secondary)" i18n="@@admin.legal.acceptances.notYet">
-                  Not yet
-                </dt>
-                <dd class="tabular-nums text-(--text-primary)" data-testid="acceptances-not-yet">
+                <dt [class]="dtClass" i18n="@@admin.legal.acceptances.notYet">Not yet</dt>
+                <dd [class]="c.countValue" data-testid="acceptances-not-yet">
                   {{ v.not_yet_count }}
                 </dd>
               </dl>
               @if (v.not_yet.length > 0) {
-                <ul class="mt-3 columns-1 gap-6 text-sm sm:columns-2 lg:columns-3">
+                <ul class="columns-1 gap-6 text-t-14 sm:columns-2 lg:columns-3">
                   @for (c of v.not_yet; track c.vendor_id) {
-                    <li class="break-inside-avoid py-0.5">
-                      <a
-                        [routerLink]="['/admin/vendors', c.vendor_id]"
-                        class="text-(--text-primary) underline underline-offset-2 hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                        >{{ c.company_name }}</a
-                      >
+                    <li class="break-inside-avoid py-1">
+                      <a [routerLink]="['/admin/vendors', c.vendor_id]" [class]="linkClass">{{
+                        c.company_name
+                      }}</a>
                     </li>
                   }
                 </ul>
@@ -100,7 +82,7 @@ type Load =
             </article>
           } @empty {
             <p
-              class="mt-4 text-sm text-(--text-secondary)"
+              [class]="c.statusLine"
               data-testid="acceptances-empty"
               i18n="@@admin.legal.acceptances.empty"
             >
@@ -116,6 +98,12 @@ type Load =
 export class AdminLegalAcceptanceStatus {
   private readonly api = inject(AdminLegalApi);
   private readonly locale = inject(LOCALE_ID);
+
+  protected readonly c = LEGAL_CLASSES;
+  /** A count's term: the Label role. */
+  protected readonly dtClass = CONSOLE_LABEL_CLASS;
+  /** A company link: the console's inline link look. */
+  protected readonly linkClass = LEGAL_CLASSES.inlineLink;
 
   protected readonly load = signal<Load>({ state: 'loading' });
 

@@ -2,20 +2,17 @@
   /admin/dmca, spec section 5.23. AECI-1665 (counsel Q38).
 
   Same idiom as /admin/legal: the page heading with Refresh, one polite live region,
-  bordered cards and the console's button styles. Every value below is rendered as text.
-  The log is never public.
+  flat console panels and aecButton. Every value below is rendered as text.
+  The log is never public. AECI-2128 moved it onto the console recipe (mock-up 14):
+  the console table, the console panel, Label-role labels, the field recipe and the
+  console chip tones for the restore clock. Wording, the form and its payloads are
+  unchanged.
 -->
-<section aria-labelledby="admin-dmca-heading" class="space-y-8">
+<section aria-labelledby="admin-dmca-heading" class="space-y-6">
   <div class="flex flex-wrap items-start justify-between gap-4">
-    <div>
-      <h2
-        id="admin-dmca-heading"
-        class="text-lg font-bold text-(--text-primary)"
-        i18n="@@admin.dmca.heading"
-      >
-        Copyright notices
-      </h2>
-      <p class="mt-1 max-w-[64ch] text-sm text-(--text-secondary)" i18n="@@admin.dmca.subheading">
+    <div class="min-w-0">
+      <h2 id="admin-dmca-heading" i18n="@@admin.dmca.heading">Copyright notices</h2>
+      <p [class]="c.caption" class="mt-2 max-w-[64ch]" i18n="@@admin.dmca.subheading">
         Every DMCA notice and counter-notice we receive, and what we did about it. A counter-notice
         shows its restore clock: we restore the material between 10 and 14 business days after we
         receive it, unless the complainant reports a court action. Dates are UTC.
@@ -23,20 +20,21 @@
     </div>
     <div class="flex flex-wrap gap-3">
       <button
+        aecButton
         type="button"
         (click)="openCreate()"
         id="admin-dmca-new"
         data-testid="dmca-new"
         [disabled]="saving()"
-        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-4 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
         i18n="@@admin.dmca.new"
       >
         Log a notice
       </button>
       <button
+        aecButton
+        variant="secondary"
         type="button"
         (click)="refresh()"
-        class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
         i18n="@@admin.dmca.refresh"
       >
         Refresh
@@ -47,29 +45,34 @@
   <p class="sr-only" role="status" aria-live="polite">{{ liveMessage() }}</p>
 
   <div class="flex flex-wrap items-center gap-x-6 gap-y-3">
-    <label class="flex items-center gap-2 text-sm text-(--text-primary)">
+    <label class="flex min-h-11 items-center gap-2 text-t-14 text-(--text-primary)">
       <input
         type="checkbox"
         data-testid="dmca-open-only"
         [checked]="openOnly()"
         (change)="onOpenOnly($event)"
-        class="h-4 w-4 accent-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        [class]="c.choice"
       />
       <span i18n="@@admin.dmca.openOnly">Open only</span>
     </label>
     @if (account(); as accountId) {
-    <p class="text-sm text-(--text-secondary)" data-testid="dmca-account-filter">
+    <p
+      class="flex flex-wrap items-center gap-x-3 gap-y-1 text-t-14 text-(--text-secondary)"
+      data-testid="dmca-account-filter"
+    >
       <span i18n="@@admin.dmca.accountFilter">Showing one account.</span>
       <a
         [routerLink]="['/admin/users', accountId]"
-        class="ms-1 underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        [class]="c.inlineLink"
         i18n="@@admin.dmca.accountLink"
         >Open the account</a
       >
       <button
+        aecButton
+        variant="ghost"
+        compact
         type="button"
         (click)="clearAccount()"
-        class="ms-3 underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
         i18n="@@admin.dmca.showAll"
       >
         Show every account
@@ -79,36 +82,33 @@
   </div>
 
   @if (data()?.account_counts; as counts) {
-  <dl
-    data-testid="dmca-account-counts"
-    class="flex flex-wrap gap-x-8 gap-y-2 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4 text-sm"
-  >
-    <div class="flex gap-2">
-      <dt class="text-(--text-secondary)" i18n="@@admin.dmca.counts.takedowns">Takedowns</dt>
-      <dd class="font-medium text-(--text-primary)">{{ counts.dmca_takedowns }}</dd>
+  <dl data-testid="dmca-account-counts" [class]="c.panel" class="flex flex-wrap gap-x-8 gap-y-4">
+    <div>
+      <dt [class]="labelClass" i18n="@@admin.dmca.counts.takedowns">Takedowns</dt>
+      <dd [class]="c.factValue">{{ counts.dmca_takedowns }}</dd>
     </div>
-    <div class="flex gap-2">
-      <dt class="text-(--text-secondary)" i18n="@@admin.dmca.counts.counterNotices">
-        Counter-notices filed
-      </dt>
-      <dd class="font-medium text-(--text-primary)">{{ counts.dmca_counter_notices }}</dd>
+    <div>
+      <dt [class]="labelClass" i18n="@@admin.dmca.counts.counterNotices">Counter-notices filed</dt>
+      <dd [class]="c.factValue">{{ counts.dmca_counter_notices }}</dd>
     </div>
   </dl>
   }
 
-  <!-- The form: one component for a new row and an edit. -->
+  <!-- The form: one component for a new row and an edit. Escape cancels, as Cancel does,
+       except while a save is in flight. -->
   @if (editing(); as mode) {
   <form
     method="dialog"
     data-testid="dmca-form"
     aria-labelledby="admin-dmca-form-heading"
     (submit)="save($event)"
-    class="space-y-5 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-5"
+    (keydown.escape)="onEscape($event)"
+    [class]="c.form"
   >
     <h3
       id="admin-dmca-form-heading"
       tabindex="-1"
-      class="text-base font-bold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      class="focus-visible:outline-3 focus-visible:outline-offset-3"
     >
       @if (mode.mode === 'create') {
       <span i18n="@@admin.dmca.form.createHeading">Log a notice or counter-notice</span>
@@ -120,37 +120,35 @@
     </h3>
 
     @if (mode.mode === 'create') {
-    <fieldset class="space-y-2">
-      <legend class="text-sm font-bold text-(--text-primary)" i18n="@@admin.dmca.form.kind">
-        What did we receive?
-      </legend>
-      <div class="flex flex-wrap gap-5">
-        <label class="flex items-center gap-2 text-sm text-(--text-primary)">
+    <fieldset class="m-0 grid gap-2 border-0 p-0">
+      <legend [class]="labelClass" i18n="@@admin.dmca.form.kind">What did we receive?</legend>
+      <div class="flex flex-wrap gap-x-6 gap-y-2">
+        <label class="flex min-h-11 items-center gap-2 text-t-14 text-(--text-primary)">
           <input
             type="radio"
             name="admin-dmca-kind"
             id="admin-dmca-kind-notice"
             [checked]="draft().kind === 'notice'"
             (change)="setKind('notice')"
-            class="h-4 w-4 accent-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            [class]="c.choice"
           />
           <span i18n="@@admin.dmca.kind.notice">A notice</span>
         </label>
-        <label class="flex items-center gap-2 text-sm text-(--text-primary)">
+        <label class="flex min-h-11 items-center gap-2 text-t-14 text-(--text-primary)">
           <input
             type="radio"
             name="admin-dmca-kind"
             id="admin-dmca-kind-counter"
             [checked]="draft().kind === 'counter_notice'"
             (change)="setKind('counter_notice')"
-            class="h-4 w-4 accent-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            [class]="c.choice"
           />
           <span i18n="@@admin.dmca.kind.counter">A counter-notice</span>
         </label>
       </div>
     </fieldset>
     @if (isCounter()) {
-    <div class="space-y-1.5">
+    <div [class]="c.field">
       <aec-select
         i18n-label="@@admin.dmca.form.noticeId"
         label="Counter-notice to"
@@ -164,15 +162,17 @@
       />
       @if (noticesFailed()) {
       <p
-        class="text-sm font-medium text-(--text-primary)"
+        class="flex flex-wrap items-center gap-x-2 text-t-14 font-semibold text-(--text-primary)"
         role="alert"
         data-testid="dmca-notices-error"
       >
         <span i18n="@@admin.dmca.form.noticesError">The notices could not be loaded.</span>
         <button
+          aecButton
+          variant="ghost"
+          compact
           type="button"
           (click)="loadAllNotices()"
-          class="ms-2 underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           i18n="@@admin.dmca.form.noticesRetry"
         >
           Try again
@@ -182,12 +182,9 @@
     </div>
     } }
 
-    <div class="grid gap-5 sm:grid-cols-2">
-      <div class="space-y-1.5">
-        <label
-          for="admin-dmca-received"
-          class="block text-sm font-bold text-(--text-primary)"
-          i18n="@@admin.dmca.form.received"
+    <div [class]="c.grid">
+      <div [class]="c.field">
+        <label for="admin-dmca-received" [class]="labelClass" i18n="@@admin.dmca.form.received"
           >Received on (required)</label
         >
         <input
@@ -196,38 +193,26 @@
           aria-required="true"
           [value]="draft().received_on"
           (input)="onText('received_on', $event)"
-          class="aec-field-control w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          [class]="c.input"
         />
       </div>
-      <div class="space-y-1.5">
-        <label
-          for="admin-dmca-name"
-          class="block text-sm font-bold text-(--text-primary)"
-          i18n="@@admin.dmca.form.name"
-          >From</label
-        >
+      <div [class]="c.field">
+        <label for="admin-dmca-name" [class]="labelClass" i18n="@@admin.dmca.form.name">From</label>
         <input
           id="admin-dmca-name"
           type="text"
           [value]="draft().submitter_name"
           (input)="onText('submitter_name', $event)"
-          class="aec-field-control w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          [class]="c.input"
         />
       </div>
     </div>
 
-    <div class="space-y-1.5">
-      <label
-        for="admin-dmca-contact"
-        class="block text-sm font-bold text-(--text-primary)"
-        i18n="@@admin.dmca.form.contact"
+    <div [class]="c.field">
+      <label for="admin-dmca-contact" [class]="labelClass" i18n="@@admin.dmca.form.contact"
         >Contact details</label
       >
-      <p
-        id="admin-dmca-contact-hint"
-        class="text-xs text-(--text-secondary)"
-        i18n="@@admin.dmca.form.contactHint"
-      >
+      <p id="admin-dmca-contact-hint" [class]="c.hint" i18n="@@admin.dmca.form.contactHint">
         Email, postal address and phone, as given.
       </p>
       <textarea
@@ -236,22 +221,15 @@
         aria-describedby="admin-dmca-contact-hint"
         [value]="draft().submitter_contact"
         (input)="onText('submitter_contact', $event)"
-        class="aec-field-control w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        [class]="c.input"
       ></textarea>
     </div>
 
-    <div class="space-y-1.5">
-      <label
-        for="admin-dmca-content"
-        class="block text-sm font-bold text-(--text-primary)"
-        i18n="@@admin.dmca.form.content"
+    <div [class]="c.field">
+      <label for="admin-dmca-content" [class]="labelClass" i18n="@@admin.dmca.form.content"
         >Material identified</label
       >
-      <p
-        id="admin-dmca-content-hint"
-        class="text-xs text-(--text-secondary)"
-        i18n="@@admin.dmca.form.contentHint"
-      >
+      <p id="admin-dmca-content-hint" [class]="c.hint" i18n="@@admin.dmca.form.contentHint">
         The addresses of the pages, or a description of the material. Required when we removed or
         disabled it.
       </p>
@@ -262,16 +240,13 @@
         aria-describedby="admin-dmca-content-hint"
         [value]="draft().content_identified"
         (input)="onText('content_identified', $event)"
-        class="aec-field-control w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        [class]="c.input"
       ></textarea>
     </div>
 
     @if (!isCounter()) {
-    <div class="space-y-1.5">
-      <label
-        for="admin-dmca-work"
-        class="block text-sm font-bold text-(--text-primary)"
-        i18n="@@admin.dmca.form.work"
+    <div [class]="c.field">
+      <label for="admin-dmca-work" [class]="labelClass" i18n="@@admin.dmca.form.work"
         >Copyrighted work claimed</label
       >
       <textarea
@@ -279,24 +254,17 @@
         rows="2"
         [value]="draft().work_claimed"
         (input)="onText('work_claimed', $event)"
-        class="aec-field-control w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        [class]="c.input"
       ></textarea>
     </div>
     }
 
-    <div class="grid gap-5 sm:grid-cols-2">
-      <div class="space-y-1.5">
-        <label
-          for="admin-dmca-account"
-          class="block text-sm font-bold text-(--text-primary)"
-          i18n="@@admin.dmca.form.account"
+    <div [class]="c.grid">
+      <div [class]="c.field">
+        <label for="admin-dmca-account" [class]="labelClass" i18n="@@admin.dmca.form.account"
           >Account id</label
         >
-        <p
-          id="admin-dmca-account-hint"
-          class="text-xs text-(--text-secondary)"
-          i18n="@@admin.dmca.form.accountHint"
-        >
+        <p id="admin-dmca-account-hint" [class]="c.hint" i18n="@@admin.dmca.form.accountHint">
           The account that posted the material or sent the counter-notice. Copy it from the
           account's page. Leave it empty when there is none.
         </p>
@@ -306,21 +274,14 @@
           aria-describedby="admin-dmca-account-hint"
           [value]="draft().account_id"
           (input)="onText('account_id', $event)"
-          class="aec-field-control w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 font-mono text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          [class]="c.inputMono"
         />
       </div>
-      <div class="space-y-1.5">
-        <label
-          for="admin-dmca-vendor"
-          class="block text-sm font-bold text-(--text-primary)"
-          i18n="@@admin.dmca.form.vendor"
+      <div [class]="c.field">
+        <label for="admin-dmca-vendor" [class]="labelClass" i18n="@@admin.dmca.form.vendor"
           >Vendor id</label
         >
-        <p
-          id="admin-dmca-vendor-hint"
-          class="text-xs text-(--text-secondary)"
-          i18n="@@admin.dmca.form.vendorHint"
-        >
+        <p id="admin-dmca-vendor-hint" [class]="c.hint" i18n="@@admin.dmca.form.vendorHint">
           Only when the material is a vendor's logo or screenshot.
         </p>
         <input
@@ -329,12 +290,12 @@
           aria-describedby="admin-dmca-vendor-hint"
           [value]="draft().vendor_id"
           (input)="onText('vendor_id', $event)"
-          class="aec-field-control w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 font-mono text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          [class]="c.inputMono"
         />
       </div>
     </div>
 
-    <div class="grid gap-5 sm:grid-cols-2">
+    <div [class]="c.grid">
       <aec-select
         i18n-label="@@admin.dmca.form.action"
         label="What we did"
@@ -344,11 +305,8 @@
         idPrefix="admin-dmca-action"
         (changed)="onSelect('action', $event)"
       />
-      <div class="space-y-1.5">
-        <label
-          for="admin-dmca-action-on"
-          class="block text-sm font-bold text-(--text-primary)"
-          i18n="@@admin.dmca.form.actionOn"
+      <div [class]="c.field">
+        <label for="admin-dmca-action-on" [class]="labelClass" i18n="@@admin.dmca.form.actionOn"
           >Done on</label
         >
         <input
@@ -356,11 +314,11 @@
           type="date"
           [value]="draft().action_on"
           (input)="onText('action_on', $event)"
-          class="aec-field-control w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          [class]="c.input"
         />
       </div>
-      <div class="space-y-1.5">
-        <label for="admin-dmca-forwarded" class="block text-sm font-bold text-(--text-primary)">
+      <div [class]="c.field">
+        <label for="admin-dmca-forwarded" [class]="labelClass">
           @if (isCounter()) {
           <span i18n="@@admin.dmca.form.forwardedCounter">Sent to the complainant on</span>
           } @else {
@@ -372,15 +330,12 @@
           type="date"
           [value]="draft().forwarded_on"
           (input)="onText('forwarded_on', $event)"
-          class="aec-field-control w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          [class]="c.input"
         />
       </div>
       @if (isCounter()) {
-      <div class="space-y-1.5">
-        <label
-          for="admin-dmca-court"
-          class="block text-sm font-bold text-(--text-primary)"
-          i18n="@@admin.dmca.form.court"
+      <div [class]="c.field">
+        <label for="admin-dmca-court" [class]="labelClass" i18n="@@admin.dmca.form.court"
           >Court action reported on</label
         >
         <input
@@ -388,7 +343,7 @@
           type="date"
           [value]="draft().court_action_on"
           (input)="onText('court_action_on', $event)"
-          class="aec-field-control w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          [class]="c.input"
         />
       </div>
       <aec-select
@@ -400,11 +355,8 @@
         idPrefix="admin-dmca-outcome"
         (changed)="onSelect('restore_outcome', $event)"
       />
-      <div class="space-y-1.5">
-        <label
-          for="admin-dmca-outcome-on"
-          class="block text-sm font-bold text-(--text-primary)"
-          i18n="@@admin.dmca.form.outcomeOn"
+      <div [class]="c.field">
+        <label for="admin-dmca-outcome-on" [class]="labelClass" i18n="@@admin.dmca.form.outcomeOn"
           >Outcome recorded on</label
         >
         <input
@@ -412,22 +364,15 @@
           type="date"
           [value]="draft().restore_outcome_on"
           (input)="onText('restore_outcome_on', $event)"
-          class="aec-field-control w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          [class]="c.input"
         />
       </div>
       }
-      <div class="space-y-1.5">
-        <label
-          for="admin-dmca-closed"
-          class="block text-sm font-bold text-(--text-primary)"
-          i18n="@@admin.dmca.form.closed"
+      <div [class]="c.field">
+        <label for="admin-dmca-closed" [class]="labelClass" i18n="@@admin.dmca.form.closed"
           >Closed on</label
         >
-        <p
-          id="admin-dmca-closed-hint"
-          class="text-xs text-(--text-secondary)"
-          i18n="@@admin.dmca.form.closedHint"
-        >
+        <p id="admin-dmca-closed-hint" [class]="c.hint" i18n="@@admin.dmca.form.closedHint">
           When nothing more will happen. We keep the record for three years from this date.
         </p>
         <input
@@ -436,23 +381,16 @@
           aria-describedby="admin-dmca-closed-hint"
           [value]="draft().closed_on"
           (input)="onText('closed_on', $event)"
-          class="aec-field-control w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          [class]="c.input"
         />
       </div>
     </div>
 
-    <div class="space-y-1.5">
-      <label
-        for="admin-dmca-notes"
-        class="block text-sm font-bold text-(--text-primary)"
-        i18n="@@admin.dmca.form.notes"
+    <div [class]="c.field">
+      <label for="admin-dmca-notes" [class]="labelClass" i18n="@@admin.dmca.form.notes"
         >Notes</label
       >
-      <p
-        id="admin-dmca-notes-hint"
-        class="text-xs text-(--text-secondary)"
-        i18n="@@admin.dmca.form.notesHint"
-      >
+      <p id="admin-dmca-notes-hint" [class]="c.hint" i18n="@@admin.dmca.form.notesHint">
         For operators only. Record a repeat-infringer decision here and in its Linear issue.
       </p>
       <textarea
@@ -461,18 +399,26 @@
         aria-describedby="admin-dmca-notes-hint"
         [value]="draft().notes"
         (input)="onText('notes', $event)"
-        class="aec-field-control w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        [class]="c.input"
       ></textarea>
     </div>
 
     @if (formError(); as message) {
-    <div data-testid="dmca-form-error" role="alert" class="space-y-2">
-      <p class="text-sm font-medium text-(--text-primary)">{{ message }}</p>
+    <!-- A refused save moves focus here (AECI-2128), so the operator hears why. -->
+    <div
+      id="admin-dmca-form-error"
+      tabindex="-1"
+      data-testid="dmca-form-error"
+      role="alert"
+      class="grid justify-items-start gap-3 focus-visible:outline-3 focus-visible:outline-offset-3"
+    >
+      <p [class]="c.failedText">{{ message }}</p>
       @if (stale()) {
       <button
+        aecButton
+        variant="secondary"
         type="button"
         (click)="reloadAfterConflict()"
-        class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
         i18n="@@admin.dmca.reload"
       >
         Reload
@@ -481,13 +427,13 @@
     </div>
     }
 
-    <div class="flex flex-wrap items-center gap-3 pt-1">
+    <div [class]="c.actions">
       <button
+        aecButton
         type="submit"
         data-testid="dmca-save"
         [disabled]="!complete() || saving()"
         [attr.aria-describedby]="complete() ? null : 'admin-dmca-save-hint'"
-        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
       >
         @if (saving()) {
         <span i18n="@@admin.dmca.saving">Saving…</span>
@@ -496,16 +442,17 @@
         }
       </button>
       <button
+        aecButton
+        variant="ghost"
         type="button"
         (click)="cancel()"
         [disabled]="saving()"
-        class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
         i18n="@@admin.dmca.cancel"
       >
         Cancel
       </button>
       @if (!complete()) {
-      <p id="admin-dmca-save-hint" class="text-xs text-(--text-secondary)">
+      <p id="admin-dmca-save-hint" [class]="c.hint">
         @if (takedownLacksContent()) {
         <span i18n="@@admin.dmca.saveHintTakedown"
           >A removed or disabled notice needs the material identified.</span
@@ -522,16 +469,17 @@
     </div>
   </form>
   } @if (loading() && !data()) {
-  <p class="text-sm text-(--text-secondary)" i18n="@@admin.dmca.loading">Loading the log…</p>
+  <p [class]="c.statusLine" i18n="@@admin.dmca.loading">Loading the log…</p>
   } @else if (loadFailed() && !data()) {
-  <div class="space-y-3" role="alert">
-    <p class="text-sm font-medium text-(--text-primary)" i18n="@@admin.dmca.loadError">
+  <div [class]="c.loadFailed" role="alert">
+    <p [class]="c.failedText" i18n="@@admin.dmca.loadError">
       We couldn't load the copyright notice log.
     </p>
     <button
+      aecButton
+      variant="secondary"
       type="button"
       (click)="refresh()"
-      class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       i18n="@@admin.dmca.retry"
     >
       Try again
@@ -541,65 +489,50 @@
   <!-- A failed refresh keeps the earlier rows, so the deadlines stay readable, and says
        plainly that they may be out of date. Cleared by the next successful load. -->
   @if (loadFailed()) {
-  <div
-    data-testid="dmca-refresh-error"
-    role="alert"
-    class="flex flex-wrap items-center justify-between gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) px-4 py-3"
-  >
+  <div data-testid="dmca-refresh-error" role="alert" [class]="c.staleBox">
     <p
-      class="max-w-[64ch] text-sm font-medium text-(--text-primary)"
+      class="max-w-[64ch] text-t-14 font-semibold text-(--text-primary)"
       i18n="@@admin.dmca.refreshError"
     >
       The list could not be refreshed and may be out of date. It shows the log as of {{
       day(d.generated_at) }} {{ time(d.generated_at) }} UTC.
     </p>
     <button
+      aecButton
+      variant="secondary"
       type="button"
       (click)="refresh()"
       data-testid="dmca-refresh-retry"
-      class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       i18n="@@admin.dmca.retry"
     >
       Try again
     </button>
   </div>
   } @if (groups().length === 0) {
-  <div class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4">
-    <p class="text-sm font-bold text-(--text-primary)" i18n="@@admin.dmca.empty.title">
+  <div [class]="c.panel">
+    <p class="text-t-16 font-semibold text-(--text-primary)" i18n="@@admin.dmca.empty.title">
       No notices to show
     </p>
-    <p class="mt-1 max-w-[64ch] text-sm text-(--text-secondary)" i18n="@@admin.dmca.empty.body">
+    <p [class]="c.caption" class="mt-2 max-w-[64ch]" i18n="@@admin.dmca.empty.body">
       Log each notice the day it arrives, even an incomplete one. The runbook for legal events lists
       the steps.
     </p>
   </div>
   } @else {
-  <div class="overflow-x-auto rounded-(--radius-md) border border-(--border-default)">
-    <table class="w-full text-start text-sm" data-testid="dmca-table">
-      <caption class="sr-only" i18n="@@admin.dmca.table.caption">
+  <div [class]="t.region" role="region" tabindex="0" aria-labelledby="admin-dmca-caption">
+    <table [class]="t.table" class="min-w-[60rem]" data-testid="dmca-table">
+      <caption id="admin-dmca-caption" [class]="t.caption" i18n="@@admin.dmca.table.caption">
         Copyright notices, each followed by the counter-notices that answer it
       </caption>
-      <thead class="bg-(--surface-sunken) text-(--text-secondary)">
+      <thead>
         <tr>
-          <th scope="col" class="px-4 py-2 text-start font-bold" i18n="@@admin.dmca.col.received">
-            Received
-          </th>
-          <th scope="col" class="px-4 py-2 text-start font-bold" i18n="@@admin.dmca.col.kind">
-            Kind
-          </th>
-          <th scope="col" class="px-4 py-2 text-start font-bold" i18n="@@admin.dmca.col.from">
-            From
-          </th>
-          <th scope="col" class="px-4 py-2 text-start font-bold" i18n="@@admin.dmca.col.account">
-            Account
-          </th>
-          <th scope="col" class="px-4 py-2 text-start font-bold" i18n="@@admin.dmca.col.action">
-            What we did
-          </th>
-          <th scope="col" class="px-4 py-2 text-start font-bold" i18n="@@admin.dmca.col.clock">
-            Restore clock
-          </th>
-          <th scope="col" class="px-4 py-2 text-start font-bold">
+          <th scope="col" [class]="t.head" i18n="@@admin.dmca.col.received">Received</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.dmca.col.kind">Kind</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.dmca.col.from">From</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.dmca.col.account">Account</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.dmca.col.action">What we did</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.dmca.col.clock">Restore clock</th>
+          <th scope="col" [class]="t.head">
             <span class="sr-only" i18n="@@admin.dmca.col.edit">Edit</span>
           </th>
         </tr>
@@ -610,12 +543,10 @@
           data-testid="dmca-row"
           [attr.data-kind]="row.kind"
           [attr.data-id]="row.id"
-          class="border-t border-(--border-default) align-top"
+          [class]="t.row"
         >
-          <td class="px-4 py-3 whitespace-nowrap text-(--text-primary)">
-            {{ day(row.received_at) }}
-          </td>
-          <td class="px-4 py-3 text-(--text-primary)">
+          <td [class]="t.nowrap">{{ day(row.received_at) }}</td>
+          <td [class]="t.cell">
             @if (row.kind === 'notice') {
             <span i18n="@@admin.dmca.kind.noticeShort">Notice</span>
             } @else {
@@ -623,25 +554,23 @@
               >Counter-notice</span
             >
             } @if (row.closed_at) {
-            <span class="block text-xs text-(--text-secondary)" i18n="@@admin.dmca.closedOn"
+            <span [class]="t.sub" i18n="@@admin.dmca.closedOn"
               >Closed {{ day(row.closed_at) }}</span
             >
             }
           </td>
-          <td class="px-4 py-3 text-(--text-primary)">
+          <td [class]="t.cell">
             @if (row.submitter_name) { {{ row.submitter_name }} } @else {
             <span class="text-(--text-secondary)" data-testid="dmca-not-given">{{ notGiven }}</span>
             } @if (row.vendor_name) {
-            <span class="block text-xs text-(--text-secondary)" i18n="@@admin.dmca.vendorLine"
+            <span [class]="t.sub" i18n="@@admin.dmca.vendorLine"
               >Vendor: {{ row.vendor_name }}</span
             >
             }
           </td>
-          <td class="px-4 py-3">
+          <td [class]="t.cell">
             @if (row.account_id) {
-            <a
-              [routerLink]="['/admin/users', row.account_id]"
-              class="text-(--text-primary) underline decoration-(--border-strong) underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            <a [routerLink]="['/admin/users', row.account_id]" [class]="c.inlineLink"
               >@if (row.account_name) { {{ row.account_name }} } @else {
               <span i18n="@@admin.dmca.unnamedAccount">Unnamed account</span>
               }</a
@@ -650,33 +579,35 @@
             <span class="text-(--text-secondary)" i18n="@@admin.dmca.noAccount">None</span>
             }
           </td>
-          <td class="px-4 py-3 text-(--text-primary)">
+          <td [class]="t.cell">
             {{ actionLabel(row.action) }} @if (row.action_at) {
-            <span class="block text-xs text-(--text-secondary)">{{ day(row.action_at) }}</span>
+            <span [class]="t.sub">{{ day(row.action_at) }}</span>
             }
           </td>
-          <td class="px-4 py-3">
+          <td [class]="t.cell">
             @if (row.restore_clock; as clock) {
-            <span
+            <aec-chip
+              density="dense"
               data-testid="dmca-clock"
               [attr.data-state]="clock.state"
-              class="inline-flex rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) px-2 py-0.5 text-xs text-(--text-primary)"
-              [class.font-bold]="clock.state === 'overdue' || clock.state === 'restore_window_open'"
-              >{{ clockText(clock) }}</span
+              [tone]="clockTone(clock)"
+              >{{ clockText(clock) }}</aec-chip
             >
-            <span class="mt-1 block text-xs text-(--text-secondary)" i18n="@@admin.dmca.window"
+            <span [class]="t.sub" class="mt-1" i18n="@@admin.dmca.window"
               >Window {{ day(clock.opens_on) }} to {{ day(clock.due_on) }}</span
             >
             }
           </td>
-          <td class="px-4 py-3 text-end">
+          <td [class]="t.act">
             <button
+              aecButton
+              variant="ghost"
+              compact
               type="button"
               [id]="'admin-dmca-edit-' + row.id"
               data-testid="dmca-edit"
               (click)="openEdit(row)"
               [disabled]="saving()"
-              class="text-sm text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
             >
               <span i18n="@@admin.dmca.edit">Edit</span
               ><span class="sr-only" i18n="@@admin.dmca.editFrom">

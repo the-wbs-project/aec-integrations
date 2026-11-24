@@ -1,21 +1,17 @@
 <!--
   Sending switches, spec section 5.14. AECI-1224.
 
-  Same table recipe and button styles as the rest of the email page. Only pausable
+  The console recipe, as on the rest of the email page (AECI-2128). Only pausable
   templates get a control. Pause and Resume both confirm in a dialog, opened from the
   click handler. Every value below is rendered as text.
 -->
 <section aria-labelledby="admin-email-switches-heading" class="space-y-4">
-  <div class="space-y-1">
-    <h3
-      id="admin-email-switches-heading"
-      class="text-base font-bold text-(--text-primary)"
-      i18n="@@admin.email.switches.heading"
-    >
+  <div class="space-y-2">
+    <h3 id="admin-email-switches-heading" i18n="@@admin.email.switches.heading">
       Sending switches
     </h3>
     @if (data()) {
-    <p class="max-w-[64ch] text-sm text-(--text-secondary)" i18n="@@admin.email.switches.intro">
+    <p [class]="captionClass" class="max-w-[56ch]" i18n="@@admin.email.switches.intro">
       Pause one template, or the support copy, on {{ environment() }} only. A paused send is
       recorded with the outcome Paused. Resend's own settings stay in the Resend dashboard.
     </p>
@@ -23,18 +19,17 @@
   </div>
 
   @if (loading() && !data()) {
-  <p class="text-sm text-(--text-secondary)" i18n="@@admin.email.switches.loading">
-    Loading switches…
-  </p>
+  <p [class]="statusLineClass" i18n="@@admin.email.switches.loading">Loading switches…</p>
   } @else if (loadFailed() && !data()) {
-  <div class="space-y-3" role="alert">
-    <p class="text-sm font-medium text-(--text-primary)" i18n="@@admin.email.switches.loadError">
+  <div class="grid justify-items-start gap-4" role="alert">
+    <p [class]="failedTextClass" i18n="@@admin.email.switches.loadError">
       We couldn't load the sending switches.
     </p>
     <button
+      aecButton
+      variant="secondary"
       type="button"
       (click)="retry()"
-      class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       i18n="@@admin.email.retry"
     >
       Try again
@@ -42,44 +37,36 @@
   </div>
   } @else if (data()) {
   <!-- The support copy -->
-  <div
-    class="flex flex-wrap items-center justify-between gap-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4"
-  >
+  <div [class]="panelClass" class="flex flex-wrap items-center justify-between gap-4">
     <div class="space-y-1">
-      <p class="text-sm font-bold text-(--text-primary)" i18n="@@admin.email.switches.copy.title">
+      <p
+        class="text-t-16 font-semibold text-(--text-primary)"
+        i18n="@@admin.email.switches.copy.title"
+      >
         Support copy
       </p>
       @if (supportCopyConfigured()) {
-      <p class="max-w-[60ch] text-sm text-(--text-secondary)" i18n="@@admin.email.switches.copy.on">
+      <p [class]="captionClass" class="max-w-[60ch]" i18n="@@admin.email.switches.copy.on">
         Support gets a blind copy of each email, and a separate copy of each welcome email.
       </p>
       } @else {
-      <p
-        class="max-w-[60ch] text-sm text-(--text-secondary)"
-        i18n="@@admin.email.switches.copy.unset"
-      >
+      <p [class]="captionClass" class="max-w-[60ch]" i18n="@@admin.email.switches.copy.unset">
         No support copy is set up on this tier, so there is nothing to pause.
       </p>
       }
     </div>
     @if (supportCopyConfigured() && supportCopy(); as copy) {
-    <div class="flex items-center gap-4">
+    <div class="flex flex-wrap items-center gap-4">
       @if (copy.enabled) {
-      <span class="text-sm text-(--text-primary)" i18n="@@admin.email.switches.status.copying"
-        >Copying</span
+      <aec-chip density="dense" [tone]="tone('active')"
+        ><span i18n="@@admin.email.switches.status.copying">Copying</span></aec-chip
       >
       } @else {
-      <span
-        class="text-sm font-bold text-(--accent-secondary-deep)"
-        i18n="@@admin.email.switches.status.paused"
-        >Paused</span
+      <aec-chip density="dense" [tone]="tone('paused')"
+        ><span i18n="@@admin.email.switches.status.paused">Paused</span></aec-chip
       >
       }
-      <button
-        type="button"
-        (click)="openChange(copy)"
-        class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-      >
+      <button aecButton variant="secondary" compact type="button" (click)="openChange(copy)">
         @if (copy.enabled) {
         <span i18n="@@admin.email.switches.copy.pause">Pause the copy</span>
         } @else {
@@ -91,87 +78,60 @@
   </div>
 
   <!-- The pausable templates -->
-  <div
-    class="overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-    tabindex="0"
-    role="region"
-    aria-labelledby="admin-email-switches-heading"
-  >
-    <table class="w-full min-w-[48rem] border-collapse text-sm">
-      <caption class="sr-only" i18n="@@admin.email.switches.caption">
+  <div [class]="t.region" tabindex="0" role="region" aria-labelledby="admin-email-switches-caption">
+    <table [class]="t.table" class="min-w-[48rem]">
+      <caption
+        id="admin-email-switches-caption"
+        [class]="t.caption"
+        i18n="@@admin.email.switches.caption"
+      >
         Templates that can be paused on this tier, with whether each is sending
       </caption>
       <thead>
-        <tr class="border-b border-(--border-strong)">
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.email.col.template"
-          >
-            Template
-          </th>
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.email.switches.col.audience"
-          >
-            Goes to
-          </th>
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.email.switches.col.status"
-          >
-            Status
-          </th>
-          <th scope="col" class="py-2 text-end font-bold text-(--text-secondary)">
+        <tr>
+          <th scope="col" [class]="t.head" i18n="@@admin.email.col.template">Template</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.email.switches.col.audience">Goes to</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.email.switches.col.status">Status</th>
+          <th scope="col" [class]="t.headNum">
             <span class="sr-only" i18n="@@admin.email.switches.col.action">Action</span>
           </th>
         </tr>
       </thead>
       <tbody>
         @for (s of pausable(); track s.key) {
-        <tr class="border-b border-(--border-default) align-top">
-          <th scope="row" class="py-2.5 pe-4 text-start font-normal">
-            <span class="block font-mono text-xs font-bold text-(--text-primary)">{{ s.key }}</span>
+        <tr [class]="t.row">
+          <th scope="row" [class]="t.rowHead">
+            <span class="block font-mono text-t-13 text-(--text-primary)">{{ s.key }}</span>
             @if (s.summary) {
-            <span class="mt-0.5 block max-w-[48ch] text-xs text-(--text-secondary)"
-              >{{ s.summary }}</span
-            >
+            <span [class]="t.sub" class="max-w-[48ch]">{{ s.summary }}</span>
             }
           </th>
-          <td class="py-2.5 pe-4 text-(--text-secondary)">{{ audienceLabel(s.audience) }}</td>
-          <td class="py-2.5 pe-4">
+          <td [class]="t.cell" class="text-(--text-secondary)">{{ audienceLabel(s.audience) }}</td>
+          <td [class]="t.cell">
             @if (s.enabled) {
-            <span class="text-(--text-primary)" i18n="@@admin.email.switches.status.sending"
-              >Sending</span
+            <aec-chip density="dense" [tone]="tone('active')"
+              ><span i18n="@@admin.email.switches.status.sending">Sending</span></aec-chip
             >
             } @else {
-            <span
-              class="font-bold text-(--accent-secondary-deep)"
-              i18n="@@admin.email.switches.status.paused"
-              >Paused</span
+            <aec-chip density="dense" [tone]="tone('paused')"
+              ><span i18n="@@admin.email.switches.status.paused">Paused</span></aec-chip
             >
             } @if (s.updated_at) {
-            <span class="block text-xs text-(--text-secondary)"
+            <span [class]="t.sub" class="mt-1"
               ><span i18n="@@admin.email.switches.changedAt">Changed</span> {{ s.updated_at | date:
               'medium' : 'UTC' }}</span
             >
             } @if (s.updated_by) {
             <a
               [routerLink]="['/admin/users', s.updated_by]"
-              class="block text-xs text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              class="block w-fit rounded-mark text-t-13 text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 hover:text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
               ><span i18n="@@admin.email.switches.changedBy">by admin</span>
               <span class="font-mono"> {{ shortId(s.updated_by) }}</span></a
             >
             }
           </td>
-          <td class="py-2.5 text-end">
-            <button
-              type="button"
-              (click)="openChange(s)"
-              class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-3 py-1.5 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            >
+          <td [class]="t.act">
+            <button aecButton variant="secondary" compact type="button" (click)="openChange(s)">
               @if (s.enabled) {
               <span i18n="@@admin.email.switches.pause">Pause</span>
               } @else {
@@ -187,27 +147,26 @@
   </div>
 
   <!-- Always on: no control, by design -->
-  <details class="group rounded-(--radius-md) border border-(--border-default) bg-(--surface-base)">
+  <details class="group rounded-panel border border-(--border-default) bg-(--surface-base)">
     <summary
-      class="cursor-pointer px-4 py-3 text-sm font-bold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      class="min-h-11 cursor-pointer rounded-panel px-4 py-3 text-t-14 font-semibold text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
     >
       <span i18n="@@admin.email.switches.alwaysOn.summary">Always on</span>
       <span class="font-normal text-(--text-secondary)"> ({{ alwaysOn().length }})</span>
     </summary>
-    <div class="space-y-3 border-t border-(--border-default) px-4 py-3">
-      <p
-        class="max-w-[64ch] text-sm text-(--text-secondary)"
-        i18n="@@admin.email.switches.alwaysOn.why"
-      >
+    <div class="space-y-4 border-t border-(--border-default) px-4 py-4">
+      <p [class]="captionClass" class="max-w-[56ch]" i18n="@@admin.email.switches.alwaysOn.why">
         These carry a decision, a security step or a deadline, so they cannot be paused here. The
         sign-in email is sent by Supabase, so no switch here can stop it either.
       </p>
       <ul class="space-y-2">
         @for (s of alwaysOn(); track s.key) {
         <li>
-          <span class="block font-mono text-xs font-bold text-(--text-primary)">{{ s.key }}</span>
+          <span class="block font-mono text-t-13 font-semibold text-(--text-primary)"
+            >{{ s.key }}</span
+          >
           @if (s.summary) {
-          <span class="block max-w-[64ch] text-xs text-(--text-secondary)">{{ s.summary }}</span>
+          <span [class]="t.sub" class="max-w-[64ch]">{{ s.summary }}</span>
           }
         </li>
         }
@@ -220,20 +179,20 @@
     <ng-template brnDialogContent>
       @if (pending(); as p) {
       <div
-        class="fixed top-1/2 left-1/2 z-50 w-[min(92vw,30rem)] -translate-x-1/2 -translate-y-1/2 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-6 text-(--text-primary) shadow-[0_16px_48px_-8px_rgb(0_0_0/0.18),0_4px_16px_-2px_rgb(0_0_0/0.10)]"
+        class="fixed top-1/2 left-1/2 z-50 w-[min(92vw,30rem)] -translate-x-1/2 -translate-y-1/2 rounded-card border border-(--border-default) bg-(--surface-base) p-6 text-(--text-primary) shadow-[0_16px_48px_-8px_rgb(0_0_0/0.18),0_4px_16px_-2px_rgb(0_0_0/0.10)]"
       >
         @if (p.target.kind === 'support_copy') { @if (!p.enabled) {
         <h2
           brnDialogTitle
           tabindex="-1"
-          class="text-lg font-bold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          class="focus-visible:outline-3 focus-visible:outline-offset-3"
           i18n="@@admin.email.switches.dialog.copyPauseTitle"
         >
           Pause the support copy?
         </h2>
         <p
           brnDialogDescription
-          class="mt-1.5 text-sm leading-relaxed text-(--text-secondary)"
+          class="mt-2 text-t-14 leading-relaxed text-(--text-secondary)"
           i18n="@@admin.email.switches.dialog.copyPauseBody"
         >
           Support stops getting a copy of each email on {{ environment() }}. Recipients still get
@@ -243,14 +202,14 @@
         <h2
           brnDialogTitle
           tabindex="-1"
-          class="text-lg font-bold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          class="focus-visible:outline-3 focus-visible:outline-offset-3"
           i18n="@@admin.email.switches.dialog.copyResumeTitle"
         >
           Resume the support copy?
         </h2>
         <p
           brnDialogDescription
-          class="mt-1.5 text-sm leading-relaxed text-(--text-secondary)"
+          class="mt-2 text-t-14 leading-relaxed text-(--text-secondary)"
           i18n="@@admin.email.switches.dialog.copyResumeBody"
         >
           Support gets a copy of each email on {{ environment() }} again, starting with the next
@@ -260,14 +219,14 @@
         <h2
           brnDialogTitle
           tabindex="-1"
-          class="text-lg font-bold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          class="focus-visible:outline-3 focus-visible:outline-offset-3"
           i18n="@@admin.email.switches.dialog.pauseTitle"
         >
           Pause {{ p.target.key }}?
         </h2>
         <p
           brnDialogDescription
-          class="mt-1.5 text-sm leading-relaxed text-(--text-secondary)"
+          class="mt-2 text-t-14 leading-relaxed text-(--text-secondary)"
           i18n="@@admin.email.switches.dialog.pauseBody"
         >
           Nothing from this template is sent on {{ environment() }} until you resume it. Each
@@ -277,14 +236,14 @@
         <h2
           brnDialogTitle
           tabindex="-1"
-          class="text-lg font-bold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          class="focus-visible:outline-3 focus-visible:outline-offset-3"
           i18n="@@admin.email.switches.dialog.resumeTitle"
         >
           Resume {{ p.target.key }}?
         </h2>
         <p
           brnDialogDescription
-          class="mt-1.5 text-sm leading-relaxed text-(--text-secondary)"
+          class="mt-2 text-t-14 leading-relaxed text-(--text-secondary)"
           i18n="@@admin.email.switches.dialog.resumeBody"
         >
           This template sends again on {{ environment() }}, starting with the next send. Resuming
@@ -292,10 +251,10 @@
         </p>
         } }
 
-        <form method="dialog" novalidate (aecSubmit)="confirmChange()" class="mt-5 space-y-2">
+        <form method="dialog" novalidate (aecSubmit)="confirmChange()" class="mt-6 grid gap-2">
           <label
             for="admin-email-switch-reason"
-            class="block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"
+            [class]="labelClass"
             i18n="@@admin.email.switches.dialog.reasonLabel"
           >
             Reason (optional, kept in the audit trail)
@@ -306,19 +265,13 @@
             maxlength="500"
             [value]="reason()"
             (input)="onReasonInput($event)"
-            class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            [class]="inputClass"
           ></textarea>
           @if (failedMessage()) {
-          <p class="text-sm font-medium text-(--text-primary)" role="alert">
-            {{ failedMessage() }}
-          </p>
+          <p [class]="failedTextClass" role="alert">{{ failedMessage() }}</p>
           }
           <div class="flex flex-wrap gap-3 pt-2">
-            <button
-              type="submit"
-              [disabled]="submitting()"
-              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-            >
+            <button aecButton type="submit" [disabled]="submitting()">
               @if (submitting()) {
               <span i18n="@@admin.email.switches.dialog.working">Saving…</span>
               } @else if (p.enabled) {
@@ -328,10 +281,11 @@
               }
             </button>
             <button
+              aecButton
+              variant="ghost"
               type="button"
               (click)="closeChange()"
               [disabled]="submitting()"
-              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
               i18n="@@admin.email.switches.dialog.cancel"
             >
               Cancel
