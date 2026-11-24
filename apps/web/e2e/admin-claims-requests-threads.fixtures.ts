@@ -79,7 +79,12 @@ export const CLAIMS = [
       },
     ],
     related_requests: [
-      { id: uuid(9150), kind: 'correction', status: 'resolved', created_at: '2026-10-02T10:00:00.000Z' },
+      {
+        id: uuid(9150),
+        kind: 'correction',
+        status: 'resolved',
+        created_at: '2026-10-02T10:00:00.000Z',
+      },
     ],
     routed_to_owners_at: '2026-11-21T09:30:00.000Z',
   }),
@@ -337,26 +342,35 @@ export async function stubAdminA1bApi(target: Page): Promise<void> {
     if (/posthog/.test(host)) return route.fulfill({ status: 200, body: '{}' });
     return route.abort();
   });
-  await target.route(/\/api\/admin\/(claims|requests|product-requests|license-release-requests|threads)(\/|\?|$)/, (route) => {
-    const req = route.request();
-    if (req.method() !== 'GET') {
-      return route.fulfill({ status: 503, json: { error: { code: 'E2E_STUB', message: 'stub' } } });
-    }
-    const url = new URL(req.url());
-    const path = url.pathname;
-    const json = (body: unknown) => route.fulfill({ status: 200, json: body });
-    if (path === '/api/admin/claims') return json(page(CLAIMS));
-    if (path === `/api/admin/claims/${CLAIM_OPEN_ID}`) return json(CLAIM_DETAIL);
-    if (path === `/api/admin/claims/${CLAIM_CONFLICT_ID}`) return json(CLAIM_CONFLICT_DETAIL);
-    if (path.endsWith('/audit')) return json(CLAIM_AUDIT);
-    if (path === '/api/admin/requests') return json(page(CORRECTIONS));
-    if (path === '/api/admin/product-requests') return json(page(PRODUCT_REQUESTS));
-    if (path === '/api/admin/license-release-requests') return json(page(LICENSE_RELEASES));
-    if (path === '/api/admin/threads') {
-      const help = url.searchParams.get('help');
-      return json(page(help === 'requested' ? THREADS.slice(0, 1) : THREADS, 24));
-    }
-    if (path === `/api/admin/threads/${THREAD_ID}`) return json(THREAD_DETAIL);
-    return route.fulfill({ status: 404, json: { error: { code: 'NOT_FOUND', message: 'stub' } } });
-  });
+  await target.route(
+    /\/api\/admin\/(claims|requests|product-requests|license-release-requests|threads)(\/|\?|$)/,
+    (route) => {
+      const req = route.request();
+      if (req.method() !== 'GET') {
+        return route.fulfill({
+          status: 503,
+          json: { error: { code: 'E2E_STUB', message: 'stub' } },
+        });
+      }
+      const url = new URL(req.url());
+      const path = url.pathname;
+      const json = (body: unknown) => route.fulfill({ status: 200, json: body });
+      if (path === '/api/admin/claims') return json(page(CLAIMS));
+      if (path === `/api/admin/claims/${CLAIM_OPEN_ID}`) return json(CLAIM_DETAIL);
+      if (path === `/api/admin/claims/${CLAIM_CONFLICT_ID}`) return json(CLAIM_CONFLICT_DETAIL);
+      if (path.endsWith('/audit')) return json(CLAIM_AUDIT);
+      if (path === '/api/admin/requests') return json(page(CORRECTIONS));
+      if (path === '/api/admin/product-requests') return json(page(PRODUCT_REQUESTS));
+      if (path === '/api/admin/license-release-requests') return json(page(LICENSE_RELEASES));
+      if (path === '/api/admin/threads') {
+        const help = url.searchParams.get('help');
+        return json(page(help === 'requested' ? THREADS.slice(0, 1) : THREADS, 24));
+      }
+      if (path === `/api/admin/threads/${THREAD_ID}`) return json(THREAD_DETAIL);
+      return route.fulfill({
+        status: 404,
+        json: { error: { code: 'NOT_FOUND', message: 'stub' } },
+      });
+    },
+  );
 }

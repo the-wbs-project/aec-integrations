@@ -330,7 +330,12 @@
         >
           Why this claim is where it is
         </label>
-        <p id="admin-claim-note-help" [class]="hintClass" i18n="@@admin.claims.detail.note.help">
+        <p
+          id="admin-claim-note-help"
+          [class]="hintClass"
+          class="text-pretty"
+          i18n="@@admin.claims.detail.note.help"
+        >
           Internal and admin-only. It is never shown to the claimant and never emailed. Every
           version is kept in the audit trail, so editing this never loses what it said before.
         </p>
