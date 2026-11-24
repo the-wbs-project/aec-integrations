@@ -600,7 +600,7 @@ Retired 2026-10-28 (AECI-1518). The AECI-652 build decisions that still hold are
 - **Actions read as English** via `describeAuditAction()`, with the raw token still shown beneath for grepping, and an unmapped action humanises rather than blanking (`action` is a free `z.string()` by contract so a new writer cannot 500 this screen, and `audit_log` is excluded from the retention prune). `metadata` is not on the wire, so a description can only use `action`, `entity_type` and the two snapshots.
 - **Audit timestamps are relative** ("4h", "2d") with an info control whose accessible name is the full `medium`/UTC instant; every other timestamp on the page is absolute `medium`/UTC, including several that rendered as raw ISO strings before this change (`updated_at`, `seat.created_at` and `invite.expires_at`).
 - **A term end is formatted as a CALENDAR DATE, not an instant, and that distinction is load-bearing.** The admin grant form writes a date-only end because it is an `<input type="date">`, and the wire type accepts a date-only value or a full timestamp. A bare `2027-09-01` handed to `DatePipe` with a `'UTC'` timezone is parsed as **local** midnight and then shifted, so west of UTC it renders as 31 August. A term ending on the 1st would display as the 31st, which is a paperwork question nobody wants to have. `formatTermDate` (`apps/web/src/app/shared/term-date/format-term-date.ts`) pins the date-only case to UTC midnight first and formats a real instant in UTC as-is. It is shared by every place a term date is shown: the admin and vendor Billing tabs, the subscription actions and the early-unassign queue. The regression case lives in `format-term-date.component.spec.ts`.
-- **"View public page" is now "View Page" and opens in a new tab.** An operator opens it to check something against the admin record, so navigating away from that record was the wrong outcome.
+- **"View public page" is now "View page" and opens in a new tab.** An operator opens it to check something against the admin record, so navigating away from that record was the wrong outcome.
 
 `docs/ADMIN_PANEL_SPEC.md` §5.0a records the companion change to the console shell: the nav became a horizontal row of category dropdowns, which is what freed the width these tables use.
 
@@ -612,14 +612,14 @@ Retired 2026-10-28 (AECI-1518). The AECI-652 build decisions that still hold are
 
 `/admin/vendors/:id` gains a horizontal menu over one panel. It shipped with three tabs.
 Since AECI-1046 and AECI-1372 it has five, in this order: **Vendor** / **Billing** /
-**Products** / **Integrations** / **Audit Trail**.
+**Products** / **Integrations** / **Audit trail**.
 
 - **Vendor** keeps basics + counts and the seat roster. A one-line pointer sends the operator to `?tab=billing`, where the grant control and the subscription actions live.
 - **Products** is new, and reads `GET /api/admin/vendors/:id/products` (§5.6.1) —
   paginated, name-ordered, every `product_vendors` row with `is_primary` on the row.
   Read-only except for AECI-955 logo editing (STAGE_2_5_SPEC.md §11): there is no general admin product-edit endpoint, and §5.6.4's catalog lockout is
   unchanged by this.
-- **Audit Trail** is the §5.8 `<aec-audit-trail>` and its scope control, moved intact.
+- **Audit trail** is the §5.8 `<aec-audit-trail>` and its scope control, moved intact.
 - **Billing** (AECI-1372, E4.3; `?tab=billing`) reads `GET /api/admin/vendors/:id/billing`
   lazily on first open. It shows the billing account and its owner seats, every subscription
   (live first, then ended; dates through `formatTermDate`, §5.8), the agreement

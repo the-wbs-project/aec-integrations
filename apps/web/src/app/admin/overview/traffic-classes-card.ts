@@ -3,6 +3,9 @@ import { Component, computed, input } from '@angular/core';
 
 import type { AdminClassificationSummary } from '@aeci/shared';
 
+import { Chip } from '../../shared/chip/chip';
+import { CONSOLE_PANEL_CLASS } from '../console/console-table';
+
 import { type NotComparableReason, statDeltaText } from './stat-tile';
 import { TRAFFIC_CLASS_FILLS, TRAFFIC_CLASS_ORDER, trafficClassLabel } from './traffic-classes';
 
@@ -33,16 +36,13 @@ import { TRAFFIC_CLASS_FILLS, TRAFFIC_CLASS_ORDER, trafficClassLabel } from './t
  */
 @Component({
   selector: 'aec-traffic-classes-card',
-  imports: [DecimalPipe],
+  imports: [DecimalPipe, Chip],
   template: `
-    <section
-      aria-labelledby="admin-overview-classes-heading"
-      class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5"
-    >
+    <section aria-labelledby="admin-overview-classes-heading" [class]="panelClass">
       <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
         <h3
           id="admin-overview-classes-heading"
-          class="text-sm font-bold text-(--text-primary)"
+          class="text-(--text-primary)"
           i18n="@@admin.overview.classes.heading"
         >
           Traffic by class
@@ -50,12 +50,7 @@ import { TRAFFIC_CLASS_FILLS, TRAFFIC_CLASS_ORDER, trafficClassLabel } from './t
         <!-- The version is part of what the numbers mean (D19(c)), so it sits
              beside the heading rather than in a footnote. Neutral chip: it is
              metadata, not a status. -->
-        <span
-          data-classifier-version
-          class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default)
-            bg-(--surface-base) px-2.5 py-1 text-xs font-medium tracking-[0.01em]
-            text-(--text-secondary)"
-        >
+        <aec-chip data-classifier-version density="dense" tone="neutral">
           @if (summary().classifier_version; as v) {
             <ng-container i18n="@@admin.overview.classes.version">Classifier {{ v }}</ng-container>
           } @else {
@@ -63,13 +58,16 @@ import { TRAFFIC_CLASS_FILLS, TRAFFIC_CLASS_ORDER, trafficClassLabel } from './t
               >Not classified</ng-container
             >
           }
-        </span>
-        <span class="ms-auto text-xs text-(--text-secondary)" i18n="@@admin.overview.classes.day"
+        </aec-chip>
+        <span class="ms-auto text-t-14 text-(--text-secondary)" i18n="@@admin.overview.classes.day"
           >UTC day {{ day() }}</span
         >
       </div>
 
-      <p class="mt-1 text-xs text-(--text-secondary)" i18n="@@admin.overview.classes.basis">
+      <p
+        class="mt-2 max-w-[42rem] text-t-14 text-(--text-secondary)"
+        i18n="@@admin.overview.classes.basis"
+      >
         Requests, not people. Each figure counts page requests; a visitor is a distinct
         browser-and-network pair.
       </p>
@@ -78,29 +76,31 @@ import { TRAFFIC_CLASS_FILLS, TRAFFIC_CLASS_ORDER, trafficClassLabel } from './t
         <!-- Each cell is a subgrid over five shared rows (name, figure, visitors,
              delta, caveat), so a class name that wraps to two lines does not push
              its figure below its neighbours' figures. -->
-        <dl class="mt-5 grid gap-x-6 gap-y-6 sm:grid-cols-2 xl:grid-cols-4">
+        <dl class="mt-6 grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
           @for (row of rows(); track row.cls) {
             <div
               [attr.data-class]="row.cls"
               class="row-span-5 grid grid-rows-subgrid content-start gap-y-1"
             >
-              <dt class="flex items-start gap-1.5 self-end text-sm text-(--text-secondary)">
+              <dt class="flex items-start gap-2 self-end text-t-14 text-(--text-secondary)">
                 <span
-                  class="mt-1.5 inline-block size-2.5 shrink-0 rounded-[2px]"
+                  class="mt-1 inline-block size-3 shrink-0 rounded-xs"
                   [style.background-color]="row.fill"
                   aria-hidden="true"
                 ></span>
                 {{ row.label }}
               </dt>
-              <dd class="font-display text-3xl font-semibold tabular-nums text-(--accent-primary)">
+              <dd
+                class="font-display text-t-36 font-semibold leading-none tabular-nums lining-nums text-(--accent-primary)"
+              >
                 {{ row.views | number }}
               </dd>
-              <dd class="text-sm tabular-nums text-(--text-secondary)">
+              <dd class="text-t-14 tabular-nums text-(--text-secondary)">
                 <ng-container i18n="@@admin.overview.classes.visitors"
                   >Visitors: {{ row.visitors | number }}</ng-container
                 >
               </dd>
-              <dd data-delta class="text-sm text-pretty tabular-nums text-(--text-secondary)">
+              <dd data-delta class="text-t-14 text-pretty tabular-nums text-(--text-primary)">
                 {{ row.delta }}
               </dd>
               @if (row.cls === 'browser_with_human_evidence') {
@@ -108,7 +108,7 @@ import { TRAFFIC_CLASS_FILLS, TRAFFIC_CLASS_ORDER, trafficClassLabel } from './t
                      a footer (D19, classification_is_heuristic). -->
                 <dd
                   data-heuristic
-                  class="mt-1 text-xs leading-relaxed text-pretty text-(--text-secondary)"
+                  class="mt-1 text-t-13 text-pretty text-(--text-secondary)"
                   i18n="@@admin.overview.classes.heuristic"
                 >
                   A heuristic: our app ran and nothing contradicted it. It does not prove a person
@@ -123,7 +123,7 @@ import { TRAFFIC_CLASS_FILLS, TRAFFIC_CLASS_ORDER, trafficClassLabel } from './t
              and body text, not a fifth figure, so it cannot be read as a class. -->
         <p
           data-internal
-          class="mt-5 border-t border-(--border-default) pt-4 text-sm tabular-nums
+          class="mt-6 border-t border-(--border-default) pt-4 text-t-14 tabular-nums
             text-(--text-secondary)"
         >
           <ng-container i18n="@@admin.overview.classes.internal"
@@ -138,7 +138,7 @@ import { TRAFFIC_CLASS_FILLS, TRAFFIC_CLASS_ORDER, trafficClassLabel } from './t
              measurement that never happened. -->
         <p
           data-not-classified
-          class="mt-5 text-sm text-(--text-primary)"
+          class="mt-6 text-t-16 text-(--text-secondary)"
           i18n="@@admin.overview.classes.notClassified"
         >
           The classifier did not run for this day, so there are no class counts. Nothing is shown as
@@ -150,6 +150,8 @@ import { TRAFFIC_CLASS_FILLS, TRAFFIC_CLASS_ORDER, trafficClassLabel } from './t
   styles: [':host { display: block; }'],
 })
 export class TrafficClassesCard {
+  protected readonly panelClass = CONSOLE_PANEL_CLASS;
+
   readonly summary = input.required<AdminClassificationSummary>();
   /** The reported UTC day, `YYYY-MM-DD`. */
   readonly day = input.required<string>();
