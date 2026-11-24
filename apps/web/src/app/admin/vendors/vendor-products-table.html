@@ -235,13 +235,14 @@
       <tr [id]="'product-logo-' + row.id" [hidden]="editingLogo() !== row.id" [class]="t.detailRow">
         <td colspan="7" [class]="t.detailCell">
           <!-- Escape closes the editor and returns focus to Edit logo (AECI-2112). -->
-          <div [class]="t.detailInner" (keydown.escape)="closeLogo(row)">
+          <div [class]="t.detailInner">
             @if (editingLogo() === row.id) {
             <aec-admin-logo-editor
               kind="product"
               [recordId]="row.id"
               [logoUrl]="row.logo_url"
               (logoSaved)="retry.emit()"
+              (keydown.escape)="closeLogo(row)"
               (announce)="announce.emit($event)"
             />
             }

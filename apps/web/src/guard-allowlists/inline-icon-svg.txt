@@ -5,7 +5,6 @@
 admin/claims/claim-account-conflict.ts 1
 admin/claims/domain-match-signal.ts 2
 admin/vendors/grant-licenses-control.html 1
-admin/vendors/vendor-detail.html 2
 vendor/components/vendor-billing-licenses.ts 1
 vendor/components/vendor-bullet-list-editor.ts 4
 vendor/components/vendor-contest-form.ts 2

@@ -427,12 +427,16 @@ describe('VendorDetail', () => {
   });
 
   describe('tabs', () => {
+    // AECI-2112: each tab reserves its weight-600 width with an aria-hidden bold copy of
+    // its label (mock-up 14), so a tab's name is its visible span, not its textContent.
+    const tabName = (a: Element) => a.querySelector('span:not([aria-hidden])')?.textContent?.trim();
+
     it('offers the five sections as links, with the open one marked current', async () => {
       // Links, not buttons: the tab is `?tab=` state, so it has to be
       // bookmarkable and reachable with Back.
       const { el } = await setup(makeApiMock(makeVendor()));
       const links = [...el.querySelectorAll('nav[aria-label="Vendor sections"] a')];
-      expect(links.map((a) => a.textContent?.trim())).toEqual([
+      expect(links.map(tabName)).toEqual([
         'Vendor',
         'Billing',
         'Products',
@@ -441,7 +445,7 @@ describe('VendorDetail', () => {
       ]);
       const current = links.filter((a) => a.getAttribute('aria-current') === 'page');
       expect(current).toHaveLength(1);
-      expect(current[0].textContent?.trim()).toBe('Vendor');
+      expect(tabName(current[0])).toBe('Vendor');
     });
 
     it('does not fetch the products until the Products tab is opened', async () => {
@@ -470,7 +474,7 @@ describe('VendorDetail', () => {
       const current = [...el.querySelectorAll('nav[aria-label="Vendor sections"] a')].filter(
         (a) => a.getAttribute('aria-current') === 'page',
       );
-      expect(current.map((a) => a.textContent?.trim())).toEqual(['Billing']);
+      expect(current.map(tabName)).toEqual(['Billing']);
       expect(api.getBilling).toHaveBeenCalledWith(VENDOR_ID);
       expect(el.textContent).not.toContain('Basics');
     });
@@ -1315,7 +1319,9 @@ describe('VendorDetail — products by role', () => {
       const current = [...el.querySelectorAll('nav[aria-label="Vendor sections"] a')].filter(
         (a) => a.getAttribute('aria-current') === 'page',
       );
-      expect(current.map((a) => a.textContent?.trim())).toEqual(['Products']);
+      expect(
+        current.map((a) => a.querySelector('span:not([aria-hidden])')?.textContent?.trim()),
+      ).toEqual(['Products']);
       expect(api.listProducts).toHaveBeenCalledTimes(1);
       expect(el.textContent).not.toContain('Basics');
     });
