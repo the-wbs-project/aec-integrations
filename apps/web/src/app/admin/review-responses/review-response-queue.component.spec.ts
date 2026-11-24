@@ -362,7 +362,9 @@ describe('ReviewResponseQueue', () => {
     buttonByText(el, 'Cancel').click();
     await flush(fixture);
     expect(el.querySelector('form:not([hidden])')).toBeNull();
-    expect(el.querySelector('form:not([hidden]) [role="group"]')).toBeNull();
+    // No confirm step is left anywhere in the row, open form or not.
+    const row = el.querySelector('[data-testid="reply-record"]') as HTMLElement;
+    expect(row.querySelector('[role="group"]')).toBeNull();
     expect(api.decide).not.toHaveBeenCalled();
     // Reopening starts at the reason step again, not at the confirm.
     buttonByText(el, 'Remove from the page').click();

@@ -313,6 +313,20 @@
                   @if (decisionsFor(u).length > 0) {
                   <!-- AECI-2104: Reject and Remove are the shared danger form. Each opens
                        under its opener. The help line describes Approve or Remove. -->
+                  <p [id]="'update-' + u.id + '-help'" [class]="helpClass">
+                    @if (canApprove(u)) {
+                    <span i18n="@@admin.reviewUpdates.approve.help"
+                      >Approving puts the update under the review on the product page now. If it
+                      carries new ratings, they replace the review's ratings in the product's
+                      averages. The original review never changes.</span
+                    >
+                    } @else {
+                    <span i18n="@@admin.reviewUpdates.remove.help"
+                      >Removing takes the update off the product page. It is final for this update.
+                      The reviewer can still add a new one.</span
+                    >
+                    }
+                  </p>
                   <div class="flex flex-wrap items-start gap-3">
                     @if (canApprove(u)) {
                     <button
@@ -339,7 +353,7 @@
                       [maxLength]="reasonMax"
                       [cancelLabel]="copy.cancel"
                       [openerDisabled]="pendingActionId() === u.id && formOpenId() !== u.id"
-                      [busy]="pendingActionId() === u.id"
+                      [busy]="busyWith(u.id, 'reject')"
                       [open]="formOpenId() === u.id && formMode() === 'reject'"
                       (openChange)="onFormOpen(u.id, 'reject', $event)"
                       (confirmed)="decide(u.id, 'reject', $event)"
@@ -358,28 +372,14 @@
                       [cancelLabel]="copy.cancel"
                       [openerDescribedBy]="'update-' + u.id + '-help'"
                       [openerDisabled]="pendingActionId() === u.id && formOpenId() !== u.id"
-                      [busy]="pendingActionId() === u.id"
+                      [busy]="busyWith(u.id, 'remove')"
                       [open]="formOpenId() === u.id && formMode() === 'remove'"
                       (openChange)="onFormOpen(u.id, 'remove', $event)"
                       (confirmed)="decide(u.id, 'remove', $event)"
                     />
                     }
                   </div>
-                  <p [id]="'update-' + u.id + '-help'" [class]="helpClass">
-                    @if (canApprove(u)) {
-                    <span i18n="@@admin.reviewUpdates.approve.help"
-                      >Approving puts the update under the review on the product page now. If it
-                      carries new ratings, they replace the review's ratings in the product's
-                      averages. The original review never changes.</span
-                    >
-                    } @else {
-                    <span i18n="@@admin.reviewUpdates.remove.help"
-                      >Removing takes the update off the product page. It is final for this update.
-                      The reviewer can still add a new one.</span
-                    >
-                    }
-                  </p>
-                  }@if (failedActionId() === u.id) {
+                  } @if (failedActionId() === u.id) {
                   <p
                     [id]="'update-' + u.id + '-failed'"
                     tabindex="-1"

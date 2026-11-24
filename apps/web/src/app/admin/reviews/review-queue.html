@@ -329,6 +329,17 @@
                   @if (decisionsFor(r).length > 0) {
                   <!-- AECI-2104: Reject and Remove are the shared danger form. Each opens
                        under its opener. The help line describes Remove's opener. -->
+                  @if (canRemove(r)) {
+                  <p
+                    [id]="'review-' + r.id + '-remove-help'"
+                    [class]="helpClass"
+                    i18n="@@admin.reviews.remove.help"
+                  >
+                    Removing takes the review off the product page and its ratings out of the
+                    averages. It is final. No email is sent. The reviewer sees your reason on their
+                    account page.
+                  </p>
+                  }
                   <div class="flex flex-wrap items-start gap-3">
                     @if (canApprove(r)) {
                     <button
@@ -354,7 +365,7 @@
                       [lengthMessage]="rejectCopy.error"
                       [cancelLabel]="rejectCopy.cancel"
                       [openerDisabled]="pendingActionId() === r.id && rejectingId() !== r.id"
-                      [busy]="pendingActionId() === r.id"
+                      [busy]="busyWith(r.id, 'reject')"
                       [open]="rejectingId() === r.id"
                       (openChange)="onRejectOpen(r.id, $event)"
                       (confirmed)="confirmReject(r.id, $event)"
@@ -374,24 +385,14 @@
                       [cancelLabel]="removeCopy.cancel"
                       [openerDescribedBy]="'review-' + r.id + '-remove-help'"
                       [openerDisabled]="pendingActionId() === r.id && removingId() !== r.id"
-                      [busy]="pendingActionId() === r.id"
+                      [busy]="busyWith(r.id, 'remove')"
                       [open]="removingId() === r.id"
                       (openChange)="onRemoveOpen(r.id, $event)"
                       (confirmed)="confirmRemove(r.id, $event)"
                     />
                     }
                   </div>
-                  @if (canRemove(r)) {
-                  <p
-                    [id]="'review-' + r.id + '-remove-help'"
-                    [class]="helpClass"
-                    i18n="@@admin.reviews.remove.help"
-                  >
-                    Removing takes the review off the product page and its ratings out of the
-                    averages. It is final. No email is sent. The reviewer sees your reason on their
-                    account page.
-                  </p>
-                  } } @if (failedAction()?.id === r.id) {
+                  } @if (failedAction()?.id === r.id) {
                   <p
                     [id]="'review-' + r.id + '-failed'"
                     tabindex="-1"

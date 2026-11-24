@@ -242,6 +242,19 @@
                   @if (decisionsFor(r).length > 0) {
                   <!-- AECI-2104: Reject and Remove are the shared danger form. Each opens
                        under its opener. The help line describes Approve or Remove. -->
+                  <p [id]="'reply-' + r.id + '-help'" [class]="helpClass">
+                    @if (canApprove(r)) {
+                    <span i18n="@@admin.replies.approve.help"
+                      >Approving puts the reply under the review on the product page now. The review
+                      itself never changes.</span
+                    >
+                    } @else {
+                    <span i18n="@@admin.replies.remove.help"
+                      >Removing takes the reply off the product page. It is final: the vendor cannot
+                      reply to this review again.</span
+                    >
+                    }
+                  </p>
                   <div class="flex flex-wrap items-start gap-3">
                     @if (canApprove(r)) {
                     <button
@@ -268,7 +281,7 @@
                       [maxLength]="reasonMax"
                       [cancelLabel]="copy.cancel"
                       [openerDisabled]="pendingActionId() === r.id && formOpenId() !== r.id"
-                      [busy]="pendingActionId() === r.id"
+                      [busy]="busyWith(r.id, 'reject')"
                       [open]="formOpenId() === r.id && formMode() === 'reject'"
                       (openChange)="onFormOpen(r.id, 'reject', $event)"
                       (confirmed)="decide(r.id, 'reject', $event)"
@@ -301,27 +314,14 @@
                       [cancelLabel]="copy.cancel"
                       [openerDescribedBy]="'reply-' + r.id + '-help'"
                       [openerDisabled]="pendingActionId() === r.id && formOpenId() !== r.id"
-                      [busy]="pendingActionId() === r.id"
+                      [busy]="busyWith(r.id, 'remove')"
                       [open]="formOpenId() === r.id && formMode() === 'remove'"
                       (openChange)="onFormOpen(r.id, 'remove', $event)"
                       (confirmed)="decide(r.id, 'remove', $event)"
                     />
                     }
                   </div>
-                  <p [id]="'reply-' + r.id + '-help'" [class]="helpClass">
-                    @if (canApprove(r)) {
-                    <span i18n="@@admin.replies.approve.help"
-                      >Approving puts the reply under the review on the product page now. The review
-                      itself never changes.</span
-                    >
-                    } @else {
-                    <span i18n="@@admin.replies.remove.help"
-                      >Removing takes the reply off the product page. It is final: the vendor cannot
-                      reply to this review again.</span
-                    >
-                    }
-                  </p>
-                  }@if (failedActionId() === r.id) {
+                  } @if (failedActionId() === r.id) {
                   <p
                     [id]="'reply-' + r.id + '-failed'"
                     tabindex="-1"

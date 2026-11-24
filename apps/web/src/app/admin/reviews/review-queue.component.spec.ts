@@ -383,6 +383,53 @@ describe('ReviewQueue', () => {
     expect(buttonByText(group, 'Toxicity').getAttribute('aria-pressed')).toBe('false');
   });
 
+  it('an Approve pressed while Reject is open is never announced as a rejection (AECI-2104)', async () => {
+    const { el, fixture, api } = await setup();
+    let release!: (value: ModerateReviewResponse) => void;
+    api.moderate.mockImplementationOnce(
+      () => new Promise<ModerateReviewResponse>((resolve) => (release = resolve)),
+    );
+    const card = cardFor(el, 'Alpha');
+    buttonByText(card, 'Reject').click();
+    fixture.detectChanges();
+    buttonByText(card, 'Approve').click();
+    await settle();
+    fixture.detectChanges();
+
+    // The approve is in flight. The open reject form is not busy: its confirm keeps
+    // its label and its hidden status line says nothing.
+    expect(api.moderate).toHaveBeenCalledWith('a', { action: 'approve' });
+    expect(card.textContent).not.toContain('Rejecting…');
+    expect(buttonByText(card, 'Confirm rejection')).toBeTruthy();
+    const status = card.querySelector('form:not([hidden]) [role="status"]');
+    expect(status?.textContent?.trim()).toBe('');
+    expect(card.querySelector('form:not([hidden])')?.getAttribute('aria-busy')).toBeNull();
+
+    release({ review: { ...makeReview({ id: 'a' }), status: 'approved' }, repeat_offender: null });
+    await settle();
+    fixture.detectChanges();
+    expect(productOrder(el)).toEqual(['Bravo', 'Charlie']);
+  });
+
+  it('a running reject reads "Rejecting…" in its own form (AECI-2104)', async () => {
+    const { el, fixture, api } = await setup();
+    api.moderate.mockImplementationOnce(() => new Promise<ModerateReviewResponse>(() => {}));
+    const card = cardFor(el, 'Alpha');
+    buttonByText(card, 'Reject').click();
+    fixture.detectChanges();
+    const textarea = card.querySelector('form:not([hidden]) textarea') as HTMLTextAreaElement;
+    textarea.value = 'Off-topic.';
+    textarea.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    buttonByText(card, 'Confirm rejection').click();
+    await settle();
+    fixture.detectChanges();
+
+    const status = card.querySelector('form:not([hidden]) [role="status"]');
+    expect(status?.textContent?.trim()).toBe('Rejecting…');
+    expect(buttonByText(card, 'Rejecting…')).toBeTruthy();
+  });
+
   it('approves a review: calls the API, drops the row, decrements the badge', async () => {
     const { el, fixture, api, store } = await setup();
     store.seed({ reviews: 3 });

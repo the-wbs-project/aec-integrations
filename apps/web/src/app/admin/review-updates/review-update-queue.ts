@@ -151,6 +151,15 @@ export class ReviewUpdateQueue {
   protected readonly loadFailed = signal(false);
 
   protected readonly pendingActionId = signal<string | null>(null);
+  /** Which decision is in flight on `pendingActionId` (AECI-2104). A form's busy
+   *  label and its hidden status speak only for its own decision, so an Approve
+   *  pressed while a reason form is open never reads as that form's action. */
+  private readonly pendingDecision = signal<ReviewUpdateDecision | null>(null);
+
+  /** The decision `action` is the one in flight on row `id`. */
+  protected busyWith(id: string, action: ReviewUpdateDecision): boolean {
+    return this.pendingActionId() === id && this.pendingDecision() === action;
+  }
   protected readonly formOpenId = signal<string | null>(null);
   protected readonly formMode = signal<ReasonedDecision | null>(null);
   protected readonly failedActionId = signal<string | null>(null);
@@ -350,6 +359,7 @@ export class ReviewUpdateQueue {
     const wasCounted = row.status === 'pending';
     this.failedActionId.set(null);
     this.pendingActionId.set(id);
+    this.pendingDecision.set(input.action);
     try {
       await this.api.decide(id, input);
       this.closeForm();
@@ -362,6 +372,7 @@ export class ReviewUpdateQueue {
       this.handleDecisionError(id, err);
     } finally {
       this.pendingActionId.set(null);
+      this.pendingDecision.set(null);
     }
   }
 

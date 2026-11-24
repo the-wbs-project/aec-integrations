@@ -182,6 +182,15 @@ export class ReviewQueue {
 
   /** Id of the review whose action is in flight (disables its buttons). */
   protected readonly pendingActionId = signal<string | null>(null);
+  /** Which decision is in flight on `pendingActionId` (AECI-2104). A form's busy
+   *  label and its hidden status speak only for its own decision, so an Approve
+   *  pressed while a reason form is open never reads as that form's action. */
+  private readonly pendingDecision = signal<ReviewDecision | null>(null);
+
+  /** The decision `action` is the one in flight on row `id`. */
+  protected busyWith(id: string, action: ReviewDecision): boolean {
+    return this.pendingActionId() === id && this.pendingDecision() === action;
+  }
   /** Id of the review whose reject form is open (one at a time). */
   protected readonly rejectingId = signal<string | null>(null);
   // ── AECI-1643 status tabs + remove ─────────────────────────────────────────
@@ -540,6 +549,7 @@ export class ReviewQueue {
     if (this.pendingActionId()) return;
     this.failedAction.set(null);
     this.pendingActionId.set(id);
+    this.pendingDecision.set('approve');
     try {
       await this.api.moderate(id, { action: 'approve' });
       this.onModerated(id, $localize`:@@admin.reviews.announce.approved:Review approved.`);
@@ -547,6 +557,7 @@ export class ReviewQueue {
       this.onModerateError(id, err);
     } finally {
       this.pendingActionId.set(null);
+      this.pendingDecision.set(null);
     }
   }
 
@@ -567,6 +578,7 @@ export class ReviewQueue {
     if (this.pendingActionId()) return;
     this.failedAction.set(null);
     this.pendingActionId.set(id);
+    this.pendingDecision.set('reject');
     try {
       const res = await this.api.moderate(id, { action: 'reject', rejection_reason: reason });
       this.rejectingId.set(null);
@@ -578,6 +590,7 @@ export class ReviewQueue {
       this.onModerateError(id, err);
     } finally {
       this.pendingActionId.set(null);
+      this.pendingDecision.set(null);
     }
   }
 
@@ -599,6 +612,7 @@ export class ReviewQueue {
     if (this.pendingActionId()) return;
     this.failedAction.set(null);
     this.pendingActionId.set(id);
+    this.pendingDecision.set('remove');
     try {
       await this.api.moderate(id, { action: 'remove', rejection_reason: reason });
       this.removingId.set(null);
@@ -612,6 +626,7 @@ export class ReviewQueue {
       this.onModerateError(id, err);
     } finally {
       this.pendingActionId.set(null);
+      this.pendingDecision.set(null);
     }
   }
 

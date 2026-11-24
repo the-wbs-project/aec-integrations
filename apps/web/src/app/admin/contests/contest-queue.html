@@ -594,6 +594,16 @@
                   @if (isActionable(c)) {
                   <!-- AECI-2104: Decline is the shared danger form. It opens under its
                        opener. Accept keeps its own form below: it approves. -->
+                  <p
+                    [id]="'contest-' + c.id + '-accept-help'"
+                    [class]="helpClass"
+                    i18n="@@admin.contests.accept.help2"
+                  >
+                    Accepting files a REVIEW issue in Linear (playbook AECI-1025). On an integration
+                    nobody has claimed, the live listing changes only at the next promote. On one
+                    its owner has claimed, or when you approve a vendor as the owner, the change
+                    goes live now.
+                  </p>
                   <div class="flex flex-wrap items-start gap-3">
                     <button
                       aecButton
@@ -624,16 +634,6 @@
                       (confirmed)="confirm(c.id, 'decline', $event)"
                     />
                   </div>
-                  <p
-                    [id]="'contest-' + c.id + '-accept-help'"
-                    [class]="helpClass"
-                    i18n="@@admin.contests.accept.help2"
-                  >
-                    Accepting files a REVIEW issue in Linear (playbook AECI-1025). On an integration
-                    nobody has claimed, the live listing changes only at the next promote. On one
-                    its owner has claimed, or when you approve a vendor as the owner, the change
-                    goes live now.
-                  </p>
 
                   @if (formOpenId() === c.id && formMode() === 'accept') {
                   <form
