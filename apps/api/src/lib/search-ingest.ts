@@ -35,20 +35,26 @@
  *   - **Only days Google returned.** A day absent from a response writes nothing.
  *     It is never written as 0, because a stored 0 is indistinguishable from a
  *     measured quiet day, and a re-pull must not erase an earlier figure by
- *     absence (ADR 0027's `stored → 0` refusal).
+ *     absence (ADR 0027's `stored → 0` refusal). The same holds for the 28-day
+ *     counts: an empty answer, or a `www_page` series with no day in the window,
+ *     records the keys as `no_data` and writes nothing.
  *   - **Idempotent upserts on `(day, metric)`**, `source: 'measured'`, per key and
  *     outside any batch, as §7.1 writes. A re-pull overwrites with Google's
  *     current figure. ADR 0027 allows a `measured` write over `measured` where the
  *     source still holds the data, and Google keeps 16 months.
- *   - **No `audit_log` row.** Derived, log-class bookkeeping under ADR 0022 (its
- *     2026-11-24 amendment). The run's record is its `job_runs` row.
+ *   - **No `audit_log` row.** Exempt under ADR 0022's 2026-11-24 amendment, the
+ *     operator-only reading of an external system. The run's record is its
+ *     `job_runs` row.
  *
  * ─── Fail open ───────────────────────────────────────────────────────────────
  *
  * Each call returns a structured result and never throws. One call's failure
  * writes nothing for the keys it feeds and the other calls still run. The run is
- * `failed` only when the credential is refused: the token exchange fails, or every
- * call answers 401 or 403. That is the state an operator must fix. A D1 write
+ * `failed` only when the credential is refused: the token endpoint rejects it (a
+ * 4xx other than 429), the key will not import, or every call answers 401 or 403.
+ * That is the state an operator must fix. A token exchange that stays transient
+ * (5xx, 429, a dropped connection) after the in-process retries ends the run `ok`
+ * with `reason: 'token_transient'`, every key `failed` and nothing written. A D1 write
  * failure throws, so the queue retries the run, and the retry is safe because
  * every write is an upsert.
  *
@@ -67,9 +73,15 @@ import type { SearchIngestGoogleMetricKey } from '@aeci/shared';
 import type { Db } from '../db/client';
 import { metricsDaily } from '../db/schema';
 import { shiftDay } from './admin-analytics';
-import { getGoogleAccessToken, parseServiceAccount } from './google-service-account';
+import {
+  getGoogleAccessToken,
+  parseServiceAccount,
+  type TokenFailureKind,
+  type TokenResult,
+} from './google-service-account';
 import {
   listSitemaps,
+  SEARCH_CONSOLE_RETRY_DELAYS_MS,
   querySearchAnalytics,
   toCount,
   type SearchAnalyticsQuery,
@@ -101,6 +113,7 @@ export const SEARCH_ANALYTICS_MAX_PAGES = 4;
 export const SEARCH_INGEST_RUN_METRIC = 'aeci.search_ingest.run';
 
 export type SearchIngestCallName =
+  | 'token'
   | 'www_daily'
   | 'property_daily'
   | 'www_pages_28d'
@@ -109,7 +122,7 @@ export type SearchIngestCallName =
 
 /** One call's outcome, as `job_runs.detail` records it. */
 export interface SearchIngestCallReport {
-  outcome: 'ok' | SearchConsoleErrorKind;
+  outcome: 'ok' | SearchConsoleErrorKind | TokenFailureKind;
   message?: string;
   /** Rows Google returned, across pages. */
   rows: number;
@@ -234,6 +247,8 @@ const SITEMAP_KEYS = [
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
+const realSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
 /** Upsert one `(day, metric)` row as `measured`. Throws on a D1 failure. */
 async function upsert(
   db: Db,
@@ -292,8 +307,30 @@ export async function runGoogleSearchIngest(
     return { outcome: 'skipped', reason: 'not_public', ...empty };
   }
 
-  const token = await getGoogleAccessToken(fetchImpl, account);
-  if (!token.ok) return { outcome: 'failed', reason: token.message, ...empty };
+  // The token exchange retries a transient failure in-process, as every call here
+  // does, with the same delays. A refusal is the credential: the run fails. A
+  // transient failure that outlasts the retries is recorded and the run ends `ok`,
+  // the way `gsc-inspect` treats a call that stays transient. The next Sunday
+  // re-pulls 14 days, so no daily figure is lost. No queue retry: a token endpoint
+  // outage is not something a retry seconds later is likely to clear.
+  let token: TokenResult = { ok: false, kind: 'transient', message: 'not_attempted' };
+  for (let attempt = 0; attempt <= SEARCH_CONSOLE_RETRY_DELAYS_MS.length; attempt++) {
+    if (attempt > 0) await (sleep ?? realSleep)(SEARCH_CONSOLE_RETRY_DELAYS_MS[attempt - 1]!);
+    token = await getGoogleAccessToken(fetchImpl, account);
+    if (token.ok || token.kind === 'refused') break;
+  }
+  if (!token.ok) {
+    if (token.kind === 'refused') return { outcome: 'failed', reason: token.message, ...empty };
+    const metrics: GoogleSearchIngestResult['metrics'] = {};
+    for (const key of SEARCH_INGEST_WRITTEN_KEYS) metrics[key] = 'failed';
+    return {
+      outcome: 'ok',
+      reason: 'token_transient',
+      calls: { token: { outcome: 'transient', message: token.message, rows: 0, written: 0 } },
+      metrics,
+      written: 0,
+    };
+  }
 
   const startedAt = now();
   const computedAt = startedAt.toISOString();
@@ -367,8 +404,9 @@ export async function runGoogleSearchIngest(
   }
 
   // The 28-day window ends on the newest finalised day call 1 returned. If call 1
-  // failed or returned nothing, it falls back to the lagged end, which Google has
-  // usually finalised. The window is recorded in the result either way.
+  // failed, it falls back to the lagged end, which Google has usually finalised.
+  // If call 1 succeeded with no day, calls 3 and 4 are skipped below. The window
+  // is recorded in the result either way.
   const rollingEnd = newestFinalDay ?? dailyEnd;
   const rollingStart = shiftDay(rollingEnd, -(SEARCH_INGEST_ROLLING_DAYS - 1));
   const rolling: SearchAnalyticsQuery = {
@@ -384,72 +422,87 @@ export async function runGoogleSearchIngest(
     'search.google.www_page.pages_with_impressions_28d',
     'search.google.www_page.catalog_pages_with_impressions_28d',
   ] as const;
-  const pages = await queryAllPages(
-    fetchImpl,
-    token.token,
-    { ...rolling, dimensions: ['page'] },
-    sleep,
-  );
-  if (!pages.ok) {
-    calls.www_pages_28d = { outcome: pages.kind, message: pages.message, rows: 0, written: 0 };
-    mark(pagesKeys, 'failed');
-  } else {
-    const impressed = new Set<string>();
-    for (const row of pages.rows) {
-      const url = row.keys?.[0];
-      if (url && (toCount(row.impressions) ?? 0) > 0) impressed.add(url);
-    }
-    await upsert(db, rollingEnd, pagesKeys[0], impressed.size, computedAt);
-    let n = 1;
-    metrics[pagesKeys[0]] = 'written';
-    try {
-      const catalog = await (deps.catalogUrls ?? (() => catalogUrlSet(db)))();
-      let inCatalog = 0;
-      for (const url of impressed) if (catalog.has(url)) inCatalog++;
-      await upsert(db, rollingEnd, pagesKeys[1], inCatalog, computedAt);
-      n++;
-      metrics[pagesKeys[1]] = 'written';
-    } catch {
-      // The catalog read failed. The all-pages figure stands. The catalog figure
-      // is absent this week rather than guessed.
-      metrics[pagesKeys[1]] = 'failed';
-    }
-    calls.www_pages_28d = {
-      outcome: 'ok',
-      rows: pages.rows.length,
-      written: n,
-      ...(pages.truncated ? { truncated: true } : {}),
-    };
-    written += n;
-  }
-
-  // Call 4: distinct queries. A lower bound: Google drops rare queries.
   const queriesKey = 'search.google.www_page.queries_28d' as const;
-  const queries = await queryAllPages(
-    fetchImpl,
-    token.token,
-    { ...rolling, dimensions: ['query'] },
-    sleep,
-  );
-  if (!queries.ok) {
-    calls.www_queries_28d = {
-      outcome: queries.kind,
-      message: queries.message,
-      rows: 0,
-      written: 0,
-    };
-    metrics[queriesKey] = 'failed';
+  // The `www_page` call succeeded and Google had no finalised day with data in the
+  // window. A 28-day count over that window would be a 0 that means "no data", so
+  // calls 3 and 4 are skipped and nothing is written (never a 0 by absence).
+  const wwwEmpty = calls.www_daily?.outcome === 'ok' && newestFinalDay === null;
+  if (wwwEmpty) {
+    mark([...pagesKeys, queriesKey], 'no_data');
   } else {
-    const distinct = new Set(queries.rows.map((r) => r.keys?.[0]).filter(Boolean));
-    await upsert(db, rollingEnd, queriesKey, distinct.size, computedAt);
-    calls.www_queries_28d = {
-      outcome: 'ok',
-      rows: queries.rows.length,
-      written: 1,
-      ...(queries.truncated ? { truncated: true } : {}),
-    };
-    metrics[queriesKey] = 'written';
-    written += 1;
+    const pages = await queryAllPages(
+      fetchImpl,
+      token.token,
+      { ...rolling, dimensions: ['page'] },
+      sleep,
+    );
+    if (!pages.ok) {
+      calls.www_pages_28d = { outcome: pages.kind, message: pages.message, rows: 0, written: 0 };
+      mark(pagesKeys, 'failed');
+    } else {
+      const impressed = new Set<string>();
+      for (const row of pages.rows) {
+        const url = row.keys?.[0];
+        if (url && (toCount(row.impressions) ?? 0) > 0) impressed.add(url);
+      }
+      let n = 0;
+      if (impressed.size === 0) {
+        // An empty answer is "no data", never a stored 0.
+        mark(pagesKeys, 'no_data');
+      } else {
+        await upsert(db, rollingEnd, pagesKeys[0], impressed.size, computedAt);
+        n = 1;
+        metrics[pagesKeys[0]] = 'written';
+        try {
+          const catalog = await (deps.catalogUrls ?? (() => catalogUrlSet(db)))();
+          let inCatalog = 0;
+          for (const url of impressed) if (catalog.has(url)) inCatalog++;
+          await upsert(db, rollingEnd, pagesKeys[1], inCatalog, computedAt);
+          n++;
+          metrics[pagesKeys[1]] = 'written';
+        } catch {
+          // The catalog read failed. The all-pages figure stands. The catalog figure
+          // is absent this week rather than guessed.
+          metrics[pagesKeys[1]] = 'failed';
+        }
+      }
+      calls.www_pages_28d = {
+        outcome: 'ok',
+        rows: pages.rows.length,
+        written: n,
+        ...(pages.truncated ? { truncated: true } : {}),
+      };
+      written += n;
+    }
+
+    // Call 4: distinct queries. A lower bound: Google drops rare queries.
+    const queries = await queryAllPages(
+      fetchImpl,
+      token.token,
+      { ...rolling, dimensions: ['query'] },
+      sleep,
+    );
+    if (!queries.ok) {
+      calls.www_queries_28d = {
+        outcome: queries.kind,
+        message: queries.message,
+        rows: 0,
+        written: 0,
+      };
+      metrics[queriesKey] = 'failed';
+    } else {
+      const distinct = new Set(queries.rows.map((r) => r.keys?.[0]).filter(Boolean));
+      const n = distinct.size > 0 ? 1 : 0;
+      if (n > 0) await upsert(db, rollingEnd, queriesKey, distinct.size, computedAt);
+      calls.www_queries_28d = {
+        outcome: 'ok',
+        rows: queries.rows.length,
+        written: n,
+        ...(queries.truncated ? { truncated: true } : {}),
+      };
+      metrics[queriesKey] = n > 0 ? 'written' : 'no_data';
+      written += n;
+    }
   }
 
   // Call 5: the `www.` sitemap's state. A sample at the run, filed under the

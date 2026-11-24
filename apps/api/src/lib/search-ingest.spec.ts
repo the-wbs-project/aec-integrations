@@ -31,6 +31,7 @@ import { SEARCH_CONSOLE_API_BASE } from './search-console-api';
 import {
   pacificDay,
   runGoogleSearchIngest,
+  searchIngestHadFailures,
   SEARCH_INGEST_WRITTEN_KEYS,
   SEARCH_INGEST_WWW_PAGE_REGEX,
   SEARCH_INGEST_WWW_SITEMAP,
@@ -134,7 +135,7 @@ interface Script {
   pages?: Answer;
   queries?: Answer;
   sitemaps?: Answer;
-  token?: Answer;
+  token?: Answer | Answer[];
 }
 
 const responses: Response[] = [];
@@ -158,8 +159,13 @@ function google(script: Script = {}) {
     token: { access_token: 'tok' },
     ...script,
   };
+  const tokens = Array.isArray(full.token) ? [...full.token] : null;
   return vi.fn(async (url: string, init?: RequestInit) => {
-    if (url === GOOGLE_TOKEN_ENDPOINT) return respond(full.token);
+    if (url === GOOGLE_TOKEN_ENDPOINT) {
+      return respond(
+        tokens ? (tokens.length > 1 ? tokens.shift()! : tokens[0]!) : (full.token as Answer),
+      );
+    }
     if (url === SITEMAPS_URL) return respond(full.sitemaps);
     if (url === QUERY_URL) return respond(full[callOf(JSON.parse(init!.body as string))]);
     throw new Error(`unstubbed ${url}`);
@@ -249,6 +255,69 @@ describe('runGoogleSearchIngest', () => {
     expect(result).toMatchObject({ outcome: 'failed', reason: 'token_http_401', written: 0 });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(await t.db.select().from(metricsDaily)).toHaveLength(0);
+  });
+
+  it('fails on a refused credential (400 invalid_grant) without retrying', async () => {
+    const fetchImpl = google({ token: 400 });
+    const result = await runGoogleSearchIngest(deps(fetchImpl));
+    expect(result).toMatchObject({ outcome: 'failed', reason: 'token_http_400', written: 0 });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a transient token failure in-process, then runs as normal', async () => {
+    const fetchImpl = google({ token: [503, { access_token: 'tok' }] });
+    const result = await runGoogleSearchIngest(deps(fetchImpl));
+    expect(result.outcome).toBe('ok');
+    expect(result.calls.token).toBeUndefined();
+    expect(fetchImpl.mock.calls.filter(([u]) => u === GOOGLE_TOKEN_ENDPOINT)).toHaveLength(2);
+    expect(await valueOf('2026-11-17', 'search.google.www_page.clicks')).toMatchObject({
+      value: 2,
+    });
+  });
+
+  it('records a token failure that stays transient, writes nothing, and does not fail the run', async () => {
+    const fetchImpl = google({ token: 503 });
+    const result = await runGoogleSearchIngest(deps(fetchImpl));
+    expect(result).toMatchObject({
+      outcome: 'ok',
+      reason: 'token_transient',
+      calls: { token: { outcome: 'transient', message: 'token_http_503' } },
+      written: 0,
+    });
+    expect(searchIngestHadFailures(result)).toBe(true);
+    expect(result.metrics['search.google.www_page.clicks']).toBe('failed');
+    // Three attempts on the token endpoint, and no Search Console call.
+    expect(fetchImpl.mock.calls.map(([u]) => u)).toEqual([
+      GOOGLE_TOKEN_ENDPOINT,
+      GOOGLE_TOKEN_ENDPOINT,
+      GOOGLE_TOKEN_ENDPOINT,
+    ]);
+    expect(await t.db.select().from(metricsDaily)).toHaveLength(0);
+  });
+
+  it('writes no 28-day zero when the www series has no day in the window', async () => {
+    const fetchImpl = google({ www_daily: { responseAggregationType: 'byPage' } });
+    const result = await runGoogleSearchIngest(deps(fetchImpl));
+    expect(result.outcome).toBe('ok');
+    for (const key of [
+      'search.google.www_page.pages_with_impressions_28d',
+      'search.google.www_page.catalog_pages_with_impressions_28d',
+      'search.google.www_page.queries_28d',
+    ] as const) {
+      expect(result.metrics[key]).toBe('no_data');
+    }
+    // Calls 3 and 4 are skipped.
+    expect(bodies(fetchImpl).map(callOf)).toEqual(['www_daily', 'property_daily']);
+    const rows = await t.db.select().from(metricsDaily);
+    expect(rows.filter((r) => r.metric.endsWith('_28d'))).toEqual([]);
+  });
+
+  it('writes no zero when the page and query lists come back empty', async () => {
+    const result = await runGoogleSearchIngest(deps(google({ pages: { rows: [] }, queries: {} })));
+    expect(result.metrics['search.google.www_page.pages_with_impressions_28d']).toBe('no_data');
+    expect(result.metrics['search.google.www_page.queries_28d']).toBe('no_data');
+    const rows = await t.db.select().from(metricsDaily);
+    expect(rows.filter((r) => r.metric.endsWith('_28d'))).toEqual([]);
   });
 
   it('asks for final data over Pacific windows, with the www filter on every www call', async () => {

@@ -4229,9 +4229,12 @@ vocabulary, `SEARCH_INGEST_METRIC_KEYS` (`ADMIN_PANEL_SPEC.md` §5.24.8). Four r
   day's `page_views` for deletion.
 - **It re-writes `measured` over `measured`.** Each run re-pulls 14 days and overwrites with
   Google's current figure. ADR 0027 allows that where the source still holds the data, and Google
-  keeps 16 months. A day Google did not return is left as it was, never written as 0.
+  keeps 16 months. A day Google did not return is left as it was, never written as 0. An empty
+  28-day answer writes no row either.
 
-No `audit_log` row, under ADR 0022's 2026-11-24 amendment. The run's record is its `job_runs` row.
+No `audit_log` row, under ADR 0022's 2026-11-24 amendment, a second exemption route for an
+operator-only reading of an external system. The four `www_sitemap` keys are run-time readings and
+not reproducible, and the amendment covers them by name. The run's record is its `job_runs` row.
 
 ```sql
 create table metrics_daily (

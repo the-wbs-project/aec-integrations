@@ -2949,7 +2949,7 @@ bind both ingests:
 
 1. **Write only `SEARCH_INGEST_METRIC_KEYS`**, per key and outside any batch, `source =
    'measured'`, exactly as §7.1 writes. No `audit_log` row: derived bookkeeping under ADR 0022
-   (its 2026-11-24 amendment, which records why external figures qualify).
+   (its 2026-11-24 amendment, a second route for operator-only readings of an external system).
 2. **Fix the prune probe first** (§5.24.8).
 3. **Every stored figure names its scope** in its key: host filter and aggregation. Nothing is
    stored without one.
@@ -2971,11 +2971,11 @@ half stays open for AECI-821, listed at the end.
 | Calls per run | Six, sequential on one token: the token exchange, the `www_page` daily series (`date`, page filter `includingRegex ^https://www\.aecintegrations\.com/`), the `property` daily series (`date`, no filter, `byProperty`), the 28-day `page` list, the 28-day `query` list, and the Sitemaps list. The two lists page by `startRow` only when 25,000 rows come back, up to four pages |
 | Freshness | Every call asks `dataState: 'final'`. Google says data is typically available after two to three days, so the daily window ends three Pacific days before the run |
 | Re-write window | The daily series re-pull 14 Pacific days, two weekly runs. A missed week leaves no gap, and a late-finalised day is corrected the next week. The 28-day keys end on the newest day the `www_page` call returned, so they never cover a part-loaded day |
-| Overwriting `measured` | Allowed. ADR 0027's clause permits it where the source still holds the data, and Google keeps 16 months. A day Google did not return is never written, so a re-pull cannot erase a figure by absence |
+| Overwriting `measured` | Allowed. ADR 0027's clause permits it where the source still holds the data, and Google keeps 16 months. A day Google did not return is never written, so a re-pull cannot erase a figure by absence. An empty 28-day answer, or a `www_page` series with no day in the window, writes no 0: the keys read `no_data` |
 | Schedule, job id, queue | `SEARCH_INGEST_CRON = '0 22 * * 1'`, Sundays 22:00 UTC (Cloudflare day-of-week 1 = Sunday). `ScheduledJob` `search_ingest`, `AdminCronJob` `search-ingest`, the thirtieth. Rides `RECONCILE_QUEUE`. It lands three hours before the Monday 01:00 email |
 | Quota cost | Five Search Analytics or Sitemaps requests a week against 1,200 a minute per site. A 429 is not retried |
 | Sitemap state | `lastDownloaded`, `lastSubmitted`, `isPending`, errors, warnings and the URL count go to the run's `job_runs.detail.google.sitemap`. The four numbers also go to the `www_sitemap` keys above. A date is not a `metrics_daily` value, so the age in days is stored instead |
-| Failure | Each call fails alone: its keys get no row and the other calls still run. The heartbeat `aeci.search_ingest.run` reads `partial`. The run is `failed` only when Google refuses the credential everywhere. A D1 error throws, so the queue retries, which is safe |
+| Failure | Each call fails alone: its keys get no row and the other calls still run. The heartbeat `aeci.search_ingest.run` reads `partial`. The run is `failed` only when Google refuses the credential: a 4xx other than 429 from the token endpoint, a key that will not import, or 401 or 403 on every call. A token exchange that stays transient after two in-process retries, the same retry shape as every call and as `gsc-inspect`'s inspection calls, writes nothing, records `token_transient` and ends `ok` with `partial`. The next Sunday's 14-day re-pull covers the gap. A D1 error throws, so the queue retries, which is safe |
 | Catalog URL set | Read from `buildCatalogSitemap`'s `<loc>` output for now. AECI-818's extracted URL function replaces it when it lands |
 
 **Still open for AECI-821 (Bing).** The credential and its secret, whether the call runs from the

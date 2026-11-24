@@ -30,6 +30,7 @@ export {
   parseServiceAccount,
   SEARCH_CONSOLE_SITE,
   type GoogleServiceAccount,
+  type TokenFailureKind,
   type TokenResult,
 } from './google-service-account';
 

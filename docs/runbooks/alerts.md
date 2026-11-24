@@ -2433,13 +2433,15 @@ other calls still wrote. Read `detail.google.calls` for the failed call and its 
 | `transient` | A 5xx or a dropped connection, three times | Nothing, unless it repeats on two Sundays running |
 | `rejected` | Another 4xx. The request shape is wrong | File an issue with the `job_runs` row. Google may have changed the API |
 | `auth` on one call only | Google refused that call but not the others | Check the service account's permission level on the property |
+| `token` is `transient` (`reason: token_transient`) | Google's token endpoint failed three times with a 5xx, a 429 or a dropped connection. Nothing was written | Nothing, unless it repeats. The next Sunday re-pulls 14 days |
 
 A key whose outcome is `failed` has no row for that week. The 28-day keys and the sitemap keys are
 one point a week, so a missed week is a missing point, never a zero. The daily keys recover on the
 next run.
 
 **`outcome:failed`: check the key and the property.** It means Google refused the credential: the
-token exchange failed, or every call answered 401 or 403. `gsc-inspect` uses the same key, so it
+token endpoint answered a 4xx other than 429, the key would not import, or every call answered 401
+or 403. A D1 write that threw also reads `failed` (`aeci.search_ingest.crashed`), and the queue retries it. `gsc-inspect` uses the same key, so it
 fails the same way. Follow steps 1 to 3 of "gsc-inspect halted on quota or failed" above.
 
 **`www_sitemap` keys with `no_data`.** Google's Sitemaps list has no entry for

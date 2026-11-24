@@ -46,7 +46,16 @@ export function parseServiceAccount(json: string | undefined): GoogleServiceAcco
   }
 }
 
-export type TokenResult = { ok: true; token: string } | { ok: false; message: string };
+/**
+ * Why an exchange failed. `refused`: Google rejected the credential (a 4xx other
+ * than 429), or the key itself is unusable. An operator must act. `transient`: a
+ * 5xx, a 429, a dropped connection or a 200 with no token. Trying later may work.
+ */
+export type TokenFailureKind = 'refused' | 'transient';
+
+export type TokenResult =
+  | { ok: true; token: string }
+  | { ok: false; kind: TokenFailureKind; message: string };
 
 /** Sign an RS256 assertion and exchange it for a one-hour access token. */
 export async function getGoogleAccessToken(
@@ -54,8 +63,17 @@ export async function getGoogleAccessToken(
   account: GoogleServiceAccount,
   tokenEndpoint: string = GOOGLE_TOKEN_ENDPOINT,
 ): Promise<TokenResult> {
+  let key: Awaited<ReturnType<typeof importPKCS8>>;
   try {
-    const key = await importPKCS8(account.privateKey.replace(/\\n/g, '\n'), 'RS256');
+    key = await importPKCS8(account.privateKey.replace(/\\n/g, '\n'), 'RS256');
+  } catch (error) {
+    return {
+      ok: false,
+      kind: 'refused',
+      message: error instanceof Error ? error.message : 'key_unusable',
+    };
+  }
+  try {
     const assertion = await new SignJWT({ scope: SEARCH_CONSOLE_READONLY_SCOPE })
       .setProtectedHeader({ alg: 'RS256', typ: 'JWT' })
       .setIssuer(account.clientEmail)
@@ -73,12 +91,24 @@ export async function getGoogleAccessToken(
     });
     if (!res.ok) {
       discardResponseBody(res);
-      return { ok: false, message: `token_http_${res.status}` };
+      const transient = res.status >= 500 || res.status === 429;
+      return {
+        ok: false,
+        kind: transient ? 'transient' : 'refused',
+        message: `token_http_${res.status}`,
+      };
     }
     const body = (await res.json()) as { access_token?: unknown };
-    if (typeof body.access_token !== 'string') return { ok: false, message: 'token_missing' };
+    if (typeof body.access_token !== 'string') {
+      return { ok: false, kind: 'transient', message: 'token_missing' };
+    }
     return { ok: true, token: body.access_token };
   } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : 'token_error' };
+    // The key imported, so this is the network or an unreadable body.
+    return {
+      ok: false,
+      kind: 'transient',
+      message: error instanceof Error ? error.message : 'token_error',
+    };
   }
 }
