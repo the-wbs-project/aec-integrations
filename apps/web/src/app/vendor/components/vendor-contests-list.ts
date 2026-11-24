@@ -74,7 +74,7 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
     <section aecCard [class]="'p-6'" aria-labelledby="vendor-contests-heading">
       <h3 id="vendor-contests-heading" i18n="@@vendor.contests.heading">Change requests</h3>
       <p
-        class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+        class="mt-2 max-w-[30rem] text-sm leading-relaxed text-(--text-secondary)"
         i18n="@@vendor.contests.intro"
       >
         A change request says one detail of an integration is wrong and proposes the right value.
@@ -114,7 +114,7 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
               </h4>
               @if (received().length === 0) {
                 <p
-                  class="mt-2 max-w-prose text-sm text-(--text-secondary)"
+                  class="mt-2 max-w-[30rem] text-sm text-(--text-secondary)"
                   i18n="@@vendor.contests.received.emptyOwner"
                 >
                   Nothing to decide. Once you claim an integration your company owns, change
@@ -216,7 +216,7 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
               </h4>
               @if (submitted().length === 0) {
                 <p
-                  class="mt-2 max-w-prose text-sm text-(--text-secondary)"
+                  class="mt-2 max-w-[30rem] text-sm text-(--text-secondary)"
                   i18n="@@vendor.contests.submitted.empty"
                 >
                   You have not sent any change requests. Open an integration under one of your
