@@ -59,6 +59,35 @@ through a module that drags the whole schema set with it. Import them as
 what happened the one time that graph picked up zod. See
 `docs/STAGE_2_PAID_TIERS_SPEC.md` §3.1.
 
+**Zod-free files inside `api/` (AECI-2033).** A bundler cannot prove a Zod
+schema builder chain is pure. So one value import from a module that builds
+schemas at the top level keeps that module, its schemas and the whole of zod.
+That holds even when the page wants only a constant or a pure function from the
+file, and even when the import goes through the barrel. The page then loads the
+78 kB (transferred) zod chunk while it hydrates. The bundle budget cannot see
+this, because that chunk is lazy.
+
+So the pure parts that public pages need live in their own files:
+
+| File | Holds | Its schemas live in |
+|---|---|---|
+| `api/agreements.ts` | legal and Plans version tables, hashes, labels | `api/agreement-schemas.ts` |
+| `api/https-url-rule.ts` | `isHttpsUrl`, `isHttpUrl`, `HTTPS_URL_MAX_LENGTH` | `api/https-url.ts` |
+| `api/legal-moment.ts` | `LEGAL_DOCUMENT_SLUGS`, `legalEffectiveAtMs` | `api/legal-versions.ts` |
+| `api/taxonomy-count.ts` | `taxonomyIntegrationCount` | `api/taxonomy.ts` |
+| `api/trade-publish.ts` | `isPublishedTrade`, `TRADE_PUBLISH_MIN_PRODUCTS` | `api/taxonomy.ts` |
+
+Three rules keep them that way:
+
+1. **A zod-free file imports only other zod-free files.** `ZOD_FREE_API_MODULES`
+   in `eslint.config.mjs` enforces it.
+2. **A schema module never re-exports a zod-free file.** A barrel import that
+   resolves through the re-export keeps the schema module. Export the zod-free
+   file from `api/index.ts` directly. A schema module may still *import* from it.
+3. **A browser route that needs no zod stays on `ZOD_FREE_ROUTES`.**
+   `apps/web/scripts/check-zod-free-routes.mjs` checks this against a build
+   made with `--stats-json`.
+
 Consumers can import either from the root or from a subpath that matches the
 shape shown in the docs:
 

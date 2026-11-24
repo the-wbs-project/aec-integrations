@@ -772,28 +772,57 @@ describe('GET /api/products/:slug', () => {
     expect(row?.via).toBeNull();
   });
 
-  it('excludes a Convention-A self-referential edge from the powered bucket (§13.4(2))', async () => {
+  it('sends a Convention-A self-referential edge in the powered bucket too (§13.4(2), AECI-2051)', async () => {
     // Review-side Convention A stores "product X ships a connector on platform C"
-    // as ONE edge whose `powered_by` IS one of its own endpoints — 60 production
-    // rows (Aquifer 31, Kroo 29). Without this exclusion the edge hydrates into
-    // BOTH `integrations_as_target` and `integrations_as_connector` on C's own
-    // page and renders twice. AECI-706's backfill is what switched that on.
+    // as ONE edge whose `powered_by` IS one of its own endpoints (Aquifer, Kroo).
+    // §13.4(2) keeps the payload raw: the edge is in `integrations_as_target` AND
+    // in `integrations_as_connector` on C's own page. The web layer drops it from
+    // the powered section, and reads the raw list for the hero line, the meta
+    // description and the section's hide rule. A filter here blanks all three.
     await seedProduct(u(1), 'aquifer', 'Aquifer', { productRole: 'connector' });
     await seedProduct(u(2), 'adp-workforce-now', 'ADP Workforce Now');
-    await t.db.insert(integrations).values({
-      id: u(51),
-      sourceProductId: u(2),
-      targetProductId: u(1),
-      mechanismKind: 'iPaaS',
-      poweredByProductId: u(1), // the connector is also the TARGET
-    });
+    await seedProduct(u(3), 'procore', 'Procore');
+    await seedProduct(u(4), 'sage-intacct', 'Sage Intacct');
+    await t.db.insert(integrations).values([
+      {
+        id: u(51),
+        sourceProductId: u(2),
+        targetProductId: u(1),
+        mechanismKind: 'iPaaS',
+        poweredByProductId: u(1), // the connector is also the TARGET
+      },
+      {
+        id: u(53),
+        sourceProductId: u(1),
+        targetProductId: u(3),
+        mechanismKind: 'iPaaS',
+        poweredByProductId: u(1), // the connector is also the SOURCE
+      },
+      {
+        // A third-party pair: the connector is neither endpoint.
+        id: u(54),
+        sourceProductId: u(3),
+        targetProductId: u(4),
+        mechanismKind: 'iPaaS',
+        poweredByProductId: u(1),
+      },
+    ]);
 
     const connector = ProductDetailSchema.parse(
       await (await get(detailApp(), '/api/products/aquifer')).json(),
     );
-    // Rendered exactly once, in the endpoint lane where §13.2(a) keeps it.
+    // The endpoint lane, where §13.2(a) keeps the self-references direct.
     expect(connector.integrations_as_target.map((i) => i.id)).toEqual([u(51)]);
-    expect(connector.integrations_as_connector).toEqual([]);
+    expect(connector.integrations_as_source.map((i) => i.id)).toEqual([u(53)]);
+    // The raw powered list: both self-references and the third-party pair, once each.
+    expect(connector.integrations_as_connector.map((i) => i.id).sort()).toEqual([
+      u(51),
+      u(53),
+      u(54),
+    ]);
+    const self = connector.integrations_as_connector.find((i) => i.id === u(51));
+    expect(self?.source.slug).toBe('adp-workforce-now');
+    expect(self?.target.slug).toBe('aquifer');
   });
 
   it('derives the table Direction from claims when the row direction is null (§3.2 — regression: table matched "–" while the pair page said "Syncs both ways")', async () => {

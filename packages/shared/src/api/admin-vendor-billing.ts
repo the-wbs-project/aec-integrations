@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { AdminAgreementAcceptanceSchema } from './agreements';
+import { AdminAgreementAcceptanceSchema } from './agreement-schemas';
 import { AdminLicenseGrantSchema } from './license-grants';
 import { AdminLicenseReleaseRequestSchema } from './license-release-requests';
 import { CompanyPolicyVersionSchema } from './policy-binding';

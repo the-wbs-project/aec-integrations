@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { AdminInternalNoteSchema } from './admin-reason';
 import { PageQuerySchema, ProductLinkSchema, paginatedResponseSchema } from './common';
 import { HttpsUrlSchema } from './https-url';
+import { isHttpUrl } from './https-url-rule';
 import { ContextDirectionSchema, IntegrationMechanismKindSchema } from './integrations';
 
 /**
@@ -266,15 +267,6 @@ export function contestProtestPhase(
 // ─── The per-field rule ──────────────────────────────────────────────────────
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-export function isHttpUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return url.protocol === 'http:' || url.protocol === 'https:';
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Why `value` is not a valid proposal for `field`, or `null` when it is.

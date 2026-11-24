@@ -329,9 +329,10 @@ PRs skip coverage entirely (AECI-917). There is no Codecov integration today.
 
 **Job: `build`** (~3 min)
 1. Checkout, install
-2. `pnpm run build` (Angular SSR build for Cloudflare Workers)
+2. `pnpm --filter @aeci/web build:stats` (the Angular SSR production build plus `--stats-json`, AECI-2033)
 3. Bundle size check against budget (defined in `TESTING_STRATEGY.md`)
-4. Upload build artifact for downstream jobs
+4. `check:zod-free-routes`: fail when a public route that needs no zod imports the zod chunk (`TESTING_STRATEGY.md` §10.2)
+5. Upload build artifact for downstream jobs
 
 The real job is `build-web` (check `Build SSR Worker`). In the lite lane it builds only when
 apps/web is in scope. It stays in that lane because it is cheap and catches template and build

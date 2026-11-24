@@ -1,0 +1,1214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Autodesk Forma: integrations and reviews</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:ital,wght@0,400..700;1,400..700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+<!--
+  Mock-up 9w: the product page hero with the integration wheel (AECI-2018).
+  Built by src/9w-build.mjs from src/9w.css, src/9w-harness.css, src/9w.js,
+  src/9w-data.json and this note. Edit the sources, then run the build:
+    node docs/design/mockups/redesign-2026-11/mockups/src/9w-build.mjs
+
+  Open the file on its own and it becomes a control strip with the page in a frame
+  at 1440, 390 or 320 wide. Add ?frame=1 (plus any control as a query key, e.g.
+  ?frame=1&product=small&claim=unclaimed) to see the page alone at the window's
+  own width. With script off the file shows the server HTML of the default state.
+
+  Data: the connected products, their vendors and categories are the review app's records on
+  2026-11-23, read tools only. "Live" products list only connected products promoted to the
+  site. "Large" (first 140 A to Z) and "Largest" (all 387) list every connected product record
+  of Procore Project Management, most not promoted yet, to show the catalog's upper
+  shape: no live product has more than 57 promoted connected products today.
+  Not real: logos (stand-in marks, no vendor logo is used), which connected products
+  are claimed (a stand-in rule, about 3 in 10), and the facts card under the hero.
+
+  Geometry, measured (gap 8px between tiles, 12px between rings, 6px edge for the
+  focus ring). Stage = the panel's inner width. One ring sits on the outer circle.
+  Capacity at a tile size (one ring / two rings):
+    1440 / 1280, stage 476: 48px 23 / 39; 40px 27 / 47; 28px 38 / 69.
+    1024, stage 336:        48px 15 / 23; 40px 18 / 29; 28px 25 / 43.
+    390, stage 294:         one ring 25 at 24px. No second ring on a phone.
+    375, stage 279:         one ring 23 at 24px.
+    320, stage 224:         one ring 18 at 24px.
+
+  Rulings of 2026-11-23. Chris ruled the wording. He left the other five to the
+  orchestrator ("your call"), so items 2 to 6 are the orchestrator's decisions:
+  1. Chris: the wheel's text says products and integrations, never partners. The
+     first slide is "All integrations" over "54 products"; "1 product" in the singular.
+  2. Cut-offs fit the rendered width: one ring while every tile fits at the smallest
+     size (28px beside the text, 24px on a phone), then a second ring (not on phones)
+     while that fits, then dots. "Fixed numbers" stays in the control strip only to compare.
+  3. One tile size per product. It is set once, from the "All" slide, or from the
+     largest tiled slide when "All" is dots, at the largest size that slide fits in its
+     mode. Every tiled slide uses it, and takes the first mode that fits at that size.
+  4. A dots slide keeps both counts: products under the title, integrations in the centre.
+  5. Names under tiles are on for slides of 8 or fewer. They are off when the stage is
+     under 260px (320 wide), where they run into the tiles and the hub.
+  6. The Clay mark at 12 o'clock, the arrows beside the title and the guide circles stay.
+  7. Legal agent's approved wording for the line under the wheel: on a tile slide
+     "Shown A to Z. Position is not a ranking."; on a dots slide "Too many to show as
+     tiles. Each dot is one integration." There is one dot per integration, so the dots
+     always equal the integrations count in the centre (388 for Procore's 387 products).
+  8. (Replaced by ruling 64.) Until 2026-11-24 a tile showed a logo only for a claimed
+     listing.
+
+  Ruling 64, Chris, 2026-11-24 (LEGAL_COUNSEL_RECORD.md ruling 64; wording corrected the
+  same day). It widens the AECI-1769 logo rule for the wheel only:
+  - A tile shows the product's logo whenever we hold one, claimed or not, and its initial
+    only when we hold none. Every tile is the same size and nothing marks, badges, dims or
+    outlines an unclaimed tile. The data keeps "claimed" and "has a logo" apart. Both are
+    stand-ins here: about 3 in 10 claimed, about 1 in 6 with no logo.
+  - Every logo sits inset on the same neutral tile as an initial. No vendor colour reaches
+    the ground, ring, border or card of an unclaimed product (ruling 34 stands).
+  - On every tile slide, whatever the mix, two lines under the wheel, same size, weight
+    and colour (13px, 400, #C5D3CA on the #26473A panel, 6.62:1):
+      "Shown A to Z. Position is not a ranking."
+      "Logos identify products only and imply no endorsement or affiliation. Listings may
+       be unclaimed."
+    They are in the server HTML and in the ring's description for screen readers. Each
+    phrase is kept together where it fits, so no line breaks mid-phrase.
+  - The card shows logo (or initial), name and vendor. An unclaimed listing adds the text
+    label "Unclaimed" beside the name, read with it ("Name, Unclaimed"). A claimed one
+    has no label.
+  - A dots slide shows no logos, so it keeps only "Too many to show as tiles. Each dot
+    is one integration."
+  - The centre of a tile slide still shows the page's own product by the old rule.
+  The "Listings" control (mixed, all claimed, all unclaimed) changes only the card label.
+
+  Final pass, 2026-11-24. Chris said "build it". Item 1 is his; 2 to 5 are the
+  orchestrator's decisions:
+  1. Chris: the card opens toward the centre of the wheel. It stays inside the stage from
+     top to bottom, so it never covers the title or the lines under the wheel, and inside
+     the screen from side to side.
+  2. The lines under the wheel take the panel's padding as well (16px each side from 768,
+     12px below), so the logo line wraps less. Rows, line 1 + line 2: 1440 1+2, 1024 1+2,
+     390 1+2, 375 1+3, 320 1+3. The logo line needs 552px at 13px and the panel is 540px
+     at its widest, so two rows in total does not fit at any width.
+  3. On desktop a slide with more than 20 products takes two rings ("Second ring from"
+     compares 18, 20 and 24 in the control strip; 20 is the recommendation by eye). Tiles
+     stay large: 48px on one ring, 40px when the second ring opens, shrinking to 28px.
+  4. Ring count is decided per slide at the product's one tile size. The inner guide
+     circle fades out on a one-ring slide and back on a two-ring slide (280ms, off under
+     reduced motion).
+  5. A one-ring slide sits on the outer circle, so the wheel is the same size on every
+     slide. Items 4 and 5 replace "one-ring slides sit on the inner orbit".
+
+  Final cut-offs, for the "All" slide (second ring from 21):
+    width   stage   one ring   two rings   dots from
+    1440    476     1 to 20    21 to 69    70
+    1280    476     1 to 20    21 to 69    70
+    1024    336     1 to 18    19 to 43    44   (built: one ring up to 18, AECI-2018)
+    390     294     1 to 25    none        26
+    375     279     1 to 23    none        24
+    320     224     1 to 18    none        19
+  Tile size at 1440: 48px up to 20 on one ring; 40px from 21 to 40 on two rings, then down
+  to 28px at 69. The build (2026-11-24) makes the ring count depend only on the count and
+  the width: one ring up to 18 at 1024, the number of 40px tiles one ring holds, so a
+  one-ring tile there is 40px or more and two rings start at 19.
+  Phones never take a second ring: the build treats every stage under 336px as a phone,
+  so a stacked hero at 416 to 431px (a 320px stage) holds 27 on one ring, then dots. The
+  build's entrance fades and scales only; the mock-up's -6deg turn is dropped.
+
+  FINDINGS for the build:
+  1. The cut-offs depend on the width, not only the count. At 1024 the panel is 400px,
+     so a fixed "30 on one ring" overlaps there. The server HTML has to carry the phone
+     and the desktop layout of the first slide and switch by container query, or the
+     wheel shifts at hydration. Picture 19 shows the desktop layout scaled to a phone.
+  2. Fixed 2026-11-24: one-ring slides sit on the outer circle and the second ring opens
+     at 21, so the tile size only shrinks as a product grows (48px, then 40px, then down to
+     28px). At 1024 the one-ring tile reaches 37px at 20 and two rings start at 40px.
+  5. Under 260px the title takes the first row and the arrows sit in a row below it, so
+     a long category name ("BIM Coordination") is not squeezed between the arrows.
+  3. A dots slide's server HTML has no product list. It links to the Integrations
+     section instead ("See all N in Integrations").
+  4. The product page 500s above roughly 155 to 160 integrations in today's code: the
+     Cache-Tag header passes 16,384 bytes (apps/web/src/server/cache-tags.ts). Seen
+     locally with 390 Procore Project Management integrations: 39,981 bytes.
+-->
+
+<style id="page-css">
+/* Mock-up 9w: the product page hero with the integration wheel (AECI-2018).
+   Tokens are copied from apps/web/src/styles.css. Class names describe roles; the
+   build maps them onto the shipped utilities (see the FINDINGS block in the page). */
+:root {
+  --surface-base: oklch(100% 0 0); /* #FFFFFF */
+  --surface-raised: oklch(98.43% 0 0); /* #FAFAFA */
+  --surface-sunken: oklch(96.74% 0.0013 286.38); /* #F4F4F5 */
+  --border-default: oklch(91.97% 0.0036 286.32); /* #E4E4E7 */
+  --text-primary: oklch(14.48% 0 0); /* #0A0A0A */
+  --text-secondary: oklch(44.19% 0.0146 285.79); /* #52525B */
+  --accent-primary: oklch(32.24% 0.0397 166.73); /* #1E3A2F Forest */
+  --accent-primary-hover: oklch(43.47% 0.0641 160.3); /* #2E5C45 */
+  --accent-primary-soft: oklch(95.35% 0.0066 160.07); /* #ECF1EE */
+  --accent-secondary: oklch(74.64% 0.1164 49.55); /* #E89668 Clay, strokes only */
+  --accent-warm: oklch(96.13% 0.0111 89.72); /* #F5F2EA Bone */
+  --surface-hero-panel: oklch(36.82% 0.0453 166.67); /* #26473A */
+  --surface-hero-ribbon: oklch(49.48% 0.0689 161.11); /* #3B6E55 */
+  --surface-footer: oklch(26.02% 0.0324 161.25); /* #15291F */
+  --text-on-brand: var(--accent-warm);
+  --text-on-brand-secondary: oklch(85.36% 0.0195 157.8); /* #C5D3CA */
+  --focus-ring-on-brand: var(--accent-warm);
+  --surface-on-brand-hover: oklch(91.04% 0.0211 88.73); /* #E7E1D2 */
+  --surface-on-brand-wash: oklch(96.13% 0.0111 89.72 / 10%);
+  --surface-on-brand-wash-hover: oklch(96.13% 0.0111 89.72 / 16%);
+  --border-on-brand-subtle: oklch(96.13% 0.0111 89.72 / 14%);
+  --border-on-brand: oklch(96.13% 0.0111 89.72 / 32%);
+  --border-on-brand-strong: oklch(96.13% 0.0111 89.72 / 50%);
+  --surface-hero-glow: oklch(43.47% 0.0641 160.3 / 75%);
+  --surface-hero-glow-soft: oklch(43.47% 0.0641 160.3 / 45%);
+  --font-display: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+  --font-body: 'Atkinson Hyperlegible Next', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --t-12: 0.75rem; --t-13: 0.8125rem; --t-14: 0.875rem; --t-16: 1rem; --t-20: 1.25rem; --t-24: 1.5rem;
+  --t-36: clamp(1.75rem, 1vw + 1.35rem, 2.25rem);
+  --t-fig: clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem);
+  --t-48: 3rem;
+  --t-statement: clamp(2.125rem, 1.8vw + 1.875rem, 3.5rem);
+  --t-display: clamp(2.5rem, 2.4vw + 2.375rem, 4.5rem);
+  --radius-mark: 0.5rem; --radius-control: 0.75rem; --radius-panel: 1rem; --radius-card: 1.5rem; --radius-pill: 9999px;
+  --shadow-card: 0 1px 3px rgb(0 0 0 / 0.06), 0 16px 36px -16px rgb(0 0 0 / 0.24);
+  --shadow-menu: 0 8px 24px -4px rgb(0 0 0 / 0.12), 0 2px 8px -1px rgb(0 0 0 / 0.06);
+  --duration-fast: 120ms; --duration-base: 180ms; --duration-slow: 280ms;
+  --ease-standard: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+/* ---------- Base ---------- */
+* { box-sizing: border-box; border-color: var(--border-default); }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; font: 400 var(--t-16)/1.6 var(--font-body); color: var(--text-primary); background: var(--surface-base);
+  -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; }
+h1, h2, h3, p, ul, ol { margin: 0; }
+ul, ol { padding: 0; list-style: none; }
+a { color: inherit; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid var(--accent-primary); outline-offset: 3px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.ico { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+.ico.s { width: 16px; height: 16px; }
+.wrap { max-width: 1328px; margin: 0 auto; padding: 0 24px; }
+@media (min-width: 768px) { .wrap { padding: 0 32px; } }
+@media (min-width: 1024px) { .wrap { padding: 0 48px; } }
+.overline { font: 600 var(--t-12)/1.4 var(--font-body); letter-spacing: 0.08em; text-transform: uppercase; }
+
+/* ---------- Site header (Forest, as built) ---------- */
+.site-head { background: var(--accent-primary); color: var(--text-on-brand); }
+.site-head .wrap { height: 64px; display: flex; align-items: center; gap: 32px; }
+.site-head .wrap > a { display: flex; }
+.site-head .wm { width: 196px; height: 30px; color: var(--text-on-brand); }
+.wm-mark { fill: var(--accent-secondary); }
+.site-head nav { display: flex; gap: 8px; margin-left: auto; }
+.site-head nav a { text-decoration: none; padding: 8px 10px; border-radius: var(--radius-control); font-size: var(--t-16); }
+.site-head nav a:hover { background: var(--surface-on-brand-wash); }
+.site-head :focus-visible { outline-color: var(--focus-ring-on-brand); }
+@media (max-width: 767px) { .site-head nav a:not(.keep) { display: none; } .site-head .wm { width: 160px; } }
+
+/* ---------- Hero band (aec-hero-band, as built) ---------- */
+.hero { background-color: var(--accent-primary); color: var(--text-on-brand);
+  background-image: radial-gradient(900px 560px at 78% max(42%, 392px), var(--surface-hero-glow), transparent 70%),
+    radial-gradient(600px 400px at 6% 100%, var(--surface-hero-glow-soft), transparent 70%);
+  background-repeat: no-repeat; }
+.hero .wrap { padding-top: 16px; padding-bottom: 96px; }
+@media (min-width: 768px) { .hero .wrap { padding-top: 24px; padding-bottom: 128px; } }
+.hero :focus-visible { outline-color: var(--focus-ring-on-brand); }
+.hero a:hover { text-decoration-line: underline; text-underline-offset: 3px; }
+.crumbs ol { display: flex; flex-wrap: wrap; gap: 6px 8px; font-size: var(--t-14); color: var(--text-on-brand-secondary); }
+.crumbs li { display: flex; align-items: center; gap: 8px; }
+.crumbs li + li::before { content: '\203A'; }
+.crumbs a { text-decoration: none; }
+.crumbs [aria-current] { color: var(--text-on-brand); }
+.hero-grid { display: grid; gap: 32px; }
+@media (min-width: 1024px) { .hero-grid { grid-template-columns: minmax(0, 1fr) 400px; align-items: start; } }
+@media (min-width: 1280px) { .hero-grid { grid-template-columns: minmax(0, 1fr) 540px; } }
+.namerow { margin: 24px 0 12px; display: flex; align-items: flex-start; gap: 16px; }
+@media (min-width: 768px) { .namerow { margin-bottom: 16px; align-items: center; gap: 24px; } }
+.hmark { width: 68px; height: 68px; flex: none; border-radius: var(--radius-mark); box-shadow: var(--shadow-card), 0 0 0 4px var(--border-on-brand-subtle); }
+@media (min-width: 768px) { .hmark { width: 104px; height: 104px; } }
+.hmark > * { width: 100%; height: 100%; }
+h1 { font-family: var(--font-display); font-weight: 400; overflow-wrap: anywhere; }
+h1 .display { font-size: var(--t-display); line-height: 1; letter-spacing: -0.02em; font-variation-settings: 'opsz' 60; }
+@media (max-width: 767px) { h1 .display { font-size: var(--t-statement); } }
+@media (max-width: 359px) { h1 .display { font-size: var(--t-fig); } }
+.byline { margin-top: 12px; color: var(--text-on-brand-secondary); }
+.byline a { text-decoration: underline; text-decoration-color: var(--border-on-brand-strong); text-underline-offset: 4px; color: var(--text-on-brand); }
+.unclaimed { margin-top: 12px; display: flex; align-items: center; gap: 12px; font-size: var(--t-14); color: var(--text-on-brand-secondary); }
+.unclaimed .mk { width: 32px; height: 32px; flex: none; }
+.lede { max-width: 32em; font-size: var(--t-20); line-height: 1.5; color: var(--text-on-brand-secondary);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.reviews-none { margin-top: 24px; font-weight: 600; color: var(--text-on-brand-secondary); }
+.hacts { margin-top: 24px; display: flex; flex-wrap: wrap; gap: 12px; }
+@media (max-width: 767px) { .hacts { display: grid; } }
+@media (min-width: 480px) and (max-width: 767px) { .hacts { grid-auto-flow: column; grid-auto-columns: 1fr; } }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 10px 20px;
+  border-radius: var(--radius-control); font-size: var(--t-14); font-weight: 600; text-decoration: none; white-space: nowrap;
+  border: 1px solid transparent; transition: transform var(--duration-fast) var(--ease-standard), background-color var(--duration-base) var(--ease-standard); }
+.btn:active { transform: translateY(1px) scale(0.98); }
+.hero a.btn:hover { text-decoration: none; }
+.btn-on-brand { background: var(--accent-warm); color: var(--accent-primary); }
+.hero a.btn-on-brand { color: var(--accent-primary); }
+.btn-on-brand:hover { background: var(--surface-on-brand-hover); }
+.btn-on-brand-2 { background: var(--surface-on-brand-wash); border-color: var(--border-on-brand-strong); color: var(--text-on-brand); }
+.btn-on-brand-2:hover { background: var(--surface-on-brand-wash-hover); }
+
+/* ---------- Logos and initial tiles (the logo rule) ---------- */
+.mk { display: grid; place-items: center; overflow: hidden; border-radius: var(--radius-mark);
+  background: var(--surface-raised); border: 1px solid var(--border-default); color: var(--text-primary); }
+.mk svg { width: 100%; height: 100%; display: block; }
+.mk.logo { border-color: var(--border-default); }
+.mk .ini { font: 600 var(--t-14)/1 var(--font-body); }
+.mk.big .ini { font: 400 var(--t-36)/1 var(--font-display); font-variation-settings: 'opsz' 60; }
+.mk.md .ini { font: 400 var(--t-20)/1 var(--font-display); }
+
+/* ---------- The hero panel and the wheel ---------- */
+.panel { min-width: 0; border-radius: var(--radius-card); background: var(--surface-hero-panel); padding: 24px; }
+@media (min-width: 768px) { .panel { padding: 32px; } }
+@media (forced-colors: active) { .panel { border: 1px solid CanvasText; } .hero { border-block: 1px solid CanvasText; } }
+
+.wheel { position: relative; container-type: inline-size; }
+/* Under 260px (a 320 phone) a long category name does not fit between the arrows, so the
+   title takes the whole first row and the arrows sit in a row under it. */
+@container (max-width: 259px) {
+  .wheel-head { grid-template-columns: 44px 1fr 44px; }
+  .wheel-head .wheel-title { grid-column: 1 / -1; grid-row: 1; }
+  .wheel-head [data-step='-1'] { grid-column: 1; grid-row: 2; }
+  .wheel-head [data-step='1'] { grid-column: 3; grid-row: 2; }
+}
+.wheel-head { position: relative; display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; gap: 4px; }
+.wheel-step { width: 44px; height: 44px; display: grid; place-items: center; border-radius: var(--radius-control); cursor: pointer;
+  background: var(--surface-on-brand-wash); border: 1px solid var(--border-on-brand-strong); color: var(--text-on-brand);
+  transition: background-color var(--duration-base) var(--ease-standard), transform var(--duration-fast) var(--ease-standard); }
+.wheel-step:hover { background: var(--surface-on-brand-wash-hover); }
+.wheel-step:active { transform: translateY(1px) scale(0.98); }
+.wheel-title { position: relative; min-width: 0; text-align: center; font-family: var(--font-body); font-weight: 400; }
+.wheel-jump { max-width: 100%; display: inline-flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 8px;
+  border: 0; background: none; border-radius: var(--radius-control); cursor: pointer; }
+.wheel-jump:hover { background: var(--surface-on-brand-wash); }
+.wheel-jump .nm { display: block; max-width: 100%; text-align: center; text-wrap: balance;
+  font: 600 var(--t-20)/1.3 var(--font-display); color: var(--text-on-brand); }
+.wheel-jump .nm .ico { display: inline-block; margin-left: 4px; vertical-align: -2px; }
+.wheel-jump .ct { font-size: var(--t-13); line-height: 1.4; color: var(--text-on-brand-secondary); }
+.wheel-jump .ico { transition: transform var(--duration-base) var(--ease-standard); }
+.wheel-jump[aria-expanded='true'] .ico { transform: rotate(180deg); }
+.wheel-static-title { font: 600 var(--t-20)/1.3 var(--font-display); color: var(--text-on-brand); text-align: left; }
+.wheel-static-title .ct { display: block; font: 400 var(--t-13)/1.4 var(--font-body); color: var(--text-on-brand-secondary); }
+html.js .wheel-static-title { display: none; }
+html:not(.js) .wheel-head { display: none; }
+
+/* The jump list: a popover surface below the title. */
+.jump-list { position: absolute; z-index: 20; top: calc(100% + 8px); left: 50%; transform: translateX(-50%); width: min(320px, calc(100vw - 48px));
+  max-height: 360px; overflow-y: auto; padding: 6px; background: var(--surface-base); color: var(--text-primary);
+  border: 1px solid var(--border-default); border-radius: var(--radius-control); box-shadow: var(--shadow-menu); text-align: left; }
+.jump-list[hidden] { display: none; }
+.jump-list li { display: block; }
+.jump-list button { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 40px; padding: 8px 12px;
+  border: 0; background: none; border-radius: var(--radius-mark); font-size: var(--t-14); text-align: left; cursor: pointer; }
+.jump-list button:hover { background: var(--surface-sunken); }
+.jump-list button:focus-visible { outline: 3px solid var(--accent-primary); outline-offset: -3px; }
+.jump-list button[aria-current='true'] { background: var(--accent-primary-soft); font-weight: 600; }
+.jump-list .n { font-size: var(--t-13); color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+
+/* The stage: a square. Tiles sit on it by CSS alone (--x, --y from the server), so
+   the first slide is placed in the server HTML with no script and no shift. */
+.stage { position: relative; width: 100%; max-width: var(--wheel-max, 476px); aspect-ratio: 1; margin: 16px auto 0; }
+.stage .guides { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.guides circle { fill: none; stroke: var(--border-on-brand-subtle); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.guides circle.orbit { stroke: var(--border-on-brand); }
+.guides circle.orbit.inner { transition: opacity var(--duration-slow) var(--ease-standard); }
+.guides circle.orbit.off { opacity: 0; }
+.guides circle.frame { stroke-dasharray: 2 6; }
+.guides .start { stroke: var(--accent-secondary); stroke-width: 2; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.ring { position: absolute; inset: 0; }
+.stage { container-type: inline-size; }
+.ring li { position: absolute; left: calc(50% + var(--x) * 1%); top: calc(50% + var(--y) * 1%); width: calc(var(--t) * 1%); height: calc(var(--t) * 1%);
+  margin: calc(var(--t) * -0.5%) 0 0 calc(var(--t) * -0.5%); }
+.tile { display: block; width: 100%; height: 100%; border-radius: var(--radius-mark); text-decoration: none; position: relative;
+  transition: transform var(--duration-base) var(--ease-standard); }
+.tile .mk { width: 100%; height: 100%; box-shadow: 0 1px 2px rgb(0 0 0 / 0.16); }
+/* Every logo sits inset on the same neutral tile as an initial: no ground, ring or border
+   from the vendor, claimed or not (ruling 34, kept by ruling 64). */
+.tile .mk.logo, .pcard .mk.logo { padding: 14%; }
+.tile .mk.logo svg, .pcard .mk.logo svg { border-radius: 22%; }
+.tile .mk .ini { font-size: max(var(--t-12), calc(var(--t) * 0.4cqw)); }
+.tile:hover { transform: scale(1.08); }
+.tile:hover .mk, .tile.is-active .mk { box-shadow: 0 0 0 2px var(--text-on-brand); }
+.tile:focus-visible { outline: 3px solid var(--focus-ring-on-brand); outline-offset: 3px; }
+.ring.names li .lbl { position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); width: max-content; max-width: 120px;
+  font-size: var(--t-13); line-height: 1.3; text-align: center; color: var(--text-on-brand-secondary); pointer-events: none; }
+.stage:has(.ring.names) { margin-bottom: 40px; }
+.ring:not(.names) .lbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.hub { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: grid; place-items: center; text-align: center; pointer-events: none; }
+.hub .hub-mark { width: clamp(44px, 13.5cqw, 64px); height: clamp(44px, 13.5cqw, 64px); border-radius: var(--radius-mark); box-shadow: 0 0 0 6px var(--border-on-brand-subtle), var(--shadow-card); }
+.hub .hub-mark > * { width: 100%; height: 100%; }
+.hub-count { display: none; color: var(--text-on-brand); font-family: var(--font-display); }
+.hub-count b { display: block; font-size: var(--t-48); font-weight: 600; line-height: 1; letter-spacing: -0.01em; font-variant-numeric: lining-nums tabular-nums; font-variation-settings: 'opsz' 60; }
+.hub-count span { display: block; margin-top: 8px; font-size: var(--t-20); line-height: 1.3; max-width: 11em; }
+.stage.dots .hub-mark { display: none; }
+.stage.dots .hub-count { display: block; }
+.dotfield { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.dotfield circle { fill: var(--text-on-brand-secondary); }
+.stage.dots .ring { display: none; }
+.stage:not(.dots) .dotfield { display: none; }
+
+.wheel-foot { margin-inline: -12px; margin-top: 16px; font-size: var(--t-13); line-height: 1.4; text-align: center; color: var(--text-on-brand-secondary); }
+/* Ruling 64: two lines, each its own block, balanced so no word sits alone. */
+.wheel-foot .fl { display: block; }
+/* The lines take the panel's padding too, so the logo line wraps less. */
+@media (min-width: 768px) { .wheel-foot { margin-inline: -16px; } }
+.wheel-foot .fl + .fl { margin-top: 4px; }
+/* Each phrase keeps together where it can, so a line never breaks mid-phrase. */
+.wheel-foot .ph { display: inline-block; text-wrap: balance; }
+.wheel-more { display: block; margin-top: 8px; text-align: center; font-size: var(--t-14); font-weight: 600; }
+.wheel-more a { text-decoration: underline; text-decoration-color: var(--border-on-brand-strong); text-underline-offset: 4px; }
+html.js .wheel-more { display: none; }
+
+/* The one entrance: the ring fades in and settles, once, on first paint. */
+@keyframes wheel-in { from { opacity: 0; transform: scale(0.96) rotate(-6deg); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: no-preference) {
+  .stage .ring, .stage .dotfield, .stage .guides { animation: wheel-in calc(var(--duration-slow) * 2) var(--ease-standard) both; }
+  html.no-entrance .stage .ring, html.no-entrance .stage .dotfield, html.no-entrance .stage .guides { animation: none; }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
+
+/* ---------- The product card (a popover in the top layer, never clipped) ---------- */
+.pcard { position: fixed; z-index: 50; width: 264px; padding: 16px; display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 12px; align-items: center;
+  background: var(--surface-base); color: var(--text-primary); border: 1px solid var(--border-default); border-radius: var(--radius-control); box-shadow: var(--shadow-menu); }
+.pcard[hidden] { display: none; }
+.pcard .mk { width: 48px; height: 48px; }
+.pcard .nm { font: 600 var(--t-20)/1.25 var(--font-display); overflow-wrap: anywhere; }
+.pcard .nm { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; }
+.pcard .uc { font: 600 var(--t-13)/1.4 var(--font-body); color: var(--text-secondary); white-space: nowrap; }
+.pcard .by { margin-top: 2px; font-size: var(--t-14); line-height: 1.4; color: var(--text-secondary); }
+.pcard .go { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; padding-top: 12px; border-top: 1px solid var(--border-default);
+  font-size: var(--t-13); color: var(--text-secondary); }
+
+/* ---------- Below the hero (context only) ---------- */
+.body-band { padding-block: 48px; }
+.body-band h2 { font-size: var(--t-36); line-height: 1.1; letter-spacing: -0.02em; }
+
+/* ---------- Facts card stub under the hero (context only) ---------- */
+.ground { background: var(--accent-warm); display: flow-root; padding-bottom: 48px; }
+.facts { margin-top: -64px; background: var(--surface-base); border-radius: var(--radius-card); box-shadow: var(--shadow-card); overflow: hidden;
+  display: grid; grid-template-columns: 1fr; }
+@media (min-width: 768px) { .facts { margin-top: -96px; grid-template-columns: 0.95fr 1fr 1fr 1.15fr; } }
+.facts > div { padding: 24px; }
+.facts .stat { background: var(--accent-warm); }
+.facts .fig { font: 600 var(--t-fig)/1 var(--font-display); color: var(--accent-primary); }
+.facts .lab { margin-top: 4px; font-size: var(--t-14); color: var(--text-secondary); }
+.facts .overline { color: var(--text-secondary); margin-bottom: 8px; }
+.facts p { font-size: var(--t-16); }
+@media (max-width: 767px) { .facts > div:nth-child(n + 3) { display: none; } }
+</style>
+<style id="harness-css">
+/* Mock-up chrome only: the control strip and the device frame. Not part of the design.
+   Neutral greys on purpose, so it never reads as the page (same as the Options control
+   in mock-ups 5 to 12). */
+body.harness { margin: 0; background: #3A3A3A; color: #ECECEC; font: 13px/1.4 system-ui, -apple-system, 'Segoe UI', sans-serif; }
+.h-strip { position: sticky; top: 0; z-index: 10; padding: 10px 16px 8px; background: #262626; border-bottom: 1px dashed #8A8A8A; }
+.h-title { margin: 0 0 6px; font-weight: 600; }
+.h-groups { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.h-g { border: 0; margin: 0; padding: 0; display: flex; align-items: center; gap: 8px; }
+.h-g legend { float: left; margin-right: 6px; padding: 0; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: #CFCFCF; }
+.h-g label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.h-g input[type='number'] { width: 64px; padding: 2px 4px; background: #111; color: #ECECEC; border: 1px solid #8A8A8A; border-radius: 4px; }
+.h-g select { padding: 2px 4px; background: #111; color: #ECECEC; border: 1px solid #8A8A8A; border-radius: 4px; }
+.h-read { margin: 6px 0 0; min-height: 18px; color: #F2E6A0; }
+.h-stage { padding: 24px 16px 48px; overflow-x: auto; }
+.h-device { margin: 0 auto; background: #fff; box-shadow: 0 0 0 1px #111, 0 20px 50px rgb(0 0 0 / 0.5); }
+.h-device iframe { display: block; width: 100%; border: 0; }
+body.harness :focus-visible { outline: 2px solid #F2E6A0; outline-offset: 2px; }
+</style>
+</head>
+<body>
+<svg id="sprite" width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><symbol id="wm" viewBox="3 25 196 30"><g fill="currentColor">
+    <path transform="translate(10.00 47)" d="M0.16 0.00 5.70 -14.70H8.87L14.41 0.00H11.31L10.32 -2.88H4.24L3.25 0.00ZM5.03 -5.24H9.52L7.27 -11.71Z M15.71 0.00V-14.70H26.34V-12.20H18.57V-8.81H23.80V-6.31H18.57V-2.50H26.43V0.00Z M34.30 0.26Q32.09 0.26 30.52 -0.68Q28.94 -1.63 28.10 -3.35Q27.25 -5.06 27.25 -7.36Q27.25 -9.67 28.14 -11.38Q29.02 -13.08 30.64 -14.02Q32.25 -14.96 34.43 -14.96Q36.42 -14.96 37.94 -14.06Q39.46 -13.17 40.26 -11.59L37.73 -10.67Q37.25 -11.61 36.35 -12.10Q35.45 -12.59 34.32 -12.59Q33.18 -12.59 32.26 -11.99Q31.33 -11.38 30.79 -10.21Q30.25 -9.04 30.25 -7.36Q30.25 -5.68 30.78 -4.51Q31.31 -3.34 32.25 -2.72Q33.20 -2.11 34.37 -2.11Q35.11 -2.11 35.77 -2.31Q36.43 -2.52 36.97 -2.94Q37.51 -3.37 37.84 -4.02L40.34 -3.10Q39.50 -1.50 37.92 -0.62Q36.34 0.26 34.30 0.26Z"/>
+    <path transform="translate(82.11 47)" d="M1.23 0.00V-1.20H3.30V-13.50H1.23V-14.70H6.97V-13.50H4.90V-1.20H6.97V0.00Z M9.54 0.00V-10.91H10.63L10.99 -9.20Q11.28 -9.67 11.74 -10.10Q12.21 -10.53 12.91 -10.82Q13.60 -11.10 14.55 -11.10Q15.88 -11.10 16.69 -10.58Q17.50 -10.06 17.87 -9.15Q18.24 -8.24 18.24 -7.07V0.00H16.77V-6.62Q16.77 -7.50 16.56 -8.23Q16.35 -8.96 15.79 -9.38Q15.23 -9.81 14.20 -9.81Q12.77 -9.81 11.89 -8.82Q11.02 -7.84 11.02 -5.97V0.00Z M23.80 0.00Q22.86 0.00 22.33 -0.20Q21.80 -0.41 21.59 -0.98Q21.38 -1.54 21.38 -2.63V-9.72H19.52V-10.91H21.38V-13.64H22.86V-10.91H25.10V-9.72H22.86V-2.78Q22.86 -1.84 23.08 -1.57Q23.30 -1.31 24.03 -1.31H25.09V0.00Z M31.33 0.26Q29.70 0.26 28.54 -0.49Q27.38 -1.25 26.77 -2.54Q26.17 -3.83 26.17 -5.41Q26.17 -7.16 26.84 -8.44Q27.51 -9.71 28.67 -10.41Q29.84 -11.11 31.28 -11.11Q32.53 -11.11 33.48 -10.61Q34.44 -10.10 35.06 -9.26Q35.67 -8.41 35.96 -7.35Q36.24 -6.29 36.17 -5.18H27.70Q27.73 -3.96 28.12 -3.16Q28.50 -2.35 29.06 -1.89Q29.62 -1.43 30.24 -1.24Q30.86 -1.04 31.39 -1.04Q32.36 -1.04 33.02 -1.40Q33.68 -1.76 34.08 -2.31L35.53 -1.84Q34.96 -0.97 33.93 -0.35Q32.90 0.26 31.33 0.26ZM27.73 -6.39H34.60Q34.60 -7.19 34.21 -7.98Q33.82 -8.77 33.09 -9.30Q32.35 -9.82 31.28 -9.82Q30.50 -9.82 29.74 -9.50Q28.98 -9.18 28.44 -8.43Q27.90 -7.68 27.73 -6.39Z M42.62 4.15Q41.74 4.15 40.88 3.89Q40.02 3.63 39.38 3.07Q38.74 2.51 38.49 1.62L39.96 1.20Q40.19 1.98 40.91 2.41Q41.62 2.84 42.70 2.84Q43.59 2.84 44.26 2.54Q44.92 2.24 45.31 1.59Q45.70 0.95 45.70 -0.09V-2.12Q45.28 -1.32 44.46 -0.73Q43.64 -0.14 42.26 -0.14Q41.05 -0.14 39.99 -0.74Q38.92 -1.34 38.27 -2.54Q37.61 -3.75 37.61 -5.53Q37.61 -7.29 38.23 -8.53Q38.85 -9.78 39.91 -10.44Q40.97 -11.11 42.28 -11.11Q43.63 -11.11 44.42 -10.55Q45.22 -9.98 45.70 -9.13L46.09 -10.91H47.18V-0.03Q47.18 1.30 46.61 2.24Q46.04 3.17 45.02 3.66Q44.00 4.15 42.62 4.15ZM42.51 -1.41Q43.40 -1.41 44.12 -1.83Q44.84 -2.26 45.28 -3.19Q45.73 -4.11 45.73 -5.58Q45.73 -7.07 45.28 -8.01Q44.84 -8.94 44.11 -9.38Q43.38 -9.82 42.50 -9.82Q41.05 -9.82 40.11 -8.69Q39.17 -7.56 39.17 -5.55Q39.17 -3.57 40.12 -2.49Q41.06 -1.41 42.51 -1.41Z M50.10 0.00V-10.91H51.18L51.64 -8.86Q51.97 -9.45 52.52 -9.96Q53.07 -10.46 53.83 -10.77Q54.59 -11.08 55.53 -11.05V-9.57Q54.04 -9.56 53.17 -8.98Q52.31 -8.41 51.94 -7.37Q51.57 -6.32 51.57 -4.87V0.00Z M59.73 0.26Q58.69 0.26 57.83 -0.09Q56.97 -0.44 56.47 -1.11Q55.96 -1.79 55.96 -2.75Q55.96 -4.03 56.80 -4.84Q57.63 -5.65 59.29 -6.10Q60.95 -6.56 63.42 -6.76V-7.01Q63.42 -8.32 62.78 -9.11Q62.15 -9.90 60.77 -9.90Q59.69 -9.90 59.01 -9.39Q58.33 -8.88 58.14 -8.07L56.66 -8.46Q57.10 -9.75 58.22 -10.43Q59.33 -11.11 60.73 -11.11Q62.86 -11.11 63.85 -10.03Q64.85 -8.95 64.85 -6.80V-4.20Q64.85 -3.22 64.90 -2.46Q64.96 -1.70 65.05 -1.10Q65.14 -0.50 65.24 0.00H63.95L63.51 -1.66Q63.11 -0.88 62.19 -0.31Q61.27 0.26 59.73 0.26ZM59.96 -0.96Q60.87 -0.96 61.66 -1.29Q62.45 -1.62 62.94 -2.37Q63.42 -3.12 63.42 -4.38V-5.57Q60.47 -5.35 59.00 -4.69Q57.54 -4.04 57.54 -2.81Q57.54 -1.99 58.19 -1.48Q58.84 -0.96 59.96 -0.96Z M70.79 0.00Q69.84 0.00 69.31 -0.20Q68.78 -0.41 68.57 -0.98Q68.37 -1.54 68.37 -2.63V-9.72H66.51V-10.91H68.37V-13.64H69.85V-10.91H72.09V-9.72H69.85V-2.78Q69.85 -1.84 70.07 -1.57Q70.29 -1.31 71.02 -1.31H72.07V0.00Z M74.74 0.00V-9.72H73.32V-10.91H76.22V0.00ZM75.26 -13.12Q74.79 -13.12 74.44 -13.46Q74.10 -13.81 74.10 -14.28Q74.10 -14.77 74.44 -15.11Q74.79 -15.45 75.26 -15.45Q75.75 -15.45 76.09 -15.11Q76.43 -14.77 76.43 -14.28Q76.43 -13.81 76.09 -13.46Q75.75 -13.12 75.26 -13.12Z M83.51 0.26Q82.61 0.26 81.71 -0.07Q80.82 -0.40 80.08 -1.09Q79.34 -1.78 78.89 -2.86Q78.44 -3.94 78.44 -5.42Q78.44 -6.91 78.89 -7.99Q79.34 -9.07 80.08 -9.76Q80.82 -10.45 81.71 -10.78Q82.61 -11.11 83.51 -11.11Q84.40 -11.11 85.30 -10.78Q86.19 -10.45 86.93 -9.76Q87.67 -9.07 88.12 -7.99Q88.57 -6.91 88.57 -5.42Q88.57 -3.94 88.12 -2.86Q87.67 -1.78 86.93 -1.09Q86.19 -0.40 85.30 -0.07Q84.40 0.26 83.51 0.26ZM83.51 -1.04Q84.41 -1.04 85.20 -1.51Q86.00 -1.98 86.51 -2.95Q87.02 -3.92 87.02 -5.43Q87.02 -6.94 86.51 -7.91Q86.00 -8.87 85.20 -9.34Q84.41 -9.80 83.51 -9.80Q82.62 -9.80 81.81 -9.34Q81.01 -8.88 80.50 -7.91Q79.99 -6.95 79.99 -5.42Q79.99 -3.92 80.50 -2.95Q81.01 -1.98 81.81 -1.51Q82.62 -1.04 83.51 -1.04Z M90.75 0.00V-10.91H91.84L92.20 -9.20Q92.49 -9.67 92.95 -10.10Q93.42 -10.53 94.11 -10.82Q94.81 -11.10 95.76 -11.10Q97.09 -11.10 97.90 -10.58Q98.71 -10.06 99.08 -9.15Q99.45 -8.24 99.45 -7.07V0.00H97.97V-6.62Q97.97 -7.50 97.76 -8.23Q97.55 -8.96 96.99 -9.38Q96.43 -9.81 95.40 -9.81Q93.98 -9.81 93.10 -8.82Q92.23 -7.84 92.23 -5.97V0.00Z M105.89 0.26Q105.05 0.26 104.16 -0.03Q103.27 -0.32 102.56 -0.92Q101.84 -1.53 101.48 -2.46L102.92 -3.00Q103.20 -2.04 104.05 -1.53Q104.91 -1.02 105.91 -1.02Q107.07 -1.02 107.84 -1.54Q108.60 -2.07 108.60 -2.94Q108.60 -3.78 107.98 -4.21Q107.35 -4.63 106.02 -4.93L104.93 -5.18Q103.99 -5.40 103.28 -5.73Q102.56 -6.07 102.17 -6.63Q101.77 -7.19 101.77 -8.10Q101.77 -8.99 102.29 -9.67Q102.81 -10.36 103.71 -10.75Q104.60 -11.13 105.74 -11.13Q107.04 -11.13 108.14 -10.56Q109.25 -10.00 109.72 -8.91L108.32 -8.38Q108.04 -9.11 107.26 -9.48Q106.49 -9.85 105.65 -9.85Q104.62 -9.85 103.92 -9.38Q103.22 -8.91 103.22 -8.16Q103.22 -7.51 103.72 -7.13Q104.22 -6.75 105.30 -6.50L106.39 -6.25Q107.54 -5.99 108.35 -5.64Q109.17 -5.28 109.62 -4.67Q110.06 -4.06 110.06 -3.03Q110.06 -2.07 109.51 -1.32Q108.96 -0.57 108.02 -0.15Q107.08 0.26 105.89 0.26Z"/>
+  </g>
+  <g class="wm-mark">
+    <circle cx="59.84" cy="40" r="2.5"/>
+    <rect x="63.34" y="39.25" width="7" height="1.5"/>
+    <circle cx="73.84" cy="40" r="2.5"/>
+  </g></symbol></svg>
+<div id="page"><header class="site-head"><div class="wrap"><a href="#" aria-label="AEC Integrations home"><svg class="wm" viewBox="0 0 196 30" aria-hidden="true"><use href="#wm"/></svg></a><nav aria-label="Main"><a href="#">Browse</a><a href="#">Search</a><a href="#" class="keep">For vendors</a></nav></div></header><main><section class="hero" aria-label="Product"><div class="wrap"><nav class="crumbs" aria-label="Breadcrumb"><ol><li><a href="#">Home</a></li><li><a href="#">Products</a></li><li><span aria-current="page">Autodesk Forma</span></li></ol></nav><div class="hero-grid"><div class="hero-text"><div class="namerow"><div class="hmark"><span class="mk big logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#D23F55"/><path d="m13 27 11-11 11 11" fill="none" stroke="#fff" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/><path d="m17 35 7-7 7 7" fill="none" stroke="#FFC9D2" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span></div><div><h1><span class="display">Autodesk Forma</span></h1><p class="byline">by <a href="#">Autodesk</a></p></div></div><p class="lede" aria-hidden="true">Autodesk Forma is Autodesk's cloud platform for building projects, holding a project's drawings, models and records in one common data environment.</p><p class="reviews-none">No reviews yet</p><div class="hacts"><a class="btn btn-on-brand" href="#">Visit website <svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg><span class="sr">(opens in a new tab)</span></a><a class="btn btn-on-brand-2" href="#">Write a review</a></div></div><div class="panel"><section class="wheel" aria-labelledby="wheel-title" data-slide="0"><div class="wheel-head"><button type="button" class="wheel-step" data-step="-1" aria-label="Previous category"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg></button><h2 class="wheel-title" id="wheel-title"><button type="button" class="wheel-jump" aria-expanded="false" aria-controls="jump-list"><span class="nm"><span>All integrations</span><svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span><span class="sr">, </span><span class="ct">54 products</span></button></h2><button type="button" class="wheel-step" data-step="1" aria-label="Next category"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button><ul class="jump-list" id="jump-list" aria-label="Jump to a category" hidden></ul></div><h2 class="wheel-static-title">All integrations<span class="ct">54 products, 24 categories</span></h2><div class="stage" data-mode="two" data-d="476"><svg class="guides" viewBox="-50 -50 100 100" aria-hidden="true" focusable="false"><circle class="frame" r="49.37"/><path class="start" d="M0 -50.77V-47.17"/><circle class="orbit" r="45.06"/><circle class="orbit inner" r="35.19"/></svg><ul class="ring" aria-label="All integrations, 54 products, A to Z" style="--t:7.353"><li style="--x:0.00;--y:-35.19"><a class="tile" href="/products/autodesk-forma/integrations/signnow" data-i="0" tabindex="0"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#9A6A3E"/><path d="M24 11 37.5 35h-27z" fill="#fff"/><path d="M24 24 30 35H18z" fill="#4F3216"/></svg></span><span class="lbl">airSlate SignNow</span></a></li><li style="--x:9.11;--y:-33.99"><a class="tile" href="/products/autodesk-forma/integrations/amazon-redshift" data-i="1" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#56657A"/><path d="M14 34 25 14M23 34l11-20" stroke="#fff" stroke-width="4.6" stroke-linecap="round"/></svg></span><span class="lbl">Amazon Redshift</span></a></li><li style="--x:17.59;--y:-30.47"><a class="tile" href="/products/autodesk-forma/integrations/amazon-s3" data-i="2" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#7E8F2A"/><path d="m13 27 11-11 11 11" fill="none" stroke="#fff" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/><path d="m17 35 7-7 7 7" fill="none" stroke="#E6F0A8" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="lbl">Amazon S3</span></a></li><li style="--x:24.88;--y:-24.88"><a class="tile" href="/products/autodesk-forma/integrations/aquifer" data-i="3" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#56657A"/><path d="M10 29c4.7-6 9.3-6 14 0s9.3 6 14 0" stroke="#fff" stroke-width="4.4" fill="none" stroke-linecap="round"/><path d="M10 20c4.7-6 9.3-6 14 0s9.3 6 14 0" stroke="#C9D5E3" stroke-width="4.4" fill="none" stroke-linecap="round"/></svg></span><span class="lbl">Aquifer</span></a></li><li style="--x:30.47;--y:-17.59"><a class="tile" href="/products/autodesk-forma/integrations/arcgis" data-i="4" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#D23F55"/><path d="m13 27 11-11 11 11" fill="none" stroke="#fff" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/><path d="m17 35 7-7 7 7" fill="none" stroke="#FFC9D2" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="lbl">ArcGIS</span></a></li><li style="--x:33.99;--y:-9.11"><a class="tile" href="/products/autodesk-forma/integrations/autodesk-revit" data-i="5" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#B8478A"/><rect x="12" y="12" width="24" height="24" rx="6" fill="#fff" transform="rotate(12 24 24)"/><circle cx="24" cy="24" r="5" fill="#6B1A4D"/></svg></span><span class="lbl">Autodesk Revit</span></a></li><li style="--x:35.19;--y:0.00"><a class="tile" href="/products/autodesk-forma/integrations/billy-insurance-compliance" data-i="6" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#4256C9"/><g fill="#fff"><circle cx="15" cy="15" r="3"/><circle cx="24" cy="15" r="3"/><circle cx="33" cy="15" r="3"/><circle cx="15" cy="24" r="3"/><circle cx="33" cy="24" r="3"/><circle cx="15" cy="33" r="3"/><circle cx="24" cy="33" r="3"/><circle cx="33" cy="33" r="3"/></g><circle cx="24" cy="24" r="4.4" fill="#C8D0FF"/></svg></span><span class="lbl">Billy Insurance Compliance</span></a></li><li style="--x:33.99;--y:9.11"><a class="tile" href="/products/autodesk-forma/integrations/bluebeam-revu" data-i="7" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#B8478A"/><circle cx="24" cy="24" r="11" fill="none" stroke="#fff" stroke-width="4"/><circle cx="24" cy="24" r="3.6" fill="#F7C6E2"/></svg></span><span class="lbl">Bluebeam Revu</span></a></li><li style="--x:30.47;--y:17.59"><a class="tile" href="/products/autodesk-forma/integrations/box" data-i="8" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#56657A"/><path d="M24 12v24M12 24h24" stroke="#fff" stroke-width="5.6" stroke-linecap="round"/><circle cx="24" cy="24" r="3.2" fill="#252D38"/></svg></span><span class="lbl">Box</span></a></li><li style="--x:24.88;--y:24.88"><a class="tile" href="/products/autodesk-forma/integrations/buildots" data-i="9" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#56657A"/><path d="M24 10.5 35.7 17.25v13.5L24 37.5l-11.7-6.75v-13.5z" fill="none" stroke="#fff" stroke-width="4" stroke-linejoin="round"/><path d="M24 18v12" stroke="#C9D5E3" stroke-width="4" stroke-linecap="round"/></svg></span><span class="lbl">Buildots</span></a></li><li style="--x:17.59;--y:30.47"><a class="tile" href="/products/autodesk-forma/integrations/cmic" data-i="10" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#2C4A7A"/><path d="m13 27 11-11 11 11" fill="none" stroke="#fff" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/><path d="m17 35 7-7 7 7" fill="none" stroke="#A9C4F0" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="lbl">CMiC</span></a></li><li style="--x:9.11;--y:33.99"><a class="tile" href="/products/autodesk-forma/integrations/concntric" data-i="11" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#2F6FD0"/><path d="m13 27 11-11 11 11" fill="none" stroke="#fff" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/><path d="m17 35 7-7 7 7" fill="none" stroke="#BFD5FF" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="lbl">ConCntric</span></a></li><li style="--x:0.00;--y:35.19"><a class="tile" href="/products/autodesk-forma/integrations/cupixworks" data-i="12" tabindex="-1"><span class="mk" aria-hidden="true"><span class="ini">C</span></span><span class="lbl">CupixWorks</span></a></li><li style="--x:-9.11;--y:33.99"><a class="tile" href="/products/autodesk-forma/integrations/datagrid" data-i="13" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#2E8A4F"/><rect x="12" y="12" width="24" height="24" rx="6" fill="#fff" transform="rotate(12 24 24)"/><circle cx="24" cy="24" r="5" fill="#114727"/></svg></span><span class="lbl">Datagrid</span></a></li><li style="--x:-17.59;--y:30.47"><a class="tile" href="/products/autodesk-forma/integrations/digibuild" data-i="14" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#1E9E8A"/><path d="M24 12v24M12 24h24" stroke="#fff" stroke-width="5.6" stroke-linecap="round"/><circle cx="24" cy="24" r="3.2" fill="#0A5A4F"/></svg></span><span class="lbl">DigiBuild</span></a></li><li style="--x:-24.88;--y:24.88"><a class="tile" href="/products/autodesk-forma/integrations/docusign" data-i="15" tabindex="-1"><span class="mk" aria-hidden="true"><span class="ini">D</span></span><span class="lbl">Docusign</span></a></li><li style="--x:-30.47;--y:17.59"><a class="tile" href="/products/autodesk-forma/integrations/dronedeploy" data-i="16" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#4256C9"/><path d="M24 10 38 24 24 38 10 24z" fill="#fff"/><path d="M24 18.5 29.5 24 24 29.5 18.5 24z" fill="#1E2A7A"/></svg></span><span class="lbl">DroneDeploy</span></a></li><li style="--x:-33.99;--y:9.11"><a class="tile" href="/products/autodesk-forma/integrations/dropbox" data-i="17" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#56657A"/><path d="M24 12v24M12 24h24" stroke="#fff" stroke-width="5.6" stroke-linecap="round"/><circle cx="24" cy="24" r="3.2" fill="#252D38"/></svg></span><span class="lbl">Dropbox</span></a></li><li style="--x:-35.19;--y:0.00"><a class="tile" href="/products/autodesk-forma/integrations/egnyte" data-i="18" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#4256C9"/><path d="M10 29c4.7-6 9.3-6 14 0s9.3 6 14 0" stroke="#fff" stroke-width="4.4" fill="none" stroke-linecap="round"/><path d="M10 20c4.7-6 9.3-6 14 0s9.3 6 14 0" stroke="#C8D0FF" stroke-width="4.4" fill="none" stroke-linecap="round"/></svg></span><span class="lbl">Egnyte</span></a></li><li style="--x:-33.99;--y:-9.11"><a class="tile" href="/products/autodesk-forma/integrations/enlaye" data-i="19" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#B8478A"/><path d="M14 34 25 14M23 34l11-20" stroke="#fff" stroke-width="4.6" stroke-linecap="round"/></svg></span><span class="lbl">Enlaye</span></a></li><li style="--x:-30.47;--y:-17.59"><a class="tile" href="/products/autodesk-forma/integrations/forma-data-management" data-i="20" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#D23F55"/><path d="M10 29c4.7-6 9.3-6 14 0s9.3 6 14 0" stroke="#fff" stroke-width="4.4" fill="none" stroke-linecap="round"/><path d="M10 20c4.7-6 9.3-6 14 0s9.3 6 14 0" stroke="#FFC9D2" stroke-width="4.4" fill="none" stroke-linecap="round"/></svg></span><span class="lbl">Forma Data Management</span></a></li><li style="--x:-24.88;--y:-24.88"><a class="tile" href="/products/autodesk-forma/integrations/gmail" data-i="21" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#56657A"/><path d="M24 10.5 35.7 17.25v13.5L24 37.5l-11.7-6.75v-13.5z" fill="none" stroke="#fff" stroke-width="4" stroke-linejoin="round"/><path d="M24 18v12" stroke="#C9D5E3" stroke-width="4" stroke-linecap="round"/></svg></span><span class="lbl">Gmail</span></a></li><li style="--x:-17.59;--y:-30.47"><a class="tile" href="/products/autodesk-forma/integrations/goformz" data-i="22" tabindex="-1"><span class="mk" aria-hidden="true"><span class="ini">G</span></span><span class="lbl">GoFormz</span></a></li><li style="--x:-9.11;--y:-33.99"><a class="tile" href="/products/autodesk-forma/integrations/google-calendar" data-i="23" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#E0663A"/><path d="M11 31a13 13 0 0 1 26 0z" fill="#fff"/><path d="M9 36h30" stroke="#FFD9C4" stroke-width="3.6" stroke-linecap="round"/></svg></span><span class="lbl">Google Calendar</span></a></li><li style="--x:0.00;--y:-45.06"><a class="tile" href="/products/autodesk-forma/integrations/google-drive" data-i="24" tabindex="-1"><span class="mk" aria-hidden="true"><span class="ini">G</span></span><span class="lbl">Google Drive</span></a></li><li style="--x:9.37;--y:-44.08"><a class="tile" href="/products/autodesk-forma/integrations/google-sheets" data-i="25" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#1798B8"/><path d="m13 27 11-11 11 11" fill="none" stroke="#fff" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/><path d="m17 35 7-7 7 7" fill="none" stroke="#B5EBF7" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="lbl">Google Sheets</span></a></li><li style="--x:18.33;--y:-41.17"><a class="tile" href="/products/autodesk-forma/integrations/graphisoft-archicad" data-i="26" tabindex="-1"><span class="mk" aria-hidden="true"><span class="ini">G</span></span><span class="lbl">Graphisoft Archicad</span></a></li><li style="--x:26.49;--y:-36.46"><a class="tile" href="/products/autodesk-forma/integrations/hammertech" data-i="27" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#B8478A"/><path d="M24 11 37.5 35h-27z" fill="#fff"/><path d="M24 24 30 35H18z" fill="#6B1A4D"/></svg></span><span class="lbl">HammerTech</span></a></li><li style="--x:33.49;--y:-30.15"><a class="tile" href="/products/autodesk-forma/integrations/ineight" data-i="28" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#2F6FD0"/><path d="M24 10.5 35.7 17.25v13.5L24 37.5l-11.7-6.75v-13.5z" fill="none" stroke="#fff" stroke-width="4" stroke-linejoin="round"/><path d="M24 18v12" stroke="#BFD5FF" stroke-width="4" stroke-linecap="round"/></svg></span><span class="lbl">InEight</span></a></li><li style="--x:39.03;--y:-22.53"><a class="tile" href="/products/autodesk-forma/integrations/krane" data-i="29" tabindex="-1"><span class="mk" aria-hidden="true"><span class="ini">K</span></span><span class="lbl">Krane</span></a></li><li style="--x:42.86;--y:-13.93"><a class="tile" href="/products/autodesk-forma/integrations/matterport" data-i="30" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#4256C9"/><path d="M14 34 25 14M23 34l11-20" stroke="#fff" stroke-width="4.6" stroke-linecap="round"/></svg></span><span class="lbl">Matterport</span></a></li><li style="--x:44.82;--y:-4.71"><a class="tile" href="/products/autodesk-forma/integrations/microsoft-365" data-i="31" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#B8478A"/><path d="M24 11 37.5 35h-27z" fill="#fff"/><path d="M24 24 30 35H18z" fill="#6B1A4D"/></svg></span><span class="lbl">Microsoft 365</span></a></li><li style="--x:44.82;--y:4.71"><a class="tile" href="/products/autodesk-forma/integrations/microsoft-dynamics-365" data-i="32" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#D23F55"/><path d="M14 34 25 14M23 34l11-20" stroke="#fff" stroke-width="4.6" stroke-linecap="round"/></svg></span><span class="lbl">Microsoft Dynamics 365</span></a></li><li style="--x:42.86;--y:13.93"><a class="tile" href="/products/autodesk-forma/integrations/microsoft-fabric" data-i="33" tabindex="-1"><span class="mk" aria-hidden="true"><span class="ini">M</span></span><span class="lbl">Microsoft Fabric</span></a></li><li style="--x:39.03;--y:22.53"><a class="tile" href="/products/autodesk-forma/integrations/microsoft-sharepoint" data-i="34" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#2F6FD0"/><path d="M24 10 38 24 24 38 10 24z" fill="#fff"/><path d="M24 18.5 29.5 24 24 29.5 18.5 24z" fill="#163B7E"/></svg></span><span class="lbl">Microsoft SharePoint</span></a></li><li style="--x:33.49;--y:30.15"><a class="tile" href="/products/autodesk-forma/integrations/navisworks" data-i="35" tabindex="-1"><span class="mk" aria-hidden="true"><span class="ini">N</span></span><span class="lbl">Navisworks</span></a></li><li style="--x:26.49;--y:36.46"><a class="tile" href="/products/autodesk-forma/integrations/nomic" data-i="36" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#56657A"/><circle cx="16" cy="32" r="4.2" fill="#C9D5E3"/><path d="M22 34 34 14" stroke="#fff" stroke-width="4.6" stroke-linecap="round"/><path d="M14 22 22 14" stroke="#fff" stroke-width="4.6" stroke-linecap="round" opacity=".6"/></svg></span><span class="lbl">Nomic</span></a></li><li style="--x:18.33;--y:41.17"><a class="tile" href="/products/autodesk-forma/integrations/onedrive" data-i="37" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#4256C9"/><path d="M24 11 37.5 35h-27z" fill="#fff"/><path d="M24 24 30 35H18z" fill="#1E2A7A"/></svg></span><span class="lbl">OneDrive</span></a></li><li style="--x:9.37;--y:44.08"><a class="tile" href="/products/autodesk-forma/integrations/openspace" data-i="38" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#7E8F2A"/><path d="M24 12v24M12 24h24" stroke="#fff" stroke-width="5.6" stroke-linecap="round"/><circle cx="24" cy="24" r="3.2" fill="#3F4B0E"/></svg></span><span class="lbl">OpenSpace</span></a></li><li style="--x:0.00;--y:45.06"><a class="tile" href="/products/autodesk-forma/integrations/oracle-netsuite" data-i="39" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#B8478A"/><g fill="#fff"><circle cx="15" cy="15" r="3"/><circle cx="24" cy="15" r="3"/><circle cx="33" cy="15" r="3"/><circle cx="15" cy="24" r="3"/><circle cx="33" cy="24" r="3"/><circle cx="15" cy="33" r="3"/><circle cx="24" cy="33" r="3"/><circle cx="33" cy="33" r="3"/></g><circle cx="24" cy="24" r="4.4" fill="#F7C6E2"/></svg></span><span class="lbl">Oracle NetSuite</span></a></li><li style="--x:-9.37;--y:44.08"><a class="tile" href="/products/autodesk-forma/integrations/outbuild" data-i="40" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#9A6A3E"/><path d="M24 11 37.5 35h-27z" fill="#fff"/><path d="M24 24 30 35H18z" fill="#4F3216"/></svg></span><span class="lbl">Outbuild</span></a></li><li style="--x:-18.33;--y:41.17"><a class="tile" href="/products/autodesk-forma/integrations/power-bi" data-i="41" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#4256C9"/><path d="M24 11 37.5 35h-27z" fill="#fff"/><path d="M24 24 30 35H18z" fill="#1E2A7A"/></svg></span><span class="lbl">Power BI</span></a></li><li style="--x:-26.49;--y:36.46"><a class="tile" href="/products/autodesk-forma/integrations/prevu3d-realityplatform" data-i="42" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#2F6FD0"/><g fill="#fff"><circle cx="15" cy="15" r="3"/><circle cx="24" cy="15" r="3"/><circle cx="33" cy="15" r="3"/><circle cx="15" cy="24" r="3"/><circle cx="33" cy="24" r="3"/><circle cx="15" cy="33" r="3"/><circle cx="24" cy="33" r="3"/><circle cx="33" cy="33" r="3"/></g><circle cx="24" cy="24" r="4.4" fill="#BFD5FF"/></svg></span><span class="lbl">Prevu3D RealityPlatform</span></a></li><li style="--x:-33.49;--y:30.15"><a class="tile" href="/products/autodesk-forma/integrations/primepoint" data-i="43" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#7E8F2A"/><rect x="12" y="12" width="24" height="24" rx="6" fill="#fff" transform="rotate(12 24 24)"/><circle cx="24" cy="24" r="5" fill="#3F4B0E"/></svg></span><span class="lbl">Primepoint</span></a></li><li style="--x:-39.03;--y:22.53"><a class="tile" href="/products/autodesk-forma/integrations/procore-project-management" data-i="44" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#2C4A7A"/><path d="M24 10 38 24 24 38 10 24z" fill="#fff"/><path d="M24 18.5 29.5 24 24 29.5 18.5 24z" fill="#111F3A"/></svg></span><span class="lbl">Procore Project Management</span></a></li><li style="--x:-42.86;--y:13.93"><a class="tile" href="/products/autodesk-forma/integrations/projectwise" data-i="45" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#1E9E8A"/><path d="M12 36V24a12 12 0 0 1 12-12v24z" fill="#fff"/><path d="M26 36V26h10a10 10 0 0 1-10 10z" fill="#B8F0E4"/></svg></span><span class="lbl">ProjectWise</span></a></li><li style="--x:-44.82;--y:4.71"><a class="tile" href="/products/autodesk-forma/integrations/propeller" data-i="46" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#4256C9"/><g fill="#fff"><circle cx="15" cy="15" r="3"/><circle cx="24" cy="15" r="3"/><circle cx="33" cy="15" r="3"/><circle cx="15" cy="24" r="3"/><circle cx="33" cy="24" r="3"/><circle cx="15" cy="33" r="3"/><circle cx="24" cy="33" r="3"/><circle cx="33" cy="33" r="3"/></g><circle cx="24" cy="24" r="4.4" fill="#C8D0FF"/></svg></span><span class="lbl">Propeller</span></a></li><li style="--x:-44.82;--y:-4.71"><a class="tile" href="/products/autodesk-forma/integrations/raken" data-i="47" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#B8478A"/><g fill="#fff"><circle cx="15" cy="15" r="3"/><circle cx="24" cy="15" r="3"/><circle cx="33" cy="15" r="3"/><circle cx="15" cy="24" r="3"/><circle cx="33" cy="24" r="3"/><circle cx="15" cy="33" r="3"/><circle cx="24" cy="33" r="3"/><circle cx="33" cy="33" r="3"/></g><circle cx="24" cy="24" r="4.4" fill="#F7C6E2"/></svg></span><span class="lbl">Raken</span></a></li><li style="--x:-42.86;--y:-13.93"><a class="tile" href="/products/autodesk-forma/integrations/revizto" data-i="48" tabindex="-1"><span class="mk" aria-hidden="true"><span class="ini">R</span></span><span class="lbl">Revizto</span></a></li><li style="--x:-39.03;--y:-22.53"><a class="tile" href="/products/autodesk-forma/integrations/salesforce" data-i="49" tabindex="-1"><span class="mk" aria-hidden="true"><span class="ini">S</span></span><span class="lbl">Salesforce</span></a></li><li style="--x:-33.49;--y:-30.15"><a class="tile" href="/products/autodesk-forma/integrations/sketchup" data-i="50" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#1798B8"/><path d="M11 23a18 18 0 0 1 26 0" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round"/><path d="M16.5 29a10 10 0 0 1 15 0" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" opacity=".75"/><circle cx="24" cy="34.5" r="3" fill="#B5EBF7"/></svg></span><span class="lbl">SketchUp</span></a></li><li style="--x:-26.49;--y:-36.46"><a class="tile" href="/products/autodesk-forma/integrations/structured-ai" data-i="51" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#2F6FD0"/><g fill="#fff"><circle cx="15" cy="15" r="3"/><circle cx="24" cy="15" r="3"/><circle cx="33" cy="15" r="3"/><circle cx="15" cy="24" r="3"/><circle cx="33" cy="24" r="3"/><circle cx="15" cy="33" r="3"/><circle cx="24" cy="33" r="3"/><circle cx="33" cy="33" r="3"/></g><circle cx="24" cy="24" r="4.4" fill="#BFD5FF"/></svg></span><span class="lbl">Structured AI</span></a></li><li style="--x:-18.33;--y:-41.17"><a class="tile" href="/products/autodesk-forma/integrations/viktor" data-i="52" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#56657A"/><path d="M12 36V24a12 12 0 0 1 12-12v24z" fill="#fff"/><path d="M26 36V26h10a10 10 0 0 1-10 10z" fill="#C9D5E3"/></svg></span><span class="lbl">VIKTOR</span></a></li><li style="--x:-9.37;--y:-44.08"><a class="tile" href="/products/autodesk-forma/integrations/wrike" data-i="53" tabindex="-1"><span class="mk logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#2F6FD0"/><path d="M24 10 38 24 24 38 10 24z" fill="#fff"/><path d="M24 18.5 29.5 24 24 29.5 18.5 24z" fill="#163B7E"/></svg></span><span class="lbl">Wrike</span></a></li></ul><div class="hub"><div class="hub-mark"><span class="mk md logo" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="#D23F55"/><path d="m13 27 11-11 11 11" fill="none" stroke="#fff" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/><path d="m17 35 7-7 7 7" fill="none" stroke="#FFC9D2" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span></div><p class="hub-count"><b>55</b><span>integrations in 24 categories</span></p></div></div><p class="wheel-foot" id="wheel-foot"><span class="fl">Shown A to Z. Position is not a ranking.</span> <span class="fl"><span class="ph">Logos identify products only</span> <span class="ph">and imply no endorsement</span> <span class="ph">or affiliation.</span> <span class="ph">Listings may be unclaimed.</span></span></p><p class="sr" id="ring-hint">Arrow keys move between products.</p><p class="sr" aria-live="polite" id="wheel-live"></p></section><div class="pcard" id="pcard" role="tooltip" hidden></div></div></div></div></section><div class="ground"><div class="wrap"><div class="facts"><div class="stat"><div class="fig">55</div><div class="lab">integrations</div></div><div><p class="overline">Vendor</p><p>Autodesk</p></div><div><p class="overline">Categories</p><p>AI, Design &amp; Visualization, Construction Management</p></div><div><p class="overline">Resources</p><p>Website</p></div></div></div></div><section id="integrations" class="wrap body-band" aria-labelledby="int-h"><h2 id="int-h">Integrations</h2></section></main></div>
+<script>window.WHEEL_DATA = {"source":"aeci-review read tools, 2026-11-23","products":{"small":{"label":"Small: ALICE Optimize","name":"ALICE Optimize","slug":"alice-optimize","vendor":"ALICE Technologies","lede":"ALICE Optimize imports an existing Primavera P6, Primavera Cloud or Microsoft Project schedule and uses AI to simulate alternative sequences, crew levels and resource allocations.","categories":["Scheduling","AI"],"scope":"promoted","partners":[["ALICE Model","alice-model","ALICE Technologies",["Scheduling","AI"],1],["Microsoft Entra ID","microsoft-entra-id","Microsoft",["Collaboration & Communication"],1],["Microsoft Project","microsoft-project","Microsoft",["Scheduling","Project Management"],1],["Okta","okta","Okta",["Collaboration & Communication"],1],["Oracle Primavera Cloud","oracle-primavera-cloud","Oracle",["Scheduling","Project Management"],1],["Oracle Primavera P6","oracle-primavera-p6","Oracle",["Scheduling"],1]]},"cc":{"label":"CompanyCam","name":"CompanyCam","slug":"companycam","vendor":"CompanyCam","lede":"CompanyCam is a photo documentation and field communication app for contractors, capturing GPS-tagged, timestamped job site photos and videos.","categories":["Field Management","Document Management","Collaboration & Communication"],"scope":"promoted","partners":[["AccuLynx","acculynx","AccuLynx",["CRM & Sales","Construction Management","Estimating & Takeoff","Field Management","Payment Management"],1],["Aspire","aspire","ServiceTitan",["Field Management","Estimating & Takeoff","Scheduling","CRM & Sales"],1],["busybusy","busybusy","busybusy",["Field Management"],1],["Contractor Foreman","contractor-foreman","Contractor Foreman",["Construction Management"],1],["Dropbox","dropbox","Dropbox",["Document Management"],1],["Followup CRM","followup-crm","Followup CRM",["CRM & Sales","Bid Management"],1],["Google Calendar","google-calendar","Google",["Scheduling","Collaboration & Communication"],1],["Google Drive","google-drive","Google",["Document Management"],1],["Housecall Pro","housecall-pro","Housecall Pro",["CRM & Sales","Field Management","Scheduling","Payment Management"],1],["HOVER","hover","HOVER",["Reality Capture","Estimating & Takeoff","Design & Visualization"],1],["Jobber","jobber","Jobber",["CRM & Sales","Field Management","Scheduling"],1],["JobNimbus","jobnimbus","JobNimbus",["CRM & Sales","Project Management","Payment Management"],1],["JobTread","jobtread","JobTread",["Construction Management","Estimating & Takeoff","CRM & Sales"],1],["Leap CRM","leap-crm","Leap",["CRM & Sales","Field Management","Construction Management"],1],["Microsoft SharePoint","microsoft-sharepoint","Microsoft",["Document Management","Project Management","Collaboration & Communication"],1],["monday.com","monday-com","monday.com",["Project Management","Construction Management","Collaboration & Communication"],1],["Pipedrive","pipedrive","Pipedrive",["CRM & Sales"],1],["Procore Project Management","procore-project-management","Procore Technologies",["Project Management","Construction Management","Collaboration & Communication","Field Management"],1],["QuickBooks Online","quickbooks-online","Intuit",["Accounting & ERP"],1],["Roof Hub","roof-hub","SRS Distribution",["Estimating & Takeoff","Construction Management"],1],["Roofr","roofr","Roofr",["CRM & Sales","Construction Management"],1],["Salesforce","salesforce","Salesforce",["CRM & Sales"],1],["ServiceTitan","servicetitan","ServiceTitan",["CRM & Sales"],1],["Smartsheet","smartsheet","Smartsheet",["Project Management"],1],["SumoQuote","sumoquote","JobNimbus",["Estimating & Takeoff","CRM & Sales"],1],["Zapier","zapier","Zapier",["Project Management","Collaboration & Communication","Document Management"],1]]},"revit":{"label":"Autodesk Revit","name":"Autodesk Revit","slug":"autodesk-revit","vendor":"Autodesk","lede":"Autodesk Revit is building information modelling software for architects, structural engineers, MEP engineers and contractors.","categories":["BIM Authoring"],"scope":"promoted","partners":[["3D Repo","3d-repo","Asite",["BIM Coordination","Collaboration & Communication"],1],["ALICE Model","alice-model","ALICE Technologies",["Scheduling","AI"],1],["ArcGIS","arcgis","Esri",["Surveying & GIS"],1],["Archiboost Detail Library","archiboost-detail-library","Archiboost AI",["Document Management"],1],["Archiboost Drawing QA/QC","archiboost-drawing-qa-qc","Archiboost AI",["AI","BIM Coordination"],1],["Archiboost Project Copilot","archiboost-project-copilot","Archiboost AI",["AI"],1],["AutoCAD","autocad","Autodesk",["Design & Visualization"],1],["AutoCAD Architecture","autocad-architecture","Autodesk",["Design & Visualization"],1],["Autodesk Forma","autodesk-forma","Autodesk",["AI","Design & Visualization","Construction Management"],1],["Autodesk Forma Takeoff","autodesk-forma-takeoff","Autodesk",["Estimating & Takeoff"],1],["BIM 360","bim-360","Autodesk",["Collaboration & Communication"],1],["Bluebeam Revu","bluebeam-revu","Bluebeam, Inc.",["Document Management"],1],["BricsCAD","bricscad","Octave Intelligence",["Design & Visualization","BIM Authoring","Civil Engineering"],1],["Civil 3D","civil-3d","Autodesk",["Civil Engineering","Surveying & GIS"],1],["CupixWorks","cupixworks","Cupix, Inc.",["Reality Capture","Construction Management","BIM Coordination","Field Management","Punch List & QA/QC","Document Management"],1],["Endra","endra","Endra",["MEP Design","AI"],1],["Forma for Buildings","forma-for-buildings","Autodesk",["Design & Visualization","BIM Authoring"],1],["Forma Site Design","forma-site-design","Autodesk",["Design & Visualization"],1],["Graphisoft Archicad","graphisoft-archicad","Graphisoft",["BIM Authoring"],1],["InfraWorks","infraworks","Autodesk",["Civil Engineering","Design & Visualization"],1],["Matterport","matterport","Matterport",["Reality Capture"],1],["Microsoft Excel","microsoft-excel","Microsoft",["Analytics & Reporting"],1],["Navisworks","navisworks","Autodesk",["BIM Coordination","Estimating & Takeoff"],1],["Newforma","newforma","Newforma",["Document Management","Project Management","Collaboration & Communication","RFI & Submittal Management","BIM Coordination"],1],["Pirros","pirros","Pirros",["Document Management","BIM Authoring"],1],["Prevu3D RealityPlatform","prevu3d-realityplatform","Prevu3D",["Reality Capture","Facilities Management","Asset Management"],1],["Procore Project Management","procore-project-management","Procore Technologies",["Project Management","Construction Management","Collaboration & Communication","Field Management"],1],["Qonic","qonic","Qonic",["BIM Authoring","BIM Coordination","AI"],1],["Revizto","revizto","Revizto",["BIM Coordination"],1],["SketchUp","sketchup","Trimble",["Design & Visualization"],1],["Smartapp","smartapp","Smartapp.com",["Construction Management","Project Management","Scheduling","Field Management","Safety & Compliance"],1],["Stratus","stratus","Stratus",["Prefabrication & Modular","Analytics & Reporting"],1],["Structured AI","structured-ai","Structured AI",["AI","BIM Coordination"],1],["Swapp","swapp","SWAPP",["AI","BIM Authoring"],1],["Synthesis","synthesis","Knowledge Architecture",["Collaboration & Communication","AI"],1],["Trimble Connect","trimble-connect","Trimble",["Collaboration & Communication"],1],["Vectorworks Architect","vectorworks-architect","Nemetschek Group",["BIM Authoring"],1],["VIKTOR","viktor","VIKTOR",["Design & Visualization"],1]]},"medium":{"label":"Medium: Autodesk Forma","name":"Autodesk Forma","slug":"autodesk-forma","vendor":"Autodesk","lede":"Autodesk Forma is Autodesk's cloud platform for building projects, holding a project's drawings, models and records in one common data environment.","categories":["AI","Design & Visualization","Construction Management"],"scope":"promoted","partners":[["airSlate SignNow","signnow","airSlate",["Document Management","Collaboration & Communication"],1],["Amazon Redshift","amazon-redshift","Amazon",["Analytics & Reporting"],1],["Amazon S3","amazon-s3","Amazon",["Document Management"],1],["Aquifer","aquifer","Aquifer, Inc",["Analytics & Reporting","Construction Management"],1],["ArcGIS","arcgis","Esri",["Surveying & GIS"],1],["Autodesk Revit","autodesk-revit","Autodesk",["BIM Authoring"],1],["Billy Insurance Compliance","billy-insurance-compliance","Billy",["Safety & Compliance","Document Management"],1],["Bluebeam Revu","bluebeam-revu","Bluebeam, Inc.",["Document Management"],1],["Box","box","Box",["Document Management"],1],["Buildots","buildots","Buildots",["AI","Drone & Site Monitoring","Analytics & Reporting"],1],["CMiC","cmic","CMiC",["Accounting & ERP"],1],["ConCntric","concntric","ConCntric",["Estimating & Takeoff","Bid Management","AI"],1],["CupixWorks","cupixworks","Cupix, Inc.",["Reality Capture","Construction Management","BIM Coordination","Field Management","Punch List & QA/QC","Document Management"],1],["Datagrid","datagrid","Datagrid",["AI","Document Management","Project Management"],1],["DigiBuild","digibuild","DigiBuild",["Construction Management"],1],["Docusign","docusign","Docusign",["Document Management"],1],["DroneDeploy","dronedeploy","DroneDeploy",["Drone & Site Monitoring"],1],["Dropbox","dropbox","Dropbox",["Document Management"],1],["Egnyte","egnyte","Egnyte",["Document Management"],1],["Enlaye","enlaye","Enlaye",["AI","Analytics & Reporting","Safety & Compliance"],1],["Forma Data Management","forma-data-management","Autodesk",["Document Management","Collaboration & Communication"],1],["Gmail","gmail","Google",["Collaboration & Communication"],1],["GoFormz","goformz","GoFormz",["Field Management"],1],["Google Calendar","google-calendar","Google",["Scheduling","Collaboration & Communication"],1],["Google Drive","google-drive","Google",["Document Management"],1],["Google Sheets","google-sheets","Google",["Analytics & Reporting"],1],["Graphisoft Archicad","graphisoft-archicad","Graphisoft",["BIM Authoring"],1],["HammerTech","hammertech","HammerTech",["Safety & Compliance","Field Management"],1],["InEight","ineight","InEight",["Estimating & Takeoff","Project Management","Construction Management","Scheduling","Document Management"],1],["Krane","krane","Krane",["Construction Management","RFI & Submittal Management","AI","Bid Management"],1],["Matterport","matterport","Matterport",["Reality Capture"],1],["Microsoft 365","microsoft-365","Microsoft",["Collaboration & Communication","Document Management"],1],["Microsoft Dynamics 365","microsoft-dynamics-365","Microsoft",["Accounting & ERP","CRM & Sales","Project Management","Construction Management"],1],["Microsoft Fabric","microsoft-fabric","Microsoft",["Analytics & Reporting"],1],["Microsoft SharePoint","microsoft-sharepoint","Microsoft",["Document Management","Project Management","Collaboration & Communication"],1],["Navisworks","navisworks","Autodesk",["BIM Coordination","Estimating & Takeoff"],1],["Nomic","nomic","Nomic",["AI","Document Management"],1],["OneDrive","onedrive","Microsoft",["Document Management","Collaboration & Communication"],1],["OpenSpace","openspace","OpenSpace",["Reality Capture","AI"],1],["Oracle NetSuite","oracle-netsuite","Oracle",["Accounting & ERP"],1],["Outbuild","outbuild","Outbuild",["Scheduling","Construction Management","Project Management","Field Management"],1],["Power BI","power-bi","Microsoft",["Analytics & Reporting"],1],["Prevu3D RealityPlatform","prevu3d-realityplatform","Prevu3D",["Reality Capture","Facilities Management","Asset Management"],1],["Primepoint","primepoint","Primepoint Labs Inc.",["AI","RFI & Submittal Management","Document Management"],1],["Procore Project Management","procore-project-management","Procore Technologies",["Project Management","Construction Management","Collaboration & Communication","Field Management"],2],["ProjectWise","projectwise","Bentley Systems",["Document Management","Collaboration & Communication","Project Management"],1],["Propeller","propeller","Propeller Aero",["Drone & Site Monitoring","Surveying & GIS","Reality Capture","Analytics & Reporting"],1],["Raken","raken","Raken",["Field Management","Safety & Compliance","Workforce Management"],1],["Revizto","revizto","Revizto",["BIM Coordination"],1],["Salesforce","salesforce","Salesforce",["CRM & Sales"],1],["SketchUp","sketchup","Trimble",["Design & Visualization"],1],["Structured AI","structured-ai","Structured AI",["AI","BIM Coordination"],1],["VIKTOR","viktor","VIKTOR",["Design & Visualization"],1],["Wrike","wrike","Wrike",["Project Management"],1]]},"live":{"label":"Procore Project Management, live products only","name":"Procore Project Management","slug":"procore-project-management","vendor":"Procore Technologies","lede":"Procore Project Management is the flagship module of the Procore construction management platform, providing tools for RFIs, submittals, drawings, specifications, meetings, daily logs, photos, schedule integration, and field-to-office collaboration.","categories":["Project Management","Construction Management","Collaboration & Communication","Field Management"],"scope":"promoted","partners":[["3D Repo","3d-repo","Asite",["BIM Coordination","Collaboration & Communication"],1],["Acuite","acuite","Acuite",["Analytics & Reporting"],1],["Airtasks","airtasks","Anyset AI",["Collaboration & Communication","BIM Coordination","Project Management"],1],["AkitaBox","akitabox","AkitaBox",["Facilities Management","Asset Management"],1],["Anyset Closeout","anyset-closeout","Anyset AI",["Document Management","RFI & Submittal Management","AI"],1],["Anyset Specs","anyset-specs","Anyset AI",["RFI & Submittal Management","Punch List & QA/QC","AI"],1],["Arcoro Workforce Management","arcoro-workforce-management","Arcoro",["Workforce Management","Field Management"],1],["Autodesk Forma","autodesk-forma","Autodesk",["AI","Design & Visualization","Construction Management"],2],["Autodesk Revit","autodesk-revit","Autodesk",["BIM Authoring"],1],["BIMLauncher Connector for Autodesk Construction Cloud/BIM 360","bimlauncher-connector-for-autodesk-construction-cloud-bim-360","BIMLauncher",["Document Management","Collaboration & Communication"],1],["Bluebeam Revu","bluebeam-revu","Bluebeam, Inc.",["Document Management"],1],["Box","box","Box",["Document Management"],1],["Box (Two Way Sync - Documents & Photos) by SyncEzy","box-two-way-sync-documents-photos-by-syncezy","SyncEzy",["Document Management"],1],["Breadcrumb","breadcrumb","Breadcrumb",["Safety & Compliance","Field Management","Workforce Management"],1],["busybusy","busybusy","busybusy",["Field Management"],1],["Civil 3D","civil-3d","Autodesk",["Civil Engineering","Surveying & GIS"],1],["CompanyCam","companycam","CompanyCam",["Field Management","Document Management","Collaboration & Communication"],1],["ConstructivIQ","constructiviq","ConstructivIQ",["Construction Management","Scheduling","RFI & Submittal Management"],1],["Datagrid","datagrid","Datagrid",["AI","Document Management","Project Management"],1],["Dropbox","dropbox","Dropbox",["Document Management"],1],["Dropbox (Two Way Sync) by SyncEzy","dropbox-two-way-sync-by-syncezy","SyncEzy",["Document Management","Collaboration & Communication"],1],["Dropbox Sign","dropbox-sign","Dropbox",["Document Management"],1],["Egnyte","egnyte","Egnyte",["Document Management"],1],["Egnyte for Gov","egnyte-for-gov","Egnyte",["Document Management","Collaboration & Communication","Safety & Compliance"],1],["Extractus by Smoothx","extractus-by-smoothx","Smoothx",["Document Management","Construction Management"],1],["Followup CRM","followup-crm","Followup CRM",["CRM & Sales","Bid Management"],1],["Gmail","gmail","Google",["Collaboration & Communication"],1],["Google Drive","google-drive","Google",["Document Management"],1],["HammerTech","hammertech","HammerTech",["Safety & Compliance","Field Management"],1],["Krane","krane","Krane",["Construction Management","RFI & Submittal Management","AI","Bid Management"],1],["Kroo Data Syncers","kroo-data-syncers","Kroo",["RFI & Submittal Management","Collaboration & Communication"],1],["Microsoft Outlook","microsoft-outlook","Microsoft",["Collaboration & Communication","Document Management"],1],["Microsoft Project","microsoft-project","Microsoft",["Scheduling","Project Management"],1],["Microsoft SharePoint","microsoft-sharepoint","Microsoft",["Document Management","Project Management","Collaboration & Communication"],1],["Navisworks","navisworks","Autodesk",["BIM Coordination","Estimating & Takeoff"],1],["Newforma","newforma","Newforma",["Document Management","Project Management","Collaboration & Communication","RFI & Submittal Management","BIM Coordination"],1],["Oracle Primavera Cloud","oracle-primavera-cloud","Oracle",["Scheduling","Project Management"],1],["Oracle Primavera P6","oracle-primavera-p6","Oracle",["Scheduling"],1],["Paylocity Payroll Integration by Flexspring","paylocity-payroll-integration-by-flexspring","Flexspring",["Accounting & ERP","Workforce Management"],1],["Planera","planera","Planera Inc",["Scheduling"],1],["Primepoint","primepoint","Primepoint Labs Inc.",["AI","RFI & Submittal Management","Document Management"],1],["Raken","raken","Raken",["Field Management","Safety & Compliance","Workforce Management"],1],["Revizto","revizto","Revizto",["BIM Coordination"],1],["ServiceTrade","servicetrade","ServiceTrade",["Field Management","Construction Management"],1],["SharePoint (Two Way Sync) by SyncEzy","sharepoint-two-way-sync-by-syncezy","SyncEzy",["Document Management","Collaboration & Communication"],1],["SignOnSite","signonsite","Breadcrumb",["Safety & Compliance","Field Management","Workforce Management"],1],["SmartBarrel","smartbarrel","SmartBarrel.io",["Workforce Management","Field Management","Safety & Compliance"],1],["SmartBid","smartbid","SmartBid",["Bid Management","Document Management"],1],["SmartPM","smartpm","SmartPM Technologies",["Analytics & Reporting","Scheduling","Construction Management"],1],["Smartsheet","smartsheet","Smartsheet",["Project Management"],1],["Smartsheet Sync","smartsheet-sync","Grux",["Scheduling","Project Management"],1],["STACK","stack","STACK Construction Technologies",["Estimating & Takeoff","Document Management"],1],["TrebleHook","treblehook","TrebleHook",["CRM & Sales","Bid Management"],1],["Trimble Connect","trimble-connect","Trimble",["Collaboration & Communication"],1],["Trunk Tools","trunk-tools","Trunk Tools",["AI","RFI & Submittal Management","Bid Management"],1],["Unanet CRM AEC","unanet-crm-aec","Unanet",["CRM & Sales"],1],["Versatile","versatile","Versatile Inc.",["AI","Field Management","Equipment Management"],1]]},"large":{"label":"Large: Procore Project Management, first 140 products A to Z","name":"Procore Project Management","slug":"procore-project-management","vendor":"Procore Technologies","lede":"Procore Project Management is the flagship module of the Procore construction management platform, providing tools for RFIs, submittals, drawings, specifications, meetings, daily logs, photos, schedule integration, and field-to-office collaboration.","categories":["Project Management","Construction Management","Collaboration & Communication","Field Management"],"scope":"all","partners":null,"sliceOf":"full","limit":140},"full":{"label":"Largest: Procore Project Management, all 387 products","name":"Procore Project Management","slug":"procore-project-management","vendor":"Procore Technologies","lede":"Procore Project Management is the flagship module of the Procore construction management platform, providing tools for RFIs, submittals, drawings, specifications, meetings, daily logs, photos, schedule integration, and field-to-office collaboration.","categories":["Project Management","Construction Management","Collaboration & Communication","Field Management"],"scope":"all","partners":[["0link QuickBooks Online Connector by Smoothx","0link-quickbooks-online-connector-by-smoothx","Smoothx",["Accounting & ERP","Construction Management"],1],["360 Sync","360-sync","EvolveMEP",["Document Management","Collaboration & Communication"],1],["3D Repo","3d-repo","Asite",["BIM Coordination","Collaboration & Communication"],1],["ABAX","abax","Branches",["Equipment Management","Asset Management"],1],["AccuBuild Construction Software Integration","accubuild-construction-software-integration","Accubuild IT",["Accounting & ERP","Construction Management"],1],["Aclaimant","aclaimant","Aclaimant",["Safety & Compliance"],1],["Acuite","acuite","Acuite",["Analytics & Reporting"],1],["Advance Design","advance-design","GRAITEC",["Structural Analysis"],1],["AerieHub","aeriehub","Aerie Engineering",["Facilities Management","Document Management"],1],["AIA Contract Documents powered by Catina","aia-contract-documents-powered-by-catina","AIA Contract Documents",["Document Management","Construction Management"],1],["Airtasks","airtasks","Anyset AI",["Collaboration & Communication","BIM Coordination","Project Management"],1],["AkitaBox","akitabox","AkitaBox",["Facilities Management","Asset Management"],1],["Align (formerly ToolWatch)","align-formerly-toolwatch","Align",["Equipment Management","Asset Management","Safety & Compliance"],1],["AnchoRock Safety","anchorock-safety","AnchoRock Solutions, Inc.",["Safety & Compliance","Field Management"],1],["Anterra CPM Platform","anterra-cpm-platform","Anterra",["Analytics & Reporting","Accounting & ERP"],1],["Anyset Closeout","anyset-closeout","Anyset AI",["Document Management","RFI & Submittal Management","AI"],1],["Anyset Specs","anyset-specs","Anyset AI",["RFI & Submittal Management","Punch List & QA/QC","AI"],1],["ArcGIS Viewer","arcgis-viewer","W Three Industries, LLC",["Surveying & GIS","Construction Management"],1],["Arcoro Workforce Management","arcoro-workforce-management","Arcoro",["Workforce Management","Field Management"],1],["Argyle Integration","argyle-integration","Argyle Build Inc.",["BIM Coordination","Design & Visualization","Field Management"],1],["Asuretify - Insurance Verification Made Easy","asuretify-insurance-verification-made-easy","Injala, Inc.",["Safety & Compliance","Document Management"],1],["Autodesk Forma","autodesk-forma","Autodesk",["AI","Design & Visualization","Construction Management"],2],["Autodesk Revit","autodesk-revit","Autodesk",["BIM Authoring"],1],["Avid Connector","avid-connector","AvidXchange, Inc.",["Accounting & ERP","Payment Management"],1],["Azuga Fleet","azuga-fleet","Azuga, a Bridgestone Company",["Equipment Management","Asset Management","Safety & Compliance"],1],["BCS","bcs","BCS",["Safety & Compliance","Document Management"],1],["BidMatrix","bidmatrix","Bridgetown Software, Inc.",["Bid Management","Estimating & Takeoff"],1],["BidWork","bidwork","BidWork",["Bid Management","Document Management"],1],["Billd - 120-Day Terms","billd-120-day-terms","Billd",["Payment Management","Accounting & ERP"],1],["BiltOn","bilton","BiltOn Technologies LTD",["Safety & Compliance","Workforce Management","Field Management"],1],["BIMLauncher Connector for Autodesk Construction Cloud/BIM 360","bimlauncher-connector-for-autodesk-construction-cloud-bim-360","BIMLauncher",["Document Management","Collaboration & Communication"],1],["BIMLauncher Connector for Oracle Aconex","bimlauncher-connector-for-oracle-aconex","BIMLauncher",["Document Management","Collaboration & Communication"],1],["BIMLauncher Connector for Trimble Viewpoint®","bimlauncher-connector-for-trimble-viewpoint","BIMLauncher",["Document Management","Collaboration & Communication"],1],["BlackSmithSoft AWP","blacksmithsoft-awp","BlackSmithSoft B.V.",["Construction Management","Project Management","Prefabrication & Modular"],1],["Bluebeam on the Web","bluebeam-on-the-web","Bluebeam, Inc.",["Document Management","Collaboration & Communication"],1],["Bluebeam Revu","bluebeam-revu","Bluebeam, Inc.",["Document Management"],1],["Bluerithm","bluerithm","Bluerithm",["Collaboration & Communication","Punch List & QA/QC","Energy & Sustainability"],1],["Boomi Connector by RutterKey","boomi-connector-by-rutterkey","RutterKey Solutions & Boomi",["Collaboration & Communication"],1],["Box","box","Box",["Document Management"],1],["Box (Two Way Sync - Documents & Photos) by SyncEzy","box-two-way-sync-documents-photos-by-syncezy","SyncEzy",["Document Management"],1],["Boxcore","boxcore","Boxcore",["Safety & Compliance","Workforce Management"],1],["Breadcrumb","breadcrumb","Breadcrumb",["Safety & Compliance","Field Management","Workforce Management"],1],["Bridgit Bench Embedded App","bridgit-bench-embedded-app","Bridgit",["Workforce Management"],1],["Bridgit Bench Integration","bridgit-bench-integration","Bridgit",["Workforce Management"],1],["Briq","briq","Briq Technologies Inc",["Accounting & ERP","Analytics & Reporting","AI"],1],["BuildCognition","buildcognition","BuildCognition, Inc. ",["Punch List & QA/QC","Collaboration & Communication"],1],["BuildingConnected","buildingconnected","Autodesk",["Bid Management"],1],["BuildPass","buildpass","BuildPass Pty Ltd",["Safety & Compliance","Field Management","Collaboration & Communication"],1],["Buildr: Closeout & Warranty Management","buildr-closeout-and-warranty-management","Buildr",["Document Management","Collaboration & Communication"],1],["Buildr: The Precon Platform","buildr-the-precon-platform","Buildr",["CRM & Sales","Bid Management"],1],["BuildSync","buildsync","BuildSync",["RFI & Submittal Management","AI"],1],["Buildup Sync","buildup-sync","Buildup",["Punch List & QA/QC","Field Management","Collaboration & Communication"],1],["busybusy","busybusy","busybusy",["Field Management"],1],["Calidad Cloud","calidad-cloud","Calidad Cloud",["Punch List & QA/QC","Field Management"],1],["CamDo Solutions TimeLapse","camdo-solutions-timelapse","CamDo Solutions",["Drone & Site Monitoring","Collaboration & Communication"],1],["CEMEX Go","cemex-go","CEMEX",["Collaboration & Communication"],1],["CENTERLINE","centerline","CENTERLINE",[],1],["Central Integration Platform","central-integration-platform","TeamCentral inc.",["Collaboration & Communication"],1],["Chime Site","chime-site","Chime Software Limited",["Workforce Management","Safety & Compliance","Field Management"],1],["Cintoo Cloud","cintoo-cloud","Cintoo",["Reality Capture","BIM Coordination"],1],["Civil 3D","civil-3d","Autodesk",["Civil Engineering","Surveying & GIS"],1],["Closeout Docs ","closeout-docs","R.S. Knapp/Napco",["Document Management"],1],["Closeout Pro","closeout-pro","Closeout Pro LLC",["Document Management"],1],["Cloudsfer","cloudsfer","Tzunami Inc.",["Collaboration & Communication"],1],["cmBuilder.io","cmbuilder-io","cmBuilder.io",["Construction Management"],1],["CMiC Communications and Documents Sync","cmic-communications-and-documents-sync","CMiC",["Collaboration & Communication","Document Management"],1],["CMIC Financials by Calance","cmic-financials-by-calance","Calance",["Accounting & ERP"],1],["Coins Financials by Calance","coins-financials-by-calance","Calance",["Accounting & ERP"],1],["CompanyCam","companycam","CompanyCam",["Field Management","Document Management","Collaboration & Communication"],1],["COMPASS by Bespoke Metrics","compass-by-bespoke-metrics","Bespoke Metrics",["Bid Management","Safety & Compliance"],1],["ComputerEase Sync by SPARK Business Works","computerease-sync-by-spark-business-works","SPARK Business Works",["Accounting & ERP","Construction Management"],1],["ConsLog","conslog","ConsLog",["Construction Management","Field Management","Document Management"],1],["Constra","constra","Huviair Technologies",["Drone & Site Monitoring","Reality Capture","Punch List & QA/QC","Construction Management"],1],["Constrafor","constrafor","Constrafor",["Payment Management","Document Management","Project Management"],1],["ConstructivIQ","constructiviq","ConstructivIQ",["Construction Management","Scheduling","RFI & Submittal Management"],1],["ContractorBI™ Analytics & TopBuilder CRM ","contractorbi-analytics-and-topbuilder-crm","TopBuilder",["Analytics & Reporting","CRM & Sales","Bid Management"],1],["ConWize","conwize","ConWize",["Estimating & Takeoff"],1],["Corfix","corfix","Corfix",["Safety & Compliance","Construction Management","Workforce Management"],1],["Cost+ by Smoothx","cost-by-smoothx","Smoothx",["Payment Management","Construction Management"],1],["Cosuno","cosuno","Cosuno Ventures GmbH",["Bid Management","Construction Management","Document Management"],1],["COZYROC SSIS+ Components suite","cozyroc-ssis-components-suite","COZYROC",["Analytics & Reporting","Construction Management"],1],["Crews By Core","crews-by-core","Crews by Core",["Scheduling","Field Management","Construction Management"],1],["CrewTraka","crewtraka","CrewTraka",["Workforce Management","Safety & Compliance","Construction Management"],1],["Criterion HCM","criterion-hcm","Criterion HCM",["Workforce Management"],1],["Crosswalk for Procore","crosswalk-for-procore","CSI",["Document Management","Construction Management"],1],["CTrax - COI Tracking","ctrax-coi-tracking","MDI",["Safety & Compliance","Construction Management"],1],["CxAlloy Issues Sync","cxalloy-issues-sync","CxAlloy",["Construction Management","Punch List & QA/QC"],1],["CxAlloy TQ Sync (Legacy)","cxalloy-tq-sync-legacy","CxAlloy",["Construction Management","Punch List & QA/QC"],1],["CxPlanner Commissioning","cxplanner-commissioning","CxPlanner",["Construction Management","Punch List & QA/QC"],1],["DataBlend Connector","datablend-connector","DataBlend",["Accounting & ERP"],1],["Datagrid","datagrid","Datagrid",["AI","Document Management","Project Management"],1],["DataSeer Drawing Takeoff Tool","dataseer-drawing-takeoff-tool","DataSeer, Inc.",["Estimating & Takeoff","AI","Asset Management"],1],["DESTINI Estimator","destini-estimator","Beck Technology",["Estimating & Takeoff"],1],["Dindo Estimating","dindo-estimating","Dindo Pty Ltd",["Estimating & Takeoff"],1],["Dispatcher","dispatcher","Dispatcher",["Workforce Management","Equipment Management","Project Management"],1],["DLP Manager","dlp-manager","DLP Manager",["Punch List & QA/QC","Facilities Management"],1],["DoCheck QR","docheck-qr","BlackSmithSoft B.V.",["Document Management","Field Management"],1],["Drawboard Projects","drawboard-projects","Drawboard",["Collaboration & Communication","Document Management","Punch List & QA/QC"],1],["Drawing Change A.I. & Drawing Management","drawing-change-a-i-and-drawing-management","Planslive",["AI","Document Management"],1],["Dropbox","dropbox","Dropbox",["Document Management"],1],["Dropbox (Two Way Sync) by SyncEzy","dropbox-two-way-sync-by-syncezy","SyncEzy",["Document Management","Collaboration & Communication"],1],["Dropbox Sign","dropbox-sign","Dropbox",["Document Management"],1],["E1 - Tender Management Platform","e1-tender-management-platform","E1",["Bid Management","Estimating & Takeoff","Project Management"],1],["EarthCam","earthcam","EarthCam",["Drone & Site Monitoring"],1],["EarthCam Embedded","earthcam-embedded","EarthCam",["Drone & Site Monitoring","Safety & Compliance","AI"],1],["eBacon Time Card Integration","ebacon-time-card-integration","eBacon",["Workforce Management","Accounting & ERP"],1],["EBIX - COI Tracking","ebix-coi-tracking","Ebix, Inc",["Safety & Compliance","Document Management"],1],["EC3","ec3","Building Transparency",["Energy & Sustainability"],1],["eCMS Integration by INRS","ecms-integration-by-inrs","INRS Enterprises",["Accounting & ERP","Construction Management"],1],["EdApp","edapp","Mitti",["Safety & Compliance","Workforce Management"],1],["Egnyte","egnyte","Egnyte",["Document Management"],1],["Egnyte for Gov","egnyte-for-gov","Egnyte",["Document Management","Collaboration & Communication","Safety & Compliance"],1],["Ei Dynamics SQL Replicator","ei-dynamics-sql-replicator","Ei Dynamics, Inc.",["Analytics & Reporting","Construction Management"],1],["eMOD","emod","eMOD Safety, Inc.",["Safety & Compliance","Field Management"],1],["Engine","engine","Engine",["Collaboration & Communication","Workforce Management"],1],["Erin Living Resident App","erin-living-resident-app","Erin Living Co",["Facilities Management","Collaboration & Communication"],1],["EVA Check-in","eva-check-in","EVA Check-in",["Safety & Compliance","Workforce Management","Field Management"],1],["Evercam","evercam","Evercam",["Drone & Site Monitoring","Reality Capture"],1],["Evo Home Client Manager","evo-home-client-manager","Evo Home",["CRM & Sales","Collaboration & Communication","Document Management"],1],["Extracts Pro: Closeout & Data Sync (SharePoint)","extracts-pro-closeout-and-data-sync-sharepoint","Extracts Pro",["Document Management","Construction Management"],1],["Extractus by Smoothx","extractus-by-smoothx","Smoothx",["Document Management","Construction Management"],1],["Eyrus","eyrus","Eyrus, Inc.",["Workforce Management","Field Management","Safety & Compliance"],1],["Facility Grid","facility-grid","Facility Grid",["Punch List & QA/QC","Construction Management","Facilities Management"],1],["Field Control Analytics (FCA)","field-control-analytics-fca","Field Control Analytics (FCA)",["Workforce Management"],1],["File Sync for SharePoint, Teams & M365","file-sync-for-sharepoint-teams-and-m365","HingePoint ProConnector",["Document Management"],1],["FileBound Invoice Capture","filebound-invoice-capture","Ellby",["Accounting & ERP"],1],["Firmus RFI Connector","firmus-rfi-connector","Firmus",["RFI & Submittal Management","AI"],1],["Followup CRM","followup-crm","Followup CRM",["CRM & Sales","Bid Management"],1],["Forsight","forsight","Forsight Inc.",["Drone & Site Monitoring","Safety & Compliance","Construction Management","AI"],1],["Fresco","fresco","Fresco",["Estimating & Takeoff","Document Management","Construction Management","AI"],1],["Fuel Me ","fuel-me","Fuel Me",["Equipment Management"],1],["GAMMA AR","gamma-ar","GAMMA Technologies SARL",["BIM Coordination","Field Management"],1],["Genda App","genda-app","Genda",["Workforce Management"],1],["Giatec SmartRock™","giatec-smartrock","Giatec",["Punch List & QA/QC","Field Management"],1],["Gmail","gmail","Google",["Collaboration & Communication"],1],["GoCanvas Automations","gocanvas-automations","GoCanvas",["Field Management","Construction Management"],1],["Google Drive","google-drive","Google",["Document Management"],1],["Google Drive (Two Way Sync) by SyncEzy","google-drive-two-way-sync-by-syncezy","SyncEzy",["Document Management"],1],["GoTo Meeting","goto-meeting","GoTo",["Collaboration & Communication"],1],["Green Badger Construction ESG","green-badger-construction-esg","Green Badger",["Energy & Sustainability"],1],["Green Badger LEED Documentation","green-badger-leed-documentation","Green Badger",["Energy & Sustainability"],1],["Guided Home Defect Sync","guided-home-defect-sync","OTP Tech Limited",["Punch List & QA/QC","Construction Management"],1],["HammerTech","hammertech","HammerTech",["Safety & Compliance","Field Management"],1],["HandsHQ RAMS ","handshq-rams","HandsHQ",["Safety & Compliance","Construction Management"],1],["HazardCo","hazardco","HazardCo",["Safety & Compliance","Construction Management"],1],["Hexagon Construction Analysis","hexagon-construction-analysis","Hexagon Building Solutions",["Reality Capture","Construction Management","BIM Coordination"],1],["Highwire","highwire","Highwire",["Safety & Compliance","Construction Management"],1],["Hilti ON!Track 3","hilti-on-track-3","Hilti",["Equipment Management","Asset Management"],1],["HoloBuilder 360° Photo Site Documentation Embedded","holobuilder-360-photo-site-documentation-embedded","HoloBuilder",["Drone & Site Monitoring","Construction Management","Document Management"],1],["HoloBuilder 360° Project Management Embedded - EU","holobuilder-360-project-management-embedded-eu","FARO Technologies",["Reality Capture"],1],["Hoyst - Vertical Transportation & Reservations","hoyst-vertical-transportation-and-reservations","Voyager Scientific",["Field Management"],1],["iBindr","ibindr","iBindr",["Document Management","Construction Management"],1],["iFieldSmart","ifieldsmart","iFieldSmart Technologies",["Construction Management","Field Management","Document Management"],1],["IFS by Calance","ifs-by-calance","Calance",["Accounting & ERP"],1],["IFS Integration by RutterKey","ifs-integration-by-rutterkey","RutterKey",["Accounting & ERP","Construction Management"],1],["IMAJION","imajion","Imajion",["Construction Management","Field Management","Collaboration & Communication"],1],["Imerso","imerso","Imerso",["Reality Capture","Construction Management","Punch List & QA/QC"],1],["inBuild Pro","inbuild-pro","inBuild",["AI","Accounting & ERP"],1],["Inertia ICD","inertia-icd","Inertia Systems",["Document Management","Field Management"],1],["innDex","inndex","innDex",["Workforce Management","Safety & Compliance","Field Management"],1],["IntelliShift ","intellishift","IntelliShift",["Equipment Management","Field Management","Safety & Compliance"],1],["Intelliwave SiteSense Materials Management","intelliwave-sitesense-materials-management","Intelliwave Technologies",["Equipment Management","Asset Management","Field Management"],1],["Interfy MYOB Business AccountRight Integration","interfy-myob-business-accountright-integration","Interfy",["Accounting & ERP"],1],["Interfy OneCore AP Invoice Processing with AI","interfy-onecore-ap-invoice-processing-with-ai","Interfy",["AI","Accounting & ERP"],1],["Interfy OneCore Cost Plus (Cost+)","interfy-onecore-cost-plus-cost","Interfy",["Accounting & ERP","Construction Management"],1],["Interfy OneCore Odoo Connector","interfy-onecore-odoo-connector","Interfy",["Accounting & ERP","Construction Management"],1],["Interfy OneCore QuickBooks Online Connector","interfy-onecore-quickbooks-online-connector","Interfy",["Accounting & ERP","Construction Management"],1],["Interfy OneCore Xero Integration Connector","interfy-onecore-xero-integration-connector","Interfy",["Accounting & ERP","Construction Management"],1],["IPEX","ipex","IPEX",["Payment Management","Construction Management"],1],["iSqFt","isqft","iSqFt",["Bid Management"],1],["JD Edwards Integrations by Calance","jd-edwards-integrations-by-calance","Calance",["Accounting & ERP"],1],["Job Site Forms by ResponseVault","job-site-forms-by-responsevault","Voyager Scientific, LLC",["Field Management","Safety & Compliance"],1],["Jones","jones","Jones",["Safety & Compliance"],1],["Karmen","karmen","Karmen",["Scheduling","AI","Project Management"],1],["Kaster","kaster","Kaster",["Workforce Management","Safety & Compliance","Construction Management"],1],["Kojo - better materials management","kojo-better-materials-management","Kojo Technologies, Inc.",["Estimating & Takeoff","Equipment Management","Project Management"],1],["Koncurent","koncurent","Koncurent, Corp.",["Construction Management","Project Management","RFI & Submittal Management"],1],["KPA EHS","kpa-ehs","KPA",["Safety & Compliance"],1],["Krane","krane","Krane",["Construction Management","RFI & Submittal Management","AI","Bid Management"],1],["Kroo Data Syncers","kroo-data-syncers","Kroo",["RFI & Submittal Management","Collaboration & Communication"],1],["KTrack","ktrack","KTrack",["Document Management","Facilities Management","Construction Management"],1],["Kwant","kwant","Kwant",["AI","Workforce Management","Safety & Compliance"],1],["LCM Digital","lcm-digital","LCM Digital GmbH",["Scheduling","Construction Management"],1],["LeadTime - Procurement Made Simple","leadtime-procurement-made-simple","LeadTime",["Prefabrication & Modular","Project Management"],1],["Leica iCON Field","leica-icon-field","Leica Geosystems",["Surveying & GIS","Field Management","Construction Management"],1],["Lentune Invoice Automation","lentune-invoice-automation","Lentune",["Accounting & ERP","Construction Management","Project Management"],1],["LessonBridge","lessonbridge","Secutor Solutions LLC",["Construction Management","Project Management"],1],["Levelset","levelset","Levelset (Procore)",["Payment Management"],1],["Lien Waiver Management by Built","lien-waiver-management-by-built","Built Technologies",["Payment Management","Construction Management","Document Management"],1],["lienwaivers.io Subcontractor Tool","lienwaivers-io-subcontractor-tool","lienwaivers.io",["Payment Management","Construction Management"],1],["Linxup","linxup","Linxup",["Equipment Management","Asset Management","Field Management"],1],["Lowe's","lowe-s","Lowe's",[],1],["LumiCon","lumicon","Brickeye",["Construction Management","Field Management","Analytics & Reporting"],1],["Maestro*ERP Connector","maestro-erp-connector","Maestro* Technologies Inc.",["Accounting & ERP","Construction Management"],1],["Mail Manager","mail-manager","Mail Manager Ltd",["Document Management","Collaboration & Communication"],1],["Make","make","Make",["Collaboration & Communication"],1],["Manpower for Worksign","manpower-for-worksign","Work Metrics",["Workforce Management","Field Management"],1],["Manufacton","manufacton","ViZZ Technologies",["Prefabrication & Modular","Construction Management"],1],["Mavryck","mavryck","PMIntel",["AI","Project Management","Scheduling"],1],["Microsoft Dynamics Integrations by Morpheus","microsoft-dynamics-integrations-by-morpheus","Morpheus Technology Group",["Accounting & ERP","Construction Management"],1],["Microsoft Outlook","microsoft-outlook","Microsoft",["Collaboration & Communication","Document Management"],1],["Microsoft Project","microsoft-project","Microsoft",["Scheduling","Project Management"],1],["Microsoft SharePoint","microsoft-sharepoint","Microsoft",["Document Management","Project Management","Collaboration & Communication"],1],["Microsoft Teams","microsoft-teams","Microsoft",["Collaboration & Communication"],1],["Microsoft Teams (Two Way Sync) by SyncEzy","microsoft-teams-two-way-sync-by-syncezy","SyncEzy",["Collaboration & Communication","Document Management"],1],["Milwaukee Tool One-Key","milwaukee-tool-one-key","Milwaukee Tool",["Equipment Management","Asset Management","Field Management"],1],["MindForge","mindforge","MindForge",["Safety & Compliance","Collaboration & Communication","Workforce Management"],1],["Mitti (by SafetyCulture)","mitti-by-safetyculture","Mitti",["Safety & Compliance"],1],["Mixed Analytics","mixed-analytics","Mixed Analytics",["Analytics & Reporting","Project Management"],1],["mJobTime","mjobtime","mJobTime Corporation",["Workforce Management","Field Management"],1],["MobiClocks","mobiclocks","MobiClocks",["Workforce Management","Field Management"],1],["Mobile Text Alerts","mobile-text-alerts","Mobile Text Alerts",["Collaboration & Communication"],1],["Mobiledock","mobiledock","Mobiledock Pty Ltd",["Field Management","Construction Management"],1],["Morpheus ERP Integrations","morpheus-erp-integrations","Morpheus Technology Group",[],1],["Morta IDP","morta-idp","Morta",["Document Management","Collaboration & Communication","Construction Management","Project Management"],1],["MSite","msite","MSite",["Workforce Management","Safety & Compliance","Field Management"],1],["Multivista","multivista","Multivista",["Reality Capture","Document Management","Collaboration & Communication"],1],["myCOI Insurance Compliance Software","mycoi-insurance-compliance-software","myCOI",["Safety & Compliance"],1],["myComply","mycomply","myComply",["Workforce Management","Safety & Compliance","Field Management"],1],["MYOB Acumatica Connector by 0link","myob-acumatica-connector-by-0link","Smoothx",["Accounting & ERP"],1],["myTikee by Enlaps","mytikee-by-enlaps","Enlaps",["Drone & Site Monitoring","Construction Management"],1],["Navisworks","navisworks","Autodesk",["BIM Coordination","Estimating & Takeoff"],1],["NetSuite Connector ScaleApp","netsuite-connector-scaleapp","ScaleNorth",["Accounting & ERP"],1],["Newforma","newforma","Newforma",["Document Management","Project Management","Collaboration & Communication","RFI & Submittal Management","BIM Coordination"],1],["Newmetrix (FKA Smartvid.io)","newmetrix-fka-smartvid-io","Newmetrix",["Safety & Compliance","AI","Analytics & Reporting"],1],["Newmetrix View (FKA Smartvid.io)","newmetrix-view-fka-smartvid-io","Newmetrix",["Safety & Compliance","AI"],1],["Nexus by Calance","nexus-by-calance","Calance",["Accounting & ERP"],1],["Notifield","notifield","Internal Tools",["Collaboration & Communication","Field Management"],1],["Novara Flex","novara-flex","Novara",["Safety & Compliance","Construction Management"],1],["NYFTY.AI - Field Automation","nyfty-ai-field-automation","Nyfty.ai, Inc.",["AI","Field Management","Safety & Compliance"],1],["NYFTY.AI - Field Automation (Embedded)","nyfty-ai-field-automation-embedded","Nyfty.ai, Inc.",["AI","Field Management"],1],["Oculo","oculo","Oculo",["AI","Drone & Site Monitoring"],1],["odrive","odrive","Oxygen Cloud, Inc.",["Document Management","Collaboration & Communication"],1],["Offsight","offsight","Offsight",["Prefabrication & Modular"],1],["OmTrak","omtrak","WebFM",["Document Management","Construction Management","Facilities Management"],1],["One Click LCA","one-click-lca","One Click LCA",["Energy & Sustainability"],1],["OneDrive (Two Way Sync) by SyncEzy","onedrive-two-way-sync-by-syncezy","SyncEzy",["Document Management","Collaboration & Communication"],1],["OneNote","onenote","Microsoft",["Document Management","Collaboration & Communication","Project Management"],1],["Online Induction","online-induction","WorkMetrics",["Safety & Compliance","Workforce Management"],1],["Onware Sync","onware-sync","Onware, Inc.",["Construction Management","Document Management"],1],["OPC Schedule Connector","opc-schedule-connector","Timephased",["Scheduling","Construction Management","Project Management"],1],["OpticVyu","opticvyu","OpticVyu",["Drone & Site Monitoring","Reality Capture","Construction Management","Project Management"],1],["Oracle JDE & EBS Integrations by Morpheus","oracle-jde-and-ebs-integrations-by-morpheus","Morpheus Technology Group",["Accounting & ERP"],1],["Oracle Primavera Cloud","oracle-primavera-cloud","Oracle",["Scheduling","Project Management"],1],["Oracle Primavera P6","oracle-primavera-p6","Oracle",["Scheduling"],1],["Orca IoT","orca-iot","Orca IoT",["Drone & Site Monitoring","Construction Management"],1],["Orisent powered by Vanguard Wireless","orisent-powered-by-vanguard-wireless","Orisent",["Safety & Compliance","Field Management"],1],["Overtur™ Integration","overtur-integration","Allegion",["BIM Coordination","Punch List & QA/QC","Field Management"],1],["OxBlue Construction Cameras","oxblue-construction-cameras","OxBlue",["Drone & Site Monitoring","Construction Management"],1],["P6 Schedule Connector","p6-schedule-connector","Timephased",["Scheduling","Construction Management","Project Management"],1],["Part3","part3","Part3",["RFI & Submittal Management"],1],["Payapps","payapps","Payapps",["Payment Management","Construction Management"],1],["Paychex Payroll Integration by Flexspring","paychex-payroll-integration-by-flexspring","Flexspring",["Workforce Management"],1],["Paycor Integration by Flexspring","paycor-integration-by-flexspring","Flexspring",["Workforce Management"],1],["Paylocity Payroll Integration by Flexspring","paylocity-payroll-integration-by-flexspring","Flexspring",["Accounting & ERP","Workforce Management"],1],["PeopleSoft by Calance","peoplesoft-by-calance","Calance",["Accounting & ERP"],1],["PermitFlow","permitflow","PermitFlow",["Safety & Compliance"],1],["PINS Advantage","pins-advantage","PINS Advantage",["Safety & Compliance"],1],["Planera","planera","Planera Inc",["Scheduling"],1],["Planit Scheduler Data Bridge","planit-scheduler-data-bridge","Planit inc.",["Construction Management","Project Management","Scheduling"],1],["Plans4Less","plans4less","Plans4Less",[],1],["Planyard","planyard","Planyard",["Accounting & ERP","Construction Management","Project Management"],1],["PLOT Procurement & Deliveries Tool","plot-procurement-and-deliveries-tool","PLOT Communications, Inc. ",["Construction Management","Project Management","Field Management"],1],["Power Tools","power-tools","Power Tools, LLC",["Accounting & ERP","Construction Management","Estimating & Takeoff"],1],["Powerproject Integration","powerproject-integration","Elecosoft",["Scheduling"],1],["PreconSuite","preconsuite","PreconSuite",["Bid Management","Estimating & Takeoff"],1],["Prelien Pro","prelien-pro","Prelien",["Payment Management"],1],["Primepoint","primepoint","Primepoint Labs Inc.",["AI","RFI & Submittal Management","Document Management"],1],["PRO-LINK","pro-link","Tilson",["Construction Management","Analytics & Reporting"],1],["ProcurePro","procurepro","ProcurePro",["Accounting & ERP"],1],["ProEst","proest","ProEst",["Estimating & Takeoff"],1],["Projectmates Connector","projectmates-connector","Systemates, Inc.",["Construction Management","RFI & Submittal Management"],1],["ProjectReady","projectready","ProjectReady",["Document Management"],1],["PROJEXION","projexion","PRx, Inc.",["Analytics & Reporting","Construction Management"],1],["Proload - Bulk Data Creator","proload-bulk-data-creator","Proload Solutions",["Construction Management"],1],["ProNovos","pronovos","ProNovos",["Analytics & Reporting","Construction Management","Accounting & ERP"],1],["ProScan+ by Smoothx","proscan-by-smoothx","Smoothx",["Accounting & ERP","Document Management","Construction Management"],1],["Pulley","pulley","Pulley",["Construction Management","Project Management"],1],["Pype AutoSpecs","pype-autospecs","Pype",["RFI & Submittal Management","Construction Management","AI"],1],["Pype AutoSpecs Embedded","pype-autospecs-embedded","Pype",["RFI & Submittal Management","AI"],1],["Pype Closeout","pype-closeout","Pype",["Construction Management","Document Management"],1],["Pype Closeout Embedded","pype-closeout-embedded","Pype",["Construction Management","Document Management"],1],["Qflow ","qflow","Qualis Flow",["Energy & Sustainability","Field Management"],1],["QR Coded Construction","qr-coded-construction","Taliho",["Field Management","Construction Management","Document Management"],1],["QR Inventory","qr-inventory","QR Inventory",["Equipment Management"],1],["QR Mobile Data","qr-mobile-data","AHG, Inc.",["Field Management","Construction Management","Punch List & QA/QC"],1],["Quickbooks Time (TSheets) by SyncEzy","quickbooks-time-tsheets-by-syncezy","SyncEzy",["Workforce Management","Accounting & ERP","Construction Management"],1],["QuoteToMe","quotetome","QuoteToMe",["Bid Management","Field Management","Accounting & ERP"],1],["RABB-IT Integration for Oracle+NetSuite","rabb-it-integration-for-oracle-netsuite","Rabb-It Development LLC",["Construction Management","Accounting & ERP","Project Management"],1],["Raken","raken","Raken",["Field Management","Safety & Compliance","Workforce Management"],1],["Reconstruct","reconstruct","Reconstruct Inc.",["Reality Capture","AI","Construction Management"],1],["Remarcable","remarcable","Remarcable",["Bid Management","Field Management","Accounting & ERP"],1],["Resolve: BIM in VR","resolve-bim-in-vr","Resolve",["BIM Coordination","Design & Visualization","Collaboration & Communication"],1],["Revit Sheets to Procore Drawings","revit-sheets-to-procore-drawings","UtahBIM",["Document Management","BIM Authoring"],1],["Revizto","revizto","Revizto",["BIM Coordination"],1],["Riskcast","riskcast","Riskcast Solutions Inc.",["Field Management","Workforce Management","Construction Management"],1],["Safe Site Check In","safe-site-check-in","Safe Site Check In LLC",["Safety & Compliance","Field Management"],1],["Safejobsite.us","safejobsite-us","Safejobsite.us ",["Safety & Compliance"],1],["Safety Reports","safety-reports","Safety-Reports.com, Inc.",["Safety & Compliance","Field Management"],1],["SafetyClerk","safetyclerk","SafetyClerk",["Safety & Compliance","Workforce Management"],1],["Sage 100 Contractor Timesheet Integrator","sage-100-contractor-timesheet-integrator","Contractor Business Tools",["Construction Management","Accounting & ERP","Workforce Management"],1],["Sage 300 Insurance by Calance","sage-300-insurance-by-calance","Calance",["Construction Management","Accounting & ERP"],1],["Sage 50 Accounts Cloud by Hyperext Limited","sage-50-accounts-cloud-by-hyperext-limited","Hyperext Limited",["Accounting & ERP"],1],["Sage Paperless Construction","sage-paperless-construction","Sage Group",["Document Management","Accounting & ERP"],1],["Salesforce By Spectrum Distribution Inc.","salesforce-by-spectrum-distribution-inc","Spectrum Distribution Inc.",["CRM & Sales"],1],["Samsara","samsara","Samsara",["Equipment Management"],1],["Sensera SiteCloud Embedded","sensera-sitecloud-embedded","Sensera Systems",["Drone & Site Monitoring","Field Management","Safety & Compliance"],1],["ServiceTrade","servicetrade","ServiceTrade",["Field Management","Construction Management"],1],["SharePoint (Two Way Sync) by SyncEzy","sharepoint-two-way-sync-by-syncezy","SyncEzy",["Document Management","Collaboration & Communication"],1],["Shepherd","shepherd","Shepherd Labs, Inc.",["Safety & Compliance","Construction Management"],1],["SignOnSite","signonsite","Breadcrumb",["Safety & Compliance","Field Management","Workforce Management"],1],["Site App Pro","site-app-pro","Site App Pro",["Safety & Compliance","Field Management"],1],["Siteaware","siteaware","Siteaware",["Punch List & QA/QC","Drone & Site Monitoring","AI"],1],["SiteForm","siteform","SiteForm, Inc.",["Safety & Compliance","Field Management"],1],["SiteKick Construction Cameras","sitekick-construction-cameras","SiteKick",["Drone & Site Monitoring","Field Management"],1],["Siteline Connector ","siteline-connector","Siteline",["Payment Management","Construction Management"],1],["Sitelink","sitelink","Sitelink",["AI","Field Management"],1],["Sitemetric","sitemetric","Sitemetric",["Drone & Site Monitoring","Safety & Compliance"],1],["SiteScape","sitescape","SiteScape",["Reality Capture"],1],["Skillko ","skillko","Skillko Limited",["Safety & Compliance","Workforce Management"],1],["SkillSignal","skillsignal","SkillSignal Inc.",[],1],["SlatPlanner","slatplanner","Buildfore",["Scheduling","Construction Management"],1],["SmartBarrel","smartbarrel","SmartBarrel.io",["Workforce Management","Field Management","Safety & Compliance"],1],["SmartBid","smartbid","SmartBid",["Bid Management","Document Management"],1],["SmartCompliance","smartcompliance","SmartCompliance",["Safety & Compliance"],1],["SmartPM","smartpm","SmartPM Technologies",["Analytics & Reporting","Scheduling","Construction Management"],1],["Smartsheet","smartsheet","Smartsheet",["Project Management"],1],["Smartsheet Sync","smartsheet-sync","Grux",["Scheduling","Project Management"],1],["Smoothx Advanced Payments","smoothx-advanced-payments","Smoothx",["Payment Management","Construction Management"],1],["Sngular ConnectedWorks","sngular-connectedworks","Sngular",["Equipment Management","Field Management","Safety & Compliance"],1],["SolarGrade","solargrade","SolarGrade, Inc. ",["Punch List & QA/QC","Field Management","Energy & Sustainability"],1],["Spec-ID Integration","spec-id-integration","Spec-Intel",["RFI & Submittal Management","Document Management","Construction Management"],1],["Speedchain","speedchain","Speedchain, Inc.",["Payment Management","Construction Management"],1],["Sphere XG/HoloBuilder Site Documentation","sphere-xg-holobuilder-site-documentation","FARO Technologies",["Reality Capture","Document Management","Drone & Site Monitoring"],1],["Spot-r by Triax","spot-r-by-triax","Triax Technologies, Inc.",["Safety & Compliance","Workforce Management","Field Management"],1],["STACK","stack","STACK Construction Technologies",["Estimating & Takeoff","Document Management"],1],["STACK Build & Operate","stack-build-and-operate","STACK Construction Technologies",[],1],["STAGES","stages","Simlab",["Design & Visualization","BIM Coordination","Reality Capture"],1],["StratoKit Procore–SharePoint Connector","stratokit-procore-sharepoint-connector","StratoKit SA",["Document Management","Collaboration & Communication"],1],["StructShare","structshare","StructShare",["BIM Coordination"],1],["Sub Ratings Service","sub-ratings-service","Sub Ratings, LLC",["Bid Management","Construction Management"],1],["SubBase","subbase","SubBase",["Construction Management","Field Management","Estimating & Takeoff"],1],["Supplyo","supplyo","Supplyo",["Bid Management","Construction Management"],1],["SustainIQ","sustainiq","SustainIQ",["Energy & Sustainability"],1],["TeamGantt","teamgantt","TeamGantt",["Scheduling","Project Management"],1],["Teamoty Scheduling","teamoty-scheduling","Cimba Digital Construction Solutions",["Scheduling"],1],["Tenna","tenna","Tenna",["Equipment Management"],1],["The Link Submittal Creator","the-link-submittal-creator","The Link",["RFI & Submittal Management","AI"],1],["TIA - Finishing Selection Management Software","tia-finishing-selection-management-software","The Interactive Abode (TIA)",["Design & Visualization","Construction Management"],1],["Timescapes","timescapes","Timescapes",["Drone & Site Monitoring","Construction Management","Analytics & Reporting"],1],["Tomorrow.io Weather Intelligence Platform","tomorrow-io-weather-intelligence-platform","Tomorrow.io",["Construction Management","Analytics & Reporting","Field Management"],1],["TonicDM","tonicdm","TonicDM",["Document Management","RFI & Submittal Management","Collaboration & Communication"],1],["TOOLTRIBE Pro","tooltribe-pro","TOOLTRIBE",["Equipment Management","Field Management"],1],["Tough Leaf","tough-leaf","Tough Leaf, Inc.",["Bid Management","Construction Management","Project Management"],1],["Track And Fix","track-and-fix","UpperBee",["Punch List & QA/QC","Construction Management"],1],["Track3D (formerly ConstructN)","track3d-formerly-constructn","Track3D Corp",["AI","Drone & Site Monitoring","Field Management"],1],["TradeTek","tradetek","TradeTek Software",["Estimating & Takeoff","Construction Management"],1],["TrebleHook","treblehook","TrebleHook",["CRM & Sales","Bid Management"],1],["Trimble Connect","trimble-connect","Trimble",["Collaboration & Communication"],1],["Trimble Pay","trimble-pay","Trimble",["Payment Management","Accounting & ERP"],1],["TrueLook","truelook","TrueLook",["Drone & Site Monitoring"],1],["Trunk Tools","trunk-tools","Trunk Tools",["AI","RFI & Submittal Management","Bid Management"],1],["TrustLayer","trustlayer","TrustLayer",["Safety & Compliance"],1],["Tyfoom Forms Connector","tyfoom-forms-connector","Tyfoom",["Construction Management","Field Management","Safety & Compliance"],1],["UKG Pro Payroll Integration by Flexspring","ukg-pro-payroll-integration-by-flexspring","Flexspring",["Construction Management","Workforce Management","Accounting & ERP"],1],["Unanet CRM AEC","unanet-crm-aec","Unanet",["CRM & Sales"],1],["UpKeep","upkeep","UpKeep",["Facilities Management"],1],["Usertoolkit - Features built on User Feedback","usertoolkit-features-built-on-user-feedback","User Tool Kit",["Construction Management","Field Management"],1],["Versatile","versatile","Versatile Inc.",["AI","Field Management","Equipment Management"],1],["Vertical","vertical","Vertical",["Payment Management"],1],["Veyor","veyor","Veyor",["Field Management","Construction Management"],1],["Viewpoint Vista & Spectrum Integration by Morpheus","viewpoint-vista-and-spectrum-integration-by-morpheus","Morpheus Technology Group",["Accounting & ERP"],1],["VIRTUELE RFI Manager","virtuele-rfi-manager","VIRTUELE",["RFI & Submittal Management","Construction Management","Collaboration & Communication"],1],["VisiLean Ltd.","visilean-ltd","VisiLean",["Construction Management","Project Management","Scheduling","BIM Coordination","Field Management"],1],["Voyage Control","voyage-control","Voyage Control",["Field Management","Construction Management"],1],["what3words","what3words","what3words Limited",["Surveying & GIS","Field Management"],1],["Whistle Rewards","whistle-rewards","Whistle Systems Inc.",["Workforce Management","Safety & Compliance"],1],["Work Zone Cam","work-zone-cam","Work Zone Cam",["Drone & Site Monitoring"],1],["Work Zone Cam Embedded","work-zone-cam-embedded","Work Zone Cam",["Drone & Site Monitoring"],1],["WrapSheet® by CR Solutions","wrapsheet-by-cr-solutions","Consolidated Risk Solutions",["Safety & Compliance"],1],["Xero Integration by 0link","xero-integration-by-0link","Smoothx",["Accounting & ERP","Construction Management"],1],["Yardi Connector for Project Financials","yardi-connector-for-project-financials","Gelbgroup Consulting",["Accounting & ERP","Construction Management"],1],["Zebel","zebel","Zebel Group Inc.",["Estimating & Takeoff","Analytics & Reporting"],1],["Zeitview (formerly DroneBase)","zeitview-formerly-dronebase","Zeitview",["Drone & Site Monitoring","Analytics & Reporting"],1],["ZeroPunch","zeropunch","DAERO",["Field Management","Punch List & QA/QC","AI"],1],["zipBoard Document Review and Collaboration","zipboard-document-review-and-collaboration","zipBoard Tech Inc.",["Document Management","Collaboration & Communication"],1],["Zoho Books Connector by 0link","zoho-books-connector-by-0link","Smoothx",["Accounting & ERP"],1]]}},"partnerFields":["name","slug","vendor","categories","integrations"],"note":"The connected products and their categories are the review app records on 2026-11-23 (read tools only). \"promoted\" scope = products live on the site; \"all\" = every product record, most not yet promoted. Which products are claimed is not in any read tool; the mock-up decides it with a stand-in rule."};</script>
+<script>
+/* Mock-up 9w: the integration wheel in the product page hero (AECI-2018).
+ *
+ * One script, three roles:
+ *   - render: pure data -> HTML. The build (9w-build.mjs) runs it in Node to write the
+ *     server HTML of the default state into the page, so the file reads with no script.
+ *   - enhance(): the hydrated behaviour (arrows, the jump list, the ring's arrow keys, the card).
+ *   - harness(): when the file is opened on its own, it becomes a control strip with the
+ *     page in a frame at 1440, 390 or 320 wide, so states can be toggled and compared.
+ *
+ * Every string that reaches markup goes through esc(). The data is the review app's own
+ * records, built into the file; nothing comes from the URL but numbers and option keys.
+ */
+(function (root) {
+  'use strict';
+  var W = {};
+  var DATA = root.WHEEL_DATA;
+
+  /* ---------- Defaults: the recommended values ---------- */
+  var DEFAULTS = {
+    product: 'medium', // small | cc | revit | medium | live | large | full
+    claim: 'claimed', // claimed | unclaimed (the page's own product)
+    listings: 'mixed', // mixed | claimed | unclaimed: the products on the ring (ruling 64: only the card's label differs)
+    cut: 'fit', // fit | fixed: modes by what fits at the real width, or by the numbers below
+    tmin: 28, // smallest tile beside the text (lg and up), px. Phones use 24.
+    one: 30, // fixed: one ring up to this many products
+    two: 70, // fixed: two rings up to this many, dots above
+    phone: 18, // fixed: phone, one ring up to this many, dots above
+    split: 20, // desktop: a slide with more products than this takes two rings (ruling 3)
+    names: 'on', // on | off: names under tiles on slides of 8 or fewer (orchestrator's decision: on)
+    first: 0, // boundary test: only the first N products A to Z (0 = all)
+    slide: 0,
+  };
+  W.DEFAULTS = DEFAULTS;
+
+  var GAP = 8; // between tiles on a ring, px
+  var EDGE = 6; // room for the 3px focus ring at the stage edge
+  var RING_GAP = 12; // between the two rings
+  var TMAX_DESK = 48;
+  var TMAX_PHONE = 40;
+  var TMAX_TWO = 40;
+  var TMIN_PHONE = 24;
+  var PHONE_BELOW = 320; // a stage narrower than this is a phone: one ring, no second ring
+
+  /* ---------- Helpers ---------- */
+  function esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function setHtml(el, s) {
+    el.replaceChildren();
+    el.insertAdjacentHTML('beforeend', s);
+  }
+  function cmp(a, b) {
+    return a.localeCompare(b, 'en', { sensitivity: 'base' }) || (a < b ? -1 : a > b ? 1 : 0);
+  }
+  function hash(s) {
+    var h = 2166136261;
+    for (var i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    // Final mix (murmur3 fmix32), so a short name's low bits are not biased.
+    h ^= h >>> 16;
+    h = Math.imul(h, 0x85ebca6b);
+    h ^= h >>> 13;
+    h = Math.imul(h, 0xc2b2ae35);
+    h ^= h >>> 16;
+    return h >>> 0;
+  }
+  function initial(name) {
+    var m = String(name).match(/[A-Za-z0-9]/);
+    return m ? m[0].toUpperCase() : '?';
+  }
+  function plural(n, one, many) {
+    return n === 1 ? '1 ' + one : n + ' ' + many;
+  }
+  function slugify(s) {
+    return s.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  }
+
+  /* Stand-in logos. No vendor logo is used: a claimed product shows one of these
+     procedural marks (the palette and glyphs of mock-ups 7 and 8, src/shared.js). */
+  var PAL = [['#2F6FD0', '#163B7E', '#BFD5FF'], ['#E0663A', '#93300F', '#FFD9C4'], ['#1E9E8A', '#0A5A4F', '#B8F0E4'], ['#6B4FC8', '#382285', '#D9CEFF'],
+    ['#7E8F2A', '#3F4B0E', '#E6F0A8'], ['#D23F55', '#83152A', '#FFC9D2'], ['#2C4A7A', '#111F3A', '#A9C4F0'], ['#E5A11F', '#A15C05', '#FFE7B0'],
+    ['#2E8A4F', '#114727', '#BDEFCB'], ['#56657A', '#252D38', '#C9D5E3'], ['#B8478A', '#6B1A4D', '#F7C6E2'], ['#1798B8', '#0A5568', '#B5EBF7'],
+    ['#9A6A3E', '#4F3216', '#F2D8BC'], ['#4256C9', '#1E2A7A', '#C8D0FF']];
+  var GLYPH = [
+    '<circle cx="24" cy="24" r="11" fill="none" stroke="#fff" stroke-width="4"/><circle cx="24" cy="24" r="3.6" fill="{a}"/>',
+    '<path d="M14 34 25 14M23 34l11-20" stroke="#fff" stroke-width="4.6" stroke-linecap="round"/>',
+    '<path d="m13 27 11-11 11 11" fill="none" stroke="#fff" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/><path d="m17 35 7-7 7 7" fill="none" stroke="{a}" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"/>',
+    '<path d="M24 10 38 24 24 38 10 24z" fill="#fff"/><path d="M24 18.5 29.5 24 24 29.5 18.5 24z" fill="{d}"/>',
+    '<path d="M11 23a18 18 0 0 1 26 0" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round"/><path d="M16.5 29a10 10 0 0 1 15 0" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" opacity=".75"/><circle cx="24" cy="34.5" r="3" fill="{a}"/>',
+    '<g fill="#fff"><circle cx="15" cy="15" r="3"/><circle cx="24" cy="15" r="3"/><circle cx="33" cy="15" r="3"/><circle cx="15" cy="24" r="3"/><circle cx="33" cy="24" r="3"/><circle cx="15" cy="33" r="3"/><circle cx="24" cy="33" r="3"/><circle cx="33" cy="33" r="3"/></g><circle cx="24" cy="24" r="4.4" fill="{a}"/>',
+    '<path d="M24 11 37.5 35h-27z" fill="#fff"/><path d="M24 24 30 35H18z" fill="{d}"/>',
+    '<path d="M10 29c4.7-6 9.3-6 14 0s9.3 6 14 0" stroke="#fff" stroke-width="4.4" fill="none" stroke-linecap="round"/><path d="M10 20c4.7-6 9.3-6 14 0s9.3 6 14 0" stroke="{a}" stroke-width="4.4" fill="none" stroke-linecap="round"/>',
+    '<rect x="12" y="12" width="24" height="24" rx="6" fill="#fff" transform="rotate(12 24 24)"/><circle cx="24" cy="24" r="5" fill="{d}"/>',
+    '<path d="M24 10.5 35.7 17.25v13.5L24 37.5l-11.7-6.75v-13.5z" fill="none" stroke="#fff" stroke-width="4" stroke-linejoin="round"/><path d="M24 18v12" stroke="{a}" stroke-width="4" stroke-linecap="round"/>',
+    '<path d="M24 12v24M12 24h24" stroke="#fff" stroke-width="5.6" stroke-linecap="round"/><circle cx="24" cy="24" r="3.2" fill="{d}"/>',
+    '<path d="M12 36V24a12 12 0 0 1 12-12v24z" fill="#fff"/><path d="M26 36V26h10a10 10 0 0 1-10 10z" fill="{a}"/>',
+    '<path d="M11 31a13 13 0 0 1 26 0z" fill="#fff"/><path d="M9 36h30" stroke="{a}" stroke-width="3.6" stroke-linecap="round"/>',
+    '<circle cx="16" cy="32" r="4.2" fill="{a}"/><path d="M22 34 34 14" stroke="#fff" stroke-width="4.6" stroke-linecap="round"/><path d="M14 22 22 14" stroke="#fff" stroke-width="4.6" stroke-linecap="round" opacity=".6"/>',
+  ];
+  function standInLogo(name) {
+    var h = hash(name), p = PAL[h % 14], g = GLYPH[(h >>> 4) % 14];
+    return '<svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="' + p[0] + '"/>' +
+      g.replace(/\{a\}/g, p[2]).replace(/\{d\}/g, p[1]) + '</svg>';
+  }
+  /* A logo when we hold one, else the initial tile. Both share the box. On the wheel this
+     no longer depends on the claim (ruling 64); the hero and the centre keep the old rule. */
+  function mark(name, hasLogo, size) {
+    var cls = 'mk' + (size ? ' ' + size : '');
+    if (hasLogo) return '<span class="' + cls + ' logo" aria-hidden="true">' + standInLogo(name) + '</span>';
+    return '<span class="' + cls + '" aria-hidden="true"><span class="ini">' + esc(initial(name)) + '</span></span>';
+  }
+  W.mark = mark;
+
+  /* ---------- The model: the connected products A to Z, and the slides ---------- */
+  // Two separate facts (ruling 64): whether the listing is claimed, and whether we hold a
+  // logo. Both are stand-ins: no read tool returns either.
+  function partnerClaimed(name, mode) {
+    if (mode === 'claimed') return true;
+    if (mode === 'unclaimed') return false;
+    return hash(name + '#claim') % 10 < 3; // stand-in: about 3 in 10 claimed
+  }
+  function partnerHasLogo(name) {
+    return hash(name + '#logo') % 6 !== 0; // stand-in: about 1 in 6 with no logo on record
+  }
+  function model(state) {
+    var raw = DATA.products[state.product] || DATA.products.medium;
+    var rows = raw.partners || DATA.products[raw.sliceOf].partners.slice(0, raw.limit);
+    var partners = rows.map(function (r) {
+      return { name: r[0], slug: r[1], vendor: r[2], cats: r[3], n: r[4], claimed: partnerClaimed(r[0], state.listings), logo: partnerHasLogo(r[0]) };
+    });
+    partners.sort(function (a, b) {
+      return cmp(a.name, b.name) || cmp(a.slug, b.slug);
+    });
+    if (state.first > 0) partners = partners.slice(0, state.first);
+    var byCat = {};
+    partners.forEach(function (p) {
+      p.cats.forEach(function (c) {
+        (byCat[c] = byCat[c] || []).push(p);
+      });
+    });
+    var cats = Object.keys(byCat).sort(cmp);
+    var slides = [{ key: 'all', name: 'All integrations', partners: partners }].concat(
+      cats.map(function (c) {
+        return { key: slugify(c), name: c, partners: byCat[c] };
+      }),
+    );
+    slides.forEach(function (s) {
+      s.integrations = s.partners.reduce(function (t, p) {
+        return t + p.n;
+      }, 0);
+    });
+    return { raw: raw, partners: partners, slides: slides, cats: cats.length, claimed: state.claim === 'claimed' };
+  }
+  W.model = model;
+
+  /* ---------- Geometry ---------- */
+  // The stage diameter for a viewport width, from the hero band's columns.
+  function stageFor(vw) {
+    if (vw >= 1280) return 476; // 540 panel less 2 x 32 padding
+    if (vw >= 1024) return 336; // 400 panel less 2 x 32
+    var gutter = vw >= 768 ? 32 : 24, pad = vw >= 768 ? 32 : 24;
+    return Math.min(476, vw - 2 * gutter - 2 * pad);
+  }
+  W.stageFor = stageFor;
+  function cap(r, t) {
+    return Math.floor((2 * Math.PI * r) / (t + GAP));
+  }
+  function isPhone(D) {
+    return D < PHONE_BELOW;
+  }
+  W.isPhone = isPhone;
+  // Ruling 5 (orchestrator, 2026-11-24): a one-ring slide sits on the OUTER circle, so the
+  // wheel is the same size on every slide. The second ring, when a slide needs it, is inside.
+  function radii(D, t) {
+    var R = D / 2 - EDGE;
+    var outer = R - t / 2;
+    var inner = outer - t - RING_GAP;
+    return { outer: outer, inner: inner };
+  }
+  // The largest product count one ring, or two, can hold at tile size t.
+  function capacity(D, t) {
+    var r = radii(D, t);
+    return { one: cap(r.outer, t), two: isPhone(D) ? 0 : cap(r.inner, t) + cap(r.outer, t) };
+  }
+  W.capacity = capacity;
+
+  /* The mode of a slide at tile size t (rulings 3 and 4, orchestrator, 2026-11-24).
+     Desktop: one ring while the slide has no more products than the second-ring threshold
+     ("split", 20 by default) and they fit; else two rings while they fit; else dots.
+     Phone: one ring while it fits, then dots. */
+  function modeAt(n, D, t, state) {
+    var c = capacity(D, t);
+    if (isPhone(D)) return n <= c.one ? 'one' : 'dots';
+    if (n <= state.split && n <= c.one) return 'one';
+    return n <= c.two ? 'two' : 'dots';
+  }
+  // The largest tile in [tmin, top] at which n still fits in the given mode.
+  function largestTile(n, D, mode, tmin) {
+    var t = mode === 'two' ? TMAX_TWO : isPhone(D) ? TMAX_PHONE : TMAX_DESK;
+    for (; t > tmin; t--) {
+      var c = capacity(D, t);
+      if (mode === 'one' ? n <= c.one : n <= c.two) break;
+    }
+    return t;
+  }
+  /* One tile size per product. It is set once, from the largest slide that is tiled at the
+     smallest tile, at the largest size that slide fits in its mode. Every tiled slide uses
+     it, and takes its own ring count at that size (ruling 4), so tiles never resize. */
+  function productTile(slides, D, state) {
+    var tmin = isPhone(D) ? TMIN_PHONE : state.tmin;
+    var ref = null;
+    for (var i = 0; i < slides.length; i++) {
+      var n = slides[i].partners.length;
+      if (modeAt(n, D, tmin, state) !== 'dots' && (!ref || n > ref)) ref = n;
+    }
+    if (!ref) return tmin;
+    return largestTile(ref, D, modeAt(ref, D, tmin, state), tmin);
+  }
+  W.productTile = productTile;
+
+  function layout(slide, D, state, slides) {
+    var n = slide.partners.length;
+    var twoOk = !isPhone(D);
+    var tmin = twoOk ? state.tmin : TMIN_PHONE;
+    var mode, tFixed = 0;
+    if (state.cut === 'fit') {
+      tFixed = productTile(slides || [slide], D, state);
+      mode = modeAt(n, D, tFixed, state);
+    } else if (!twoOk) mode = n <= state.phone ? 'one' : 'dots';
+    else mode = n <= state.one ? 'one' : n <= state.two ? 'two' : 'dots';
+    var out = { mode: mode, D: D, n: n, items: [], rings: [], warn: '' };
+    if (mode === 'dots') return dotLayout(slide, D, out);
+    // The fixed-numbers comparison may force a count past capacity; that is warned.
+    var t = tFixed || largestTile(n, D, mode, tmin);
+    var rr = radii(D, t);
+    var c2 = capacity(D, t);
+    if (mode === 'one' && n > c2.one) out.warn = 'Over capacity: ' + n + ' products on one ring that holds ' + c2.one + ' at ' + t + 'px.';
+    if (mode === 'two' && n > c2.two) out.warn = 'Over capacity: ' + n + ' products on two rings that hold ' + c2.two + ' at ' + t + 'px.';
+    out.t = t;
+    out.rOuter = rr.outer;
+    out.rInner = twoOk ? rr.inner : 0;
+    var groups;
+    if (mode === 'one') groups = [[rr.outer, n]];
+    else {
+      // A to Z fills the inner ring, then continues on the outer ring. The split keeps
+      // the same spacing on both rings, so neither looks emptier.
+      var k = Math.min(cap(rr.inner, t), Math.round((n * rr.inner) / (rr.inner + rr.outer)));
+      groups = [[rr.inner, k], [rr.outer, n - k]];
+    }
+    groups.forEach(function (g) {
+      out.rings.push(g[0]);
+      for (var j = 0; j < g[1]; j++) {
+        var a = (j / g[1]) * 2 * Math.PI - Math.PI / 2; // 12 o'clock, clockwise
+        out.items.push({ x: (Math.cos(a) * g[0] * 100) / D, y: (Math.sin(a) * g[0] * 100) / D });
+      }
+    });
+    return out;
+  }
+  function dotLayout(slide, D, out) {
+    var m = slide.integrations;
+    var dd = D >= 400 ? 6 : 5, pitch = D >= 400 ? 10 : 8;
+    if (D < 400) out.small = true;
+    var R = D / 2 - EDGE - dd / 2;
+    var caps = [], total = 0, k = 0;
+    while (total < m) {
+      var r = R - k * pitch;
+      var c = Math.floor((2 * Math.PI * r) / pitch);
+      caps.push([r, c]);
+      total += c;
+      k++;
+    }
+    // Spread the dots over the rings by circumference, outer ring first, A to Z clockwise.
+    var sumR = caps.reduce(function (t, x) { return t + x[0]; }, 0), left = m;
+    var dots = [];
+    caps.forEach(function (rc, idx) {
+      var cnt = idx === caps.length - 1 ? left : Math.min(rc[1], Math.round((m * rc[0]) / sumR));
+      left -= cnt;
+      for (var j = 0; j < cnt; j++) {
+        var a = (j / cnt) * 2 * Math.PI - Math.PI / 2;
+        dots.push([(Math.cos(a) * rc[0] * 100) / D, (Math.sin(a) * rc[0] * 100) / D]);
+      }
+    });
+    out.dots = dots;
+    out.dd = (dd * 100) / D;
+    out.rings = caps.map(function (x) { return x[0]; });
+    return out;
+  }
+  W.layout = layout;
+
+  /* ---------- Rendering ---------- */
+  function countLine(s) {
+    return plural(s.partners.length, 'product', 'products');
+  }
+  function stageInner(m, s, L, state) {
+    var p = m.raw;
+    var h = '';
+    // Guides: the orbit(s) the tiles sit on, and a dashed frame at the stage edge.
+    h += '<svg class="guides" viewBox="-50 -50 100 100" aria-hidden="true" focusable="false">';
+    var rf = 50 - (EDGE * 50) / L.D;
+    h += '<circle class="frame" r="' + rf.toFixed(2) + '"/>';
+    // A to Z starts at 12 o'clock: one short Clay stroke marks it.
+    h += '<path class="start" d="M0 ' + (-rf - 1.4).toFixed(2) + 'V' + (-rf + 2.2).toFixed(2) + '"/>';
+    // The orbits: the outer one always; the inner one only while a slide needs a second ring.
+    // It fades out and back as slides change (ruling 4).
+    if (L.mode !== 'dots') {
+      h += '<circle class="orbit" r="' + ((L.rOuter * 100) / L.D).toFixed(2) + '"/>';
+      if (L.rInner > 0) h += '<circle class="orbit inner' + (L.mode === 'two' ? '' : ' off') + '" r="' + ((L.rInner * 100) / L.D).toFixed(2) + '"/>';
+    }
+    h += '</svg>';
+    // The ring: a real list of links, A to Z, one tab stop.
+    var label = s.name + ', ' + countLine(s) + ', A to Z';
+    // Names under tiles: slides of 8 or fewer, and only on a stage of 260px or more. At
+    // 320 (a 224px stage) the names run into the tiles and the hub, so they are off there.
+    var names = state.names === 'on' && s.partners.length <= 8 && L.D >= 260;
+    h += '<ul class="ring' + (names ? ' names' : '') + '" aria-label="' + esc(label) + '" style="--t:' + (((L.t || 0) * 100) / L.D).toFixed(3) + '">';
+    if (L.mode !== 'dots') {
+      s.partners.forEach(function (q, i) {
+        var it = L.items[i];
+        h += '<li style="--x:' + it.x.toFixed(2) + ';--y:' + it.y.toFixed(2) + '"><a class="tile" href="/products/' + esc(p.slug) + '/integrations/' + esc(q.slug) + '"' +
+          ' data-i="' + i + '" tabindex="' + (i === 0 ? '0' : '-1') + '">' + mark(q.name, q.logo) + '<span class="lbl">' + esc(q.name) + '</span></a></li>';
+      });
+    }
+    h += '</ul>';
+    // Dots: one per integration. Not links, so not in the list.
+    if (L.mode === 'dots') {
+      h += '<svg class="dotfield" viewBox="-50 -50 100 100" aria-hidden="true" focusable="false">';
+      var rr = (L.dd / 2).toFixed(2);
+      L.dots.forEach(function (d) { h += '<circle cx="' + d[0].toFixed(2) + '" cy="' + d[1].toFixed(2) + '" r="' + rr + '"/>'; });
+      h += '</svg>';
+    }
+    var where = s.key === 'all' ? 'in ' + plural(m.cats, 'category', 'categories') : 'in ' + s.name;
+    h += '<div class="hub"><div class="hub-mark">' + mark(p.name, m.claimed, 'md') + '</div>' +
+      '<p class="hub-count"><b>' + s.integrations + '</b><span>' + (s.integrations === 1 ? 'integration ' : 'integrations ') + esc(where) + '</span></p></div>';
+    return h;
+  }
+  W.stageInner = stageInner;
+
+  // The lines under the wheel. A tile slide: the ranking line, then ruling 64's logo line,
+  // the same on every tile slide whatever the mix of listings. A dots slide shows no logos,
+  // so it keeps only its own line.
+  function footHtml(mode) {
+    if (mode === 'dots') return 'Too many to show as tiles. Each dot is one integration.';
+    return '<span class="fl">Shown A to Z. Position is not a ranking.</span> ' +
+      '<span class="fl"><span class="ph">Logos identify products only</span> <span class="ph">and imply no endorsement</span> <span class="ph">or affiliation.</span> ' +
+      '<span class="ph">Listings may be unclaimed.</span></span>';
+  }
+  function renderWheel(m, state, D) {
+    var i = Math.max(0, Math.min(state.slide, m.slides.length - 1));
+    var s = m.slides[i];
+    var L = layout(s, D, state, m.slides);
+    var h = '<section class="wheel" aria-labelledby="wheel-title" data-slide="' + i + '">';
+    // With script: the arrows and the title that opens the list. Without: a static heading.
+    h += '<div class="wheel-head">' +
+      '<button type="button" class="wheel-step" data-step="-1" aria-label="Previous category"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg></button>' +
+      '<h2 class="wheel-title" id="wheel-title"><button type="button" class="wheel-jump" aria-expanded="false" aria-controls="jump-list">' +
+      '<span class="nm"><span>' + esc(s.name) + '</span><svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>' +
+      '<span class="sr">, </span><span class="ct">' + countLine(s) + '</span></button></h2>' +
+      '<button type="button" class="wheel-step" data-step="1" aria-label="Next category"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>' +
+      '<ul class="jump-list" id="jump-list" aria-label="Jump to a category" hidden></ul></div>';
+    h += '<h2 class="wheel-static-title">All integrations<span class="ct">' + countLine(s) + ', ' + plural(m.cats, 'category', 'categories') + '</span></h2>';
+    h += '<div class="stage' + (L.mode === 'dots' ? ' dots' : '') + '" data-mode="' + L.mode + '" data-d="' + D + '">' + stageInner(m, s, L, state) + '</div>';
+    h += '<p class="wheel-foot" id="wheel-foot">' + footHtml(L.mode) + '</p>';
+    if (L.mode === 'dots') h += '<p class="wheel-more"><a href="#integrations">See all ' + s.integrations + ' in Integrations</a></p>';
+    h += '<p class="sr" id="ring-hint">Arrow keys move between products.</p>';
+    h += '<p class="sr" aria-live="polite" id="wheel-live"></p>';
+    h += '</section>';
+    return { html: h, layout: L, slide: s };
+  }
+
+  function renderPage(state, D) {
+    var m = model(state);
+    var p = m.raw;
+    var claimed = m.claimed;
+    var total = m.partners.reduce(function (t, q) { return t + q.n; }, 0);
+    var wheel = renderWheel(m, state, D);
+    var h = '';
+    h += '<header class="site-head"><div class="wrap"><a href="#" aria-label="AEC Integrations home"><svg class="wm" viewBox="0 0 196 30" aria-hidden="true"><use href="#wm"/></svg></a>' +
+      '<nav aria-label="Main"><a href="#">Browse</a><a href="#">Search</a><a href="#" class="keep">For vendors</a></nav></div></header>';
+    h += '<main><section class="hero" aria-label="Product"><div class="wrap">';
+    h += '<nav class="crumbs" aria-label="Breadcrumb"><ol><li><a href="#">Home</a></li><li><a href="#">Products</a></li><li><span aria-current="page">' + esc(p.name) + '</span></li></ol></nav>';
+    h += '<div class="hero-grid"><div class="hero-text">';
+    h += '<div class="namerow"><div class="hmark">' + mark(p.name, claimed, 'big') + '</div><div><h1><span class="display">' + esc(p.name) + '</span></h1>';
+    h += '<p class="byline">by <a href="#">' + esc(p.vendor) + '</a></p>';
+    if (!claimed) h += '<div class="unclaimed">' + mark(p.name, true) + '<span>Unclaimed · not affiliated with or endorsed by this vendor</span></div>';
+    h += '</div></div>';
+    h += '<p class="lede" aria-hidden="true">' + esc(p.lede) + '</p>';
+    h += '<p class="reviews-none">No reviews yet</p>';
+    h += '<div class="hacts"><a class="btn btn-on-brand" href="#">Visit website <svg class="ico s" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg><span class="sr">(opens in a new tab)</span></a>' +
+      '<a class="btn btn-on-brand-2" href="#">Write a review</a></div>';
+    // The card is fixed to the viewport, so the hero never clips it. It sits outside the
+    // wheel (the wheel is a size container, which would trap a fixed child) and inside main.
+    h += '</div><div class="panel">' + wheel.html + '<div class="pcard" id="pcard" role="tooltip" hidden></div></div></div></div></section>';
+    h += '<div class="ground"><div class="wrap"><div class="facts">' +
+      '<div class="stat"><div class="fig">' + total + '</div><div class="lab">integrations</div></div>' +
+      '<div><p class="overline">Vendor</p><p>' + esc(p.vendor) + '</p></div>' +
+      '<div><p class="overline">Categories</p><p>' + esc(p.categories.join(', ')) + '</p></div>' +
+      '<div><p class="overline">Resources</p><p>Website</p></div></div></div></div>';
+    h += '<section id="integrations" class="wrap body-band" aria-labelledby="int-h"><h2 id="int-h">Integrations</h2></section>';
+    h += '</main>';
+    return { html: h, model: m, wheel: wheel };
+  }
+  W.renderPage = renderPage;
+
+  /* ---------- State in the URL ---------- */
+  var KEYS = /^[a-z]+$/;
+  function readState(search) {
+    var q = new URLSearchParams(search || '');
+    var s = {};
+    Object.keys(DEFAULTS).forEach(function (k) {
+      var v = q.has(k) ? q.get(k) : DEFAULTS[k];
+      if (typeof DEFAULTS[k] === 'number') s[k] = Math.max(0, Math.min(400, Number(v) || 0));
+      else s[k] = KEYS.test(String(v)) ? String(v) : DEFAULTS[k];
+    });
+    if (s.tmin < 16) s.tmin = DEFAULTS.tmin;
+    if (!DATA.products[s.product]) s.product = DEFAULTS.product;
+    return s;
+  }
+  W.readState = readState;
+  function query(state) {
+    var q = new URLSearchParams();
+    Object.keys(DEFAULTS).forEach(function (k) {
+      if (String(state[k]) !== String(DEFAULTS[k])) q.set(k, state[k]);
+    });
+    return q.toString();
+  }
+  W.query = query;
+
+  /* ---------- Enhancement: the hydrated wheel ---------- */
+  function enhance(doc, state) {
+    var win = doc.defaultView;
+    var page = doc.getElementById('page');
+    var D = stageFor(win.innerWidth);
+    var out = renderPage(state, D);
+    setHtml(page, out.html);
+    var m = out.model;
+    var cur = Math.max(0, Math.min(state.slide, m.slides.length - 1));
+    var section = page.querySelector('.wheel');
+    var stage = section.querySelector('.stage');
+    var jump = section.querySelector('.wheel-jump');
+    var list = section.querySelector('.jump-list');
+    var live = section.querySelector('#wheel-live');
+    var card = doc.getElementById('pcard');
+    var active = 0; // the ring's one tab stop
+    var lastLayout = out.wheel.layout;
+
+    function report() {
+      if (win.parent !== win) {
+        var s = m.slides[cur], L = lastLayout, c = capacity(L.D, isPhone(L.D) ? TMIN_PHONE : state.tmin);
+        win.parent.postMessage({ wheel: { slide: s.name, i: cur, of: m.slides.length, n: s.partners.length, m: s.integrations, mode: L.mode, t: L.t, D: L.D, rings: L.rings.length, cap1: c.one, cap2: c.two, warn: L.warn } }, '*');
+      }
+      W.last = { slide: m.slides[cur].name, mode: lastLayout.mode, t: lastLayout.t, D: lastLayout.D, n: m.slides[cur].partners.length, warn: lastLayout.warn };
+    }
+    function names() {
+      var n = m.slides.length;
+      section.querySelector('[data-step="-1"]').setAttribute('aria-label', 'Previous category: ' + m.slides[(cur - 1 + n) % n].name);
+      section.querySelector('[data-step="1"]').setAttribute('aria-label', 'Next category: ' + m.slides[(cur + 1) % n].name);
+    }
+    function show(i, announce) {
+      var n = m.slides.length;
+      cur = (i + n) % n;
+      var s = m.slides[cur];
+      var D2 = stage.getBoundingClientRect().width || D;
+      var L = layout(s, Math.round(D2), state, m.slides);
+      lastLayout = L;
+      hideCard();
+      stage.className = 'stage' + (L.mode === 'dots' ? ' dots' : '');
+      stage.dataset.mode = L.mode;
+      var wasOn = !!stage.querySelector('.orbit.inner:not(.off)');
+      setHtml(stage, stageInner(m, s, L, state));
+      var inner = stage.querySelector('.orbit.inner');
+      if (inner && wasOn !== (L.mode === 'two')) {
+        // Start from the old state, then let the transition run to the new one.
+        inner.classList.toggle('off', !wasOn);
+        inner.getBoundingClientRect();
+        inner.classList.toggle('off', L.mode !== 'two');
+      }
+      jump.querySelector('.nm span').textContent = s.name;
+      jump.querySelector('.ct').textContent = countLine(s);
+      setHtml(section.querySelector('#wheel-foot'), footHtml(L.mode));
+      section.dataset.slide = cur;
+      var more = section.querySelector('.wheel-more');
+      if (more) more.remove();
+      active = 0;
+      wireRing();
+      names();
+      if (announce) live.textContent = s.name + ', ' + countLine(s) + '. ' + (cur + 1) + ' of ' + n + '.';
+      report();
+    }
+    W.show = show;
+
+    /* The jump list */
+    function openList() {
+      setHtml(list, m.slides.map(function (s, i) {
+        return '<li><button type="button" data-go="' + i + '"' + (i === cur ? ' aria-current="true"' : '') + '><span>' + esc(s.name) + '</span><span class="n">' + s.partners.length + '</span></button></li>';
+      }).join(''));
+      list.hidden = false;
+      jump.setAttribute('aria-expanded', 'true');
+      var b = list.querySelector('[aria-current]') || list.querySelector('button');
+      b.focus();
+      b.scrollIntoView({ block: 'nearest' });
+    }
+    function closeList(focus) {
+      if (list.hidden) return;
+      list.hidden = true;
+      jump.setAttribute('aria-expanded', 'false');
+      if (focus) jump.focus();
+    }
+    W.openList = openList;
+    jump.addEventListener('click', function () {
+      if (list.hidden) openList();
+      else closeList(true);
+    });
+    list.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-go]');
+      if (!b) return;
+      closeList(true);
+      show(Number(b.dataset.go), true);
+    });
+    list.addEventListener('keydown', function (e) {
+      var bs = [].slice.call(list.querySelectorAll('button')), k = bs.indexOf(doc.activeElement);
+      if (e.key === 'ArrowDown') { e.preventDefault(); bs[Math.min(bs.length - 1, k + 1)].focus(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); bs[Math.max(0, k - 1)].focus(); }
+      else if (e.key === 'Home') { e.preventDefault(); bs[0].focus(); }
+      else if (e.key === 'End') { e.preventDefault(); bs[bs.length - 1].focus(); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeList(true); }
+      else if (e.key === 'Tab') closeList(false);
+    });
+    doc.addEventListener('click', function (e) {
+      if (!list.hidden && !e.target.closest('.wheel-title') && !e.target.closest('.jump-list')) closeList(false);
+    });
+
+    /* The arrows: no auto-play, and they wrap from the last category back to All. */
+    section.querySelectorAll('.wheel-step').forEach(function (b) {
+      b.addEventListener('click', function () {
+        closeList(false);
+        show(cur + Number(b.dataset.step), true);
+      });
+    });
+
+    /* The card: hover, keyboard focus and tap-and-hold. Hoverable, and Escape dismisses it. */
+    var hideTimer = 0, holdTimer = 0, cardFor = null, held = false;
+    function cardHtml(q) {
+      // Ruling 64: an unclaimed listing says so in text, read with the name. A claimed one has no label.
+      var label = q.claimed ? '' : '<span class="sr">, </span><span class="uc">Unclaimed</span>';
+      return mark(q.name, q.logo) + '<div><div class="nm">' + esc(q.name) + label + '</div>' + (q.vendor ? '<div class="by">by ' + esc(q.vendor) + '</div>' : '') + '</div>';
+    }
+    function showCard(a) {
+      clearTimeout(hideTimer);
+      var q = m.slides[cur].partners[Number(a.dataset.i)];
+      if (!q) return;
+      setHtml(card, cardHtml(q));
+      card.hidden = false;
+      if (cardFor && cardFor !== a) {
+        cardFor.classList.remove('is-active');
+        cardFor.removeAttribute('aria-describedby');
+      }
+      cardFor = a;
+      a.classList.add('is-active');
+      a.setAttribute('aria-describedby', 'pcard');
+      place(a);
+    }
+    W.showCard = function (i) { showCard(stage.querySelectorAll('.tile')[i]); };
+    /* Ruling 1 (Chris, 2026-11-24): the card opens toward the centre of the wheel. It is
+       kept inside the stage from top to bottom, so it never covers the title above the
+       wheel or the two lines below it, and inside the screen from side to side. */
+    function place(a) {
+      var r = a.getBoundingClientRect(), st = stage.getBoundingClientRect();
+      var cw = card.offsetWidth, ch = card.offsetHeight, vw = doc.documentElement.clientWidth, M = 8, G = 12;
+      var cx = st.left + st.width / 2, cy = st.top + st.height / 2;
+      var tx = r.left + r.width / 2, ty = r.top + r.height / 2;
+      var dx = cx - tx, dy = cy - ty; // toward the centre
+      var x, y;
+      if (Math.abs(dx) >= Math.abs(dy) * 0.6) {
+        // A side tile: the card goes beside it, on the centre's side.
+        x = dx >= 0 ? r.right + G : r.left - G - cw;
+        y = ty - ch / 2;
+      } else {
+        // A top or bottom tile: the card goes below or above it, toward the centre.
+        x = tx - cw / 2;
+        y = dy >= 0 ? r.bottom + G : r.top - G - ch;
+      }
+      x = Math.max(M, Math.min(vw - M - cw, x));
+      y = Math.max(st.top, Math.min(st.bottom - ch, y));
+      card.style.left = Math.round(x) + 'px';
+      card.style.top = Math.round(y) + 'px';
+    }
+    function hideCard() {
+      clearTimeout(hideTimer);
+      card.hidden = true;
+      if (cardFor) {
+        cardFor.classList.remove('is-active');
+        cardFor.removeAttribute('aria-describedby');
+      }
+      cardFor = null;
+    }
+    function hideSoon() {
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(hideCard, 120);
+    }
+    card.addEventListener('pointerenter', function () { clearTimeout(hideTimer); });
+    card.addEventListener('pointerleave', function () {
+      if (!(cardFor && cardFor === doc.activeElement)) hideSoon();
+    });
+    doc.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && !card.hidden) { e.preventDefault(); hideCard(); }
+    });
+    win.addEventListener('scroll', function () { if (cardFor) place(cardFor); }, { passive: true });
+
+    function tiles() {
+      return [].slice.call(stage.querySelectorAll('.tile'));
+    }
+    function focusTile(i) {
+      var ts = tiles();
+      if (!ts.length) return;
+      i = (i + ts.length) % ts.length;
+      ts.forEach(function (t, j) { t.tabIndex = j === i ? 0 : -1; });
+      active = i;
+      ts[i].focus();
+    }
+    function wireRing() {
+      var ring = stage.querySelector('.ring');
+      ring.setAttribute('aria-describedby', 'ring-hint wheel-foot');
+      tiles().forEach(function (a) {
+        a.addEventListener('pointerenter', function (e) { if (e.pointerType !== 'touch') showCard(a); });
+        a.addEventListener('pointerleave', function (e) { if (e.pointerType !== 'touch' && a !== doc.activeElement) hideSoon(); });
+        a.addEventListener('focus', function () {
+          active = Number(a.dataset.i);
+          tiles().forEach(function (t, j) { t.tabIndex = j === active ? 0 : -1; });
+          showCard(a);
+        });
+        a.addEventListener('blur', function () { hideSoon(); });
+        a.addEventListener('pointerdown', function (e) {
+          if (e.pointerType !== 'touch') return;
+          held = false;
+          holdTimer = setTimeout(function () { held = true; showCard(a); }, 450);
+        });
+        ['pointerup', 'pointercancel'].forEach(function (ev) {
+          a.addEventListener(ev, function () { clearTimeout(holdTimer); });
+        });
+        a.addEventListener('click', function (e) {
+          e.preventDefault(); // mock-up: the pair pages are not in this file
+          held = false; // a hold showed the card, so its release does not navigate
+        });
+        a.addEventListener('contextmenu', function (e) { if (held) e.preventDefault(); });
+      });
+      ring.addEventListener('keydown', function (e) {
+        var k = e.key;
+        if (k === 'ArrowRight' || k === 'ArrowDown') { e.preventDefault(); focusTile(active + 1); }
+        else if (k === 'ArrowLeft' || k === 'ArrowUp') { e.preventDefault(); focusTile(active - 1); }
+        else if (k === 'Home') { e.preventDefault(); focusTile(0); }
+        else if (k === 'End') { e.preventDefault(); focusTile(tiles().length - 1); }
+      });
+    }
+    wireRing();
+    names();
+
+    // Re-lay the ring when the stage width changes (a phone turned, a window resized).
+    var lastD = Math.round(stage.getBoundingClientRect().width);
+    if (win.ResizeObserver) {
+      new win.ResizeObserver(function () {
+        var d = Math.round(stage.getBoundingClientRect().width);
+        if (d && Math.abs(d - lastD) > 1) { lastD = d; doc.documentElement.classList.add('no-entrance'); show(cur, false); }
+      }).observe(stage);
+    }
+    stage.addEventListener('animationend', function () { doc.documentElement.classList.add('no-entrance'); }, { once: true });
+    // The server laid the first slide out for its own guess of the width. Correct it now.
+    if (lastD && lastD !== D) show(cur, false);
+    else report();
+  }
+  W.enhance = enhance;
+
+  /* ---------- The harness: a control strip and a frame ---------- */
+  var CONTROLS = [
+    ['product', 'Product', 'select', [['small', 'Small: ALICE Optimize, 6 products'], ['cc', 'CompanyCam, 26 products'], ['revit', 'Autodesk Revit, 38 products'], ['medium', 'Medium: Autodesk Forma, 54 products'], ['live', 'Procore Project Management, live, 57 products'], ['large', 'Large: Procore Project Management, first 140 products A to Z'], ['full', 'Largest: Procore Project Management, all 387 products']]],
+    ['w', 'Width', 'radio', [['1440', '1440'], ['390', '390 phone'], ['375', '375'], ['320', '320']]],
+    ['claim', 'This product', 'radio', [['claimed', 'Claimed'], ['unclaimed', 'Unclaimed']]],
+    ['listings', 'Listings', 'radio', [['mixed', 'Mixed'], ['claimed', 'All claimed'], ['unclaimed', 'All unclaimed']]],
+    ['cut', 'Cut-offs', 'radio', [['fit', 'Fit to the width'], ['fixed', 'Fixed numbers, for comparison']]],
+    ['tmin', 'Smallest tile beside the text', 'radio', [['24', '24'], ['28', '28'], ['32', '32']]],
+    ['one', 'Fixed: one ring up to', 'number'],
+    ['two', 'Fixed: two rings up to', 'number'],
+    ['phone', 'Fixed: phone ring up to', 'number'],
+    ['first', 'Only the first N products', 'number'],
+    ['split', 'Second ring from', 'radio', [['18', 'Over 18'], ['20', 'Over 20'], ['24', 'Over 24']]],
+    ['names', 'Names under tiles, 8 or fewer', 'radio', [['off', 'Off'], ['on', 'On']]],
+    ['script', 'Script', 'radio', [['on', 'On'], ['off', 'Off: server HTML']]],
+  ];
+  function harness(doc, css, sprite) {
+    var win = doc.defaultView;
+    var q = new URLSearchParams(win.location.search);
+    var state = readState(win.location.search);
+    var w = ['1440', '390', '375', '320'].indexOf(q.get('w')) >= 0 ? q.get('w') : '1440';
+    var script = q.get('script') === 'off' ? 'off' : 'on';
+    doc.title = 'Mock-up 9w: the integration wheel (AECI-2018)';
+    doc.body.className = 'harness';
+    var h = '<div class="h-strip" role="region" aria-label="Mock-up controls"><p class="h-title">Mock-up 9w, AECI-2018: the integration wheel. Every control is a state to compare. The defaults are the recommendation.</p><div class="h-groups">';
+    CONTROLS.forEach(function (c) {
+      var key = c[0], val = key === 'w' ? w : key === 'script' ? script : String(state[key]);
+      h += '<fieldset class="h-g"><legend>' + c[1] + '</legend>';
+      if (c[2] === 'select') {
+        h += '<select name="' + key + '" aria-label="' + c[1] + '">' + c[3].map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === val ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select>';
+      } else if (c[2] === 'radio') {
+        h += c[3].map(function (o) { return '<label><input type="radio" name="' + key + '" value="' + o[0] + '"' + (o[0] === val ? ' checked' : '') + '> ' + o[1] + '</label>'; }).join('');
+      } else {
+        h += '<input type="number" min="0" max="400" name="' + key + '" value="' + esc(val) + '" aria-label="' + c[1] + '">';
+      }
+      h += '</fieldset>';
+    });
+    h += '</div><p class="h-read" id="h-read" aria-live="polite"></p></div>';
+    h += '<div class="h-stage"><div class="h-device" id="h-device"><iframe id="h-frame" title="Product page"></iframe></div></div>';
+    setHtml(doc.body, h);
+    var frame = doc.getElementById('h-frame'), device = doc.getElementById('h-device'), read = doc.getElementById('h-read');
+    function apply() {
+      var width = Number(w);
+      device.style.width = width + 'px';
+      frame.style.height = (width >= 1024 ? 1000 : 1800) + 'px';
+      var qs = query(state);
+      history.replaceState(null, '', '?' + (qs ? qs + '&' : '') + 'w=' + w + (script === 'off' ? '&script=off' : ''));
+      if (script === 'off') {
+        frame.setAttribute('sandbox', 'allow-same-origin');
+        frame.removeAttribute('src');
+        frame.srcdoc = W.document(state, stageFor(width), css, sprite);
+        read.textContent = 'Script off: the server HTML. The first slide only, placed by CSS, with no arrows and no title list.';
+      } else {
+        frame.removeAttribute('sandbox');
+        frame.removeAttribute('srcdoc');
+        frame.src = '?frame=1' + (qs ? '&' + qs : '');
+      }
+    }
+    doc.querySelectorAll('.h-strip input, .h-strip select').forEach(function (el) {
+      el.addEventListener('change', function () {
+        var k = el.name, v = el.value;
+        if (k === 'w') w = v;
+        else if (k === 'script') script = v;
+        else {
+          state[k] = typeof DEFAULTS[k] === 'number' ? Math.max(0, Math.min(400, Number(v) || 0)) : v;
+          state.slide = 0;
+        }
+        apply();
+      });
+    });
+    win.addEventListener('message', function (e) {
+      var r = e.data && e.data.wheel;
+      if (!r || e.source !== frame.contentWindow) return;
+      read.textContent = 'Slide ' + (r.i + 1) + ' of ' + r.of + ': ' + r.slide + '. ' + r.n + ' products, ' + r.m + ' integrations. ' +
+        (r.mode === 'dots' ? 'Dots on ' + r.rings + ' rings.' : (r.mode === 'two' ? 'Two rings' : 'One ring') + ', tiles ' + r.t + 'px.') +
+        ' Stage ' + r.D + 'px. At the smallest tile this stage holds ' + r.cap1 + ' on one ring' + (r.cap2 ? ' and ' + r.cap2 + ' on two.' : '.') + (r.warn ? ' ' + r.warn : '');
+    });
+    apply();
+  }
+  W.harness = harness;
+
+  /* A whole document for the page, as the server would send it, with no script. */
+  W.document = function (state, D, css, sprite) {
+    var out = renderPage(state, D);
+    return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>' + esc(out.model.raw.name) + ': integrations and reviews</title>' +
+      '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:ital,wght@0,400..700;1,400..700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">' +
+      '<style>' + css + '</style></head><body>' + sprite + '<div id="page">' + out.html + '</div></body></html>';
+  };
+
+  root.Wheel = W;
+
+  /* ---------- Boot ---------- */
+  if (typeof document !== 'undefined' && document.getElementById('page')) {
+    var params = new URLSearchParams(location.search);
+    if (params.has('frame') || params.has('page')) {
+      document.documentElement.classList.add('js');
+      enhance(document, readState(location.search));
+    } else {
+      harness(document, document.getElementById('page-css').textContent, document.getElementById('sprite').outerHTML);
+    }
+  }
+})(typeof window !== 'undefined' ? window : globalThis);
+</script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { LegalAgreementDocumentSchema } from './agreements';
+import { LegalAgreementDocumentSchema } from './agreement-schemas';
 
 /**
  * The vendor portal's acceptance screen (AECI-1677). Source of truth:

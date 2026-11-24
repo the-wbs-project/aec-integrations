@@ -9,7 +9,8 @@ import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
 
 import { LEGAL_IN_FORCE_MAPS, type LegalInForceMaps } from '@aeci/shared/api/legal-in-force';
-import { legalEffectiveAtMs, type LegalPublishedResponse } from '@aeci/shared/api/legal-versions';
+import { type LegalPublishedResponse } from '@aeci/shared/api/legal-versions';
+import { legalEffectiveAtMs } from '@aeci/shared/api/legal-moment';
 
 import {
   LEGAL_IN_FORCE_CLIENT_MAPS,

@@ -1,26 +1,14 @@
 import { z } from 'zod';
 
+import { HTTPS_URL_MAX_LENGTH, isHttpsUrl } from './https-url-rule';
+
 /**
- * The shared "vendor-supplied web link" rule: an absolute `https:` URL with no
- * embedded credentials, at most 2,048 characters.
+ * The Zod form of the shared web-link rule in `./https-url-rule`.
  *
- * Extracted from `LogoUrlSchema` (AECI-955) when AECI-1007 needed the same rule for
- * per-side integration links, so the two cannot drift. Never `http:`, never a
- * `data:` / `javascript:` URL, never a relative path: every value this admits is
- * rendered as an `href`, and a scheme allowlist is the cheapest place to keep a
- * script URL out of one.
+ * The rule itself lives in a zod-free file (AECI-2033) so that public pages that
+ * only call `isHttpsUrl` do not load zod. Import the rule from there, not from
+ * here, and never re-export it from this file.
  */
-export const HTTPS_URL_MAX_LENGTH = 2048;
-
-export function isHttpsUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return url.protocol === 'https:' && !url.username && !url.password;
-  } catch {
-    return false;
-  }
-}
-
 export const HttpsUrlSchema = z
   .string()
   .trim()

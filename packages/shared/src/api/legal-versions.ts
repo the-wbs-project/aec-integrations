@@ -1,11 +1,12 @@
 import { z } from 'zod';
 
+import { LegalPublishableDocumentSchema } from './agreement-schemas';
 import {
   isLegalCompanyNoticeDocument,
   isLegalPolicyDocument,
-  LegalPublishableDocumentSchema,
   type LegalPublishableDocument,
 } from './agreements';
+import { LEGAL_DOCUMENT_SLUGS } from './legal-moment';
 
 /**
  * Published legal versions (AECI-1688). Source of truth: `STAGE_1_SPEC.md` §27.5,
@@ -35,18 +36,6 @@ export const LEGAL_SUMMARY_BULLET_MAX = 300;
 export const LEGAL_NOTICE_WINDOW_DAYS = 30;
 /** The largest PDF a publish accepts. */
 export const LEGAL_PDF_MAX_BYTES = 5 * 1024 * 1024;
-/** The hour (UTC) of the effective day at which a version takes effect. */
-export const LEGAL_EFFECTIVE_HOUR_UTC = 12;
-
-/** document → the public route slug (`/legal/<slug>`). Every publishable document. */
-export const LEGAL_DOCUMENT_SLUGS = {
-  vendor_terms: 'vendor-terms',
-  managed_plan: 'managed-plan-agreement',
-  terms: 'terms',
-  privacy: 'privacy',
-  listing_accuracy: 'listing-accuracy',
-  review_guidelines: 'review-guidelines',
-} as const satisfies Record<LegalPublishableDocument, string>;
 
 /**
  * The R2 key `legal-pdf.yml` uploads to: `legal/<slug>/v<version>.pdf`. Callers pass a
@@ -84,32 +73,6 @@ export function compareLegalVersions(a: string, b: string): number {
     if (d !== 0) return d < 0 ? -1 : 1;
   }
   return 0;
-}
-
-const DAY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
-
-/**
- * The moment a version takes effect: 12:00 UTC on its `effectiveOn` day (`YYYY-MM-DD`),
- * in epoch ms. NaN when the day is not a real calendar day.
- *
- * Not midnight. 00:00 UTC is the evening before in the Americas, so a midnight moment
- * would start a version early there and shorten the 30-day notice. Noon UTC falls on the
- * named day from UTC-12 to UTC+11. The one helper for `legal_versions.effective_at` and
- * for the notice-window check (legal README "The effective moment").
- */
-export function legalEffectiveAtMs(effectiveOn: string): number {
-  const m = effectiveOn.match(DAY_RE);
-  if (!m) return Number.NaN;
-  const y = Number(m[1]);
-  const mo = Number(m[2]);
-  const d = Number(m[3]);
-  const ms = Date.UTC(y, mo - 1, d, LEGAL_EFFECTIVE_HOUR_UTC);
-  const back = new Date(ms);
-  // Date.UTC rolls 2027-02-30 into March; a rolled day is not a real day.
-  if (back.getUTCFullYear() !== y || back.getUTCMonth() !== mo - 1 || back.getUTCDate() !== d) {
-    return Number.NaN;
-  }
-  return ms;
 }
 
 /**

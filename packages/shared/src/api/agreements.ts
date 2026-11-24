@@ -1,5 +1,3 @@
-import { z } from 'zod';
-
 /**
  * Legal agreement acceptances (AECI-1362, E2.4 of `docs/VENDOR_SIGNUP_PROCESS.md` §4,
  * decisions 3, 9 and 17). Source of truth: `DATABASE_SCHEMA.md` §8.6d and
@@ -15,20 +13,22 @@ import { z } from 'zod';
  * agreement-state module (`AGREEMENT_STATES`, `computeAgreement`). Everything here is
  * prefixed `LEGAL_AGREEMENT_*`, `LegalAgreement*` or `AgreementAcceptance*` so the two
  * barrels never collide.
+ *
+ * NO ZOD (AECI-2033). The schemas are in `./agreement-schemas`. The public `/legal/*`
+ * and `/docs/*` pages read the tables here, so this file must stay free of `zod` and
+ * `api/*` schema imports (`eslint.config.mjs`).
  */
 
 /** `agreement_acceptances.document`. The table has no CHECK; this is the vocabulary. */
 export const LEGAL_AGREEMENT_DOCUMENTS = ['vendor_terms', 'managed_plan'] as const;
-export const LegalAgreementDocumentSchema = z.enum(LEGAL_AGREEMENT_DOCUMENTS);
-export type LegalAgreementDocument = z.infer<typeof LegalAgreementDocumentSchema>;
+export type LegalAgreementDocument = (typeof LEGAL_AGREEMENT_DOCUMENTS)[number];
 
 /** `agreement_acceptances.source`: where the acceptance was given. No CHECK either.
  *  `grant` (AECI-1615): an owner seat accepted a granted subscription in the portal, or
  *  AECi recorded a signed deal that accepts it. `portal` (AECI-1677): an owner seat
  *  accepted a newer version of an agreement on the portal's acceptance screen. */
 export const AGREEMENT_ACCEPTANCE_SOURCES = ['claim', 'checkout', 'grant', 'portal'] as const;
-export const AgreementAcceptanceSourceSchema = z.enum(AGREEMENT_ACCEPTANCE_SOURCES);
-export type AgreementAcceptanceSource = z.infer<typeof AgreementAcceptanceSourceSchema>;
+export type AgreementAcceptanceSource = (typeof AGREEMENT_ACCEPTANCE_SOURCES)[number];
 
 /**
  * The BUILD's current version of each agreement: the current file's frontmatter
@@ -142,8 +142,7 @@ export function portalAcceptanceLabel(
  * and date and says signing accepts it. NULL on every claim and checkout row.
  */
 export const AGREEMENT_ACCEPTANCE_METHODS = ['portal_checkbox', 'signed_deal'] as const;
-export const AgreementAcceptanceMethodSchema = z.enum(AGREEMENT_ACCEPTANCE_METHODS);
-export type AgreementAcceptanceMethod = z.infer<typeof AgreementAcceptanceMethodSchema>;
+export type AgreementAcceptanceMethod = (typeof AGREEMENT_ACCEPTANCE_METHODS)[number];
 
 /**
  * The SHA-256 (lowercase hex) of the exact bytes of each published version's Markdown
@@ -266,8 +265,7 @@ export function isKnownLegalPolicyVersion(
  * and the vendor acceptance screen are keyed on the two agreements only.
  */
 export const LEGAL_READER_DOCUMENTS = ['terms', 'privacy'] as const;
-export const LegalReaderDocumentSchema = z.enum(LEGAL_READER_DOCUMENTS);
-export type LegalReaderDocument = z.infer<typeof LegalReaderDocumentSchema>;
+export type LegalReaderDocument = (typeof LEGAL_READER_DOCUMENTS)[number];
 
 /**
  * Every document `/admin/legal` can publish: the two agreements, the two reader documents
@@ -280,8 +278,7 @@ export const LEGAL_PUBLISHABLE_DOCUMENTS = [
   ...LEGAL_READER_DOCUMENTS,
   ...LEGAL_POLICY_DOCUMENTS,
 ] as const;
-export const LegalPublishableDocumentSchema = z.enum(LEGAL_PUBLISHABLE_DOCUMENTS);
-export type LegalPublishableDocument = z.infer<typeof LegalPublishableDocumentSchema>;
+export type LegalPublishableDocument = (typeof LEGAL_PUBLISHABLE_DOCUMENTS)[number];
 
 /** Whether a document is one of the two policies the Vendor Terms incorporate (AECI-1969). */
 export function isLegalPolicyDocument(document: string): document is LegalPolicyDocument {
@@ -296,8 +293,7 @@ export const LEGAL_COMPANY_NOTICE_DOCUMENTS = [
   ...LEGAL_AGREEMENT_DOCUMENTS,
   ...LEGAL_POLICY_DOCUMENTS,
 ] as const;
-export const LegalCompanyNoticeDocumentSchema = z.enum(LEGAL_COMPANY_NOTICE_DOCUMENTS);
-export type LegalCompanyNoticeDocument = z.infer<typeof LegalCompanyNoticeDocumentSchema>;
+export type LegalCompanyNoticeDocument = (typeof LEGAL_COMPANY_NOTICE_DOCUMENTS)[number];
 
 /** Whether a document's notice goes to companies, not accounts. */
 export function isLegalCompanyNoticeDocument(
@@ -425,87 +421,3 @@ export function isKnownLegalAgreementVersion(
 ): boolean {
   return (LEGAL_AGREEMENT_KNOWN_VERSIONS[document] as readonly string[]).includes(version);
 }
-
-/**
- * One acceptance as an owner seat sees it on the Billing tab. Never carries `ip` or
- * `user_agent`: those are evidence for AECi, not portal data.
- */
-export const VendorAgreementAcceptanceSchema = z.object({
-  id: z.string(),
-  document: LegalAgreementDocumentSchema,
-  version: z.string(),
-  source: AgreementAcceptanceSourceSchema,
-  email: z.string(),
-  profile_id: z.string().nullable(),
-  billing_account_id: z.string().nullable(),
-  vendor_request_id: z.string().nullable(),
-  stripe_checkout_session_id: z.string().nullable(),
-  accepted_at: z.string(),
-  // AECI-1617: who signed. NULL on a checkout row and on a row older than the columns.
-  signer_name: z.string().nullable(),
-  signer_title: z.string().nullable(),
-  company_legal_name: z.string().nullable(),
-  // AECI-1615: a `grant` acceptance. Every one is NULL on a claim or checkout row.
-  /** `AGREEMENT_ACCEPTANCE_METHODS`. A plain string so an unknown token cannot break
-   *  the page. */
-  method: z.string().nullable(),
-  /** The `license_grants.id` the acceptance activated. */
-  license_grant_id: z.string().nullable(),
-  /** The grant's term end, as granted. */
-  grant_ends_at: z.string().nullable(),
-  /** SHA-256 of the agreement text at that version (`LEGAL_AGREEMENT_TEXT_SHA256`). */
-  text_sha256: z.string().nullable(),
-  /** `owner` on a portal acceptance. NULL on a signed deal. */
-  seat_role: z.string().nullable(),
-  /** A signed deal's reference (contract number, e-signature envelope). */
-  deal_reference: z.string().nullable(),
-  /** When the signed deal was signed. */
-  deal_signed_at: z.string().nullable(),
-  // AECI-1615 ruling 16: the checkbox the acceptance was given on. Both NULL on a
-  // signed deal and on a row older than the columns.
-  /** SHA-256 of the exact label shown beside the box (`AGREEMENT_CHECKBOX_LABELS`). */
-  checkbox_label_sha256: z.string().nullable(),
-  /** Whether the box started unticked. */
-  checkbox_default_unticked: z.boolean().nullable(),
-  // AECI-1619 (ruling 16, counsel Q14). Every one is NULL on a row older than the columns.
-  /** The exact label shown beside the box (`AGREEMENT_CHECKBOX_LABELS[doc].text`). NULL
-   *  on a signed deal and on a claim under an older terms version. */
-  checkbox_label: z.string().nullable(),
-  /** The Listing Accuracy Policy version the claim box named. Claim rows only. */
-  listing_accuracy_version: z.string().nullable(),
-  /** The Review Guidelines version the claim box named. Claim rows only. */
-  review_guidelines_version: z.string().nullable(),
-  /** The Plans page version current at acceptance. Checkout and grant rows only. */
-  plans_page_version: z.string().nullable(),
-  /** SHA-256 of that Plans version's snapshot file (`PLANS_PAGE_SHA256`). */
-  plans_page_sha256: z.string().nullable(),
-});
-export type VendorAgreementAcceptance = z.infer<typeof VendorAgreementAcceptanceSchema>;
-
-/** `GET /api/vendor/billing/acceptances`. Newest first, unpaginated. */
-export const VendorAgreementAcceptancesResponseSchema = z.object({
-  acceptances: z.array(VendorAgreementAcceptanceSchema),
-});
-export type VendorAgreementAcceptancesResponse = z.infer<
-  typeof VendorAgreementAcceptancesResponseSchema
->;
-
-/** One acceptance as AECi sees it: the vendor row plus the evidence columns. */
-export const AdminAgreementAcceptanceSchema = VendorAgreementAcceptanceSchema.extend({
-  vendor_id: z.string().nullable(),
-  ip: z.string().nullable(),
-  user_agent: z.string().nullable(),
-  /** AECI-1636: when the daily sweep removed `ip` and `user_agent`, 90 days after
-   *  acceptance. NULL while they are kept, and on a row that never recorded them. */
-  evidence_removed_at: z.string().nullable(),
-  created_at: z.string(),
-});
-export type AdminAgreementAcceptance = z.infer<typeof AdminAgreementAcceptanceSchema>;
-
-/** `GET /api/admin/vendors/:id/acceptances`. Newest first, unpaginated. */
-export const AdminAgreementAcceptancesResponseSchema = z.object({
-  acceptances: z.array(AdminAgreementAcceptanceSchema),
-});
-export type AdminAgreementAcceptancesResponse = z.infer<
-  typeof AdminAgreementAcceptancesResponseSchema
->;

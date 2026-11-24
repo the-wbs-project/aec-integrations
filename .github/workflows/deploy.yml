@@ -561,8 +561,17 @@ jobs:
         run: node scripts/ci/lane-plan.mjs
       - if: steps.plan.outputs.web == 'true'
         run: pnpm install --frozen-lockfile
+      # AECI-2033: `build:stats` is the same production build plus
+      # `--stats-json`, which writes `dist/browser-stats.json` (the esbuild
+      # metafile) beside `dist/browser`, never inside it, so it is not served as
+      # an asset. The next step reads it: a public route that needs no zod must
+      # not import the zod chunk. The bundle budget cannot catch that, because
+      # the zod chunk is lazy (`apps/web/scripts/check-zod-free-routes.mjs`).
       - if: steps.plan.outputs.web == 'true'
-        run: pnpm --filter @aeci/web build
+        run: pnpm --filter @aeci/web build:stats
+      - if: steps.plan.outputs.web == 'true'
+        name: Check zod-free routes
+        run: pnpm --filter @aeci/web check:zod-free-routes
       # AECI-646 note: the production build emits HIDDEN source maps, so this
       # artifact carries `.map` files. That is deliberate: the deploy job
       # downloads this artifact and `scripts/ci/posthog-sourcemaps.sh` needs the

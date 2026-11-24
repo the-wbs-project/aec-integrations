@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { legalEffectiveAtMs } from './legal-versions';
+import { legalEffectiveAtMs } from './legal-moment';
 import { companyPolicyVersion, companyPolicyVersions } from './policy-binding';
 
 /** AECI-1969, counsel Q68, ruling 54: which policy version a claimed company is on. */
