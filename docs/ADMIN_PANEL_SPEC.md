@@ -2813,13 +2813,22 @@ shown.
   computation to the same instant, so stage 1 is always present.
 - **The ingested stages are Pacific dates.** The ingest files each row under Google's or Bing's
   Pacific date, and the funnel does not re-cut it. Each ingested series gets the 28 Pacific dates
-  ending on the newest date the ingest wrote for it. That end is three to ten days behind `day`,
-  because Google finalises a day late and the ingest runs weekly. Ending on `day` would leave those
-  days empty and under-count. Google's 28-day page count is filed under the same end date, so
-  stages 3 and 4 cover the same dates. A count filed under any other date covers other dates and is
-  not read.
+  ending on the newest date that holds its daily impressions row. That end is two to nine days
+  behind `day`, because Google finalises a day late and the ingest runs weekly. Ending on `day`
+  would leave those days empty and under-count. The window is anchored on the daily series alone,
+  so a run whose daily call failed but whose page count was written does not move it forward over
+  days with no daily rows. Google's 28-day page count is filed under the same end date, so stages 3
+  and 4 cover the same dates. A count filed under any other date covers other dates and is not
+  read. Bing's stage 2 is a daily reading, not a sum, so it is the newest reading in the 28 dates
+  ending on `day`.
+- **A short window says so.** When fewer than 28 of the window's dates hold a daily row, the
+  response carries the `search_window_incomplete` note, a `warn`. The click and impression totals
+  then cover fewer days than the window. This is normal in the ingest's first weeks.
 - **A stale series is no data.** A series whose newest date falls before the 28 dates ending on
-  `day` is treated as absent, and the engine carries the `search_ingest_absent` note.
+  `day` is treated as absent.
+- **No silent omission.** An engine whose ingested stages are all omitted, for any reason, carries
+  the `search_ingest_absent` note. The panel never shows the two D1 stages alone with no
+  explanation.
 
 **Two notes on the panel, not only in this spec.** Average position is expected to fall while
 the work succeeds, because newly indexed pages enter at rank 40 to 80. Stage 1 is a UTC rolling

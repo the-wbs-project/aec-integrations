@@ -5540,8 +5540,8 @@ can be wrong in the ways §5.24.4 lists. That is the opposite of `/api/admin/rei
 queue depth cannot be qualified. Engines are `google` and `bing` in every shape, from the start.
 
 **Note codes this surface adds to `AdminNoteCodeSchema`.** The change is additive. AECI-818 added
-the five codes the queue and the trend emit. AECI-823 added the funnel's two,
-`indexed_is_impression_lower_bound` and `search_ingest_absent`.
+the five codes the queue and the trend emit. AECI-823 added the funnel's three,
+`indexed_is_impression_lower_bound`, `search_ingest_absent` and `search_window_incomplete`.
 
 | Code | Severity | When |
 |---|---|---|
@@ -5550,7 +5550,8 @@ the five codes the queue and the trend emit. AECI-823 added the funnel's two,
 | `crawl_window_clamped` | `info` | The window was clamped to `CONCRETE_PATH_SINCE`. `params.from` names the clamped start |
 | `crawler_label_includes_inspection_tool` | `info` | Every Google crawl figure, until the `Googlebot` label is split at ingest |
 | `indexed_is_impression_lower_bound` | `info` | The Google `impressed` stage is present in the funnel |
-| `search_ingest_absent` | `info` | An engine has no ingest data in the funnel's window, or only a stale series. `params.engine` names it |
+| `search_ingest_absent` | `info` | An engine has no ingested stage in the funnel, whatever the reason, so only its two D1 stages show. `params.engine` names it |
+| `search_window_incomplete` | `warn` | An engine's click window holds daily impressions rows for fewer of its 28 dates than it spans, so clicks and impressions cover fewer days. `params`: `engine`, `days_recorded`, `days`, `from`, `to` |
 | `public_site_url_unset` | `warn` | `PUBLIC_SITE_URL` is unset or unparseable, so no URL can be built |
 
 ##### `GET /api/admin/seo/queue` (AECI-818, shipped)
@@ -5706,19 +5707,19 @@ GET /api/admin/seo/funnel
       {
         engine: "google",
         scope: "www_page",
-        search_window: { from: "2026-10-27", to: "2026-11-23", timezone: "America/Los_Angeles", days: 28, days_recorded: 28 },
+        search_window: { from: "2026-10-30", to: "2026-11-26", timezone: "America/Los_Angeles", days: 28, days_recorded: 28 },
         stages: [
           { stage: "catalog",   count: 1532, rate: null,   measure: "measured",    source: "d1" },
           { stage: "crawled",   count: 410,  rate: 0.2676, measure: "measured",    source: "d1" },
           { stage: "impressed", count: 380,  rate: 0.2480, measure: "lower_bound", source: "search_console",
-            as_of: "2026-11-23" },
+            as_of: "2026-11-26" },
           { stage: "clicked",   count: 52,   rate: 0.0031, measure: "measured",    source: "search_console",
             impressions: 16800, position_avg: 33.4 }
         ],
         baseline: {
           scope: "property",
           current: { clicks: 60, impressions: 20100, ctr: 0.003, position_avg: 31.2,
-                     window: { from: "2026-10-27", to: "2026-11-23", timezone: "America/Los_Angeles", days: 28, days_recorded: 28 } },
+                     window: { from: "2026-10-30", to: "2026-11-26", timezone: "America/Los_Angeles", days: 28, days_recorded: 28 } },
           reference: { clicks: 41, impressions: 15900, ctr: 0.003, position_avg: 31.9,
                        window_end: "2026-09-05", window_months: 3, taken_on: "2026-09-09", impressions_rounded: true }
         }
@@ -5750,9 +5751,14 @@ snapshot has not yet filed `day`, the endpoint runs the same computation to the 
 
 **`search_window`.** The ingested stages use Pacific dates, because the ingest files rows under
 Google's and Bing's Pacific day and the funnel does not re-cut them. The window is the 28 Pacific
-dates ending on the newest date the ingest wrote for that engine, within the 28 dates ending on
-`day`. `days_recorded` counts the dates in it that hold a daily impressions row. It is null when
-the engine has no ingest row in reach, and the engine then carries `search_ingest_absent`.
+dates ending on the newest date that holds the engine's daily impressions row, within the 28 dates
+ending on `day`. It is anchored on that daily series alone. A run whose daily call failed but whose
+28-day page count was written does not move it forward. `days_recorded` counts the dates in it
+that hold a daily impressions row. Below 28 the engine carries `search_window_incomplete`. The
+window is null when no daily impressions row is in reach. Bing's `indexed` stage is a daily reading,
+not a sum, so it is read from the 28 dates ending on `day` and can be present with a null window.
+A Sunday 22:00 UTC run asks Google for days up to three Pacific days back, a Thursday, so the
+window ends two to nine days before `day`.
 
 **`stages`** are `catalog`, `crawled`, `indexed`, `impressed`, `clicked`, in that order. A stage
 with no data is **omitted**, never zero. Google never has `indexed` and Bing never has `impressed`
@@ -5782,7 +5788,8 @@ for like.
 **Notes.** The two standing crawl caveats on every response. `crawl_window_clamped` and
 `crawler_label_unverified` when `crawl_window` reaches past their dates.
 `indexed_is_impression_lower_bound` when the Google `impressed` stage is present.
-`search_ingest_absent` once per engine with a null `search_window`.
+`search_ingest_absent` once per engine whose stages are all D1 stages, whatever the reason.
+`search_window_incomplete` once per engine whose `search_window.days_recorded` is below 28.
 
 Errors: none beyond the admin guard's 401 and 403.
 

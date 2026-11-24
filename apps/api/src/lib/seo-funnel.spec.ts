@@ -314,6 +314,60 @@ describe('readSeoFunnel', () => {
     ]);
   });
 
+  it('anchors the click window on the daily series when the newest daily call failed', async () => {
+    // The earlier run wrote 14 daily dates ending E0 and the page count on E0. The
+    // newest run's daily call failed and its page-count call wrote on E0 + 7.
+    const e0 = shiftDay(DAY, -12);
+    const daily = Array.from({ length: 14 }, (_, i) => shiftDay(e0, -i)).flatMap((d) => [
+      row(d, 'search.google.www_page.impressions', 100),
+      row(d, 'search.google.www_page.clicks', 1),
+    ]);
+    await t.db
+      .insert(metricsDaily)
+      .values([
+        ...daily,
+        row(e0, 'search.google.www_page.catalog_pages_with_impressions_28d', 40),
+        row(shiftDay(e0, 7), 'search.google.www_page.catalog_pages_with_impressions_28d', 55),
+      ]);
+    const body = await readSeoFunnel(t.db, NOW);
+    const google = body.engines[0]!;
+    expect(google.search_window).toMatchObject({ to: e0, days: 28, days_recorded: 14 });
+    // Stage 3 is the count filed on the click window's own end, not the newer one.
+    expect(google.stages.find((s) => s.stage === 'impressed')).toMatchObject({
+      count: 40,
+      as_of: e0,
+    });
+    expect(google.stages.find((s) => s.stage === 'clicked')).toMatchObject({
+      count: 14,
+      impressions: 1400,
+    });
+    expect(body.notes.find((n) => n.code === 'search_window_incomplete')).toMatchObject({
+      severity: 'warn',
+      params: { engine: 'google', days_recorded: 14, days: 28, to: e0 },
+    });
+  });
+
+  it('carries search_ingest_absent whenever no ingested stage survives', async () => {
+    // Google: only a page count, from a run whose daily call failed. No daily row
+    // anchors a window, so stage 3 is not read and every ingested stage is gone.
+    // Bing: only an index reading, so stage 2 shows and the note does not.
+    await t.db
+      .insert(metricsDaily)
+      .values([
+        row(shiftDay(DAY, -5), 'search.google.www_page.catalog_pages_with_impressions_28d', 40),
+        row(shiftDay(DAY, -5), 'search.bing.www.in_index', 300),
+      ]);
+    const body = await readSeoFunnel(t.db, NOW);
+    expect(body.engines.map((e) => e.stages.map((s) => s.stage))).toEqual([
+      ['catalog', 'crawled'],
+      ['catalog', 'crawled', 'indexed'],
+    ]);
+    expect(
+      body.notes.filter((n) => n.code === 'search_ingest_absent').map((n) => n.params),
+    ).toEqual([{ engine: 'google' }]);
+    expect(body.notes.map((n) => n.code)).not.toContain('search_window_incomplete');
+  });
+
   it('adds the lower-bound note when Google stage 3 is present', async () => {
     const end = shiftDay(DAY, -5);
     await t.db

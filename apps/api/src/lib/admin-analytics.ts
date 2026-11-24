@@ -1285,6 +1285,9 @@ const SEVERITY: Record<AdminNoteCode, 'info' | 'warn'> = {
   // zeroing them, so no figure on the panel is wrong.
   indexed_is_impression_lower_bound: 'info',
   search_ingest_absent: 'info',
+  // A `warn`: the click totals read as 28 days and cover fewer, so a reader who
+  // misses the note reads a figure that is too low.
+  search_window_incomplete: 'warn',
 };
 
 /** Build a note. `message` is the untranslated operator fallback; the UI renders

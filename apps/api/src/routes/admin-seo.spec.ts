@@ -400,6 +400,8 @@ describe('GET /api/admin/seo/funnel', () => {
       'crawl_coverage_is_gateway_arrivals',
       'crawler_label_includes_inspection_tool',
       'indexed_is_impression_lower_bound',
+      // One daily date recorded of 28: the click totals cover one day.
+      'search_window_incomplete',
       'search_ingest_absent',
     ]);
   });

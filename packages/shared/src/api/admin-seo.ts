@@ -270,7 +270,9 @@ export type SeoFunnelBaseline = z.infer<typeof SeoFunnelBaselineSchema>;
 export const SeoFunnelEngineSchema = z.object({
   engine: SeoEngineSchema,
   scope: z.enum(['www_page', 'www']),
-  /** The ingested window, or null when the engine has no ingest data in it. */
+  /** The click window, anchored on the daily impressions series alone, or null
+   *  when no daily impressions row is in reach. Bing's `indexed` stage is read
+   *  apart from it, so it can be present when this is null. */
   search_window: SeoPacificWindowSchema.nullable(),
   stages: z.array(SeoFunnelStageSchema),
   /** Google only. Null for Bing, which has no baseline (`ANALYTICS_BASELINE.md`). */

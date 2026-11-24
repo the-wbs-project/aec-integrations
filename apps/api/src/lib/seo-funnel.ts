@@ -26,15 +26,17 @@
  * The ingested stages are Pacific dates. Google and Bing report by Pacific Time
  * day, and the weekly ingest files each row under that date without re-cutting it
  * (§5.24.8). This module does not re-cut it either. Each ingested series gets its
- * own window: the 28 Pacific dates ending on the newest date the ingest wrote for
- * it. That end is three to ten days behind `day`, because Google finalises a day
- * late and the ingest runs weekly. Ending the window on `day` instead would leave
+ * own window: the 28 Pacific dates ending on the newest date holding its daily
+ * impressions row. That end is two to nine days behind `day`, because Google
+ * finalises a day late and the ingest runs weekly. Ending the window on `day` instead would leave
  * those days empty and under-count clicks and impressions. The Google 28-day
  * page count is filed under the same end date by the ingest, so stage 3 and
  * stage 4 cover the same Pacific dates.
  *
  * A series whose newest date is older than the 28 dates ending on `day` is stale.
- * It is treated as no data, and the engine carries `search_ingest_absent`. The
+ * It is treated as no data. An engine with no ingested stage at all, for this or
+ * any other reason, carries `search_ingest_absent`. A click window with fewer
+ * than 28 dates of daily rows carries `search_window_incomplete`. The
  * comparison treats the Pacific date and the UTC label as plain dates. They can
  * differ by one day at the edge, which the 28-day reach makes immaterial.
  */
@@ -265,7 +267,11 @@ function clickedStage(
  *  at that scope. The `property` figures ride `baseline`. */
 export function googleFunnel(rows: FunnelRows, day: string, d1: D1Stages): SeoFunnelEngine {
   const stages = d1Head(d1, 'google');
-  const end = newestIngestedDay(rows, [GOOGLE_WWW.impressions, GOOGLE_CATALOG_IMPRESSED], day);
+  // The window is anchored on the daily impressions series alone. The 28-day page
+  // count comes from a different call. If the daily call failed and the page call
+  // succeeded, anchoring on the page count would move the window forward over
+  // days with no daily rows, and stage 4 would sum fewer days than it says.
+  const end = newestIngestedDay(rows, [GOOGLE_WWW.impressions], day);
   let searchWindow: SeoPacificWindow | null = null;
   if (end !== null) {
     searchWindow = pacificWindow(rows, end, GOOGLE_WWW.impressions);
@@ -307,22 +313,25 @@ export function googleFunnel(rows: FunnelRows, day: string, d1: D1Stages): SeoFu
 /** The Bing funnel: stages 0, 1, 2 and 4, never 3 (§5.24.7). */
 export function bingFunnel(rows: FunnelRows, day: string, d1: D1Stages): SeoFunnelEngine {
   const stages = d1Head(d1, 'bing');
-  const end = newestIngestedDay(rows, [BING_WWW.impressions, BING_IN_INDEX], day);
+  // Stage 2 is a daily reading, not a sum, so it does not need the click window.
+  // It is the newest reading in the 28 dates ending `day`, dated by `as_of`. The
+  // click window is anchored on the daily impressions series alone, as for Google.
+  const inIndex = latestIn(rows, BING_IN_INDEX, shiftDay(day, -(SEO_FUNNEL_WINDOW_DAYS - 1)), day);
+  if (inIndex) {
+    const count = whole(inIndex.value);
+    stages.push({
+      stage: 'indexed',
+      count,
+      rate: rate(count, d1.catalog),
+      measure: 'engine_reported',
+      source: 'bing_webmaster',
+      as_of: inIndex.day,
+    });
+  }
+  const end = newestIngestedDay(rows, [BING_WWW.impressions], day);
   let searchWindow: SeoPacificWindow | null = null;
   if (end !== null) {
     searchWindow = pacificWindow(rows, end, BING_WWW.impressions);
-    const inIndex = latestIn(rows, BING_IN_INDEX, searchWindow.from, searchWindow.to);
-    if (inIndex) {
-      const count = whole(inIndex.value);
-      stages.push({
-        stage: 'indexed',
-        count,
-        rate: rate(count, d1.catalog),
-        measure: 'engine_reported',
-        source: 'bing_webmaster',
-        as_of: inIndex.day,
-      });
-    }
     const totals = sumSeries(rows, BING_WWW, searchWindow.from, searchWindow.to);
     if (totals) stages.push(clickedStage(totals, 'bing_webmaster', false));
   }
@@ -390,12 +399,30 @@ export async function readSeoFunnel(db: Db, now: Date): Promise<SeoFunnelRespons
     );
   }
   for (const e of engines) {
-    if (e.search_window === null) {
+    // Every ingested stage omitted, for whatever reason: say so, so the panel
+    // never shows two D1 stages with no explanation.
+    if (!e.stages.some((s) => s.source !== 'd1')) {
       notes.push(
         note(
           'search_ingest_absent',
           `No ${e.engine} ingest data falls in the window, so only the D1 stages are shown.`,
           { engine: e.engine },
+        ),
+      );
+    }
+    const w = e.search_window;
+    if (w !== null && w.days_recorded < w.days) {
+      notes.push(
+        note(
+          'search_window_incomplete',
+          `Only ${w.days_recorded} of the ${w.days} ${e.engine} days from ${w.from} to ${w.to} hold daily figures, so the click totals cover fewer days than the window.`,
+          {
+            engine: e.engine,
+            days_recorded: w.days_recorded,
+            days: w.days,
+            from: w.from,
+            to: w.to,
+          },
         ),
       );
     }
