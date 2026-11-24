@@ -111,6 +111,8 @@ The whole server side is one Hono route (`apps/api/src/routes/vendor-updates.ts`
 **One thing the section prose could not fix**, recorded here because it is a code change and not a wording change: the vendor tree ships **four conditional `role="status"` elements** besides the announcement region — `vendor-profile-form.ts:247` and `vendor-product-form.ts:195` (the "Saved" confirmations), `vendor-attestation-control.ts:219` (the divergent-slots notice) and `vendor-add-claim-form.ts:218` (the duplicate-lane notice). Each is inserted rather than persistent, and each is a live region by definition, so §6.3's "never a second" is literally violated whenever one of them is on screen. Two of the four sit on the **Integrations section**, which is also the only section that announces through the channel, so the race §6.3 exists to prevent is reachable there rather than theoretical. The `/vendor` axe pass does not catch it (multiple live regions are valid ARIA). See §6.5 for the shape of the fix and why it was not taken inside the close-out.
 
 > **Resolved by AECI-1156 (2026-09-28), not by the fix this section describes.** `vendor-attestation-control.ts` and `vendor-add-claim-form.ts` are both retired: the integration detail page replaced the Integrations-tab drill-down (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17). Their successors, `integration-shared-data.ts` and `integration-answer-form.ts`, carry no local `role="status"` at all — the duplicate-row case announces through `VendorPortalAnnouncer` instead (§6.17.4). Only the two form-save confirmations (`vendor-profile-form.ts`, `vendor-product-form.ts`) remain, so the race this note flags is no longer reachable on the Integrations surface.
+>
+> **As built by AECI-1810 (2026-11-24): none of the four remain.** The portal form layout (`vendor/shared/portal-form.ts`) puts each form's save result in a sticky save bar as plain text. The company Profile form, the product Profile form and the facet editor render that sentence with no `role` and no `aria-live`. Each one sends the same sentence to `VendorPortalAnnouncer` when the save succeeds. The logo row's confirmation is plain text too, and it reaches the announcer through its `(announce)` output. So the vendor tree has no local `role="status"` for a save result, and the Profile tab does announce. A refused save is still a `role="alert"` line beside the Save button.
 
 ---
 
@@ -516,8 +518,8 @@ A **session-scoped "N new" count** on the notifications disclosure. Nothing more
 >
 > | Element | Fires when | Verdict |
 > |---|---|---|
-> | `vendor-profile-form.ts:247` | the vendor's own save succeeded | **keep** — action feedback, and the Profile tab never announces |
-> | `vendor-product-form.ts:195` | the vendor's own save succeeded | **keep** — same |
+> | `vendor-profile-form.ts:247` | the vendor's own save succeeded | **kept, then moved to the channel by AECI-1810 (2026-11-24)**: plain text in the save bar, announced through `VendorPortalAnnouncer`, so the Profile tab now announces |
+> | `vendor-product-form.ts:195` | the vendor's own save succeeded | **kept, then moved to the channel by AECI-1810**: the same, and the facet editor's save does the same |
 > | `vendor-add-claim-form.ts:218` | the lane the vendor is composing already exists | **keep** — feedback on the vendor's own input, and the channel never announces this |
 > | `vendor-attestation-control.ts` divergence notice | two owned slots record different details | **REMOVED (2026-08-19)** |
 >
@@ -555,8 +557,8 @@ The entitlement flip, the session count and the hoist all shipped; the three as-
 >
 > | File | Rendered when | Tab | Outcome |
 > |---|---|---|---|
-> | `vendor-profile-form.ts:247` | a profile save succeeded | Profile | **keep** |
-> | `vendor-product-form.ts:195` | a product save succeeded | Products | **keep** |
+> | `vendor-profile-form.ts:247` | a profile save succeeded | Profile | **keep**; **moved to the channel by AECI-1810** |
+> | `vendor-product-form.ts:195` | a product save succeeded | Products | **keep**; **moved to the channel by AECI-1810** |
 > | `vendor-add-claim-form.ts:218` | the lane being composed already exists | **Integrations** | **keep** |
 > | `vendor-attestation-control.ts` divergence notice | two owned slots record different details | **Integrations** | **role removed 2026-08-19** |
 >
@@ -564,6 +566,8 @@ The entitlement flip, the session count and the hoist all shipped; the three as-
 > `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17): this finding's file names are history, not current locations.
 >
 > The three kept cases are all **immediate feedback on an action the user just took**, beside the control they took it with, and none of them fires for an event the channel also announces — which is the §6.3 rule as corrected. Forbidding them would forbid the ordinary save confirmation, which was never the intent.
+>
+> **As built by AECI-1810 (2026-11-24).** The two kept form rows no longer exist as live regions. The company Profile form, the product Profile form and the facet editor show the save result as plain text in the portal form's save bar, and send the same sentence to `VendorPortalAnnouncer`. The logo row's confirmation is plain text and reaches the announcer through `(announce)`. The Profile tab therefore announces through the channel, and no vendor component keeps a local `role="status"` for a save. The component specs and `e2e/vendor-dashboard.spec.ts` assert the bar text, the absence of a role, and the channel's message. A refused save stays `role="alert"`.
 >
 > The fourth was a real defect, and it is fixed in code rather than documented as debt. It is not action feedback: it describes a **standing condition**, `divergentSlots()` is `computed` off store data a **background revalidation can move**, and it sits on the one tab that announces — so a poll could flip it at the same moment `announce(...)` fired. It is now plain text, and `vendor-attestation-control.component.spec.ts` asserts it carries neither `role` nor `aria-live`.
 >

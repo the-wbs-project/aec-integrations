@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { UpdateVendorProfileResponse, VendorAccount } from '@aeci/shared';
 
+import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import {
   VENDOR_ME_CONNECTOR_SEAT_FIXTURE,
@@ -137,9 +138,66 @@ describe('VendorProfileForm', () => {
     expect(updateProfile).toHaveBeenCalledWith({ website: 'https://new.example.com' });
 
     // Confirmation shown, and the form settled clean (baseline re-seeded).
-    const status = fixture.nativeElement.querySelector('[role="status"]');
+    // AECI-1810: the save bar's status line is plain text, not a second live region.
+    // The same sentence goes to the portal's one region, VendorPortalAnnouncer.
+    const el = fixture.nativeElement as HTMLElement;
+    const status = el.querySelector('.aec-portal-save-bar');
     expect(status?.textContent).toContain('Profile updated');
+    expect(el.querySelector('[role="status"], [aria-live]')).toBeNull();
+    expect(TestBed.inject(VendorPortalAnnouncer).message()).toContain('Profile updated');
     expect(saveButton(fixture).disabled).toBe(true);
+  });
+
+  it('lays the fields out on the portal form card with the Label role (AECI-1810)', () => {
+    const el = create().nativeElement as HTMLElement;
+    const form = el.querySelector('form') as HTMLFormElement;
+    expect(form.getAttribute('method')).toBe('dialog');
+    expect(form.className).toContain('md:p-8');
+    // Two columns from 768px, with the description, logo and fact groups spanning both.
+    const grid = form.querySelector('fieldset > div') as HTMLElement;
+    expect(grid.className).toContain('md:grid-cols-2');
+    const description = el.querySelector('#vendor-profile-description')!.parentElement!;
+    expect(description.className).toContain('md:col-span-2');
+    const website = el.querySelector('#vendor-profile-website')!.parentElement!;
+    expect(website.className).not.toContain('md:col-span-2');
+    // The field order is unchanged: reading the DOM gives the single-column sequence.
+    const ids = [...form.querySelectorAll('input[id], textarea[id]')].map((n) => n.id);
+    expect(ids.slice(0, 7)).toEqual([
+      'vendor-profile-description',
+      'vendor-profile-website',
+      'vendor-profile-headquarters',
+      'vendor-profile-founded-year',
+      'vendor-profile-parent-company',
+      'vendor-profile-contact-email',
+      'vendor-profile-phone-number',
+    ]);
+    // "Profile details" is a visible overline legend now, not screen-reader only.
+    const legend = form.querySelector('legend') as HTMLElement;
+    expect(legend.textContent?.trim()).toBe('Profile details');
+    expect(legend.className).toContain('aec-overline');
+    expect(legend.className).not.toContain('sr-only');
+    // Labels take the Label role: 13px, weight 600, no capitals.
+    const label = el.querySelector('label[for="vendor-profile-website"]') as HTMLElement;
+    expect(label.className).toContain('text-t-13');
+    expect(label.className).not.toContain('uppercase');
+    // The save button sits in the sticky bar at the card's foot.
+    expect(
+      el.querySelector('button[type="submit"]')?.closest('.aec-portal-save-bar'),
+    ).not.toBeNull();
+  });
+
+  it('marks the selected company-fact pill with a tick, never colour alone (AECI-1810)', () => {
+    const el = create().nativeElement as HTMLElement;
+    const options = [...el.querySelectorAll<HTMLElement>('[role="option"]')];
+    const selected = options.filter((o) => o.getAttribute('aria-selected') === 'true');
+    expect(selected.length).toBeGreaterThan(0);
+    for (const option of options) {
+      expect(option.className).toContain('min-h-11');
+      expect(option.className).toContain('rounded-pill');
+      const tick = option.querySelector('span.hidden');
+      expect(tick?.className).toContain('group-aria-selected:inline-flex');
+      expect(tick?.querySelector('svg')).not.toBeNull();
+    }
   });
 
   it('clears a field by sending null in the diff', async () => {

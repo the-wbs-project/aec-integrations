@@ -38,7 +38,25 @@ import { VendorLogoField, type SaveLogo } from './vendor-logo-field';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 import { isReplayedEvent } from '../../core/event-replay';
-import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
+import { AecButton } from '../../shared/button/button';
+import { AecCard } from '../../shared/card/card';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { AecIcon } from '../../shared/icon/icon';
+import {
+  PORTAL_FIELDSET_CLASS,
+  PORTAL_FIELD_CLASS,
+  PORTAL_FORM_CLASS,
+  PORTAL_FORM_GRID_CLASS,
+  PORTAL_FORM_SPAN_CLASS,
+  PORTAL_LEGEND_CLASS,
+  PORTAL_SAVE_BAR_CLASS,
+  PORTAL_SAVE_BUTTON_CLASS,
+  PORTAL_SAVE_STATUS_CLASS,
+} from '../shared/portal-form';
 
 /** The vendor-editable text fields (`founded_year` is the one numeric field; the
  *  discrete company facts are in `choiceFields`, handled separately). */
@@ -113,6 +131,9 @@ interface FieldConfig {
 @Component({
   selector: 'aec-vendor-profile-form',
   imports: [
+    AecButton,
+    AecCard,
+    AecIcon,
     VendorLogoField,
     Listbox,
     Option,
@@ -122,7 +143,7 @@ interface FieldConfig {
     VendorLockedNote,
   ],
   template: `
-    <form method="dialog" class="space-y-8" novalidate (submit)="onFormSubmit($event)">
+    <div class="space-y-4">
       <!--
         AECI-967 (section 6.9). The product form has always said what to do about
         its AECi-owned identity fields; this form said nothing at all, so a vendor
@@ -134,14 +155,13 @@ interface FieldConfig {
         entity: 'vendor' is what makes the subject the company, so the request
         targets /vendors/:slug. No bodyPrefill. The request already carries
         (target_type, slug), which is the whole of the context.
+
+        AECI-1810: it sits above the form card, as in mock-up 13. The sentence
+        keeps a reading measure (AECI-1116).
       -->
-      <!--
-        AECI-1116: the box spans the form, the sentence keeps a reading measure.
-        At full width it ran ~200 characters a line.
-      -->
-      <div class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4">
+      <div [class]="noteClass">
         <p
-          class="max-w-prose text-xs leading-relaxed text-(--text-secondary)"
+          class="max-w-[52ch] text-xs leading-relaxed text-(--text-secondary)"
           i18n="@@vendor.profile.identityHint"
         >
           Your company name and the address of your public listing are on record with AEC
@@ -162,16 +182,16 @@ interface FieldConfig {
       </div>
 
       @if (updatedElsewhere()) {
-        <div
-          class="flex flex-wrap items-center gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
-        >
+        <div [class]="noteClass + ' flex flex-wrap items-center gap-3'">
           <p class="text-sm text-(--text-primary)" i18n="@@vendor.profile.updatedElsewhere">
             This profile changed somewhere else while you were editing. Your unsaved changes are
             still here.
           </p>
           <button
+            aecButton
+            variant="secondary"
+            compact
             type="button"
-            [class]="reloadButtonClass"
             (click)="reloadSection()"
             i18n="@@vendor.profile.reloadSection"
           >
@@ -187,11 +207,9 @@ interface FieldConfig {
           which no tier the server knows serves today. It used to say editing was
           paused while access was inactive, which stopped being true with AECI-1214.
         -->
-        <div
-          class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
-        >
+        <div [class]="noteClass">
           <p
-            class="max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+            class="max-w-[52ch] text-sm leading-relaxed text-(--text-secondary)"
             i18n="@@vendor.profile.readOnly"
           >
             This seat cannot edit the company profile right now. Everything below stays published
@@ -200,172 +218,216 @@ interface FieldConfig {
         </div>
       }
 
-      <fieldset class="space-y-5 border-0 p-0">
-        <legend class="sr-only" i18n="@@vendor.profile.section.details">Profile details</legend>
-
-        <!-- The logo saves from its own dialog, so it is not part of this form's diff. -->
-        <aec-vendor-logo-field
-          [fieldId]="fieldId('logo_url')"
-          [logoUrl]="vendor().logo_url"
-          [canEdit]="canEdit()"
-          [save]="saveLogo"
-          (announce)="announcer.announce($event)"
-        />
-
-        @for (cfg of profileFields; track cfg.key) {
-          <div class="space-y-1.5">
-            <label [for]="fieldId(cfg.key)" [class]="labelClass">{{ cfg.label }}</label>
-            @if (cfg.control === 'textarea') {
-              <textarea
-                [id]="fieldId(cfg.key)"
-                rows="4"
-                [value]="model()[cfg.key]"
-                [readOnly]="readOnly(cfg.key)"
-                (input)="onInput(cfg.key, $event)"
-                [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
-                [attr.aria-describedby]="describedBy(cfg.key)"
-                [class]="fieldClass(cfg.key)"
-              ></textarea>
-            } @else {
-              <input
-                [id]="fieldId(cfg.key)"
-                [type]="inputType(cfg.control)"
-                [attr.inputmode]="cfg.control === 'year' ? 'numeric' : null"
-                [attr.autocomplete]="cfg.autocomplete ?? null"
-                [value]="model()[cfg.key]"
-                [readOnly]="readOnly(cfg.key)"
-                (input)="onInput(cfg.key, $event)"
-                [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
-                [attr.aria-describedby]="describedBy(cfg.key)"
-                [class]="fieldClass(cfg.key)"
-              />
-            }
-            @if (lockOf(cfg.key); as lock) {
-              <aec-vendor-locked-note [lock]="lock" [noteId]="fieldId(cfg.key) + '-locked'" />
-            }
-            @if (hideOf(cfg.key); as hide) {
-              <aec-vendor-hidden-note [hide]="hide" [noteId]="fieldId(cfg.key) + '-hidden'" />
-            }
-            @if (fieldErrors()[cfg.key]; as err) {
-              <p [id]="fieldId(cfg.key) + '-error'" [class]="errorClass" role="alert">
-                {{ err }}
-              </p>
-            }
-          </div>
-        }
-
-        <!-- The discrete company facts: Aria single-select listboxes (ADR 0010). -->
-        @for (choice of choiceFields; track choice.key) {
-          <div class="space-y-2">
-            <span [id]="fieldId(choice.key) + '-label'" [class]="labelClass">{{
-              choice.label
-            }}</span>
-            <ul
-              ngListbox
-              orientation="horizontal"
-              selectionMode="explicit"
-              [readonly]="readOnly(choice.key)"
-              [(value)]="choice.selected"
-              [attr.aria-labelledby]="fieldId(choice.key) + '-label'"
-              [attr.aria-describedby]="choiceDescribedBy(choice.key)"
-              class="m-0 flex list-none flex-wrap gap-2 p-0"
-            >
-              @for (opt of choice.options; track opt.value) {
-                <li
-                  ngOption
-                  [value]="opt.value"
-                  [label]="opt.label"
-                  class="cursor-pointer rounded-(--radius-md) border border-(--border-default) px-4 py-2 text-sm font-medium text-(--text-primary) transition-colors data-[active=true]:border-(--border-strong) aria-selected:border-(--accent-primary) aria-selected:bg-(--accent-primary) aria-selected:text-(--surface-base) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                >
-                  {{ opt.label }}
-                </li>
-              }
-            </ul>
-            @if (lockOf(choice.key); as lock) {
-              <aec-vendor-locked-note [lock]="lock" [noteId]="fieldId(choice.key) + '-locked'" />
-            }
-            @if (hideOf(choice.key); as hide) {
-              <aec-vendor-hidden-note [hide]="hide" [noteId]="fieldId(choice.key) + '-hidden'" />
-            }
-          </div>
-        }
-      </fieldset>
-
-      <fieldset class="space-y-5 border-0 p-0">
-        <legend
-          class="font-label text-sm font-semibold text-(--text-primary)"
-          i18n="@@vendor.profile.section.links"
-        >
-          Links
-        </legend>
-        @for (cfg of linkFields; track cfg.key) {
-          <div class="space-y-1.5">
-            <label [for]="fieldId(cfg.key)" [class]="labelClass">{{ cfg.label }}</label>
-            <input
-              [id]="fieldId(cfg.key)"
-              [type]="inputType(cfg.control)"
-              [attr.autocomplete]="cfg.autocomplete ?? null"
-              [value]="model()[cfg.key]"
-              [readOnly]="readOnly(cfg.key)"
-              (input)="onInput(cfg.key, $event)"
-              [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
-              [attr.aria-describedby]="describedBy(cfg.key)"
-              [class]="fieldClass(cfg.key)"
+      <!--
+        AECI-1810: the portal form card (vendor/shared/portal-form.ts, mock-up 13's
+        "form" page). Two columns from 768px. The fields keep their order: reading
+        across each row gives the same sequence as the single column did.
+      -->
+      <form
+        aecCard
+        phoneFlush
+        method="dialog"
+        novalidate
+        [class]="formClass + ' p-6 md:p-8'"
+        (submit)="onFormSubmit($event)"
+      >
+        <fieldset [class]="fieldsetClass">
+          <legend [class]="legendClass" i18n="@@vendor.profile.section.details">
+            Profile details
+          </legend>
+          <div [class]="gridClass">
+            <!-- The logo saves from its own dialog, so it is not part of this form's diff. -->
+            <aec-vendor-logo-field
+              [class]="spanClass"
+              [fieldId]="fieldId('logo_url')"
+              [logoUrl]="vendor().logo_url"
+              [canEdit]="canEdit()"
+              [save]="saveLogo"
+              (announce)="announcer.announce($event)"
             />
-            @if (lockOf(cfg.key); as lock) {
-              <aec-vendor-locked-note [lock]="lock" [noteId]="fieldId(cfg.key) + '-locked'" />
+
+            @for (cfg of profileFields; track cfg.key) {
+              <div [class]="cfg.control === 'textarea' ? wideFieldClass : fieldClass">
+                <label [for]="fieldId(cfg.key)" [class]="labelClass">{{ cfg.label }}</label>
+                @if (cfg.control === 'textarea') {
+                  <textarea
+                    [id]="fieldId(cfg.key)"
+                    rows="4"
+                    [value]="model()[cfg.key]"
+                    [readOnly]="readOnly(cfg.key)"
+                    (input)="onInput(cfg.key, $event)"
+                    [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
+                    [attr.aria-describedby]="describedBy(cfg.key)"
+                    [class]="inputClass"
+                  ></textarea>
+                } @else {
+                  <input
+                    [id]="fieldId(cfg.key)"
+                    [type]="inputType(cfg.control)"
+                    [attr.inputmode]="cfg.control === 'year' ? 'numeric' : null"
+                    [attr.autocomplete]="cfg.autocomplete ?? null"
+                    [value]="model()[cfg.key]"
+                    [readOnly]="readOnly(cfg.key)"
+                    (input)="onInput(cfg.key, $event)"
+                    [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
+                    [attr.aria-describedby]="describedBy(cfg.key)"
+                    [class]="inputClass"
+                  />
+                }
+                @if (lockOf(cfg.key); as lock) {
+                  <div [class]="lockRowClass">
+                    <aec-icon name="lock" decorative [size]="4" />
+                    <aec-vendor-locked-note
+                      class="min-w-0 flex-1"
+                      [lock]="lock"
+                      [noteId]="fieldId(cfg.key) + '-locked'"
+                    />
+                  </div>
+                }
+                @if (hideOf(cfg.key); as hide) {
+                  <aec-vendor-hidden-note [hide]="hide" [noteId]="fieldId(cfg.key) + '-hidden'" />
+                }
+                @if (fieldErrors()[cfg.key]; as err) {
+                  <p [id]="fieldId(cfg.key) + '-error'" [class]="errorClass" role="alert">
+                    {{ err }}
+                  </p>
+                }
+              </div>
             }
-            @if (hideOf(cfg.key); as hide) {
-              <aec-vendor-hidden-note [hide]="hide" [noteId]="fieldId(cfg.key) + '-hidden'" />
+
+            <!--
+              The discrete company facts: Aria single-select listboxes (ADR 0010).
+              AECI-1810: each option is a 44px pill. The selected one is Forest with
+              a tick, so the state is never colour alone. The listbox keeps its
+              semantics: one tab stop per group, arrow keys move within it.
+            -->
+            @for (choice of choiceFields; track choice.key) {
+              <div [class]="wideFieldClass">
+                <span [id]="fieldId(choice.key) + '-label'" [class]="labelClass">{{
+                  choice.label
+                }}</span>
+                <ul
+                  ngListbox
+                  orientation="horizontal"
+                  selectionMode="explicit"
+                  [readonly]="readOnly(choice.key)"
+                  [(value)]="choice.selected"
+                  [attr.aria-labelledby]="fieldId(choice.key) + '-label'"
+                  [attr.aria-describedby]="choiceDescribedBy(choice.key)"
+                  class="m-0 flex list-none flex-wrap gap-2 p-0"
+                >
+                  @for (opt of choice.options; track opt.value) {
+                    <li ngOption [value]="opt.value" [label]="opt.label" [class]="optionClass">
+                      <span class="hidden group-aria-selected:inline-flex"
+                        ><aec-icon name="check" decorative [size]="4"
+                      /></span>
+                      {{ opt.label }}
+                    </li>
+                  }
+                </ul>
+                @if (lockOf(choice.key); as lock) {
+                  <div [class]="lockRowClass">
+                    <aec-icon name="lock" decorative [size]="4" />
+                    <aec-vendor-locked-note
+                      class="min-w-0 flex-1"
+                      [lock]="lock"
+                      [noteId]="fieldId(choice.key) + '-locked'"
+                    />
+                  </div>
+                }
+                @if (hideOf(choice.key); as hide) {
+                  <aec-vendor-hidden-note
+                    [hide]="hide"
+                    [noteId]="fieldId(choice.key) + '-hidden'"
+                  />
+                }
+              </div>
             }
-            @if (fieldErrors()[cfg.key]; as err) {
-              <p [id]="fieldId(cfg.key) + '-error'" [class]="errorClass" role="alert">
-                {{ err }}
-              </p>
+          </div>
+        </fieldset>
+
+        <fieldset [class]="fieldsetClass">
+          <legend [class]="legendClass" i18n="@@vendor.profile.section.links">Links</legend>
+          <div [class]="gridClass">
+            @for (cfg of linkFields; track cfg.key) {
+              <div [class]="fieldClass">
+                <label [for]="fieldId(cfg.key)" [class]="labelClass">{{ cfg.label }}</label>
+                <input
+                  [id]="fieldId(cfg.key)"
+                  [type]="inputType(cfg.control)"
+                  [attr.autocomplete]="cfg.autocomplete ?? null"
+                  [value]="model()[cfg.key]"
+                  [readOnly]="readOnly(cfg.key)"
+                  (input)="onInput(cfg.key, $event)"
+                  [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
+                  [attr.aria-describedby]="describedBy(cfg.key)"
+                  [class]="inputClass"
+                />
+                @if (lockOf(cfg.key); as lock) {
+                  <div [class]="lockRowClass">
+                    <aec-icon name="lock" decorative [size]="4" />
+                    <aec-vendor-locked-note
+                      class="min-w-0 flex-1"
+                      [lock]="lock"
+                      [noteId]="fieldId(cfg.key) + '-locked'"
+                    />
+                  </div>
+                }
+                @if (hideOf(cfg.key); as hide) {
+                  <aec-vendor-hidden-note [hide]="hide" [noteId]="fieldId(cfg.key) + '-hidden'" />
+                }
+                @if (fieldErrors()[cfg.key]; as err) {
+                  <p [id]="fieldId(cfg.key) + '-error'" [class]="errorClass" role="alert">
+                    {{ err }}
+                  </p>
+                }
+              </div>
+            }
+          </div>
+        </fieldset>
+
+        <!--
+          AECI-1810: the sticky save bar. The status line is plain text: the result
+          is announced through the portal's one live region (VendorPortalAnnouncer).
+          A refused save stays role="alert".
+        -->
+        @if (canEdit() || saved() || saveLocked() || saveError()) {
+          <div [class]="saveBarClass">
+            <div [class]="saveStatusClass">
+              @if (saved()) {
+                <p class="font-semibold text-(--accent-primary)">{{ savedMessage }}</p>
+              } @else if (saveLocked()) {
+                <p
+                  class="font-semibold text-(--text-primary)"
+                  role="alert"
+                  i18n="@@vendor.profile.saveLocked"
+                >
+                  AEC Integrations has locked a field you changed, so nothing was saved. Reload this
+                  section to see the locked value.
+                </p>
+              } @else if (saveError()) {
+                <p
+                  class="font-semibold text-(--text-primary)"
+                  role="alert"
+                  i18n="@@vendor.profile.saveError"
+                >
+                  Something went wrong saving your changes. Please try again.
+                </p>
+              }
+            </div>
+            @if (canEdit()) {
+              <button aecButton type="submit" [disabled]="saveDisabled()" [class]="saveButtonClass">
+                @if (saving()) {
+                  <span i18n="@@vendor.profile.saving">Saving…</span>
+                } @else {
+                  <span i18n="@@vendor.profile.save">Save changes</span>
+                }
+              </button>
             }
           </div>
         }
-      </fieldset>
-
-      <div class="flex flex-wrap items-center gap-4">
-        @if (canEdit()) {
-          <button type="submit" [disabled]="saveDisabled()" [class]="saveButtonClass">
-            @if (saving()) {
-              <span i18n="@@vendor.profile.saving">Saving…</span>
-            } @else {
-              <span i18n="@@vendor.profile.save">Save changes</span>
-            }
-          </button>
-        }
-        @if (saved()) {
-          <p
-            class="text-sm font-medium text-(--accent-primary)"
-            role="status"
-            i18n="@@vendor.profile.saved"
-          >
-            Profile updated. Your listing shows the change now. Search on AEC Integrations updates
-            within a day. Google and other search engines update on their own schedule.
-          </p>
-        } @else if (saveLocked()) {
-          <p
-            class="text-sm font-medium text-(--text-primary)"
-            role="alert"
-            i18n="@@vendor.profile.saveLocked"
-          >
-            AEC Integrations has locked a field you changed, so nothing was saved. Reload this
-            section to see the locked value.
-          </p>
-        } @else if (saveError()) {
-          <p
-            class="text-sm font-medium text-(--text-primary)"
-            role="alert"
-            i18n="@@vendor.profile.saveError"
-          >
-            Something went wrong saving your changes. Please try again.
-          </p>
-        }
-      </div>
-    </form>
+      </form>
+    </div>
   `,
   styles: [':host { display: block; }'],
 })
@@ -508,24 +570,43 @@ export class VendorProfileForm {
   /** AECI-1237: the save was refused with `409 FIELD_LOCKED_BY_AECI`. */
   protected readonly saveLocked = signal(false);
 
-  protected readonly labelClass =
-    'block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)';
-  /** Everything but the background, which is the read-only tell. Two `bg-*`
-   *  utilities on one element would race on stylesheet order, so the surface
-   *  token is chosen once, here, rather than appended as an override. */
-  private readonly inputBase =
-    'w-full rounded-(--radius-md) border border-(--border-default) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  /** Read-only fields sit on the sunken surface so "not editable" is visible as
-   *  well as announced, without dimming the text below the contrast floor. */
-  protected readonly controlClass = computed(() =>
-    this.canEdit()
-      ? `${this.inputBase} bg-(--surface-base)`
-      : `${this.inputBase} bg-(--surface-sunken)`,
-  );
-  protected readonly saveButtonClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
-  protected readonly reloadButtonClass =
-    'rounded-(--radius-sm) border border-(--border-default) px-3 py-1.5 text-sm font-label text-(--text-primary) transition-colors hover:bg-(--surface-raised) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  /** The save result, shown in the bar as plain text and announced through the
+   *  portal's one live region (AECI-1810). Same message id and text as before. */
+  protected readonly savedMessage = $localize`:@@vendor.profile.saved:Profile updated. Your listing shows the change now. Search on AEC Integrations updates within a day. Google and other search engines update on their own schedule.`;
+
+  // AECI-1810: the portal form layout (vendor/shared/portal-form.ts) and the shared
+  // field recipe (shared/form-field/form-field-classes.ts).
+  protected readonly formClass = PORTAL_FORM_CLASS;
+  protected readonly fieldsetClass = PORTAL_FIELDSET_CLASS;
+  protected readonly legendClass = PORTAL_LEGEND_CLASS;
+  protected readonly gridClass = PORTAL_FORM_GRID_CLASS;
+  protected readonly spanClass = PORTAL_FORM_SPAN_CLASS;
+  protected readonly fieldClass = PORTAL_FIELD_CLASS;
+  protected readonly wideFieldClass = `${PORTAL_FIELD_CLASS} ${PORTAL_FORM_SPAN_CLASS}`;
+  protected readonly saveBarClass = PORTAL_SAVE_BAR_CLASS;
+  protected readonly saveStatusClass = PORTAL_SAVE_STATUS_CLASS;
+  protected readonly saveButtonClass = PORTAL_SAVE_BUTTON_CLASS;
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  /**
+   * The shared field recipe. A read-only field (no `profile.edit`, or an AECi lock)
+   * sits on the sunken surface, so "not editable" is visible as well as announced,
+   * without dimming the text below the contrast floor. The `read-only:` variant
+   * sorts after the recipe's `bg-(--surface-base)`, so it wins whenever the control
+   * is read-only, and only then.
+   */
+  protected readonly inputClass = `${FIELD_INPUT_CLASS} read-only:bg-(--surface-sunken)`;
+  /** A note above the form card: the sunken surface, the panel radius. */
+  protected readonly noteClass =
+    'rounded-panel border border-(--border-default) bg-(--surface-sunken) p-4';
+  /** An AECi lock under its field: the lock glyph beside the reason. */
+  protected readonly lockRowClass = 'flex items-start gap-2 text-(--text-primary)';
+  /**
+   * One company-fact option: a 44px pill. The selected one is Forest with white
+   * text at weight 600, and its tick shows (the `group-aria-selected` span), so
+   * the selection is never colour alone. The active option takes a strong edge.
+   */
+  protected readonly optionClass =
+    'group inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-pill border border-(--border-field) bg-(--surface-base) px-4 text-t-14 text-(--text-primary) transition-colors data-[active=true]:border-(--border-strong) aria-selected:border-(--accent-primary) aria-selected:bg-(--accent-primary) aria-selected:font-semibold aria-selected:text-(--surface-base) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
 
   /** Live per-field validity — an empty value is a valid "clear" (every field is
    *  nullable), otherwise the single field is checked against the shared schema. */
@@ -640,11 +721,6 @@ export class VendorProfileForm {
     return !this.canEdit() || this.lockOf(key) !== undefined;
   }
 
-  /** The sunken read-only surface on a locked field too. See {@link controlClass}. */
-  protected fieldClass(key: string): string {
-    return this.lockOf(key) ? `${this.inputBase} bg-(--surface-sunken)` : this.controlClass();
-  }
-
   protected describedBy(key: string): string | null {
     const ids = [
       this.fieldErrors()[key] ? `${this.fieldId(key)}-error` : null,
@@ -727,6 +803,9 @@ export class VendorProfileForm {
       const res = await this.api.updateProfile(parsed.data);
       this.seed(res.vendor);
       this.saved.set(true);
+      // AECI-1810: the bar's status line is plain text, so the result is announced
+      // through the portal's one live region. A refusal is a role="alert" line.
+      this.announcer.announce(this.savedMessage);
     } catch (err) {
       if (apiErrorCode(err) === 'FIELD_LOCKED_BY_AECI') this.saveLocked.set(true);
       else this.saveError.set(true);
