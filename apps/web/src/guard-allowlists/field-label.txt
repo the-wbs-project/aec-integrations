@@ -13,16 +13,8 @@ admin/legal/legal-versions.html 3
 admin/legal/litigation-holds.html 5
 admin/reindex/reindex-history.html 2
 admin/users/user-detail.html 1
-admin/vendors/ban-term-licenses-control.html 1
-admin/vendors/grant-licenses-control.html 15
-admin/vendors/license-bulk-actions.html 3
-admin/vendors/license-grant-actions.ts 1
-admin/vendors/license-row-actions.html 4
-admin/vendors/provision-seat-control.html 2
-admin/vendors/return-records-control.html 2
 admin/vendors/suspension-cost-log.html 6
 admin/vendors/suspension-terminate.html 1
-admin/vendors/vendor-suspension-section.html 6
 vendor/components/vendor-contest-form.ts 3
 vendor/components/vendor-contest-protest.ts 3
 vendor/components/vendor-contests-list.ts 1

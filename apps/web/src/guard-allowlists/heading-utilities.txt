@@ -20,7 +20,6 @@ admin/subscribers/subscriber-list.html 1
 admin/traffic/traffic.html 10
 admin/users/user-detail.html 7
 admin/users/user-list.html 1
-admin/vendors/billing-licenses-table.html 6
 vendor/components/vendor-billing-stripe-panel.ts 3
 vendor/components/vendor-billing-summary.ts 1
 vendor/components/vendor-contests-list.ts 1

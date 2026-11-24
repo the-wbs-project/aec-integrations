@@ -54,10 +54,15 @@
 <div
   class="ms-auto grid w-80 max-w-full gap-3 whitespace-normal text-start"
   [attr.aria-busy]="pending() ? 'true' : null"
-  (keydown.escape)="onEscape($event)"
 >
   @switch (mode()) { @case ('extend') {
-  <form method="dialog" novalidate class="grid gap-2" (aecSubmit)="submitExtend()">
+  <form
+    method="dialog"
+    novalidate
+    class="grid gap-2"
+    (aecSubmit)="submitExtend()"
+    (keydown.escape)="onEscape($event)"
+  >
     <label [attr.for]="idPrefix() + '-license-end'" [class]="labelClass">
       @if (openEnded()) {
       <span i18n="@@admin.vendors.licenseActions.end.labelSet">End date</span>
@@ -111,7 +116,13 @@
     </div>
   </form>
   } @case ('reference') {
-  <form method="dialog" novalidate class="grid gap-2" (aecSubmit)="submitReference()">
+  <form
+    method="dialog"
+    novalidate
+    class="grid gap-2"
+    (aecSubmit)="submitReference()"
+    (keydown.escape)="onEscape($event)"
+  >
     <label
       [attr.for]="idPrefix() + '-license-reference'"
       [class]="labelClass"
@@ -151,7 +162,13 @@
     </div>
   </form>
   } @case ('revoke') {
-  <form method="dialog" novalidate class="grid gap-4" (aecSubmit)="submitRevoke()">
+  <form
+    method="dialog"
+    novalidate
+    class="grid gap-4"
+    (aecSubmit)="submitRevoke()"
+    (keydown.escape)="onEscape($event)"
+  >
     <div [class]="noticeClass" class="grid gap-2">
       @if (productName(); as product) {
       <p i18n="@@admin.vendors.licenseActions.revoke.confirmProduct">

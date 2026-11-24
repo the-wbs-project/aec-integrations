@@ -206,3 +206,54 @@ describe('LicenseGrantActions (AECI-1615)', () => {
     expect(document.activeElement?.textContent).toContain('This grant is no longer waiting.');
   });
 });
+
+describe('LicenseGrantActions on the console recipe (AECI-2124)', () => {
+  const escape = (target: Element) =>
+    target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+  it('Withdraw is a secondary opener; the confirm is danger and the form has no box', async () => {
+    const { el, refresh } = await mount([makeGrant()]);
+    const open = q<HTMLButtonElement>(el, 'grant-withdraw-open')!;
+    expect(open.className).toContain('aec-btn-secondary');
+    open.click();
+    await refresh();
+    expect(q(el, 'grant-withdraw-confirm')!.className).toContain('bg-(--status-error)');
+    const form = q(el, 'grant-withdraw-form')!;
+    expect(form.className).not.toContain('bg-(--surface-sunken)');
+    expect(form.className).not.toContain('rounded');
+  });
+
+  it('Escape closes the form and returns focus to Withdraw, but not while it runs', async () => {
+    let resolve!: (r: unknown) => void;
+    const withdraw = vi.fn(() => new Promise((done) => (resolve = done)));
+    const { el, refresh } = await mount([makeGrant()], withdraw);
+    q<HTMLButtonElement>(el, 'grant-withdraw-open')!.click();
+    await refresh();
+    escape(q(el, 'grant-withdraw-reason')!);
+    await refresh();
+    expect(q(el, 'grant-withdraw-form')).toBeNull();
+    expect(document.activeElement).toBe(q(el, 'grant-withdraw-open'));
+
+    q<HTMLButtonElement>(el, 'grant-withdraw-open')!.click();
+    await refresh();
+    const reason = q<HTMLTextAreaElement>(el, 'grant-withdraw-reason')!;
+    reason.value = 'Wrong date';
+    reason.dispatchEvent(new Event('input'));
+    await refresh();
+    q<HTMLButtonElement>(el, 'grant-withdraw-confirm')!.click();
+    await refresh();
+    expect(withdraw).toHaveBeenCalled();
+    escape(reason);
+    await refresh();
+    expect(q(el, 'grant-withdraw-form')).not.toBeNull();
+    resolve({ vendor_id: 'v', grant: makeGrant({ status: 'withdrawn' }) });
+    await refresh();
+    expect(q(el, 'grant-withdraw-form')).toBeNull();
+  });
+
+  it('shows the grant status as a dense chip on the shared tone', async () => {
+    const { el } = await mount([makeGrant()]);
+    const chip = el.querySelector('[data-testid="billing-grant-row"] aec-chip')!;
+    expect(chip.textContent?.trim()).toBe('Waiting for acceptance');
+  });
+});

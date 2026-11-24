@@ -40,7 +40,6 @@ import {
   VENDOR_INLINE_LINK_CLASS,
   VENDOR_LOAD_FAILED_CLASS,
   VENDOR_PANEL_CLASS,
-  VENDOR_PANEL_STACK_CLASS,
   VENDOR_STATUS_LINE_CLASS,
 } from './vendor-console-classes';
 
@@ -305,6 +304,9 @@ export function toBillingLicenseRow(
   selector: 'aec-billing-licenses-table',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [AecButton, Chip, NgTemplateOutlet, RouterLink],
+  // The vendor page's panel stack (`VENDOR_PANEL_STACK_CLASS`): 24px under the tab row
+  // and between panels. On the host, so the plural messages keep their source depth.
+  host: { class: 'mt-6 grid gap-6' },
   templateUrl: './billing-licenses-table.html',
 })
 export class BillingLicensesTable {
@@ -323,7 +325,6 @@ export class BillingLicensesTable {
   readonly retry = output<void>();
 
   protected readonly t = CONSOLE_TABLE;
-  protected readonly stackClass = VENDOR_PANEL_STACK_CLASS;
   protected readonly panelClass = VENDOR_PANEL_CLASS;
   protected readonly labelClass = CONSOLE_LABEL_CLASS;
   protected readonly captionClass = CONSOLE_CAPTION_CLASS;

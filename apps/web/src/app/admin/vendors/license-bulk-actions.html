@@ -35,10 +35,15 @@
   [class]="formWrapClass"
   data-testid="license-bulk-form"
   [attr.aria-busy]="pending() ? 'true' : null"
-  (keydown.escape)="onEscape($event)"
 >
   @switch (m) { @case ('extend') {
-  <form method="dialog" novalidate class="grid gap-2" (aecSubmit)="submitExtend()">
+  <form
+    method="dialog"
+    novalidate
+    class="grid gap-2"
+    (aecSubmit)="submitExtend()"
+    (keydown.escape)="onEscape($event)"
+  >
     <label
       [attr.for]="idPrefix() + '-bulk-end'"
       [class]="labelClass"
@@ -105,22 +110,32 @@
     </div>
   </form>
   } @case ('revoke') {
-  <form method="dialog" novalidate class="grid gap-4" (aecSubmit)="submitRevoke()">
+  <form
+    method="dialog"
+    novalidate
+    class="grid gap-4"
+    (aecSubmit)="submitRevoke()"
+    (keydown.escape)="onEscape($event)"
+  >
     <div [class]="noticeClass" class="grid gap-2">
+      <!-- The two plural messages keep their source whitespace: an ICU message's id hashes
+           it, so reflowing them would change their ids (AECI-2124). -->
+      <!-- prettier-ignore -->
       <p i18n="@@admin.vendors.licenseBulk.revoke.confirm">
-        Revoke {revocable().length, plural, =1 {1 subscription} other {{{revocable().length}}
-        subscriptions}}? Each ends now.
-      </p>
+      Revoke {revocable().length, plural, =1 {1 subscription} other {{{revocable().length}}
+      subscriptions}}? Each ends now.
+    </p>
       @if (revokeOnProduct() > 0) {
+      <!-- prettier-ignore -->
       <p
-        data-testid="license-bulk-revoke-products"
-        i18n="@@admin.vendors.licenseBulk.revoke.confirmProducts"
-      >
-        {revokeOnProduct(), plural, =1 {1 is on a product. That product drops to the Free plan.}
-        other {{{revokeOnProduct()}} are on products. Each of those products drops to the Free
-        plan.}} Their text stays live, the vendor loses the edit right on their Managed fields, and
-        every seat gets one email per product.
-      </p>
+      data-testid="license-bulk-revoke-products"
+      i18n="@@admin.vendors.licenseBulk.revoke.confirmProducts"
+    >
+      {revokeOnProduct(), plural, =1 {1 is on a product. That product drops to the Free plan.} other
+      {{{revokeOnProduct()}} are on products. Each of those products drops to the Free plan.}} Their
+      text stays live, the vendor loses the edit right on their Managed fields, and every seat gets
+      one email per product.
+    </p>
       }
       <p i18n="@@admin.vendors.licenseBulk.revoke.final">
         Nothing is refunded or deleted, and there is no undo on this screen.
