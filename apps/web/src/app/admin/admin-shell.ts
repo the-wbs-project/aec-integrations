@@ -27,7 +27,7 @@ interface AdminNavEntry {
    *  renders as a plain link to it rather than as a dropdown. See `admin-nav.ts`
    *  for why that rule is structural rather than a flag. */
   readonly sole: AdminNavItem | null;
-  /** The last category's panel hangs from the end edge, or a 14rem panel opening
+  /** The last category's panel hangs from the end edge, or a 16rem panel opening
    *  two thirds of the way across a phone viewport runs off the screen. */
   readonly align: 'start' | 'end';
 }

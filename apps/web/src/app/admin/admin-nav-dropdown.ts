@@ -190,7 +190,7 @@ export class AdminNavDropdown extends NavDisclosure {
 
   /**
    * Which edge the panel hangs from. The last category in the row needs `end`,
-   * or a 14rem panel opening from a trigger two thirds of the way across a phone
+   * or a 16rem or wider panel opening from a trigger two thirds of the way across a phone
    * viewport runs off the side of the screen.
    */
   readonly align = input<'start' | 'end'>('start');
