@@ -929,6 +929,7 @@ will read it for the dated record.
 | `totals` | `passed`, `failed`, `skipped`, `expectedFailures` |
 | `tests[]` | `title`, `surfaceId`, `route`, `file`, `outcome`, `knownFailure` (the issue ID or `null`), and `axe` (the sweep's verdict or `null`) |
 | `axe` | The e2e axe sweep's results. Always an object: zero counts and empty lists for a run with no sweep. See §8.4.2 |
+| `voice` | The voice-control checks' effort counts and target size report. Always an object: empty lists for a run with no voice-control test. See §8.4.8 |
 
 **Adding a check.** Write a new spec in `e2e-a11y/` that loops over `SURFACES`. Add the
 `surface` and `route` annotations to each test, as `surfaces.spec.ts` does, so the summary can name the
@@ -1511,6 +1512,183 @@ pnpm --filter @aeci/web exec playwright test -c playwright.a11y-nightly.config.t
 Set `AECI_WEB_PORT` and `PLAYWRIGHT_BASE_URL` as for §8.4. Six local one-worker runs took 3.0 to 4.6
 minutes for the 44 tests, with no skips. The slowest are the `wide` tests of the listing pages and the
 review form, 5 to 18 seconds each, depending on machine load. The CI time is not measured yet.
+
+#### 8.4.8 Voice control and switch stand-ins (AECI-1883)
+
+Real sessions with Dragon, Voice Control, Voice Access or a switch are out of reach in CI.
+`e2e-a11y/voice-control.spec.ts` stands in for them on every surface in the manifest, public pages
+included. It covers WCAG 2.5.3 and 1.3.5, reports 2.5.8, and measures how many presses a switch or
+keyboard user spends before the task starts.
+
+**Two tests per surface,** plus one that checks every surface has a primary action:
+
+| Test | Load | Then |
+|---|---|---|
+| `controls` | Everything that renders on scroll loaded (`openSurface` with `settle`) | Read every rendered control once. Run checks 1, 2 and 4, which fail the run. Record check 3, which never does |
+| `effort` | The same load | Check 5: Tab from load to the primary action with the keyboard suite's `tabWalk` |
+
+**The five checks.**
+
+| Check | WCAG | Fails when |
+|---|---|---|
+| 1. Label in name | 2.5.3 | A control shows text, and its accessible name does not contain that text, word for word and in order |
+| 2. Unique names | (voice) | Two controls share a name and do different things, and at least one of them is not a link |
+| 3. Target size | 2.5.8 | Never. axe's `target-size` rule. Each finding goes to the summary as `fails` or `review` |
+| 4. Input purpose | 1.3.5 | A text field that collects the user's email, name, display name, organisation, job title, phone, web address, postal code, country or street address has no `autocomplete` token for it. `off` and a wrong token fail too |
+| 5. Effort | (switch) | The Tab presses from load to the primary action exceed the baseline by more than the margin, or the walk never reaches it |
+
+**How a control is read.** `readControls` in `support/voice-probe.ts` marks every rendered control,
+reads its DOM facts, and joins Chromium's accessibility tree over DevTools by backend node id. The role
+and name come from that tree, because it is what the platform hands to a voice-control product. The
+visible label comes from the page:
+
+- A button, link, tab, option or summary shows its rendered text. A text field, select, checkbox or
+  radio shows the rendered text of its `<label>`. A button input shows its value. A field with no
+  `<label>` shows nothing, and is not judged.
+- Text is visible when it has a box on screen and no ancestor hides it: `visibility`, `opacity: 0`, or
+  the `.sr-only` pattern (a clipped box under 2px). Text inside a nested control is not this control's.
+- Two text pieces that sit apart on screen, on another line or with a gap, read as two words even when
+  the DOM has no space between them. That is how AECI-1469's "Change billing email" lost its space.
+- An `aria-hidden` piece of one or two characters is an icon, not a label: a logo's initial tile, a
+  count badge, an "i" info mark. Nobody says "click F".
+
+The comparison is `nameContainsLabel` in `support/voice-names.ts`. Both texts are case-folded, spacing
+is collapsed and punctuation dropped, then the label's words must appear in order in the name.
+`support/voice-names.unit.spec.ts` pins it, whitespace and case included, in the plain Vitest runner.
+No rule orders by name, so nothing calls `localeCompare`.
+
+**What "different things" means.** A link does what its target says, so two links to one page are one
+action. A control with `aria-controls` does what it controls. A submit button submits its form. A
+`<summary>` opens its `<details>`. Two controls with none of those count as different. `SAME_ACTION`
+in the spec lists the pairs that do the same thing after all, by exact problem string and with a
+reason. Today it has one entry: home's header search and hero search are the same widget and both land
+on `/search`. An entry that matches nothing fails the test. A real barrier never goes there.
+
+**Who owns which rule.** Each finding is reported once:
+
+| Finding | Owner |
+|---|---|
+| Two links with one name and different targets | ARIA suite `link names` (§8.4.3). Check 2 skips a group made only of links |
+| A name shared by a button, field or tab and anything else | Check 2 |
+| One target named differently on two pages | ARIA cross-page `link names` (§8.4.3) |
+| Visible text missing from the name, on the manifest surfaces | Check 1. It fails the run |
+| The same, on every e2e test's end state | The sweep's report-only `label-content-name-mismatch` row (§8.4.2). It never fails |
+| A small target, on the manifest surfaces at load | Check 3, in the summary's `voice` block |
+| A small target, on every e2e test's end state | The sweep's report-only `target-size` row |
+
+The sweep and checks 1 and 3 look at different states, so the counts do not add. On the day this
+landed the two disagreed in a known way. axe flagged 22 nodes on home alone: the category chips, named
+"BIM Authoring 2 products" with a visible "BIM Authoring" and a "2" badge. Check 1 passes them, because
+every visible word is in the name, in order. The chips are on many pages the e2e suite visits. We have
+not counted how much of the sweep's 647 nodes they make up. Read check 1 for the verdict. Read the
+sweep's row for states the manifest does not reach.
+
+**The primary actions and the baseline.** The primary action is the first control of the task a person
+comes to the page for. That is a judgement. `PRIMARY_ACTIONS` in the spec writes each one down, with its
+baseline: the Tab presses from load to it on a freshly seeded D1, measured on 2026-11-24.
+
+| Surface | Primary action | Baseline | Margin |
+|---|---|---|---|
+| `home` | The hero search box | 8 | 3 |
+| `product-detail` | The first "Sign in to review" link | 12 | 3 |
+| `review-submission` | The first star rating | 9 | 3 |
+| `login` | The email field | 9 | 3 |
+| `account` | The display name field | 14 | 3 |
+| `admin-reviews` | The first Approve button | 23 | 5 |
+| `admin-requests` | The first queue filter. The seed has no request rows | 12 | 3 |
+| `vendor-products` | The first product card | 17 | 4 |
+| `vendor-integrations` | The first integration row | 28 | 6 |
+| `product-index`, `vendor-index`, `integration-index` | The first result card | 38 | 8 |
+| `vendor-detail` | The first of the vendor's products | 14 | 3 |
+| `integration-detail`, `product-pair` | The "View listing" link | 17 | 4 |
+| `category-browse` | The first result card | 18 | 4 |
+| `audience-browse` | The first result card | 22 | 5 |
+| `phase-browse` | The first result card | 21 | 5 |
+| `categories-index`, `audiences-index`, `phases-index` | The first term card | 10 | 3 |
+| `not-found` | The "Go home" link | 13 | 3 |
+
+**The margin** is three presses, or a fifth of the baseline when that is more (`effortMargin`). One new
+link in the shared header adds a press to every surface and passes. A new block of links or filters
+ahead of the task fails. A fifth scales with the page: a listing reaches its first card after 25 filter
+checkboxes, so one more facet value there is not a regression, and one more facet is. Fewer presses than
+the baseline pass. The summary shows the change, so update the baseline in the same change that moved
+it, and say why. Three one-worker runs gave the same count on every surface. A count that changes
+between runs is a bug in the test, not in the page.
+
+**The summary.** The `controls` and `effort` tests write a `voice-target-size` and a `voice-effort`
+annotation. `summary-reporter.ts` folds them into the summary's `voice` block with `summarizeVoice`
+(`support/voice-summary.ts`, pinned by its unit spec). Each shard writes its own. The merge combines
+them with `mergeVoice` (`scripts/a11y-nightly-merge-summary.mjs`), and the job summary gets an effort
+table and a target size line. Adding the block kept `schemaVersion` 1.
+
+| `voice` field | Meaning |
+|---|---|
+| `effort[]` | One row per surface: `surfaceId`, `route`, `action`, `presses` (`null` when not reached), `baseline`, `margin`, `change`, `verdict` (`same`, `fewer`, `more`, `over-margin` or `not-reached`) |
+| `targetSize.surfaces`, `targetSize.targets` | Surfaces measured, and findings across them |
+| `targetSize.bySurface[]` | `surfaceId`, `route`, and `targets[]`: axe's `target`, a `verdict` (`fails` measured, `review` when axe could not decide), and `why` |
+
+**Known barriers on landing (2026-11-24).** `KNOWN_PROBLEMS` uses `expectOnlyKnownProblems`
+(`support/known-barriers.ts`), narrowed per issue. A new problem on a marked surface still fails, and a
+fixed one turns its mark red. All five are check 2. Checks 1 and 4 found nothing, and check 3 reported
+nothing on any surface: the 44px button floor in `DESIGN.md` clears 24px.
+
+| Issue | What the check finds | Surfaces |
+|---|---|---|
+| AECI-2114 | Both star ratings name their options "1 star" to "5 stars" | `review-submission` |
+| AECI-2115 | "Delete account" names the account nav link and the button that opens the delete dialog | `account` |
+| AECI-2116 | The three request sections share the filter names "Open" and "Declined" | `admin-requests` |
+| AECI-2117 | The portal's integration filter is named "Search", the same as the site search | `vendor-integrations` |
+| AECI-2118 | "Construction Management" is a category and an audience, so two filter checkboxes share it | `product-index`, `vendor-index`, `integration-index`, `phase-browse` |
+
+`NOT_ABOUT_THE_USER` lists text fields 1.3.5 does not cover because they collect something about another
+person or a company. It is empty on landing.
+
+**It can fail.** On 2026-11-24, on `/auth/login`, each check was broken on purpose in a throwaway run.
+An `aria-label` of "Emailme a sign-in link" on the "Email me a sign-in link" button failed check 1.
+Renaming the consent banner's Decline to a second "Accept" failed check 2. `autocomplete="off"` on the
+email field failed check 4. Two empty 12 by 12px buttons 2px apart came back from check 3 as `fails`,
+and the run stayed green. Four extra buttons at the top of `main` took the email field from 9 presses to
+13 and failed check 5 above its margin of 3. One 12px button with its icon still inside came back as
+`review` ("overflow content"), which is why the report keeps axe's undecided results. None of it was
+committed.
+
+**What real voice and switch sessions show that these checks do not.**
+
+- Each voice product matches speech against names its own way, and each mishears some words. The
+  checks prove the words are in the name. They do not prove a person can say them and be understood.
+- The checks read one state per page at load. A menu, a dialog or an error state is not read. A
+  voice user meets all of those.
+- Check 2 decides "different things" from the DOM. It cannot see that two controls with one name do the
+  same thing, or that two with different names are confusing. Hover-only controls and drag-only
+  gestures are out of its sight too.
+- Check 1 skips a field with no `<label>` and a control with no text. A voice user must then guess a
+  name they cannot see, or fall back to "show numbers" or a mouse grid.
+- A switch user scans, often in groups, at a timed rate. The effort count is Tab presses in a straight
+  line. It says nothing about scanning speed, grouping, timeouts, or how a long press or a held key
+  behaves.
+- Check 4 decides the purpose from the field's name. It does not prove that the browser or a password
+  manager fills the field.
+
+A person with Dragon or Voice Control and a person with a switch still have to run those sessions.
+
+**The code.**
+
+| File | What it holds |
+|---|---|
+| `voice-control.spec.ts` | Two tests per surface, `PRIMARY_ACTIONS`, `SAME_ACTION`, `NOT_ABOUT_THE_USER` and `KNOWN_PROBLEMS` |
+| `support/voice-probe.ts` | `readControls`, the DOM read and the DevTools join, and `readTargetSize`, axe's `target-size` rule |
+| `support/voice-names.ts` | Pure: the name comparison, checks 1, 2 and 4, the action keys, the effort margin and verdict |
+| `support/voice-summary.ts` | Pure: the `voice` block and its annotations |
+
+**Run it** alone with one worker:
+
+```bash
+pnpm --filter @aeci/web exec playwright test -c playwright.a11y-nightly.config.ts voice-control --workers=1
+```
+
+Set `AECI_WEB_PORT` and `PLAYWRIGHT_BASE_URL` as for §8.4. Three local one-worker runs took 2.0 to 2.4
+minutes for the 45 tests, with no skips. No test took more than about 10 seconds. The CI time is not
+measured yet.
 
 ---
 

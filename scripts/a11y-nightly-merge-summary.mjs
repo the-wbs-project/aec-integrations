@@ -14,7 +14,9 @@
  * `failed`, so a lane that died before its reporter ran is never read as green.
  *
  * The rule grouping matches `summarizeAxe()` in `apps/web/e2e/axe-summary.ts`. Keep the two in
- * step. No dependencies, so the job needs no `pnpm install`.
+ * step. The `voice` block (AECI-1883) matches `summarizeVoice()` in
+ * `apps/web/e2e-a11y/support/voice-summary.ts`, and the job summary gets its effort table and
+ * target size report. No dependencies, so the job needs no `pnpm install`.
  *
  * Exit codes: 0 merged, 2 a flag is wrong or no part was given.
  */
@@ -108,6 +110,27 @@ export function mergeAxe(blocks) {
   };
 }
 
+const bySurfaceId = (a, b) => (a.surfaceId < b.surfaceId ? -1 : a.surfaceId > b.surfaceId ? 1 : 0);
+
+/**
+ * Merge the `voice` blocks (AECI-1883). Each surface runs in one shard, so the
+ * rows concatenate. Always an object: empty lists when no part had one. Matches
+ * `summarizeVoice()` in `apps/web/e2e-a11y/support/voice-summary.ts`.
+ */
+export function mergeVoice(blocks) {
+  const present = blocks.filter((b) => b && typeof b === 'object');
+  const effort = present.flatMap((b) => b.effort ?? []).sort(bySurfaceId);
+  const bySurface = present.flatMap((b) => b.targetSize?.bySurface ?? []).sort(bySurfaceId);
+  return {
+    effort,
+    targetSize: {
+      surfaces: bySurface.length,
+      targets: bySurface.reduce((n, s) => n + (s.targets?.length ?? 0), 0),
+      bySurface,
+    },
+  };
+}
+
 /** Read one part. Never throws. */
 export function readPart(path) {
   if (!existsSync(path)) return { path, found: false, error: 'missing' };
@@ -147,7 +170,58 @@ export function mergeSummaries(parts, now = new Date()) {
     parts: parts.map((p) => ({ file: p.path, found: p.found, error: p.error ?? null })),
     tests: found.flatMap((s) => s.tests),
     axe: mergeAxe(found.map((s) => s.axe)),
+    voice: mergeVoice(found.map((s) => s.voice)),
   };
+}
+
+/** The voice-control section of the job summary (AECI-1883). Empty when no part ran the checks. */
+function voiceMarkdown(voice) {
+  if (!voice || (voice.effort.length === 0 && voice.targetSize.surfaces === 0)) return [];
+  const lines = ['', '### Voice control and switch (AECI-1883)', ''];
+  if (voice.effort.length > 0) {
+    const signed = (n) => (n === null ? 'not reached' : n > 0 ? `+${n}` : String(n));
+    lines.push(
+      "Tab presses from load to each surface's primary action. A change above the margin fails the run.",
+      '',
+      '| Surface | Primary action | Presses | Baseline | Change | Margin |',
+      '|---|---|---|---|---|---|',
+      ...voice.effort
+        .slice(0, MARKDOWN_ROWS)
+        .map(
+          (e) =>
+            `| \`${cell(e.surfaceId)}\` | ${cell(e.action)} | ${e.presses ?? '-'} | ${e.baseline} | ${signed(
+              e.change,
+            )} | ${e.margin} |`,
+        ),
+      '',
+    );
+  }
+  const t = voice.targetSize;
+  const all = t.bySurface.flatMap((s) => s.targets);
+  const fails = all.filter((x) => x.verdict !== 'review').length;
+  lines.push(
+    `Target size (WCAG 2.5.8), report only: ${fails} targets fail and ${all.length - fails} need review, on ${
+      t.bySurface.filter((s) => s.targets.length > 0).length
+    } of ${t.surfaces} surfaces. A target fails below 24 by 24px without the spacing the rule allows.`,
+  );
+  const hit = t.bySurface.filter((s) => s.targets.length > 0).slice(0, MARKDOWN_ROWS);
+  if (hit.length > 0) {
+    lines.push(
+      '',
+      '| Surface | Fail | Review | First three |',
+      '|---|---|---|---|',
+      ...hit.map((s) => {
+        const sFails = s.targets.filter((x) => x.verdict !== 'review').length;
+        return `| \`${cell(s.surfaceId)}\` | ${sFails} | ${s.targets.length - sFails} | ${cell(
+          s.targets
+            .slice(0, 3)
+            .map((x) => `\`${x.target}\``)
+            .join(', '),
+        )} |`;
+      }),
+    );
+  }
+  return lines;
 }
 
 function cell(text) {
@@ -188,7 +262,7 @@ export function summaryMarkdown(merged) {
   const axe = merged.axe;
   const reached = axe.scans.scanned + axe.scans.optedOut + axe.scans.notScanned;
   if (reached === 0) {
-    lines.push('', 'No test reached the e2e axe sweep.');
+    lines.push('', 'No test reached the e2e axe sweep.', ...voiceMarkdown(merged.voice));
     return `${lines.join('\n')}\n`;
   }
   const v = axe.violationsByImpact;
@@ -213,6 +287,7 @@ export function summaryMarkdown(merged) {
     'These never fail the run.',
     '',
     ...ruleTable(axe.reportOnly.rules),
+    ...voiceMarkdown(merged.voice),
   );
   return `${lines.join('\n')}\n`;
 }

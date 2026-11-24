@@ -11,6 +11,10 @@
  * own `axe` status. `schemaVersion` changes only when a field changes meaning or
  * goes away.
  *
+ * AECI-1883: the `voice` block folds the `voice-effort` and `voice-target-size`
+ * annotations of `voice-control.spec.ts` with `summarizeVoice()`. It is empty
+ * lists for a run with no voice-control test. Adding it kept `schemaVersion` 1.
+ *
  * Options: `outputFile`, the file name next to the config (default
  * `a11y-nightly-summary.json`). The e2e sweep lane writes its own file so a local
  * run of both lanes keeps both. `scripts/a11y-nightly-merge-summary.mjs` merges them.
@@ -36,6 +40,7 @@ import {
   type AxeSummary,
 } from '../e2e/axe-summary';
 import { KNOWN_FAILURE_ANNOTATION } from './known-failure';
+import { summarizeVoice, type VoiceSummary } from './support/voice-summary';
 
 export const SUMMARY_FILE = 'a11y-nightly-summary.json';
 
@@ -69,6 +74,11 @@ export interface A11yNightlySummary {
   }>;
   /** Always an object. All zeros and empty lists when no test reached the sweep. */
   readonly axe: AxeSummary;
+  /**
+   * AECI-1883: the voice-control checks' effort counts and target size report.
+   * Always an object. Empty lists for a run with no voice-control test.
+   */
+  readonly voice: VoiceSummary;
 }
 
 function annotation(test: TestCase, result: TestResult | undefined, type: string): string | null {
@@ -145,6 +155,20 @@ export function buildSummary(
     },
     tests: rows,
     axe: summarizeAxe(scans),
+    // Playwright may list a runtime annotation on both the result and the test,
+    // so each test's annotations are de-duplicated before they are folded.
+    voice: summarizeVoice(
+      tests.flatMap((test) => {
+        const all = [...(test.results.at(-1)?.annotations ?? []), ...test.annotations];
+        const seen = new Set<string>();
+        return all.filter((a) => {
+          const key = `${a.type}\u0000${a.description ?? ''}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      }),
+    ),
   };
 }
 

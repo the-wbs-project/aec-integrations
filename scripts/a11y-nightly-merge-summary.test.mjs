@@ -14,6 +14,7 @@ import {
   mergeAxe,
   mergeRules,
   mergeSummaries,
+  mergeVoice,
   readPart,
   summaryMarkdown,
 } from './a11y-nightly-merge-summary.mjs';
@@ -199,6 +200,78 @@ test('the markdown groups the report-only findings by rule', () => {
     summaryMarkdown(mergeSummaries([part(summary())])),
     /No test reached the e2e axe sweep/,
   );
+});
+
+const effortRow = (surfaceId, presses, baseline = 10) => ({
+  surfaceId,
+  route: `/${surfaceId}`,
+  action: 'the first card',
+  presses,
+  baseline,
+  margin: 3,
+  change: presses === null ? null : presses - baseline,
+  verdict: 'same',
+});
+
+const voiceBlock = (effort, bySurface) => ({
+  effort,
+  targetSize: {
+    surfaces: bySurface.length,
+    targets: bySurface.reduce((n, s) => n + s.targets.length, 0),
+    bySurface,
+  },
+});
+
+test('voice blocks merge across shards: rows concatenate by surface, and none is an empty block (AECI-1883)', () => {
+  assert.deepEqual(mergeVoice([null, undefined]), {
+    effort: [],
+    targetSize: { surfaces: 0, targets: 0, bySurface: [] },
+  });
+  const m = mergeSummaries([
+    part(
+      summary({
+        voice: voiceBlock(
+          [effortRow('login', 9)],
+          [
+            {
+              surfaceId: 'login',
+              route: '/login',
+              targets: [
+                { target: 'a.x', verdict: 'fails', why: 'small' },
+                { target: 'b.y', verdict: 'review', why: 'covered' },
+              ],
+            },
+          ],
+        ),
+      }),
+    ),
+    part(summary()),
+    part(
+      summary({
+        voice: voiceBlock(
+          [effortRow('home', 12)],
+          [{ surfaceId: 'home', route: '/', targets: [] }],
+        ),
+      }),
+    ),
+  ]);
+  assert.equal(m.schemaVersion, 1);
+  assert.deepEqual(
+    m.voice.effort.map((e) => [e.surfaceId, e.change]),
+    [
+      ['home', 2],
+      ['login', -1],
+    ],
+  );
+  assert.equal(m.voice.targetSize.surfaces, 2);
+  assert.equal(m.voice.targetSize.targets, 2);
+  const md = summaryMarkdown(m);
+  assert.match(md, /### Voice control and switch \(AECI-1883\)/);
+  assert.match(md, /\| `home` \| the first card \| 12 \| 10 \| \+2 \| 3 \|/);
+  assert.match(md, /1 targets fail and 1 need review, on 1 of 2 surfaces\./);
+  assert.match(md, /\| `login` \| 1 \| 1 \| `a\.x`, `b\.y` \|/);
+  // A run with no voice-control test writes no voice section.
+  assert.doesNotMatch(summaryMarkdown(mergeSummaries([part(summary())])), /Voice control/);
 });
 
 test('the CLI writes a summary the alert can read', () => {
