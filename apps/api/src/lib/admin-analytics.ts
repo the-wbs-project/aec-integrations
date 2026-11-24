@@ -1280,6 +1280,11 @@ const SEVERITY: Record<AdminNoteCode, 'info' | 'warn'> = {
   crawl_window_clamped: 'info',
   crawler_label_includes_inspection_tool: 'info',
   public_site_url_unset: 'warn',
+  // AECI-823 — the funnel (§5.24.7). Both `info`: the proxy note explains what the
+  // figure already says it is, and an absent ingest omits stages rather than
+  // zeroing them, so no figure on the panel is wrong.
+  indexed_is_impression_lower_bound: 'info',
+  search_ingest_absent: 'info',
 };
 
 /** Build a note. `message` is the untranslated operator fallback; the UI renders

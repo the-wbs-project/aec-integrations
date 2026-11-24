@@ -305,6 +305,13 @@ const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
     $localize`:@@admin.notes.crawlerLabelIncludesInspectionTool:The Googlebot label also covers Google's URL Inspection tool, so a live test in Search Console reads as a crawl.`,
   public_site_url_unset: () =>
     $localize`:@@admin.notes.publicSiteUrlUnset:This tier has no public site address configured, so no page URLs can be built here.`,
+  // AECI-823 — the funnel (§5.24.7).
+  indexed_is_impression_lower_bound: () =>
+    $localize`:@@admin.notes.indexedIsImpressionLowerBound:Google's indexed figure counts catalog pages with at least one search impression in 28 days. It is a lower bound, not Google's own count of indexed pages.`,
+  search_ingest_absent: (p) =>
+    str(p, 'engine') === 'bing'
+      ? $localize`:@@admin.notes.searchIngestAbsentBing:No Bing Webmaster Tools data has been pulled for this window, so only the stages measured on our side are shown.`
+      : $localize`:@@admin.notes.searchIngestAbsentGoogle:No Search Console data has been pulled for this window, so only the stages measured on our side are shown.`,
 };
 
 /**

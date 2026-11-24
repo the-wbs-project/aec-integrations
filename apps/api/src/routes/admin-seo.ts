@@ -1,10 +1,11 @@
 /**
  * `GET /api/admin/seo/queue` and `GET /api/admin/seo/trend` (AECI-818): Panels 1
- * and 2 of the search console. Source of truth: `docs/ADMIN_PANEL_SPEC.md` §5.24,
- * `docs/API_CONTRACTS.md` §6.10 "Search console". Contracts:
- * `packages/shared/src/api/admin-seo.ts`. Derivations: `lib/seo-queue.ts`.
+ * and 2 of the search console. `GET /api/admin/seo/funnel` (AECI-823): Panel 3.
+ * Source of truth: `docs/ADMIN_PANEL_SPEC.md` §5.24, `docs/API_CONTRACTS.md` §6.10
+ * "Search console". Contracts: `packages/shared/src/api/admin-seo.ts`.
+ * Derivations: `lib/seo-queue.ts` and `lib/seo-funnel.ts`.
  *
- * Both are reads behind `requireAdmin()`. No `audit_log` row (ADR 0022), no
+ * All three are reads behind `requireAdmin()`. No `audit_log` row (ADR 0022), no
  * `rateLimit()` (ADR 0026, reads are never limited), no `Cache-Tag`: `/admin/*`
  * is uncacheable. Every URL is absolute, built on `publicSiteBase(env)`, so it
  * pastes straight into URL Inspection.
@@ -14,12 +15,14 @@
  * the counts, which is what `/trend` reads for lane depth.
  */
 import {
+  SeoFunnelResponseSchema,
   SeoQueueQuerySchema,
   SeoQueueResponseSchema,
   SeoTrendQuerySchema,
   SeoTrendResponseSchema,
   type AdminSnapshotMetricKey,
   type SeoEngine,
+  type SeoFunnelResponse,
   type SeoQueueItem,
   type SeoQueueLane,
   type SeoQueueResponse,
@@ -39,6 +42,7 @@ import type { AuthzVariables } from '../lib/authz';
 import { listCatalogUrls } from '../lib/catalog-urls';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { publicSiteBase } from '../lib/public-urls';
+import { readSeoFunnel } from '../lib/seo-funnel';
 import {
   EDGE_VERIFIED_SINCE,
   SEO_CRAWL_COHORT_DAYS,
@@ -287,6 +291,29 @@ export function createAdminSeoTrendHandler(
 
     validateResponseInDev(c.env, () => {
       SeoTrendResponseSchema.parse(body);
+    });
+    return json(body);
+  };
+}
+
+// ─── Panel 3 ─────────────────────────────────────────────────────────────────
+
+/**
+ * `GET /api/admin/seo/funnel` (AECI-823): the per-engine funnel over the trailing
+ * 28 days. Takes no query parameters: the funnel is `www_page` only for Google,
+ * and the `property` figures ride the Google entry's `baseline`. The windows, and
+ * how Pacific ingest dates and UTC snapshot days are each treated, are in
+ * `lib/seo-funnel.ts`.
+ */
+export function createAdminSeoFunnelHandler(
+  dbFor: DbFactory = getDb,
+  clock: () => Date = () => new Date(),
+): (c: AdminContext) => Promise<Response> {
+  return async (c) => {
+    const { db } = dbFor(c.env);
+    const body: SeoFunnelResponse = await readSeoFunnel(db, clock());
+    validateResponseInDev(c.env, () => {
+      SeoFunnelResponseSchema.parse(body);
     });
     return json(body);
   };

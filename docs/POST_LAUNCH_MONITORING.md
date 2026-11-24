@@ -371,9 +371,10 @@ baseline.
    starts erroring, is silent — nothing else in our stack notices.
 4. The **tripwire** below.
 
-**A screen and a weekly email are specified, not built.** `ADMIN_PANEL_SPEC.md` §5.24 specifies
-`/admin/seo` and a weekly SEO email (epic AECI-816). The two reads behind Panels 1 and 2 shipped
-with AECI-818. The screen has not. Until it ships, this read stays manual.
+**A screen is specified, not built.** `ADMIN_PANEL_SPEC.md` §5.24 specifies `/admin/seo` (epic
+AECI-816). The reads behind Panels 1 and 2 shipped with AECI-818, and the Panel 3 funnel read with
+AECI-823. The screen has not. Until it ships, this read stays manual. There is no weekly SEO email:
+Chris dropped it on 2026-11-24 (§5.24.9).
 
 **What the weekly ingest pulls automatically (AECI-820).** The Sunday 22:00 UTC `search-ingest`
 job stores items 2 and 3 in `metrics_daily`, so they gain a history:
@@ -587,7 +588,7 @@ mechanism exists to prevent.
 
 ### Search console tunables (AECI-818 / `ADMIN_PANEL_SPEC.md` §5.24.12)
 
-The constants behind `GET /api/admin/seo/queue`, `/trend` and the `seo.*` snapshot keys. They live
+The constants behind `GET /api/admin/seo/queue`, `/trend`, `/funnel` and the `seo.*` snapshot keys. They live
 in `apps/api/src/lib/seo-queue.ts` unless the table says otherwise. A change to any of the first
 three re-bases the `seo.*` series from the next snapshot. Stored days keep the value they were
 written with, so note the date of the change.
@@ -600,9 +601,8 @@ written with, so note the date of the change.
 | `SEO_TREND_WEEKS_DEFAULT` | `packages/shared/src/api/admin-seo.ts` | `12` | A quarter of weeks. `?weeks=` accepts 1 to 26 (`SEO_TREND_WEEKS_MAX`) |
 | `SEO_QUEUE_PAGE_SIZE` | `packages/shared/src/api/admin-seo.ts` | `25` | The default `perPage` of the queue. The server caps `perPage` at 100 |
 | `CONCRETE_PATH_SINCE` | `lib/seo-queue.ts` | `2026-08-18T03:49:00.000Z` | A fact, not a tunable: the first production row with a `concrete_path`. Never move it |
-| `EDGE_VERIFIED_SINCE` | `lib/seo-queue.ts` | `2026-10-14T00:00:00.000Z`, **unverified** | A fact, inferred from migration `0072`'s date and not read from production. Replace it once with `SELECT min(created_at) FROM page_views WHERE cf_verified_bot_category IS NOT NULL` run against production |
-
-`SEO_DIGEST_MAX_URLS_PER_LANE` lands with the weekly email (AECI-819).
+| `EDGE_VERIFIED_SINCE` | `lib/seo-queue.ts` | `2026-10-13T08:02:33.500Z` | A fact, not a tunable: the first production row with `cf_verified_bot_category`. Read from production on 2026-11-24 with `SELECT min(created_at) FROM page_views WHERE cf_verified_bot_category IS NOT NULL`. Never move it |
+| `SEO_FUNNEL_WINDOW_DAYS` | `lib/seo-funnel.ts` | `28` | The Panel 3 funnel window. Keep it equal to `SEO_CRAWL_LOOKBACK_DAYS` and to the ingest's 28-day counts, or stages 1 and 3 stop describing the same length of time |
 
 ### Trade publication floor (AECI-539 / AECI-546)
 

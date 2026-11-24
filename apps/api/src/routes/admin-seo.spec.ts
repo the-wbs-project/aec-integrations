@@ -1,11 +1,16 @@
 /**
- * `GET /api/admin/seo/queue` and `GET /api/admin/seo/trend` (AECI-818), against
+ * `GET /api/admin/seo/queue` and `GET /api/admin/seo/trend` (AECI-818), and
+ * `GET /api/admin/seo/funnel` (AECI-823), against
  * the in-memory D1 harness. The derivations are pinned in
  * `lib/seo-queue.spec.ts`. This file pins the wire: validation, the envelope and
  * its notes, paging, absolute URLs, the stored-lane reads, and the real
  * `requireAdmin()` guard (401 and 403).
  */
-import { SeoQueueResponseSchema, SeoTrendResponseSchema } from '@aeci/shared';
+import {
+  SeoFunnelResponseSchema,
+  SeoQueueResponseSchema,
+  SeoTrendResponseSchema,
+} from '@aeci/shared';
 import { Hono } from 'hono';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -24,7 +29,12 @@ import { requireAdmin, type AuthzVariables } from '../lib/authz';
 import { makeTestJwks, type TestJwks } from '../test/auth';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext } from '../test/helpers';
-import { createAdminSeoQueueHandler, createAdminSeoTrendHandler, isoWeekMonday } from './admin-seo';
+import {
+  createAdminSeoFunnelHandler,
+  createAdminSeoQueueHandler,
+  createAdminSeoTrendHandler,
+  isoWeekMonday,
+} from './admin-seo';
 
 vi.mock('../posthog', () => ({
   logToPosthog: vi.fn(),
@@ -56,6 +66,7 @@ function app() {
   const clock = () => NOW;
   a.get('/api/admin/seo/queue', createAdminSeoQueueHandler(t.factory, clock));
   a.get('/api/admin/seo/trend', createAdminSeoTrendHandler(t.factory, clock));
+  a.get('/api/admin/seo/funnel', createAdminSeoFunnelHandler(t.factory, clock));
   return a;
 }
 
@@ -337,6 +348,63 @@ describe('GET /api/admin/seo/trend', () => {
   });
 });
 
+describe('GET /api/admin/seo/funnel', () => {
+  const row = (day: string, metric: string, value: number) => ({
+    day,
+    metric,
+    value,
+    source: 'measured',
+    computedAt: `${day}T23:59:00.000Z`,
+  });
+
+  it('answers the envelope with both engines, never summed, and the baseline for Google', async () => {
+    // The ingest's newest Pacific date, a week behind the last complete UTC day.
+    const end = '2026-11-16';
+    await t.db
+      .insert(metricsDaily)
+      .values([
+        row('2026-11-23', 'seo.catalog_urls', 1532),
+        row('2026-11-23', 'seo.crawled_urls_google', 410),
+        row('2026-11-23', 'seo.crawled_urls_bing', 1010),
+        row(end, 'search.google.www_page.clicks', 52),
+        row(end, 'search.google.www_page.impressions', 16800),
+        row(end, 'search.google.www_page.position_avg', 33.4),
+        row(end, 'search.google.www_page.catalog_pages_with_impressions_28d', 380),
+        row(end, 'search.google.property.clicks', 60),
+        row(end, 'search.google.property.impressions', 20000),
+        row(end, 'search.google.property.position_avg', 31),
+      ]);
+
+    const res = await get('/api/admin/seo/funnel');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+    const body = SeoFunnelResponseSchema.parse(await res.json());
+
+    expect(body.generated_at).toBe(NOW.toISOString());
+    expect(body.day).toBe('2026-11-23');
+    const [google, bing] = body.engines;
+    expect(google?.engine).toBe('google');
+    expect(google?.scope).toBe('www_page');
+    expect(google?.stages.map((s) => [s.stage, s.count, s.rate])).toEqual([
+      ['catalog', 1532, null],
+      ['crawled', 410, 0.2676],
+      ['impressed', 380, 0.248],
+      ['clicked', 52, 0.0031],
+    ]);
+    expect(google?.baseline?.current).toMatchObject({ clicks: 60, impressions: 20000, ctr: 0.003 });
+    expect(google?.baseline?.reference).toMatchObject({ clicks: 41, position_avg: 31.9 });
+    // Bing has no ingest rows: stage 1 stays, the rest is omitted, not zeroed.
+    expect(bing?.stages.map((s) => s.stage)).toEqual(['catalog', 'crawled']);
+    expect(bing?.baseline).toBeNull();
+    expect(body.notes.map((n) => n.code)).toEqual([
+      'crawl_coverage_is_gateway_arrivals',
+      'crawler_label_includes_inspection_tool',
+      'indexed_is_impression_lower_bound',
+      'search_ingest_absent',
+    ]);
+  });
+});
+
 describe('/api/admin/seo/* — authorization', () => {
   const SUPABASE_URL = 'https://test-project.supabase.co';
   const AUTHZ_ENV = { ENV: 'staging', SUPABASE_URL, PUBLIC_SITE_URL: BASE } as Env;
@@ -352,6 +420,7 @@ describe('/api/admin/seo/* — authorization', () => {
     const guard = requireAdmin({ getKey: jwks.getKey, dbFor: t.factory });
     a.get('/api/admin/seo/queue', guard, createAdminSeoQueueHandler(t.factory));
     a.get('/api/admin/seo/trend', guard, createAdminSeoTrendHandler(t.factory));
+    a.get('/api/admin/seo/funnel', guard, createAdminSeoFunnelHandler(t.factory));
     return a;
   }
 
@@ -363,7 +432,7 @@ describe('/api/admin/seo/* — authorization', () => {
       fakeExecutionContext(),
     );
 
-  it.each(['/api/admin/seo/queue', '/api/admin/seo/trend'])(
+  it.each(['/api/admin/seo/queue', '/api/admin/seo/trend', '/api/admin/seo/funnel'])(
     '401s, 403s and admits on %s',
     async (path) => {
       expect((await call(path)).status).toBe(401);

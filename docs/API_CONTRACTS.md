@@ -5525,10 +5525,10 @@ stale click cannot land on a different row.
 
 ---
 
-#### Search console: `GET /api/admin/seo/queue`, `GET /api/admin/seo/trend`, `GET /api/admin/seo/funnel` (specified by AECI-817; queue and trend shipped by AECI-818)
+#### Search console: `GET /api/admin/seo/queue`, `GET /api/admin/seo/trend`, `GET /api/admin/seo/funnel` (specified by AECI-817; queue and trend shipped by AECI-818, funnel by AECI-823)
 
 The three reads behind `/admin/seo` (`ADMIN_PANEL_SPEC.md` §5.24). AECI-818 built the queue and
-the trend. The funnel is not built.
+the trend. AECI-823 built the funnel.
 Contract file `packages/shared/src/api/admin-seo.ts`, handlers `apps/api/src/routes/admin-seo.ts`.
 All three register on `authAdmin` behind `requireAdmin()`.
 
@@ -5540,8 +5540,8 @@ can be wrong in the ways §5.24.4 lists. That is the opposite of `/api/admin/rei
 queue depth cannot be qualified. Engines are `google` and `bing` in every shape, from the start.
 
 **Note codes this surface adds to `AdminNoteCodeSchema`.** The change is additive. AECI-818 added
-the five codes the queue and the trend emit. `indexed_is_impression_lower_bound` and
-`search_ingest_absent` are the funnel's, and land with AECI-823.
+the five codes the queue and the trend emit. AECI-823 added the funnel's two,
+`indexed_is_impression_lower_bound` and `search_ingest_absent`.
 
 | Code | Severity | When |
 |---|---|---|
@@ -5549,8 +5549,8 @@ the five codes the queue and the trend emit. `indexed_is_impression_lower_bound`
 | `crawler_label_unverified` | `warn` | The window includes rows from before edge verification started. `params.since` names the date |
 | `crawl_window_clamped` | `info` | The window was clamped to `CONCRETE_PATH_SINCE`. `params.from` names the clamped start |
 | `crawler_label_includes_inspection_tool` | `info` | Every Google crawl figure, until the `Googlebot` label is split at ingest |
-| `indexed_is_impression_lower_bound` | `info` | Google stage 3 in the funnel |
-| `search_ingest_absent` | `info` | An engine has no ingest data for the window. `params.engine` names it |
+| `indexed_is_impression_lower_bound` | `info` | The Google `impressed` stage is present in the funnel |
+| `search_ingest_absent` | `info` | An engine has no ingest data in the funnel's window, or only a stale series. `params.engine` names it |
 | `public_site_url_unset` | `warn` | `PUBLIC_SITE_URL` is unset or unparseable, so no URL can be built |
 
 ##### `GET /api/admin/seo/queue` (AECI-818, shipped)
@@ -5691,31 +5691,42 @@ in the Done dialog, not a measurement. The UI labels it so.
 oldest week starts before edge verification. The cohort is matched on an entity id rather than
 `concrete_path`, so `crawl_window_clamped` never applies here.
 
-##### `GET /api/admin/seo/funnel` (AECI-823)
+##### `GET /api/admin/seo/funnel` (AECI-823, shipped)
 
-Panel 3. The trailing 28 days ending on the last complete UTC day.
+Panel 3. The per-engine funnel over trailing 28-day windows (`ADMIN_PANEL_SPEC.md` §5.24.7).
+Derivation in `apps/api/src/lib/seo-funnel.ts`.
 
 ```
 GET /api/admin/seo/funnel
 → 200 {
     generated_at: "2026-12-01T09:00:00.000Z",
     day: "2026-11-30",
+    crawl_window: { from: "2026-11-03T00:00:00.000Z", to: "2026-12-01T00:00:00.000Z", timezone: "UTC", days: 28 },
     engines: [
       {
         engine: "google",
         scope: "www_page",
+        search_window: { from: "2026-10-27", to: "2026-11-23", timezone: "America/Los_Angeles", days: 28, days_recorded: 28 },
         stages: [
           { stage: "catalog",   count: 1532, rate: null,   measure: "measured",    source: "d1" },
           { stage: "crawled",   count: 410,  rate: 0.2676, measure: "measured",    source: "d1" },
-          { stage: "impressed", count: 380,  rate: 0.2480, measure: "lower_bound", source: "search_console" },
+          { stage: "impressed", count: 380,  rate: 0.2480, measure: "lower_bound", source: "search_console",
+            as_of: "2026-11-23" },
           { stage: "clicked",   count: 52,   rate: 0.0031, measure: "measured",    source: "search_console",
             impressions: 16800, position_avg: 33.4 }
         ],
-        baseline: null
+        baseline: {
+          scope: "property",
+          current: { clicks: 60, impressions: 20100, ctr: 0.003, position_avg: 31.2,
+                     window: { from: "2026-10-27", to: "2026-11-23", timezone: "America/Los_Angeles", days: 28, days_recorded: 28 } },
+          reference: { clicks: 41, impressions: 15900, ctr: 0.003, position_avg: 31.9,
+                       window_end: "2026-09-05", window_months: 3, taken_on: "2026-09-09", impressions_rounded: true }
+        }
       },
       {
         engine: "bing",
         scope: "www",
+        search_window: null,
         stages: [
           { stage: "catalog", count: 1532, rate: null,   measure: "measured", source: "d1" },
           { stage: "crawled", count: 1010, rate: 0.6593, measure: "measured", source: "d1" }
@@ -5727,24 +5738,53 @@ GET /api/admin/seo/funnel
   }
 ```
 
-**Query.** `scope`, `www_page` or `property`, default `www_page` (§5.24.8). `property` returns
-the unfiltered Domain property figures and fills `baseline` with the AECI-799 figures
-(`ANALYTICS_BASELINE.md`), which were taken with no host filter over three months. `baseline` is
-null under `www_page`. D1 stages do not depend on scope and are the same under both. Bing has one
-scope, `www`, because Bing registers sites per host, so its `scope` reads `www` under either value.
+**Query.** None. The Google funnel is `www_page` only, because stage 3 has a source only at that
+scope: the ingest stores pages with an impression for `www.` alone (§5.24.8). The whole-property
+figures ride `baseline` instead. An unknown parameter is ignored, as on every admin read. Bing's
+`scope` is `www`, because Bing registers sites per host.
+
+**`day` and `crawl_window`.** `day` is the last complete UTC day. The D1 stages cover
+`crawl_window`, the 28 days ending at 00:00 UTC after `day`, clamped to `CONCRETE_PATH_SINCE`. They
+read the snapshot's `seo.catalog_urls` and `seo.crawled_urls_*` rows for `day`. When the 00:15
+snapshot has not yet filed `day`, the endpoint runs the same computation to the same instant.
+
+**`search_window`.** The ingested stages use Pacific dates, because the ingest files rows under
+Google's and Bing's Pacific day and the funnel does not re-cut them. The window is the 28 Pacific
+dates ending on the newest date the ingest wrote for that engine, within the 28 dates ending on
+`day`. `days_recorded` counts the dates in it that hold a daily impressions row. It is null when
+the engine has no ingest row in reach, and the engine then carries `search_ingest_absent`.
 
 **`stages`** are `catalog`, `crawled`, `indexed`, `impressed`, `clicked`, in that order. A stage
-with no data is **omitted**, never zero. Google never has `indexed` (§5.24.7). Bing has `indexed`
-only if its ingest stores Bing's own index figure. `measure` is `measured`, `lower_bound` or
-`engine_reported`, the last meaning a figure the engine reports without defining it.
-`source` is `d1`, `search_console` or `bing_webmaster`.
+with no data is **omitted**, never zero. Google never has `indexed` and Bing never has `impressed`
+(§5.24.7). `measure` is `measured`, `lower_bound` or `engine_reported`, the last meaning a figure
+the engine reports without defining it. `source` is `d1`, `search_console` or `bing_webmaster`.
 
-**Rates.** `crawled` and `indexed` are divided by `catalog`. `impressed` is divided by `catalog`
-for Google and by `indexed` for Bing when `indexed` is present. `clicked.rate` is CTR, the sum of
-clicks over the sum of impressions in the window. Rates are rounded to four places. The two
-engines are never summed.
+| Stage | Google | Bing |
+|---|---|---|
+| `catalog`, `crawled` | Always present, from D1 | Always present, from D1 |
+| `indexed` | Never | `search.bing.www.in_index`, the newest reading in the window. `as_of` is its date |
+| `impressed` | `search.google.www_page.catalog_pages_with_impressions_28d` filed on the window's end date. `as_of` is that date. A row on any other date covers other dates and is not read | Never |
+| `clicked` | Summed `www_page` clicks and impressions, with `position_avg` | Summed clicks and impressions. No `position_avg` |
 
-Errors: `VALIDATION_FAILED` (400) on an unknown `scope`.
+**Rates.** `crawled`, `indexed` and `impressed` divide by `catalog`. `clicked.rate` is CTR, the sum
+of clicks over the sum of impressions in the window, never a mean of daily ratios. `position_avg`
+weights each day's stored average by that day's impressions, one decimal, or null when no day in
+the window carried a position. Rates are rounded to four places, and are null when the denominator
+is 0. The two engines are never summed.
+
+**`baseline`** is Google's only, and is null for Bing. It is the table under the Google funnel,
+always shown (Chris, 2026-11-24). `current` sums `search.google.property.*` over that series' own
+28 Pacific dates, and is null when none falls in reach. `reference` is the AECI-799 baseline from
+`ANALYTICS_BASELINE.md`, a static figure: three months ending 2026-09-05. Both are the whole
+Domain property with no host filter, so they compare. Their windows differ, so they are not like
+for like.
+
+**Notes.** The two standing crawl caveats on every response. `crawl_window_clamped` and
+`crawler_label_unverified` when `crawl_window` reaches past their dates.
+`indexed_is_impression_lower_bound` when the Google `impressed` stage is present.
+`search_ingest_absent` once per engine with a null `search_window`.
+
+Errors: none beyond the admin guard's 401 and 403.
 
 ---
 
