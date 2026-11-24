@@ -35,6 +35,15 @@ export const VENDOR_GUIDE_PAGES = {
 export type VendorGuidePage = keyof typeof VENDOR_GUIDE_PAGES;
 
 /**
+ * DESIGN.md's standalone link role, as `shared/view-public-link` draws it (AECI-1809):
+ * secondary ink, underlined, 14px at 600 on a 44px target, no side padding. The
+ * portal's other new-tab links ("Learn more", the create receipt's "View public
+ * page") bind this so the hand-copied 12px spelling is gone. Whole class names.
+ */
+export const STANDALONE_LINK_CLASS =
+  'inline-flex min-h-11 items-center gap-2 rounded-mark text-t-14 font-semibold text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors duration-base ease-standard hover:text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
+
+/**
  * `VendorDocsLink` (AECI-1253): the portal's one "Learn more" link into the
  * vendor guide. One per portal surface, placed under the surface's heading or
  * intro, so the help sits where the task is.
@@ -51,8 +60,11 @@ export type VendorGuidePage = keyof typeof VENDOR_GUIDE_PAGES;
  * tab)"). A links list never reads two identical entries that go to different
  * pages, and the name still begins with the visible text (WCAG 2.5.3).
  *
- * The anchor's start padding is cancelled with `-ms-3` so its text lines up
- * with the paragraph or heading above it. Light theme only.
+ * Since AECI-1811 it is the standalone link exactly as `aec-view-public-link`
+ * draws it: 14px at 600 on a 44px target with no side padding, so its text lines
+ * up with the paragraph or heading above it. The shared component exports no class
+ * constant, so {@link STANDALONE_LINK_CLASS} repeats its spelling once, here, and
+ * `vendor-docs-link.component.spec.ts` fails if the two drift apart. Light theme only.
  */
 @Component({
   selector: 'aec-vendor-docs-link',
@@ -64,10 +76,7 @@ export type VendorGuidePage = keyof typeof VENDOR_GUIDE_PAGES;
       target="_blank"
       rel="noopener"
       [attr.data-docs-link]="page()"
-      class="-ms-3 inline-flex items-center gap-1.5 rounded-(--radius-md) px-3 py-1.5 text-xs
-        font-medium text-(--text-secondary) underline decoration-(--border-strong)
-        underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2
-        focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      [class]="linkClass"
       ><span i18n="@@vendor.docsLink.learnMore"
         >Learn more<span class="sr-only">: {{ title() }} </span></span
       >
@@ -81,6 +90,7 @@ export type VendorGuidePage = keyof typeof VENDOR_GUIDE_PAGES;
   `,
 })
 export class VendorDocsLink {
+  protected readonly linkClass = STANDALONE_LINK_CLASS;
   /** The vendor-guide page, by slug. */
   readonly page = input.required<VendorGuidePage>();
 

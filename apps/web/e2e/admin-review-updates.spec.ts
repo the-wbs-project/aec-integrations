@@ -101,7 +101,12 @@ test.describe('/admin/review-updates — approve as an admin (AECI-1613)', () =>
     await expect(page.getByRole('heading', { name: 'Review updates', level: 2 })).toBeVisible();
     const queue = page.locator('section[aria-labelledby="admin-review-updates-heading"]');
 
-    const card = page.locator('article', { hasText: PENDING_BODY });
+    // AECI-2102: one table row per update. The disclosure opens its detail row.
+    const record = page.locator('tbody[data-testid="review-update-record"]', {
+      hasText: PENDING_BODY,
+    });
+    await record.locator(`button[aria-controls="update-${PENDING_ID}-detail"]`).click();
+    const card = page.locator(`[id="update-${PENDING_ID}-detail"]`);
     await expect(card).toBeVisible();
     await expect(card).toContainText('The original review');
     await expect(card).toContainText('Package conflicts slow us down');
@@ -114,12 +119,19 @@ test.describe('/admin/review-updates — approve as an admin (AECI-1613)', () =>
 
     await card.getByRole('button', { name: 'Approve', exact: true }).click();
     await expect(queue.getByRole('status')).toContainText('Update approved');
-    await expect(card).toHaveCount(0);
+    await expect(record).toHaveCount(0);
 
     // On the Approved tab, the remove form asks for a final confirm. Cancel it.
     await page.getByRole('button', { name: 'Approved', exact: true }).click();
-    await expect(page.locator('article', { hasText: PENDING_BODY })).toBeVisible();
-    const approved = page.locator('article', { hasText: APPROVED_BODY });
+    await expect(
+      page.locator('tbody[data-testid="review-update-record"]', { hasText: PENDING_BODY }),
+    ).toHaveCount(1);
+    const approvedRecord = page.locator('tbody[data-testid="review-update-record"]', {
+      hasText: APPROVED_BODY,
+    });
+    await approvedRecord.getByRole('button', { name: /^Update to a review of / }).click();
+    const approved = approvedRecord.locator('[data-testid="review-update-card"]');
+    await expect(approved).toBeVisible();
     await approved.getByRole('button', { name: 'Remove from the page' }).click();
     await approved.getByRole('textbox').fill('Checking the confirm step.');
     await approved.getByRole('button', { name: 'Continue to removal' }).click();

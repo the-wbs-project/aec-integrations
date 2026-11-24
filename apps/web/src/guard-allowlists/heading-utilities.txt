@@ -10,7 +10,6 @@ admin/claims/claim-detail.html 6
 admin/claims/claim-queue.html 2
 admin/connectors/connector-detail.html 6
 admin/connectors/connector-list.html 1
-admin/contests/contest-queue.html 2
 admin/dmca/dmca-notices.html 2
 admin/email/email-activity.html 5
 admin/email/email-switches.html 5
@@ -22,9 +21,6 @@ admin/reindex/reindex-list.html 2
 admin/requests/license-release-queue.html 2
 admin/requests/product-request-queue.ts 2
 admin/requests/request-queue.html 2
-admin/review-responses/review-response-queue.html 2
-admin/review-updates/review-update-queue.html 2
-admin/reviews/review-queue.html 3
 admin/subscribers/subscriber-list.html 1
 admin/threads/thread-detail.html 2
 admin/threads/thread-list.html 1

@@ -19,14 +19,25 @@ import { AecButton } from '../shared/button/button';
  * this control twice (above and below its table) without duplicate ids.
  *
  * Presentational: the parent owns the cursors and refetches on every output.
- * While `busy`, every control is disabled, so a second press cannot race the
+ * While `busy`, every control ignores input, so a second press cannot race the
  * first fetch.
+ *
+ * FOCUS (AECI-2102). No control is ever natively disabled: a press that started
+ * a fetch, or reached an edge, would disable the focused control, and Chromium
+ * drops focus to `<body>`. An edge button is `aria-disabled` and its press does
+ * nothing. While `busy` the nav is `aria-busy`, every press does nothing and a
+ * page-size change is put back, without the dimmed look (DESIGN.md: a busy state
+ * does not set `aria-disabled`).
  */
 @Component({
   selector: 'aec-admin-cursor-paginator',
   imports: [AecButton],
   template: `
-    <nav class="flex flex-wrap items-center justify-end gap-3" [attr.aria-label]="label()">
+    <nav
+      class="flex flex-wrap items-center justify-end gap-3"
+      [attr.aria-label]="label()"
+      [attr.aria-busy]="busy() ? 'true' : null"
+    >
       <div class="flex flex-wrap items-center gap-3">
         @if (pageSizes().length > 1) {
           <label
@@ -35,7 +46,6 @@ import { AecButton } from '../shared/button/button';
             <span i18n="@@admin.cursorPaginator.perPage">Rows per page</span>
             <select
               [value]="perPage()"
-              [disabled]="busy()"
               (change)="onPerPage($event)"
               class="aec-field-control rounded-control border bg-(--surface-base) px-3 py-2 text-t-14 text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 disabled:cursor-not-allowed"
             >
@@ -50,8 +60,7 @@ import { AecButton } from '../shared/button/button';
             aecButton
             variant="secondary"
             compact
-            [disabled]="busy()"
-            (click)="first.emit()"
+            (click)="!busy() && first.emit()"
             i18n="@@admin.cursorPaginator.first"
           >
             First page
@@ -61,8 +70,8 @@ import { AecButton } from '../shared/button/button';
           aecButton
           variant="secondary"
           compact
-          [disabled]="busy() || !hasPrev()"
-          (click)="prev.emit()"
+          [attr.aria-disabled]="!hasPrev() ? 'true' : null"
+          (click)="!busy() && hasPrev() && prev.emit()"
           i18n="@@admin.paginator.previous"
         >
           Previous
@@ -71,8 +80,8 @@ import { AecButton } from '../shared/button/button';
           aecButton
           variant="secondary"
           compact
-          [disabled]="busy() || !hasNext()"
-          (click)="next.emit()"
+          [attr.aria-disabled]="!hasNext() ? 'true' : null"
+          (click)="!busy() && hasNext() && next.emit()"
           i18n="@@admin.paginator.next"
         >
           Next
@@ -103,7 +112,12 @@ export class AdminCursorPaginator {
   readonly pageSizeChange = output<number>();
 
   protected onPerPage(event: Event): void {
-    const size = Number((event.target as HTMLSelectElement).value);
+    const select = event.target as HTMLSelectElement;
+    if (this.busy()) {
+      select.value = String(this.perPage());
+      return;
+    }
+    const size = Number(select.value);
     if (Number.isInteger(size) && size !== this.perPage()) this.pageSizeChange.emit(size);
   }
 }

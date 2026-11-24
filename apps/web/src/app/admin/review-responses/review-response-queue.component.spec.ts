@@ -140,9 +140,27 @@ describe('ReviewResponseQueue', () => {
     const { el, api } = await setup(makeApiMock([makeReply({ id: 'r1' })]));
     expect(api.listReplies).toHaveBeenCalledWith({ status: 'pending', page: 1, perPage: 100 });
 
-    const card = el.querySelector('article') as HTMLElement;
+    // AECI-2102: a summary row and its detail row, tied by the disclosure.
+    const row = el.querySelector('[data-testid="reply-row"]') as HTMLElement;
+    const card = el.querySelector('[data-testid="reply-detail"]') as HTMLElement;
+    const disclosure = row.querySelector('button[aria-controls]') as HTMLButtonElement;
+    expect(disclosure.getAttribute('aria-controls')).toBe(card.id);
+    expect(disclosure.getAttribute('aria-expanded')).toBe('false');
+    expect(disclosure.textContent?.trim()).toBe('Reply from Autodesk on Dynamo for Revit');
+    expect(card.hidden).toBe(true);
+    expect([...el.querySelectorAll('thead th')].map((th) => th.textContent?.trim())).toEqual([
+      'Details',
+      'Product',
+      'Vendor',
+      'Written by',
+      'Last changed',
+      'Status',
+    ]);
+    expect(card.querySelector('td')?.getAttribute('colspan')).toBe('6');
+    expect(row.textContent).toContain('seat@autodesk.example');
+    expect(row.querySelector('.aec-chip')?.getAttribute('data-tone')).toBe('waiting');
+
     const heading = card.querySelector('h3')!;
-    expect(card.getAttribute('aria-labelledby')).toBe(heading.id);
     const link = heading.querySelector('a');
     expect(link?.textContent?.trim()).toBe('Dynamo for Revit');
     expect(link?.getAttribute('href')).toBe('/products/dynamo-for-revit');
@@ -156,7 +174,6 @@ describe('ReviewResponseQueue', () => {
     expect(card.querySelector('[data-testid="reply-body"]')?.textContent).toContain(
       'The sync bug was fixed in 2026.3.',
     );
-    expect(card.textContent).toContain('seat@autodesk.example');
     expect(card.querySelector('[data-testid="reply-warning"]')).toBeNull();
   });
 
@@ -185,7 +202,7 @@ describe('ReviewResponseQueue', () => {
         makeReply({ id: 'rm', status: 'removed', rejection_reason: 'A sales pitch.' }),
       ]),
     );
-    const cards = [...el.querySelectorAll('article')] as HTMLElement[];
+    const cards = [...el.querySelectorAll('[data-testid="reply-detail"]')] as HTMLElement[];
     const buttons = (card: HTMLElement) =>
       [...card.querySelectorAll('button')].map((b) => b.textContent?.trim());
     expect(buttons(cards[0]!)).toEqual(['Approve', 'Reject']);
@@ -206,7 +223,7 @@ describe('ReviewResponseQueue', () => {
         makeReply({ id: 'b', vendor_owns_product: false }),
       ]),
     );
-    const [a, b] = [...el.querySelectorAll('article')] as HTMLElement[];
+    const [a, b] = [...el.querySelectorAll('[data-testid="reply-detail"]')] as HTMLElement[];
     const warnA = a!.querySelector('[data-testid="reply-warning"]')!;
     expect(warnA.textContent).toContain('The review is no longer approved');
     expect(b!.querySelector('[data-testid="reply-warning"]')?.textContent).toContain(
@@ -222,7 +239,7 @@ describe('ReviewResponseQueue', () => {
     const { el } = await setup(
       makeApiMock([makeReply({ id: 'a', review: { ...base.review, status: 'removed' } })]),
     );
-    const card = el.querySelector('article') as HTMLElement;
+    const card = el.querySelector('[data-testid="reply-detail"]') as HTMLElement;
     expect(card.querySelector('[data-testid="reply-warning"]')?.textContent).toContain(
       'The review is no longer approved',
     );
@@ -230,7 +247,7 @@ describe('ReviewResponseQueue', () => {
 
   it('says when the author email is unavailable', async () => {
     const { el } = await setup(makeApiMock([makeReply({ id: 'r1', author_email: null })]));
-    expect(el.querySelector('article')?.textContent).toContain('Not available');
+    expect(el.querySelector('[data-testid="reply-row"]')?.textContent).toContain('Not available');
   });
 
   it('approves in one click, drops the row, decrements the badge and announces it', async () => {
@@ -241,7 +258,7 @@ describe('ReviewResponseQueue', () => {
       decision: 'approve',
       expected_updated_at: '2026-09-01T00:00:00.000Z',
     });
-    expect(el.querySelector('article')).toBeNull();
+    expect(el.querySelector('[data-testid="reply-detail"]')).toBeNull();
     expect(store.pendingReviewResponses()).toBe(2);
     expect(el.querySelector('[role="status"]')?.textContent).toContain('Reply approved');
   });
@@ -273,7 +290,7 @@ describe('ReviewResponseQueue', () => {
       reason: 'It names the reviewer.',
       expected_updated_at: '2026-09-01T00:00:00.000Z',
     });
-    expect(el.querySelector('article')).toBeNull();
+    expect(el.querySelector('[data-testid="reply-detail"]')).toBeNull();
     expect(store.pendingReviewResponses()).toBe(2);
   });
 
@@ -309,7 +326,7 @@ describe('ReviewResponseQueue', () => {
       reason: 'A sales pitch.',
       expected_updated_at: '2026-09-01T00:00:00.000Z',
     });
-    expect(el.querySelector('article')).toBeNull();
+    expect(el.querySelector('[data-testid="reply-detail"]')).toBeNull();
     expect(store.pendingReviewResponses()).toBe(3);
     expect(el.querySelector('[role="status"]')?.textContent).toContain('Reply removed');
   });
@@ -436,7 +453,7 @@ describe('ReviewResponseQueue', () => {
     );
     expect(api.listReplies).toHaveBeenCalledTimes(2);
     expect(el.querySelector('form')).toBeNull();
-    const card = el.querySelector('article')!;
+    const card = el.querySelector('[data-testid="reply-detail"]')!;
     expect(card.textContent).toContain('The vendor rewrote this reply.');
     expect(card.querySelector('[role="alert"]')).toBeNull();
     expect(store.pendingReviewResponses()).toBe(3);
@@ -456,7 +473,7 @@ describe('ReviewResponseQueue', () => {
     const { fixture, el, store } = await setup(api);
     buttonByText(el, 'Approve').click();
     await flush(fixture);
-    const card = el.querySelector('article')!;
+    const card = el.querySelector('[data-testid="reply-detail"]')!;
     expect(card.querySelector('[role="alert"]')?.textContent).toContain('Nothing was changed');
     expect(store.pendingReviewResponses()).toBe(3);
   });
@@ -475,5 +492,65 @@ describe('ReviewResponseQueue', () => {
   it('says when the server holds more rows than were loaded', async () => {
     const { el } = await setup(makeApiMock([makeReply({ id: 'r1' })], 140));
     expect(el.textContent).toContain('Showing the first 1 of 140 replies');
+  });
+  describe('AECI-2102 focus after a decision, and Escape in the reason form', () => {
+    const disclosure = (el: HTMLElement, id: string) =>
+      el.querySelector(`button[aria-controls="reply-${id}-detail"]`) as HTMLButtonElement;
+    const detail = (el: HTMLElement, id: string) =>
+      el.querySelector(`[id="reply-${id}-detail"]`) as HTMLElement;
+
+    it('moves focus to the next row after a decision, then to the heading', async () => {
+      const { fixture, el } = await setup(
+        makeApiMock([makeReply({ id: 'r1' }), makeReply({ id: 'r2' })]),
+      );
+      buttonByText(detail(el, 'r1'), 'Approve').click();
+      await flush(fixture);
+      expect(document.activeElement).toBe(disclosure(el, 'r2'));
+      buttonByText(detail(el, 'r2'), 'Approve').click();
+      await flush(fixture);
+      expect(document.activeElement?.id).toBe('admin-replies-heading');
+    });
+
+    it('moves focus to the alert after a failed decision', async () => {
+      const api = makeApiMock([makeReply({ id: 'r1' })]);
+      api.decide.mockRejectedValueOnce(apiError(500, 'INTERNAL'));
+      const { fixture, el } = await setup(api);
+      buttonByText(detail(el, 'r1'), 'Approve').click();
+      await flush(fixture);
+      const alert = el.querySelector('[id="reply-r1-failed"]');
+      expect(alert?.getAttribute('role')).toBe('alert');
+      expect(document.activeElement).toBe(alert);
+    });
+
+    it('opening Reject focuses the reason; Escape closes it and returns focus to Reject', async () => {
+      const { fixture, el, api } = await setup(makeApiMock([makeReply({ id: 'r1' })]));
+      buttonByText(detail(el, 'r1'), 'Reject').click();
+      await flush(fixture);
+      const textarea = detail(el, 'r1').querySelector('textarea') as HTMLTextAreaElement;
+      expect(document.activeElement).toBe(textarea);
+      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await flush(fixture);
+      expect(detail(el, 'r1').querySelector('form')).toBeNull();
+      expect(document.activeElement).toBe(buttonByText(detail(el, 'r1'), 'Reject'));
+      expect(api.decide).not.toHaveBeenCalled();
+    });
+
+    it('Escape at the remove confirm returns focus to Remove from the page', async () => {
+      const { fixture, el } = await setup(
+        makeApiMock([makeReply({ id: 'r1', status: 'published' })]),
+      );
+      buttonByText(detail(el, 'r1'), 'Remove from the page').click();
+      await flush(fixture);
+      typeReason(fixture, detail(el, 'r1'), 'A sales pitch.');
+      submitForm(detail(el, 'r1'));
+      await flush(fixture);
+      const confirm = detail(el, 'r1').querySelector(
+        '[data-testid="remove-confirm"]',
+      ) as HTMLElement;
+      confirm.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await flush(fixture);
+      expect(detail(el, 'r1').querySelector('form')).toBeNull();
+      expect(document.activeElement).toBe(buttonByText(detail(el, 'r1'), 'Remove from the page'));
+    });
   });
 });
