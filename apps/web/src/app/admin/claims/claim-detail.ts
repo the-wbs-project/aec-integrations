@@ -77,7 +77,7 @@ const AUDIT_PAGE_SIZE = 25;
  * fetches in `afterNextRender`, so it never reads a cookie or a session directly.
  *
  * 1. **Claim** — submitter, target, status, body, source and Linear links.
- * 2. **Verification signals** — the same evidence the queue card carries,
+ * 2. **Verification signals** — the same evidence the queue row carries,
  *    including the §5.2 payer test through the SHARED `productRolesLabel`, so the
  *    two screens cannot describe one vendor differently.
  * 3. **Operator note** — the write this issue adds. Free text, admin-only, never

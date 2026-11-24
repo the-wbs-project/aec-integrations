@@ -117,10 +117,10 @@ type FormMode = 'approve' | 'reject';
  * connector claim, which AECI-1367 retired: a pure-connector vendor is approved
  * like anyone else, and its row shows a neutral "Connector vendor: contact them
  * directly" flag instead of a parking banner. The three stay useful:
- *  - the **operator note** renders on the card. It lives on the detail page, but
+ *  - the **operator note** renders on the row (its expanded detail since AECI-2111). It lives on the detail page, but
  *    the queue is where the operator actually looks, so the note has to be
  *    legible without opening anything;
- *  - each card links to **`/admin/claims/:id`**, where the note is written and the
+ *  - each row links to **`/admin/claims/:id`**, where the note is written and the
  *    duplicate chip is explained;
  *  - the status filter gained **In review**, which the API could not express at all
  *    until AECI-739 widened its enum — so no status is reachable by id but
