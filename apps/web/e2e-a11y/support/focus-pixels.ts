@@ -170,14 +170,40 @@ export interface IndicatorMeasure {
   readonly strong: number;
   /** The highest contrast any changed pixel reached. 1 when none changed. */
   readonly best: number;
+  /** Changed pixels left out because they fall in a region `exclude` names. */
+  readonly excluded: number;
+}
+
+/** Is the pixel at (x, y) inside one of `rects`? A partly covered pixel counts as inside. */
+function inAny(rects: readonly Rect[], x: number, y: number): boolean {
+  for (const r of rects) {
+    if (
+      x >= Math.floor(r.x) &&
+      x < Math.ceil(r.x + r.width) &&
+      y >= Math.floor(r.y) &&
+      y < Math.ceil(r.y + r.height)
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
  * Compare the same region focused and unfocused. A changed pixel is part of
  * the focus indicator. Its contrast is the indicator colour against what was
  * there before: the adjacent background the ring is drawn on.
+ *
+ * `exclude` names regions, in the pictures' coordinates, where something other
+ * than focus changed between the two pictures: an error that appeared when the
+ * stop lost focus, or the stop's own box when its state changed (`changedRegions`).
+ * A change there is not a ring, so it is not counted.
  */
-export function measureIndicator(focused: Bitmap, unfocused: Bitmap): IndicatorMeasure {
+export function measureIndicator(
+  focused: Bitmap,
+  unfocused: Bitmap,
+  exclude: readonly Rect[] = [],
+): IndicatorMeasure {
   if (focused.width !== unfocused.width || focused.height !== unfocused.height) {
     throw new Error(
       `images differ in size: ${focused.width}x${focused.height} and ${unfocused.width}x${unfocused.height}`,
@@ -186,10 +212,16 @@ export function measureIndicator(focused: Bitmap, unfocused: Bitmap): IndicatorM
   let changed = 0;
   let strong = 0;
   let best = 1;
+  let excluded = 0;
   const a = focused.data;
   const b = unfocused.data;
   for (let o = 0; o < a.length; o += 4) {
     if (a[o] === b[o] && a[o + 1] === b[o + 1] && a[o + 2] === b[o + 2]) continue;
+    const p = o / 4;
+    if (exclude.length > 0 && inAny(exclude, p % focused.width, Math.floor(p / focused.width))) {
+      excluded++;
+      continue;
+    }
     changed++;
     const ratio = contrastRatio(
       { r: a[o], g: a[o + 1], b: a[o + 2] },
@@ -198,7 +230,52 @@ export function measureIndicator(focused: Bitmap, unfocused: Bitmap): IndicatorM
     if (ratio > best) best = ratio;
     if (ratio >= NON_TEXT_CONTRAST) strong++;
   }
-  return { changed, strong, best };
+  return { changed, strong, best, excluded };
+}
+
+/** An element near a stop, as read when the stop was focused and again when it was not. */
+export interface RegionElement {
+  /** The keyboard probe's key, the same element in both reads. */
+  readonly key: number;
+  /** Its border box, in the pictures' coordinates. */
+  readonly rect: Rect;
+  /** Its attributes and its own text. A change means it changed for a reason of its own. */
+  readonly sig: string;
+}
+
+/**
+ * The regions where something other than focus changed between the two
+ * pictures: an element that appeared, went, moved, resized, or changed its
+ * attributes or its own text. An error message that renders when a field
+ * loses focus is one. Both its rects are returned when it moved, so neither
+ * place counts. Pure, so the plain Vitest runner pins it.
+ */
+export function changedRegions(
+  focused: readonly RegionElement[],
+  unfocused: readonly RegionElement[],
+): Rect[] {
+  const before = new Map(focused.map((e) => [e.key, e]));
+  const after = new Map(unfocused.map((e) => [e.key, e]));
+  const out: Rect[] = [];
+  for (const e of focused) {
+    const now = after.get(e.key);
+    if (!now || now.sig !== e.sig || !sameRect(now.rect, e.rect)) out.push(e.rect);
+  }
+  for (const e of unfocused) {
+    const then = before.get(e.key);
+    if (!then || then.sig !== e.sig || !sameRect(then.rect, e.rect)) out.push(e.rect);
+  }
+  return out;
+}
+
+/**
+ * The same box, to a hundredth of a pixel. A stop that moved or resized
+ * between its two pictures cannot be compared: every edge in the clip would
+ * read as a change.
+ */
+export function sameRect(a: Rect, b: Rect): boolean {
+  const close = (p: number, q: number) => Math.abs(p - q) < 0.01;
+  return close(a.x, b.x) && close(a.y, b.y) && close(a.width, b.width) && close(a.height, b.height);
 }
 
 /**

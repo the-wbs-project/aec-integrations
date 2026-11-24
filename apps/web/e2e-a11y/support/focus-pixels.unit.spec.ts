@@ -2,6 +2,7 @@ import { deflateSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import {
   boundaryVerdict,
+  changedRegions,
   composite,
   contrastRatio,
   decodePng,
@@ -10,9 +11,11 @@ import {
   measureIndicator,
   relativeLuminance,
   requiredIndicatorPixels,
+  sameRect,
   strongestInside,
   toHex,
   type Bitmap,
+  type RegionElement,
   type Rgb,
 } from './focus-pixels';
 
@@ -207,7 +210,12 @@ describe('measureIndicator', () => {
   const ground = solid(60, 40, WHITE);
 
   it('finds no change when nothing is drawn: the visible check fails', () => {
-    expect(measureIndicator(ground, ground)).toEqual({ changed: 0, strong: 0, best: 1 });
+    expect(measureIndicator(ground, ground)).toEqual({
+      changed: 0,
+      strong: 0,
+      best: 1,
+      excluded: 0,
+    });
   });
 
   it('counts a Forest ring on white as strong, and passes the 1px-line rule', () => {
@@ -237,6 +245,84 @@ describe('measureIndicator', () => {
 
   it('refuses two pictures of different sizes', () => {
     expect(() => measureIndicator(ground, solid(10, 10, WHITE))).toThrow('differ in size');
+  });
+
+  // Review round 2: a field with no ring whose only change on blur is an error
+  // message below it and a red edge on itself. Neither is a ring.
+  it('does not count an error that appears on blur, so a ringless field fails visible', () => {
+    const red = hex('#b91c1c');
+    // Focused: nothing drawn. Unfocused: a red edge on the field and a message under it.
+    let unfocused = ring(ground, 10, 10, 30, 10, 1, red);
+    unfocused = paint(unfocused, 10, 24, 25, 6, red);
+    const field = { x: 9, y: 9, width: 32, height: 12 };
+    const message = { x: 10, y: 24, width: 25, height: 6 };
+    expect(measureIndicator(ground, unfocused).strong).toBeGreaterThan(0);
+    const m = measureIndicator(ground, unfocused, [field, message]);
+    expect(m.changed).toBe(0);
+    expect(m.excluded).toBeGreaterThan(0);
+  });
+
+  it('still counts a ring outside the excluded regions', () => {
+    let focused = ring(ground, 10, 10, 30, 10, 3, FOREST);
+    focused = paint(focused, 10, 30, 25, 6, hex('#b91c1c'));
+    const m = measureIndicator(focused, ground, [
+      { x: 10, y: 10, width: 30, height: 10 },
+      { x: 10, y: 30, width: 25, height: 6 },
+    ]);
+    expect(m.strong).toBeGreaterThanOrEqual(
+      requiredIndicatorPixels({ x: 10, y: 10, width: 30, height: 10 }),
+    );
+    expect(m.excluded).toBe(150);
+  });
+
+  it('treats a partly covered pixel as excluded', () => {
+    const focused = paint(ground, 5, 5, 1, 1, BLACK);
+    expect(
+      measureIndicator(focused, ground, [{ x: 5.5, y: 5.5, width: 0.2, height: 0.2 }]),
+    ).toMatchObject({
+      changed: 0,
+      excluded: 1,
+    });
+  });
+});
+
+describe('changedRegions', () => {
+  const el = (key: number, x: number, sig = 'p[]'): RegionElement => ({
+    key,
+    rect: { x, y: 0, width: 10, height: 10 },
+    sig,
+  });
+
+  it('is empty when nothing round the stop changed', () => {
+    expect(changedRegions([el(1, 0), el(2, 20)], [el(1, 0), el(2, 20)])).toEqual([]);
+  });
+
+  it('names an element that appeared on blur, such as an error message', () => {
+    expect(changedRegions([el(1, 0)], [el(1, 0), el(2, 20)])).toEqual([el(2, 20).rect]);
+  });
+
+  it('names an element that went', () => {
+    expect(changedRegions([el(1, 0), el(2, 20)], [el(1, 0)])).toEqual([el(2, 20).rect]);
+  });
+
+  it('names an element whose text or attributes changed, in both pictures', () => {
+    const before = el(1, 0, 'p[class=hint]');
+    const after = el(1, 0, 'p[class=error]Enter a value');
+    expect(changedRegions([before], [after])).toEqual([before.rect, after.rect]);
+  });
+
+  it('names both places of an element that moved', () => {
+    expect(changedRegions([el(1, 0)], [el(1, 1)])).toEqual([el(1, 0).rect, el(1, 1).rect]);
+  });
+});
+
+describe('sameRect', () => {
+  it('allows no movement of a pixel or more, and none of a tenth', () => {
+    const a = { x: 10, y: 20, width: 30, height: 40 };
+    expect(sameRect(a, { ...a })).toBe(true);
+    expect(sameRect(a, { ...a, y: 21 })).toBe(false);
+    expect(sameRect(a, { ...a, x: 10.1 })).toBe(false);
+    expect(sameRect(a, { ...a, width: 31 })).toBe(false);
   });
 });
 
