@@ -4,6 +4,24 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
+import {
+  conditionalClasses,
+  resolveBinding,
+  scopeFor,
+} from './guard-allowlists/class-binding.harness';
+import {
+  MIN_FILES,
+  checkShrinkOnly,
+  checkUnreadable,
+  countPerFile,
+  countSource,
+  filesByFolder,
+  portalAdminSources,
+  readAllowlist,
+  readSource,
+  stripComments,
+} from './guard-allowlists/shrink-only.harness';
+
 /**
  * AECI-1850: a form field label is the Label role, from `FIELD_LABEL_CLASS` or
  * `FIELD_LABEL_TYPE_CLASS` (`shared/form-field/form-field-classes.ts`). Before, the
@@ -57,6 +75,167 @@ function publicSources(): string[] {
   walk(APP_DIR);
   return out;
 }
+
+/*
+ * AECI-2083: the portal and admin labels, against a shrink-only allowlist
+ * (`guard-allowlists/field-label.txt`, rules in `guard-allowlists/shrink-only.harness.ts`).
+ * This block sits apart from the public guard on purpose, so parallel edits to either
+ * merge cleanly.
+ *
+ * The unit is the element: a `<label>` or `<legend>` whose own class sets type (a text
+ * size, a font weight or `uppercase`) without being the Label role (`text-t-13` with
+ * `font-semibold`). It reads the static `class`, `[class.x]` bindings, and a `[class]`
+ * binding to a constant in the component or a sibling file. A constant imported from
+ * `shared/` (the form-field and choice recipes) counts as on-recipe. A `[class]` binding
+ * it cannot read fails until it is named in `PORTAL_ADMIN_UNREADABLE`. Not counted: a
+ * label with no type of its own (`sr-only`), and a label for a checkbox or radio, which
+ * wraps the input or points at it with `for` in the same template. Its text is an
+ * option, body text, not the field Label role (ruled 2026-11-24).
+ */
+
+/** A token that sets type: a text size, a font weight, or `uppercase`. */
+const TYPE_TOKEN =
+  /^(?:[a-z0-9-]+:)*(?:text-(?:xs|sm|base|lg|[2-9]?xl|t-\d+)|font-(?:thin|extralight|light|normal|medium|semibold|bold|extrabold|black)|uppercase)$/;
+
+/** True for a class string that sets its own type and is not the Label role. */
+function offLabelRole(classes: string): boolean {
+  const tokens = classes.split(/\s+/);
+  const onRole = tokens.includes('text-t-13') && tokens.includes('font-semibold');
+  return !onRole && tokens.some((t) => TYPE_TOKEN.test(t));
+}
+
+const CHOICE_INPUT = /<input\b(?:[^>"]|"[^"]*")*\btype="(?:checkbox|radio)"(?:[^>"]|"[^"]*")*>/g;
+
+/** True when the label wraps a checkbox or radio, or names one with `for`. */
+function labelsAChoice(attrs: string, body: string, src: string): boolean {
+  if (/<input\b(?:[^>"]|"[^"]*")*\btype="(?:checkbox|radio)"/.test(body)) return true;
+  const target =
+    attrs.match(/(?<![\w\].-])for="([^"]+)"/)?.[1] ??
+    attrs.match(/\[(?:attr\.)?for\]="([^"]+)"/)?.[1];
+  if (!target) return false;
+  return [...src.matchAll(CHOICE_INPUT)].some((m) => {
+    const id =
+      m[0].match(/(?<![\w\].-])id="([^"]+)"/)?.[1] ??
+      m[0].match(/\[(?:attr\.)?id\]="([^"]+)"/)?.[1];
+    return id === target;
+  });
+}
+
+export interface LabelScan {
+  found: number;
+  unresolved: string[];
+}
+
+function portalAdminLabelScan(rel: string, src: string): LabelScan {
+  const scope = scopeFor(join(APP_DIR, rel), src, /(^|\/)shared\//);
+  const clean = stripComments(src);
+  const scan: LabelScan = { found: 0, unresolved: [] };
+  for (const m of clean.matchAll(/<(label|legend)\b((?:[^>"]|"[^"]*")*)>/g)) {
+    const [, tag, attrs] = m;
+    const start = m.index + m[0].length;
+    const end = clean.indexOf(`</${tag}`, start);
+    const body = clean.slice(start, end < 0 ? undefined : end);
+    if (tag === 'label' && labelsAChoice(attrs!, body, clean)) continue;
+    const classes: string[] = [...conditionalClasses(attrs!)];
+    const stat = attrs!.match(/(?<![\w\].-])class="([^"]*)"/);
+    if (stat) classes.push(stat[1]!);
+    const bound = attrs!.match(/\[class\]="([^"]*)"/);
+    if (bound) {
+      const value = resolveBinding(bound[1]!, scope);
+      if (value === null) scan.unresolved.push(`${rel} <${tag}> [class]="${bound[1]}"`);
+      else classes.push(value);
+    }
+    if (offLabelRole(classes.join(' '))) scan.found++;
+  }
+  return scan;
+}
+
+/** Labels and legends off the Label role in one portal or admin file (AECI-2083). */
+export function portalAdminLabelCount(rel: string, src: string): number {
+  return portalAdminLabelScan(rel, src).found;
+}
+
+/**
+ * Portal and admin label bindings the guard cannot read, each with its reason. Empty
+ * today: the two `rowLabelClass(…)` rows in `vendor-product-create.ts` and
+ * `vendor-product-facet-editor.ts` wrap a checkbox, so they are not read at all.
+ */
+const PORTAL_ADMIN_UNREADABLE: Record<string, string> = {};
+
+describe('portal and admin labels off the Label role only shrink (AECI-2083)', () => {
+  const files = portalAdminSources();
+  const counts = countPerFile(files, portalAdminLabelCount);
+
+  it('matches guard-allowlists/field-label.txt', () => {
+    expect(checkShrinkOnly(counts, readAllowlist('field-label'))).toEqual([]);
+  });
+
+  it('reads both folders, so it cannot pass on an empty scan', () => {
+    const perFolder = filesByFolder(files);
+    expect(perFolder['admin']).toBeGreaterThan(MIN_FILES.admin);
+    expect(perFolder['vendor']).toBeGreaterThan(MIN_FILES.vendor);
+  });
+
+  it('reads every class binding on a portal or admin label, or names it', () => {
+    const unresolved = files.flatMap(
+      (rel) => portalAdminLabelScan(rel, readSource(rel)).unresolved,
+    );
+    expect(checkUnreadable(unresolved, PORTAL_ADMIN_UNREADABLE)).toEqual([]);
+  });
+
+  it('counts hand-set label type, and passes the Label role, sr-only and shared constants', () => {
+    const src = [
+      `<label for="a" class="block text-xs font-bold uppercase tracking-[0.08em]">A</label>`,
+      `<label for="b" [class]="labelClass">B</label>`,
+      `<legend class="text-sm font-medium">C</legend>`,
+      `<label for="d" class="sr-only">D</label>`,
+      `<label for="e" class="block text-t-13 font-semibold tracking-[0.01em]">E</label>`,
+      `<label for="f" [class]="shared">F</label>`,
+      `<label for="g" class="block" [class.font-bold]="strong">G</label>`,
+      `<!-- <label class="text-xs">a comment</label> -->`,
+      `import { FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';`,
+      `protected readonly labelClass = 'block text-xs font-medium text-(--text-secondary)';`,
+      `protected readonly shared = FIELD_LABEL_CLASS;`,
+    ].join('\n');
+    expect(portalAdminLabelCount('vendor/components/x.ts', src)).toBe(4);
+  });
+
+  it('passes a label that wraps a checkbox or radio, or names one with for', () => {
+    const src = [
+      `<label class="flex items-center gap-2 text-sm"><input type="checkbox" /> Keep</label>`,
+      `<label class="text-sm"><input\n  type="radio"\n  name="r"\n/> One</label>`,
+      `<input id="c1" type="checkbox" /><label for="c1" class="text-sm">Both</label>`,
+      `<input [id]="'x-' + r.id" type="radio" /><label [for]="'x-' + r.id" class="text-sm">X</label>`,
+      `<input id="t1" type="text" /><label for="t1" class="text-sm">Name</label>`,
+    ].join('\n');
+    expect(portalAdminLabelCount('admin/x.html', src)).toBe(1);
+  });
+
+  it('fails on a new offender and on a stale entry', () => {
+    const rel = 'admin/x.html';
+    const offender = countSource(
+      portalAdminLabelCount,
+      rel,
+      `<label for="a" class="text-xs font-bold uppercase">A</label>`,
+    );
+    expect(checkShrinkOnly(offender, '')).toEqual([`${rel}: 1 found, 0 allowed (new offender)`]);
+    const fixed = countSource(
+      portalAdminLabelCount,
+      rel,
+      `<label for="a" class="sr-only">A</label>`,
+    );
+    expect(checkShrinkOnly(fixed, `${rel} 1`)).toEqual([
+      `${rel}: now 0, delete its line (stale entry)`,
+    ]);
+  });
+
+  it('fails on an unreadable binding that is not named, and on a stale name', () => {
+    const scan = portalAdminLabelScan('admin/x.html', `<label [class]="cls()">A</label>`);
+    expect(checkUnreadable(scan.unresolved, {})).toEqual([
+      'admin/x.html <label> [class]="cls()": unreadable, name it with a reason',
+    ]);
+  });
+});
 
 export function oldLabelRecipes(src: string): string[] {
   const found: string[] = [];
