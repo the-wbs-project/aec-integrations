@@ -29,6 +29,8 @@ export const ADMIN_STATUS_TONES = {
   priority: 'neutral',
   note: 'neutral',
   matchedByHand: 'neutral',
+  /** The Activity feed's bot chip: the bot's name, a fact about the row (AECI-2125). */
+  bot: 'neutral',
 
   // waiting: waits on someone.
   pending: 'waiting',
@@ -77,6 +79,10 @@ export const ADMIN_STATUS_TONES = {
   added: 'positive',
   /** An open row thread between two companies: live, and nothing waits on AECi. */
   threadOpen: 'positive',
+  /** A feedback submitter who also joined the mailing list (`/admin/audience` inbox). */
+  joinedMailingList: 'positive',
+  /** A connector listing's mapping that counts toward public reach ("Confirmed", AECI-2125). */
+  confirmed: 'positive',
 
   // quiet: closed, withdrawn or not measured. Nothing to do.
   rejected: 'quiet',
@@ -123,6 +129,9 @@ export const ADMIN_STATUS_TONES = {
   cancelsAtTermEnd: 'attention',
   restoreBy: 'attention',
   caveat: 'attention',
+  /** The Activity feed's "Unclassified" bot chip: never classified, so counted as
+   *  human. A caveat on the row, not a fault (AECI-2125). */
+  botUnclassified: 'attention',
   classifierChanged: 'attention',
   /** Email ledger: a send held back, by the suppression list or a paused switch. */
   suppressed: 'attention',
@@ -145,6 +154,8 @@ export const ADMIN_STATUS_TONES = {
   refundManual: 'attention',
   /** A research job that stopped (`RESEARCH_STATUSES` blocked). */
   blocked: 'attention',
+  /** The re-index worklist's priority 1, the tier to do first (AECI-2125). Tiers 2 to 4 are `priority`. */
+  topPriority: 'attention',
 
   // critical: a fault or a block. The only red.
   failed: 'critical',
