@@ -11,6 +11,12 @@ import type { ConsoleChipTone } from '../../shared/chip/chip';
  * because two tables print the same word for different columns (`open`,
  * `pending`). A status that is not here is a new status: add it here, beside its
  * kin, rather than picking a tone in the screen.
+ *
+ * One word can need two keys when its severity differs: an entitlement that
+ * `expired` is quiet, a legal notice that `noticeExpired` is attention; the
+ * general `unknown` is quiet, the email ledger's `emailUnconfirmed` is attention.
+ * Map each wire value to a key with an exhaustive `switch` in the screen, so a new
+ * wire value is a compile error, not a silent default.
  */
 export const ADMIN_STATUS_TONES = {
   // count: a queue count on the section row, the menu and the account badge.
@@ -39,6 +45,14 @@ export const ADMIN_STATUS_TONES = {
   helpRequested: 'waiting',
   parkedAsAmbiguous: 'waiting',
   linearIssuePending: 'waiting',
+  /** The email ledger's in-flight send (`email/email-activity.ts`). */
+  sending: 'waiting',
+  /** Email delivery: "Accepted by Resend", handed to the provider, not delivered yet. */
+  acceptedByProvider: 'waiting',
+  /** A legal notice delivery that has not gone out yet (`LEGAL_NOTICE_DELIVERY_STATUSES`). */
+  queued: 'waiting',
+  /** A research job (`RESEARCH_STATUSES` in_progress). */
+  inProgress: 'waiting',
 
   // positive: live, or done as intended.
   approved: 'positive',
@@ -52,6 +66,13 @@ export const ADMIN_STATUS_TONES = {
   succeeded: 'positive',
   restored: 'positive',
   agreedWithSubmitter: 'positive',
+  /** Email ledger and delivery, and a delivered legal notice. */
+  sent: 'positive',
+  delivered: 'positive',
+  /** A research job that finished (`RESEARCH_STATUSES` done). */
+  done: 'positive',
+  /** A review reply or a vendor thread reply that is live. */
+  published: 'positive',
 
   // quiet: closed, withdrawn or not measured. Nothing to do.
   rejected: 'quiet',
@@ -76,6 +97,13 @@ export const ADMIN_STATUS_TONES = {
   ruledOut: 'quiet',
   agreedWithOwner: 'quiet',
   noRecord: 'quiet',
+  /** The email ledger's repeat send that was skipped as a duplicate. */
+  duplicate: 'quiet',
+  /** An entitlement that ran out or was revoked (`ENTITLEMENT_STATUSES`). Nothing to do. */
+  expired: 'quiet',
+  revoked: 'quiet',
+  /** A closed vendor thread. */
+  closed: 'quiet',
 
   // attention: look before you act. Not a fault.
   toxicityHigh: 'attention',
@@ -90,6 +118,27 @@ export const ADMIN_STATUS_TONES = {
   restoreBy: 'attention',
   caveat: 'attention',
   classifierChanged: 'attention',
+  /** Email ledger: a send held back, by the suppression list or a paused switch. */
+  suppressed: 'attention',
+  paused: 'attention',
+  /** Email delivery that has not landed yet but has not failed. */
+  delayed: 'attention',
+  /**
+   * The email ledger's "Unknown": a send nobody can confirm. Not the general
+   * `unknown` (quiet): here someone may not have received a message.
+   */
+  emailUnconfirmed: 'attention',
+  /**
+   * A legal notice that reached nobody or ran out of time
+   * (`LEGAL_NOTICE_DELIVERY_STATUSES` no_recipients, expired). A legal notice that
+   * was not delivered must never read as quiet.
+   */
+  noRecipients: 'attention',
+  noticeExpired: 'attention',
+  /** A termination refund an operator must make by hand (`VENDOR_TERMINATION_REFUND_STATUSES`). */
+  refundManual: 'attention',
+  /** A research job that stopped (`RESEARCH_STATUSES` blocked). */
+  blocked: 'attention',
 
   // critical: a fault or a block. The only red.
   failed: 'critical',
@@ -100,6 +149,11 @@ export const ADMIN_STATUS_TONES = {
   courtActionReported: 'critical',
   suspended: 'critical',
   companiesDisagree: 'critical',
+  /** Email delivery that failed for good. */
+  bounced: 'critical',
+  markedAsSpam: 'critical',
+  /** A legal notice the mail provider dropped (`LEGAL_NOTICE_DELIVERY_STATUSES`). */
+  dropped: 'critical',
 } as const satisfies Record<string, ConsoleChipTone>;
 
 export type AdminStatusKey = keyof typeof ADMIN_STATUS_TONES;

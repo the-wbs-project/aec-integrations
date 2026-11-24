@@ -38,10 +38,18 @@ let nextId = 0;
  * ```
  *
  * Every string comes from the caller, already localised, except Cancel. A press
- * of the confirm with an empty reason shows `reasonRequired` and emits nothing.
- * Otherwise it emits the trimmed reason. The parent owns the write: on success it
- * sets `open` to false, on failure it sets `error` and leaves the form open.
- * Cancel, and a close by the parent, return focus to the opener.
+ * of the confirm with an empty reason shows `reasonRequired`, focuses the field
+ * and emits nothing. Otherwise it emits the trimmed reason, once per attempt: a
+ * second press before the parent answers emits nothing. The parent owns the write:
+ * it sets `busy` in its handler and clears `error` to null at the start of each
+ * attempt; on success it sets `open` to false, on failure it sets `error` and
+ * leaves the form open. The pattern decides nothing about who may act.
+ *
+ * Focus: opening focuses the reason field, whose `aria-describedby` names the
+ * warning first, then the help, then the error, so a screen reader hears the
+ * warning before typing. Cancel, Escape inside the form, and a close by the parent
+ * return focus to the opener. An `error` from the parent takes focus, because a
+ * disabled confirm drops it to the page body.
  */
 @Component({
   selector: 'aec-admin-danger-action',
@@ -67,8 +75,10 @@ let nextId = 0;
       novalidate
       class="mt-4 grid max-w-[36rem] gap-4 border-t border-(--border-default) pt-4"
       (submit)="submit($event)"
+      (keydown.escape)="onEscape($event)"
     >
       <p
+        [id]="ids.warning"
         class="rounded-control border border-(--border-strong) bg-(--accent-warm) p-4 text-t-14 text-(--text-primary)"
       >
         {{ warning() }}
@@ -88,7 +98,9 @@ let nextId = 0;
           (input)="onInput(reason.value)"
         ></textarea>
         @if (shownError(); as message) {
-          <p [id]="ids.error" role="alert" [class]="errorClass">{{ message }}</p>
+          <p #errorEl [id]="ids.error" role="alert" tabindex="-1" [class]="errorClass">
+            {{ message }}
+          </p>
         }
         @if (reasonHelp(); as text) {
           <p [id]="ids.help" class="text-t-14 text-(--text-secondary)">{{ text }}</p>
@@ -126,6 +138,8 @@ export class AdminDangerAction {
 
   protected readonly draft = signal('');
   private readonly missing = signal(false);
+  /** One emit per attempt: set on confirm, cleared when the parent answers. */
+  private inFlight = false;
   protected readonly labelClass = FIELD_LABEL_CLASS;
   protected readonly inputClass = FIELD_INPUT_CLASS;
   protected readonly errorClass = FIELD_ERROR_CLASS;
@@ -133,6 +147,7 @@ export class AdminDangerAction {
   private readonly n = nextId++;
   protected readonly ids = {
     form: `aec-danger-${this.n}-form`,
+    warning: `aec-danger-${this.n}-warning`,
     reason: `aec-danger-${this.n}-reason`,
     help: `aec-danger-${this.n}-help`,
     error: `aec-danger-${this.n}-error`,
@@ -140,6 +155,7 @@ export class AdminDangerAction {
 
   private readonly opener = viewChild.required<ElementRef<HTMLButtonElement>>('opener');
   private readonly reasonEl = viewChild.required<ElementRef<HTMLTextAreaElement>>('reason');
+  private readonly errorEl = viewChild<ElementRef<HTMLElement>>('errorEl');
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
 
@@ -150,8 +166,29 @@ export class AdminDangerAction {
       untracked(() => {
         if (wasOpen && !isOpen) this.restoreFocus(false);
         wasOpen = isOpen;
+        this.inFlight = false;
       });
     });
+    // The parent answered: a new error, or busy clearing. Either ends the attempt.
+    effect(() => {
+      const error = this.error();
+      const busy = this.busy();
+      untracked(() => {
+        if (!busy) this.inFlight = false;
+        if (error && this.open()) {
+          this.inFlight = false;
+          afterNextRender(() => this.errorEl()?.nativeElement.focus(), {
+            injector: this.injector,
+          });
+        }
+      });
+    });
+  }
+
+  /** Escape inside the open form is Cancel. */
+  protected onEscape(event: Event): void {
+    event.stopPropagation();
+    this.cancel();
   }
 
   protected shownError(): string | null {
@@ -159,7 +196,9 @@ export class AdminDangerAction {
   }
 
   protected describedBy(): string | null {
+    // The warning first: opening moves focus straight to this field, past the box.
     const ids = [
+      this.ids.warning,
       this.reasonHelp() ? this.ids.help : null,
       this.shownError() ? this.ids.error : null,
     ];
@@ -168,6 +207,7 @@ export class AdminDangerAction {
 
   protected onInput(value: string): void {
     this.draft.set(value);
+    this.inFlight = false;
     if (value.trim()) this.missing.set(false);
   }
 
@@ -184,13 +224,14 @@ export class AdminDangerAction {
 
   protected submit(event: Event): void {
     event.preventDefault();
-    if (this.busy()) return;
+    if (this.busy() || this.inFlight) return;
     const reason = this.draft().trim();
     if (!reason) {
       this.missing.set(true);
       this.reasonEl().nativeElement.focus();
       return;
     }
+    this.inFlight = true;
     this.confirmed.emit(reason);
   }
 

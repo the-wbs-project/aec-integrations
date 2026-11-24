@@ -1,4 +1,13 @@
-import { Component, computed, inject, input } from '@angular/core';
+import {
+  Component,
+  Injectable,
+  computed,
+  effect,
+  inject,
+  input,
+  signal,
+  untracked,
+} from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { filter, map } from 'rxjs';
@@ -12,13 +21,24 @@ import {
 } from './admin-summary.store';
 
 /**
+ * Which admin category menu is open (AECI-1813). One per page: opening a category
+ * closes its siblings at once, so the 260ms close grace of the one the pointer
+ * just left never leaves two panels up (mock-up 14 does the same). Admin only:
+ * the public Browse menu has no siblings and keeps the base behaviour.
+ */
+@Injectable({ providedIn: 'root' })
+export class AdminNavOpenMenu {
+  readonly id = signal<string | null>(null);
+}
+
+/**
  * One category in the admin console's horizontal nav (AECI-694): a disclosure
  * button that reveals its group's screens.
  *
  * The trigger is the group label (plus its pending badge) and nothing else —
  * **no arrow icon**. The public nav dropped its arrow buttons first (the
  * taxonomy flyouts, now the Browse menu in `layout/browse-menu.ts`), and a triangle here with none there would
- * read as two different products; `aria-haspopup` / `aria-expanded` carry the
+ * read as two different products; `aria-expanded` and `aria-controls` carry the
  * disclosure to assistive tech, which is what the icon was never doing.
  *
  * ── WHY NOT `@angular/aria/menu` ─────────────────────────────────────────────
@@ -72,7 +92,6 @@ import {
       type="button"
       [attr.aria-expanded]="isOpen()"
       [attr.aria-controls]="panelId()"
-      aria-haspopup="true"
       [attr.aria-current]="isCurrent() ? 'true' : null"
       (click)="toggle()"
       [class]="triggerClass"
@@ -167,11 +186,12 @@ export class AdminNavDropdown extends NavDisclosure {
       ],
   );
 
-  /** One column is 16rem. Two are 34rem from md, and one stacked column below
-   *  md, kept inside a phone's viewport. */
+  /** One column is 16rem. Two are 26rem at md and 34rem from lg, and one stacked
+   *  column below md, kept inside a phone's viewport. 26rem at md keeps the panel
+   *  inside a 768px window: it hangs from the Operations trigger, about 250px in. */
   protected readonly menuWidthClass = computed(() =>
     this.columns().length > 1
-      ? 'grid w-[min(18rem,calc(100vw-48px))] gap-x-4 md:w-[34rem] md:grid-cols-2'
+      ? 'grid w-[min(18rem,calc(100vw-48px))] gap-x-4 md:w-[26rem] md:grid-cols-2 lg:w-[34rem]'
       : 'w-64',
   );
 
@@ -196,6 +216,22 @@ export class AdminNavDropdown extends NavDisclosure {
   readonly align = input<'start' | 'end'>('start');
 
   private readonly router = inject(Router);
+  private readonly openMenu = inject(AdminNavOpenMenu);
+
+  constructor() {
+    super();
+    // However this category opened (hover, focus, click, keyboard), it claims
+    // the one open slot, and any sibling that holds it closes, grace or not.
+    effect(() => {
+      if (this.isOpen()) untracked(() => this.openMenu.id.set(this.group().id));
+    });
+    effect(() => {
+      const open = this.openMenu.id();
+      untracked(() => {
+        if (open !== null && open !== this.group().id && this.isOpen()) this.close();
+      });
+    });
+  }
 
   protected readonly panelId = computed(() => `${this.group().id}-panel`);
 

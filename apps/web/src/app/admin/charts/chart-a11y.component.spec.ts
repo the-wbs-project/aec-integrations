@@ -146,7 +146,9 @@ describe('chart accessibility contract (ADMIN_PANEL_SPEC §8)', () => {
         const el = setup(chart);
         const table = el.querySelector('table');
         expect(table, 'no data table').not.toBeNull();
-        expect(table!.classList.contains('sr-only')).toBe(true);
+        // The table itself, or a wrapper around it (the stacked bar chart, AECI-1813:
+        // a table never shrinks to sr-only's 1px box, so the wrapper clips it).
+        expect(table!.closest('.sr-only')).not.toBeNull();
         expect(readTable(table as HTMLTableElement)).toEqual(chart.expected);
       });
 

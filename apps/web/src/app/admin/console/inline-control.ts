@@ -42,9 +42,16 @@ let nextId = 0;
  * calls the API, and on success it sets `open` to false. On a failure it sets
  * `error` and leaves the form open.
  *
- * Focus: Change moves focus into the field once the form renders. Cancel, and a
- * close by the parent, return it to Change. The help's id is in the field's
- * `aria-describedby` from first render. The error's id joins it while it shows.
+ * The parent sets `busy` in its save handler and clears `error` to null at the
+ * start of each attempt. Save emits once per attempt: a second press before the
+ * parent answers (with `busy`, `error` or a close) emits nothing. The emitted
+ * value is trimmed. The pattern decides nothing about who may act: the API does.
+ *
+ * Focus: Change moves focus into the field once the form renders. Cancel, Escape
+ * inside the form, and a close by the parent return it to Change. An `error` from
+ * the parent takes focus, because a disabled Save drops it to the page body. The
+ * help's id is in the field's `aria-describedby` from first render. The error's id
+ * joins it while it shows. Ids are per instance, so a page can hold many.
  * Several rows stack into a list: the first row's top hairline comes from
  * `:first-of-type`, so put them in one wrapper with nothing else of their kind.
  */
@@ -79,6 +86,7 @@ let nextId = 0;
       novalidate
       class="col-span-full grid max-w-[32rem] gap-2 pb-4 pt-2"
       (submit)="submit($event)"
+      (keydown.escape)="onEscape($event)"
     >
       <label [for]="ids.field" [class]="labelClass">{{ label() }}</label>
       <input
@@ -89,10 +97,12 @@ let nextId = 0;
         [value]="draft()"
         [attr.aria-invalid]="error() ? 'true' : null"
         [attr.aria-describedby]="describedBy()"
-        (input)="draft.set(field.value)"
+        (input)="onInput(field.value)"
       />
       @if (error(); as message) {
-        <p [id]="ids.error" role="alert" [class]="errorClass">{{ message }}</p>
+        <p #errorEl [id]="ids.error" role="alert" tabindex="-1" [class]="errorClass">
+          {{ message }}
+        </p>
       }
       @if (help(); as text) {
         <p [id]="ids.help" class="text-t-14 text-(--text-secondary)">{{ text }}</p>
@@ -122,12 +132,14 @@ export class AdminInlineControl {
   readonly busy = input(false);
   /** Whether the form is open. The parent closes it after a successful save. */
   readonly open = model(false);
-  /** Save pressed: the field's value. */
+  /** Save pressed: the field's value, trimmed. */
   readonly saved = output<string>();
   /** Cancel pressed. */
   readonly cancelled = output<void>();
 
   protected readonly draft = signal('');
+  /** One emit per attempt: set on Save, cleared when the parent answers. */
+  private inFlight = false;
   protected readonly labelClass = FIELD_LABEL_CLASS;
   protected readonly inputClass = FIELD_INPUT_CLASS;
   protected readonly errorClass = FIELD_ERROR_CLASS;
@@ -143,6 +155,7 @@ export class AdminInlineControl {
 
   private readonly changeButton = viewChild.required<ElementRef<HTMLButtonElement>>('change');
   private readonly fieldEl = viewChild.required<ElementRef<HTMLInputElement>>('field');
+  private readonly errorEl = viewChild<ElementRef<HTMLElement>>('errorEl');
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
 
@@ -155,8 +168,34 @@ export class AdminInlineControl {
       untracked(() => {
         if (wasOpen && !isOpen) this.restoreFocus(false);
         wasOpen = isOpen;
+        this.inFlight = false;
       });
     });
+    // The parent answered: a new error, or busy clearing. Either ends the attempt.
+    effect(() => {
+      const error = this.error();
+      const busy = this.busy();
+      untracked(() => {
+        if (!busy) this.inFlight = false;
+        if (error && this.open()) {
+          this.inFlight = false;
+          afterNextRender(() => this.errorEl()?.nativeElement.focus(), {
+            injector: this.injector,
+          });
+        }
+      });
+    });
+  }
+
+  protected onInput(value: string): void {
+    this.draft.set(value);
+    this.inFlight = false;
+  }
+
+  /** Escape inside the open form is Cancel. */
+  protected onEscape(event: Event): void {
+    event.stopPropagation();
+    this.cancel();
   }
 
   protected describedBy(): string | null {
@@ -176,8 +215,9 @@ export class AdminInlineControl {
 
   protected submit(event: Event): void {
     event.preventDefault();
-    if (this.busy()) return;
-    this.saved.emit(this.draft());
+    if (this.busy() || this.inFlight) return;
+    this.inFlight = true;
+    this.saved.emit(this.draft().trim());
   }
 
   protected cancel(): void {

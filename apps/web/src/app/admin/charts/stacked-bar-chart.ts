@@ -226,57 +226,62 @@ let nextChartId = 0;
     <!-- §8: the same series, readable by a screen reader and by anyone who
          needs the exact numbers. Hidden visually, never from the a11y tree. -->
     @if (points().length > 0) {
-      <table class="sr-only">
-        <caption>
-          {{
-            label()
-          }}
-        </caption>
-        <thead>
-          <tr>
-            <th scope="col" i18n="@@admin.chart.table.day">Day</th>
-            @for (s of seriesLabels(); track s) {
-              <th scope="col">{{ s }}</th>
-            }
-            @if (anyDegraded() && degradedLabel()) {
-              <th scope="col">{{ degradedLabel() }}</th>
-            }
-            @if (anyNotMeasured() && notMeasuredLabel()) {
-              <th scope="col">{{ notMeasuredLabel() }}</th>
-            }
-            @if (boundaryLegend().length > 0) {
-              @if (versionLabel()) {
-                <th scope="col">{{ versionLabel() }}</th>
-              }
-              <th scope="col" i18n="@@admin.chart.table.changeBefore">Change before this day</th>
-            }
-          </tr>
-        </thead>
-        <tbody>
-          @for (p of points(); track p.label) {
+      <!-- The wrapper carries sr-only, not the table: a table never shrinks to
+           sr-only's 1px box, so on its own it widened every page the chart sat on
+           (AECI-1813). The wrapper clips it, and a screen reader still reads it. -->
+      <div class="sr-only" data-chart-table>
+        <table>
+          <caption>
+            {{
+              label()
+            }}
+          </caption>
+          <thead>
             <tr>
-              <th scope="row">{{ p.label }}</th>
-              <!-- One cell per series, always: an unmeasured day says so in every
-                   cell rather than leaving a short row or printing a zero. -->
-              @for (s of seriesLabels(); track $index; let i = $index) {
-                <td>{{ p.notMeasured ? notMeasuredLabel() : (p.segments[i] ?? 0) }}</td>
+              <th scope="col" i18n="@@admin.chart.table.day">Day</th>
+              @for (s of seriesLabels(); track s) {
+                <th scope="col">{{ s }}</th>
               }
               @if (anyDegraded() && degradedLabel()) {
-                <td>{{ p.degraded ? degradedYes : degradedNo }}</td>
+                <th scope="col">{{ degradedLabel() }}</th>
               }
               @if (anyNotMeasured() && notMeasuredLabel()) {
-                <td>{{ p.notMeasured ? degradedYes : degradedNo }}</td>
+                <th scope="col">{{ notMeasuredLabel() }}</th>
               }
               @if (boundaryLegend().length > 0) {
                 @if (versionLabel()) {
-                  <td>{{ p.version ?? '' }}</td>
+                  <th scope="col">{{ versionLabel() }}</th>
                 }
-                <td>{{ (p.boundaryBefore ?? []).join(' ') }}</td>
+                <th scope="col" i18n="@@admin.chart.table.changeBefore">Change before this day</th>
               }
             </tr>
-          }
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            @for (p of points(); track p.label) {
+              <tr>
+                <th scope="row">{{ p.label }}</th>
+                <!-- One cell per series, always: an unmeasured day says so in every
+                   cell rather than leaving a short row or printing a zero. -->
+                @for (s of seriesLabels(); track $index; let i = $index) {
+                  <td>{{ p.notMeasured ? notMeasuredLabel() : (p.segments[i] ?? 0) }}</td>
+                }
+                @if (anyDegraded() && degradedLabel()) {
+                  <td>{{ p.degraded ? degradedYes : degradedNo }}</td>
+                }
+                @if (anyNotMeasured() && notMeasuredLabel()) {
+                  <td>{{ p.notMeasured ? degradedYes : degradedNo }}</td>
+                }
+                @if (boundaryLegend().length > 0) {
+                  @if (versionLabel()) {
+                    <td>{{ p.version ?? '' }}</td>
+                  }
+                  <td>{{ (p.boundaryBefore ?? []).join(' ') }}</td>
+                }
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
     }
   `,
   styles: [':host { display: block; }'],

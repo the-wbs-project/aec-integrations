@@ -166,7 +166,11 @@ const ROWS: readonly DemoRow[] = [
             </caption>
             <thead>
               <tr>
-                <th scope="col" [class]="t.head"><span class="sr-only">Open</span></th>
+                <th scope="col" [class]="t.head">
+                  <span class="sr-only" i18n="@@preview.adminConsoleLegend.col.details"
+                    >Details</span
+                  >
+                </th>
                 <th scope="col" [class]="t.head">Product</th>
                 <th scope="col" [class]="t.head">Reviewer</th>
                 <th scope="col" [class]="t.headNum">Overall</th>
@@ -181,7 +185,7 @@ const ROWS: readonly DemoRow[] = [
                     <aec-admin-disclosure-button
                       [expanded]="open() === row.id"
                       [controls]="row.id + '-x'"
-                      [label]="'Open the review of ' + row.product"
+                      [label]="reviewLabel(row.product)"
                       (toggled)="toggle(row.id)"
                     />
                   </td>
@@ -272,6 +276,11 @@ export class AdminConsoleLegendPreview {
   protected readonly editingEmail = signal(false);
   protected readonly emailError = signal<string | null>(null);
   protected readonly suspending = signal(false);
+
+  /** The disclosure names what it opens, with no verb: `aria-expanded` gives the state. */
+  protected reviewLabel(product: string): string {
+    return $localize`:@@preview.adminConsoleLegend.reviewOf:Review of ${product}:PRODUCT:`;
+  }
 
   protected toggle(id: string): void {
     this.open.update((v) => (v === id ? null : id));

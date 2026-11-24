@@ -619,7 +619,7 @@ describe('AdminOverview', () => {
       const chart = el.querySelector('aec-stacked-bar-chart')!;
       expect(chart.querySelector('svg[role="img"]')?.getAttribute('aria-label')).toBeTruthy();
       // §8: never the only representation — the same series in a hidden table.
-      const table = chart.querySelector('table.sr-only');
+      const table = chart.querySelector('.sr-only > table');
       expect(table).not.toBeNull();
       expect(table!.querySelectorAll('tbody tr')).toHaveLength(30);
     });
@@ -636,7 +636,7 @@ describe('AdminOverview', () => {
       expect(chart.querySelectorAll('rect[fill-opacity="0.4"]').length).toBeGreaterThan(0);
       expect(chart.textContent).toContain('Missing network information');
 
-      const rows = [...chart.querySelectorAll('table.sr-only tbody tr')];
+      const rows = [...chart.querySelectorAll('.sr-only > table tbody tr')];
       const flagged = rows.filter((tr) => tr.lastElementChild?.textContent?.trim() === 'Yes');
       expect(flagged).toHaveLength(2);
     });
@@ -756,7 +756,7 @@ describe('AdminOverview', () => {
       expect(chart.querySelectorAll('rect[data-not-measured]')).toHaveLength(30);
       // Outlines, not the empty-state line that would claim nothing was recorded.
       expect(chart.textContent).not.toContain('No page views recorded');
-      const firstRow = chart.querySelector('table.sr-only tbody tr')!;
+      const firstRow = chart.querySelector('.sr-only > table tbody tr')!;
       expect(firstRow.textContent).toContain('Not classified');
       expect(firstRow.textContent).not.toMatch(/\b0\b/);
     });
@@ -764,7 +764,7 @@ describe('AdminOverview', () => {
     it('draws the 30-day chart from the class series, four labelled series', async () => {
       const { el } = await setup(makeApiMock());
       const chart = el.querySelector('aec-stacked-bar-chart')!;
-      const headers = [...chart.querySelectorAll('table.sr-only thead th')].map((th) =>
+      const headers = [...chart.querySelectorAll('.sr-only > table thead th')].map((th) =>
         th.textContent?.trim(),
       );
       expect(headers).toEqual([
@@ -774,7 +774,7 @@ describe('AdminOverview', () => {
         'Browser activity with supporting human evidence',
         'Unresolved',
       ]);
-      const lastRow = [...chart.querySelectorAll('table.sr-only tbody tr')].at(-1)!;
+      const lastRow = [...chart.querySelectorAll('.sr-only > table tbody tr')].at(-1)!;
       expect([...lastRow.querySelectorAll('td')].map((td) => td.textContent?.trim())).toEqual([
         '1029',
         '229',
@@ -801,7 +801,7 @@ describe('AdminOverview', () => {
       expect(chart.textContent).toContain('Classifier changed: tc-2026.10.1 to tc-2026.10.2');
       expect(chart.textContent).toContain('Collection method changed, counts comparable');
       expect(chart.textContent).toContain('Not classified');
-      const headers = [...chart.querySelectorAll('table.sr-only thead th')].map((th) =>
+      const headers = [...chart.querySelectorAll('.sr-only > table thead th')].map((th) =>
         th.textContent?.trim(),
       );
       expect(headers).toContain('Classifier version');
