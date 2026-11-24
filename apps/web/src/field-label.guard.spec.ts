@@ -176,7 +176,11 @@ describe('portal and admin labels off the Label role only shrink (AECI-2083)', (
       `<label for="a" class="text-xs font-bold uppercase">A</label>`,
     );
     expect(checkShrinkOnly(offender, '')).toEqual([`${rel}: 1 found, 0 allowed (new offender)`]);
-    const fixed = countSource(portalAdminLabelCount, rel, `<label for="a" [class]="label">A</label>`);
+    const fixed = countSource(
+      portalAdminLabelCount,
+      rel,
+      `<label for="a" [class]="label">A</label>`,
+    );
     expect(checkShrinkOnly(fixed, `${rel} 1`)).toEqual([
       `${rel}: now 0, delete its line (stale entry)`,
     ]);
