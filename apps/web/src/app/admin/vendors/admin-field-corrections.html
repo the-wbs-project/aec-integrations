@@ -47,11 +47,7 @@
     Correct a field
   </p>
   <div [class]="c.field">
-    <label
-      [attr.for]="id('record')"
-      [class]="labelClass"
-      i18n="@@admin.fieldCorrections.form.record"
-    >
+    <label [attr.for]="id('record')" [class]="c.label" i18n="@@admin.fieldCorrections.form.record">
       Record
     </label>
     <select
@@ -74,7 +70,7 @@
     </select>
   </div>
   <div [class]="c.field">
-    <label [attr.for]="id('field')" [class]="labelClass" i18n="@@admin.fieldCorrections.form.field">
+    <label [attr.for]="id('field')" [class]="c.label" i18n="@@admin.fieldCorrections.form.field">
       Field
     </label>
     <select
@@ -101,7 +97,7 @@
     class="m-0 grid gap-2 border-0 p-0"
     [attr.aria-describedby]="id('terms-help') + ' ' + id('terms-count')"
   >
-    <legend [class]="labelClass" i18n="@@admin.fieldCorrections.terms.legend">Correct terms</legend>
+    <legend [class]="c.label" i18n="@@admin.fieldCorrections.terms.legend">Correct terms</legend>
     <p [id]="id('terms-help')" [class]="c.hint" i18n="@@admin.fieldCorrections.terms.help">
       The product's current terms are ticked. Tick every term it should carry. Untick them all to
       remove every term.
@@ -152,7 +148,7 @@
   </fieldset>
   } @else if (field()) {
   <div [class]="c.field">
-    <label [attr.for]="id('value')" [class]="labelClass" i18n="@@admin.fieldCorrections.form.value">
+    <label [attr.for]="id('value')" [class]="c.label" i18n="@@admin.fieldCorrections.form.value">
       Correct value
     </label>
     <p [id]="id('value-help')" [class]="c.hint" i18n="@@admin.fieldCorrections.form.valueHelp">
@@ -222,11 +218,7 @@
   </div>
   }
   <div [class]="c.field">
-    <label
-      [attr.for]="id('source')"
-      [class]="labelClass"
-      i18n="@@admin.fieldCorrections.source.label"
-    >
+    <label [attr.for]="id('source')" [class]="c.label" i18n="@@admin.fieldCorrections.source.label">
       Source link (required)
     </label>
     <p [id]="id('source-help')" [class]="c.hint" i18n="@@admin.fieldCorrections.source.help">
@@ -260,7 +252,7 @@
   <div [class]="c.field">
     <label
       [attr.for]="id('reason')"
-      [class]="labelClass"
+      [class]="c.label"
       i18n="@@admin.fieldCorrections.reason.vendorLabel"
     >
       Reason shown to the vendor (required)
@@ -295,7 +287,7 @@
     }
   </div>
   <div [class]="c.field">
-    <label [attr.for]="id('note')" [class]="labelClass" i18n="@@admin.fieldCorrections.note.label">
+    <label [attr.for]="id('note')" [class]="c.label" i18n="@@admin.fieldCorrections.note.label">
       Internal note (optional, never shown to the vendor)
     </label>
     <textarea
@@ -451,7 +443,7 @@
               <div [class]="c.field">
                 <label
                   [attr.for]="liftFormId(lock, 'reason')"
-                  [class]="labelClass"
+                  [class]="c.label"
                   i18n="@@admin.fieldCorrections.lift.reasonLabel"
                 >
                   Reason shown to the vendor (required)
@@ -472,7 +464,7 @@
               <div [class]="c.field">
                 <label
                   [attr.for]="liftFormId(lock, 'note')"
-                  [class]="labelClass"
+                  [class]="c.label"
                   i18n="@@admin.fieldCorrections.lift.noteLabel"
                 >
                   Internal note (optional, never shown to the vendor)

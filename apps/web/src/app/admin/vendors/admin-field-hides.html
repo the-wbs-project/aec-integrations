@@ -49,7 +49,7 @@
   </p>
   @if (!confirming()) {
   <div [class]="c.field">
-    <label [attr.for]="id('record')" [class]="labelClass" i18n="@@admin.fieldHides.form.record">
+    <label [attr.for]="id('record')" [class]="c.label" i18n="@@admin.fieldHides.form.record">
       Record
     </label>
     <select
@@ -68,7 +68,7 @@
     </select>
   </div>
   <div [class]="c.field">
-    <label [attr.for]="id('field')" [class]="labelClass" i18n="@@admin.fieldHides.form.field">
+    <label [attr.for]="id('field')" [class]="c.label" i18n="@@admin.fieldHides.form.field">
       Field
     </label>
     <select
@@ -86,7 +86,7 @@
     </select>
   </div>
   <div [class]="c.field">
-    <label [attr.for]="id('source')" [class]="labelClass" i18n="@@admin.fieldHides.source.label">
+    <label [attr.for]="id('source')" [class]="c.label" i18n="@@admin.fieldHides.source.label">
       Source link (required)
     </label>
     <p [id]="id('source-help')" [class]="c.hint" i18n="@@admin.fieldHides.source.help">
@@ -117,11 +117,7 @@
     }
   </div>
   <div [class]="c.field">
-    <label
-      [attr.for]="id('received')"
-      [class]="labelClass"
-      i18n="@@admin.fieldHides.received.label"
-    >
+    <label [attr.for]="id('received')" [class]="c.label" i18n="@@admin.fieldHides.received.label">
       Request received (required)
     </label>
     <p [id]="id('received-help')" [class]="c.hint" i18n="@@admin.fieldHides.received.help">
@@ -153,7 +149,7 @@
     }
   </div>
   <div [class]="c.field">
-    <label [attr.for]="id('reason')" [class]="labelClass" i18n="@@admin.fieldHides.reason.label">
+    <label [attr.for]="id('reason')" [class]="c.label" i18n="@@admin.fieldHides.reason.label">
       Reason shown to the vendor (required)
     </label>
     <p [id]="id('reason-help')" [class]="c.hint" i18n="@@admin.fieldHides.reason.help">
@@ -186,7 +182,7 @@
     }
   </div>
   <div [class]="c.field">
-    <label [attr.for]="id('note')" [class]="labelClass" i18n="@@admin.fieldHides.note.label">
+    <label [attr.for]="id('note')" [class]="c.label" i18n="@@admin.fieldHides.note.label">
       Internal note (optional, never shown to the vendor)
     </label>
     <textarea
@@ -403,7 +399,7 @@
               (keydown.escape)="onActionEscape(hide)"
             >
               <div [class]="c.field">
-                <label [attr.for]="actionFormId(hide, 'text')" [class]="labelClass">
+                <label [attr.for]="actionFormId(hide, 'text')" [class]="c.label">
                   @if (isOpen(hide, 'restore')) {
                   <span i18n="@@admin.fieldHides.restore.reasonLabel"
                     >Reason shown to the vendor (required)</span

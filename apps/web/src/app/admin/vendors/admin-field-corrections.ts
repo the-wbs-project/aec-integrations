@@ -153,8 +153,6 @@ export class AdminFieldCorrections {
   readonly announce = output<string>();
 
   protected readonly c = FIELD_OVERRIDE_CLASSES;
-  // Named on its own so the label guard can read it (AECI-2083).
-  protected readonly labelClass = FIELD_LABEL_CLASS;
 
   private readonly api = inject(AdminVendorsApi);
   private readonly injector = inject(Injector);

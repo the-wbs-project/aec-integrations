@@ -15,6 +15,12 @@ import { dirname, join } from 'node:path';
 export interface Scope {
   sources: readonly string[];
   importFile: (name: string) => string;
+  /**
+   * The scope of the file a name is imported from, so a property of an imported object
+   * that names a constant (`label: CONSOLE_LABEL_CLASS`) resolves in that file's own
+   * imports. Optional: a hand-built scope without it reads property literals only.
+   */
+  importScope?: (name: string) => Scope | null;
 }
 
 /** What a constant imported from a `skipImport` path resolves to: a shared recipe. */
@@ -73,21 +79,40 @@ function resolveName(name: string, scope: Scope, depth = 0): string | null {
     : null;
 }
 
+/** An object literal's text and the scope it was written in. */
+interface FoundObject {
+  text: string;
+  scope: Scope;
+}
+
 /** The object literal a name holds (`const X = { … }`), followed through an alias. */
-function resolveObject(name: string, scope: Scope, depth = 0): string | null {
+function resolveObject(name: string, scope: Scope, depth = 0): FoundObject | null {
   if (depth > 3) return null;
   for (const src of scope.sources) {
     for (const assign of src.matchAll(assignment(name))) {
       const rest = src.slice(assign.index + assign[0].length);
-      if (rest.startsWith('{')) return rest.slice(0, rest.indexOf('}') + 1);
+      if (rest.startsWith('{')) return { text: rest.slice(0, rest.indexOf('}') + 1), scope };
       const alias = rest.match(/^([A-Za-z_$][\w$]*)\s*;/);
       if (alias) return resolveObject(alias[1]!, scope, depth + 1);
     }
   }
+  const importedScope = scope.importScope?.(name);
+  if (importedScope) return resolveObject(name, importedScope, depth + 1);
   const imported = scope.importFile(name);
   return imported
     ? resolveObject(name, { sources: [imported], importFile: () => '' }, depth + 1)
     : null;
+}
+
+/**
+ * One property of an object literal: a string literal, or a name (`label: X_CLASS`)
+ * read in the scope the object was written in. Null when neither can be read.
+ */
+function resolveProperty(found: FoundObject, prop: string): string | null {
+  const literal = found.text.match(new RegExp(`\\b${prop}\\s*:\\s*(?:${LITERAL})`));
+  if (literal) return literal[1] ?? literal[2] ?? literal[3] ?? '';
+  const named = found.text.match(new RegExp(`\\b${prop}\\s*:\\s*([A-Za-z_$][\\w$]*)\\s*[,}\\n]`));
+  return named ? resolveName(named[1]!, found.scope) : null;
 }
 
 /**
@@ -108,9 +133,9 @@ export function resolveBinding(expr: string, scope: Scope): string | null {
     const member = part.match(/^([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)$/);
     if (member) {
       const obj = resolveObject(member[1]!, scope);
-      const prop = obj?.match(new RegExp(`\\b${member[2]}\\s*:\\s*(?:${LITERAL})`));
-      if (!prop) return null;
-      out.push(prop[1] ?? prop[2] ?? prop[3] ?? '');
+      const value = obj ? resolveProperty(obj, member[2]!) : null;
+      if (value === null) return null;
+      out.push(value);
       continue;
     }
     if (/^[A-Za-z_$][\w$]*$/.test(part)) {
@@ -133,17 +158,32 @@ export function scopeFor(path: string, src: string, skipImport?: RegExp): Scope 
   // An external template binds names its component class defines.
   const companion = path.endsWith('.html') ? safeRead(path.replace(/\.html$/, '.ts')) : '';
   const sources = [src, companion];
+  const importPath = (name: string): string | null => {
+    for (const s of sources) {
+      const imp = s.match(
+        new RegExp(`import\\s*\\{[^}]*\\b${name}\\b[^}]*\\}\\s*from\\s*'(\\.[^']+)'`),
+      );
+      if (imp) return imp[1]!;
+    }
+    return null;
+  };
   return {
     sources,
     importFile: (name) => {
-      for (const s of sources) {
-        const imp = s.match(
-          new RegExp(`import\\s*\\{[^}]*\\b${name}\\b[^}]*\\}\\s*from\\s*'(\\.[^']+)'`),
-        );
-        if (imp && skipImport?.test(imp[1]!)) return `const ${name} = '${SHARED_RECIPE}';`;
-        if (imp) return safeRead(join(dirname(path), `${imp[1]}.ts`));
-      }
-      return '';
+      const from = importPath(name);
+      if (from === null) return '';
+      if (skipImport?.test(from)) return `const ${name} = '${SHARED_RECIPE}';`;
+      return safeRead(join(dirname(path), `${from}.ts`));
+    },
+    // One level only, as `importFile`: the imported file's own imports resolve, theirs do not.
+    importScope: (name) => {
+      const from = importPath(name);
+      if (from === null || skipImport?.test(from)) return null;
+      const file = join(dirname(path), `${from}.ts`);
+      const text = safeRead(file);
+      if (!text) return null;
+      const inner = scopeFor(file, text, skipImport);
+      return { sources: inner.sources, importFile: inner.importFile };
     },
   };
 }
