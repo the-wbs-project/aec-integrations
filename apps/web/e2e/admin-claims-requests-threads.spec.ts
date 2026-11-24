@@ -49,6 +49,10 @@ test.describe('claims, requests and threads — SSR auth gate (AECI-2111)', () =
   }
 });
 
+/** Why the session half did not run. Shown in the report, never silent. */
+const NO_SESSION =
+  'No admin session could be minted: SUPABASE_URL, SUPABASE_ANON_KEY or SUPABASE_TEST_USER_EMAIL/PASSWORD is unset, or sign-in failed. The axe, reflow and focus checks for these pages did NOT run.';
+
 /** Open every expandable row on the page, so axe sees the detail rows too. */
 async function openEveryRow(page: Page): Promise<void> {
   const toggles = page.locator('aec-admin-disclosure-button button[aria-expanded="false"]');
@@ -64,6 +68,15 @@ test.describe('claims, requests and threads — console recipe as an admin (AECI
   test.beforeAll(async () => {
     const baseURL = test.info().project.use.baseURL;
     if (baseURL) cookies = await mintSessionCookies(baseURL);
+    // Loud, once: a run without credentials must not read as a pass.
+    if (!cookies) console.warn(`\n[admin-claims-requests-threads] SKIPPED: ${NO_SESSION}\n`);
+  });
+
+  // The one skip for this block. Every case below needs the session, so a run without
+  // one shows each case as skipped with this reason and a warning annotation.
+  test.beforeEach(async () => {
+    if (!cookies) test.info().annotations.push({ type: 'warning', description: NO_SESSION });
+    test.skip(!cookies, NO_SESSION);
   });
 
   for (const width of [1440, 390, 320]) {
@@ -72,7 +85,6 @@ test.describe('claims, requests and threads — console recipe as an admin (AECI
         page,
         context,
       }) => {
-        test.skip(!cookies, 'No admin session could be minted.');
         await context.addCookies(cookies!);
         await page.setViewportSize({ width, height: 900 });
         await stubAdminA1bApi(page);
@@ -105,7 +117,6 @@ test.describe('claims, requests and threads — console recipe as an admin (AECI
     page,
     context,
   }) => {
-    test.skip(!cookies, 'No admin session could be minted.');
     await context.addCookies(cookies!);
     await stubAdminA1bApi(page);
     await page.goto('/admin/claims');

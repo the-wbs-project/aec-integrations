@@ -220,6 +220,7 @@
                       aecButton
                       (click)="resolve(r.id)"
                       [disabled]="pendingActionId() === r.id"
+                      [attr.aria-describedby]="'request-' + r.id + '-target'"
                     >
                       @if (pendingActionId() === r.id) {
                       <span i18n="@@admin.requests.resolving">Working…</span>
@@ -233,6 +234,7 @@
                       [id]="'request-' + r.id + '-reject'"
                       (click)="openReject(r.id)"
                       [disabled]="pendingActionId() === r.id || rejectingId() === r.id"
+                      [attr.aria-describedby]="'request-' + r.id + '-target'"
                       i18n="@@admin.requests.reject"
                     >
                       Reject
@@ -270,6 +272,7 @@
                         compact
                         type="submit"
                         [disabled]="pendingActionId() === r.id"
+                        [attr.aria-describedby]="'request-' + r.id + '-target'"
                       >
                         @if (pendingActionId() === r.id) {
                         <span i18n="@@admin.requests.rejecting">Rejecting…</span>
@@ -294,9 +297,10 @@
                     tabindex="-1"
                     [class]="failedClass"
                     role="alert"
-                    i18n="@@admin.requests.action.failed"
                   >
-                    Something went wrong. Please try again.
+                    <span i18n="@@admin.requests.action.failed"
+                      >Something went wrong. Please try again.</span
+                    >
                   </p>
                   } }
                 </div>

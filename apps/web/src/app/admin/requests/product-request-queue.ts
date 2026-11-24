@@ -176,16 +176,16 @@ type Refusal = 'not_promoted' | 'gone' | 'failed';
                 <th scope="col" [class]="t.head">
                   <span class="sr-only" i18n="@@admin.reviews.col.details">Details</span>
                 </th>
-                <th scope="col" [class]="t.head" i18n="@@admin.reviews.sort.product">Product</th>
+                <th scope="col" [class]="t.head" i18n="@@admin.requests.col.product">Product</th>
                 <th scope="col" [class]="t.head" i18n="@@admin.productRequests.vendor">Vendor</th>
                 <th scope="col" [class]="t.head" i18n="@@admin.productRequests.theirProduct">
                   Their product
                 </th>
-                <th scope="col" [class]="t.head" i18n="@@admin.requests.meta.submitted">
-                  Submitted
+                <th scope="col" [class]="t.head">
+                  <span i18n="@@admin.requests.meta.submitted">Submitted</span>
                 </th>
-                <th scope="col" [class]="t.head" i18n="@@admin.requests.filter.status.label">
-                  Status
+                <th scope="col" [class]="t.head">
+                  <span i18n="@@admin.requests.filter.status.label">Status</span>
                 </th>
               </tr>
             </thead>
@@ -325,11 +325,10 @@ type Refusal = 'not_promoted' | 'gone' | 'failed';
                                 </p>
                               } @else {
                                 @if (chosen(); as product) {
-                                  <p
-                                    [class]="labelClass"
-                                    i18n="@@admin.productRequests.product.label"
-                                  >
-                                    The product in the catalog
+                                  <p [class]="labelClass">
+                                    <span i18n="@@admin.productRequests.product.label"
+                                      >The product in the catalog</span
+                                    >
                                   </p>
                                   <div
                                     class="flex max-w-sm items-center gap-3 rounded-control border border-(--border-default) bg-(--surface-base) px-3 py-2"
@@ -409,6 +408,7 @@ type Refusal = 'not_promoted' | 'gone' | 'failed';
                                   compact
                                   type="submit"
                                   [disabled]="pending()"
+                                  [attr.aria-describedby]="'product-request-' + r.id"
                                   data-testid="product-request-confirm"
                                 >
                                   {{ confirmLabel(kind) }}
@@ -433,6 +433,7 @@ type Refusal = 'not_promoted' | 'gone' | 'failed';
                                   [id]="'product-request-' + r.id + '-' + opt.key"
                                   (click)="start(r, opt.key)"
                                   [attr.data-decision]="opt.key"
+                                  [attr.aria-describedby]="'product-request-' + r.id"
                                 >
                                   {{ opt.label }}
                                 </button>

@@ -94,6 +94,16 @@ async function render(fixture: ComponentFixture<unknown>): Promise<void> {
 
 const text = (el: Element | null | undefined) =>
   (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
+
+/** AECI-2111: each decision button is described by its row's identifying cell. */
+function describedBy(root: HTMLElement, button: HTMLElement): string {
+  const ids = (button.getAttribute('aria-describedby') ?? '').split(' ').filter(Boolean);
+  return ids
+    .map((id) => root.querySelector(`[id="${id}"]`)?.textContent ?? '')
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 /** A row's decision button. The filter has buttons with the same labels. */
 const action = (el: HTMLElement, key: string) =>
   el.querySelector<HTMLButtonElement>(`[data-decision="${key}"]`)!;
@@ -125,6 +135,17 @@ afterEach(() => {
 });
 
 describe('ProductRequestQueue', () => {
+  it('names the product on every decision button (AECI-2111)', async () => {
+    const { fixture, el } = await setup([row()]);
+    for (const key of ['added', 'already_listed', 'declined']) {
+      expect(describedBy(el, action(el, key))).toContain('Procore Cloud');
+    }
+    action(el, 'declined').click();
+    await render(fixture);
+    const confirm = el.querySelector<HTMLElement>('[data-testid="product-request-confirm"]')!;
+    expect(describedBy(el, confirm)).toContain('Procore Cloud');
+  });
+
   it('moves focus into the form, keeps it on a refused submit, and returns it on Escape (AECI-2111)', async () => {
     const { fixture, el } = await setup([row()]);
     document.body.appendChild(el);

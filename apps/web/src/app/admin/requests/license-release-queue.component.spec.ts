@@ -88,6 +88,16 @@ async function render(fixture: ComponentFixture<unknown>): Promise<void> {
 
 const text = (el: Element | null | undefined) =>
   (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
+
+/** AECI-2111: each decision button is described by its row's identifying cell. */
+function describedBy(root: HTMLElement, button: HTMLElement): string {
+  const ids = (button.getAttribute('aria-describedby') ?? '').split(' ').filter(Boolean);
+  return ids
+    .map((id) => root.querySelector(`[id="${id}"]`)?.textContent ?? '')
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 const action = (el: HTMLElement, key: string) =>
   el.querySelector<HTMLButtonElement>(`[data-decision="${key}"]`)!;
 const live = (el: HTMLElement) => text(el.querySelector('[role="status"]'));
@@ -105,6 +115,19 @@ async function typeReason(fixture: ComponentFixture<unknown>, el: HTMLElement, v
 }
 
 describe('LicenseReleaseQueue', () => {
+  it('names the product on every decision button (AECI-2111)', async () => {
+    const { fixture, el } = await setup([row()]);
+    for (const key of ['approve', 'decline']) {
+      const opener = el.querySelector<HTMLElement>(`[data-decision="${key}"]`)!;
+      expect(describedBy(el, opener)).toBe('Summit Coordination');
+    }
+    el.querySelector<HTMLButtonElement>('[data-decision="decline"]')!.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const confirm = el.querySelector<HTMLElement>('[data-testid="license-release-confirm"]')!;
+    expect(describedBy(el, confirm)).toBe('Summit Coordination');
+  });
+
   it('renders the section with its own h2, filter and an open row', async () => {
     const { el, api } = await setup([row()]);
     expect(api.listLicenseReleaseRequests).toHaveBeenCalledWith({

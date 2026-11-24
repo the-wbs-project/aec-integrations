@@ -591,7 +591,8 @@ describe('ClaimQueue', () => {
       const grant = buttonByText(card, 'Grant vendor account');
       expect(grant.disabled).toBe(true);
       expect(grant.getAttribute('aria-disabled')).toBe('true');
-      expect(grant.getAttribute('aria-describedby')).toBe(box!.id);
+      // AECI-2111: the claim's listing cell, then the box that says why Grant is off.
+      expect(grant.getAttribute('aria-describedby')).toBe(`claim-c1-target ${box!.id}`);
       expect(box!.id).toBe('claim-account-conflict-c1');
       // Reject stays available: it is the action the box asks for.
       expect(buttonByText(card, 'Reject').disabled).toBe(false);
@@ -634,7 +635,8 @@ describe('ClaimQueue', () => {
       const grant = buttonByText(card, 'Grant vendor account');
       expect(grant.disabled).toBe(false);
       expect(grant.hasAttribute('aria-disabled')).toBe(false);
-      expect(grant.hasAttribute('aria-describedby')).toBe(false);
+      // With no conflict Grant is described by its claim's listing cell alone.
+      expect(grant.getAttribute('aria-describedby')).toBe('claim-c1-target');
     });
   });
 
@@ -1029,6 +1031,19 @@ describe('ClaimQueue', () => {
       ]);
       expect(chips).toContainEqual(['Open', 'waiting']);
       expect(chips).toContainEqual(['Possible duplicate', 'attention']);
+    });
+
+    it('names the claim on every decision button, for a reader with several rows open', async () => {
+      const { el, fixture } = await setup(makeApiMock([makeClaim({ id: 'c1' })]));
+      const card = cardFor(el, 'Procore');
+      const described = (b: HTMLButtonElement) =>
+        (b.getAttribute('aria-describedby') ?? '')
+          .split(' ')
+          .map((id) => el.querySelector(`[id="${id}"]`)?.textContent?.trim());
+      expect(described(buttonByText(card, 'Grant vendor account'))).toEqual(['Procore']);
+      expect(described(buttonByText(card, 'Reject'))).toEqual(['Procore']);
+      openApprove(fixture, card);
+      expect(described(buttonByText(card, 'Confirm grant'))).toEqual(['Procore']);
     });
 
     it('moves focus into a form on open, and back to its opener on Escape', async () => {

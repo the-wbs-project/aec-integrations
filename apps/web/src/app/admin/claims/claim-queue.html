@@ -192,8 +192,8 @@
                     <dl class="mt-3 grid gap-4 text-t-14 sm:grid-cols-2">
                       <!-- Email-domain match -->
                       <div>
-                        <dt [class]="labelClass" i18n="@@admin.claims.signals.domain">
-                          Email domain
+                        <dt [class]="labelClass">
+                          <span i18n="@@admin.claims.signals.domain">Email domain</span>
                         </dt>
                         <dd class="mt-1"><aec-domain-match-signal [value]="r.domain_match" /></dd>
                       </div>
@@ -523,7 +523,9 @@
                       (click)="openApprove(r.id)"
                       [disabled]="pendingActionId() === r.id || formOpenId() === r.id || hasConflict(r)"
                       [attr.aria-disabled]="hasConflict(r) ? 'true' : null"
-                      [attr.aria-describedby]="hasConflict(r) ? conflictBoxId(r.id) : null"
+                      [attr.aria-describedby]="
+                        'claim-' + r.id + '-target' + (hasConflict(r) ? ' ' + conflictBoxId(r.id) : '')
+                      "
                       data-testid="claim-grant"
                       i18n="@@admin.claims.approve"
                     >
@@ -535,6 +537,7 @@
                       [id]="'claim-' + r.id + '-reject'"
                       (click)="openReject(r.id)"
                       [disabled]="pendingActionId() === r.id || formOpenId() === r.id"
+                      [attr.aria-describedby]="'claim-' + r.id + '-target'"
                       i18n="@@admin.claims.reject"
                     >
                       Reject
@@ -567,6 +570,7 @@
                         compact
                         type="submit"
                         [disabled]="pendingActionId() === r.id"
+                        [attr.aria-describedby]="'claim-' + r.id + '-target'"
                       >
                         @if (pendingActionId() === r.id) {
                         <span i18n="@@admin.claims.approving">Granting…</span>
@@ -627,6 +631,7 @@
                         compact
                         type="submit"
                         [disabled]="pendingActionId() === r.id"
+                        [attr.aria-describedby]="'claim-' + r.id + '-target'"
                       >
                         @if (pendingActionId() === r.id) {
                         <span i18n="@@admin.claims.rejecting">Rejecting…</span>

@@ -386,6 +386,18 @@ describe('RequestQueue', () => {
   });
 
   describe('accessibility (structural)', () => {
+    it('names the listing on every decision button (AECI-2111)', async () => {
+      const { el, fixture } = await setup(makeApiMock([makeRequest({ id: 'r1' })]));
+      const card = cardFor(el, 'Procore');
+      const described = (b: HTMLButtonElement) =>
+        el.querySelector(`[id="${b.getAttribute('aria-describedby')}"]`)?.textContent?.trim();
+      expect(described(buttonByText(card, 'Resolve'))).toBe('Procore');
+      expect(described(buttonByText(card, 'Reject'))).toBe('Procore');
+      buttonByText(card, 'Reject').click();
+      fixture.detectChanges();
+      expect(described(buttonByText(card, 'Confirm rejection'))).toBe('Procore');
+    });
+
     it('uses one h2 per section and a console table row per request (AECI-2111)', async () => {
       const { el } = await setup(
         makeApiMock([

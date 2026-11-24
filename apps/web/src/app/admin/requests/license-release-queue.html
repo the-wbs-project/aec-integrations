@@ -88,7 +88,7 @@
           <th scope="col" [class]="t.head">
             <span class="sr-only" i18n="@@admin.reviews.col.details">Details</span>
           </th>
-          <th scope="col" [class]="t.head" i18n="@@admin.reviews.sort.product">Product</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.requests.col.product">Product</th>
           <th scope="col" [class]="t.head" i18n="@@admin.productRequests.vendor">Vendor</th>
           <th scope="col" [class]="t.head" i18n="@@admin.licenseReleases.license">Subscription</th>
           <th scope="col" [class]="t.head" i18n="@@admin.requests.meta.submitted">Submitted</th>
@@ -233,6 +233,7 @@
                         compact
                         type="submit"
                         [disabled]="pending()"
+                        [attr.aria-describedby]="'license-release-' + r.id"
                         data-testid="license-release-confirm"
                       >
                         @if (kind === 'approve') {
@@ -263,6 +264,7 @@
                       (click)="start(r, 'approve')"
                       data-decision="approve"
                       [disabled]="licenseMoved(r)"
+                      [attr.aria-describedby]="'license-release-' + r.id"
                       i18n="@@admin.licenseReleases.action.approve"
                     >
                       Approve
@@ -273,6 +275,7 @@
                       [id]="'license-release-' + r.id + '-decline'"
                       (click)="start(r, 'decline')"
                       data-decision="decline"
+                      [attr.aria-describedby]="'license-release-' + r.id"
                       i18n="@@admin.licenseReleases.action.decline"
                     >
                       Decline

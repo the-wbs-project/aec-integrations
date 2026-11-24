@@ -7,8 +7,22 @@
  * answers those same-origin `GET`s with these rows (`stubAdminA1bApi`). The SSR gate
  * still needs a real minted admin session (`auth-session.ts`). Every write is
  * refused here, so nothing a spec clicks can reach the local D1.
+ *
+ * Every row is typed by its `@aeci/shared` contract, so a change to an admin API shape
+ * fails this file's typecheck rather than leaving the spec green on stale rows.
  */
 import type { Page } from '@playwright/test';
+
+import type {
+  AdminClaim,
+  AdminClaimAuditResponse,
+  AdminClaimDetail,
+  AdminLicenseReleaseRequest,
+  AdminProductRequest,
+  AdminThreadDetailResponse,
+  AdminThreadRow,
+  AdminVendorRequest,
+} from '@aeci/shared';
 
 const uuid = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
@@ -16,12 +30,18 @@ export const CLAIM_OPEN_ID = uuid(9101);
 export const CLAIM_CONFLICT_ID = uuid(9102);
 export const THREAD_ID = uuid(9301);
 
-const AUTODESK = { id: uuid(9001), name: 'Autodesk, Inc.', slug: 'autodesk' };
+/** The Procore product and the vendor that makes it, so a product claim's resolved
+ *  vendor (`entitlement_vendor`) is the product's own maker. */
 const PROCORE = { id: uuid(9002), name: 'Procore', slug: 'procore' };
+const PROCORE_VENDOR = {
+  id: uuid(9001),
+  name: 'Procore Technologies',
+  slug: 'procore-technologies',
+};
 const SUMMIT = { id: uuid(9003), name: 'Summit BIM', slug: 'summit-bim' };
 const OTHER = { id: uuid(9004), name: 'Fieldline Software', slug: 'fieldline' };
 
-function claim(over: Record<string, unknown>): Record<string, unknown> {
+function claim(over: Partial<AdminClaim> & Pick<AdminClaim, 'id'>): AdminClaim {
   return {
     kind: 'claim',
     status: 'open',
@@ -51,7 +71,7 @@ function claim(over: Record<string, unknown>): Record<string, unknown> {
     existing_seats: [],
     seat_emails_available: true,
     related_requests: [],
-    entitlement_vendor: AUTODESK,
+    entitlement_vendor: PROCORE_VENDOR,
     product_roles: { application: 2, connector: 1, hybrid: 0, total: 3 },
     is_pure_connector_vendor: false,
     owned_integrations: { integrations: 4, connector_evidenced: 2, total: 6 },
@@ -83,6 +103,7 @@ export const CLAIMS = [
         id: uuid(9150),
         kind: 'correction',
         status: 'resolved',
+        target_type: 'product',
         created_at: '2026-10-02T10:00:00.000Z',
       },
     ],
@@ -93,6 +114,7 @@ export const CLAIMS = [
     target_type: 'vendor',
     target_id: SUMMIT.id,
     target: SUMMIT,
+    entitlement_vendor: SUMMIT,
     submitter_email: 'alex@gmail.example',
     submitter_name: 'Alex Moreau',
     submitter_title: null,
@@ -123,10 +145,10 @@ export const CLAIMS = [
     body: 'Please add me.',
     created_at: '2026-11-23T08:00:00.000Z',
   }),
-];
+] satisfies AdminClaim[];
 
 export const CLAIM_DETAIL = {
-  ...CLAIMS[0],
+  ...CLAIMS[0]!,
   duplicate_siblings: [
     {
       id: uuid(9110),
@@ -138,30 +160,32 @@ export const CLAIM_DETAIL = {
       has_notes: true,
     },
   ],
-};
+} satisfies AdminClaimDetail;
 
-export const CLAIM_CONFLICT_DETAIL = { ...CLAIMS[1], duplicate_siblings: [] };
+export const CLAIM_CONFLICT_DETAIL = {
+  ...CLAIMS[1]!,
+  duplicate_siblings: [],
+} satisfies AdminClaimDetail;
 
 export const CLAIM_AUDIT = {
   data: [
     {
       id: uuid(9120),
       action: 'vendor_request.created',
+      actor: null,
+      actor_type: 'system',
       entity_type: 'vendor_request',
       entity_id: CLAIM_OPEN_ID,
-      actor_id: null,
-      actor_email: null,
-      actor_role: null,
-      old_value: null,
-      new_value: { status: 'open' },
       created_at: '2026-11-20T09:30:00.000Z',
+      before_state: null,
+      after_state: { status: 'open' },
     },
   ],
   page: 1,
   perPage: 25,
   total: 1,
   actor_emails_available: true,
-};
+} satisfies AdminClaimAuditResponse;
 
 export const CORRECTIONS = [
   {
@@ -188,7 +212,6 @@ export const CORRECTIONS = [
     created_at: '2026-11-21T11:00:00.000Z',
     resolved_at: null,
     resolved_by: null,
-    duplicate_of_request_id: null,
   },
   {
     id: uuid(9202),
@@ -214,9 +237,10 @@ export const CORRECTIONS = [
     created_at: '2026-11-23T16:00:00.000Z',
     resolved_at: null,
     resolved_by: null,
-    duplicate_of_request_id: null,
   },
-];
+] satisfies AdminVendorRequest[];
+
+const SUMMIT_MC = { id: uuid(9012), name: 'Summit Model Coordination', slug: 'summit-mc' };
 
 export const PRODUCT_REQUESTS = [
   {
@@ -225,8 +249,8 @@ export const PRODUCT_REQUESTS = [
     vendor_id: SUMMIT.id,
     vendor: SUMMIT,
     requested_by: uuid(1),
-    context_product_id: uuid(9012),
-    context_product: { id: uuid(9012), name: 'Summit Model Coordination', slug: 'summit-mc' },
+    context_product_id: SUMMIT_MC.id,
+    context_product: SUMMIT_MC,
     name: 'Trimble Connect',
     maker: 'Trimble',
     website: 'https://connect.trimble.example',
@@ -237,7 +261,7 @@ export const PRODUCT_REQUESTS = [
     decline_reason: null,
     resolved_product: null,
   },
-];
+] satisfies AdminProductRequest[];
 
 export const LICENSE_RELEASES = [
   {
@@ -247,8 +271,8 @@ export const LICENSE_RELEASES = [
     vendor_id: SUMMIT.id,
     vendor: SUMMIT,
     billing_account_id: 'ba_1',
-    product_id: uuid(9012),
-    product: { id: uuid(9012), name: 'Summit Model Coordination', slug: 'summit-mc' },
+    product_id: SUMMIT_MC.id,
+    product: SUMMIT_MC,
     requested_by: uuid(2),
     reason: 'We are retiring this product at the end of the month.',
     created_at: '2026-11-19T10:00:00.000Z',
@@ -260,24 +284,24 @@ export const LICENSE_RELEASES = [
       starts_at: '2026-06-01T00:00:00.000Z',
       ends_at: '2027-06-01T00:00:00.000Z',
       ended_at: null,
-      assigned_product_id: uuid(9012),
+      assigned_product_id: SUMMIT_MC.id,
     },
   },
-];
+] satisfies AdminLicenseReleaseRequest[];
 
 const THREAD_ROW = {
   id: THREAD_ID,
   claim_id: uuid(9310),
   data_object: { slug: 'rfi', name: 'RFI' },
-  vendor_a: { id: PROCORE.id, name: 'Procore', slug: 'procore' },
-  vendor_b: { id: SUMMIT.id, name: 'Summit BIM', slug: 'summit-bim' },
+  vendor_a: PROCORE_VENDOR,
+  vendor_b: SUMMIT,
   message_count: 3,
   last_message_at: '2026-11-22T15:00:00.000Z',
   help_requested_at: '2026-11-22T15:05:00.000Z',
   closed_at: null,
   closed_reason: null,
   created_at: '2026-11-20T10:00:00.000Z',
-};
+} satisfies AdminThreadRow;
 
 export const THREADS = [
   THREAD_ROW,
@@ -292,7 +316,7 @@ export const THREADS = [
     closed_reason: 'retired',
     created_at: '2026-11-10T09:00:00.000Z',
   },
-];
+] satisfies AdminThreadRow[];
 
 export const THREAD_DETAIL = {
   thread: {
@@ -324,7 +348,7 @@ export const THREAD_DETAIL = {
       },
     ],
   },
-};
+} satisfies AdminThreadDetailResponse;
 
 function page<T>(data: readonly T[], perPage = 100) {
   return { data, page: 1, perPage, total: data.length };
