@@ -70,8 +70,8 @@ export type ConsoleChipTone =
  * `aec-chip` (AECI-1763; DESIGN.md §5 Badges, "The public chip", clash 22).
  *
  * The one chip recipe. The look lives in `styles.css` under `.aec-chip`, which is
- * unlayered because a `border-color` utility never reaches an element (the `*`
- * rule wins). This component only chooses the element and sets the data
+ * unlayered. It was written while a `border-color` utility never reached an
+ * element (the `*` rule won, until AECI-2088). This component only chooses the element and sets the data
  * attributes the CSS keys off.
  *
  * Three elements, one look:

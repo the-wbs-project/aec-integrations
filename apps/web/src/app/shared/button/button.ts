@@ -46,8 +46,8 @@ export interface AecButtonOptions {
 /**
  * Shared by every variant: 44px minimum height (a wrapped label grows it), 12px
  * radius, 14px label at 600, a 1px edge, no shadow. The edge colour comes from the
- * unlayered `.aec-btn`, `.aec-btn-secondary` and `.aec-btn-on-brand-secondary` rules in `styles.css`, because a
- * `border-(--x)` utility loses to the unlayered `* { border-color }` rule.
+ * unlayered `.aec-btn`, `.aec-btn-secondary` and `.aec-btn-on-brand-secondary` rules in `styles.css`. They
+ * predate AECI-2088, when a `border-(--x)` utility lost to the unlayered `* { border-color }` rule.
  *
  * Focus is a 3px outline at a 3px offset. Its colour is Forest from the
  * `@layer base` `:focus-visible` rule, and Bone on the two `on-brand` variants. It is

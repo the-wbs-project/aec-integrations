@@ -29,7 +29,7 @@ function rule(selector: string): { body: string; depth: number } {
 }
 
 describe('the pair page version-diff row edge', () => {
-  it('colours the added edge Forest from an unlayered rule, which beats `* { border-color }`', () => {
+  it('colours the added edge Forest from an unlayered rule', () => {
     const r = rule('.aec-diff-added');
     expect(r.depth).toBe(0);
     expect(r.body).toContain('border-inline-start-color: var(--accent-primary)');
@@ -39,11 +39,5 @@ describe('the pair page version-diff row edge', () => {
     const r = rule('.aec-diff-removed');
     expect(r.depth).toBe(0);
     expect(r.body).toContain('border-inline-start-color: var(--border-strong)');
-  });
-
-  it('declares both after the unlayered `*` border rule they must beat', () => {
-    const star = css.indexOf('*::after {\n  border-color: var(--border-default);');
-    expect(star).toBeGreaterThan(-1);
-    expect(css.indexOf('.aec-diff-added {')).toBeGreaterThan(star);
   });
 });
