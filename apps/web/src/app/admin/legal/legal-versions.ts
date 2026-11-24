@@ -40,6 +40,12 @@ import { AdminLegalAcceptanceStatus } from './legal-acceptance-status';
 import { AdminLitigationHolds } from './litigation-holds';
 import { AdminLegalApi } from './admin-legal-api';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import { AecButton } from '../../shared/button/button';
+import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
+import { FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
+import { CONSOLE_LABEL_CLASS } from '../console/console-table';
+import { adminStatusTone, type AdminStatusKey } from '../console/status-tones';
+import { LEGAL_CLASSES } from './legal-classes';
 
 /** A Yes/No answer. `null` until the operator picks one: neither question has a default. */
 export type Answer = 'yes' | 'no' | null;
@@ -198,6 +204,7 @@ export function humanBytes(bytes: number): string {
 @Component({
   selector: 'aec-admin-legal-versions',
   imports: [
+    AecButton,
     AecFormSubmit,
     AdminLegalAcceptanceStatus,
     AdminLitigationHolds,
@@ -206,6 +213,7 @@ export function humanBytes(bytes: number): string {
     BrnDialogContent,
     BrnDialogDescription,
     BrnDialogTitle,
+    Chip,
     DatePipe,
     RouterLink,
   ],
@@ -214,6 +222,17 @@ export function humanBytes(bytes: number): string {
 export class AdminLegalVersions {
   private readonly api = inject(AdminLegalApi);
   private readonly injector = inject(Injector);
+
+  protected readonly c = LEGAL_CLASSES;
+  /** A field's label or a radio group's legend: the Label role. */
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  /** A term in a card's facts, and a small label over a list. */
+  protected readonly dtClass = CONSOLE_LABEL_CLASS;
+  protected readonly smallLabelClass = CONSOLE_LABEL_CLASS;
+  /** The card's state chip. The words carry the state; the tone never decides anything. */
+  protected readonly tone = (
+    key: Extract<AdminStatusKey, 'published' | 'notPublished'>,
+  ): ConsoleChipTone => adminStatusTone(key);
 
   protected readonly data = signal<AdminLegalVersionsResponse | null>(null);
   protected readonly loading = signal(true);
