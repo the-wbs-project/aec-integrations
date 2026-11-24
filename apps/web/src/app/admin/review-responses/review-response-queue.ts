@@ -228,17 +228,13 @@ export class ReviewResponseQueue {
     return $localize`:@@admin.replies.row.label:Reply from ${vendor}:vendor: on ${product}:product:, to the review ${review}:review:`;
   }
 
-  /**
-   * The chip tone for a reply status. Exhaustive: a new status fails to compile.
-   * `published` is not in the console map yet: it takes `approved`, its closest
-   * word (live, as intended), until the map gains it.
-   */
+  /** The chip tone for a reply status. Exhaustive: a new status fails to compile. */
   protected statusTone(status: ReviewResponseStatus): ConsoleChipTone {
     switch (status) {
       case 'pending':
         return adminStatusTone('pending');
       case 'published':
-        return adminStatusTone('approved');
+        return adminStatusTone('published');
       case 'rejected':
         return adminStatusTone('rejected');
       case 'withdrawn':
