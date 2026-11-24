@@ -234,7 +234,7 @@ not control that fan-out.
 | `linear-request-issue` | Files a Linear issue for a vendor claim or correction. | operator | route: POST /api/requests/{claim,correction} (routes/requests.ts), and POST /api/requests/confirm for an anonymous claim (routes/request-confirmations.ts); retried by lib/reconciliation-sweep.ts | `any-tier` | Read-guard on the linked issue id, then a compare-and-set persist. | `linear-issue-id` | `none` | no | docs/STAGE_1_PHASE_6_SPEC.md §6.1 | LINEAR_API_KEY is set on production only, so staging and demo file no issues. A claim the submit-time account check stored rejected files no issue, and the sweep never retries it because it reads only open rows (AECI-1420). Not pausable: a Linear write, not email. |
 | `linear-request-resolution` | Moves a request's Linear issue to Done or Canceled when the request is decided on AECi, and comments who decided and why. | operator | route: PATCH /api/admin/requests/:id (routes/admin-requests.ts), PATCH /api/admin/claims/:id (routes/admin-claims.ts), and POST /api/vendor/seats/claims/:id/accept or /decline, including the accept auto-reject (routes/vendor-seat-claims.ts) | `any-tier` | None. Each committed decision pushes once. | `none` | `none` | no | docs/STAGE_1_PHASE_6_SPEC.md §6.5 | The site-linear-sync workflow_transitions row records the sync, not a send. Production only: other tiers have no linked issue to move. Not pausable: a Linear write, not email. |
 
-## Monitoring alerts (not product notifications, 25)
+## Monitoring alerts (not product notifications, 26)
 
 These PostHog alerts tell the operator about the system, not a person about an event in
 the product, so they are not registry entries. They are defined in
@@ -247,6 +247,7 @@ governs them.
 | `algolia-orphan-cap` | AECi — Algolia orphan sweep capped | hourly |
 | `api-requests-stalled` | AECi — API requests stalled (5+ over 10 s, 1 h) | hourly |
 | `auth-error-rate` | AECi — Auth sign-in error rate > 30% (1 h) | hourly |
+| `cache-tags-truncated` | AECi — A page went uncached: its cache tags did not fit (any, 24 h) | daily |
 | `cron-job-failed` | AECi — Cron failure email not sent, or post-write sync failed | hourly |
 | `data-quality-error` | AECi — Data quality check found ERROR-severity issues | daily |
 | `detail-render-p95` | AECi — p95 detail page render > 2.5 s (1 h) | hourly |
