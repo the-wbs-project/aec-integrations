@@ -210,7 +210,7 @@
       {selectedRows().length, plural, =1 {1 subscription selected} other {{{selectedRows().length}}
       subscriptions selected}}
     </p>
-    <div class="min-w-0 flex-1">
+    <div class="w-full min-w-0 md:w-auto md:flex-1">
       <ng-container [ngTemplateOutlet]="bulk" [ngTemplateOutletContext]="bulkContext()" />
     </div>
   </div>
