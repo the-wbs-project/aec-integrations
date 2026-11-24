@@ -30,6 +30,7 @@ import {
   mechanismRank,
   type AlgoliaEnv,
 } from '@aeci/shared/algolia';
+import { connectorKindFor } from '@aeci/shared/api/connector-kind';
 import { discardResponseBody } from '@aeci/shared/response-drain';
 import {
   ALGOLIA_BATCH_MAX,
@@ -224,7 +225,7 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
       `SELECT
          p.id AS objectID, p.name, p.slug, p.description, p.logo_url, p.website,
          p.integration_count, p.review_count, p.rating_overall_avg,
-         p.created_at, p.updated_at, p.product_role,
+         p.created_at, p.updated_at, p.product_role, p.connector_kind,
          -- AECI-1618: the claimed test, the same as lib/claimed-vendors.ts.
          EXISTS (SELECT 1 FROM product_vendors cpv JOIN vendors cv ON cv.id = cpv.vendor_id
             WHERE cpv.product_id = p.id AND cv.owned_at IS NOT NULL
@@ -260,6 +261,7 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
       created_at: string;
       updated_at: string;
       product_role: string;
+      connector_kind: string | null;
       claimed: number;
       vendor_name: string | null;
       vendor_slug: string | null;
@@ -313,6 +315,10 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
       // AECI-1086 — display only, never ranked. Identical to `toAlgoliaProduct`;
       // the column is NOT NULL with a CHECK, so the raw value is always a role.
       product_role: r.product_role,
+      // AECI-1662 — identical to `toAlgoliaProduct` through the shared reader, so an
+      // application never carries a kind. The record schema makes the key required, so
+      // a rebuild that dropped it would fail the parse rather than reset every kind.
+      connector_kind: connectorKindFor(r.product_role, r.connector_kind),
     };
   });
 }

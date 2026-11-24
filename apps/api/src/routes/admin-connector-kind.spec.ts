@@ -28,6 +28,19 @@ vi.mock('../posthog', () => ({
   submitGauge: vi.fn(),
 }));
 
+// AECI-1662 — the by-id search sync. Spied, so the spec makes no Algolia call.
+const { syncSpy } = vi.hoisted(() => ({ syncSpy: vi.fn() }));
+vi.mock('./integration-retire-write', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./integration-retire-write')>();
+  return {
+    ...actual,
+    syncOwnerWriteSearch: (...args: Parameters<typeof actual.syncOwnerWriteSearch>) => {
+      syncSpy(args[2], args[3]);
+      return Promise.resolve();
+    },
+  };
+});
+
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const ADMIN = uuid(1);
 const VENDOR = uuid(2);
@@ -83,6 +96,7 @@ const kindOf = async (id: string) =>
 
 beforeEach(async () => {
   t = await makeTestDb();
+  syncSpy.mockClear();
   send = vi.fn().mockResolvedValue(undefined);
   env = { ...TEST_ENV, CACHE_PURGE_QUEUE: { send } as unknown as Env['CACHE_PURGE_QUEUE'] };
   await t.db.insert(profiles).values({ id: ADMIN, role: 'admin' });
@@ -99,6 +113,23 @@ beforeEach(async () => {
 afterEach(() => t.dispose());
 
 describe('PATCH /api/admin/products/:id/connector-kind', () => {
+  // AECI-1662: the record carries the kind, so it must not wait for the nightly sync.
+  it('re-indexes the one product record by id after commit', async () => {
+    const res = await patch(CONNECTOR, { connector_kind: 'sync_service' });
+    expect(res.status).toBe(200);
+    expect(syncSpy).toHaveBeenCalledTimes(1);
+    expect(syncSpy).toHaveBeenCalledWith(
+      { products: [CONNECTOR], vendors: [], integrations: [] },
+      'aeci.api.admin.connector_kind_algolia_sync_failed',
+    );
+  });
+
+  it('syncs nothing when the value is unchanged or the write is refused', async () => {
+    await patch(CONNECTOR, { connector_kind: null });
+    await patch(APPLICATION, { connector_kind: 'sync_service' });
+    expect(syncSpy).not.toHaveBeenCalled();
+  });
+
   it('sets the kind with its audit row in the same batch and queues the purge', async () => {
     const res = await patch(CONNECTOR, { connector_kind: 'sync_service' });
     expect(res.status).toBe(200);

@@ -8,8 +8,12 @@ import {
   productTakesSubscription,
   roleTakesConnectorKind,
 } from './connector-kind';
-import { AdminSetConnectorKindSchema, ConnectorKindSchema } from './connector-kind-schema';
-import { ProductListItemSchema } from './products';
+import {
+  AdminSetConnectorKindSchema,
+  ConnectorKindSchema,
+  connectorKindList,
+} from './connector-kind-schema';
+import { ProductListItemSchema, ProductsListQuerySchema } from './products';
 import { VendorProductSchema } from './vendor';
 
 describe('connector kind vocabulary (AECI-2036)', () => {
@@ -104,5 +108,28 @@ describe('productTakesSubscription (AECI-2044, ruling 6)', () => {
     expect(productTakesSubscription('platform', 'sync_service')).toBe(false);
     expect(productTakesSubscription(null, null)).toBe(false);
     expect(productTakesSubscription(undefined, 'sync_service')).toBe(false);
+  });
+});
+
+describe('the connector_kind listing filter (AECI-1662)', () => {
+  it('reads a comma-separated list into vocabulary order, deduped', () => {
+    expect(connectorKindList.parse('sync_service')).toEqual(['sync_service']);
+    expect(connectorKindList.parse('sync_service, integration_platform,sync_service')).toEqual([
+      'integration_platform',
+      'sync_service',
+    ]);
+  });
+
+  it('refuses an empty list or an unknown kind', () => {
+    for (const raw of ['', ',', 'ipaas', 'sync_service,Sync Service']) {
+      expect(connectorKindList.safeParse(raw).success).toBe(false);
+    }
+  });
+
+  it('is an optional param on the products listing query, reported at its key', () => {
+    expect(ProductsListQuerySchema.parse({}).connector_kind).toBeUndefined();
+    const bad = ProductsListQuerySchema.safeParse({ connector_kind: 'ipaas' });
+    expect(bad.success).toBe(false);
+    expect(bad.error?.issues[0]?.path).toEqual(['connector_kind']);
   });
 });

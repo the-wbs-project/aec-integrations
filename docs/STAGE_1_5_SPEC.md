@@ -1185,16 +1185,18 @@ production edges carried the dropped FK (Zapier 23, Workato 16). The same guard 
 
 Separately tracked follow-ups: 22 exact-duplicate integration rows; connector discovery in
 search/browse (`product_role` on Algolia records, a Connectors facet, `RoleBadge` on search
-cards). **AECI-1086 (2026-11-09) landed the record field and the search-card chip.** The
-Connectors facet is AECI-1662, on `/search` and `/products` together.
+cards). **AECI-1086 (2026-11-09) landed the record field and the search-card chip.**
+**AECI-1662 (2026-11-24) closed the facet**, re-scoped by the AECI-2035 rulings: a "Connector
+type" filter with two options, "Integration platform" and "Sync Service", on `/search`,
+`/products` and the browse pages together (§13.13, `SEARCH_RANKING.md` §3.1).
 
 **Which numbers live where (reconciled 2026-09-02, AECI-750).** The figures above are the
 **production app-DB** state — measured against `aeci-app-production`, and current as of the AECI-706
 / AECI-730 dates on each block. §13.9's figures are the **review-catalogue** state (what the
 curation app holds, promoted or not), which is why the two sets do not add up to each other and
 neither supersedes the other. Read §13.9 for connector-lane coverage, this section for what prod
-actually serves. Of the discovery follow-ups named above, only the Connectors facet is still
-open (AECI-1662).
+actually serves. The discovery follow-ups named above are all closed: the Connectors facet
+shipped as the "Connector type" filter (AECI-1662).
 
 ### 12.7 Catalog-scope note on both integration lists (2026-08-05)
 
@@ -2363,7 +2365,8 @@ review-side). And AECI-1065's endpoint-vendor mapping proposals, which were prec
   forking the entity breaks all four. §12.3's compatibility-matrix archetype remains a possible
   later evolution, and §12.6's discovery follow-up is half closed. **AECI-1086 (2026-11-09) put
   `product_role` on the Algolia product record**, display only, and the search card now carries
-  the `RoleBadge`. A Connectors facet is still unbuilt (AECI-1662).
+  the `RoleBadge`. **AECI-1662 (2026-11-24) built the facet** as the "Connector type" filter,
+  by kind rather than by role (§13.13).
 
 ### 13.7 The reachable-lane boundary (AECI-715 / AECI-716)
 
@@ -2773,8 +2776,11 @@ fails as a marker too: Agave has a catalogue and Workato has none.
 - **One helper for later issues.** `isSyncService(role, kind)` in the zod-free
   `packages/shared/src/api/connector-kind.ts` is true for role `connector` or `hybrid` with kind
   `sync_service`. Public pages may import it without loading zod.
-- **Not yet on the Algolia record.** That field belongs with the filter work on AECI-1662, and the
-  index quota is at its cap. A card built from a search hit carries NULL until then.
+- **On the Algolia record since AECI-1662 (2026-11-24).** The product record carries
+  `connector_kind`, read through `connectorKindFor`, for the "Connector type" filter and the
+  search card chip. It is faceted only, never searched or ranked (`SEARCH_RANKING.md` §3.1). The
+  admin write re-indexes the product by id after commit. A record indexed before then has no key
+  and reads NULL until it is rewritten (`docs/runbooks/catalog.md`).
 
 **The public labels (AECI-2037, 2026-11-24).** One helper,
 `apps/web/src/app/products/connector-kind-labels.ts`, holds every word that varies by kind. Each
@@ -2783,7 +2789,8 @@ variant is a whole message with its own id. Callers resolve the kind with `conne
 | Surface | Integration platform | Sync Service | NULL |
 |---|---|---|---|
 | Role chip (hero, browse tile) | "Integration platform" | "Sync Service" | "Connector" |
-| Search card chip | "Connector" until AECI-1662 puts the kind on the record | same | "Connector" |
+| Search card chip (AECI-1662) | "Integration platform" | "Sync Service" | "Connector" |
+| "Connector type" filter option (AECI-1662) | "Integration platform" | "Sync Service" | no option |
 | Powered section heading and nav (§12.3) | "Integrations it powers" | "Integrations it delivers" | "Integrations it powers" |
 | Powered section empty state | "…running on this integration platform yet." | "…recorded for this Sync Service yet." | "…running on this connector yet." |
 | Hero reach line (§13.6) | "Connects N products…" | "Syncs N products…" | "Connects N products…" |
@@ -2802,6 +2809,29 @@ variant is a whole message with its own id. Callers resolve the kind with `conne
   product", because a Sync Service with a catalogue lists products there too.
 - **Admin.** The kind select reads the same two labels. The role column and the payer-test role
   counts keep the data role.
+
+**The filter (AECI-1662, 2026-11-24).** One "Connector type" checkbox group, last in the
+filter panel, on `/search`, `/products` and every taxonomy browse page. It filters by what a
+product is and orders nothing.
+
+- **Two options:** "Integration platform" and "Sync Service", always in that order. A product
+  matches when `connectorKindFor` reads that kind, so a hybrid Sync Service matches "Sync
+  Service" while its chip keeps "Hybrid". No "Application" option: it would select almost the
+  whole catalog. No unclassified "Connector" option: it would need a sentinel on the record and
+  would hold one real product.
+- **The same behaviour on every page** (`DESIGN.md` "The Same-Behavior Rule"): multi-select, OR
+  within the group, counts under the other filters, a zero-count option hidden unless checked,
+  counted in the active-filter badge, and cleared by "Clear filters". `/products` and the browse
+  pages write `?connector_kind=` as a sorted comma-separated list, as the taxonomy ids are.
+  `/search` writes one repeated param per value, as its other groups do. An unknown value is a
+  400 from the API, as a bad taxonomy id is, and is ignored on `/search`.
+- **Sources.** `/search` facets the Algolia record's `connector_kind`. The others read
+  `GET /api/products?connector_kind=` and the `connector_kinds` group of `/api/products/facets`
+  (`API_CONTRACTS.md` §6.1). `connector_kind` is in the listing cache key (`CACHE_STRATEGY.md`
+  §4a).
+- **Out of scope.** "Sync Services for Procore and Acumatica", that is, finding a Sync Service by
+  the products it connects. A record does not link a service to its endpoints. It needs its own
+  issue.
 
 **Local data.** `apps/api/seed/connector-fixtures.sql` sets the MindCloud fixture to
 `integration_platform` and the Agave fixture to `sync_service`. Since AECI-2043 a second Sync

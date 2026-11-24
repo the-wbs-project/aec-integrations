@@ -708,3 +708,21 @@ After the SQL runs, in run order:
 3. **Check the review app's copy of the slug.** Read the review record's `supabaseSlug` with the `aeci-review` read tools. No tool writes it directly. The review app stores the slug a promote returns, so a promote in step 2 is what fixes it. Run that promote even when the name has already arrived.
 4. **Check the discovery queues.** URLs already in `gsc_recrawl_queue` and `indexnow_queue` under the old slug were queued before the mapping existed, and now only 301. The IndexNow drain drops its own copies before sending (`indexnow-drain.ts`), so only the Google queue keeps them. Report them. Do not delete them without a ruling. For AECI-1574 Chris ruled to delete them, once the promote had queued the new-slug URLs. `scripts/ops/2026-11-openasset-slug-rename/delete-queued-old-slug.sql` is the template. It matches with `substr` because D1 rejects a long LIKE pattern as too complex.
 5. **Verify.** With a browser user agent (the WAF answers curl's default with 403), `curl -sI` the old vendor URL, the old product URL and one old pair URL on `www.aecintegrations.com`. Each should return `301` with `location` on the new slug.
+
+## After a new Algolia record field
+
+Not an alert. Run this once per environment after a deploy that adds a field to an Algolia record. The first case is AECI-1662 (2026-11-24): the product record gained `connector_kind`, which the `/search` "Connector type" filter and the search card chip read (`SEARCH_RANKING.md` §3.1).
+
+**Why it is needed.** The nightly sync rewrites only rows whose `updated_at` moved. An existing record keeps its old shape until its product is touched. A product record without `connector_kind` reads as unclassified: its card says "Connector" and it matches neither filter option. The CI apply step adds the facet to the index settings, but it rewrites no records.
+
+**What rewrites itself.** A product whose kind an admin sets or changes after the deploy is re-indexed by id at once. Any promote of a product rewrites its record that night.
+
+In run order, per environment (staging, then demo, then production):
+
+1. **Check the deploy.** The environment's settings apply step must have run (`SEARCH_RANKING.md` §1.1). Without it the facet returns no counts.
+2. **Pick the path.** The cheapest is the watermark reset for `products` (`SEARCH_RANKING.md` §1.2). It schedules a full products sweep at the next 08:00 UTC run and never empties the index. The datatool full reindex is faster but clears the index, so search returns nothing while it runs. Use it only off-peak.
+3. **Reset the `products` watermark** with the script in `scripts/ops/2026-09-algolia-integration-watermark-reset/`, `--entity products`. Run the dry run first, then `--apply`. Production also needs `--allow-production`. The README there holds the commands.
+4. **Verify after the next 08:00 UTC run.** Open `/search`, filter "Sync Service", and check that the known Sync Services appear with their chip. In production on 2026-11-24 the kind was set only where an admin had set it, so a short list is expected.
+
+Do not run the reindex to fix one product. A change of its kind re-indexes it by id. Saving the same value does nothing.
+

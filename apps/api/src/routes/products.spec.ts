@@ -145,6 +145,53 @@ describe('GET /api/products', () => {
     ]);
   });
 
+  // AECI-1662 — the "Connector type" filter. OR within the list, only a connector or
+  // hybrid whose kind matches, and the sort is untouched.
+  describe('?connector_kind=', () => {
+    beforeEach(async () => {
+      await seedProduct(u(1), 'zapier', 'Zapier', {
+        productRole: 'connector',
+        connectorKind: 'integration_platform',
+      });
+      await seedProduct(u(2), 'agave', 'agave', {
+        productRole: 'connector',
+        connectorKind: 'sync_service',
+      });
+      await seedProduct(u(3), 'anyware', 'AnyWare', {
+        productRole: 'hybrid',
+        connectorKind: 'sync_service',
+      });
+      await seedProduct(u(4), 'appxchange', 'AppXchange', { productRole: 'connector' });
+      // A promote moved it to `application`; the stale stored kind must not match.
+      await seedProduct(u(5), 'procore', 'Procore', { connectorKind: 'sync_service' });
+    });
+
+    const slugs = async (qs: string) => {
+      const res = await get(listApp(), `/api/products${qs}`);
+      expect(res.status).toBe(200);
+      return ProductsListResponseSchema.parse(await res.json()).data.map((p) => p.slug);
+    };
+
+    it('filters to one kind, a connector or hybrid only', async () => {
+      expect(await slugs('?connector_kind=sync_service&sort=name')).toEqual(['agave', 'anyware']);
+      expect(await slugs('?connector_kind=integration_platform')).toEqual(['zapier']);
+    });
+
+    it('takes a comma-separated list, OR within it, in any order', async () => {
+      const both = await slugs('?connector_kind=sync_service,integration_platform&sort=name');
+      expect(both).toEqual(['agave', 'anyware', 'zapier']);
+      expect(await slugs('?connector_kind=integration_platform,sync_service&sort=name')).toEqual(
+        both,
+      );
+    });
+
+    it('refuses an unknown or empty kind with a 400', async () => {
+      for (const qs of ['?connector_kind=ipaas', '?connector_kind=,', '?connector_kind=Sync']) {
+        expect((await get(listApp(), `/api/products${qs}`)).status).toBe(400);
+      }
+    });
+  });
+
   it('returns a null vendor for a product with no vendor link', async () => {
     await seedProduct(u(1), 'revit', 'Revit');
 

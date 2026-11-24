@@ -8,9 +8,35 @@
  */
 import { z } from 'zod';
 
-import { CONNECTOR_KINDS } from './connector-kind';
+import { CONNECTOR_KINDS, isConnectorKind, type ConnectorKind } from './connector-kind';
 
 export const ConnectorKindSchema = z.enum(CONNECTOR_KINDS);
+
+/**
+ * The `connector_kind` listing filter (AECI-1662) on `GET /api/products` and
+ * `GET /api/products/facets`: a comma-separated list of kinds, OR within the list,
+ * the same shape as the taxonomy `{kind}_id` lists (`uuidList`). Split on `,`, trim,
+ * drop empties, at least one value, every value a stored kind. Deduped and returned
+ * in vocabulary order, so `sync_service,integration_platform` and its reverse are
+ * one filter. An unknown kind is a 400 at the param key, as a bad UUID is.
+ */
+export const connectorKindList = z.string().transform((raw, ctx): ConnectorKind[] => {
+  const values = raw
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+  if (values.length === 0) {
+    ctx.addIssue({ code: 'custom', message: 'Expected at least one connector kind' });
+    return z.NEVER;
+  }
+  for (const value of values) {
+    if (!isConnectorKind(value)) {
+      ctx.addIssue({ code: 'custom', message: `Invalid connector kind: ${value}` });
+      return z.NEVER;
+    }
+  }
+  return CONNECTOR_KINDS.filter((kind) => values.includes(kind));
+});
 
 /**
  * Body of `PATCH /api/admin/products/:id/connector-kind`. `null` clears the kind,

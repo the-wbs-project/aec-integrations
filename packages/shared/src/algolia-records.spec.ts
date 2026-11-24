@@ -29,6 +29,7 @@ const PRODUCT = {
   updated_at_ts: 1769904000,
   logo_url: 'https://cdn.brandfetch.io/procore.png',
   product_role: 'connector',
+  connector_kind: 'integration_platform',
 };
 
 const VENDOR = {
@@ -114,6 +115,23 @@ describe('AlgoliaProductRecordSchema', () => {
     const { product_role: _r, ...missing } = PRODUCT;
     expect(() => AlgoliaProductRecordSchema.parse(missing)).toThrow();
     expect(() => AlgoliaProductRecordSchema.parse({ ...PRODUCT, product_role: 'ipaas' })).toThrow();
+  });
+
+  // AECI-1662 — required and nullable, with no default, so a builder that forgets
+  // it fails the parse instead of resetting every kind to NULL on a full reindex.
+  it('REJECTS a record missing connector_kind, or carrying an unknown kind', () => {
+    const { connector_kind: _k, ...missing } = PRODUCT;
+    expect(() => AlgoliaProductRecordSchema.parse(missing)).toThrow();
+    expect(() =>
+      AlgoliaProductRecordSchema.parse({ ...PRODUCT, connector_kind: 'ipaas' }),
+    ).toThrow();
+    expect(
+      AlgoliaProductRecordSchema.parse({ ...PRODUCT, connector_kind: null }).connector_kind,
+    ).toBe(null);
+    expect(
+      AlgoliaProductRecordSchema.parse({ ...PRODUCT, connector_kind: 'sync_service' })
+        .connector_kind,
+    ).toBe('sync_service');
   });
 });
 

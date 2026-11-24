@@ -257,6 +257,7 @@ describe('SearchController wiring', () => {
       'phases',
       'trades',
       'vendor_name',
+      'connector_kind', // AECI-1662, last, as on /products
       // vendors: none. headquarters is free text and was removed (2026-10-24).
       // integrations intentionally excluded from /search (see search-controller.ts)
     ]);
@@ -293,6 +294,77 @@ describe('SearchController wiring', () => {
       'Design',
       'Construction',
     ]);
+  });
+});
+
+// AECI-1662 — the "Connector type" group: the /products sidebar's labels and order.
+describe('SearchController — Connector type facet (AECI-1662)', () => {
+  it('labels the two kinds and lists them in vocabulary order, whatever the counts', () => {
+    const { calls, controller } = build();
+    const view = controller.products.refinementLists.find(
+      (rl) => rl.attribute === 'connector_kind',
+    )!;
+    const render = calls.refinementList[controller.products.refinementLists.indexOf(view)];
+    render.renderFn(
+      {
+        items: [
+          { value: 'sync_service', label: 'sync_service', count: 9, isRefined: false },
+          {
+            value: 'integration_platform',
+            label: 'integration_platform',
+            count: 2,
+            isRefined: true,
+          },
+        ],
+        canRefine: true,
+        refine: vi.fn(),
+      },
+      false,
+    );
+    expect(view.items()).toEqual([
+      { value: 'integration_platform', label: 'Integration platform', count: 2, isRefined: true },
+      { value: 'sync_service', label: 'Sync Service', count: 9, isRefined: false },
+    ]);
+  });
+
+  it('keeps a checked kind the response left out, labelled, at 0', () => {
+    const filters: SearchFilters = {
+      ...emptyFilters(),
+      products: {
+        refinementList: { connector_kind: ['sync_service'] },
+        numericMenu: {},
+        range: {},
+      },
+    };
+    const { calls, controller } = build('', {}, filters);
+    const view = controller.products.refinementLists.find(
+      (rl) => rl.attribute === 'connector_kind',
+    )!;
+    calls.refinementList[controller.products.refinementLists.indexOf(view)].renderFn(
+      { items: [], canRefine: false, refine: vi.fn() },
+      false,
+    );
+    expect(view.items()).toEqual([
+      { value: 'sync_service', label: 'Sync Service', count: 0, isRefined: true },
+    ]);
+  });
+
+  it('refines with the stored kind, never the label', () => {
+    const { calls, controller } = build();
+    const view = controller.products.refinementLists.find(
+      (rl) => rl.attribute === 'connector_kind',
+    )!;
+    const refine = vi.fn();
+    calls.refinementList[controller.products.refinementLists.indexOf(view)].renderFn(
+      {
+        items: [{ value: 'sync_service', label: 'sync_service', count: 1, isRefined: false }],
+        canRefine: true,
+        refine,
+      },
+      false,
+    );
+    view.refine(view.items()[0]!.value);
+    expect(refine).toHaveBeenCalledWith('sync_service');
   });
 });
 

@@ -33,7 +33,7 @@ function term(id: string, name: string, count: number): TaxonomyTermWithCount {
 }
 
 function facets(parts: Partial<ProductFacetsResponse>): ProductFacetsResponse {
-  return { categories: [], audiences: [], phases: [], trades: [], ...parts };
+  return { categories: [], audiences: [], phases: [], trades: [], connector_kinds: [], ...parts };
 }
 
 /** Flush any still-pending facets requests (a toggle re-fetches scoped counts). */
@@ -612,6 +612,153 @@ describe('FacetSidebar, mock-up 10 shell (AECI-1793)', () => {
     expect(clear.classList.contains('min-h-11')).toBe(true);
     expect(clear.classList.contains('underline')).toBe(true);
     drain(httpMock);
+    httpMock.verify();
+  });
+});
+
+// AECI-1662 — the "Connector type" group. It behaves as a taxonomy group does, and
+// `search-page.component.spec.ts` asserts the same behaviour on `/search`.
+describe('FacetSidebar — Connector type (AECI-1662)', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  const KINDS = facets({
+    categories: [term('c1', 'Cat One', 3)],
+    connector_kinds: [
+      { kind: 'integration_platform', product_count: 4 },
+      { kind: 'sync_service', product_count: 2 },
+    ],
+  });
+
+  async function render(url: string, body: ProductFacetsResponse = KINDS) {
+    const { httpMock, router } = createIndexSetup(FacetSidebarHost, 'products');
+    await router.navigateByUrl(url);
+    const fixture = TestBed.createComponent(FacetSidebarHost);
+    fixture.detectChanges();
+    const req = httpMock.expectOne((r) => r.url === FACETS_URL);
+    req.flush(body);
+    await settle();
+    fixture.detectChanges();
+    return { httpMock, router, req, fixture, root: fixture.nativeElement as HTMLElement };
+  }
+
+  function kindRows(root: HTMLElement): string[] {
+    const group = [...root.querySelectorAll('fieldset')].find(
+      (f) => f.querySelector('legend')?.textContent?.trim() === 'Connector type',
+    );
+    return [...(group?.querySelectorAll('label') ?? [])].map((l) =>
+      (l.textContent ?? '').replace(/\s+/g, ' ').trim(),
+    );
+  }
+
+  it('renders the group last, with both kinds in vocabulary order and their counts', async () => {
+    const { httpMock, root } = await render('/products');
+    expect(legends(root)).toEqual(['Categories', 'Connector type']);
+    expect(kindRows(root)).toEqual(['Integration platform(4)', 'Sync Service(2)']);
+    httpMock.verify();
+  });
+
+  it('hides a kind with no matches unless it is checked', async () => {
+    const body = facets({
+      connector_kinds: [
+        { kind: 'integration_platform', product_count: 0 },
+        { kind: 'sync_service', product_count: 0 },
+      ],
+    });
+    const empty = await render('/products', body);
+    expect(legends(empty.root)).not.toContain('Connector type');
+    empty.httpMock.verify();
+
+    TestBed.resetTestingModule();
+    const checked = await render('/products?connector_kind=sync_service', body);
+    expect(kindRows(checked.root)).toEqual(['Sync Service(0)']);
+    drain(checked.httpMock);
+    checked.httpMock.verify();
+  });
+
+  it('sends the kind list with the counts request', async () => {
+    const { httpMock, req } = await render('/products?connector_kind=sync_service');
+    expect(req.request.params.get('connector_kind')).toBe('sync_service');
+    httpMock.verify();
+  });
+
+  it('toggles kinds into a sorted CSV in ?connector_kind and off again', async () => {
+    const { httpMock, router, fixture, root } = await render('/products?page=2');
+    const boxes = () => {
+      const group = [...root.querySelectorAll('fieldset')].find(
+        (f) => f.querySelector('legend')?.textContent?.trim() === 'Connector type',
+      )!;
+      return [...group.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[];
+    };
+    boxes()[1]!.dispatchEvent(new Event('change'));
+    await settle();
+    expect(router.url).toBe('/products?page=1&connector_kind=sync_service');
+    fixture.detectChanges();
+    for (const pending of httpMock.match((r) => r.url === FACETS_URL)) pending.flush(KINDS);
+    await settle();
+    fixture.detectChanges();
+
+    boxes()[0]!.dispatchEvent(new Event('change'));
+    await settle();
+    expect(router.url).toBe('/products?page=1&connector_kind=integration_platform,sync_service');
+    fixture.detectChanges();
+    for (const pending of httpMock.match((r) => r.url === FACETS_URL)) pending.flush(KINDS);
+    await settle();
+    fixture.detectChanges();
+
+    boxes()[0]!.dispatchEvent(new Event('change'));
+    await settle();
+    expect(router.url).toBe('/products?page=1&connector_kind=sync_service');
+    fixture.detectChanges();
+    for (const pending of httpMock.match((r) => r.url === FACETS_URL)) pending.flush(KINDS);
+    await settle();
+    fixture.detectChanges();
+
+    boxes()[1]!.dispatchEvent(new Event('change'));
+    await settle();
+    expect(router.url).toBe('/products?page=1');
+    drain(httpMock);
+    httpMock.verify();
+  });
+
+  it('counts the kind in the active badge, and Clear filters clears it', async () => {
+    const { httpMock, router, root } = await render(
+      '/products?category_id=c1&connector_kind=integration_platform,sync_service',
+    );
+    const trigger = root.querySelector('button[aria-controls="aec-facet-panel"]')!;
+    expect(trigger.querySelector('[aria-hidden="true"]')?.textContent?.trim()).toBe('3');
+    const clear = [...root.querySelectorAll('button')].find((b) =>
+      b.textContent?.includes('Clear filters'),
+    )!;
+    clear.click();
+    await settle();
+    expect(router.url).toBe('/products?page=1');
+    drain(httpMock);
+    httpMock.verify();
+  });
+
+  it('shows Clear filters when only the kind is set', async () => {
+    const { httpMock, root } = await render('/products?connector_kind=sync_service');
+    expect(root.textContent).toContain('Clear filters');
+    drain(httpMock);
+    httpMock.verify();
+  });
+
+  it('shows the group on a browse page too, which never locks it', async () => {
+    const { httpMock, router } = createIndexSetup(FacetSidebarHost, 'products');
+    await router.navigateByUrl('/products?connector_kind=sync_service');
+    const fixture = TestBed.createComponent(FacetSidebarHost);
+    fixture.componentInstance.kind.set('category');
+    fixture.componentInstance.lockedId.set('cat-locked');
+    fixture.detectChanges();
+    const req = httpMock.expectOne((r) => r.url === FACETS_URL);
+    expect(req.request.params.get('category_id')).toBe('cat-locked');
+    expect(req.request.params.get('connector_kind')).toBe('sync_service');
+    req.flush(KINDS);
+    await settle();
+    fixture.detectChanges();
+    expect(legends(fixture.nativeElement as HTMLElement)).toEqual(['Connector type']);
     httpMock.verify();
   });
 });

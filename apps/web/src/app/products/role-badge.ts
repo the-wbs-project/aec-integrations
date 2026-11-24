@@ -24,8 +24,9 @@ import { connectorKindLabel } from './connector-kind-labels';
  *
  * Since AECI-2037 a `connector` reads its kind: "Integration platform", "Sync Service",
  * or "Connector" when the kind is blank or absent. The words come from
- * `connector-kind-labels.ts`. A search hit carries no kind until AECI-1662, so the
- * search card passes none and keeps "Connector". `hybrid` keeps "Hybrid".
+ * `connector-kind-labels.ts`. Since AECI-1662 the search card passes the hit's
+ * `connector_kind`; a hit indexed before then has none and keeps "Connector".
+ * `hybrid` keeps "Hybrid".
  */
 @Component({
   selector: 'aec-role-badge',
@@ -38,7 +39,7 @@ import { connectorKindLabel } from './connector-kind-labels';
 })
 export class RoleBadge {
   readonly role = input.required<ProductRole>();
-  /** The stored `connector_kind`. Absent on a search hit, which reads as "Connector". */
+  /** The stored `connector_kind`. Absent on an old search hit, which reads as "Connector". */
   readonly kind = input<string | null | undefined>(null);
 
   protected readonly label = computed<string | null>(() => {

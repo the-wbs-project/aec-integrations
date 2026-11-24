@@ -730,7 +730,7 @@ Three indexes, each denormalized for zero-join search:
 
 ### 7.2 Faceting
 
-- `products`: categories, audiences, phases, trades, vendor_name, integration_count (range buckets: 0, 1–10, 11–50, 51+)
+- `products`: categories, audiences, phases, trades, vendor_name, integration_count (range buckets: 0, 1–10, 11–50, 51+), connector_kind (AECI-1662: "Connector type", two options, "Integration platform" and "Sync Service"; the same group on `/products` and the browse pages through `?connector_kind=`, `SEARCH_RANKING.md` §3.1)
   *(`has_api_docs` was faceted here until AECI-534, 2026-11-09. Current list: `SEARCH_RANKING.md` §3.1.)*
   (`trade_aliases` is deliberately **not** faceted — see §7.1)
 - `vendors`: founded_year (range), product_count (range), integration_count (range buckets)

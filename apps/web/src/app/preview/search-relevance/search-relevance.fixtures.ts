@@ -30,8 +30,11 @@ function product(
     | 'created_at_ts'
     | 'updated_at_ts'
     | 'product_role'
+    | 'connector_kind'
   > &
-    Partial<Pick<AlgoliaProductRecord, 'trades' | 'trade_aliases' | 'product_role'>>,
+    Partial<
+      Pick<AlgoliaProductRecord, 'trades' | 'trade_aliases' | 'product_role' | 'connector_kind'>
+    >,
 ): AlgoliaProductRecord {
   return {
     objectID: `aec00000-0000-4000-8000-${String(n).padStart(12, '0')}`,
@@ -50,6 +53,8 @@ function product(
     updated_at_ts: 1767225600,
     // AECI-1086: every fixture here is an application; display-only, never ranked.
     product_role: 'application',
+    // AECI-1662: so an application carries no kind. Faceted only, never ranked.
+    connector_kind: null,
     ...fields,
   };
 }

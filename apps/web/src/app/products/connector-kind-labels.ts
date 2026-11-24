@@ -13,8 +13,10 @@ import type { ConnectorKind } from '@aeci/shared';
  * | `sync_service` | Sync Service |
  * | NULL (unclassified, or no kind on the record) | Connector |
  *
- * A card built from an Algolia hit has no kind until AECI-1662, so it reads NULL and
- * keeps "Connector". The data role, the Vendor Terms term "connector vendor" and
+ * Since AECI-1662 the Algolia record carries the kind, so a search card reads it
+ * too. A record indexed before then reads NULL and keeps "Connector". The same
+ * labels name the two options of the "Connector type" filter on `/search` and
+ * `/products`. The data role, the Vendor Terms term "connector vendor" and
  * promote routing do not change.
  *
  * Sentences that use the generic noun for both kinds ("delivered through a connector",

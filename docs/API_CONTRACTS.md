@@ -802,6 +802,8 @@ List products with filters. Default sort `created` (DESC) per §3.2 / Phase 2 Sp
 
 The **four** taxonomy dimensions (`category_id` / `audience_id` / `phase_id` / `trade_id`) accept a **comma-separated UUID list** for multi-select faceting (AECI-223) — **OR within a dimension, AND across dimensions** — decoded to `string[]` by `uuidList`. The param names are unchanged, so a single id (a detail-page taxonomy chip link, or the browse-page facet sidebar's locked `{kind}_id`) is just a one-element list. `vendor_id` stays a single UUID (a non-faceted scope).
 
+**Connector type (AECI-1662).** `connector_kind` takes a **comma-separated list** of stored kinds (`integration_platform`, `sync_service`), parsed by `connectorKindList` in `packages/shared/src/api/connector-kind-schema.ts`. **OR within the list**, AND with every other filter. A product matches when its role is `connector` or `hybrid` and its stored kind is in the list, which is exactly what `connectorKindFor` reads, so an `application` holding a stale kind never matches. Values are trimmed, deduped and read in vocabulary order. An empty list or an unknown value is `400 VALIDATION_FAILED` with `error.field = 'connector_kind'`, as a bad UUID is on the taxonomy lists. It filters and never sorts: the sort, `textAsc` collation and the `id ASC` tiebreak are unchanged. It is a read, so it is never rate-limited (ADR 0026). `product_role` stays, unused by the web.
+
 **Slug filters (AECI-1508).** `category_slug` / `audience_slug` / `phase_slug` / `trade_slug` filter one dimension by a single term **slug** (`z.string().min(1).max(200)`, no list). They exist for the taxonomy browse grid's lock: the slug is in the page URL, so the SSR resolver fetches the grid in parallel with `GET /api/{kind}s/:slug` instead of waiting for the term's id. A slug is its own clause, so it ANDs with a `{kind}_id` list on the same dimension. An unknown slug returns an empty page (`total: 0`), never a 404. Sort, `textAsc` collation and the `id ASC` tiebreak are the same as for the id filters. The facet sidebar still locks by `{kind}_id`.
 
 ```typescript
@@ -818,6 +820,7 @@ export const ProductsListQuerySchema = PageQuerySchema.extend({
   trade_slug: termSlug.optional(),
   vendor_id: z.string().uuid().optional(),
   product_role: ProductRoleSchema.optional(),
+  connector_kind: connectorKindList.optional(),    // AECI-1662 ("Connector type")
   // has_api_docs was a filter here until AECI-534. The object is not .strict(), so a
   // leftover ?has_api_docs= is stripped: ignored, not refused (as ?verified= is).
 });
@@ -829,7 +832,7 @@ export type ProductsListResponse = z.infer<typeof ProductsListResponseSchema>;
 
 #### `GET /api/products/facets`
 
-Scoped facet counts for the API-backed filter sidebar (AECI-143) on `/products` and the taxonomy browse pages — driven by the existing `/api` filter params, not Algolia, so these pages stay edge-cacheable. Takes the **same filter params** as `GET /api/products` minus the pagination/sort triple (`page`, `perPage`, `sort`); deriving the query with `.omit(...)` keeps the two shapes from drifting. That includes the `{kind}_slug` filters, which are disjunctive exactly like their `{kind}_id` siblings (a dimension's own slug is excluded from its own counts). For each taxonomy dimension (category / audience / phase / trade) it returns the product count per term under the *other* active filters (disjunctive faceting — a dimension's own filter is excluded from its own counts). Server-side Drizzle/D1 aggregation. `Cache-Control: private, no-store` like the list/detail siblings.
+Scoped facet counts for the API-backed filter sidebar (AECI-143) on `/products` and the taxonomy browse pages — driven by the existing `/api` filter params, not Algolia, so these pages stay edge-cacheable. Takes the **same filter params** as `GET /api/products` minus the pagination/sort triple (`page`, `perPage`, `sort`); deriving the query with `.omit(...)` keeps the two shapes from drifting. That includes the `{kind}_slug` filters, which are disjunctive exactly like their `{kind}_id` siblings (a dimension's own slug is excluded from its own counts). For each taxonomy dimension (category / audience / phase / trade) it returns the product count per term under the *other* active filters (disjunctive faceting — a dimension's own filter is excluded from its own counts). **`connector_kinds` (AECI-1662)** is the "Connector type" group: always both kinds, in vocabulary order, each with the count of products the `connector_kind` filter would match under the other active filters (its own `?connector_kind=` is excluded). Unclassified connectors and applications are in neither count. Server-side Drizzle/D1 aggregation. `Cache-Control: private, no-store` like the list/detail siblings.
 
 ```typescript
 export const ProductFacetsQuerySchema = ProductsListQuerySchema.omit({
@@ -850,6 +853,9 @@ export const ProductFacetsResponseSchema = z.object({
   audiences: z.array(TaxonomyTermWithCountSchema),
   phases: z.array(TaxonomyTermWithCountSchema),
   trades: z.array(TaxonomyTermWithCountSchema),    // AECI-541
+  connector_kinds: z.array(                         // AECI-1662, both kinds, vocabulary order
+    z.object({ kind: ConnectorKindSchema, product_count: z.number().int().min(0) }),
+  ),
 });
 export type ProductFacetsResponse = z.infer<typeof ProductFacetsResponseSchema>;
 ```
@@ -3611,9 +3617,14 @@ The audit row is `product.updated` with `entity_type = 'product'`, before and af
 the holder's `vendor_id` and plan when a vendor holds the product. Post-commit it purges
 `product:{slug}` and `index:products` with `source: 'moderation'`, the logo PATCH's set.
 Every page that shows the product embeds `product:{slug}` (`CACHE_STRATEGY.md` §3 rule 2).
-It sends no vendor notice, no review-app mirror message and no Algolia sync: the kind is
-AECi's classification, the review app does not carry it, and the record has no kind field
-until AECI-1662. Promote never writes or clears the column (`REVIEW_APP_PROMOTE_API.md`).
+Since AECI-1662 it also re-indexes the product's Algolia record by id after commit
+(`syncOwnerWriteSearch` behind `dispatchHook`), because the record carries `connector_kind`
+for the "Connector type" filter. A failed sync logs
+`aeci.api.admin.connector_kind_algolia_sync_failed`, and the `updated_at` stamp puts the record
+in the next 08:00 UTC sync. An unchanged value or a refused write syncs nothing. It sends no
+vendor notice and no review-app mirror message: the kind is AECi's classification and the
+review app does not carry it. Promote never writes or clears the column
+(`REVIEW_APP_PROMOTE_API.md`).
 
 #### `GET /api/admin/vendors/:id/audit` (Stage 2 — AECI-652)
 

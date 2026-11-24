@@ -34,9 +34,15 @@
  * shows the product (its page, browse grids, the vendor page, pair pages and the
  * connector hub) already embeds `product:{slug}` (`CACHE_STRATEGY.md` §3 rule 2).
  *
- * Not done here on purpose: no Algolia sync (the record carries no kind until
- * AECI-1662), no review-app mirror (the review app does not carry the kind), no vendor
- * notice (the kind is AECi's classification, not a vendor value it overwrites).
+ * Search (AECI-1662): the product's Algolia record carries the kind, for the
+ * "Connector type" filter and the card chip. So the write re-indexes that one record by
+ * id after commit, behind promote's `dispatchHook` watchdog, as the field-override
+ * write does. A failed sync is logged and the 08:00 UTC sync is the backstop: the
+ * UPDATE stamps `updated_at`, so the record is in that night's window.
+ *
+ * Not done here on purpose: no review-app mirror (the review app does not carry the
+ * kind), no vendor notice (the kind is AECi's classification, not a vendor value it
+ * overwrites).
  */
 
 import {
@@ -63,10 +69,14 @@ import { isSentinelJsonAbort } from '../lib/field-overrides';
 import { ONE_ROW } from '../lib/integration-claims';
 import { forwardAuditBatch } from '../lib/moderation-forward';
 import { liveSubscriptionOn, noLiveSubscriptionSentinel } from '../lib/subscribable-products';
+import { dispatchOwnerWriteSearch, syncOwnerWriteSearch } from './integration-retire-write';
 import { parseJsonBody, purgeTags, type VendorContext } from './vendor-shared';
 
 /** The audit `source` facet and forward tag. */
 export const CONNECTOR_KIND_AUDIT_SOURCE = 'admin-panel';
+
+/** The post-commit hook that re-indexes the product's search record (AECI-1662). */
+export const CONNECTOR_KIND_ALGOLIA_HOOK = 'admin-connector-kind-algolia';
 
 /**
  * A batch statement that ABORTS the batch unless the product still has a role that
@@ -173,6 +183,16 @@ export function createAdminSetConnectorKindHandler(
 
     const tags = [`product:${before.slug}`, 'index:products'];
     c.executionCtx.waitUntil(purgeTags(c, tags, 'moderation'));
+    dispatchOwnerWriteSearch(
+      c,
+      CONNECTOR_KIND_ALGOLIA_HOOK,
+      syncOwnerWriteSearch(
+        c,
+        db,
+        { products: [id], vendors: [], integrations: [] },
+        'aeci.api.admin.connector_kind_algolia_sync_failed',
+      ),
+    );
     forwardAuditBatch(c, [entry], [], CONNECTOR_KIND_AUDIT_SOURCE);
     return respond(c, { id, connector_kind: next, changed: true });
   };

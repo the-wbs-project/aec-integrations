@@ -1,5 +1,6 @@
 import type { ParamMap } from '@angular/router';
 
+import { isConnectorKind } from '@aeci/shared/api/connector-kind';
 import { compareText } from '@aeci/shared/text-sort';
 
 import { facetAttributesFor } from './search-controller';
@@ -53,7 +54,9 @@ export function filtersFromParams(params: ParamMap): SearchFilters {
     const numericMenu: Record<string, string> = {};
     const range: Record<string, string> = {};
     for (const attribute of attrs.refinementLists) {
-      const values = params.getAll(filterParamName(tab, attribute)).filter((v) => v !== '');
+      const values = params
+        .getAll(filterParamName(tab, attribute))
+        .filter((v) => v !== '' && acceptsValue(attribute, v));
       if (values.length > 0) refinementList[attribute] = sortedUnique(values);
     }
     for (const attribute of attrs.numericMenus) {
@@ -121,6 +124,15 @@ export function filtersFromUiState(uiState: Readonly<Record<string, unknown>>): 
 /** Whether two filter states select the same thing (value order ignored). */
 export function sameFilters(a: SearchFilters, b: SearchFilters): boolean {
   return JSON.stringify(filtersToParams(a)) === JSON.stringify(filtersToParams(b));
+}
+
+/**
+ * Whether a URL value can be a value of this facet. Free-text facets take any
+ * value. `connector_kind` (AECI-1662) takes only a stored kind, so a hand-edited
+ * `?connector_kind=junk` is ignored, as an unknown param is.
+ */
+function acceptsValue(attribute: string, value: string): boolean {
+  return attribute === 'connector_kind' ? isConnectorKind(value) : true;
 }
 
 function sortedUnique(values: readonly string[]): string[] {

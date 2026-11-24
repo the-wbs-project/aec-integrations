@@ -91,6 +91,7 @@ None of these changes where a listing appears in search:
 - Ratings. They decide the "Highest rated" sort, and nothing else. An update to a review changes ratings only through the average, and never the review count.
 - How many people view a page.
 - Trades, beyond matching your words. A trade helps a product be found when you search for that trade or filter by it. It gives no boost of its own.
+- Whether a connector is an integration platform or a Sync Service, which you can filter by in search and in the lists.
 - Which plan a vendor is on.
 - A vendor's reply to a review.
 

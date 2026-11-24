@@ -41,6 +41,8 @@ const FACETS: Record<string, Record<string, number>> = {
     airSlate: 2,
   },
   phases: { Construction: 86, Design: 11, 'Concept & Planning': 9, 'Pre-Construction': 66 },
+  // AECI-1662 — counts against the vocabulary order, so a count sort would show.
+  connector_kind: { sync_service: 9, integration_platform: 2 },
 };
 
 interface FakeRequest {
@@ -168,6 +170,28 @@ describe('/search order caption is true (AECI-1796)', () => {
       'SAP',
       'SRS Distribution',
     ]);
+  });
+
+  // AECI-1662 — the "Connector type" group reads as the /products sidebar's does:
+  // last, the same two labels, vocabulary order whatever the counts. The caption
+  // does not name it, and its order is A to Z, which the /products caption states.
+  it('renders Connector type last, labelled, in vocabulary order, unnamed by the caption', async () => {
+    const el = await mount('/search?q=procore');
+    const groups = renderedGroups(el);
+    expect([...groups.keys()].at(-1)).toBe('Connector type');
+    expect(groups.get('Connector type')).toEqual(['Integration platform', 'Sync Service']);
+    const note = el.querySelector('aec-facet-panel p.text-t-13')?.textContent ?? '';
+    expect(note).not.toMatch(/Connector type/);
+  });
+
+  it('checks a kind from ?connector_kind and ignores an unknown one', async () => {
+    const el = await mount('/search?q=procore&connector_kind=sync_service&connector_kind=junk');
+    const group = [...el.querySelectorAll('aec-search-refinement-list fieldset')].find(
+      (fs) => fs.querySelector('legend')?.textContent?.trim() === 'Connector type',
+    )!;
+    const boxes = [...group.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[];
+    expect(boxes.map((b) => b.checked)).toEqual([false, true]);
+    expect(group.textContent).not.toContain('junk');
   });
 
   it('shows no caption on the Vendors tab, which has only count ranges and Founded', async () => {

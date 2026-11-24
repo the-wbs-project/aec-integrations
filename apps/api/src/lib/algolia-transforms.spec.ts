@@ -182,6 +182,26 @@ describe('toAlgoliaProduct', () => {
     expect(record.logo_url).toBe('https://cdn.brandfetch.io/procore.png');
     // AECI-1086 — the column default, carried onto the record for the chip.
     expect(record.product_role).toBe('application');
+    // AECI-1662 — an application never carries a kind.
+    expect(record.connector_kind).toBeNull();
+    expect(() => AlgoliaProductRecordSchema.parse(record)).not.toThrow();
+  });
+
+  // AECI-1662 — the "Connector type" facet reads `connectorKindFor(role, kind)`.
+  it.each([
+    ['connector', 'integration_platform', 'integration_platform'],
+    ['connector', 'sync_service', 'sync_service'],
+    ['connector', null, null],
+    ['hybrid', 'sync_service', 'sync_service'],
+    ['hybrid', null, null],
+    // A promote moved it to `application`; the stale stored value must not reach search.
+    ['application', 'sync_service', null],
+  ] as const)('role %s with stored kind %s carries connector_kind %s', async (role, kind, want) => {
+    await t.db
+      .insert(products)
+      .values({ id: u(1), slug: 'p', name: 'P', productRole: role, connectorKind: kind });
+    const record = toAlgoliaProduct((await productById(u(1)))!);
+    expect(record.connector_kind).toBe(want);
     expect(() => AlgoliaProductRecordSchema.parse(record)).not.toThrow();
   });
 

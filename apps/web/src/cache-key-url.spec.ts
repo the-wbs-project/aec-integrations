@@ -199,7 +199,7 @@ describe('cacheKeyFor — multi-select facet CSV order-independence (AECI-223 / 
   // missing from MULTI_VALUE_CACHE_KEY_PARAMS, so it alone kept forking on CSV
   // order. Asserted per-dimension rather than only on `category_id` so the next
   // facet added to `DIMENSIONS` can't repeat the omission silently.
-  it.each(['category_id', 'audience_id', 'phase_id', 'trade_id'])(
+  it.each(['category_id', 'audience_id', 'phase_id', 'trade_id', 'connector_kind'])(
     'collapses CSV order for the %s dimension',
     (param) => {
       expect(key(`/products?${param}=b,a`)).toBe(key(`/products?${param}=a,b`));
@@ -316,6 +316,18 @@ describe('cacheKeyFor — index/browse routes keep only content-affecting params
     // the wrong HTML (CACHE_STRATEGY.md §4a).
     expect(key('/products?trade_id=a')).not.toBe(key('/products?trade_id=b'));
     expect(key('/products')).not.toBe(key('/products?trade_id=a'));
+  });
+
+  // AECI-1662 — the "Connector type" filter changes the grid, so it keys the entry on
+  // /products and on every browse page, and its CSV order never forks one.
+  it('keys the connector_kind filter on /products and the browse pages', () => {
+    expect(key('/products?connector_kind=sync_service')).not.toBe(key('/products'));
+    expect(key('/products?connector_kind=sync_service')).not.toBe(
+      key('/products?connector_kind=integration_platform'),
+    );
+    expect(key('/categories/structural?connector_kind=sync_service&utm_source=x')).toBe(
+      '/categories/structural?connector_kind=sync_service',
+    );
   });
 });
 

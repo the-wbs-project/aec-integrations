@@ -1,5 +1,5 @@
 import { COMPANY_SIZE_BANDS, OWNERSHIP_TYPES } from './company-fact-vocabularies';
-import { ConnectorKindSchema } from './connector-kind-schema';
+import { ConnectorKindSchema, connectorKindList } from './connector-kind-schema';
 import { LogoReadUrlSchema } from './logo-read';
 import { z } from 'zod';
 
@@ -231,6 +231,10 @@ export const ProductsListQuerySchema = PageQuerySchema.extend({
   trade_slug: termSlug.optional(),
   vendor_id: z.string().uuid().optional(),
   product_role: ProductRoleSchema.optional(),
+  // AECI-1662 — the "Connector type" filter: a comma-separated list of kinds, OR
+  // within the list. Matches what `connectorKindFor` reads, so only a `connector` or
+  // `hybrid` with that stored kind. It filters and never sorts.
+  connector_kind: connectorKindList.optional(),
   // `has_api_docs` was a filter here until AECI-534. A leftover `?has_api_docs=` is
   // stripped by this non-strict object: ignored, not refused (as `?verified=` is).
 });

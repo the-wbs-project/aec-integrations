@@ -25,6 +25,7 @@ import {
   claimDirectionForContext,
   computeAgreement,
   computeSyncHeadline,
+  CONNECTOR_KIND_ROLES,
   connectorKindFor,
   countListedIntegrationRows,
   distinctDataObjectSlugs,
@@ -3668,7 +3669,7 @@ export function toTaxonomyTermWithCount(raw: RawTaxonomyTermRow): TaxonomyTermWi
 // Product `where` builder (shared by the list + facets endpoints)
 // ---------------------------------------------------------------------------
 
-export type ProductFacetDimension = 'category' | 'audience' | 'phase' | 'trade';
+export type ProductFacetDimension = 'category' | 'audience' | 'phase' | 'trade' | 'connector_kind';
 
 export type ProductFilterParams = {
   search?: string;
@@ -3682,7 +3683,21 @@ export type ProductFilterParams = {
   trade_slug?: string;
   vendor_id?: string;
   product_role?: string;
+  /** AECI-1662 — OR within the list; validated by `connectorKindList`. */
+  connector_kind?: readonly ConnectorKind[];
 };
+
+/**
+ * AECI-1662 — products whose kind, as `connectorKindFor` reads it, is one of
+ * `kinds`: role `connector` or `hybrid`, and a stored kind in the list. Shared by the
+ * list filter and the facet count, so the two cannot disagree.
+ */
+export function connectorKindWhere(kinds: readonly ConnectorKind[]): SQL {
+  return and(
+    inArray(products.productRole, [...CONNECTOR_KIND_ROLES]),
+    inArray(products.connectorKind, [...kinds]),
+  )!;
+}
 
 /**
  * Build the Drizzle `where` (a single `SQL` or undefined) for the products list.
@@ -3806,6 +3821,12 @@ export function buildProductsWhere(
     );
   }
   if (query.product_role) clauses.push(eq(products.productRole, query.product_role));
+  // AECI-1662 — the "Connector type" filter. Matches what `connectorKindFor` reads:
+  // a stored kind on a `connector` or `hybrid` only, so a product a later promote
+  // moved to `application` drops out even though its column still holds the value.
+  if (query.connector_kind?.length && excludeDimension !== 'connector_kind') {
+    clauses.push(connectorKindWhere(query.connector_kind));
+  }
 
   // `like` on SQLite is case-insensitive for ASCII by default — matches the old
   // Prisma `mode: 'insensitive'` intent for the product-name search.

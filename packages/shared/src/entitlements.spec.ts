@@ -541,6 +541,17 @@ describe('no listing_tier input needs a plan to edit (§13.4) [invariant]', () =
     },
   );
 
+  // AECI-1662 — `connector_kind` is a facet in INDEX_SETTINGS. It is admin-set
+  // (ruling 3 on AECI-2035): no vendor edit route writes it, so no plan can reach
+  // it. It is also outside `customRanking` (`algolia.spec.ts`), so it orders nothing.
+  it('connector_kind, a search facet, is not vendor-editable on any plan', () => {
+    expect(rankingVocabulary.has('connector_kind')).toBe(true);
+    expect(PRODUCT_FIELD_CAPABILITIES).not.toHaveProperty('connector_kind');
+    for (const field of Object.keys(PRODUCT_FIELD_CAPABILITIES)) {
+      expect(field).not.toMatch(/connector_kind|kind/);
+    }
+  });
+
   it('names the capabilities the spec table names', () => {
     // §13.4's table, verbatim. A change here is a spec change.
     expect(PRODUCT_FIELD_CAPABILITIES.description).toBe('product.listing.edit');

@@ -15,6 +15,7 @@
  * phase lifecycle does — so count-desc, the connector default, is the more useful
  * order and matches how categories/audiences already behave.
  */
+import { CONNECTOR_KINDS } from '@aeci/shared/api/connector-kind';
 import { compareText } from '@aeci/shared/text-sort';
 
 import type { RefinementItem } from '../shared/facets/refinement-item';
@@ -108,13 +109,26 @@ export function withCheckedValues(
 
 /**
  * Re-orders rendered facet items for attributes whose intended order isn't a
- * built-in Algolia sort. Today only `phases` (project-lifecycle); all other
- * attributes pass through unchanged. Pure — never mutates the input.
+ * built-in Algolia sort: `phases` (project-lifecycle) and `connector_kind`
+ * (AECI-1662); all other attributes pass through unchanged. Pure — never mutates
+ * the input.
+ *
+ * `connector_kind` reads in vocabulary order, Integration platform then Sync
+ * Service, whatever the counts, because `/products` lists the two in that order
+ * (`GET /api/products/facets`) and the Same-Behavior Rule wants one order. A value
+ * outside the vocabulary is dropped: the record only ever carries the two kinds,
+ * so it can come only from a hand-edited URL.
  */
 export function orderFacetItems(
   attribute: string,
   items: readonly RefinementItem[],
 ): RefinementItem[] {
+  if (attribute === 'connector_kind') {
+    const kinds: readonly string[] = CONNECTOR_KINDS;
+    return items
+      .filter((item) => kinds.includes(item.value))
+      .sort((a, b) => kinds.indexOf(a.value) - kinds.indexOf(b.value));
+  }
   if (attribute !== 'phases') return [...items];
   const rank = (value: string): number => {
     const i = PHASE_LIFECYCLE_ORDER.indexOf(value);

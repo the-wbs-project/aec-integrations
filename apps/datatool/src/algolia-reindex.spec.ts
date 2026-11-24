@@ -75,6 +75,24 @@ describe('algolia reindex — record builders', () => {
     expect(records.find((r) => r.slug === 'autocad')!.product_role).toBe('application');
   });
 
+  // AECI-1662 — the "Connector type" facet. A past defect: a field this builder
+  // forgot was silently reset by every full reindex. So the key is always present,
+  // and it reads through `connectorKindFor`, as `toAlgoliaProduct` does.
+  it('emits connector_kind, NULL on an application holding a stale kind', async () => {
+    h.raw
+      .prepare(
+        "UPDATE products SET product_role = 'connector', connector_kind = 'sync_service' WHERE slug = 'revit'",
+      )
+      .run();
+    h.raw
+      .prepare("UPDATE products SET connector_kind = 'sync_service' WHERE slug = 'autocad'")
+      .run();
+    const records = await buildProductRecords(h.db);
+    expect(records.find((r) => r.slug === 'revit')!.connector_kind).toBe('sync_service');
+    const autocad = records.find((r) => r.slug === 'autocad')!;
+    expect(autocad).toHaveProperty('connector_kind', null);
+  });
+
   it('builds trades + flattened, deduped trade_aliases (AECI-545)', async () => {
     const records = await buildProductRecords(h.db);
     const revit = records.find((r) => r.slug === 'revit')!;

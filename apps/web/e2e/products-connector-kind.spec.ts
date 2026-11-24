@@ -43,3 +43,36 @@ test('a pair with two Sync Services: the order and the endorsement line (AECI-20
   await expect(lines.nth(0)).toHaveText(`Offered by aardvark Systems (fixture). ${tail}`);
   await expect(lines.nth(1)).toHaveText(`Offered by Agave Inc. (fixture). ${tail}`);
 });
+
+// AECI-1662: the "Connector type" filter on /products, against the same seed. It is
+// one checkbox group with two options, and its list in the URL is a sorted CSV.
+test('/products: the Connector type filter narrows the grid by kind (AECI-1662)', async ({
+  page,
+  request,
+}) => {
+  const api = await request.get('/api/products?connector_kind=sync_service&perPage=100');
+  expect(api.ok()).toBe(true);
+  const slugs = ((await api.json()) as { data: { slug: string }[] }).data.map((p) => p.slug);
+  expect(slugs).toEqual(expect.arrayContaining(['fx-agave', 'fx-aardvark-sync']));
+  expect(slugs).not.toContain('fx-mindcloud');
+
+  await page.goto('/products?connector_kind=sync_service');
+  const group = page.locator('aec-facet-sidebar fieldset', {
+    has: page.locator('legend', { hasText: /^Connector type$/ }),
+  });
+  await expect(group.locator('label')).toHaveCount(2);
+  await expect(group.locator('label').nth(0)).toContainText('Integration platform');
+  await expect(group.locator('label').nth(1)).toContainText('Sync Service');
+  await expect(group.locator('input[type="checkbox"]').nth(1)).toBeChecked();
+  await expect(page.locator('a[href="/products/fx-agave"]').first()).toBeVisible();
+  await expect(page.locator('a[href="/products/fx-mindcloud"]')).toHaveCount(0);
+
+  // Hydration can lag the first paint, so retry the click until the URL moves.
+  await expect(async () => {
+    await group.locator('input[type="checkbox"]').nth(0).click();
+    await expect(page).toHaveURL(/connector_kind=integration_platform(%2C|,)sync_service/, {
+      timeout: 2000,
+    });
+  }).toPass();
+  await expect(page.locator('a[href="/products/fx-mindcloud"]').first()).toBeVisible();
+});

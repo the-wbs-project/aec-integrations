@@ -24,8 +24,18 @@ import {
 } from '../shared/listing-toolbar/product-sort-keys';
 import type { PaginatedIndexRequestConfig } from '../shared/paginated-index/paginated-index-request';
 
-/** Cross-filter params that ride the URL, minus the page's own locked dimension. */
-const CROSS_FILTERS = ['category_id', 'audience_id', 'phase_id', 'trade_id'] as const;
+/**
+ * Cross-filter params that ride the URL, minus the page's own locked dimension.
+ * `connector_kind` (AECI-1662) is the sidebar's "Connector type" group, which a
+ * browse page shows too, because it renders the same `aec-facet-sidebar`.
+ */
+const CROSS_FILTERS = [
+  'category_id',
+  'audience_id',
+  'phase_id',
+  'trade_id',
+  'connector_kind',
+] as const;
 
 export function taxonomyBrowseIndexRequest(
   kind: () => TaxonomyKind,

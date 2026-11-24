@@ -35,6 +35,7 @@ import { visibleProductSql } from '@aeci/shared/listing-visibility';
 import { sql } from 'drizzle-orm';
 
 import { presentedDirection, type FieldCorrection, type ProductRole } from '@aeci/shared';
+import { connectorKindFor } from '@aeci/shared/api/connector-kind';
 
 import { isVendorClaimed } from './claimed-vendors';
 import {
@@ -110,6 +111,8 @@ export const algoliaProductConfig = {
     hiddenAt: true,
     // AECI-1086 — display-only `product_role` on the record (search-card chip).
     productRole: true,
+    // AECI-1662 — the "Connector type" facet and the card chip.
+    connectorKind: true,
     createdAt: true,
     updatedAt: true,
   },
@@ -204,6 +207,8 @@ export interface RawAlgoliaProductRow {
   /** AECI-1238: non-null = hidden, so the record is deleted, never upserted. */
   hiddenAt?: string | null;
   productRole: ProductRole;
+  /** AECI-1662 — the stored kind; the record carries `connectorKindFor(role, kind)`. */
+  connectorKind?: string | null;
   createdAt: string;
   updatedAt: string;
   productVendors: Array<{
@@ -322,6 +327,10 @@ export function toAlgoliaProduct(
     // AECI-1086 — display only, never ranked. Must stay identical to
     // `buildProductRecords` in `apps/datatool`.
     product_role: row.productRole,
+    // AECI-1662 — faceted, never searched or ranked. `connectorKindFor` reads NULL on
+    // an `application` and on a value outside the vocabulary, so an application never
+    // carries a kind. Must stay identical to `buildProductRecords` in `apps/datatool`.
+    connector_kind: connectorKindFor(row.productRole, row.connectorKind),
   };
 }
 
