@@ -7,6 +7,8 @@ import type { AcceptSeatInviteResponse, SeatInvitePreview } from '@aeci/shared';
 
 import { MetaService } from '../core/meta.service';
 import { canonicalUrl } from '../core/canonical';
+import { AecButton } from '../shared/button/button';
+import { AecCard } from '../shared/card/card';
 import { readVendorApiError } from './vendor-api-error';
 
 /**
@@ -40,25 +42,26 @@ import { readVendorApiError } from './vendor-api-error';
  */
 @Component({
   selector: 'aec-vendor-invite-page',
+  imports: [AecButton, AecCard],
+  host: { class: 'block' },
   template: `
+    <!-- AECI-1809: a focused flow. One white card on a 36rem column, the h1 at its
+         global size, the shared button. -->
     <div class="mx-auto w-full max-w-xl px-6 py-16">
-      <section
-        class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-6"
-      >
+      <section aecCard class="p-6">
         @switch (state()) {
           @case ('loading') {
-            <p class="text-sm text-(--text-secondary)" i18n="@@vendor.invite.loading">
+            <p class="text-t-14 text-(--text-secondary)" i18n="@@vendor.invite.loading">
               Checking your invite…
             </p>
           }
           @case ('ready') {
             <h1
-              class="font-display text-2xl font-semibold tracking-tight text-(--text-primary)"
               i18n="@@vendor.invite.title"
             >
               Join your team on AEC Integrations
             </h1>
-            <p class="mt-3 text-sm leading-relaxed text-(--text-secondary)">
+            <p class="mt-3 text-t-14 leading-[1.6] text-(--text-secondary)">
               <ng-container i18n="@@vendor.invite.body.lead"
                 >You've been invited to help manage</ng-container
               >
@@ -67,7 +70,13 @@ import { readVendorApiError } from './vendor-api-error';
                 >. Accepting adds your account to the vendor's team.</ng-container
               >
             </p>
-            <button type="button" class="mt-6" [disabled]="busy()" (click)="accept()" [class]="btn">
+            <button
+              aecButton
+              type="button"
+              class="mt-6"
+              [disabled]="busy()"
+              (click)="accept()"
+            >
               @if (busy()) {
                 <span i18n="@@vendor.invite.accepting">Joining…</span>
               } @else {
@@ -77,29 +86,27 @@ import { readVendorApiError } from './vendor-api-error';
           }
           @case ('blocked') {
             <h1
-              class="font-display text-2xl font-semibold tracking-tight text-(--text-primary)"
               i18n="@@vendor.invite.blocked.title"
             >
               This invite can't be used
             </h1>
-            <p class="mt-3 text-sm leading-relaxed text-(--text-secondary)">{{ blockedCopy() }}</p>
+            <p class="mt-3 text-t-14 leading-[1.6] text-(--text-secondary)">{{ blockedCopy() }}</p>
           }
           @case ('conflict') {
             <h1
-              class="font-display text-2xl font-semibold tracking-tight text-(--text-primary)"
               i18n="@@vendor.invite.conflict.title"
             >
               This account can't join this team
             </h1>
             <p
-              class="mt-3 text-sm leading-relaxed text-(--text-secondary)"
+              class="mt-3 text-t-14 leading-[1.6] text-(--text-secondary)"
               i18n="@@vendor.invite.conflict.body"
             >
               The account you are signed in with already holds a seat at another company, or is an
               AEC Integrations staff account. One account can hold a seat at only one company.
             </p>
             <p
-              class="mt-3 text-sm leading-relaxed text-(--text-secondary)"
+              class="mt-3 text-t-14 leading-[1.6] text-(--text-secondary)"
               i18n="@@vendor.invite.conflict.action"
             >
               Ask whoever invited you to send the invite to a different email address. Then sign
@@ -108,13 +115,12 @@ import { readVendorApiError } from './vendor-api-error';
           }
           @case ('suspended') {
             <h1
-              class="font-display text-2xl font-semibold tracking-tight text-(--text-primary)"
               i18n="@@vendor.invite.suspended.title"
             >
               This company's account is suspended
             </h1>
             <p
-              class="mt-3 text-sm leading-relaxed text-(--text-secondary)"
+              class="mt-3 text-t-14 leading-[1.6] text-(--text-secondary)"
               i18n="@@vendor.invite.suspended.body"
             >
               No one can join this team while the account is suspended. Your invite stays valid. Try
@@ -123,13 +129,12 @@ import { readVendorApiError } from './vendor-api-error';
           }
           @case ('error') {
             <h1
-              class="font-display text-2xl font-semibold tracking-tight text-(--text-primary)"
               i18n="@@vendor.invite.error.title"
             >
               We couldn't load this invite
             </h1>
             <p
-              class="mt-3 text-sm leading-relaxed text-(--text-secondary)"
+              class="mt-3 text-t-14 leading-[1.6] text-(--text-secondary)"
               i18n="@@vendor.invite.error.body"
             >
               The link may be wrong or expired. Ask whoever invited you to send a new one.
@@ -139,7 +144,6 @@ import { readVendorApiError } from './vendor-api-error';
       </section>
     </div>
   `,
-  styles: [':host { display: block; }'],
 })
 export class VendorInvitePage {
   private readonly http = inject(HttpClient);
@@ -155,8 +159,6 @@ export class VendorInvitePage {
   >('loading');
   protected readonly busy = signal(false);
 
-  protected readonly btn =
-    'inline-flex items-center rounded-(--radius-sm) border border-(--accent-primary) bg-(--accent-primary) px-4 py-2 text-sm font-label font-semibold text-(--surface-base) transition-opacity disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
   constructor() {
     this.meta.setStaticPageMeta({

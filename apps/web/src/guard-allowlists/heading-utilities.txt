@@ -43,14 +43,10 @@ vendor/components/vendor-billing-stripe-panel.ts 3
 vendor/components/vendor-billing-summary.ts 1
 vendor/components/vendor-checklist.ts 2
 vendor/components/vendor-contests-list.ts 1
-vendor/components/vendor-legal-acceptance.ts 4
 vendor/components/vendor-license-actions.ts 1
-vendor/components/vendor-listing-hidden-banner.ts 1
 vendor/components/vendor-logo-field.ts 3
 vendor/components/vendor-nudge-mute-toggle.ts 1
-vendor/components/vendor-plan-ended-banner.ts 1
 vendor/components/vendor-plan-panel.ts 1
-vendor/components/vendor-product-ended-banner.ts 1
 vendor/components/vendor-product-facet-editor.ts 3
 vendor/components/vendor-proposal-card.ts 1
 vendor/components/vendor-removal-election.ts 1
@@ -65,7 +61,3 @@ vendor/sections/vendor-products-page.ts 1
 vendor/sections/vendor-profile-section.ts 1
 vendor/sections/vendor-proposals-section.ts 2
 vendor/sections/vendor-seats-page.ts 1
-vendor/vendor-dashboard-single.ts 6
-vendor/vendor-dashboard-tabbed.ts 1
-vendor/vendor-invite-page.ts 5
-vendor/vendor-suspended-notice.ts 2

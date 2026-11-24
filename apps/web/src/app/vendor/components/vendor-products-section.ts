@@ -28,9 +28,8 @@ const ALL_FACETS: readonly ProductFacetKind[] = ['categories', 'trades', 'audien
  *     hundred products has no use for a hundred stacked disclosures, and the
  *     product they came to edit is reachable by name rather than by scrolling.
  *   - **null** (the default) → every product as a collapsed `<details>`, primary
- *     (or first) open. That is the original AECI-522 rendering, kept because the
- *     dev-only single-page concept (`vendor-dashboard-single.ts`) puts the whole
- *     surface on one scroll and has no picker to drive.
+ *     (or first) open. That is the original AECI-522 rendering. Its one caller, the
+ *     dev-only single-page concept, was deleted by AECI-1809.
  *
  * A `selectedSlug` naming no owned product renders nothing here — the routed
  * page detects that case first and says so, which is the right place for it: the

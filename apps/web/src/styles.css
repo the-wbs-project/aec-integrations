@@ -684,6 +684,15 @@ h3 {
   letter-spacing: normal;
 }
 
+/* The portal notice's heading (AECI-1809, `vendor/shared/portal-notice.ts`): a banner's
+   `h2` sits at the Card title size, `--t-20`. A size utility on the `h2` would be dead
+   (the Unlayered-Heading Rule), so the notice recipe carries it, unlayered, one class
+   above the element rule. */
+.aec-portal-notice h2 {
+  font-size: var(--t-20);
+  line-height: 1.25;
+}
+
 /* The overline role (DESIGN.md §3, AECI-230): eyebrows, kickers, and sidebar
    microheadings — the one sanctioned uppercase in the system. Components apply
    this class (plus a text color utility) on whatever element carries the right
