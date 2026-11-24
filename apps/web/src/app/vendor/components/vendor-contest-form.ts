@@ -147,7 +147,7 @@ interface SelectOption {
   imports: [AecButton, AecIcon, KeepClearOfSaveBar, VendorDocsLink],
   styles: [':host { display: block; }'],
   template: `
-    <div class="border-t border-(--border-default) px-5 py-4">
+    <div class="border-t border-(--border-default) py-4">
       @if (openFieldLabels(); as labels) {
         <p class="mb-3" [class]="hintClass" data-testid="open-contests">
           {{ labels }}
