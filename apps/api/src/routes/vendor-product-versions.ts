@@ -18,10 +18,13 @@
  *    vendor does not own is indistinguishable from one that does not exist — the
  *    AECI-520 non-disclosure rule.
  * 2. **Capability → 403 `ENTITLEMENT_REQUIRED`**, on the WRITES only:
- *    `requireProductCapability(c, productId, 'attestation.author')` over THIS
+ *    `requireProductCapability(c, productId, 'product.versions.edit')` over THIS
  *    product's tier, from its own live license (AECI-1355; AECI-623;
- *    `STAGE_2_PAID_TIERS_SPEC.md` §3.3(a)). Versions exist only to stamp
- *    attestations, so they share that capability. `GET` is not gated, so
+ *    `STAGE_2_PAID_TIERS_SPEC.md` §3.3(a)). Versions used to share
+ *    `attestation.author`. AECI-2038 moved confirming to every plan and kept
+ *    product versions on Managed, so they have their own capability now. An
+ *    attestation on a Free product may still stamp a version that already
+ *    exists. `GET` is not gated, so
  *    the §6 dashboard can render the tab read-only and explain why rather than
  *    403-ing a vendor out of its own data.
  *
@@ -264,7 +267,7 @@ export function createProductVersionHandler(
     // (403 ENTITLEMENT_REQUIRED). Body parsing comes after both, so a malformed body from a
     // non-owning vendor still answers 404 rather than leaking a 400.
     const { product } = await requireOwnedProduct(db, vendorId, productId);
-    requireProductCapability(c, productId, 'attestation.author');
+    requireProductCapability(c, productId, 'product.versions.edit');
 
     const payload = await parseJsonBody(c, CreateProductVersionSchema);
     await assertLabelFree(db, productId, payload.label);
@@ -346,7 +349,7 @@ export function createUpdateProductVersionHandler(
     const { db } = writeDb(c, dbFor);
 
     const { product } = await requireOwnedProduct(db, vendorId, productId);
-    requireProductCapability(c, productId, 'attestation.author');
+    requireProductCapability(c, productId, 'product.versions.edit');
 
     const payload = await parseJsonBody(c, UpdateProductVersionSchema);
     const before = await loadOwnedVersion(db, productId, versionId);
@@ -439,7 +442,7 @@ export function createDeleteProductVersionHandler(
     const { db } = writeDb(c, dbFor);
 
     const { product } = await requireOwnedProduct(db, vendorId, productId);
-    requireProductCapability(c, productId, 'attestation.author');
+    requireProductCapability(c, productId, 'product.versions.edit');
 
     const before = await loadOwnedVersion(db, productId, versionId);
 

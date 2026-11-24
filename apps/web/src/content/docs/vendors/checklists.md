@@ -3,7 +3,7 @@ title: Your checklists
 description: The company and product checklists in your portal, how a product's checklist counts on each plan, and how "Looks right" records that you checked a listing.
 section: vendors
 order: 13
-last_updated: November 17, 2026
+last_updated: November 24, 2026
 ---
 
 Your portal keeps a checklist for your company and one for each product. Each shows what is left to check, so your listings stay accurate without anyone keeping a list by hand. The checklists work on every plan.
@@ -25,8 +25,7 @@ Each product's checklist has four steps:
 
 How a product's score counts:
 
-- Confirming data flows needs Managed. So on a Free product that step shows but is optional. A finished Free product reads "3 of 3".
-- On a Managed product all four steps count. It reads "x of 4", where x is the steps done.
+- All four steps count on every plan. A product reads "x of 4", where x is the steps done.
 - A step with nothing to do counts as done.
 - A step stays done once it is done. It does not expire.
 

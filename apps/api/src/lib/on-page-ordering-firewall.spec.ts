@@ -383,15 +383,12 @@ const fieldsWrittenBy = (cap: Capability): string[] =>
  * it too.
  */
 const ROUTE_CAPABILITY_INPUTS: Readonly<Partial<Record<Capability, readonly string[]>>> = {
-  // The attestation and product-version writes (`STAGE_2_PAID_TIERS_SPEC.md` §3.3(a)).
-  'attestation.author': [
-    'claim agreement ("confirmed by both companies")',
-    'a denial, which can refute a claim and so lower the data-flow count',
-    'vendor-added data objects, so a higher data-flow count',
-    'the deletion or withdrawal of a vendor-added data object, so a lower count',
-    'product versions and the version stamps on a claim',
-    'the integration maintenance stamps an attestation write moves',
-  ],
+  // The three product-version writes (`STAGE_2_PAID_TIERS_SPEC.md` §3.3(a)). Since
+  // AECI-2038 `attestation.author` is in the Free set, so claim agreement, denials,
+  // vendor-added data objects, version stamps on a claim and the maintenance stamps an
+  // attestation write moves are no longer Managed-only inputs. The pair page cases
+  // still hold them out of every order.
+  'product.versions.edit': ['product versions, which a claim can stamp'],
   // A read gate on the pair page, keyed on the pair's vendors (AECI-304).
   'integration.version_diff': ['the depth of the pair page version diff'],
   // Declared with no consumer, and a vendor-only read when it has one.
@@ -407,9 +404,9 @@ describe('on-page ordering firewall: the Managed-only inputs', () => {
       'product.edit',
       'product.taxonomy.edit',
       'product.usefulness.edit',
-      'attestation.author',
       'analytics.view',
       'integration.version_diff',
+      'product.versions.edit',
     ]);
   });
 

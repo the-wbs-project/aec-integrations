@@ -1106,7 +1106,7 @@ describe('attestation.author writes — the capability gate (AECI-623)', () => {
   );
 });
 
-describe('/api/vendor/products/:id/versions — the attestation.author gate (AECI-607, AECI-623)', () => {
+describe('/api/vendor/products/:id/versions — the product.versions.edit gate (AECI-607, AECI-623, AECI-2038)', () => {
   it.each(VERSION_WRITE_ROUTES)(
     '$method rejects a seat with no entitlement on its own product with 403 ENTITLEMENT_REQUIRED',
     async ({ path, method, body }) => {
@@ -1123,7 +1123,7 @@ describe('/api/vendor/products/:id/versions — the attestation.author gate (AEC
       );
       expect(status).toBe(403);
       expect(res.error.code).toBe(ApiErrorCode.ENTITLEMENT_REQUIRED);
-      expect(res.error.details).toEqual({ capability: 'attestation.author', tier: 'unclaimed' });
+      expect(res.error.details).toEqual({ capability: 'product.versions.edit', tier: 'unclaimed' });
       // Nothing written, and the row is still there.
       expect(await t.db.select().from(auditLog)).toHaveLength(0);
       const [row] = await t.db
@@ -1211,19 +1211,32 @@ const ATTESTATION_WRITE_ROUTES: ReadonlyArray<{
   },
 ];
 
-describe('/api/vendor/claims* — the attestation.author gate (AECI-301, AECI-623)', () => {
+describe('/api/vendor/claims* — the attestation.author gate (AECI-301, AECI-623, AECI-2038)', () => {
+  // AECI-2038 (ruling 5 on epic AECI-2035): Free holds attestation.author, so a
+  // seat with no subscription passes the gate on its OWN integration. Each route
+  // then answers as it does for a Managed seat.
+  // Past the gate, the route's own rules answer (a duplicate claim is 400, an
+  // absent attestation 404, an AECi claim's retract 403 FORBIDDEN). None of them
+  // is the entitlement refusal.
   it.each(ATTESTATION_WRITE_ROUTES)(
-    '$label rejects a seat with no entitlement on its OWN integration with 403 ENTITLEMENT_REQUIRED',
+    '$label passes a Free seat on its OWN integration',
     async ({ method, own }) => {
       const { status, body } = await call(own.path, method, SEAT_UNVERIFIED, own.body);
-      expect(status).toBe(403);
-      expect(body.error.code).toBe(ApiErrorCode.ENTITLEMENT_REQUIRED);
-      expect(body.error.details).toEqual({ capability: 'attestation.author', tier: 'unclaimed' });
-      // Nothing written, and the claim set is untouched.
-      expect(await t.db.select().from(auditLog)).toHaveLength(0);
-      expect(await t.db.select().from(claims)).toHaveLength(4);
+      expect(status).toBeLessThan(500);
+      expect(body?.error?.code).not.toBe(ApiErrorCode.ENTITLEMENT_REQUIRED);
     },
   );
+
+  it('lets a Free seat confirm a data flow on its OWN integration, and audits it', async () => {
+    const { status } = await call(
+      `/api/vendor/claims/${CLAIM_UNVERIFIED}/attestation`,
+      'PUT',
+      SEAT_UNVERIFIED,
+      { asserted: true },
+    );
+    expect(status).toBe(200);
+    expect(await t.db.select().from(auditLog)).not.toHaveLength(0);
+  });
 
   it.each(ATTESTATION_WRITE_ROUTES)(
     '$label answers 404 — NOT 403 — when an unverified vendor targets another vendor’s integration',

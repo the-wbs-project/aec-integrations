@@ -229,10 +229,12 @@ import { isReplayedEvent } from '../../core/event-replay';
         {{ connectorNote() }}
       </p>
     } @else if (!state.canAuthor()) {
-      <p class="mt-3 max-w-prose text-sm text-(--text-secondary)" i18n="@@vendor.attest.readOnly">
-        You can review everything on record here. Confirming data flows and adding new ones opens up
-        with active vendor access. That access is arranged with AEC Integrations, not something you
-        switch on from this portal.
+      <p
+        class="mt-3 max-w-prose text-sm text-(--text-secondary)"
+        i18n="@@vendor.attest.readOnly.unavailable"
+      >
+        You can review everything on record here. Answering is not available for this integration
+        right now. Contact AEC Integrations if this does not change.
       </p>
     }
 

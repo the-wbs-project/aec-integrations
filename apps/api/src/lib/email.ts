@@ -1072,7 +1072,8 @@ export function sendVendorReviewPublishedEmail(
  *     product, bought later from Billing. It names no price.
  *
  * It names the vendor (the company the seat belongs to, even when the claim named a
- * product) and has no "attestations" line: authoring attestations is Managed-only.
+ * product). It has no "attestations" line. Confirming data flows is on every plan
+ * since AECI-2038, and the portal's checklist introduces it.
  * Without `PUBLIC_SITE_URL` there is no button, and the sign-in line names the page
  * instead.
  */

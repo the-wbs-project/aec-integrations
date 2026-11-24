@@ -227,6 +227,12 @@ function endpointProductFor(authority: AttestationAuthority, slot: AttestationSl
  *
  * Refused: `403 ENTITLEMENT_REQUIRED`, `details.tier` = the caller's endpoint
  * product's tier (endpoint A first when it owns both, both being unlicensed).
+ *
+ * **Every live tier passes since AECI-2038** (ruled 2026-11-24, ruling 5 on epic
+ * AECI-2035): `TIER_CAPABILITIES.unclaimed` holds `attestation.author`, so a Free
+ * endpoint product confirms like a Managed one. The call stays, as the
+ * `review.reply` gate did after AECI-1590, so a tier the build does not know
+ * still fails closed.
  */
 function requireAttestationCapability(c: VendorContext, authority: AttestationAuthority): void {
   const owned = authority.slots.map((slot) => endpointProductFor(authority, slot));

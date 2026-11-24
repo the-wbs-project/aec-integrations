@@ -509,7 +509,7 @@ describe('read-only rows', () => {
     const api = makeApi([PROCORE]);
     await setup(api, PROCORE, VENDOR_ME_UNVERIFIED_FIXTURE);
     const fixture = await mount(IntegrationSharedData, PROCORE);
-    expect(text(fixture)).toContain('opens up with active vendor access');
+    expect(text(fixture)).toContain('Answering is not available for this integration right now.');
     for (const b of el(fixture).querySelectorAll<HTMLButtonElement>('[role="group"] button')) {
       expect(b.disabled).toBe(true);
     }
@@ -922,6 +922,9 @@ describe('a submitted change (AECI-1246)', () => {
  */
 describe('attestation.author comes from the endpoint product’s plan', () => {
   const FREE = VENDOR_ME_FREE_FIXTURE.products[0]!.plan;
+  /** A plan block without the capability: since AECI-2038 only a tier the build
+   *  does not know, because Free holds `attestation.author`. */
+  const CLOSED = { ...FREE, capabilities: [] };
   const [primary, secondary] = VENDOR_ME_FIXTURE.products;
   /** A Managed vendor whose context product is Free, its other product Managed. */
   const contextFree = {
@@ -931,9 +934,24 @@ describe('attestation.author comes from the endpoint product’s plan', () => {
     ),
   };
 
-  it('locks answering on a Free endpoint product though the vendor block is Managed', async () => {
-    expect(VENDOR_ME_FIXTURE.entitlement.capabilities).toContain('attestation.author');
+  it('opens answering on a Free endpoint product (AECI-2038)', async () => {
     const { state } = await setup(makeApi([PROCORE]), PROCORE, contextFree);
+    expect(state.canAuthor()).toBe(true);
+    const fixture = await mount(IntegrationSharedData, PROCORE);
+    expect(el(fixture).querySelector<HTMLButtonElement>(testid('yes-models'))!.disabled).toBe(
+      false,
+    );
+  });
+
+  it('locks answering on an endpoint plan without the capability though the vendor block has it', async () => {
+    expect(VENDOR_ME_FIXTURE.entitlement.capabilities).toContain('attestation.author');
+    const contextClosed = {
+      ...VENDOR_ME_FIXTURE,
+      products: VENDOR_ME_FIXTURE.products.map((p) =>
+        p.id === PROCORE.context_product.id ? { ...p, plan: CLOSED } : p,
+      ),
+    };
+    const { state } = await setup(makeApi([PROCORE]), PROCORE, contextClosed);
     expect(state.canAuthor()).toBe(false);
     const fixture = await mount(IntegrationSharedData, PROCORE);
     expect(el(fixture).querySelector<HTMLButtonElement>(testid('yes-models'))!.disabled).toBe(true);
@@ -960,7 +978,7 @@ describe('attestation.author comes from the endpoint product’s plan', () => {
     expect(state.canAuthor()).toBe(true);
   });
 
-  it('an owns-both integration stays locked when NEITHER endpoint is Managed', async () => {
+  it('an owns-both integration stays locked when NEITHER endpoint holds the capability', async () => {
     const both = {
       ...PROCORE,
       slots: ['vendor_a', 'vendor_b'] as typeof PROCORE.slots,
@@ -973,7 +991,7 @@ describe('attestation.author comes from the endpoint product’s plan', () => {
     };
     const { state } = await setup(makeApi([both]), both, {
       ...VENDOR_ME_FIXTURE,
-      products: VENDOR_ME_FIXTURE.products.map((p) => ({ ...p, plan: FREE })),
+      products: VENDOR_ME_FIXTURE.products.map((p) => ({ ...p, plan: CLOSED })),
     });
     expect(state.canAuthor()).toBe(false);
   });

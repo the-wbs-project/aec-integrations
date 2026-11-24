@@ -3,7 +3,7 @@ title: For connector vendors
 description: The seat a company that makes connector products can have, how its Catalog tab works, and how integrations delivered through a connector are owned.
 section: vendors
 order: 15
-last_updated: October 13, 2026
+last_updated: November 24, 2026
 ---
 
 A connector product carries data between other products, the way an iPaaS platform such as Zapier or Workato does. This page is for the company that makes one. It also covers integrations delivered through a connector, which matter to the vendors at their ends too.
@@ -12,7 +12,7 @@ A connector product carries data between other products, the way an iPaaS platfo
 
 A vendor whose products are all connectors is not invoiced for a seat. It can have a catalog-maintenance seat instead, which covers its connector listings, the products each connector reaches, and the evidence for each. In the portal, the plan panel says the seat maintains your connector catalog, and its plan badge reads **Free**.
 
-That seat is on the Free plan. Like any Free seat, it can edit your company details and each product's description, website, logo and categories. It cannot confirm data flows. The other product details stay with the AEC Integrations team.
+That seat is on the Free plan. Like any Free seat, it can edit your company details and each product's description, website, logo and categories. The other product details stay with the AEC Integrations team.
 
 We approve a connector-vendor claim like any other, and we also contact you directly about the catalog seat. [Claiming your vendor listing](/docs/vendors/claiming-your-listing) covers the claim form itself.
 

@@ -314,7 +314,8 @@ describe('VendorDashboardTabbed — the routed section nav', () => {
     // The shell stays presentational: the section renders either way and
     // decides for itself what to withhold.
     expect(el.querySelector('aec-vendor-integrations-section')).not.toBeNull();
-    expect(el.textContent).toContain('with active vendor access');
+    // AECI-2038: a Free product can answer, so no read-only note shows.
+    expect(el.textContent).not.toContain('Answering is not available');
   });
 });
 
@@ -683,12 +684,13 @@ describe('VendorDashboardTabbed — a refetched `me` (§6.1)', () => {
       VENDOR_ME_DOWNGRADED_FIXTURE,
     );
     const el = root(harness);
-    expect(el.textContent).toContain('with active vendor access');
+    // AECI-2038: Free holds attestation.author, so the downgraded vendor answers too.
+    expect(el.textContent).not.toContain('Answering is not available');
 
     TestBed.inject(VendorPortalStore).seed(VENDOR_ME_FIXTURE);
     harness.detectChanges();
 
-    expect(el.textContent).not.toContain('with active vendor access');
+    expect(el.textContent).not.toContain('Answering is not available');
   });
 
   it('takes the capability list from the payload rather than re-deriving the tier ladder', async () => {

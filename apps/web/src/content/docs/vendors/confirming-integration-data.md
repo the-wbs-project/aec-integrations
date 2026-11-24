@@ -8,7 +8,7 @@ last_updated: November 24, 2026
 
 An integration's own page lists the data that moves between two products: a model, a schedule, an RFI, and so on, each in one direction. We call each of those a data flow. In the portal they are the rows under **Data that's shared**. The public integration page shows the same rows as types of data, under headings such as "Sends to (other product)". Most of them were recorded by AEC Integrations from public sources. Answering Yes or No on that page is how the company at either end says whether a flow is right.
 
-Answering needs a seat and the Managed plan. A company on Free can see every flow and every answer, but cannot answer. See [Your seat](/docs/vendors/your-seat) and [Plans](/docs/vendors/plans).
+Answering needs a seat, on any plan. Free and Managed answer the same way, and both companies' answers count the same. See [Your seat](/docs/vendors/your-seat) and [Plans](/docs/vendors/plans).
 
 ## Open the integration's page
 
@@ -70,7 +70,7 @@ Conversations are not open in the vendor portal yet. Until they are, each of the
 
 A data flow that either company added, and a flow the two companies disagree on, each has a private conversation. It sits at the end of the row's item under **Change requests**, on the integration's own page. The two companies can use it to settle the row without AEC Integrations.
 
-A row has a conversation only when two different companies make its two products, and the integration does not run through a connector product. A change request has none. You do not need the Managed plan to write in one.
+A row has a conversation only when two different companies make its two products, and the integration does not run through a connector product. A change request has none. Any plan can write in one.
 
 ### Who sees it
 

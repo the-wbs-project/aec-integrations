@@ -1009,12 +1009,13 @@ describe('requireCapability', () => {
         requireCapability(ctxFor({ entitlementTier: 'verified' }), capability),
       ).not.toThrow();
     }
-    // Not vacuous: the Free set is the three §13.3 ids plus `review.reply`
-    // (AECI-1590), four ids, and the rest are gated.
+    // Not vacuous: the Free set is the three §13.3 ids plus `attestation.author`
+    // (AECI-2038) and `review.reply` (AECI-1590), five ids, and the rest are gated.
     expect(capabilitiesFor('unclaimed')).toEqual([
       'profile.edit',
       'product.listing.edit',
       'product.categories.edit',
+      'attestation.author',
       'review.reply',
     ]);
   });

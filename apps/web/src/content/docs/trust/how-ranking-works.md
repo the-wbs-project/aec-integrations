@@ -76,7 +76,7 @@ When two have the same number of products, they are listed A to Z. A category, a
 
 ## A pair page with no integration
 
-- **Closest matches on record**, on a page about two products with no integration on record, keep one product and swap the other. A product appears when it has an integration on record with the product you keep and shares a category you left on with the other product. They are listed A to Z by name, ignoring capital letters. If you pick data, a product must have all of it on record with the product you keep. A search by product or vendor name only narrows the list. It never changes the order. The order never reads a vendor's plan. Who appears depends only on the integrations and data on record. A vendor on a paid plan can add data to its own integrations, so its product can match a data filter it would not match otherwise.
+- **Closest matches on record**, on a page about two products with no integration on record, keep one product and swap the other. A product appears when it has an integration on record with the product you keep and shares a category you left on with the other product. They are listed A to Z by name, ignoring capital letters. If you pick data, a product must have all of it on record with the product you keep. A search by product or vendor name only narrows the list. It never changes the order. The order never reads a vendor's plan. Who appears depends only on the integrations and data on record. A vendor on any plan can add data to its own integrations, so its product can match a data filter it would not match otherwise.
 
 ## What does not count
 

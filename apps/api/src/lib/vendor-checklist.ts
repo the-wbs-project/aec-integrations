@@ -13,10 +13,10 @@
  *  2. **"Ever checked" is enough.** A set `last_reviewed_at` or
  *     `integrations_reviewed_at` completes its step however old it is.
  *  3. **The plan decides only whether "Confirm data flows" counts.** It counts
- *     when the product's plan holds `attestation.author`, which is Managed today.
- *     It is optional otherwise. It reads the product's own plan block (§13.7),
- *     never the vendor-wide one, so nothing changes here when per-product plans
- *     land.
+ *     when the product's plan holds `attestation.author`, which every live plan
+ *     does since AECI-2038 (Free included), so a product reads "x of 4" on every
+ *     plan. It is optional only on a tier the build does not know. It reads the
+ *     product's own plan block (§13.7), never the vendor-wide one.
  */
 
 import type {

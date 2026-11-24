@@ -159,17 +159,18 @@ export const CAPABILITIES = [
   'product.categories.edit',   // AECI-1214 — product category_slugs
   'product.taxonomy.edit',     // product trades, audiences, phases
   'product.usefulness.edit',   // AECI-963 — the "how teams use it" narrative
-  'attestation.author',        // AECI-623 — the attestation + product-version writes
+  'attestation.author',        // AECI-623 — the attestation writes; every claimed tier since AECI-2038
   'analytics.view',            // vendor analytics — declared, no consumer yet
   'integration.version_diff',  // AECI-304 — consulted by `./version-diff`
   'review.reply',              // AECI-1176 — a public reply to a review; every claimed tier since AECI-1590
+  'product.versions.edit',     // AECI-2038 — the product-version writes, Managed
 ] as const;
 
 /** The binary ladder at launch (§8.5). Adding a rung = one key here + one row in TIER_CAPABILITIES. */
 export const TIERS = ['unclaimed', 'verified'] as const;
 
 export const TIER_CAPABILITIES = {
-  unclaimed: ['profile.edit', 'product.listing.edit', 'product.categories.edit', 'review.reply'], // Free (§13.3; review.reply since AECI-1590)
+  unclaimed: ['profile.edit', 'product.listing.edit', 'product.categories.edit', 'attestation.author', 'review.reply'], // Free (§13.3; review.reply since AECI-1590, attestation.author since AECI-2038)
   verified: [...CAPABILITIES],   // Verified unlocks everything §8.1(3) lists
 };
 
@@ -184,6 +185,8 @@ export function capabilitiesFor(tier: EntitlementTier): readonly Capability[];
 > **Amended 2026-10-02 by `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.9 (AECI-1174).** The registry gains `review.reply`, the gate on a vendor's public reply to a review. It is held by `verified` only. `unclaimed` must not hold it. Opening it to Free is a one-line move into `TIER_CAPABILITIES.unclaimed`. AECI-1176 changes the code. **Built by AECI-1176 (2026-10-02).** The registry holds eleven ids. This supersedes the AECI-313 flag-only ruling of 2026-07-02. Reporting a review stays an email: `support@aecintegrations.com` since 2026-10-09 (AECI-1265, ruled by Chris: there is no reviews@ mailbox; it was `reviews@thewbsproject.com` before).
 
 > **Amended 2026-11-03 (AECI-1590). `unclaimed` now holds `review.reply`.** Chris ruled on AECI-308 that gating a vendor's reply to a review behind payment is the "pay to defend" pattern. Every claimed company may reply to a review of its product, on any plan. One reply per review per vendor and pre-moderation stay. AECI-1590 made the one-line move the 2026-10-02 amendment anticipated. The id stays in the registry, so the eleven ids, the route gates and the §3.2 firewall are unchanged. `requireProductCapability(c, productId, 'review.reply')` now passes for every live tier. It still fails closed with `403 ENTITLEMENT_REQUIRED` on a tier the build does not know. The text above that says `unclaimed` must not hold it is superseded.
+
+> **Amended 2026-11-24 (AECI-2038). `unclaimed` now holds `attestation.author`, and product versions have their own id.** Chris ruled that confirming data flows is accuracy, not promotion, so it is on the Free plan for every vendor (ruling 5 on epic AECI-2035, no counsel question). It follows ruling 14 (a correction is never bought) and AECI-1590's move of review replies. Confirming, denying, clearing and adding data flows now pass the gate on any plan. The three attestation routes keep `requireAttestationCapability`, so a tier the build does not know still fails closed. Product versions stay Managed, as the ruling requires. They shared `attestation.author` until now, so the three version writes moved to a new id, `product.versions.edit`, held by `verified` only. The registry holds twelve ids. An attestation on a Free product may still stamp a version that already exists; only creating, editing and deleting versions needs Managed. The §3.2 firewall is unchanged and still passes. `entitlements.spec.ts` gains a block that no ranking input names an attestation, an agreement state or a denial. Who has attestation authority (endpoint ownership) is unchanged. Connector-powered edges stay closed (AECI-2039). The ruling supersedes §13.1's 2026-10-01 ruling that "data-flow confirmation stays a Managed feature". The text below that says a lapsed vendor "loses confirming, denying and clearing data flows" is superseded.
 
 Three capabilities are **declared with no consumer on purpose**: `attestation.author` (AECI-301), `analytics.view`, and `integration.version_diff` (AECI-304). Minting the ids now means those later issues become pure render-path/handler changes with no registry edit, and it makes the vocabulary auditable in one place today.
 
@@ -278,11 +281,13 @@ for (const banned of ['verified', 'tier', 'entitlement', 'status', 'paid', 'plan
    | `product.edit` | `tool_integrations_url`, `api_docs_url` (from `PRODUCT_FIELD_CAPABILITIES`) |
    | `product.taxonomy.edit` | `audience_slugs`, `phase_slugs`, `trade_slugs`, so each term's product count |
    | `product.usefulness.edit` | `usefulness` |
-   | `attestation.author` | Claim agreement ("confirmed by both companies"). A denial, which can refute a claim and lower the data-flow count. Vendor-added data objects, which raise it. Deleting or withdrawing an added object, which lowers it. Product versions and the version stamps on a claim. The maintenance stamps an attestation write moves |
+   | `product.versions.edit` | Product versions, which a claim can stamp (since AECI-2038) |
    | `integration.version_diff` | The depth of the pair page version diff |
    | `analytics.view`, `profile.rich_fields` | Nothing public today |
 
    Plan state itself is set too: a live license, the `vendors.verified` mirror, and the plan-end mirrors and edit stamps.
+
+   *Amended 2026-11-24 (AECI-2038).* `attestation.author` left this table when it moved to Free. Its inputs were claim agreement ("confirmed by both companies"), denials, vendor-added data objects and their withdrawal, the version stamps on a claim, and the maintenance stamps an attestation write moves. Every claimed vendor can now change them, so they are no longer Managed-only inputs. They are still payload fields: the pair page cases below keep each of them out of every order, and `entitlements.spec.ts` block 8 keeps confirmation state out of every search input.
 
    **How each surface is tested.** Every behavioural case runs in two directions, so an order that rewards a plan and one that punishes it both disagree with today's order in at least one run. Every fixture holds a real tie at each comparator level, so the tie-breaks run too.
 
@@ -339,6 +344,8 @@ The other half of the firewall **already exists and must stay untouched**: `algo
 > - **Only the payer gets Managed rights.** `licensedProductIds` is the products assigned to a live subscription on the caller vendor's OWN billing accounts. The old third statement (owned products subscribed on any account) is gone. Since AECI-1623 the third statement reads the open suspension (§4.1). A co-owner whose product is subscribed by the other vendor stays Free on it, in its writes and in its `GET /api/vendor/me` `plan`.
 > - **Resubmission** is (d)'s per-product rule below.
 > - **Unchanged, deliberately.** The connector-powered owner carve-out (`hasActiveEntitlement`, `INTEGRATION_ENTITLEMENT_REQUIRED`) stays vendor-level. It gates integration ownership writes, not attestation authoring, and the ruling did not name it. *Withdrawn 2026-11-09 by ruling 14 (AECI-1663): the carve-out and `canClaimConnectorPowered` are gone, so there is no difference left to describe.*
+
+> **Amended 2026-11-24 (AECI-2038).** Every live tier now holds `attestation.author`, so `requireAttestationCapability` passes a Free endpoint product. The three version writes call `requireProductCapability(c, productId, 'product.versions.edit')` instead, and stay Managed. Their 403 `details.capability` is now `product.versions.edit`.
 
 **(b) The vendor-editable column allow-list** — `VENDOR_COLUMN_MAP` / `PRODUCT_COLUMN_MAP` (`apps/api/src/routes/vendor.ts` ~:525-543, ~:605-611) go from `Record<string, string>` to `Record<string, { column: string; capability: Capability }>`, and `splitPatch` (~:390-403) gains the caller's tier. This extends the header invariant in `packages/shared/src/api/vendor.ts` from one axis to two: **Zod is the parse allow-list, the column map is the entitlement allow-list, and both must agree.** Every field maps to a capability `verified` holds. Since AECI-1214 the capabilities come from `VENDOR_FIELD_CAPABILITIES` / `PRODUCT_FIELD_CAPABILITIES` in `@aeci/shared/entitlements`, and the Free tier holds company details and the four `listing_tier` product fields (§13.3). Moving a field between plans is a data edit in those tables and `TIER_CAPABILITIES`.
 
@@ -990,9 +997,9 @@ Chris made these ten decisions on 2026-10-01 in epic AECI-1212. Later rulings on
 1. There is a deliberate **Free plan** state of the existing portal. It is not a separate portal.
 2. **Plans and checklists live at the product level.** The vendor dashboard shows no plan card, and the vendor checklist takes the full width (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18). The Products list shows a plan badge and a checklist score on each row. Each product page has its own plan panel and checklist.
 3. **Company details are editable on every plan.**
-4. **Product description, website, logo and categories are editable on every plan.** They feed `listing_tier`, so keeping them paid let payment raise ranking. These stay Managed-only: "How teams use it", the integrations page URL, the API docs URL, trades, audiences, phases, data-flow confirm or deny, and integrations delivered through a connector. *Integrations delivered through a connector left this list on 2026-11-09 (ruling 14, AECI-1663). Their owner manages them on every plan.*
+4. **Product description, website, logo and categories are editable on every plan.** They feed `listing_tier`, so keeping them paid let payment raise ranking. These stay Managed-only: "How teams use it", the integrations page URL, the API docs URL, trades, audiences, phases, data-flow confirm or deny, and integrations delivered through a connector. *Integrations delivered through a connector left this list on 2026-11-09 (ruling 14, AECI-1663). Their owner manages them on every plan. Data-flow confirm or deny left it on 2026-11-24 (ruling 5 on epic AECI-2035, AECI-2038). Every vendor confirms on every plan. Product versions stay Managed.*
 5. **The checklist has two levels.** Vendor level: check company details, finish each product checklist, and invite a colleague. The invite step is optional. Product level: check product details, check the integration list, claim integrations or say which are not yours, and confirm data flows.
-6. **The checklist is finishable on Free.** On a Free product the data-flows step is visible but optional. A Free product therefore reads "3 of 3". On Managed the step counts, so it reads "x of 4".
+6. **The checklist is finishable on Free.** On a Free product the data-flows step is visible but optional. A Free product therefore reads "3 of 3". On Managed the step counts, so it reads "x of 4". *Superseded 2026-11-24 (AECI-2038): Free can confirm, so the step counts on every plan and every product reads "x of 4". The checklist stays finishable on Free, because every step can be done on Free.*
 7. **"Looks right" is a free action on every plan.** It applies to company details, each product, and each product's integration list. It writes an audit row and stamps `last_reviewed_at`. That column already drives the public "Vendor maintained · Updated <date>" label in `maintenance-marker.ts`. *Since AECI-1666 it is the panel's record line, not a chip.* Edit schemas reject an empty save today. So "Looks right" is the only way to record "checked, nothing to change".
 8. **The end of a plan lands the product on Free.** A calm banner lists what still works and what stays as the vendor left it. Nothing the vendor entered is removed. A pilot is a complimentary subscription that ends on its own date (§7.6).
 9. **The portal shows one Managed price: "Managed is $25 a month or $250 a year per product."** There is no draft label and no per-vendor override (`VENDOR_SIGNUP_PROCESS.md` decision 8, §13.13). The founding discount is a Stripe coupon. A pilot is a complimentary subscription, not a coupon. The price, its terms and every discount are set in `PRICING_RULES.md` §2 and §3, and this string follows them.
@@ -1000,7 +1007,7 @@ Chris made these ten decisions on 2026-10-01 in epic AECI-1212. Later rulings on
 
 Two later rulings closed the epic's open questions. Both are comments on AECI-1212.
 
-- **Ruled 2026-10-01: data-flow confirmation stays a Managed feature.** "It is not planned to become free. A Free plan includes only the most basic product information."
+- **Ruled 2026-10-01: data-flow confirmation stays a Managed feature.** "It is not planned to become free. A Free plan includes only the most basic product information." *Reversed 2026-11-24 (ruling 5 on epic AECI-2035, built by AECI-2038): confirming data flows is accuracy, not promotion, so it is on the Free plan for every vendor.*
 - **Ruled 2026-10-01: screens first (option A).** "The per-product screens ship before per-product plans exist in the database." Every product-scoped response carries "this product's plan". Per-product plans landed with subscriptions (AECI-1355), and §13.7 governs.
 
 ### 13.1a Search-engine submission is Managed-only (AECI-1186)
@@ -1033,7 +1040,9 @@ Two capability ids are added. `unclaimed` stops being empty. *(Amended 2026-11-0
 | `product.categories.edit`, new | `category_slugs` | `unclaimed`, so every seat holds it |
 | `product.edit` | integrations page URL, API docs URL | `verified` |
 | `product.taxonomy.edit` | trades, audiences, phases | `verified` |
-| `product.usefulness.edit`, `attestation.author`, and the rest | unchanged | `verified` |
+| `product.usefulness.edit` and the rest | unchanged | `verified` |
+| `attestation.author` | the attestation writes | `unclaimed` since AECI-2038 (2026-11-24). `verified` only until then |
+| `product.versions.edit`, new (AECI-2038) | the three product-version writes, split from `attestation.author` | `verified` |
 | `review.reply`, new (AECI-1174) | a public reply to a review, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c | `unclaimed`, so every seat holds it. `verified` only until 2026-11-03 (AECI-1590) |
 
 `verified` keeps every capability. Existing ids keep their names, so audit rows and the shipped UI keep their meaning. Neither new id contains a word from `PLAN_SHAPED` in `entitlements.spec.ts`.
@@ -1171,12 +1180,11 @@ Every step derives from existing records plus the §13.9 column. There is no pro
 | Product | Check product details | `products.maintained_by = 'vendor'` and `last_reviewed_at` is set | all plans |
 | Product | Check the integration list | `products.integrations_reviewed_at` is set | all plans |
 | Product | Claim or say "not ours" | no seeded row naming this vendor as builder is unclaimed without an open `owner` contest, or an accepted one that still names this vendor as builder | all plans |
-| Product | Confirm data flows | every claim on the product's integrations has a non-retracted attestation by this vendor | counts on Managed, optional on Free |
+| Product | Confirm data flows | every claim on the product's integrations has a non-retracted attestation by this vendor | all plans since AECI-2038 (counted on Managed and optional on Free before) |
 
 The score rule:
 
-- A Free product reads "3 of 3". The data-flows step shows but does not count.
-- A Managed product reads "x of 4".
+- Every product reads "x of 4" since AECI-2038 (2026-11-24). A Free product read "3 of 3" before, with the data-flows step shown but not counted. On deploy, a Free product with an unanswered claim drops from complete to "3 of 4", and so can its vendor's "Finish each product checklist" step.
 - A step with nothing to do counts as done.
 - "Ever checked" is enough. Staleness is out of scope.
 
@@ -1187,7 +1195,7 @@ The two reads are `GET /api/vendor/checklist` and `GET /api/vendor/products/:id/
 The handlers are in `apps/api/src/routes/vendor-checklist.ts`. The step rules are pure functions in `apps/api/src/lib/vendor-checklist.ts`. The wire contract is `API_CONTRACTS.md` §6.14, "Checklist". Decisions taken at build that the table above did not fix:
 
 - **Each step carries `status` and `counts`.** `status` is `done`, `todo` or `optional`. A finished step reads `done` even when it does not count. So a Free product with no claims shows "Confirm data flows" as done, and still scores 3 of 3.
-- **"Confirm data flows" counts when the product's `plan.capabilities` holds `attestation.author`.** It reads the product's plan block, never the vendor's.
+- **"Confirm data flows" counts when the product's `plan.capabilities` holds `attestation.author`.** It reads the product's plan block, never the vendor's. *Since AECI-2038 every live plan holds it, so the step counts on Free too. The portal's locked row ("Available on Managed") and the Free lede are gone.*
 - **"Claim or say not ours", row by row.** A row counts against a product when it is in either table, is live, has `origin = 'aeci'`, names the vendor in `built_by_vendor_id`, has no `claimed_at`, and touches the product. "Touches" is the §13.9 arm: either endpoint, or the connector that powers it.
 - **"Without an owner contest" means an OPEN `owner` contest, or an ACCEPTED one (AECI-1225, ruled 2026-10-05).** A declined contest leaves the row on the vendor, so the row counts again. An accepted contest counts only while its `owner_vendor_id` is still the row's `built_by_vendor_id`. It stops counting once promote re-points the builder, because the row then names another vendor and no longer counts against this one. Either kind answers the step whoever filed it. That includes another endpoint vendor's contest, so "accepted from another vendor too" is deliberate. The named owner can now file one itself: `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.2 lets it self-disclaim on a seeded, unclaimed row. **This closed the gap this bullet used to record**, where the step named a "say not ours" action the owner had no route for. The portal's "Not ours?" control (§6.18 of that spec) is the route.
 - **A connector-powered row counts on every plan (ruling 14, 2026-11-09, AECI-1663).** Every evidenced pair is connector-powered. *From AECI-1089 it counted only when `plan.tier !== 'unclaimed'`, because the claim route refused such a row without an active entitlement and decision 6 forbids an unfinishable step. The claim is open on Free now, so `canClaimConnectorPowered` is gone. On deploy every Free product's claim step started counting its unclaimed connector-powered rows, and the step can grow for a Free vendor.*

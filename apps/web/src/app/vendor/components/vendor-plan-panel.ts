@@ -219,6 +219,7 @@ import { VendorRemovalElection } from './vendor-removal-election';
           Claim its integrations, add links and request corrections
         </li>
         <li i18n="@@vendor.plan.free.create">Add a new integration</li>
+        <li i18n="@@vendor.plan.free.flows">Confirm or deny the data flows on its integrations</li>
       </ul>
     </ng-template>
 
@@ -228,9 +229,6 @@ import { VendorRemovalElection } from './vendor-removal-election';
           Edit "How teams use it", the integrations page URL and the API documentation URL
         </li>
         <li i18n="@@vendor.plan.managed.taxonomy">Edit trades, audiences and phases</li>
-        <li i18n="@@vendor.plan.managed.flows">
-          Confirm or deny the data flows on its integrations
-        </li>
       </ul>
     </ng-template>
   `,

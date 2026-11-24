@@ -31,12 +31,13 @@ test.describe('Free plan portal (preview)', () => {
     expect(await axeSerious(page), 'Free overview must be axe clean').toEqual([]);
   });
 
-  test('Free: a product reads 3 of 3 and data flows are optional', async ({ page }) => {
+  // AECI-2038: confirming data flows is on every plan, so the step counts on Free.
+  test('Free: a product reads 0 of 4 and data flows count', async ({ page }) => {
     await page.goto(`${PATH}/products/summit-model-coordination/overview?fixture=free`);
 
     const checklist = page.locator('aec-vendor-checklist');
-    await expect(checklist.getByTestId('checklist-score')).toHaveText('0 of 3 done');
-    await expect(checklist.locator('[data-step="confirm_data_flows"]')).toContainText(
+    await expect(checklist.getByTestId('checklist-score')).toHaveText('0 of 4 done');
+    await expect(checklist.locator('[data-step="confirm_data_flows"]')).not.toContainText(
       'Available on Managed',
     );
     await expect(page.locator('aec-vendor-plan-panel')).toContainText(
@@ -51,7 +52,7 @@ test.describe('Free plan portal (preview)', () => {
     // Hydration has no clean DOM signal, so retry the click until it takes.
     await expect(async () => {
       await step.getByRole('button', { name: 'Looks right' }).click();
-      await expect(page.getByTestId('checklist-score')).toHaveText('1 of 3 done', {
+      await expect(page.getByTestId('checklist-score')).toHaveText('1 of 4 done', {
         timeout: 1_000,
       });
     }).toPass({ timeout: 15_000 });

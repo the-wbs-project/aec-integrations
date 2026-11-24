@@ -749,8 +749,8 @@ const NO_PRODUCT_STEPS: ProductChecklistFixtureState = {
 
 /**
  * One product's checklist, scored the way AECI-1217 scores it: "Confirm data
- * flows" counts only when the product's plan holds `attestation.author`, and a
- * finished step reads `done` whether or not it counts.
+ * flows" counts only when the product's plan holds `attestation.author` (every live
+ * plan since AECI-2038), and a finished step reads `done` whether or not it counts.
  */
 export function productChecklistFixture(
   product: VendorProduct,

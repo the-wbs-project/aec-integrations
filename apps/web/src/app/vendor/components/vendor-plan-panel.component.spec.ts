@@ -125,6 +125,11 @@ describe('VendorPlanPanel: the states', () => {
     expect(text(f)).toContain('This product is on Managed, through');
     expect(text(f)).toContain('Managed covers');
     expect(text(f)).toContain('Also included, as on Free');
+    // AECI-2038: confirming data flows is listed with Free, never with Managed.
+    const list = (id: string) =>
+      el(f).querySelector(`[data-testid="${id}"]`)?.textContent?.replace(/\s+/g, ' ') ?? '';
+    expect(list('plan-free-list')).toContain('Confirm or deny the data flows on its integrations');
+    expect(list('plan-managed-list')).not.toContain('data flows');
     expect(el(f).querySelector('aec-vendor-plan-badge')?.textContent?.trim()).toBe('Managed');
     expect(cta(f)).toBeNull();
   });

@@ -163,7 +163,7 @@ export const LEGAL_AGREEMENT_TEXT_SHA256 = {
   },
   managed_plan: {
     '1.0': '3f8e28e5e4309330aa9b5f1dd6cc51a572317c6f4691564fbb6f65b23797032d',
-    '1.1': '29e2581c68810d89fdba03bb064f3dc11891fda1c1b3382ede22dbe9ab00f87c',
+    '1.1': '511a664ffdf8a689435ab2bb9de09e07d2b4a4c1122ae12e6f58b0e53f57bc27',
   },
 } as const satisfies Record<LegalAgreementDocument, Record<string, string>>;
 
@@ -380,10 +380,10 @@ export const TERMS_CHANGE_BOX_LABEL = 'I have read and accept the updated Terms 
  * (`agreement_acceptances.plans_page_version`) and the SHA-256 of that version's snapshot
  * file (`plans_page_sha256`), so the record points at the page as it stood.
  */
-export const PLANS_PAGE_CURRENT_VERSION = '1.1';
+export const PLANS_PAGE_CURRENT_VERSION = '1.2';
 
 /** Every Plans version that was ever current, oldest first. The current one is last. */
-export const PLANS_PAGE_KNOWN_VERSIONS = ['1.0', '1.1'] as const;
+export const PLANS_PAGE_KNOWN_VERSIONS = ['1.0', '1.1', '1.2'] as const;
 
 /**
  * SHA-256 (lowercase hex) of each Plans version's snapshot file under
@@ -394,6 +394,7 @@ export const PLANS_PAGE_KNOWN_VERSIONS = ['1.0', '1.1'] as const;
 export const PLANS_PAGE_SHA256: Record<string, string> = {
   '1.0': '49393a154d24095a1ccd8c1db69ca6e3e827e8850bfc93d0182d0d43d0aa375b',
   '1.1': '6fc4c1a2f600aef26039db0570bf4d1ea4bbc29a71aa5b6b3a4acd005194fa51',
+  '1.2': '43b54841d2485bd9c28373297ed5bbbd20cba52390a59b286c68c78a127c1a94',
 };
 
 /** Whether `version` was ever a published Plans version. */

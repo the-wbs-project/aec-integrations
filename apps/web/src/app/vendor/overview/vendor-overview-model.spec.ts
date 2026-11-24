@@ -255,11 +255,13 @@ describe('buildNeedsItems', () => {
   });
 
   it('counts waiting positions only where the endpoint product can answer (AECI-1355)', () => {
-    const free = VENDOR_ME_DOWNGRADED_FIXTURE.entitlement;
-    const withPlans = (freeIds: readonly string[]): VendorMeResponse => ({
+    // Since AECI-2038 a Free plan can answer, so the closed case is a plan block
+    // with no capabilities: a tier the build does not know.
+    const closed = { ...VENDOR_ME_DOWNGRADED_FIXTURE.entitlement, capabilities: [] };
+    const withPlans = (closedIds: readonly string[]): VendorMeResponse => ({
       ...VENDOR_ME_FIXTURE,
       products: VENDOR_ME_FIXTURE.products.map((p) =>
-        freeIds.includes(p.id) ? { ...p, plan: free } : p,
+        closedIds.includes(p.id) ? { ...p, plan: closed } : p,
       ),
     });
     const waitingIds = (me: VendorMeResponse) =>
@@ -270,11 +272,22 @@ describe('buildNeedsItems', () => {
     const [first, second] = VENDOR_ME_FIXTURE.products.map((p) => p.id);
     // Both products have a single-owner row waiting while both are licensed.
     expect(waitingIds(VENDOR_ME_FIXTURE)).toEqual([first, second]);
-    // Free on the first product only: the vendor still holds the capability (the
-    // second is licensed), but the first product's waiting row drops out.
+    // Closed on the first product only: the first product's waiting row drops out.
     expect(waitingIds(withPlans([first!]))).toEqual([second]);
-    // Free everywhere: no waiting row, although the caller passed `canAttest`.
+    // Closed everywhere: no waiting row, although the caller passed `canAttest`.
     expect(waitingIds(withPlans(VENDOR_ME_FIXTURE.products.map((p) => p.id)))).toEqual([]);
+  });
+
+  it('keeps waiting positions on Free products (AECI-2038)', () => {
+    const free = VENDOR_ME_DOWNGRADED_FIXTURE.entitlement;
+    const allFree: VendorMeResponse = {
+      ...VENDOR_ME_FIXTURE,
+      products: VENDOR_ME_FIXTURE.products.map((p) => ({ ...p, plan: free })),
+    };
+    const waiting = buildNeedsItems(input({ me: allFree })).worthDoing.filter(
+      (i) => i.type === 'waiting',
+    );
+    expect(waiting).toHaveLength(VENDOR_ME_FIXTURE.products.length);
   });
 
   it('gates each Worth doing item on its own capability', () => {

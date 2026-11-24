@@ -82,7 +82,11 @@ describe('vendorCan', () => {
 
   it('lets a seat with no plan edit company details (§13.3)', () => {
     expect(vendorCan(storeWith(capabilitiesFor('unclaimed')), 'profile.edit')()).toBe(true);
-    expect(vendorCan(storeWith(capabilitiesFor('unclaimed')), 'attestation.author')()).toBe(false);
+    // AECI-2038: confirming data flows is on every plan; product versions stay Managed.
+    expect(vendorCan(storeWith(capabilitiesFor('unclaimed')), 'attestation.author')()).toBe(true);
+    expect(vendorCan(storeWith(capabilitiesFor('unclaimed')), 'product.versions.edit')()).toBe(
+      false,
+    );
   });
 
   it('is false before the store is seeded', () => {
@@ -104,14 +108,22 @@ describe('integrationCanAuthor', () => {
     slots,
   });
 
-  it('reads the context product’s plan for a one-slot integration', () => {
-    expect(integrationCanAuthor(row(['vendor_a']), products(managed, free))).toBe(true);
-    expect(integrationCanAuthor(row(['vendor_a']), products(free, managed))).toBe(false);
+  /** A plan block with no capabilities: a tier the build does not know. */
+  const none: readonly Capability[] = [];
+
+  it('passes a Free endpoint product (AECI-2038)', () => {
+    expect(integrationCanAuthor(row(['vendor_a']), products(free, free))).toBe(true);
+    expect(integrationCanAuthor(row(['vendor_a', 'vendor_b']), products(free, free))).toBe(true);
   });
 
-  it('passes an owns-both integration when either endpoint is Managed', () => {
-    expect(integrationCanAuthor(row(['vendor_a', 'vendor_b']), products(free, managed))).toBe(true);
-    expect(integrationCanAuthor(row(['vendor_a', 'vendor_b']), products(free, free))).toBe(false);
+  it('reads the context product’s plan for a one-slot integration', () => {
+    expect(integrationCanAuthor(row(['vendor_a']), products(managed, none))).toBe(true);
+    expect(integrationCanAuthor(row(['vendor_a']), products(none, managed))).toBe(false);
+  });
+
+  it('passes an owns-both integration when either endpoint holds the capability', () => {
+    expect(integrationCanAuthor(row(['vendor_a', 'vendor_b']), products(none, managed))).toBe(true);
+    expect(integrationCanAuthor(row(['vendor_a', 'vendor_b']), products(none, none))).toBe(false);
   });
 
   it('is closed with no integration or an unknown product', () => {

@@ -36,6 +36,8 @@ product, and the claim attestation writes check the caller's own endpoint produc
 holds its subscription. This epic originally read the `vendors.verified` mirror through a
 placeholder, `assertVerifiedVendor`, which answered `403 FORBIDDEN`; that placeholder is deleted.
 
+> **Amended 2026-11-24 (AECI-2038): confirming data flows is on every plan.** Chris ruled that confirming data flows is accuracy, not promotion (ruling 5 on epic AECI-2035, no counsel question). `TIER_CAPABILITIES.unclaimed` now holds `attestation.author`, so a Free endpoint vendor confirms, denies, clears and adds data flows exactly as a Managed one does. The three claim attestation writes keep the gate, so an unknown tier still fails closed. Product versions stay Managed: the three §8 version writes moved to `product.versions.edit` (`STAGE_2_PAID_TIERS_SPEC.md` §3.1). A Free product's attestation may still stamp a version that already exists. The "Verified-vendor capability" sentence above is superseded. Authority is unchanged: only an endpoint vendor attests, and connector-powered edges stay refused (§14; a Sync Service's own authority is AECI-2039). §4's agreement engine needs no change, and the "Residual risk" in `STAGE_2_SPEC.md` §8.1(3), that coverage skews toward payers, is closed.
+
 ### 1.1 Issue map & critical path
 
 This doc is the contract for the AECI-514 sub-issues. Each opens with
@@ -1044,7 +1046,7 @@ pre-existing spec passes **unmodified**.
 > write gate moved in the same change (`STAGE_2_REALTIME_SPEC.md` §6.1), and its two write
 > components show the access message only for `ENTITLEMENT_REQUIRED`. Gate order is unchanged.
 >
-> **As built (AECI-1355 — 2026-10-14).** The three §8 version writes now call `requireProductCapability(c, productId, 'attestation.author')`: the product's own live subscription decides, not the vendor tier. Status, `code` and `details` shape are unchanged. `details.tier` on a version write is the product's tier.
+> **As built (AECI-1355 — 2026-10-14).** The three §8 version writes now call `requireProductCapability(c, productId, 'attestation.author')`: the product's own live subscription decides, not the vendor tier. Status, `code` and `details` shape are unchanged. `details.tier` on a version write is the product's tier. *Since AECI-2038 (2026-11-24) the capability is `product.versions.edit`, so `details.capability` on a refused version write reads `product.versions.edit`. It stays Managed.*
 >
 > **Ruled 2026-10-14: the claim attestation writes are per product too.** The three writes above call `requireAttestationCapability` (`routes/vendor-attestations.ts`), which is `requireProductCapability` on the caller's own endpoint product: the product of the slot the caller holds. Gate order is unchanged: authority 404, then the connector-powered `FORBIDDEN`, then this. A caller owning BOTH endpoints passes when EITHER endpoint product holds the capability for it. The write fills both slots and §4 counts the company as one voter, so the one vote is a right it has paid for on a product the integration is about. `details.tier` is the endpoint product's tier (endpoint A's when neither is subscribed). Only the payer gets Managed rights: a co-owned endpoint subscribed on the other owner's account is Free for this caller. The portal's detail page reads the same rule (`integrationCanAuthor` in `vendor-capabilities.ts`). `DELETE /api/vendor/claims/:claimId` (AECI-1245, §5.2) calls the same gate, with its own order and no edge check.
 

@@ -147,23 +147,15 @@ function productRow(
                 commands: ['../integrations'],
               },
       };
-    case 'confirm_data_flows': {
-      // Outside this product's plan and not done: a lock, and a note in place of
-      // an action (decision 6: optional on Free, so a Free product reads 3 of 3).
-      const locked = !step.counts && step.status !== 'done';
+    case 'confirm_data_flows':
+      // AECI-2038: confirming is on every plan, so the step is never locked by a
+      // plan and its copy never names one.
       return {
         ...base,
-        locked,
         title: $localize`:@@vendor.checklist.flows.title:Confirm data flows`,
-        body: locked
-          ? $localize`:@@vendor.checklist.flows.body.free:Optional on Free. Confirming data flows is part of Managed.`
-          : $localize`:@@vendor.checklist.flows.body:Answer yes or no for each data flow on this product's integrations.`,
-        action: locked
-          ? {
-              kind: 'note',
-              label: $localize`:@@vendor.checklist.flows.locked:Available on Managed`,
-            }
-          : step.status === 'done'
+        body: $localize`:@@vendor.checklist.flows.body:Answer yes or no for each data flow on this product's integrations.`,
+        action:
+          step.status === 'done'
             ? null
             : {
                 kind: 'link',
@@ -171,6 +163,5 @@ function productRow(
                 commands: ['../integrations'],
               },
       };
-    }
   }
 }

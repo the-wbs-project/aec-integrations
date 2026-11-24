@@ -205,10 +205,12 @@ describe('MethodologyPage', () => {
     it('does not add ownership to the paid-plan list (decision 15: a seat is the gate)', () => {
       const { host } = setup();
       const text = host.textContent ?? '';
-      // The Managed list is exactly two items (the Free edits sit in the
+      // The Managed list is exactly one item (the Free edits sit in the
       // sentence before it, AECI-1219, the reply item left with AECI-1590
       // because every claimed plan can reply, the account-label item went with
-      // the label, AECI-1264, and AECI-1263 dropped version history), and
+      // the label, AECI-1264, AECI-1263 dropped version history, and the
+      // confirm-or-dispute item left with AECI-2038, because every claimed plan
+      // can confirm), and
       // claiming, editing, contesting and replying are seat-gated, so none of
       // them may appear in it.
       const planList = Array.from(host.querySelectorAll('li'))
@@ -216,7 +218,11 @@ describe('MethodologyPage', () => {
         .filter((line) =>
           /^(which other product details a vendor may edit|whether (a vendor|the))/.test(line),
         );
-      expect(planList).toHaveLength(2);
+      expect(planList).toHaveLength(1);
+      expect(planList.join(' ')).not.toMatch(/confirm|dispute/i);
+      expect(text).toContain(
+        'Every claimed vendor can also confirm or dispute the data its integrations move, on any plan.',
+      );
       expect(planList.join(' ')).not.toMatch(/reply/i);
       expect(planList.join(' ')).not.toMatch(/label/i);
       expect(planList.join(' ')).not.toMatch(/claim an integration|contest/i);

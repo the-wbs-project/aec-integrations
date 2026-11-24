@@ -115,10 +115,12 @@ import {
 
       @if (!anyAuthorable()) {
         <div class="rounded-(--radius-md) border border-(--border-default) p-4">
-          <p class="text-sm text-(--text-secondary)" i18n="@@vendor.attest.readOnly">
-            You can review everything on record here. Confirming data flows and adding new ones
-            opens up with active vendor access. That access is arranged with AEC Integrations, not
-            something you switch on from this portal.
+          <p
+            class="text-sm text-(--text-secondary)"
+            i18n="@@vendor.attest.readOnly.listUnavailable"
+          >
+            You can review everything on record here. Answering is not available for these
+            integrations right now. Contact AEC Integrations if this does not change.
           </p>
         </div>
       }

@@ -117,6 +117,7 @@ payment method used. The operator steps are `docs/runbooks/subscriptions.md` "St
 | 2026-10-29 | This file. No grandfathering. 30 days' notice of a price change. Billing errors are always reversed. Founding discount: any converting pilot participant, 12 months, unpublished. No multi-product discount. | AECI-1431 |
 | 2026-11-04 | The annual and grant-end renewal notice moves from 30 to 45 days. The renewal terms show before payment. A monthly price or agreement change keeps its 30 days' notice. | Counsel, AECI-1596 |
 | 2026-11-05 | The 14-day full refund also applies after a renewal charge. A subscription ended for abuse gets the unused term back, less fees for the period used and documented cost. Draft agreement text only until its effective date. | Counsel Q2 and Q13, Chris rulings 1 and 7, AECI-1363 |
+| 2026-11-24 | Confirming data flows moves from Managed to Free for every vendor. The price does not change. Managed keeps "How teams use it", trades, audiences, phases, the two links, product versions, the search-engine notice and analytics. | Chris, ruling 5 on epic AECI-2035; AECI-2038 |
 
 ## 8. Where the terms are restated
 

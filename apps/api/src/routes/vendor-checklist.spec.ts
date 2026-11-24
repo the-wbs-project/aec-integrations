@@ -194,21 +194,22 @@ describe('a Free product and a Managed product', () => {
     });
   });
 
-  it('reads "3 of 3" and complete on Free, with data flows optional', async () => {
+  // AECI-2038: Free holds attestation.author, so the data-flows step counts there too.
+  it('reads "3 of 4" on Free, with data flows to do', async () => {
     const body = await productChecklist(FREE);
     expect(body).toMatchObject({
       product_id: P_ONE,
       product_slug: 'revit',
       done: 3,
-      total: 3,
-      complete: true,
+      total: 4,
+      complete: false,
       plan: { tier: 'unclaimed', status: null },
     });
     expect(body.steps).toEqual([
       { key: 'product_details', status: 'done', counts: true },
       { key: 'integration_list', status: 'done', counts: true },
       { key: 'claim_integrations', status: 'done', counts: true },
-      { key: 'confirm_data_flows', status: 'optional', counts: false },
+      { key: 'confirm_data_flows', status: 'todo', counts: true },
     ]);
   });
 
@@ -232,7 +233,7 @@ describe('a Free product and a Managed product', () => {
   it('carries the same plan block and score into the vendor read', async () => {
     const free = await vendorChecklist(FREE);
     const one = free.products.find((p: JsonBody) => p.product_id === P_ONE);
-    expect(one).toMatchObject({ product_slug: 'revit', done: 3, total: 3, complete: true });
+    expect(one).toMatchObject({ product_slug: 'revit', done: 3, total: 4, complete: false });
     expect(one.plan).toEqual((await productChecklist(FREE)).plan);
     expect(one).not.toHaveProperty('steps');
 
@@ -251,7 +252,8 @@ describe('a Free product and a Managed product', () => {
     expect(one.plan.tier).toBe('verified');
     expect(one.total).toBe(4);
     expect(two.plan.tier).toBe('unclaimed');
-    expect(two.total).toBe(3);
+    // Four steps on Free too since AECI-2038.
+    expect(two.total).toBe(4);
   });
 });
 
@@ -262,7 +264,7 @@ describe('the two "Looks right" product steps', () => {
     const body = await productChecklist(FREE);
     expect(stepStatus(body, 'product_details')).toBe('todo');
     expect(stepStatus(body, 'integration_list')).toBe('todo');
-    expect(body).toMatchObject({ done: 1, total: 3, complete: false });
+    expect(body).toMatchObject({ done: 2, total: 4, complete: false });
   });
 
   it('needs maintained_by = vendor as well as a review date for product details', async () => {
