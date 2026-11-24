@@ -10,8 +10,9 @@
  * before hydration is dropped or replayed late (`docs/TESTING_STRATEGY.md` §14.3).
  *
  * The walk records what it saw and stops early on a defect. It asserts nothing.
- * The spec decides what is a failure, so AECI-1878 (focus ring on every stop)
- * and AECI-1885 (Firefox and WebKit) can reuse the walk with their own checks.
+ * The spec decides what is a failure, so AECI-1878 (focus ring on every stop,
+ * through `onStop`) and AECI-1885 (Firefox and WebKit) reuse the walk with their
+ * own checks.
  *
  * Portable. Role and name come from Playwright's `ariaSnapshot()`, which works
  * in every engine Playwright drives. One known difference for AECI-1885: Safari
@@ -80,6 +81,12 @@ export interface TabWalkOptions {
   readonly maxPresses?: number;
   /** Stop as soon as a recorded stop matches. The walk then ends `matched`. */
   readonly until?: (stop: TabStop) => boolean;
+  /**
+   * Runs at each new stop while it has focus, before the next press. AECI-1878
+   * measures the focus ring here, so it shares this walk rather than walking the
+   * page a second way. It must not move focus.
+   */
+  readonly onStop?: (stop: TabStop) => Promise<void>;
 }
 
 /** Parse the first line of an `ariaSnapshot()`: `- link "Name" [attrs]:`. */
@@ -182,6 +189,7 @@ export async function tabWalk(page: Page, options: TabWalkOptions = {}): Promise
     seen.set(stop.key, stop);
     if (facts.openPopups > start.openPopups) popupOpenedAt.push(stop);
     previous = facts.key;
+    await options.onStop?.(stop);
     if (options.until?.(stop)) {
       end = 'matched';
       break;

@@ -69,6 +69,8 @@ interface ProbeApi {
   focus(): FocusFacts;
   collect(): ElementFacts[];
   keyOf(el: Element): number;
+  /** The element with this key in the current document, or `null`. For other in-page helpers (AECI-1878). */
+  byKey(key: number): Element | null;
   popups(triggerKey: number | null): PopupFacts[];
   triggerState(triggerKey: number): TriggerFacts;
   mark(key: number): boolean;
@@ -211,6 +213,7 @@ export async function ensureProbe(page: Page): Promise<void> {
 
       const api = {
         keyOf,
+        byKey,
         popups(triggerKey: number | null) {
           const trigger = triggerKey === null ? null : byKey(triggerKey);
           const controlled = trigger
