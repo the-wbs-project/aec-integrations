@@ -135,7 +135,7 @@ Thirty routes under the existing `AdminShell` (`app/admin/admin-shell.ts`): **tw
     /admin/overview        §5.1
     /admin/activity        §5.2
     /admin/traffic         §5.3
-    /admin/seo             §5.24 (the search console, Panels 1 and 2, AECI-822)
+    /admin/seo             §5.24 (the search console, Panels 1 and 2 AECI-822, Panel 3 AECI-823)
     /admin/audience        §5.4  (aggregates)
     /admin/subscribers     §5.4  (the roster — AECI-859)
   Catalog
@@ -2534,18 +2534,20 @@ console's `AecSelect`.
 
 The endpoints are in §6 and in `API_CONTRACTS.md` §6.10 "Copyright notices".
 
-### 5.24 Search console (`/admin/seo`): SPECIFIED (AECI-817), ENDPOINTS AND PANELS 1 AND 2 BUILT, PANEL 3 SCREEN NOT BUILT (2026-11-24)
+### 5.24 Search console (`/admin/seo`): SPECIFIED (AECI-817), ENDPOINTS AND ALL THREE PANELS BUILT (2026-11-24)
 
 **Status.** All three reads are built. AECI-818 built `GET /api/admin/seo/queue` and
 `GET /api/admin/seo/trend`, with the derivation in `apps/api/src/lib/seo-queue.ts`, the shared
 catalog URL list and the `seo.*` and `queue.*` snapshot keys. AECI-823 built
 `GET /api/admin/seo/funnel`. AECI-820 built the Google ingest and AECI-821 the Bing ingest
-(§5.24.10). AECI-822 built the screen with Panels 1 and 2 (`apps/web/src/app/admin/seo/`). Panel
-3's screen is not built. Each panel fails on its own with the `/admin/system` error recipe.
+(§5.24.10). AECI-822 built the screen with Panels 1 and 2 (`apps/web/src/app/admin/seo/`).
+AECI-823 built Panel 3 in `seo-funnel-panel.ts`. Each panel fails on its own with the
+`/admin/system` error recipe.
 In Panel 1, a failed lane switch or page change keeps the lane cards and fails in the list area
 alone. Pressing the open lane's "Show URLs" closes its list.
-`/preview/admin-seo` renders both panels and a gallery of the empty, no-site-address and failed
-states over a fake API, for review without a session. There is no weekly SEO email: Chris
+`/preview/admin-seo` renders the three panels and a gallery of states over a fake API, for review
+without a session. The gallery holds every lane empty, no site address, Google with no ingest data
+beside Bing with every stage, the funnel loading, and each panel's failed load. There is no weekly SEO email: Chris
 dropped it on 2026-11-24 (§5.24.9). This section is the contract for epic
 AECI-816. Every sub-issue below anchors here. The endpoint shapes are in `API_CONTRACTS.md` §6.10 "Search
 console". Open decisions are listed at the end of this section, and the ones that need Chris are
@@ -2785,8 +2787,21 @@ label and the sentence "Not a measurement".
 
 #### 5.24.7 Panel 3: Is it working
 
-**Built by AECI-823 (backend, 2026-11-24).** `GET /api/admin/seo/funnel` in
-`routes/admin-seo.ts`, derived in `lib/seo-funnel.ts`. The screen is AECI-823's other half.
+**Built by AECI-823 (2026-11-24).** `GET /api/admin/seo/funnel` in `routes/admin-seo.ts`, derived
+in `lib/seo-funnel.ts`. The screen is `apps/web/src/app/admin/seo/seo-funnel-panel.ts`.
+
+**As built (AECI-823, 2026-11-24).** Google and Bing sit side by side at desktop width and stack on
+a narrow screen. Each funnel is a real table: stage, rate and pages. The rate is text with an
+`aria-hidden` bar beside it in the engine's series colour. The clicked stage is click-through to
+two decimals, with Google's average position beside it and the clicks and impressions under it.
+It has no bar, because a bar a third of a percent long draws nothing. The panel draws only the
+stages its engine can have: Google catalog, crawled, impressed and clicked, and Bing catalog,
+crawled, indexed and clicked. A Bing impressed stage or a Bing position never renders, even if the
+API sent one. Each engine's own notes (`search_ingest_absent`, `search_window_incomplete`) sit in
+its card. The notes that name no engine sit under both funnels, after the two static notes below.
+Each card states its host, the UTC day the crawl stages end on, and the Pacific dates of its search
+figures, with "Days recorded" when the click window is short. The baseline table sits in the Google
+card, with "Not recorded" in every cell of a null `current` row.
 
 The funnel, per engine, over trailing 28-day windows. Rates are plotted. Counts sit beside them,
 because the catalog grows and a rising count can hide a falling rate.
@@ -3156,7 +3171,7 @@ All endpoints are admin-gated and register on the existing `authAdmin` sub-route
 | `DELETE /api/admin/reindex/:id` | §5.11 Done — **SHIPPED (AECI-946)** | **The fifth write in this table**, and *queue consumption* — no catalog row, no account row, nothing a visitor can see. Audit row in the same `db.batch` as the delete, `action='reindex.cleared'`, attributed to the admin rather than `'system'`. This is **not** §26.1's scheduled-deletion case, so it audits per row rather than one summary row per run. Carries **no** `rateLimit()`. Which admin writes do carry one is listed in `waf-rate-limits.md` §6.2, not here, because a list in this row went stale. A row another tab already cleared is a flat 404. Since AECI-1185 `?outcome=requested\|not_requested` is required (400 otherwise). `requested` also writes one `gsc_manual` `recrawl_submissions` row and its causes in the same batch |
 | `GET /api/admin/seo/queue` | §5.24 Panel 1. **SHIPPED (AECI-818)** | Read-only. The lane counts plus one page of the selected lane's absolute URLs, oldest first. `PageQuerySchema` (default `perPage` 25) + `?lane=` + `?engine=`. Console envelope with `notes`, because crawl coverage can be wrong. No audit row, no limiter. Contract in `packages/shared/src/api/admin-seo.ts` |
 | `GET /api/admin/seo/trend` | §5.24 Panel 2. **SHIPPED (AECI-818)**, though specified under AECI-822 | Read-only. Weekly lane depths from `metrics_daily`, live cohort crawl rates, and the self-reported request count. `?weeks=` (1–26, default 12). No audit row, no limiter. Same contract file |
-| `GET /api/admin/seo/funnel` | §5.24 Panel 3. **SHIPPED (AECI-823, backend)** | Read-only. Per-engine stages as rates and counts, each with its host filter, plus the Google `property` baseline table. No query parameters. A stage with no data is omitted. No audit row, no limiter. Same contract file |
+| `GET /api/admin/seo/funnel` | §5.24 Panel 3. **SHIPPED (AECI-823)** | Read-only. Per-engine stages as rates and counts, each with its host filter, plus the Google `property` baseline table. No query parameters. A stage with no data is omitted. No audit row, no limiter. Same contract file |
 | `GET /api/admin/contests` | §5.12 queue — **SHIPPED (AECI-1008)** | `PageQuerySchema` + `?status=` (default `open`) + `?routed_to=` (default `aeci`; `owner` is the read-only view). Ordered `created_at DESC, id ASC`. Bare `paginatedResponseSchema`, same reasoning as §5.11. Contract in `packages/shared/src/api/integration-contests.ts` |
 | `PATCH /api/admin/contests/:id` | §5.12 accept / decline — **SHIPPED (AECI-1008)** | **A decision write, not a catalog write** (the eighth §2 exception). Accept files a `REVIEW - ` Linear issue after commit. It writes catalog data only on a claimed row, where promote no longer can (AECI-1005, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.6). **Since AECI-1191 an accept that changes a vendor-held value requires `note`** (`400 VALIDATION_FAILED`, `error.field = 'note'`, nothing written), recorded in the decision audit row's `metadata.reason`; the list read carries `accept_note_required`. **Since AECI-1159 the body also takes an optional `internalNote`** (`AdminDecideContestSchema`), and that note is shown to the displaced owner as the reason (`reasonVisibility = 'vendor'`). Audit row, workflow transition and the submitter's `notification.sent` ride one `db.batch` behind a race sentinel. Carries `rateLimit('write')`. `409 CONTEST_NOT_OPEN` / `CONTEST_ROUTED_TO_OWNER` |
 | `PATCH /api/admin/contests/:id/protest` | §5.12 protest decision — **AECI-1009** (row added by AECI-1671) | **A decision write, advice only** — a second route under §2's eighth exception. Body `DecideContestProtestSchema` (`{ decision, note }`), the note required and shown to both vendors; a lost protest blocks the submitter from re-contesting the field for 90 days unless its value changes. One `db.batch`: the guarded `UPDATE … WHERE protest_status = 'open'`, the `changes()` sentinel, the protest instance closed with its transition, the audit row, and a `notification.sent` to each side. A lost race is `409 PROTEST_NOT_OPEN` with nothing written. Writes the protest columns and nothing else: no catalog write, no purge, no Linear issue. Carries `rateLimit('write')`. Contract in `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.12 |

@@ -371,13 +371,25 @@ baseline.
    starts erroring, is silent — nothing else in our stack notices.
 4. The **tripwire** below.
 
-**`/admin/seo` covers the crawl backlog, not this read.** `ADMIN_PANEL_SPEC.md` §5.24 specifies
-the screen (epic AECI-816). AECI-822 shipped its Panels 1 and 2. Panel 1 lists the catalog pages
+**`/admin/seo` now covers item 2 of this read, and items 1, 3 and 4 stay manual.**
+`ADMIN_PANEL_SPEC.md` §5.24 specifies the screen (epic AECI-816). Panel 1 lists the catalog pages
 Googlebot or Bingbot has not fetched, with a copy control per URL, beside a link to the re-index
 queue. Panel 2 shows, week by week, how many new pages each engine crawled within 7 days and
-whether the backlog is shrinking. Neither panel shows items 1 to 3 above. The Panel 3 funnel read
-shipped with AECI-823, but its panel has not. Until it ships, this read stays manual. There is no
-weekly SEO email: Chris dropped it on 2026-11-24 (§5.24.9).
+whether the backlog is shrinking. Panel 3 (AECI-823) shows each engine's funnel over the trailing
+28 days: catalog, crawled, indexed, and clicked. Google's indexed stage is the lower bound, pages
+with at least one impression. Bing's is Bing's own figure. The clicked stage gives clicks,
+impressions, click-through and, for Google, average position. A table under the Google funnel puts
+the whole property's last 28 days beside the AECI-799 baseline. So read item 2 on `/admin/seo`.
+
+Three reads stay in the consoles:
+
+- **Item 1, Google's Page indexing count** and "Why pages aren't indexed". No Google API returns
+  them. Panel 3's lower bound never replaces them.
+- **Item 3, Sitemaps.** The screen does not show sitemap state. Read it in Search Console, or in
+  the `search-ingest` run's `job_runs.detail`.
+- **Item 4, the tripwire.**
+
+There is no weekly SEO email: Chris dropped it on 2026-11-24 (§5.24.9).
 
 **What the weekly ingest pulls automatically (AECI-820).** The Sunday 22:00 UTC `search-ingest`
 job stores items 2 and 3 in `metrics_daily`, so they gain a history:
@@ -385,12 +397,12 @@ job stores items 2 and 3 in `metrics_daily`, so they gain a history:
 | Item | Pulled automatically | Stays manual |
 |---|---|---|
 | 1. Page indexing | A proxy only: `www.` pages with at least one impression in 28 days, all pages and catalog pages | The indexed count and "Why pages aren't indexed". No Google API returns them |
-| 2. Performance | Daily clicks, impressions and average position, for the `www_page` scope and the whole `property` | Nothing. Read Panel 3 when it ships |
+| 2. Performance | Daily clicks, impressions and average position, for the `www_page` scope and the whole `property` | Nothing. Read it on `/admin/seo` Panel 3 |
 | 3. Sitemaps | The `www.` sitemap's last download, errors, warnings and URL count. The dates are in the run's `job_runs.detail` | Nothing, unless the run reports the sitemap missing |
 | 4. Tripwire | Nothing | All of it |
 
 So item 1 stays a manual read every week. The ingest's figure is a lower bound and never replaces
-it. When Panel 3 ships, items 2 and 3 move to it.
+it. Item 2 moved to `/admin/seo` Panel 3 with AECI-823. Item 3 is stored but not on the screen.
 
 **What the Bing lane pulls (AECI-821), once its key and site URL are set.** BWT has no weekly read
 list above, so this is new history rather than a replaced read.
