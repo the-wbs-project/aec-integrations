@@ -4287,8 +4287,9 @@ flows are readable through the timeseries endpoint today (the stocks await
 **Specified, not written yet (AECI-817).** `ADMIN_PANEL_SPEC.md` §5.24.8 names eight more snapshot
 stocks (`seo.*`, `queue.reindex_pending`, `queue.reindex_oldest_tier12_age_days`) and a second
 writer's keys (`search.google.*`, `search.bing.*`). None needs a migration. They join this table
-when AECI-818, AECI-820 and AECI-821 write them. The second writer must first narrow the
-`findSnapshotGap` probe, which today reads any row for a day as "captured" (§5.24.8).
+when AECI-818, AECI-820 and AECI-821 write them. AECI-820 narrowed the `findSnapshotGap` probe
+first: a day counts as captured only by a row for one of `ADMIN_SNAPSHOT_METRIC_KEYS`, so an
+ingest row can never clear the prune (§5.24.8).
 
 **`catalog.integrations_total` spans both delivered-tier tables, and that is what makes the
 AECI-721 migration invisible to this series.** `STAGE_1_5_SPEC.md` §13.5 flagged this producer as

@@ -567,8 +567,10 @@ async function daysWithRawPageViews(db: Db, w: UtcWindow): Promise<Set<string>> 
  *
  *   - **Never insert.** A day with no stored row is skipped outright. Not
  *     because coverage is someone else's job, but because `findSnapshotGap`
- *     (`retention-prune.ts`) probes `selectDistinct({day})` with **no `metric`
- *     predicate** — *any* single row tells the 03:00 prune the day is captured.
+ *     (`retention-prune.ts`) probes `selectDistinct({day})` over the snapshot
+ *     keys — *any* single snapshot-key row tells the 03:00 prune the day is
+ *     captured. (AECI-820 narrowed it to `ADMIN_SNAPSHOT_METRIC_KEYS`; the
+ *     re-checked keys are in that list, so this rule is unchanged.)
  *     Inserting one traffic key for a day the primary pass never covered would
  *     clear the prune to delete that day's `page_views` while seventeen keys,
  *     including every stock, were still missing. Stocks are unrecoverable

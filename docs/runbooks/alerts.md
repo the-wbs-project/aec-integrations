@@ -1506,8 +1506,8 @@ guard working and leaves the run green. The refusals and what to do about them:
 | `uncovered` non-zero | Days in the window with no stored `traffic.page_views_human` row. The pass never inserts (see below), so it cannot see whether those days moved | Fill coverage with `ops:backfill-metrics-daily`. This is the same gap that aborts the 03:00 prune |
 
 **Why it refuses to insert a missing day**, because it looks like an easy improvement and is not:
-§7.4's `findSnapshotGap` probes `metrics_daily` with **no `metric` predicate**, so one inserted row
-would tell the 03:00 prune that day is captured while every stock key — unrecoverable retroactively —
+§7.4's `findSnapshotGap` counts **any one** snapshot-key row as a captured day, so one inserted
+traffic row would tell the 03:00 prune that day is captured while every stock key — unrecoverable retroactively —
 is still missing, and the prune would then delete that day's `page_views` permanently.
 
 Three properties shape every response here:

@@ -2848,7 +2848,7 @@ describe('job_runs bookkeeping (§7.2)', () => {
   async function seedPrunablePageView(): Promise<string> {
     const day = new Date(Date.now() - 401 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     await t.db.insert(pageViews).values({ path: '/x', createdAt: `${day}T12:00:00.000Z` });
-    await t.db.insert(metricsDaily).values({ day, metric: 'page_views_total', value: 1 });
+    await t.db.insert(metricsDaily).values({ day, metric: 'traffic.page_views_human', value: 1 });
     return day;
   }
   const retentionDetail = async () =>

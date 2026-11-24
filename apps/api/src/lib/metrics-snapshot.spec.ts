@@ -593,8 +593,8 @@ describe('runMetricsSnapshotRecheck', () => {
   });
 
   it('never INSERTS a day the primary pass did not cover', async () => {
-    // Not a policy call. `findSnapshotGap` probes metrics_daily with no `metric`
-    // predicate, so one row would tell the 03:00 prune this day is captured while
+    // Not a policy call. `findSnapshotGap` counts any one snapshot-key row as a
+    // captured day, so one row would tell the 03:00 prune this day is captured while
     // every stock — unrecoverable retroactively — is still missing, and the prune
     // would then delete its page_views permanently.
     await seedTargetDay();

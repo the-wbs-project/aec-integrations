@@ -77,6 +77,7 @@
 
 import {
   ADMIN_METRIC_KEYS,
+  ADMIN_SNAPSHOT_METRIC_KEYS,
   ADMIN_SNAPSHOT_QUALITY_METRIC_KEYS,
   ARRIVAL_COVERAGE_METRIC,
   UNTRACKED_ROUTE_PREFIXES,
@@ -659,14 +660,17 @@ export function buildUnclassifiedProbe(range: BackfillRange): string {
 }
 
 /**
- * Days in the range that hold `page_views` rows but no `metrics_daily` row at
- * all — the days a catalog-only `--series` run would silently make prunable.
+ * Days in the range that hold `page_views` rows but no `metrics_daily` row for
+ * any snapshot key — the days a catalog-only `--series` run would silently make
+ * prunable.
  *
  * **This is the one way `--series` can destroy data, and it is not obvious.**
  * `findSnapshotGap` (`lib/retention-prune.ts`) treats the presence of ANY
- * `metrics_daily` row for a day as that day being captured — deliberately, since
+ * snapshot-key row for a day as that day being captured — deliberately, since
  * stocks can never be reconstructed and an all-keys test would deadlock the prune
- * forever. Before AECI-684 that was safe, because every run wrote all eight
+ * forever. Since AECI-820 both probes ignore every key outside
+ * `ADMIN_SNAPSHOT_METRIC_KEYS` ({@link SNAPSHOT_KEY_SQL}), because the search
+ * ingest's rows prove nothing about a snapshot. Before AECI-684 that was safe, because every run wrote all eight
  * series, so a captured day really did carry its traffic. A `--series
  * catalog.*` run writes the day row without writing `traffic.*`, which satisfies
  * the gate on a day whose traffic was never measured. The next retention run then
@@ -679,13 +683,23 @@ export function buildUnclassifiedProbe(range: BackfillRange): string {
  * gate above: both guard a table §7.4 keeps forever against a loss that cannot be
  * undone later.
  */
+/**
+ * `ADMIN_SNAPSHOT_METRIC_KEYS` as a quoted SQL list, the snapshot half of
+ * `metrics_daily` (AECI-820, `ADMIN_PANEL_SPEC.md` §5.24.8). The probes that answer
+ * the prune's question, "was this day captured", read only these keys, matching
+ * `findSnapshotGap`. Inlined as literals, like every value in this script's SQL,
+ * so it costs no bound parameter.
+ */
+const SNAPSHOT_KEY_SQL = ADMIN_SNAPSHOT_METRIC_KEYS.map((k) => q(k)).join(', ');
+
 export function buildPruneExposureProbe(range: BackfillRange): string {
   const { startIso, endIso } = isoBounds(range);
   return (
     `SELECT count(*) AS days FROM (` +
     `SELECT DISTINCT substr("created_at", 1, 10) AS day FROM page_views ` +
     `WHERE "created_at" >= ${q(startIso)} AND "created_at" < ${q(endIso)}` +
-    `) pv WHERE NOT EXISTS (SELECT 1 FROM metrics_daily md WHERE md."day" = pv.day)`
+    `) pv WHERE NOT EXISTS (SELECT 1 FROM metrics_daily md WHERE md."day" = pv.day ` +
+    `AND md."metric" IN (${SNAPSHOT_KEY_SQL}))`
   );
 }
 
@@ -716,6 +730,8 @@ export function buildRangeProbe(): string {
  * question after a single-series run (did MY series land). Those are different
  * questions and a single-series run wants the second one — unscoped, it would
  * count every other metric's pre-existing rows and read as success regardless.
+ * Unscoped still means the snapshot keys only ({@link SNAPSHOT_KEY_SQL}), because
+ * that is the set the prune counts (AECI-820).
  */
 export function buildCoverageProbe(range: BackfillRange, only?: readonly string[]): string {
   const scoped =
@@ -723,7 +739,7 @@ export function buildCoverageProbe(range: BackfillRange, only?: readonly string[
       ? ` AND "metric" IN (${selectSeries(only)
           .map((s) => q(s.metric))
           .join(', ')})`
-      : '';
+      : ` AND "metric" IN (${SNAPSHOT_KEY_SQL})`;
   return (
     `SELECT count(*) AS rows_total, ` +
     `count(DISTINCT day) AS days_covered, ` +

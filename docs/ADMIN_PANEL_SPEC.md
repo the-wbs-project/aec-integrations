@@ -2842,14 +2842,16 @@ docblock says so. The ingest does not try to re-cut Google's day.
 CTR is never stored. It is derived at read time as the sum of clicks over the sum of
 impressions, so a window's CTR is never an average of daily ratios.
 
-> **Prune hazard. AECI-820 must fix this before its first write.** `findSnapshotGap` in
+> **Prune hazard. Fixed by AECI-820 before its first write.** `findSnapshotGap` in
 > `apps/api/src/lib/retention-prune.ts` asks whether a day is captured by probing
 > `metrics_daily` with **no `metric` predicate**. An ingest row for a day the 00:15 snapshot
 > missed would mark that day captured, and the 03:00 prune could then delete that day's
 > `page_views` while the snapshot keys were still missing. §7.1 point 4 refuses an insert by the
 > re-check for exactly this reason. AECI-820 narrows that probe, and the matching probes in
 > `lib/metrics-backfill.ts`, to `ADMIN_SNAPSHOT_METRIC_KEYS`, with a test, in the same PR as its
-> first writer. No migration is involved. This is a predicate change.
+> first writer. No migration is involved. This is a predicate change. *Done: the three probes
+> read only `ADMIN_SNAPSHOT_METRIC_KEYS`, an allow-list, so a future third writer is excluded
+> by default. `retention-prune.spec.ts` and `metrics-backfill.spec.ts` cover an ingest-only day.*
 
 **What is not stored.** Panel 1's URL lists, the cohort rates and the request counts are
 computed live. The self-reported answer is already stored in `recrawl_submissions`. The manual
@@ -3383,9 +3385,11 @@ Six properties are load-bearing; ADR 0027 carries the full reasoning.
    would drop the per-point flag the timeseries reports and lock the backfill out of that row
    for good. A correction changes the value, never the provenance.
 4. **It never inserts**, and the reason is not "coverage is the backfill's job". §7.4's
-   `findSnapshotGap` probes `metrics_daily` with **no `metric` predicate**, so one inserted row would
-   clear the 03:00 prune to delete that day's `page_views` while every unrecoverable stock key was
-   still missing.
+   `findSnapshotGap` counts **any one** snapshot-key row as a captured day, so one inserted traffic
+   row would clear the 03:00 prune to delete that day's `page_views` while every unrecoverable stock
+   key was still missing. Since AECI-820 the probe reads only `ADMIN_SNAPSHOT_METRIC_KEYS`, which
+   keeps the search ingest's rows out of it (§5.24.8). The re-check's keys are snapshot keys, so
+   this rule still holds.
 5. **The pair is written together or not at all.** Retired 2026-10-23 (AECI-1460): the filtered key is frozen
    and has no writer, so the re-check no longer recomputes it. History follows. Correcting the raw human count while leaving
    `traffic.page_views_human_after_automation` stale renders a filtered series *above* the unfiltered
