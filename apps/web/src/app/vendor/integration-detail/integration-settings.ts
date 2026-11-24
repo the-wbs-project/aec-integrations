@@ -18,11 +18,17 @@ import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { formatDay } from './integration-detail-model';
-import { ALERT, BTN_DANGER, BTN_SECONDARY, ID_STYLES } from './integration-detail-styles';
+import { AecButton } from '../../shared/button/button';
+
+import { ALERT, ID_STYLES } from './integration-detail-styles';
+
+/** The settings panel. Retiring can be undone with Restore, so this is a plain
+ *  bordered panel with a primary confirm, not a danger zone (DESIGN.md §5 Buttons). */
+const PANEL = 'rounded-panel border border-(--border-default) p-4 text-sm';
 
 /**
  * Settings (AECI-1149, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.7): retire and
- * restore from §4.6, as one bordered danger area. No new route or rule.
+ * restore from §4.6, as one bordered area. No new route or rule.
  *
  * Retire takes an inline confirmation, never `confirm()`: "Retire it now?" with
  * "Yes, retire it" and Cancel. Only that button sends. Focus moves to the confirm
@@ -33,11 +39,12 @@ import { ALERT, BTN_DANGER, BTN_SECONDARY, ID_STYLES } from './integration-detai
  */
 @Component({
   selector: 'aec-integration-settings',
+  imports: [AecButton],
   styles: [ID_STYLES],
   template: `
     @switch (view()) {
       @case ('retire') {
-        <div class="id-danger p-4 text-sm" data-testid="settings-retire">
+        <div [class]="panelClass" data-testid="settings-retire">
           <p class="font-semibold text-(--text-primary)" i18n="@@vendor.im.settings.retireTitle">
             Retire this integration
           </p>
@@ -54,9 +61,10 @@ import { ALERT, BTN_DANGER, BTN_SECONDARY, ID_STYLES } from './integration-detai
                 >Retire it now?</span
               >
               <button
+                aecButton
+                compact
                 #confirm
                 type="button"
-                [class]="danger"
                 [disabled]="busy()"
                 (click)="retire()"
                 data-testid="retire-confirm"
@@ -65,8 +73,10 @@ import { ALERT, BTN_DANGER, BTN_SECONDARY, ID_STYLES } from './integration-detai
                 Yes, retire it
               </button>
               <button
+                aecButton
+                variant="secondary"
+                compact
                 type="button"
-                [class]="secondary"
                 [disabled]="busy()"
                 (click)="cancel()"
                 i18n="@@vendor.im.settings.cancel"
@@ -76,9 +86,11 @@ import { ALERT, BTN_DANGER, BTN_SECONDARY, ID_STYLES } from './integration-detai
             </div>
           } @else {
             <button
+              aecButton
+              variant="secondary"
+              compact
               #trigger
               type="button"
-              [class]="secondary"
               class="mt-3"
               (click)="openConfirm()"
               data-testid="retire-open"
@@ -90,7 +102,7 @@ import { ALERT, BTN_DANGER, BTN_SECONDARY, ID_STYLES } from './integration-detai
         </div>
       }
       @case ('restore') {
-        <div class="id-danger p-4 text-sm" data-testid="settings-restore">
+        <div [class]="panelClass" data-testid="settings-restore">
           <p
             #status
             tabindex="-1"
@@ -101,9 +113,11 @@ import { ALERT, BTN_DANGER, BTN_SECONDARY, ID_STYLES } from './integration-detai
           </p>
           <p class="mt-1 max-w-prose text-(--text-secondary)">{{ retiredLine() }}</p>
           <button
+            aecButton
+            variant="secondary"
+            compact
             #trigger
             type="button"
-            [class]="secondary"
             class="mt-3"
             [disabled]="busy()"
             (click)="restore()"
@@ -115,7 +129,7 @@ import { ALERT, BTN_DANGER, BTN_SECONDARY, ID_STYLES } from './integration-detai
         </div>
       }
       @case ('retired-by-aeci') {
-        <div class="id-danger p-4 text-sm" data-testid="settings-retired-aeci">
+        <div [class]="panelClass" data-testid="settings-retired-aeci">
           <p #status tabindex="-1" class="font-semibold text-(--text-primary) focus:outline-none">
             {{ retiredByAeciLine() }}
           </p>
@@ -199,8 +213,8 @@ export class IntegrationSettings {
       : $localize`:@@vendor.im.settings.retiredOtherUnnamed:Its owner retired this integration on ${date}:date:. It no longer appears on the public page. You can read it here, but not change it.`;
   });
 
-  protected readonly danger = BTN_DANGER;
-  protected readonly secondary = BTN_SECONDARY;
+  protected readonly panelClass = PANEL;
+
   protected readonly alert = ALERT;
 
   protected openConfirm(): void {

@@ -5,6 +5,7 @@ import { map } from 'rxjs';
 
 import type { VendorThreadById } from '@aeci/shared';
 
+import { AecCard } from '../../shared/card/card';
 import { VendorPortalStore } from '../vendor-portal-store';
 import { ID_STYLES } from './integration-detail-styles';
 import { IntegrationRowThread } from './integration-row-thread';
@@ -24,18 +25,18 @@ import { IntegrationRowThread } from './integration-row-thread';
  */
 @Component({
   selector: 'aec-vendor-thread-page',
-  imports: [IntegrationRowThread, RouterLink],
+  imports: [AecCard, IntegrationRowThread, RouterLink],
   styles: [ID_STYLES],
   template: `
     <!-- AECI-1553: no Conversations list while the switch is off, so no link to it. -->
     @if (enabled()) {
-      <nav class="mt-2" i18n-aria-label="@@vendor.thread.page.breadcrumb" aria-label="Breadcrumb">
+      <nav class="-mt-2" i18n-aria-label="@@vendor.thread.page.breadcrumb" aria-label="Breadcrumb">
         <a routerLink=".." [class]="backLinkClass" i18n="@@vendor.thread.page.back"
           >Back to Conversations</a
         >
       </nav>
     }
-    <h2 class="id-h2 mt-4 break-words text-(--text-primary)" data-testid="thread-page-title">
+    <h2 class="mt-2 break-words text-(--text-primary)" data-testid="thread-page-title">
       {{ title() }}
     </h2>
     @if (!missing()) {
@@ -55,11 +56,13 @@ import { IntegrationRowThread } from './integration-row-thread';
         two companies on it.
       </p>
     } @else if (threadId(); as id) {
-      <aec-integration-row-thread
-        [threadId]="id"
-        (threadLoaded)="thread.set($event); notFound.set(false)"
-        (threadMissing)="notFound.set(true)"
-      />
+      <div aecCard class="mt-6 p-6 text-sm">
+        <aec-integration-row-thread
+          [threadId]="id"
+          (threadLoaded)="thread.set($event); notFound.set(false)"
+          (threadMissing)="notFound.set(true)"
+        />
+      </div>
     }
   `,
 })
@@ -88,5 +91,5 @@ export class VendorThreadPage {
   });
 
   protected readonly backLinkClass =
-    'inline-flex min-h-6 items-center gap-1 rounded-(--radius-sm) text-sm font-medium text-(--accent-primary) underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+    'inline-flex min-h-11 items-center gap-1 rounded-mark text-t-14 font-semibold text-(--accent-primary) underline-offset-4 hover:underline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
 }
