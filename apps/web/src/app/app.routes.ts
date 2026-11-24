@@ -467,6 +467,13 @@ export const routes: Routes = [
         path: 'traffic',
         loadComponent: () => import('./admin/traffic/traffic').then((m) => m.AdminTraffic),
       },
+      // AECI-822: the §5.24 search console, Panels 1 and 2. Same gate, same
+      // non-cacheable branch. Each panel reads its own `/api/admin/seo/*` endpoint
+      // client-side, and the screen writes nothing.
+      {
+        path: 'seo',
+        loadComponent: () => import('./admin/seo/seo-page').then((m) => m.SeoPage),
+      },
       // AECI-586: the §5.4 Audience section. Same gate, same client-side fetch.
       // It reads `GET /api/admin/audience` (subscribers, churn, UTM, geography) and
       // `GET /api/admin/feedback`.

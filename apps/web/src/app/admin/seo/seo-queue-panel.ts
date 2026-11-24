@@ -1,0 +1,258 @@
+import { DatePipe, isPlatformBrowser } from '@angular/common';
+import {
+  Component,
+  ElementRef,
+  Injector,
+  PLATFORM_ID,
+  afterNextRender,
+  computed,
+  inject,
+  input,
+  output,
+  signal,
+  viewChild,
+} from '@angular/core';
+import { RouterLink } from '@angular/router';
+
+import {
+  SEO_QUEUE_PAGE_SIZE,
+  type AdminNote,
+  type SeoEngine,
+  type SeoQueueItem,
+  type SeoQueueLane,
+  type SeoQueueResponse,
+} from '@aeci/shared';
+
+import { AdminNotes } from '../admin-notes';
+import { AdminPaginator } from '../admin-paginator';
+import { AdminSeoApi } from './admin-seo.api';
+import { SEO_ENGINE_LABELS } from './seo-labels';
+
+const DAY_MS = 86_400_000;
+
+/**
+ * The closed part of an open vocabulary. `SeoQueueItemSchema.page_type` is a
+ * plain string, like `reindex.reason`, so a page type this build has never seen
+ * is humanized rather than blanked. Never convert this map to a closed union.
+ */
+const PAGE_TYPE_LABELS: Readonly<Record<string, string>> = {
+  product: $localize`:@@admin.seo.pageType.product:Product`,
+  vendor: $localize`:@@admin.seo.pageType.vendor:Vendor`,
+  pair: $localize`:@@admin.seo.pageType.pair:Integration pair`,
+  category: $localize`:@@admin.seo.pageType.category:Category`,
+  audience: $localize`:@@admin.seo.pageType.audience:Audience`,
+  phase: $localize`:@@admin.seo.pageType.phase:Phase`,
+  trade: $localize`:@@admin.seo.pageType.trade:Trade`,
+};
+
+function humanize(slug: string): string {
+  const words = slug.replace(/[._-]+/g, ' ').trim();
+  if (!words) return slug;
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/**
+ * Panel 1 of `/admin/seo`, "Do this now" (AECI-822, `ADMIN_PANEL_SPEC.md` §5.24.5).
+ *
+ * Three lane cards in the API's order: the Google re-index queue (a count, the
+ * oldest tier-1 or tier-2 age and a link to `/admin/reindex`, which it sits
+ * beside and does not replace), then Google and Bing "not crawled". Selecting a
+ * "not crawled" lane lists its URLs, 25 a page, oldest first, each with a copy
+ * control. Pasting the URL into the engine's URL inspection tool is the whole
+ * workflow, so the copy is one click and it is announced.
+ *
+ * It fetches its own endpoint after render and fails on its own, the
+ * `/admin/system` pattern §5.24.4 names, so a failed queue never blanks Panel 2.
+ * The error copy and Try again button are the `/admin/system` recipe.
+ *
+ * Every announcement goes up through {@link announce} to the page's one polite
+ * live region (§5.24.11).
+ */
+@Component({
+  selector: 'aec-seo-queue-panel',
+  imports: [AdminNotes, AdminPaginator, DatePipe, RouterLink],
+  templateUrl: './seo-queue-panel.html',
+  styles: [':host { display: block; }'],
+})
+export class SeoQueuePanel {
+  private readonly api = inject(AdminSeoApi);
+  private readonly injector = inject(Injector);
+  /** The copy action touches `navigator`, which does not exist during SSR. */
+  private readonly isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
+
+  /** Prefix for every element id in the panel, so two instances on one page
+   *  (the preview's state gallery) never share an id. */
+  readonly idPrefix = input('admin-seo');
+
+  /** Text for the page's polite live region. */
+  readonly announce = output<string>();
+
+  protected readonly perPage = SEO_QUEUE_PAGE_SIZE;
+  protected readonly data = signal<SeoQueueResponse | null>(null);
+  /** The first load. The panel shows its loading line only then. */
+  protected readonly loading = signal(true);
+  protected readonly loadFailed = signal(false);
+  /** A lane switch is in flight. The list shows its own loading line. */
+  protected readonly switching = signal(false);
+  /** A page change is in flight. The rows stay and the paginator disables. */
+  protected readonly paging = signal(false);
+
+  protected readonly engine = signal<SeoEngine>('google');
+  protected readonly page = signal(1);
+  /** The URL last copied, for its button's own "Copied" state. */
+  protected readonly copiedUrl = signal<string | null>(null);
+
+  private readonly listHeading = viewChild<ElementRef<HTMLElement>>('listHeading');
+
+  protected readonly lanes = computed<readonly SeoQueueLane[]>(() => this.data()?.lanes ?? []);
+  protected readonly items = computed<readonly SeoQueueItem[]>(() => this.data()?.items.data ?? []);
+  protected readonly total = computed(() => this.data()?.items.total ?? 0);
+
+  /** `PUBLIC_SITE_URL` is unset on this tier: the API returns no lanes. */
+  protected readonly urlUnset = computed(() => {
+    const d = this.data();
+    return d !== null && d.lanes.length === 0;
+  });
+
+  /** The panel's own line says why there are no lanes, so the matching note is
+   *  not said twice beneath it. Every other note renders as sent. */
+  protected readonly notes = computed<readonly AdminNote[]>(() => {
+    const notes = this.data()?.notes ?? [];
+    return this.urlUnset() ? notes.filter((n) => n.code !== 'public_site_url_unset') : notes;
+  });
+
+  protected readonly allEmpty = computed(
+    () => this.lanes().length > 0 && this.lanes().every((l) => l.count === 0),
+  );
+
+  /** The selected "not crawled" lane, from the latest lane summary. */
+  protected readonly selectedLane = computed(
+    () => this.lanes().find((l) => l.lane === 'uncrawled' && l.engine === this.engine()) ?? null,
+  );
+
+  /** The list shows only for a lane with rows. An empty lane says so in its card. */
+  protected readonly showList = computed(() => (this.selectedLane()?.count ?? 0) > 0);
+
+  protected readonly engineLabel = computed(() => SEO_ENGINE_LABELS[this.engine()]);
+
+  constructor() {
+    afterNextRender(() => {
+      void this.load();
+    });
+  }
+
+  /** Bumped per request. Only the latest request may write state, so a slow
+   *  Google answer that lands after a click on Bing never fills the Bing list. */
+  private requestSeq = 0;
+
+  private async load(): Promise<boolean> {
+    const seq = ++this.requestSeq;
+    this.loadFailed.set(false);
+    try {
+      const res = await this.api.queue({
+        lane: 'uncrawled',
+        engine: this.engine(),
+        page: this.page(),
+        perPage: this.perPage,
+      });
+      if (seq !== this.requestSeq) return false;
+      this.data.set(res);
+      return true;
+    } catch {
+      if (seq !== this.requestSeq) return false;
+      this.loadFailed.set(true);
+      this.data.set(null);
+      return false;
+    } finally {
+      if (seq === this.requestSeq) {
+        this.loading.set(false);
+        this.switching.set(false);
+        this.paging.set(false);
+      }
+    }
+  }
+
+  protected retry(): void {
+    this.loading.set(true);
+    void this.load();
+  }
+
+  /** Select a "not crawled" lane. Page 1, oldest first. Focus stays on the
+   *  pressed toggle, and the live region says what the list now shows. */
+  protected async selectEngine(engine: SeoEngine): Promise<void> {
+    if (this.engine() === engine) return;
+    this.engine.set(engine);
+    this.page.set(1);
+    this.copiedUrl.set(null);
+    this.switching.set(true);
+    if (await this.load()) this.announce.emit(this.listAnnouncement());
+  }
+
+  /** Change page. Focus moves to the list heading once the rows land, so the
+   *  reader starts the new page at its first URL rather than at a paginator
+   *  button that may now be disabled. */
+  protected async goToPage(page: number): Promise<void> {
+    this.page.set(page);
+    this.copiedUrl.set(null);
+    this.paging.set(true);
+    if (await this.load()) {
+      this.announce.emit(this.listAnnouncement());
+      afterNextRender(() => this.listHeading()?.nativeElement.focus(), {
+        injector: this.injector,
+      });
+    }
+  }
+
+  private listAnnouncement(): string {
+    const pages = Math.max(1, Math.ceil(this.total() / this.perPage));
+    const engine = this.engineLabel();
+    const page = this.page();
+    return $localize`:@@admin.seo.queue.announce.list:Listing pages not crawled by ${engine}:ENGINE:, page ${page}:PAGE: of ${pages}:PAGES:.`;
+  }
+
+  /** Copy one URL for pasting into the engine's URL inspection tool. */
+  protected async copyUrl(url: string): Promise<void> {
+    if (!this.isBrowser || !navigator.clipboard) {
+      this.announce.emit(
+        $localize`:@@admin.seo.queue.announce.copyUnavailable:This browser will not let us copy. Select the URL and copy it by hand.`,
+      );
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      this.copiedUrl.set(url);
+      this.announce.emit($localize`:@@admin.seo.queue.announce.copied:Copied ${url}:URL:`);
+    } catch {
+      this.copiedUrl.set(null);
+      this.announce.emit(
+        $localize`:@@admin.seo.queue.announce.copyFailed:We could not copy that URL. Select it and copy it by hand.`,
+      );
+    }
+  }
+
+  protected engineName(engine: SeoEngine): string {
+    return SEO_ENGINE_LABELS[engine];
+  }
+
+  protected pageTypeLabel(type: string): string {
+    return PAGE_TYPE_LABELS[type] ?? humanize(type);
+  }
+
+  /** "144 d", the reindex screen's age format. */
+  protected waiting(days: number): string {
+    return $localize`:@@admin.seo.queue.ageDays:${days}:COUNT: d`;
+  }
+
+  /** Whole days between a fetch and the moment the API answered. Measured
+   *  against `generated_at`, not the browser clock, so it matches the list. */
+  protected daysAgo(instant: string): number {
+    const generated = this.data()?.generated_at;
+    const end = generated ? Date.parse(generated) : Date.parse(instant);
+    return Math.max(0, Math.floor((end - Date.parse(instant)) / DAY_MS));
+  }
+
+  /** The oldest tier-1 or tier-2 row, rounded to whole days. */
+  protected roundDays(days: number): number {
+    return Math.round(days);
+  }
+}

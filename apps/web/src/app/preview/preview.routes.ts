@@ -136,6 +136,12 @@ export const previewRoutes: Routes = [
   },
   // AECI-1223 — `/admin/email` over a fake API, so the summary, the sign-in panel and
   // the sends list render without an admin session.
+  // AECI-822: `/admin/seo` Panels 1 and 2 over a fake API, with a gallery of the
+  // empty, no-site-address and failed states, for review without a session.
+  {
+    path: 'admin-seo',
+    loadComponent: () => import('./admin-seo/admin-seo-preview').then((m) => m.AdminSeoPreview),
+  },
   {
     path: 'admin-email',
     loadComponent: () =>

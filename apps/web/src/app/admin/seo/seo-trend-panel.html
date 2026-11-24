@@ -1,0 +1,269 @@
+<section [attr.aria-labelledby]="idPrefix() + '-trend-heading'">
+  <h3
+    [id]="idPrefix() + '-trend-heading'"
+    class="text-lg font-bold text-(--text-primary)"
+    i18n="@@admin.seo.trend.heading"
+  >
+    Am I keeping up?
+  </h3>
+  <p
+    class="mt-1 max-w-[62ch] text-sm text-pretty text-(--text-secondary)"
+    i18n="@@admin.seo.trend.intro"
+  >
+    The last {{ weekCount }} complete weeks, Monday to Sunday UTC. The current week is left out
+    because it is partial. Oldest week on the left.
+  </p>
+
+  @if (loading()) {
+  <p class="mt-6 text-sm text-(--text-secondary)" i18n="@@admin.seo.trend.loading">
+    Loading the weekly trend…
+  </p>
+  } @else if (loadFailed()) {
+  <!-- The /admin/system error recipe (ADMIN_PANEL_SPEC.md §5.24.4 names it). -->
+  <div class="mt-6 space-y-3">
+    <p
+      class="text-sm font-medium text-(--text-primary)"
+      role="alert"
+      i18n="@@admin.seo.trend.loadFailed"
+    >
+      We couldn't load the weekly trend. Your session may have expired.
+    </p>
+    <button
+      type="button"
+      (click)="retry()"
+      class="inline-flex cursor-pointer items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-5 py-2.5 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      i18n="@@admin.seo.trend.retry"
+    >
+      Try again
+    </button>
+  </div>
+  } @else if (data(); as d) { @if (weeks().length === 0) {
+  <p class="mt-6 text-sm text-(--text-secondary)" i18n="@@admin.seo.trend.empty">
+    No complete week to show yet.
+  </p>
+  } @else {
+  <div class="mt-6 grid gap-4 lg:grid-cols-2">
+    <!-- relative + overflow-x-clip: the chart's hidden data table is sr-only, so it is
+         absolutely positioned and as wide as its unwrapped text. Without a
+         positioned, clipped card it widens a narrow page. -->
+    <div
+      class="@container relative overflow-x-clip rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-5"
+    >
+      <h4
+        class="font-display text-lg font-semibold text-(--text-primary)"
+        i18n="@@admin.seo.trend.chart.rate"
+      >
+        New pages crawled within {{ cohortDays() }} days
+      </h4>
+      <p class="mb-3 mt-1 text-xs text-(--text-secondary)" i18n="@@admin.seo.trend.chart.rate.sub">
+        Share of product and vendor pages published that week. A hollow point is a week still inside
+        its {{ cohortDays() }} days.
+      </p>
+      <aec-line-chart
+        [series]="rateSeries()"
+        [categories]="weekLabels()"
+        unit="percent"
+        [openLast]="newestOpen()"
+        categoryHeader="Week starting"
+        i18n-categoryHeader="@@admin.seo.trend.chart.rate.weekHeader"
+        ariaLabel="New product and vendor pages crawled within the cohort window, by publish week"
+        i18n-ariaLabel="@@admin.seo.trend.chart.rate.aria"
+        emptyLabel="No weeks to show."
+        i18n-emptyLabel="@@admin.seo.trend.chart.rate.empty"
+        gapLabel="No pages published"
+        i18n-gapLabel="@@admin.seo.trend.chart.rate.gap"
+        openLabel="so far"
+        i18n-openLabel="@@admin.seo.trend.chart.rate.open"
+      />
+    </div>
+
+    <!-- relative + overflow-x-clip: the chart's hidden data table is sr-only, so it is
+         absolutely positioned and as wide as its unwrapped text. Without a
+         positioned, clipped card it widens a narrow page. -->
+    <div
+      class="@container relative overflow-x-clip rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-5"
+    >
+      <h4
+        class="font-display text-lg font-semibold text-(--text-primary)"
+        i18n="@@admin.seo.trend.chart.depth"
+      >
+        Not crawled, end of each week
+      </h4>
+      <p class="mb-3 mt-1 text-xs text-(--text-secondary)" i18n="@@admin.seo.trend.chart.depth.sub">
+        The two not-crawled lanes on each week's last snapshot.
+      </p>
+      <aec-line-chart
+        [series]="depthSeries()"
+        [categories]="weekLabels()"
+        categoryHeader="Week starting"
+        i18n-categoryHeader="@@admin.seo.trend.chart.depth.weekHeader"
+        ariaLabel="Pages not crawled by Google and by Bing at the end of each week"
+        i18n-ariaLabel="@@admin.seo.trend.chart.depth.aria"
+        emptyLabel="No weeks to show."
+        i18n-emptyLabel="@@admin.seo.trend.chart.depth.empty"
+        gapLabel="Not recorded"
+        i18n-gapLabel="@@admin.seo.trend.chart.depth.gap"
+      />
+    </div>
+  </div>
+
+  <!-- relative: the delta cells carry sr-only text, which is absolutely
+       positioned. Without a positioned scroll box it escapes the clip and
+       widens the page on a narrow screen. -->
+  <div
+    class="relative mt-4 overflow-x-auto rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised)"
+  >
+    <table class="w-full min-w-[64rem] border-collapse text-sm">
+      <caption class="sr-only" i18n="@@admin.seo.trend.table.caption">
+        Week over week: new pages crawled, work left at the end of each week, and requests you
+        recorded. Oldest week first.
+      </caption>
+      <thead>
+        <tr class="border-b border-(--border-default)">
+          <th
+            scope="col"
+            class="sticky left-0 z-10 min-w-[11rem] bg-(--surface-raised) px-4 py-3 text-start text-xs font-bold text-(--text-secondary)"
+            i18n="@@admin.seo.trend.table.week"
+          >
+            Week starting
+          </th>
+          @for (label of weekLabels(); track $index) {
+          <th
+            scope="col"
+            class="px-2 py-3 text-end text-xs font-bold whitespace-nowrap text-(--text-secondary)"
+          >
+            {{ label }}
+          </th>
+          }
+        </tr>
+      </thead>
+
+      @for (group of groups(); track group.key) {
+      <tbody>
+        <tr>
+          <th
+            scope="rowgroup"
+            [attr.colspan]="weeks().length + 1"
+            class="sticky left-0 bg-(--surface-raised) px-4 pt-5 pb-2 text-start text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+          >
+            {{ group.heading }}
+          </th>
+        </tr>
+        @for (row of group.rows; track row.key) {
+        <tr class="border-t border-(--border-default)">
+          <th
+            scope="row"
+            class="sticky left-0 z-10 min-w-[11rem] bg-(--surface-raised) px-4 py-3 text-start align-top font-normal"
+          >
+            <span class="block font-bold text-(--text-primary)">{{ row.label }}</span>
+            @if (row.sub) {
+            <span class="mt-1 block max-w-[30ch] text-xs text-(--text-secondary)"
+              >{{ row.sub }}</span
+            >
+            }
+          </th>
+          @for (cell of row.cells; track $index) {
+          <td class="px-2 py-3 text-end align-top whitespace-nowrap">
+            @switch (cell.kind) { @case ('notRecorded') {
+            <span class="text-xs text-(--text-secondary) italic">{{ cell.text }}</span>
+            } @case ('noPages') {
+            <span class="text-xs text-(--text-secondary)">{{ cell.text }}</span>
+            } @case ('none') {
+            <span class="block text-(--text-primary)">{{ cell.text }}</span>
+            {{ ' ' }}<span class="block text-xs text-(--text-secondary)">{{ cell.sub }}</span>
+            } @default {
+            <span class="block tabular-nums text-(--text-primary)">{{ cell.text }}</span>
+            @if (cell.sub) { {{ ' ' }}<span
+              class="block text-xs tabular-nums"
+              [class]="
+                cell.open ? 'font-medium text-(--accent-secondary-deep)' : 'text-(--text-secondary)'
+              "
+              >{{ cell.sub }}</span
+            >
+            } @if (cell.delta; as dl) { {{ ' ' }}<span
+              class="block text-xs tabular-nums text-(--text-secondary)"
+            >
+              <span aria-hidden="true">{{ dl.glyph }} {{ dl.amount }}</span>
+              <span class="sr-only">{{ dl.spoken }}</span>
+            </span>
+            } } }
+          </td>
+          }
+        </tr>
+        }
+      </tbody>
+      }
+
+      <tbody>
+        <tr>
+          <th
+            scope="rowgroup"
+            [attr.colspan]="weeks().length + 1"
+            class="sticky left-0 bg-(--surface-raised) px-4 pt-5 pb-2 text-start text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+            i18n="@@admin.seo.trend.group.recorded"
+          >
+            What you recorded
+          </th>
+        </tr>
+        <!-- The one self-attested number on the surface (§5.24.1). Labelled in
+             words, not by its tint, so nobody mistakes it for a measurement. -->
+        <tr
+          data-testid="admin-seo-self-reported"
+          class="border-t border-(--border-default) bg-(--accent-warm)"
+        >
+          <th
+            scope="row"
+            class="sticky left-0 z-10 min-w-[11rem] bg-(--accent-warm) px-4 py-3 text-start align-top font-normal shadow-[inset_3px_0_0_var(--accent-secondary)]"
+          >
+            <span class="flex flex-wrap items-center gap-2">
+              <span class="font-bold text-(--text-primary)" i18n="@@admin.seo.trend.row.requests"
+                >Requests recorded</span
+              >
+              <span
+                class="inline-flex items-center rounded-full bg-(--surface-base) px-2 ring-1 ring-(--accent-secondary) py-0.5 text-[0.6875rem] font-bold text-(--accent-secondary-deep)"
+                i18n="@@admin.seo.trend.selfReported"
+                >Self-reported</span
+              >
+            </span>
+            <span
+              class="mt-1 block max-w-[30ch] text-xs text-(--text-secondary)"
+              i18n="@@admin.seo.trend.row.requests.sub"
+              >Your "Requested indexing" answers in the re-index Done dialog. Not a
+              measurement.</span
+            >
+          </th>
+          @for (cell of requestCells(); track $index) {
+          <td class="px-2 py-3 text-end align-top tabular-nums text-(--text-primary)">
+            {{ cell.text }}
+          </td>
+          }
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  @if (hasUnrecorded()) { @if (firstRecordedLabel(); as first) {
+  <p
+    class="mt-4 max-w-[75ch] text-xs text-pretty text-(--text-secondary)"
+    i18n="@@admin.seo.trend.notRecordedNote.since"
+  >
+    The work-left rows come from the daily snapshot. The first week it recorded starts {{ first }}.
+    A week that reads "Not recorded" has no stored row, so its count is unknown, not zero.
+  </p>
+  } @else {
+  <p
+    class="mt-4 max-w-[75ch] text-xs text-pretty text-(--text-secondary)"
+    i18n="@@admin.seo.trend.notRecordedNote"
+  >
+    The work-left rows come from the daily snapshot. A week that reads "Not recorded" has no stored
+    row, so its count is unknown, not zero.
+  </p>
+  } } }
+  <!-- AdminNotes renders nothing for an empty list, so only the gap is gated. -->
+  <aec-admin-notes [class.mt-4]="d.notes.length > 0" [notes]="d.notes" />
+
+  <p class="mt-4 text-xs text-(--text-tertiary)" i18n="@@admin.seo.trend.readAt">
+    Read at {{ d.generated_at | date: 'medium' : 'UTC' }} UTC.
+  </p>
+  }
+</section>
