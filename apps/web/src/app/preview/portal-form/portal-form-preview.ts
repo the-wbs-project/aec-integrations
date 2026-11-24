@@ -43,6 +43,7 @@ import { VendorPortalAnnouncer } from '../../vendor/vendor-announcer';
         aecCard
         phoneFlush
         [class]="formClass + ' mt-8 p-6 md:p-8'"
+        method="dialog"
         novalidate
         (submit)="save($event)"
         aria-labelledby="pf-demo-legend-1"
