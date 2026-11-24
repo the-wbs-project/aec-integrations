@@ -289,7 +289,7 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
               <li
                 [id]="item.id"
                 tabindex="-1"
-                class="scroll-mt-20 p-4 text-sm focus:outline-2 focus:-outline-offset-2 focus:outline-(--accent-primary)"
+                class="scroll-mt-20 py-4 text-sm focus:outline-2 focus:-outline-offset-2 focus:outline-(--accent-primary)"
                 [attr.data-testid]="'request-item-' + item.kind"
               >
                 @switch (item.kind) {
@@ -1129,12 +1129,12 @@ export class IntegrationChangeRequests {
   protected readonly notePanel = NOTE_PANEL;
   protected readonly segmented = SEGMENTED_CLASS;
   protected readonly segment = segmentClass;
-  /** Open requests: one panel, a hairline between items. */
+  /** Open requests: one list divided by hairlines, with no panel inside the section card. */
   protected readonly itemList =
-    'mt-2 list-none divide-y divide-(--border-default) rounded-panel border border-(--border-default) p-0';
-  /** Closed requests: the same panel, each row a disclosure. */
+    'mt-2 list-none divide-y divide-(--border-default) border-y border-(--border-default) p-0';
+  /** Closed requests: the same list, each row a disclosure. */
   protected readonly closedList =
-    'mt-2 list-none divide-y divide-(--border-default) overflow-hidden rounded-panel border border-(--border-default) p-0';
+    'mt-2 list-none divide-y divide-(--border-default) border-y border-(--border-default) p-0';
 
   protected chipTone(tone: Tone): ChipTone {
     return STATUS_CHIP_TONE[tone];
