@@ -931,7 +931,10 @@ will read it for the dated record.
 | `generatedAt`, `commitSha`, `trigger`, `runUrl` | When, which commit, `nightly` or `manual`, and the Actions run |
 | `status` | Playwright's overall result |
 | `totals` | `passed`, `failed`, `skipped`, `expectedFailures` |
-| `tests[]` | `title`, `surfaceId`, `route`, `file`, `outcome`, `knownFailure` (the issue ID or `null`), and `axe` (the sweep's verdict or `null`) |
+| `tests[]` | `title`, `surfaceId`, `route`, `file`, `outcome`, `knownFailure`, `knownFailures`, and `axe` (the sweep's verdict or `null`) |
+| `tests[].knownFailure` | The first known-failure ID the test carries, or `null`. One ID only: kept for readers that use it |
+| `tests[].knownFailures` | Every known-failure ID the test carries, once each, in issue number order (AECI-1874). A test that judges several problems marks each known one, so it can carry two or three. Empty when there is none. Read this one |
+| `knownFailures` | Merged file only. Every known-failure ID in the run, once, with `tests`, the number of tests that carry it |
 | `axe` | The e2e axe sweep's results. Always an object: zero counts and empty lists for a run with no sweep. See §8.4.2 |
 | `voice` | The voice-control checks' effort counts, target size report and the fields input purpose judged. Always an object: empty lists for a run with no voice-control test. See §8.4.8 |
 | `ibm` | IBM Equal Access findings, report only: violations, needs review and recommendations. Each is marked by how axe saw the same element: failed it, only marked it for review, or said nothing. Only an axe failure takes a finding off the unique list. Always an object: zero counts and empty lists for a run with no IBM test. See §8.4.9 |
@@ -1060,7 +1063,8 @@ Each shard of each lane writes its own summary with the same reporter: `a11y-nig
 an `e2e-a11y/` shard and `a11y-e2e-axe-summary.json` for a sweep shard. The workflow's `report` job
 merges all twelve into the one `a11y-nightly-summary.json` the alert reads
 (`scripts/a11y-nightly-merge-summary.mjs`). The merge adds `parts`, which names each shard's file and
-whether it was found. A missing part makes the merged
+whether it was found, and `knownFailures`, each known-failure ID once with its test count. The job
+summary prints that list as a table. A missing part makes the merged
 `status` `failed`. A test row names its spec in `file`. Without a `route` annotation, `route` is the
 path the sweep scanned.
 
