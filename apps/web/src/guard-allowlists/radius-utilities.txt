@@ -2,19 +2,8 @@
 # Guard: src/radius-utilities.guard.spec.ts. Rules: src/guard-allowlists/shrink-only.harness.ts.
 # One line per file: its path from src/app and its count. A count only goes down.
 # Lower your line when you fix some. Delete it when the file reaches zero. Never add a line.
-admin/activity/activity-feed.html 12
-admin/audience/audience.html 18
 admin/audit/audit-log.html 13
 admin/audit/audit-trail.html 3
-admin/catalog/additions-table.ts 1
-admin/catalog/catalog-coverage.html 11
-admin/charts/line-chart.ts 1
-admin/charts/stacked-series-chart.ts 1
-admin/charts/stat-tile.ts 1
-admin/connectors/connector-detail.html 15
-admin/connectors/connector-list.html 4
-admin/connectors/managed-by-control.html 7
-admin/connectors/mapping-edit-control.html 3
 admin/dmca/dmca-notices.html 26
 admin/email/email-activity.html 10
 admin/email/email-switches.html 9
@@ -22,10 +11,6 @@ admin/legal/legal-acceptance-status.ts 1
 admin/legal/legal-versions.html 13
 admin/legal/litigation-holds.html 4
 admin/legal/litigation-holds.ts 2
-admin/reindex/reindex-history.html 4
-admin/reindex/reindex-list.html 10
-admin/subscribers/subscriber-list.html 5
-admin/traffic/traffic.html 14
 admin/users/user-detail.html 13
 admin/users/user-list.html 7
 admin/vendors/admin-field-corrections.html 24
