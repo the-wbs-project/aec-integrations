@@ -1,6 +1,14 @@
 import { DOCUMENT, DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { ADMIN_REASON_MAX, isHttpsUrl } from '@aeci/shared';
@@ -22,8 +30,29 @@ import {
   contestStatusLabel,
 } from '../../vendor/components/vendor-contest-labels';
 import { AdminSummaryStore } from '../admin-summary.store';
+import { CONSOLE_LABEL_CLASS, CONSOLE_TABLE } from '../console/console-table';
+import { AdminDisclosureButton } from '../console/disclosure-button';
+import { adminStatusTone, type AdminStatusKey } from '../console/status-tones';
+import {
+  QUEUE_BODY_CLASS,
+  QUEUE_DETAIL_GRID_CLASS,
+  QUEUE_FACTS_CLASS,
+  QUEUE_FAILED_CLASS,
+  QUEUE_FILTER,
+  QUEUE_FORM_CLASS,
+  QUEUE_HELP_CLASS,
+  QUEUE_NOTICE_CLASS,
+} from '../reviews/queue-filter-classes';
 import { AdminContestsApi } from './admin-contests-api';
+import { AecButton } from '../../shared/button/button';
+import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { AecIcon } from '../../shared/icon/icon';
 
 /** One request covers a launch-scale backlog. The API caps `perPage` at 100; we
  *  load the max and say so when the server reports more. */
@@ -67,16 +96,105 @@ const QUEUE_PAGE_SIZE = 100;
  * decision on an open AECi row decrements it. A `409 CONTEST_NOT_OPEN` does not:
  * the row was closed by someone else (another admin, or the vendor withdrawing),
  * and, as on `/admin/claims`, the next full visit re-seeds the count.
+ *
+ * ── THE TABLE (AECI-2102, mock-up 14) ───────────────────────────────────────
+ * One console table row per change request: the integration, the field, who
+ * filed it, when, and its status. The values, the reason, the appeal and the
+ * decision sit in the row's expanded detail. After a decision removes a row,
+ * focus moves to the disclosure of the row that took its place, or to the queue
+ * heading when none is left. A failed decision moves focus to the row's alert.
  */
 @Component({
   selector: 'aec-contest-queue',
-  imports: [AecFormSubmit, DatePipe, NewTabIcon, RouterLink],
+  imports: [
+    AdminDisclosureButton,
+    AecButton,
+    AecFormSubmit,
+    AecIcon,
+    Chip,
+    DatePipe,
+    NewTabIcon,
+    RouterLink,
+  ],
   templateUrl: './contest-queue.html',
 })
 export class ContestQueue {
   private readonly api = inject(AdminContestsApi);
   private readonly summaryStore = inject(AdminSummaryStore);
   private readonly document = inject(DOCUMENT);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
+
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly f = QUEUE_FILTER;
+  protected readonly labelClass = CONSOLE_LABEL_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  protected readonly errorClass = FIELD_ERROR_CLASS;
+  protected readonly noticeClass = QUEUE_NOTICE_CLASS;
+  protected readonly detailGridClass = QUEUE_DETAIL_GRID_CLASS;
+  protected readonly bodyClass = QUEUE_BODY_CLASS;
+  protected readonly factsClass = QUEUE_FACTS_CLASS;
+  protected readonly helpClass = QUEUE_HELP_CLASS;
+  protected readonly formClass = QUEUE_FORM_CLASS;
+  protected readonly failedClass = QUEUE_FAILED_CLASS;
+  /** The table's columns, for the detail cell's `colspan`. */
+  protected readonly columnCount = 6;
+  /** Ids of the rows whose detail is open. */
+  private readonly openIds = signal<ReadonlySet<string>>(new Set());
+
+  protected isOpen(id: string): boolean {
+    return this.openIds().has(id);
+  }
+
+  protected toggleRow(id: string): void {
+    this.openIds.update((ids) => {
+      const next = new Set(ids);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  /** The row's name, true open or closed: `aria-expanded` carries the state. */
+  protected rowLabel(c: AdminContest): string {
+    const pair = this.pairLabel(c);
+    const field = this.fieldLabel(c.field);
+    const vendor = c.submitter_vendor.name;
+    return $localize`:@@admin.contests.row.label:Change request on ${pair}:pair:, ${field}:field:, filed by ${vendor}:vendor:`;
+  }
+
+  protected tone(key: AdminStatusKey): ConsoleChipTone {
+    return adminStatusTone(key);
+  }
+
+  /** The chip tone for a contest status. Exhaustive: a new status fails to compile. */
+  protected statusTone(status: ContestStatus): ConsoleChipTone {
+    switch (status) {
+      case 'open':
+        return adminStatusTone('open');
+      case 'accepted':
+        return adminStatusTone('accepted');
+      case 'declined':
+        return adminStatusTone('declined');
+      case 'withdrawn':
+        return adminStatusTone('withdrawn');
+    }
+  }
+
+  /** The chip tone for an appeal status. Exhaustive: a new status fails to compile. */
+  protected protestTone(status: ContestProtestStatus): ConsoleChipTone {
+    switch (status) {
+      case 'open':
+        return adminStatusTone('open');
+      case 'upheld':
+        return adminStatusTone('agreedWithSubmitter');
+      case 'rejected':
+        return adminStatusTone('agreedWithOwner');
+      case 'withdrawn':
+        return adminStatusTone('withdrawn');
+    }
+  }
 
   /** The loaded contests, in server order (newest first). */
   private readonly contests = signal<readonly AdminContest[]>([]);
@@ -460,16 +578,27 @@ export class ContestQueue {
       this.failedActionMessage.set(
         $localize`:@@admin.contests.action.locked:This field carries an AEC Integrations lock. Lift it under Field corrections on the vendor page, then decide again. Nothing was changed.`,
       );
+      this.focusFailure(`contest-${id}-failed`);
       return;
     }
     if (code === 'CONTEST_ROUTED_TO_OWNER') {
       this.failedActionMessage.set(
         $localize`:@@admin.contests.action.routedToOwner:The integration's owner decides this contest, not AEC Integrations. Nothing was changed.`,
       );
+      this.focusFailure(`contest-${id}-failed`);
       return;
     }
     this.failedActionMessage.set(
       $localize`:@@admin.contests.action.failed:Something went wrong. Please try again.`,
+    );
+    this.focusFailure(`contest-${id}-failed`);
+  }
+
+  /** A failed decision: the disabled button dropped focus, so move it to the alert. */
+  private focusFailure(elementId: string): void {
+    afterNextRender(
+      { write: () => this.document.getElementById(elementId)?.focus() },
+      { injector: this.injector },
     );
   }
 
@@ -553,15 +682,33 @@ export class ContestQueue {
         this.failedActionMessage.set(
           $localize`:@@admin.contests.protest.failed:Something went wrong. Please try again.`,
         );
+        this.focusFailure(`contest-${id}-protest-failed`);
       }
     } finally {
       this.pendingActionId.set(null);
     }
   }
 
+  /** Drop a decided row, then move focus to the row that took its place, or to the
+   *  queue heading when none is left. */
   private removeRow(id: string): void {
+    const index = this.contests().findIndex((c) => c.id === id);
     this.contests.update((list) => list.filter((c) => c.id !== id));
     this.total.update((n) => Math.max(0, n - 1));
+    const rows = this.contests();
+    const next = rows.length > 0 ? rows[Math.min(Math.max(index, 0), rows.length - 1)] : null;
+    afterNextRender(
+      {
+        write: () => {
+          const host = this.host.nativeElement;
+          const target = next
+            ? host.querySelector<HTMLElement>(`[aria-controls="contest-${next.id}-detail"]`)
+            : host.querySelector<HTMLElement>('#admin-contests-heading');
+          target?.focus();
+        },
+      },
+      { injector: this.injector },
+    );
   }
 }
 
