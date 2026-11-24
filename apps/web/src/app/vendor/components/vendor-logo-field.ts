@@ -25,7 +25,14 @@ import {
 import type { Subscription } from 'rxjs';
 
 import { pickLogoFile, uploadLogo } from '../../shared/logo-input/logo-upload';
-import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
+import { AecButton } from '../../shared/button/button';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { AecIcon } from '../../shared/icon/icon';
 
 /** Saves the logo and resolves to the value the server now holds. */
 export type SaveLogo = (logoUrl: string | null) => Promise<string | null>;
@@ -57,6 +64,8 @@ export type SaveLogo = (logoUrl: string | null) => Promise<string | null>;
 @Component({
   selector: 'aec-vendor-logo-field',
   imports: [
+    AecButton,
+    AecIcon,
     NgOptimizedImage,
     BrnDialog,
     BrnDialogContent,
@@ -67,10 +76,12 @@ export type SaveLogo = (logoUrl: string | null) => Promise<string | null>;
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="space-y-2">
+      <!-- AECI-1810: the Label role, as every other field label. It read "LOGO" in
+           capitals through CSS; the text was always "Logo". -->
       <span [id]="fieldId() + '-label'" [class]="labelClass" i18n="@@vendor.logo.label">Logo</span>
       <div class="flex flex-wrap items-center gap-4">
         <div
-          class="flex size-16 shrink-0 items-center justify-center rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-1"
+          class="flex size-16 shrink-0 items-center justify-center rounded-mark border border-(--border-default) bg-(--surface-base) p-1"
           data-testid="logo-current"
         >
           @if (current() && !currentFailed()) {
@@ -95,10 +106,11 @@ export type SaveLogo = (logoUrl: string | null) => Promise<string | null>;
         </div>
         @if (canEdit()) {
           <button
+            aecButton
+            variant="secondary"
             type="button"
             (click)="open()"
             [attr.aria-describedby]="fieldId() + '-label'"
-            [class]="secondaryButtonClass"
             data-testid="logo-edit"
           >
             @if (current()) {
@@ -110,7 +122,9 @@ export type SaveLogo = (logoUrl: string | null) => Promise<string | null>;
         }
       </div>
       @if (confirmation()) {
-        <p class="text-sm font-medium text-(--accent-primary)" role="status">
+        <!-- AECI-1810: plain text. The same sentence goes to the portal's one live
+             region through (announce), which every host wires to the announcer. -->
+        <p class="text-t-14 font-semibold text-(--accent-primary)">
           {{ confirmation() }}
         </p>
       }
@@ -124,37 +138,29 @@ export type SaveLogo = (logoUrl: string | null) => Promise<string | null>;
     >
       <ng-template brnDialogContent>
         <div
-          class="max-h-[85vh] w-[min(92vw,34rem)] overflow-y-auto rounded-(--radius-lg) border border-(--border-default) bg-(--surface-base) p-6 text-(--text-primary) md:p-8"
+          class="max-h-[85vh] w-[min(92vw,34rem)] overflow-y-auto rounded-card border border-(--border-default) bg-(--surface-base) p-6 text-(--text-primary) shadow-card md:p-8"
         >
           <div class="flex items-start justify-between gap-4">
             <h2
               brnDialogTitle
               tabindex="-1"
-              class="font-display text-xl font-semibold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              class="focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
               i18n="@@vendor.logo.dialog.heading"
             >
               Change logo
             </h2>
             <button
+              aecButton
+              variant="ghost"
+              iconOnly
               brnDialogClose
               type="button"
               [disabled]="busy()"
-              class="-me-1 -mt-1 shrink-0 rounded-(--radius-sm) p-1 text-(--text-secondary) transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              class="-me-3 -mt-2 shrink-0"
               i18n-aria-label="@@vendor.logo.dialog.close"
               aria-label="Close"
             >
-              <svg
-                class="size-5"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M18 6 6 18M6 6l12 12" />
-              </svg>
+              <aec-icon name="x" decorative />
             </button>
           </div>
           <p
@@ -168,7 +174,7 @@ export type SaveLogo = (logoUrl: string | null) => Promise<string | null>;
 
           <div class="mt-6 flex items-center gap-4">
             <div
-              class="flex size-20 shrink-0 items-center justify-center rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-1"
+              class="flex size-20 shrink-0 items-center justify-center rounded-mark border border-(--border-default) bg-(--surface-base) p-1"
             >
               @if (previewSrc() && !previewFailed()) {
                 <img
@@ -187,7 +193,7 @@ export type SaveLogo = (logoUrl: string | null) => Promise<string | null>;
               }
             </div>
             <div class="min-w-0 text-sm">
-              <p class="font-bold text-(--text-primary)">
+              <p class="font-semibold text-(--text-primary)">
                 @if (draft()) {
                   <span i18n="@@vendor.logo.dialog.newLogo">New logo</span>
                 } @else {
@@ -226,12 +232,14 @@ export type SaveLogo = (logoUrl: string | null) => Promise<string | null>;
                 i18n-aria-label="@@vendor.logo.dialog.currentUrlLabel"
                 aria-label="Current logo URL"
                 (focus)="selectAll($event)"
-                class="min-w-0 flex-1 truncate rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) px-3 py-2 text-xs text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                [class]="currentUrlClass"
               />
               <button
+                aecButton
+                variant="secondary"
+                compact
                 type="button"
                 (click)="copyCurrent()"
-                [class]="secondaryButtonClass"
                 data-testid="logo-copy-url"
               >
                 @if (copied()) {
@@ -249,20 +257,16 @@ export type SaveLogo = (logoUrl: string | null) => Promise<string | null>;
           }
 
           <section
-            class="mt-6 rounded-(--radius-md) border p-4"
+            class="mt-6 rounded-panel border p-4"
             [class]="source() === 'url' ? activeSection : idleSection"
             [attr.aria-labelledby]="fieldId() + '-url-heading'"
           >
-            <h3
-              [id]="fieldId() + '-url-heading'"
-              class="text-sm font-bold text-(--text-primary)"
-              i18n="@@vendor.logo.dialog.urlHeading"
-            >
+            <h3 [id]="fieldId() + '-url-heading'" i18n="@@vendor.logo.dialog.urlHeading">
               Paste an image URL
             </h3>
             <label
               [for]="fieldId() + '-url'"
-              class="mt-1 block text-xs text-(--text-secondary)"
+              [class]="'mt-1 block ' + hintClass"
               i18n="@@vendor.logo.dialog.urlHelp"
               >A link that starts with https:// and opens the image itself.</label
             >
@@ -277,7 +281,7 @@ export type SaveLogo = (logoUrl: string | null) => Promise<string | null>;
               (input)="onUrl($event)"
               [attr.aria-invalid]="invalidUrl() ? 'true' : null"
               [attr.aria-describedby]="invalidUrl() ? fieldId() + '-url-error' : null"
-              class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:bg-(--surface-sunken) disabled:text-(--text-secondary)"
+              [class]="'mt-2 ' + inputClass"
             />
             @if (invalidUrl()) {
               <p
@@ -292,16 +296,14 @@ export type SaveLogo = (logoUrl: string | null) => Promise<string | null>;
 
           <div class="my-3 flex items-center gap-3" aria-hidden="true">
             <span class="h-px flex-1 bg-(--border-default)"></span>
-            <span
-              class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-              i18n="@@vendor.logo.dialog.or"
+            <span class="aec-overline text-(--text-secondary)" i18n="@@vendor.logo.dialog.or"
               >or</span
             >
             <span class="h-px flex-1 bg-(--border-default)"></span>
           </div>
 
           <section
-            class="rounded-(--radius-md) border p-4"
+            class="rounded-panel border p-4"
             [class]="source() === 'file' ? activeSection : idleSection"
             [attr.aria-labelledby]="fieldId() + '-file-heading'"
             (dragover)="dragOver($event)"
@@ -309,16 +311,12 @@ export type SaveLogo = (logoUrl: string | null) => Promise<string | null>;
             (drop)="drop($event)"
             [class.border-dashed]="dragging()"
           >
-            <h3
-              [id]="fieldId() + '-file-heading'"
-              class="text-sm font-bold text-(--text-primary)"
-              i18n="@@vendor.logo.dialog.fileHeading"
-            >
+            <h3 [id]="fieldId() + '-file-heading'" i18n="@@vendor.logo.dialog.fileHeading">
               Upload a file
             </h3>
             <label
               [for]="fieldId() + '-file'"
-              class="mt-1 block text-xs text-(--text-secondary)"
+              [class]="'mt-1 block ' + hintClass"
               i18n="@@vendor.logo.dialog.fileHelp"
               >Choose an image from your computer, or drop it here.</label
             >
@@ -328,7 +326,7 @@ export type SaveLogo = (logoUrl: string | null) => Promise<string | null>;
               accept="image/png,image/jpeg,image/webp"
               [disabled]="busy()"
               (change)="choose($event)"
-              class="mt-2 block w-full text-sm text-(--text-secondary) file:me-3 file:rounded-(--radius-md) file:border file:border-(--border-default) file:bg-(--surface-base) file:px-3 file:py-2 file:font-medium file:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              class="mt-2 block w-full text-sm text-(--text-secondary) file:me-3 file:min-h-11 file:cursor-pointer file:rounded-control file:border file:border-(--border-strong) file:bg-(--surface-base) file:px-4 file:py-2 file:font-semibold file:text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
             />
             @if (uploading()) {
               <p class="mt-2 text-xs text-(--text-secondary)" role="status" i18n="@@logo.uploading">
@@ -338,16 +336,20 @@ export type SaveLogo = (logoUrl: string | null) => Promise<string | null>;
           </section>
 
           @if (error()) {
-            <p role="alert" class="mt-4 text-sm font-medium text-(--text-primary)">{{ error() }}</p>
+            <p role="alert" class="mt-4 text-sm font-semibold text-(--text-primary)">
+              {{ error() }}
+            </p>
           }
 
           <div class="mt-6 flex flex-wrap items-center justify-between gap-3">
             @if (current()) {
               <button
+                aecButton
+                variant="ghost"
                 type="button"
                 [disabled]="busy()"
                 (click)="remove()"
-                class="rounded-(--radius-md) px-1 py-2 text-sm font-medium text-(--text-secondary) underline underline-offset-4 hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed"
+                class="-ms-4"
                 data-testid="logo-remove"
               >
                 @if (saving() === 'remove') {
@@ -359,21 +361,22 @@ export type SaveLogo = (logoUrl: string | null) => Promise<string | null>;
             } @else {
               <span></span>
             }
-            <div class="flex items-center gap-3">
+            <div class="flex flex-wrap items-center gap-3">
               <button
+                aecButton
+                variant="secondary"
                 brnDialogClose
                 type="button"
                 [disabled]="busy()"
-                [class]="secondaryButtonClass"
                 i18n="@@vendor.logo.cancel"
               >
                 Cancel
               </button>
               <button
+                aecButton
                 type="button"
                 [disabled]="saveDisabled()"
                 (click)="saveDraft()"
-                [class]="primaryButtonClass"
                 data-testid="logo-save"
               >
                 @if (saving() === 'save') {
@@ -468,14 +471,15 @@ export class VendorLogoField {
       this.draft() === this.current(),
   );
 
-  protected readonly labelClass =
-    'block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)';
+  /** AECI-1810: the Label role (13px, 600, sentence case), as every field label. */
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  /** The help sentence that names each of the dialog's two inputs. */
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  /** The linked logo's URL: the field recipe, read-only on the sunken surface. */
+  protected readonly currentUrlClass = `${FIELD_INPUT_CLASS} min-w-0 flex-1 truncate read-only:bg-(--surface-sunken)`;
   protected readonly activeSection = 'border-(--accent-primary) bg-(--surface-base)';
   protected readonly idleSection = 'border-(--border-default) bg-(--surface-sunken)';
-  protected readonly secondaryButtonClass =
-    'rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed';
-  protected readonly primaryButtonClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-4 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
 
   constructor() {
     this.destroyRef.onDestroy(() => this.upload?.unsubscribe());
