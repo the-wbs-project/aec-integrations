@@ -3,7 +3,6 @@
 # One line per file: its path from src/app and its count. A count only goes down.
 # Lower your line when you fix some. Delete it when the file reaches zero. Never add a line.
 admin/vendors/grant-licenses-control.html 1
-admin/vendors/vendor-detail.html 2
 vendor/components/vendor-billing-licenses.ts 1
 vendor/components/vendor-contest-form.ts 2
 vendor/components/vendor-license-actions.ts 2

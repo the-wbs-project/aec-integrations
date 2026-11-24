@@ -29,6 +29,12 @@ export const ADMIN_STATUS_TONES = {
   priority: 'neutral',
   note: 'neutral',
   matchedByHand: 'neutral',
+  /**
+   * A pure connector vendor that owns integrations (`admin/vendors/vendor-detail.html`).
+   * A fact, not a warning: an owner manages its rows on any plan (ruling 14, AECI-1663).
+   * Its sibling with no integrations, `pureConnectorVendor`, stays attention.
+   */
+  pureConnectorOwner: 'neutral',
 
   // waiting: waits on someone.
   pending: 'waiting',
