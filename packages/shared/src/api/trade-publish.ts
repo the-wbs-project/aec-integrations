@@ -4,7 +4,9 @@
  * `taxonomy.ts` declares Zod schemas at the top level, and since zod 4.6
  * (AECI-1932) a bundler can no longer drop them, so the eager Browse menu's
  * `isPublishedTrade` pulled the whole of zod into the initial bundle.
- * `taxonomy.ts` re-exports both names, so every existing import keeps working.
+ * Never re-export these names from `taxonomy.ts` or any other schema module
+ * (AECI-2033): a barrel import that resolves through a schema module keeps that
+ * module, its schemas and zod. `api/index.ts` exports this file directly.
  */
 
 /**

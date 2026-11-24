@@ -17,7 +17,8 @@ import { TestBed } from '@angular/core/testing';
 import { type ActivatedRouteSnapshot, convertToParamMap } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { legalEffectiveAtMs, type LegalPublishedResponse } from '@aeci/shared/api/legal-versions';
+import { type LegalPublishedResponse } from '@aeci/shared/api/legal-versions';
+import { legalEffectiveAtMs } from '@aeci/shared/api/legal-moment';
 
 import { type ServerApiClient } from '../../server-api-client';
 import { createRequestContext, type AeciRequestContext } from '../../server/request-context';

@@ -92,10 +92,60 @@ const NO_ZOD_IN_VERSION_DIFF = {
   },
 };
 
+/**
+ * AECI-2033 — the zod-free `api/*` modules that public pages read.
+ *
+ * Each file below was split out of, or away from, a module that builds Zod schemas at
+ * the top level. A bundler cannot prove a schema builder chain is pure, so one value
+ * import from such a module keeps the module, its schemas and the whole of zod. The
+ * home, `/docs/*`, `/legal/*` and taxonomy index pages read these files, and before
+ * the split each of them loaded the 78 kB (transferred) zod chunk while hydrating.
+ *
+ * The ban covers `zod` and every sibling `./*` module except the other zod-free
+ * files, because one hop through a schema module brings zod back. A file joins this
+ * list when it holds pure constants or functions a browser route needs.
+ */
+const ZOD_FREE_API_MODULES = [
+  'src/api/agreements.ts',
+  'src/api/https-url-rule.ts',
+  'src/api/legal-moment.ts',
+  'src/api/taxonomy-count.ts',
+  'src/api/trade-publish.ts',
+];
+
+const NO_ZOD_IN_PUBLIC_API_MODULES = {
+  files: ZOD_FREE_API_MODULES,
+  rules: {
+    'no-restricted-imports': [
+      severity,
+      {
+        ...constraintOptions,
+        patterns: [
+          ...constraintOptions.patterns,
+          {
+            group: [
+              'zod',
+              'zod/*',
+              './*',
+              ...ZOD_FREE_API_MODULES.map((f) => `!./${f.slice('src/api/'.length, -'.ts'.length)}`),
+              '../*',
+              '@aeci/shared',
+              '@aeci/shared/*',
+            ],
+            message:
+              'This module is zod-free because public pages read it (AECI-2033). Import only other zod-free modules from the list in eslint.config.mjs. Schemas belong in a separate file. See packages/shared/README.md "Zod-free modules".',
+          },
+        ],
+      },
+    ],
+  },
+};
+
 export default tseslint.config(
   ignores,
   ...tsBase,
   prettierCompat,
   NO_ZOD_IN_REGISTRY,
   NO_ZOD_IN_VERSION_DIFF,
+  NO_ZOD_IN_PUBLIC_API_MODULES,
 );

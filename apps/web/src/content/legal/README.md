@@ -642,7 +642,7 @@ already passed (move the date; an expedited reason does not help) or is less tha
 **The effective moment is 12:00 UTC on the `effectiveOn` day.** Not midnight: 00:00 UTC is the
 evening before in the Americas, which would start a version early there and shorten the 30-day
 notice. Noon UTC falls on the named day from UTC-12 to UTC+11. `legalEffectiveAtMs`
-(`packages/shared/src/api/legal-versions.ts`) is the one conversion. It sets
+(`packages/shared/src/api/legal-moment.ts`) is the one conversion. It sets
 `legal_versions.effective_at` and measures the 30-day window. Anything else that has to know when
 a version takes effect should call it rather than build its own date.
 

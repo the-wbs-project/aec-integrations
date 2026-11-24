@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { AgreementAcceptanceMethodSchema } from './agreements';
+import { AgreementAcceptanceMethodSchema } from './agreement-schemas';
 
 /**
  * Granted subscriptions that wait for an acceptance (AECI-1615, counsel Q5;

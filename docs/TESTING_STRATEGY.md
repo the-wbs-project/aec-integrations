@@ -892,6 +892,8 @@ Separate from Lighthouse but enforced in the same pipeline.
 
 Use `size-limit` or `bundlewatch` to enforce the JS/CSS budgets in CI. For the Worker bundle, mirror the snapshot pattern in `apps/web/scripts/run-extra-tests.sh` (T7): print `dist/server/` size on every build, warn over 5 MB, fail over 10 MB. The 10 MB ceiling is enforced by Cloudflare at deploy time anyway, but failing in CI catches it earlier with a clearer error.
 
+**Zod-free routes (AECI-2033).** The `initial` budget in `apps/web/angular.json` cannot see a lazy chunk. So `Build SSR Worker` builds with `--stats-json` and runs `pnpm --filter @aeci/web check:zod-free-routes`. The check fails when a route on `ZOD_FREE_ROUTES` (`apps/web/scripts/check-zod-free-routes.mjs`) statically reaches any chunk that holds zod code. It prints the chunk path that brought zod in. The fix is in `packages/shared/README.md` "Zod-free modules". `apps/web/src/zod-free-routes.spec.ts` unit-tests the check itself.
+
 ### 10.3 Pages tested
 
 - Home (`/`)
