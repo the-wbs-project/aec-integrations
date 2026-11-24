@@ -277,7 +277,8 @@ Store in `src/test/fixtures/`. Name them by what they represent (`fixtures/proco
 
 - Test files live next to source files: `review-form.component.ts` → `review-form.component.spec.ts`
 - Integration tests live separately: `apps/api/integration/` with `*.integration.spec.ts`
-- E2E tests live in `e2e/` with `*.e2e.spec.ts`
+- E2E tests live in `apps/web/e2e/` as `*.spec.ts`, and import `test` from `./fixtures` (`TESTING_STRATEGY.md` §7.4). The accessibility nightly's specs live in `apps/web/e2e-a11y/` (§8.4 there)
+- A pure helper of either Playwright suite is pinned by a `*.unit.spec.ts` beside it. The plain Vitest runner runs it, and Playwright skips it (`TESTING_STRATEGY.md` §4.3a)
 
 `describe` blocks group by **behavior**, not by function name:
 

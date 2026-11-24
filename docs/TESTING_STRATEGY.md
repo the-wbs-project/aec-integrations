@@ -59,6 +59,7 @@ reproduction, and it is why the defect survived for months.
 | Integration | Vitest + Miniflare | Worker code with real Workers runtime | Medium | Every PR |
 | E2E | Playwright | Local `dev:bound` server | Slow (~30s/test) | Every PR |
 | Accessibility | axe-core via Playwright | Local `dev:bound` server | Medium | Every PR |
+| Accessibility nightly | Playwright: the `e2e-a11y/` suite, and the e2e suite with the axe sweep on (§8.4) | Local `dev:bound` server | Slow (8 + 4 shards) | Nightly on `main`, never on a PR |
 | Visual | Playwright screenshots + Chromatic | Deployed environment | Medium | Every PR |
 | Performance | Lighthouse CI | Local `dev:bound` | Slow (~6 min, 3 shards) | Nightly + demo promote gate (§10.4) |
 | Smoke | Playwright (subset) | Staging, production | Medium | Post-deploy |
@@ -270,10 +271,17 @@ wrong one makes it silently not run:
 
 | Runner | Config | Picks up | Environment |
 |---|---|---|---|
-| plain Vitest | `apps/web/vitest.config.ts` | `src/**/*.spec.ts`, **excluding** `*.component.spec.ts` | `node`, no Angular |
+| plain Vitest | `apps/web/vitest.config.ts` | `src/**/*.spec.ts`, `e2e/**/*.unit.spec.ts` and `e2e-a11y/**/*.unit.spec.ts`, **excluding** `*.component.spec.ts` and `*.integration.spec.ts` | `node`, no Angular |
 | `ng test` | `apps/web/angular.json` → `test` target | `src/**/*.component.spec.ts` | Angular build pipeline |
 
 `pnpm --filter @aeci/web test:unit` runs both in sequence.
+
+**`*.unit.spec.ts` beside the Playwright suites.** A pure helper of the e2e suite or the accessibility
+nightly is pinned by a `*.unit.spec.ts` file next to it, in `e2e/` or `e2e-a11y/`. The plain runner
+picks those up, so they run in the PR `unit-web` job, although the nightly specs themselves never run
+on a PR. Both Playwright configs skip the suffix (`testIgnore` in `playwright.config.ts`). On
+2026-11-25 that is 2 files in `e2e/` and 11 in `e2e-a11y/`. A helper spec named `*.spec.ts` in those
+folders would run as a Playwright test instead.
 
 The split is by capability, not by location: anything needing Angular DI must be
 named `*.component.spec.ts`, and anything that does **not** import from
@@ -625,6 +633,10 @@ it in CI: set the `SUPABASE_TEST_USER_EMAIL` / `SUPABASE_TEST_USER_PASSWORD` GH 
 
 The `projects` list above is **chromium-only**, and there is no cross-browser or real-device lane. The BrowserStack lane from Phase 7.8 (AECI-154, ADR 0012) was removed on 2026-10-10 under AECI-1269. Its workflow had been disabled since 2026-06-26 and never gated a merge or a deploy. ADR 0012 is marked superseded. Adding a cross-browser lane again needs a new decision record.
 
+The accessibility nightly (§8.4) is Chromium only too. Chris ruled on 2026-11-19 that a nightly
+Firefox and WebKit keyboard lane is acceptable (AECI-1885, epic AECI-1874). It is not built yet, and it
+still needs its decision record.
+
 ---
 
 ## 8. Accessibility testing — axe-core
@@ -815,7 +827,7 @@ with one axe scan of the state it left the page in: after a submit, an open menu
   `pnpm test:e2e:axe` runs that config. The default `playwright.config.ts` and `deploy.yml` never
   set it, and the same test pins that.
 - **Before the scan.** The sweep waits for the page's `load`, then for app stability
-  (`untilAppStable`, §14.3a), then for every `aria-busy="true"` region to clear, then for finite
+  (`untilAppStable`, §14.3 (a)), then for every `aria-busy="true"` region to clear, then for finite
   animations and transitions to finish. A scan mid-fade reads a part-transparent colour and reports a
   contrast failure no reader sees. A test that emulated forced colours gets the default back first:
   the contrast rule does not apply under forced colours. Every other emulated setting stays.
@@ -873,6 +885,25 @@ AECI-1875 added a nightly Playwright lane for accessibility checks that are too 
 PR. The sub-issues of AECI-1874 add the checks. The workflow, its skip rule and its alert are in
 `docs/CICD_PLAN.md` §11a-quater.
 
+**What the suite holds.** Nine suites over the 22 surfaces of the manifest, 600 tests in all. Counted
+with `playwright test -c playwright.a11y-nightly.config.ts --list` at `61eeafe65` (2026-11-25). The
+nightly also runs the e2e axe sweep lane (§8.4.2), the PR e2e suite's 838 tests from its own config.
+
+| Suite | Specs | Tests | Section |
+|---|---|---|---|
+| Reachability placeholder | `surfaces.spec.ts` | 22 | Below |
+| Keyboard walkthroughs | `keyboard-{public,reviewer,admin,vendor}.spec.ts` | 111 | §8.4.1 |
+| ARIA snapshots and cross-page checks | `aria-{public,reviewer,admin,vendor}.spec.ts`, `aria-cross-page.spec.ts` | 108 | §8.4.3 |
+| Announcements and form errors | `announcements-public.spec.ts`, `announcements-signed-in.spec.ts` | 38 | §8.4.4 |
+| Focus ring | `focus-ring.spec.ts` | 25 | §8.4.5 |
+| Magnification | `magnification.spec.ts` | 44 | §8.4.6 |
+| Interaction scripts | `interaction.spec.ts`, `interaction-flows.spec.ts` | 185 | §8.4.7 |
+| Voice control and switch | `voice-control.spec.ts` | 45 | §8.4.8 |
+| IBM Equal Access, report only | `ibm-equal-access.spec.ts` | 22 | §8.4.9 |
+
+The committed snapshots are in `e2e-a11y/__snapshots__/chromium/`: 22 tab orders (`keyboard-*.txt`)
+and 56 ARIA files (`aria-*.yml` and `aria-states-*.txt`). Every suite runs in Chromium only.
+
 **The boundary.** The suite lives in `apps/web/e2e-a11y/` and runs from its own config,
 `apps/web/playwright.a11y-nightly.config.ts`. The default `playwright.config.ts` keeps `testDir: './e2e'`,
 so the PR e2e job never sees the nightly specs. The nightly config reuses everything else from the default
@@ -920,6 +951,17 @@ green while it fails and turns red when it starts to pass, so the mark comes off
 anywhere else in `e2e-a11y/`, or a call without a literal `'AECI-<n>'`, fails `pnpm test:scripts`
 (`scripts/a11y-known-failures.test.mjs`).
 
+Each suite keeps its own list of known barriers, each entry with its literal issue ID. Three patterns
+are in use:
+
+| Pattern | What a mark covers | Used by |
+|---|---|---|
+| `markKnownBarriers` (`support/known-barriers.ts`) | One check on the surfaces the entry names | Keyboard (§8.4.1) |
+| `expectOnlyKnownProblems` (`support/known-barriers.ts`) | Only the problems the entry matches. A new problem on the same surface still fails, and a fixed one turns red | ARIA (§8.4.3), magnification (§8.4.6), interaction (§8.4.7), voice control (§8.4.8) |
+| A separate marked test beside an unmarked one | Only the assertion the marked test holds | Announcements (§8.4.4), focus ring (§8.4.5) |
+
+Use `expectOnlyKnownProblems` for a new check that reports a list of problems.
+
 **The summary.** `e2e-a11y/summary-reporter.ts` writes `apps/web/a11y-nightly-summary.json` after every
 run, and after every shard in CI. The workflow merges the shards' files with the e2e axe sweep's, and the alert reads the merged
 file to name the failing surfaces (§8.4.2). CI keeps that file as an artifact for 30 days. AECI-1682
@@ -935,13 +977,18 @@ will read it for the dated record.
 | `tests[].knownFailure` | The first known-failure ID the test carries, or `null`. One ID only: kept for readers that use it |
 | `tests[].knownFailures` | Every known-failure ID the test carries, once each, in issue number order (AECI-1874). A test that judges several problems marks each known one, so it can carry two or three. Empty when there is none. Read this one |
 | `knownFailures` | Merged file only. Every known-failure ID in the run, once, with `tests`, the number of tests that carry it |
+| `parts` | Merged file only. Each shard's file, whether it was found, and the read error if any. See §8.4.2 |
 | `axe` | The e2e axe sweep's results. Always an object: zero counts and empty lists for a run with no sweep. See §8.4.2 |
 | `voice` | The voice-control checks' effort counts, target size report and the fields input purpose judged. Always an object: empty lists for a run with no voice-control test. See §8.4.8 |
 | `ibm` | IBM Equal Access findings, report only: violations, needs review and recommendations. Each is marked by how axe saw the same element: failed it, only marked it for review, or said nothing. Only an axe failure takes a finding off the unique list. Always an object: zero counts and empty lists for a run with no IBM test. See §8.4.9 |
 
-**Adding a check.** Write a new spec in `e2e-a11y/` that loops over `SURFACES`. Add the
-`surface` and `route` annotations to each test, as `surfaces.spec.ts` does, so the summary can name the
-surface. Mint sessions with `personaCredentials()` and skip the same way. Add a surface to `surfaces.ts`,
+**Adding a check.** Write a new spec in `e2e-a11y/` that loops over `SURFACES`. Give each test
+`surfaceAnnotations(surface)`, so the summary can name the surface. Start it with `prepareSurface()`,
+which mints the persona's session and skips the same way as every other suite, then `openSurface()`,
+which waits for hydration (both in `support/surface-page.ts`). Install a write guard before the first
+action: `guardWrites` (`support/page-guards.ts`) for a check that only reads, `blockWrites`
+(`support/announcement-flows.ts`) for one that submits, then stub the one write it answers. Mark a
+known barrier as above. Keep each test independent, as "Shards" says. Add a surface to `surfaces.ts`,
 never to a spec. When you change the manifest, change the manual checklist §1 with it.
 `apps/web/e2e-a11y/README.md` is the short version.
 
@@ -2611,7 +2658,8 @@ downloads its engine from a CDN when it runs and reports metrics to IBM (§8.4.9
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
-    "test:a11y": "playwright test --grep @a11y",
+    "test:a11y:nightly": "playwright test -c playwright.a11y-nightly.config.ts",
+    "test:e2e:axe": "playwright test -c playwright.e2e-axe.config.ts",
     "test:visual": "playwright test --grep @visual",
     "test:smoke": "playwright test --grep @smoke",
     "test:coverage": "vitest run --coverage",
@@ -2619,6 +2667,11 @@ downloads its engine from a CDN when it runs and reports metrics to IBM (§8.4.9
   }
 }
 ```
+
+The block is the original plan, not the package's script list. `apps/web/package.json` is the truth.
+The two accessibility nightly scripts above are real, and the root `package.json` forwards both. A
+`test:a11y` script with `--grep @a11y` never existed: the PR axe scans run inside `pnpm test:e2e`.
+`test:unit:watch`, `test:visual`, `test:smoke` and `test:size` do not exist either.
 
 ---
 

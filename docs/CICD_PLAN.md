@@ -91,7 +91,7 @@ Three permanent deployed environments, all on Cloudflare, plus local:
 
 The per-PR preview tier is gone. Chris ruled to use staging for human review and for Algolia. `pr-preview.yml`, the `migrate-preview` job and the two parked preview-URL jobs (`e2e-tests-preview`, `integration-runner-preview`) are deleted. Required checks are unchanged: Lint & typecheck, Unit tests, Build SSR Worker.
 
-E2E and axe run **on every PR** against a local `dev:bound` server in `deploy.yml`. Lighthouse has its own workflow ([`lighthouse.yml`](../.github/workflows/lighthouse.yml)). It runs nightly and as the demo promote gate (§11c), against the local config.
+E2E and axe run **on every PR** against a local `dev:bound` server in `deploy.yml`. Lighthouse has its own workflow ([`lighthouse.yml`](../.github/workflows/lighthouse.yml)). It runs nightly and as the demo promote gate (§11c), against the local config. The accessibility nightly ([`a11y-nightly.yml`](../.github/workflows/a11y-nightly.yml)) runs nightly on `main` HEAD, or by hand on any branch, against its own local `dev:bound` servers. It never runs on a PR (§11a-quater).
 
 - **Local dev** runs the top-level block of each `wrangler.jsonc` with no `--env`. Its `ENV` is `development`. The `dev:preview` package scripts kept their names but no longer pass `--env preview`.
 - **The top-level API block keeps** the names `aeci-app-preview` (D1), `aeci-uploads-preview` (R2), `aeci-promote-preview` (Workflow) and the two preview KV ids as local-only names, so existing `.wrangler/state` carries over.
@@ -274,7 +274,7 @@ vitest and `ng test` (207 s) under one `pnpm -r`. Each now has its own runner.
 |---|---|---|
 | `unit-api` (matrix `shard: [1, 2]`) | `Unit tests (api 1/2)`, `Unit tests (api 2/2)` | apps/api vitest, `--shard=N/2`. On push, with coverage and `--reporter=blob`; each shard uploads `apps/api/.vitest-reports` as `blob-api-N` |
 | `unit-api-coverage` | `Unit tests (api coverage)` | Sets up and plans on PRs; coverage steps run only on push. Downloads both blobs and runs `vitest run --merge-reports --coverage`, then the coverage advisory. Re-reports the shards' results, so a red shard turns it red too |
-| `unit-web` | `Unit tests (web + shared)` | root `scripts/*.test.mjs`, apps/web vitest + `ng test`, packages/shared, apps/agent, apps/datatool |
+| `unit-web` | `Unit tests (web + shared)` | root `scripts/*.test.mjs`, apps/web vitest + `ng test`, packages/shared, apps/agent, apps/datatool. The apps/web vitest run includes the `*.unit.spec.ts` helpers of `apps/web/e2e/` and `apps/web/e2e-a11y/` (`TESTING_STRATEGY.md` §4.3a), and the root scripts include the accessibility nightly's workflow, merge, alert and known-failure tests and the e2e `./fixtures` import check (`scripts/e2e-axe-sweep.test.mjs`) |
 | `unit-tests` | `Unit tests` (**required**) | Nothing. Passes only when `unit-api`, `unit-api-coverage` and `unit-web` all report `success` |
 
 The gate has `if: always()` and checks each `needs.<job>.result` explicitly. Without that, a red
@@ -1502,6 +1502,7 @@ worker, 2026-11-24, against a fresh local D1, 290 tests:
 | Unsharded (the sum of the four-shard run) | 290 tests, 23.2 min |
 | 4 shards | 83, 5.1 min · 63, 5.6 min · 82, 10.7 min · 62, 1.5 min |
 | 8 shards | 37, 2.3 · 39, 1.8 · 36, 2.3 · 34, 7.0 · 42, 6.9 · 30, 3.4 · 36, 2.3 · 36, 1.6 (min) |
+| 8 shards at `61eeafe65` (2026-11-25), 600 tests, counted with `--list --shard=N/8`, not timed | 81 · 69 · 76 · 77 · 72 · 84 · 66 · 75 |
 
 Playwright splits by test count, not by time. Two groups carry most of the time: the signed-out
 keyboard walks (80 tests, 7.0 min) and the focus ring (25 tests, 6.1 min). Their tests land next to each
@@ -1518,8 +1519,9 @@ shards 4 and 5 each held about ten interaction surfaces in a row, and shard 4 ho
 the slowest load at about 75 seconds. Those ten surfaces took about 9 minutes locally, on top of the
 other suites' tests on the same shard. Read the shard times off the first nightly. The second rule engine (AECI-1884) is 22 tests. One local worker ran
 them in 1.2 to 2.0 minutes, and once in 3.3 minutes under load. Playwright gives a shard a contiguous slice of the
-sorted list, so all 22 land on one shard. On 2026-11-24 that was shard 4, with 13 focus ring tests
-and 21 keyboard tests. It needs no workflow step, because `pnpm install` installs the engine. Two tests in the eight-shard run timed out on a 5-second ARIA read
+sorted list, so all 22 land on one shard. At `61eeafe65` (2026-11-25) that is shard 3, with 21 focus
+ring tests, the 9 error-prevention flows and 24 interaction tests. It was shard 4 on 2026-11-24. The slice moves as
+tests are added. It needs no workflow step, because `pnpm install` installs the engine. Two tests in the eight-shard run timed out on a 5-second ARIA read
 while the machine's load average was about 50. Both passed on a rerun. The run uses 12 runners at once
 with `e2e-axe`, under the 20 concurrent jobs a public repository gets. Raise `SUITE_SHARDS` and the
 matrix together when a shard passes about 15 minutes in Actions.

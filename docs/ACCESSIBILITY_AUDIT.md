@@ -26,7 +26,7 @@ It is invisible to every automated gate we run, for a specific and instructive r
 
 | §21.3 requirement | Verdict | Evidence |
 |---|---|---|
-| Automated: axe-core in Playwright | ✅ Already shipped | 29 specs at `wcag2a/wcag2aa/wcag21a/wcag21aa`, zero-violation assertions |
+| Automated: axe-core in Playwright | ✅ Already shipped | 29 specs at `wcag2a/wcag2aa/wcag21a/wcag21aa`, zero-violation assertions, on 2026-09-09. *As built 2026-11-25 (AECI-1876):* 56 of the 106 e2e specs run axe themselves on every PR. The accessibility nightly also scans the end state of every e2e test (`TESTING_STRATEGY.md` §8.2) |
 | Lighthouse Accessibility ≥ 95 enforced in CI | ✅ Already shipped | `.lighthouserc.cjs`, error-gated on 15 URLs |
 | Manual: keyboard-only through the full review-submission flow | ⚠️ **Partial** | Form semantics and controls verified. The `Tab` walk and the submit step were **not** completed — see §6 |
 | Manual: screen reader on home / product / review submission | ⚠️ **Machine layer done, speech layer open** | §3 findings; the VoiceOver and NVDA scripts in the checklist §6/§7 close the rest |
@@ -55,7 +55,7 @@ The pass was run with Chrome MCP browser automation. `read_page` returns **Chrom
 ### Operating notes (moved from CLAUDE.md, 2026-09-23)
 
 - This file holds the dated **results** of runs of `docs/a11y-manual-testing-checklist.md`. The AECI-244 public-site pass of 2026-09-09, against prod `44aba9cf`, is the first run.
-- Standing warning for every run: axe structurally cannot see the WCAG 4.1.3 status-message class. The defect only exists after a form submit, and axe never submits.
+- Standing warning for every run: axe structurally cannot see the WCAG 4.1.3 status-message class. The defect only exists after a form submit. Since AECI-829 and AECI-1876 axe does scan states after a submit, but no axe rule checks that a change is announced. The nightly announcement checks (`TESTING_STRATEGY.md` §8.4.4, AECI-1880) record that in the DOM. Only a screen reader shows whether it is spoken.
 
 ---
 
@@ -224,7 +224,7 @@ Stated plainly so nobody reads a gap as a pass.
 5. **Three dialogs were never opened.** Production's moderation queue is empty (0 reviews pending), the operator account has no reviews, so no delete-review dialog exists, and the delete-account dialog is destructive so it was deliberately left alone. Dialog focus management — focus entry, bidirectional trap, Escape, focus restore — is **untested on every surface**. It is the single largest remaining gap and is best closed on a local seeded database, not production.
 6. **Desktop viewport only** (1494×1239). The mobile nav (`aec-nav-menu`, `lg:hidden`) was never rendered, so its disclosure and dialog behaviour is untested.
 7. **No product with reviews was available**, so the rating and review summary on product detail could not be exercised.
-8. **WCAG 2.2 is not in the automated gate.** The e2e axe suites run the `wcag2a` / `wcag2aa` / `wcag21a` / `wcag21aa` tags. `target-size` (SC 2.5.8) is tagged `wcag22aa`, so it never ran there. AECI-1079 found it failing on the integration-row partner link (a 20px-tall target) and fixed it on 2026-09-24. One rule-scoped case now guards that section at 1280px and 375px (`phase2-a11y.spec.ts`). A local axe run with `wcag22aa` on product detail, the pair page, `/integrations`, `/products` and a vendor page found no other violation on that date. The rest of the site is not gated on 2.2. Since AECI-1883 the accessibility nightly reports `target-size` on every manifest surface, without failing the run (`TESTING_STRATEGY.md` §8.4.8). Its first run, on 2026-11-24, reported nothing.
+8. **WCAG 2.2 is not in the automated gate.** The e2e axe suites run the `wcag2a` / `wcag2aa` / `wcag21a` / `wcag21aa` tags. `target-size` (SC 2.5.8) is tagged `wcag22aa`, so it never ran there. AECI-1079 found it failing on the integration-row partner link (a 20px-tall target) and fixed it on 2026-09-24. One rule-scoped case now guards that section at 1280px and 375px (`phase2-a11y.spec.ts`). A local axe run with `wcag22aa` on product detail, the pair page, `/integrations`, `/products` and a vendor page found no other violation on that date. The rest of the site is not gated on 2.2. Since AECI-1883 the accessibility nightly reports `target-size` on every manifest surface, without failing the run (`TESTING_STRATEGY.md` §8.4.8). Its first run, on 2026-11-24, reported nothing. The nightly e2e axe sweep (AECI-1876) also reports every `wcag22aa` rule on the end state of every e2e test, and IBM Equal Access (AECI-1884) reports WCAG 2.2 A and AA findings on every manifest surface. Both are report only (`TESTING_STRATEGY.md` §8.3), so the rest of the site is still not gated on 2.2.
 
 ---
 

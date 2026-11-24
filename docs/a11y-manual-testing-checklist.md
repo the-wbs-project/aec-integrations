@@ -44,7 +44,7 @@ Run each surface with **(a) keyboard only**, then **(b) VoiceOver**, then **(c) 
 > the tab order against a reviewed snapshot; that Tab reaches every element a script predicts, and no
 > hidden one; the skip link puts focus in `main` with no page load; no Tab stop navigates or opens a popup;
 > every dialog, menu and dropdown opens by keyboard, closes on `Esc` and returns focus to its trigger,
-> a modal dialog traps `Tab` and `Shift+Tab`, and any other popup closes or keeps focus inside it on `Tab`; and focus is not left on the page after a client navigation. It does not judge
+> a modal dialog traps `Tab` and `Shift+Tab`, and any other popup closes or keeps focus inside it on `Tab`; and focus is not left on the page body after a client navigation. It does not judge
 > whether the order matches reading order, or run outside Chrome (AECI-1885). The manual pass above keeps
 > its full scope and cadence.
 >
@@ -233,4 +233,4 @@ down — that divergence is the entire reason §21.3 asks for both.
 
 ---
 
-_Automated coverage (already in CI, not a substitute for the above): axe-core in e2e + Lighthouse a11y ≥95 on the public pages (AECI-65); console-health harness (AECI-162)._
+_Automated coverage (already in CI, not a substitute for the above): axe-core in e2e + Lighthouse a11y ≥95 on the public pages (AECI-65); console-health harness (AECI-162); the accessibility nightly on `main`, Chromium only (AECI-1874, `TESTING_STRATEGY.md` §8.4)._

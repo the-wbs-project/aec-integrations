@@ -124,6 +124,8 @@ Worker's Local Explorer directly: it assumes the API port is one below the web p
 `AECI_API_PORT` is set. Set that variable when the stack uses a different API port.
 Set `PLAYWRIGHT_BASE_URL` to target a deployed tier or an already-running stack without
 Playwright managing its server; local-only specs such as browser evidence then skip.
+The two accessibility nightly lanes, `pnpm test:a11y:nightly` and `pnpm test:e2e:axe`, run the same
+way with both variables set (`TESTING_STRATEGY.md` §8.4).
 
 If nothing answers on a non-default `AECI_WEB_PORT`, the run stops at once with a message. It does
 not boot `pnpm dev:bound` itself, because the API Worker would default to the reserved 8787
