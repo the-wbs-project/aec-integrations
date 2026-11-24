@@ -1,4 +1,4 @@
-import { Component, signal } from '@angular/core';
+import { Component, computed, signal } from '@angular/core';
 
 import { SeoQueuePanel } from './seo-queue-panel';
 import { SeoTrendPanel } from './seo-trend-panel';
@@ -43,13 +43,30 @@ import { SeoTrendPanel } from './seo-trend-panel';
         </p>
       </div>
 
-      <p class="sr-only" role="status" aria-live="polite">{{ liveMessage() }}</p>
+      <!-- Each message renders a NEW span, keyed by a counter, so the same text
+           twice (copying one URL twice) is still a DOM change a screen reader
+           announces. No timer and no clear-then-set, which zoneless would batch
+           into nothing. -->
+      <p class="sr-only" role="status" aria-live="polite">
+        @for (m of liveMessages(); track m.id) {
+          <span>{{ m.text }}</span>
+        }
+      </p>
 
-      <aec-seo-queue-panel (announce)="liveMessage.set($event)" />
+      <aec-seo-queue-panel (announce)="announce($event)" />
       <aec-seo-trend-panel />
     </section>
   `,
 })
 export class SeoPage {
-  protected readonly liveMessage = signal('');
+  private readonly live = signal<{ id: number; text: string }>({ id: 0, text: '' });
+  /** The live region's content: one entry, replaced on every message. */
+  protected readonly liveMessages = computed(() => {
+    const m = this.live();
+    return m.text ? [m] : [];
+  });
+
+  protected announce(text: string): void {
+    this.live.update((m) => ({ id: m.id + 1, text }));
+  }
 }

@@ -91,13 +91,20 @@ export class SeoQueuePanel {
   protected readonly data = signal<SeoQueueResponse | null>(null);
   /** The first load. The panel shows its loading line only then. */
   protected readonly loading = signal(true);
+  /** The FIRST load failed, so there are no lanes to show: the whole panel is
+   *  the error. */
   protected readonly loadFailed = signal(false);
+  /** A lane switch or a page change failed. The lane cards stay, because they
+   *  are still true, and only the list area shows the error and its retry. */
+  protected readonly listFailed = signal(false);
   /** A lane switch is in flight. The list shows its own loading line. */
   protected readonly switching = signal(false);
   /** A page change is in flight. The rows stay and the paginator disables. */
   protected readonly paging = signal(false);
 
   protected readonly engine = signal<SeoEngine>('google');
+  /** The selected lane's list is open. Pressing the pressed lane closes it. */
+  protected readonly expanded = signal(true);
   protected readonly page = signal(1);
   /** The URL last copied, for its button's own "Copied" state. */
   protected readonly copiedUrl = signal<string | null>(null);
@@ -130,8 +137,11 @@ export class SeoQueuePanel {
     () => this.lanes().find((l) => l.lane === 'uncrawled' && l.engine === this.engine()) ?? null,
   );
 
-  /** The list shows only for a lane with rows. An empty lane says so in its card. */
-  protected readonly showList = computed(() => (this.selectedLane()?.count ?? 0) > 0);
+  /** The list shows only for an open lane with rows. An empty lane says so in
+   *  its card. */
+  protected readonly showList = computed(
+    () => this.expanded() && (this.selectedLane()?.count ?? 0) > 0,
+  );
 
   protected readonly engineLabel = computed(() => SEO_ENGINE_LABELS[this.engine()]);
 
@@ -148,6 +158,7 @@ export class SeoQueuePanel {
   private async load(): Promise<boolean> {
     const seq = ++this.requestSeq;
     this.loadFailed.set(false);
+    this.listFailed.set(false);
     try {
       const res = await this.api.queue({
         lane: 'uncrawled',
@@ -160,8 +171,11 @@ export class SeoQueuePanel {
       return true;
     } catch {
       if (seq !== this.requestSeq) return false;
-      this.loadFailed.set(true);
-      this.data.set(null);
+      // Only a failed FIRST load blanks the panel. After that the lane cards
+      // are still true, so a failed lane switch or page change keeps them and
+      // fails in the list area alone.
+      if (this.data() === null) this.loadFailed.set(true);
+      else this.listFailed.set(true);
       return false;
     } finally {
       if (seq === this.requestSeq) {
@@ -177,10 +191,35 @@ export class SeoQueuePanel {
     void this.load();
   }
 
-  /** Select a "not crawled" lane. Page 1, oldest first. Focus stays on the
-   *  pressed toggle, and the live region says what the list now shows. */
+  /** Retry a failed lane switch or page change, for the same lane and page. */
+  protected async retryList(): Promise<void> {
+    this.switching.set(true);
+    if (await this.load()) this.announce.emit(this.listAnnouncement());
+  }
+
+  /** A lane's toggle is pressed while its list is open. */
+  protected isOpen(engine: SeoEngine): boolean {
+    return this.engine() === engine && this.expanded();
+  }
+
+  /**
+   * Press a "not crawled" lane. Another lane opens on page 1, oldest first.
+   * The open lane closes, and pressing it again reopens it on the rows it
+   * already has. Focus stays on the button either way, and the live region
+   * says what changed.
+   */
   protected async selectEngine(engine: SeoEngine): Promise<void> {
-    if (this.engine() === engine) return;
+    if (this.engine() === engine) {
+      const open = !this.expanded();
+      this.expanded.set(open);
+      this.announce.emit(
+        open
+          ? this.listAnnouncement()
+          : $localize`:@@admin.seo.queue.announce.closed:URL list closed.`,
+      );
+      return;
+    }
+    this.expanded.set(true);
     this.engine.set(engine);
     this.page.set(1);
     this.copiedUrl.set(null);
@@ -208,6 +247,15 @@ export class SeoQueuePanel {
     const engine = this.engineLabel();
     const page = this.page();
     return $localize`:@@admin.seo.queue.announce.list:Listing pages not crawled by ${engine}:ENGINE:, page ${page}:PAGE: of ${pages}:PAGES:.`;
+  }
+
+  /** The copy button's accessible name. It carries the URL, so each of the 25
+   *  buttons says which page it copies. Bound from `$localize`, because an
+   *  interpolated `i18n-aria-label` emits no attribute in this codebase. */
+  protected copyLabel(url: string): string {
+    return this.copiedUrl() === url
+      ? $localize`:@@admin.seo.list.copiedAria:Copied ${url}:URL:`
+      : $localize`:@@admin.seo.list.copyAria:Copy ${url}:URL:`;
   }
 
   /** Copy one URL for pasting into the engine's URL inspection tool. */

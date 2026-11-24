@@ -7,7 +7,7 @@
  * `null` breaks the line, an all-`null` stretch is hatched and labelled, the
  * hidden table prints the gap label, and `openLast` / `unit="percent"`.
  */
-import { provideZonelessChangeDetection } from '@angular/core';
+import { provideZonelessChangeDetection, type WritableSignal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
 
@@ -118,6 +118,39 @@ describe('LineChart gaps (AECI-822)', () => {
     expect(hollow).toHaveLength(1);
     expect(tableRows(el).at(-1)).toEqual(['6', '27% so far']);
     expect(tableRows(el)[0]).toEqual(['1', '20%']);
+  });
+
+  it('the visible tooltip says "so far" on the open week, as the table does', () => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ providers: [provideZonelessChangeDetection()] });
+    const fixture = TestBed.createComponent(LineChart);
+    for (const [k, v] of Object.entries({
+      categories: WEEKS,
+      categoryHeader: 'Week',
+      ariaLabel: 'Crawled',
+      emptyLabel: 'Nothing',
+      series: [series([0.2, 0.3, 0.4, 0.5, 0.6, 0.27])],
+      unit: 'percent',
+      openLast: true,
+      openLabel: 'so far',
+    })) {
+      fixture.componentRef.setInput(k, v);
+    }
+    const hover = (
+      fixture.componentInstance as unknown as { hoverIndex: WritableSignal<number | null> }
+    ).hoverIndex;
+    const tooltip = () =>
+      (fixture.nativeElement as HTMLElement).querySelector('div.pointer-events-none')
+        ?.textContent ?? '';
+
+    hover.set(6); // 1-based: the open week.
+    fixture.detectChanges();
+    expect(tooltip()).toContain('27% so far');
+
+    hover.set(1);
+    fixture.detectChanges();
+    expect(tooltip()).toContain('20%');
+    expect(tooltip()).not.toContain('so far');
   });
 
   it('a percent axis always runs to 100%', () => {

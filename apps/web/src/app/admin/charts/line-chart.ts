@@ -374,13 +374,15 @@ export class LineChart {
   protected readonly hoverRows = computed(() => {
     const idx = this.hoverIndex();
     if (idx === null) return [];
-    const text = this.valueText();
+    // The table's formatter, so an open week reads "so far" in the tooltip too.
+    // With no `openLast` it is the plain unit format, as before.
+    const text = this.tableFormat();
     return this.series().map((s) => {
       const value = s.values[idx - 1];
       return {
         key: s.key,
         label: s.label,
-        value: value === null ? this.gapLabel() : text(value ?? 0),
+        value: value === null ? this.gapLabel() : text(value ?? 0, idx - 1),
         swatch: slotClass(s.slot, 'swatch'),
       };
     });

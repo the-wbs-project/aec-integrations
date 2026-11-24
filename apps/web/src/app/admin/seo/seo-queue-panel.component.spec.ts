@@ -314,14 +314,19 @@ describe('SeoQueuePanel', () => {
     );
     const row = [...el.querySelectorAll('tbody tr')][1]!;
     const copy = buttonByText(row, 'Copy');
-    // The button is described by its own URL, so a screen reader hears which.
-    const describedBy = copy.getAttribute('aria-describedby')!;
-    expect(text(el.querySelector(`#${describedBy}`))).toBe('https://x.test/two');
+    // Each button's accessible name carries its own URL, so 25 buttons are
+    // never 25 identical "Copy"s. The rendered attribute is asserted, because an
+    // interpolated i18n-aria-label would emit none.
+    expect(copy.getAttribute('aria-label')).toBe('Copy https://x.test/two');
+    expect(
+      buttonByText([...el.querySelectorAll('tbody tr')][0]!, 'Copy').getAttribute('aria-label'),
+    ).toBe('Copy https://x.test/one');
     copy.click();
     await flush(fixture);
 
     expect(writeText).toHaveBeenCalledWith('https://x.test/two');
     expect(text(copy)).toBe('Copied');
+    expect(copy.getAttribute('aria-label')).toBe('Copied https://x.test/two');
     expect(text(buttonByText([...el.querySelectorAll('tbody tr')][0]!, 'Copy'))).toBe('Copy');
     expect(announced.at(-1)).toBe('Copied https://x.test/two');
   });
@@ -374,6 +379,111 @@ describe('SeoQueuePanel', () => {
   it('renders the response notes through AdminNotes', async () => {
     const { el } = await setup(async () => response(lanes(1, 1, 1), [item('https://x.test/a')]));
     expect(text(el.querySelector('aec-admin-notes'))).toContain("site's gateway records");
+  });
+
+  it('an empty re-index queue still links to /admin/reindex', async () => {
+    const { el } = await setup(async () =>
+      response(lanes(0, 2, 1, null), [item('https://x.test/a')]),
+    );
+    const reindex = card(el, 'reindex', 'google');
+    expect(text(reindex)).toContain('Nothing outstanding');
+    expect(reindex.querySelector('a')?.getAttribute('href')).toBe('/admin/reindex');
+  });
+
+  it('pressing the open lane closes its list, keeps focus and stays truthful; pressing again reopens it', async () => {
+    const { el, fixture, api, announced } = await setup(async () =>
+      response(lanes(1, 2, 1), [item('https://x.test/a')]),
+    );
+    const google = buttonByText(card(el, 'uncrawled', 'google'), 'Show URLs');
+    expect(google.getAttribute('aria-expanded')).toBe('true');
+    google.focus();
+    google.click();
+    await flush(fixture);
+
+    expect(google.getAttribute('aria-pressed')).toBe('false');
+    expect(google.getAttribute('aria-expanded')).toBe('false');
+    expect(el.querySelector('table')).toBeNull();
+    expect(document.activeElement).toBe(google);
+    expect(announced.at(-1)).toBe('URL list closed.');
+    // Closing fetches nothing.
+    expect(api.queue).toHaveBeenCalledTimes(1);
+
+    google.click();
+    await flush(fixture);
+    expect(google.getAttribute('aria-pressed')).toBe('true');
+    expect(google.getAttribute('aria-expanded')).toBe('true');
+    expect(el.querySelector('table')).not.toBeNull();
+    expect(api.queue).toHaveBeenCalledTimes(1);
+  });
+
+  it('a failed page change keeps the lane cards and fails in the list area, with a retry', async () => {
+    let failPage2 = true;
+    const { el, fixture, api } = await setup(async (q) => {
+      if (q.page === 2 && failPage2) throw new Error('500');
+      return response(lanes(7, 60, 3), [item(`https://x.test/p${q.page}`)], {
+        page: q.page,
+        total: 60,
+      });
+    });
+    buttonByText(el, 'Next').click();
+    await flush(fixture);
+
+    expect(el.querySelectorAll('[data-testid^="admin-seo-lane-"]')).toHaveLength(3);
+    expect(text(card(el, 'reindex', 'google'))).toContain('7 URLs waiting');
+    const listError = el.querySelector('[data-testid="admin-seo-list-error"]');
+    expect(text(listError?.querySelector('[role="alert"]'))).toContain(
+      "We couldn't load these URLs",
+    );
+    expect(text(el)).not.toContain("We couldn't load the search queue");
+    expect(el.querySelector('table')).toBeNull();
+
+    failPage2 = false;
+    buttonByText(listError!, 'Try again').click();
+    await flush(fixture);
+    expect(api.queue).toHaveBeenLastCalledWith({
+      lane: 'uncrawled',
+      engine: 'google',
+      page: 2,
+      perPage: 25,
+    });
+    expect(el.querySelector('[data-testid="admin-seo-list-error"]')).toBeNull();
+    expect(text(el.querySelector('tbody'))).toContain('https://x.test/p2');
+  });
+
+  it("a failed lane switch keeps the cards and shows the list error, not the old lane's rows", async () => {
+    const { el, fixture } = await setup(async (q) => {
+      if (q.engine === 'bing') throw new Error('500');
+      return response(lanes(1, 2, 3), [item('https://x.test/google-row')]);
+    });
+    buttonByText(card(el, 'uncrawled', 'bing'), 'Show URLs').click();
+    await flush(fixture);
+    expect(el.querySelectorAll('[data-testid^="admin-seo-lane-"]')).toHaveLength(3);
+    expect(el.querySelector('[data-testid="admin-seo-list-error"]')).not.toBeNull();
+    expect(text(el)).not.toContain('https://x.test/google-row');
+  });
+
+  it('ignores a stale page answer that lands after a newer page was asked for', async () => {
+    let releasePage2: (() => void) | null = null;
+    const { el, fixture } = await setup(async (q) => {
+      if (q.page === 2) await new Promise<void>((r) => (releasePage2 = r));
+      return response(lanes(1, 80, 1), [item(`https://x.test/p${q.page}`)], {
+        page: q.page,
+        total: 80,
+      });
+    });
+    buttonByText(el, 'Next').click();
+    await settle();
+    // While page 2 hangs, the operator goes back to page 1.
+    void (fixture.componentInstance as unknown as { goToPage(p: number): Promise<void> }).goToPage(
+      1,
+    );
+    await flush(fixture);
+    expect(text(el.querySelector('tbody'))).toContain('https://x.test/p1');
+
+    (releasePage2 as (() => void) | null)?.();
+    await flush(fixture);
+    expect(text(el.querySelector('tbody'))).toContain('https://x.test/p1');
+    expect(text(el.querySelector('tbody'))).not.toContain('https://x.test/p2');
   });
 
   it('a failed load shows an alert and Try again, which reloads', async () => {
