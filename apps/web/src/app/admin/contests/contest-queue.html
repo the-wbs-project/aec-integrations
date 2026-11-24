@@ -11,7 +11,7 @@
   </h2>
   @if (view() === 'protests') {
   <p
-    class="mt-2 max-w-prose text-t-14 text-(--text-secondary)"
+    class="mt-2 max-w-[56ch] text-t-14 text-(--text-secondary)"
     i18n="@@admin.contests.protest.intro"
   >
     The owner of a claimed integration declined a contest, or did not answer it for 30 days, and the
@@ -20,7 +20,7 @@
     details, and it files no Linear issue.
   </p>
   } @else {
-  <p class="mt-2 max-w-prose text-t-14 text-(--text-secondary)" i18n="@@admin.contests.intro">
+  <p class="mt-2 max-w-[56ch] text-t-14 text-(--text-secondary)" i18n="@@admin.contests.intro">
     A vendor on one end of an integration says one of its fields is wrong. Read the value on record,
     the proposed value and the reason, then accept or decline. Accepting never edits the live
     listing: it files a review issue in Linear so the review app applies the value.
