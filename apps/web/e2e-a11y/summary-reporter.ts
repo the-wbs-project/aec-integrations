@@ -15,6 +15,11 @@
  * annotations of `voice-control.spec.ts` with `summarizeVoice()`. It is empty
  * lists for a run with no voice-control test. Adding it kept `schemaVersion` 1.
  *
+ * AECI-1884: the `ibm` block folds the `ibm-equal-access` annotations of
+ * `ibm-equal-access.spec.ts` with `summarizeIbm()`: IBM Equal Access findings,
+ * report only, each marked when axe also reported it. Zero counts and empty
+ * lists for a run with no IBM test. Adding it kept `schemaVersion` 1.
+ *
  * Options: `outputFile`, the file name next to the config (default
  * `a11y-nightly-summary.json`). The e2e sweep lane writes its own file so a local
  * run of both lanes keeps both. `scripts/a11y-nightly-merge-summary.mjs` merges them.
@@ -40,6 +45,7 @@ import {
   type AxeSummary,
 } from '../e2e/axe-summary';
 import { KNOWN_FAILURE_ANNOTATION } from './known-failure';
+import { summarizeIbm, type IbmSummary } from './support/ibm-overlap';
 import { summarizeVoice, type VoiceSummary } from './support/voice-summary';
 
 export const SUMMARY_FILE = 'a11y-nightly-summary.json';
@@ -79,6 +85,11 @@ export interface A11yNightlySummary {
    * Always an object. Empty lists for a run with no voice-control test.
    */
   readonly voice: VoiceSummary;
+  /**
+   * AECI-1884: IBM Equal Access findings, report only, with their overlap with
+   * axe. Always an object. Zero counts and empty lists for a run with no IBM test.
+   */
+  readonly ibm: IbmSummary;
 }
 
 function annotation(test: TestCase, result: TestResult | undefined, type: string): string | null {
@@ -138,6 +149,18 @@ export function buildSummary(
       axe: scan?.status ?? null,
     };
   });
+  // Playwright may list a runtime annotation on both the result and the test,
+  // so each test's annotations are de-duplicated before they are folded.
+  const annotations = tests.flatMap((test) => {
+    const all = [...(test.results.at(-1)?.annotations ?? []), ...test.annotations];
+    const seen = new Set<string>();
+    return all.filter((a) => {
+      const key = `${a.type}\u0000${a.description ?? ''}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  });
   const count = (...outcomes: TestOutcome[]): number =>
     rows.filter((r) => outcomes.includes(r.outcome)).length;
   return {
@@ -155,20 +178,8 @@ export function buildSummary(
     },
     tests: rows,
     axe: summarizeAxe(scans),
-    // Playwright may list a runtime annotation on both the result and the test,
-    // so each test's annotations are de-duplicated before they are folded.
-    voice: summarizeVoice(
-      tests.flatMap((test) => {
-        const all = [...(test.results.at(-1)?.annotations ?? []), ...test.annotations];
-        const seen = new Set<string>();
-        return all.filter((a) => {
-          const key = `${a.type}\u0000${a.description ?? ''}`;
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        });
-      }),
-    ),
+    voice: summarizeVoice(annotations),
+    ibm: summarizeIbm(annotations),
   };
 }
 
@@ -210,6 +221,14 @@ export default class SummaryReporter implements Reporter {
       console.log(
         `[a11y-nightly] axe sweep: ${s.scanned} scanned, ${s.optedOut} opted out, ` +
           `${s.notScanned} not scanned. Report-only rules: ${summary.axe.reportOnly.rules.length}.`,
+      );
+    }
+    if (summary.ibm.surfaces > 0) {
+      const c = summary.ibm.counts;
+      console.log(
+        `[a11y-nightly] IBM Equal Access, report only: ${summary.ibm.surfaces} surfaces, ` +
+          `${c.violation} violations (${c.violation - summary.ibm.alsoAxe.violation} not in axe), ` +
+          `${c.needsReview} need review, ${c.recommendation} recommendations.`,
       );
     }
   }

@@ -292,6 +292,9 @@ importers:
       '@vitest/coverage-v8':
         specifier: ^4.1.8
         version: 4.1.8(vitest@4.1.8)
+      accessibility-checker-engine:
+        specifier: 4.0.35
+        version: 4.0.35
       jsdom:
         specifier: ^28.1.0
         version: 28.1.0
@@ -4007,6 +4010,9 @@ packages:
   accepts@2.0.0:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
     engines: {node: '>= 0.6'}
+
+  accessibility-checker-engine@4.0.35:
+    resolution: {integrity: sha512-0UlhdqYGsijrlFpXgUZw+g771Bp9nZcgHsvfcK2/dxPkqU2p3sOc+tQpxm/PxcDrMSRsMsP2CBovM7Jv8Z6mCA==}
 
   acorn-jsx@5.3.2:
     resolution: {integrity: sha512-rq9s+JNhf0IChjtDXxllJ7g41oZk5SlXtp0LHwyA5cejwn7vKmKp4pPri6YEePv2PU65sAsegbXtIinmDFDXgQ==}
@@ -10976,6 +10982,8 @@ snapshots:
     dependencies:
       mime-types: 3.0.2
       negotiator: 1.1.0
+
+  accessibility-checker-engine@4.0.35: {}
 
   acorn-jsx@5.3.2(acorn@8.16.0):
     dependencies:

@@ -16,7 +16,10 @@
  * The rule grouping matches `summarizeAxe()` in `apps/web/e2e/axe-summary.ts`. Keep the two in
  * step. The `voice` block (AECI-1883) matches `summarizeVoice()` in
  * `apps/web/e2e-a11y/support/voice-summary.ts`, and the job summary gets its effort table and
- * target size report. No dependencies, so the job needs no `pnpm install`.
+ * target size report. The `ibm` block (AECI-1884) matches `summarizeIbm()` in
+ * `apps/web/e2e-a11y/support/ibm-overlap.ts`, and the job summary gets its violations table, with
+ * the "needs review" and recommendation lists collapsed. No dependencies, so the job needs no
+ * `pnpm install`.
  *
  * Exit codes: 0 merged, 2 a flag is wrong or no part was given.
  */
@@ -131,6 +134,69 @@ export function mergeVoice(blocks) {
   };
 }
 
+/** Examples kept per rule. Matches `EXAMPLES_KEPT` in `ibm-overlap.ts`. */
+export const IBM_EXAMPLES_KEPT = 3;
+const IBM_BUCKETS = ['violation', 'needsReview', 'recommendation'];
+const IBM_LISTS = {
+  violation: 'violations',
+  needsReview: 'needsReview',
+  recommendation: 'recommendations',
+};
+const byText = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+
+/** Merge IBM rule rows from several shards by rule id. Most nodes first, then rule id. */
+export function mergeIbmRows(lists) {
+  const byId = new Map();
+  for (const row of lists.flat()) {
+    const prev = byId.get(row.ruleId);
+    if (!prev) {
+      byId.set(row.ruleId, {
+        ...row,
+        examples: (row.examples ?? []).slice(0, IBM_EXAMPLES_KEPT),
+      });
+      continue;
+    }
+    byId.set(row.ruleId, {
+      ...prev,
+      wcag: [...new Set([...prev.wcag, ...(row.wcag ?? [])])].sort(byText),
+      nodes: prev.nodes + (Number(row.nodes) || 0),
+      alsoAxe: prev.alsoAxe + (Number(row.alsoAxe) || 0),
+      axeRules: [...new Set([...prev.axeRules, ...(row.axeRules ?? [])])].sort(byText),
+      surfaces: [...new Set([...prev.surfaces, ...(row.surfaces ?? [])])].sort(byText),
+      examples: [...prev.examples, ...(row.examples ?? [])].slice(0, IBM_EXAMPLES_KEPT),
+    });
+  }
+  return [...byId.values()].sort((a, b) => b.nodes - a.nodes || byText(a.ruleId, b.ruleId));
+}
+
+/**
+ * Merge the `ibm` blocks (AECI-1884). Each surface runs in one shard, so the
+ * surface rows concatenate and the rule rows merge by id. Always an object: zero
+ * counts and empty lists when no part had one. Matches `summarizeIbm()` in
+ * `apps/web/e2e-a11y/support/ibm-overlap.ts`.
+ */
+export function mergeIbm(blocks) {
+  const present = blocks.filter((b) => b && typeof b === 'object');
+  const sum = (key) =>
+    Object.fromEntries(
+      IBM_BUCKETS.map((k) => [k, present.reduce((n, b) => n + (Number(b[key]?.[k]) || 0), 0)]),
+    );
+  const bySurface = present.flatMap((b) => b.bySurface ?? []).sort(bySurfaceId);
+  return {
+    engine: present.map((b) => b.engine).find((e) => e) ?? null,
+    surfaces: bySurface.length,
+    counts: sum('counts'),
+    alsoAxe: sum('alsoAxe'),
+    ...Object.fromEntries(
+      IBM_BUCKETS.map((k) => [
+        IBM_LISTS[k],
+        mergeIbmRows(present.map((b) => b[IBM_LISTS[k]] ?? [])),
+      ]),
+    ),
+    bySurface,
+  };
+}
+
 /** Read one part. Never throws. */
 export function readPart(path) {
   if (!existsSync(path)) return { path, found: false, error: 'missing' };
@@ -171,6 +237,7 @@ export function mergeSummaries(parts, now = new Date()) {
     tests: found.flatMap((s) => s.tests),
     axe: mergeAxe(found.map((s) => s.axe)),
     voice: mergeVoice(found.map((s) => s.voice)),
+    ibm: mergeIbm(found.map((s) => s.ibm)),
   };
 }
 
@@ -224,6 +291,58 @@ function voiceMarkdown(voice) {
   return lines;
 }
 
+function ibmRuleTable(rows) {
+  if (rows.length === 0) return ['None.'];
+  const shown = rows.slice(0, MARKDOWN_ROWS);
+  const lines = [
+    '| Rule | WCAG | Nodes | Also in axe | axe rules | Surfaces |',
+    '|---|---|---|---|---|---|',
+    ...shown.map(
+      (r) =>
+        `| \`${cell(r.ruleId)}\` | ${cell(r.wcag.join(', ') || '-')} | ${r.nodes} | ${r.alsoAxe} | ${cell(
+          r.axeRules.map((a) => `\`${a}\``).join(', ') || '-',
+        )} | ${cell(r.surfaces.map((x) => `\`${x}\``).join(', '))} |`,
+    ),
+  ];
+  if (rows.length > shown.length) {
+    lines.push('', `${rows.length - shown.length} more rules. The summary artifact has them.`);
+  }
+  return lines;
+}
+
+/** The IBM Equal Access section of the job summary (AECI-1884). Empty when no part ran it. */
+function ibmMarkdown(ibm) {
+  if (!ibm || ibm.surfaces === 0) return [];
+  const c = ibm.counts;
+  const a = ibm.alsoAxe;
+  const engine = ibm.engine
+    ? ` \`accessibility-checker-engine\` ${ibm.engine.version}, ruleset \`${ibm.engine.ruleset}\`.`
+    : '';
+  return [
+    '',
+    '### IBM Equal Access, report only (AECI-1884)',
+    '',
+    `A second rule engine on ${ibm.surfaces} surfaces.${engine} These never fail the run. axe is the gate.`,
+    '',
+    `Violations: ${c.violation} nodes, ${c.violation - a.violation} not reported by axe on the same element.`,
+    '',
+    ...ibmRuleTable(ibm.violations),
+    '',
+    '<details>',
+    `<summary>Needs review: ${c.needsReview} nodes (${a.needsReview} also in axe). Recommendations: ${c.recommendation} nodes (${a.recommendation} also in axe).</summary>`,
+    '',
+    '#### Needs review',
+    '',
+    ...ibmRuleTable(ibm.needsReview),
+    '',
+    '#### Recommendations',
+    '',
+    ...ibmRuleTable(ibm.recommendations),
+    '',
+    '</details>',
+  ];
+}
+
 function cell(text) {
   return String(text).replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
 }
@@ -262,7 +381,12 @@ export function summaryMarkdown(merged) {
   const axe = merged.axe;
   const reached = axe.scans.scanned + axe.scans.optedOut + axe.scans.notScanned;
   if (reached === 0) {
-    lines.push('', 'No test reached the e2e axe sweep.', ...voiceMarkdown(merged.voice));
+    lines.push(
+      '',
+      'No test reached the e2e axe sweep.',
+      ...voiceMarkdown(merged.voice),
+      ...ibmMarkdown(merged.ibm),
+    );
     return `${lines.join('\n')}\n`;
   }
   const v = axe.violationsByImpact;
@@ -288,6 +412,7 @@ export function summaryMarkdown(merged) {
     '',
     ...ruleTable(axe.reportOnly.rules),
     ...voiceMarkdown(merged.voice),
+    ...ibmMarkdown(merged.ibm),
   );
   return `${lines.join('\n')}\n`;
 }

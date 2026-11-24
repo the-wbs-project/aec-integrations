@@ -861,6 +861,10 @@ The Phase 2 success-path suite (AECI-65, above) is stricter: it asserts **zero v
 
 The nightly e2e axe sweep (§8.2, AECI-1876) gates on the same four tags: any violation fails the test, whatever its impact. It runs one axe pass with three more tags on top, `wcag22aa`, `best-practice` and `experimental`. A rule with none of the four gate tags is **report only**. So is any rule tagged `experimental`, because the gate tags alone never turn experimental rules on. Report-only findings go to the run summary, grouped by rule, and never fail the run. `target-size` on the product-detail `#integrations` section is dropped from the report, because AECI-1079 already gates it there.
 
+**axe remains the gate.** The nightly also runs a second engine, IBM Equal Access (§8.4.9, AECI-1884).
+It is report only. Its findings go to the run summary and never fail a test or the run. Until Chris
+rules on the two-week note, no IBM finding blocks a merge, a deploy or the nightly.
+
 Some violations are unfixable in third-party code; maintain an explicit allowlist with documented reason for each.
 
 ### 8.4 Nightly suite
@@ -930,6 +934,7 @@ will read it for the dated record.
 | `tests[]` | `title`, `surfaceId`, `route`, `file`, `outcome`, `knownFailure` (the issue ID or `null`), and `axe` (the sweep's verdict or `null`) |
 | `axe` | The e2e axe sweep's results. Always an object: zero counts and empty lists for a run with no sweep. See §8.4.2 |
 | `voice` | The voice-control checks' effort counts and target size report. Always an object: empty lists for a run with no voice-control test. See §8.4.8 |
+| `ibm` | IBM Equal Access findings, report only: violations, needs review and recommendations, each marked when axe also reported it. Always an object: zero counts and empty lists for a run with no IBM test. See §8.4.9 |
 
 **Adding a check.** Write a new spec in `e2e-a11y/` that loops over `SURFACES`. Add the
 `surface` and `route` annotations to each test, as `surfaces.spec.ts` does, so the summary can name the
@@ -1690,6 +1695,141 @@ Set `AECI_WEB_PORT` and `PLAYWRIGHT_BASE_URL` as for §8.4. Three local one-work
 minutes for the 45 tests, with no skips. No test took more than about 10 seconds. The CI time is not
 measured yet.
 
+#### 8.4.9 IBM Equal Access, a second rule engine, report only (AECI-1884)
+
+Each accessibility engine finds some issues the others miss. `e2e-a11y/ibm-equal-access.spec.ts` runs
+IBM's Equal Access engine next to axe on every surface in the manifest, public pages included. **It is
+report only.** Nothing it finds fails the run, and axe remains the gate (§8.3). Whether to gate on it,
+keep it as a report, or remove it is Chris's ruling, after two weeks of nightly data (below).
+
+**The package is `accessibility-checker-engine`, pinned to exactly 4.0.35.** It is a dev dependency of
+`apps/web` only. Version 4.0.35 carries IBM's rule archive `13November2026` and the ruleset
+`IBM_Accessibility` (IBM Accessibility 7.3, which covers WCAG 2.2 A and AA). Nothing the PR e2e job runs
+imports it. Vetted on 2026-11-24:
+
+| Question | Answer |
+|---|---|
+| Licence | Apache 2.0. The full text is `LICENSE` in `github.com/IBMa/equal-access`. The tarball ships none, only the `ace.js.LICENSE.txt` header and the `license` field. A dev dependency we do not redistribute is fine in a public repo |
+| Install scripts | None. No `preinstall`, `install` or `postinstall`, and no dependencies. The lockfile gained this one package |
+| Network at run time | None. `ace.js` holds no `fetch`, `XMLHttpRequest`, `sendBeacon`, `WebSocket`, `EventSource`, `importScripts` or script injection. Its three hostnames are strings: help links (`able.ibm.com`), spec links, and a font name map |
+| Offline and pinned | Yes. The spec reads `ace.js` from `node_modules` and evaluates it in the page, as `@axe-core/playwright` does with axe. The rules are the ones in the installed version |
+| `pnpm audit` | No change: 19 low, 91 moderate, 84 high, 4 critical before and after |
+
+**Why not the `accessibility-checker` package the issue names.** That is IBM's wrapper around the same
+engine, and it fails the issue's network rule:
+
+- At run time it downloads the engine (`ace.js`) and the rule list (`archives.json`) from jsDelivr. Its
+  default `ruleServer` is `cdn.jsdelivr.net/npm/accessibility-checker-engine`, with rule archive
+  `latest`. It writes the downloaded `ace-node.js` to a temp folder and `require`s it in Node.
+- It sends scan counts and times to `able.ibm.com/tools/api/pub/meter/v2` (`ACReporterMetrics`).
+  `perfMetrics: false` turns that off at start, but `ReporterManager.setConfig()` adds the metrics
+  reporter again without checking the setting.
+- Its `postinstall` runs `ibmtelemetry` from `@ibm/telemetry-js`, which reports the installing
+  project's dependencies to `www-api.ibm.com/ibm-telemetry/v1/metrics`. pnpm 10 blocks it here, because
+  it is not in `onlyBuiltDependencies`.
+- It pulls in `puppeteer` and `chromedriver` at version `*`, and both download a browser on install.
+
+The engine package has none of these, and it is the code the wrapper downloads. Siteimprove Alfa, the
+issue's fallback, was not needed.
+
+**Proof that no page data leaves the runner (2026-11-24).** One full run with the browser behind a
+logging proxy (every non-loopback request) and a Node preload that logged every outbound socket:
+
+- The browser made **no** request to any host other than the local app.
+- The Node test process made two connections, both to the project's Supabase host. They are the
+  sign-ins `prepareSurface` already makes for the admin and vendor test accounts.
+- Nothing went to jsDelivr, unpkg, `ibm.com` or `mybluemix.net`.
+- A deliberate visit to `example.com` through the same proxy was logged, so the logger works.
+
+The spec keeps a narrower guard on every run. It records every request the page starts while the IBM
+engine runs, and fails on any HTTP or socket request to another origin. `data:` and `blob:` URLs stay
+in the page, so they do not count.
+
+**One test per surface.** It loads the surface with `openSurface` and `settle`, as §8.4.8 does, with
+`guardWrites` on. On that one state it injects the engine, runs axe with the e2e sweep's tags and
+`EXCLUDED_DOM` (§8.2), then runs the IBM engine. Results inside `EXCLUDED_DOM` are dropped from both.
+The test fails only when the engine did not run (it failed to load, threw, or no rule returned a
+result, not even a pass) or when the guard above trips. A broken scan must not read as a clean one.
+
+**The three lists,** grouped as IBM's own reports group them:
+
+| List | IBM levels | In the job summary |
+|---|---|---|
+| Violations | `violation` (a rule failed) | A table, open |
+| Needs review | `potentialviolation`, `manual` | Collapsed |
+| Recommendations | `recommendation`, `potentialrecommendation` | Collapsed |
+
+**The overlap with axe.** `matchAxe` in `support/ibm-overlap.ts` marks an IBM finding as "also in axe"
+when one axe node on the same state passes both tests. This is a judgement, so here it is in full:
+
+1. **Same element.** The two elements are one, or one holds the other at most two levels down
+   (`MAX_DEPTH_GAP`). Both engines often report one problem on a field and its wrapper. Both XPaths come
+   from one helper the spec injects, so they compare as strings.
+2. **Same problem.** The two rules share a WCAG success criterion, or the pair is listed in
+   `RULE_PAIRS`. IBM's criteria come from its ruleset's checkpoints. axe's come from its `wcagNNN`
+   tags. axe's best-practice rules have no criterion, so they match only through `RULE_PAIRS`. Today the
+   list has two pairs, each with its reason: `aria_landmark_name_unique` with `landmark-unique`, and
+   `aria_content_in_landmark` with `region`.
+
+An axe failure and an axe "incomplete" both count. The record names the axe rule, with `(review)` after
+an incomplete. A broad criterion on a high element can match an unrelated axe node just below it, and
+two problems on one element under one criterion count as one. Both errors make the overlap look larger,
+never smaller, so the unique list is not inflated. `support/ibm-overlap.unit.spec.ts` pins the rule.
+
+**What it found on landing (2026-11-24).** Seven one-worker runs, on two freshly seeded local D1s,
+gave the same findings on all 22 surfaces, with no skips: 40 violation nodes, 452 needing review and 34 recommendations. axe also reported
+9 of the violations. Of the 31 it did not, a first read:
+
+| IBM rule | Nodes | Surfaces | First read |
+|---|---|---|---|
+| `aria_role_valid` | 26 | all 22 | Looks false. The search boxes are `<input type="search" role="combobox">` with no `list` attribute, and ARIA in HTML allows `combobox` there |
+| `aria_form_label_unique` | 2 | `account` | Looks false. The two `<form>` elements have no accessible name, and an unnamed `form` is not a form landmark |
+| `aria_landmark_name_unique` | 2 | `account` | Looks false, for the same reason |
+| `aria_id_unique` | 1 | `vendor-integrations` | Borderline. The create toggle's `aria-controls` names a form that is not rendered while it is collapsed. axe passes that case on purpose. The other 9 nodes of this rule are dialog triggers that axe also marks for review |
+
+No issues were filed for these. Whether they are true is what the two-week note decides.
+
+**Cost.** The IBM engine took about 5 seconds per full pass over the 22 surfaces, and axe about 31
+seconds on the same states. The rest is page loads. The three final one-worker runs took 1.2, 1.3 and
+2.0 minutes. One earlier run took 3.3 minutes under load from other work on the machine. The nightly splits it across its eight
+shards. The CI time is not measured yet.
+
+**The summary.** The spec writes one `ibm-equal-access` annotation per surface.
+`summary-reporter.ts` folds them into the summary's `ibm` block with `summarizeIbm`, and the merge
+combines the shards with `mergeIbm` (`scripts/a11y-nightly-merge-summary.mjs`). The job summary gets
+the violations table, then the other two lists in a collapsed `<details>`. Adding the block kept
+`schemaVersion` 1.
+
+| `ibm` field | Meaning |
+|---|---|
+| `engine` | `version` and `ruleset`, or `null` when no IBM test ran |
+| `surfaces` | Surfaces scanned |
+| `counts`, `alsoAxe` | Nodes per list (`violation`, `needsReview`, `recommendation`), and how many of them axe also reported |
+| `violations[]`, `needsReview[]`, `recommendations[]` | One row per IBM rule: `ruleId`, `message` (one example), `wcag`, `nodes`, `alsoAxe`, `axeRules`, `surfaces`, `examples` (up to three `surfaceId` and `xpath` pairs). Most nodes first |
+| `bySurface[]` | `surfaceId`, `route`, the three counts, `uniqueViolations` (not in axe), `scanMs` (IBM) and `axeMs` |
+
+The full record, with every node, is the test's annotation in the HTML report.
+
+**Still to do: the two-week note.** After two weeks of nightly data, someone writes a short note on
+AECI-1884: how many unique findings were true and how many false. Chris then rules whether to gate on
+the engine, keep it as a report, or remove it. That note and the ruling have not happened yet.
+
+**The code.**
+
+| File | What it holds |
+|---|---|
+| `ibm-equal-access.spec.ts` | One test per surface, the request guard |
+| `support/ibm-engine.ts` | `injectEngines`, `runIbm`, `runAxe` on the same state, `watchRequests` |
+| `support/ibm-overlap.ts` | Pure: IBM's levels and lists, `matchAxe`, `RULE_PAIRS`, the `ibm` block |
+
+**Run it** alone with one worker:
+
+```bash
+pnpm --filter @aeci/web exec playwright test -c playwright.a11y-nightly.config.ts ibm-equal-access --workers=1
+```
+
+Set `AECI_WEB_PORT` and `PLAYWRIGHT_BASE_URL` as for §8.4.
+
 ---
 
 ## 9. Visual regression — Playwright + Chromatic
@@ -2097,6 +2237,7 @@ Defined in `vitest.config.ts` `coverage.exclude`.
     "@testing-library/angular": "^17.0.0",
     "@playwright/test": "^1.64.1",
     "@axe-core/playwright": "^4.10.2",
+    "accessibility-checker-engine": "4.0.35",
     "@chromatic-com/playwright": "latest",
     "@lhci/cli": "latest",
     "miniflare": "^3.0.0",
@@ -2109,6 +2250,12 @@ Defined in `vitest.config.ts` `coverage.exclude`.
 Playwright has a floor. CI runs on the `ubuntu-26.04` runner image, and Playwright supports Ubuntu
 26.04 from 1.61. Below that, `playwright install --with-deps chromium` fails and the e2e lane never
 starts (AECI-1383). Do not pin `@playwright/test` below 1.61.
+
+`accessibility-checker-engine` is IBM Equal Access, the nightly's second rule engine (AECI-1884). It
+is **report only**: axe is the gate, and nothing IBM finds fails a run. It is a dev dependency of
+`apps/web` only, pinned exactly, because the version is the rule set. Bump it on purpose and read the
+summary's change in findings. Do not swap it for the `accessibility-checker` wrapper. The wrapper
+downloads its engine from a CDN when it runs and reports metrics to IBM (§8.4.9).
 
 ### 16.2 Scripts
 
