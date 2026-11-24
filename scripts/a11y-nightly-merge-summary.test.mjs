@@ -227,6 +227,7 @@ test('voice blocks merge across shards: rows concatenate by surface, and none is
   assert.deepEqual(mergeVoice([null, undefined]), {
     effort: [],
     targetSize: { surfaces: 0, targets: 0, bySurface: [] },
+    inputPurpose: { surfaces: 0, fields: 0, judged: 0, bySurface: [] },
   });
   const m = mergeSummaries([
     part(
@@ -249,13 +250,36 @@ test('voice blocks merge across shards: rows concatenate by surface, and none is
     part(summary()),
     part(
       summary({
-        voice: voiceBlock(
-          [effortRow('home', 12)],
-          [{ surfaceId: 'home', route: '/', targets: [] }],
-        ),
+        voice: {
+          ...voiceBlock([effortRow('home', 12)], [{ surfaceId: 'home', route: '/', targets: [] }]),
+          // Only this part has the input purpose record, as a part from an older run would not.
+          inputPurpose: {
+            surfaces: 1,
+            fields: 2,
+            judged: 1,
+            bySurface: [
+              {
+                surfaceId: 'home',
+                route: '/',
+                fields: [
+                  { field: 'Email address', purpose: 'an email address', ok: true },
+                  { field: 'Search', purpose: null, ok: true },
+                ],
+              },
+            ],
+          },
+        },
       }),
     ),
   ]);
+  assert.deepEqual(
+    [m.voice.inputPurpose.surfaces, m.voice.inputPurpose.fields, m.voice.inputPurpose.judged],
+    [1, 2, 1],
+  );
+  assert.match(
+    summaryMarkdown(m),
+    /Input purpose \(WCAG 1\.3\.5\): 1 of 2 text fields held to a purpose, on 1 of 1 surfaces\./,
+  );
   assert.equal(m.schemaVersion, 1);
   assert.deepEqual(
     m.voice.effort.map((e) => [e.surfaceId, e.change]),

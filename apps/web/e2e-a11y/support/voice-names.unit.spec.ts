@@ -8,6 +8,7 @@ import {
   effortMargin,
   effortVerdict,
   inputPurposeProblems,
+  judgedFields,
   labelInNameProblems,
   linkAction,
   nameContainsLabel,
@@ -236,6 +237,63 @@ describe('input purpose', () => {
     );
     expect(inputPurposeProblems([field('Email', { autocomplete: 'name' })])[0]).toMatch(
       /has "name"$/,
+    );
+  });
+});
+
+describe('judgedFields', () => {
+  it('lists every text field with the purpose it was held to, and the ones with none', () => {
+    const judged = judgedFields([
+      field('Email address', { type: 'email', autocomplete: 'email' }, 1),
+      field('Your firm (optional)', {}, 2),
+      field('Search', {}, 3),
+      field('Find', { type: 'search' }, 4),
+      control({ key: 5 }),
+    ]);
+    expect(judged).toEqual([
+      {
+        field: 'Email address',
+        type: 'email',
+        landmark: 'main',
+        purpose: 'an email address',
+        wants: 'email',
+        has: 'email',
+        ok: true,
+      },
+      {
+        field: 'Your firm (optional)',
+        type: 'text',
+        landmark: 'main',
+        purpose: 'an organisation',
+        wants: 'organization',
+        has: null,
+        ok: false,
+      },
+      {
+        field: 'Search',
+        type: 'text',
+        landmark: 'main',
+        purpose: null,
+        wants: null,
+        has: null,
+        ok: true,
+      },
+      {
+        field: 'Find',
+        type: 'search',
+        landmark: 'main',
+        purpose: null,
+        wants: null,
+        has: null,
+        ok: true,
+      },
+    ]);
+  });
+
+  it('agrees with inputPurposeProblems on which fields fail', () => {
+    const controls = [field('Email', {}, 1), field('Email', { autocomplete: 'email' }, 2)];
+    expect(judgedFields(controls).filter((f) => !f.ok)).toHaveLength(
+      inputPurposeProblems(controls).length,
     );
   });
 });

@@ -15,8 +15,8 @@
  *
  * The rule grouping matches `summarizeAxe()` in `apps/web/e2e/axe-summary.ts`. Keep the two in
  * step. The `voice` block (AECI-1883) matches `summarizeVoice()` in
- * `apps/web/e2e-a11y/support/voice-summary.ts`, and the job summary gets its effort table and
- * target size report. The `ibm` block (AECI-1884) matches `summarizeIbm()` in
+ * `apps/web/e2e-a11y/support/voice-summary.ts`, and the job summary gets its effort table, its
+ * target size report and its input purpose count. The `ibm` block (AECI-1884) matches `summarizeIbm()` in
  * `apps/web/e2e-a11y/support/ibm-overlap.ts`, and the job summary gets its unique violations (axe
  * did not fail them, review-only ones labelled), every violation, and the "needs review" and
  * recommendation lists collapsed. No dependencies, so the job needs no
@@ -128,12 +128,21 @@ export function mergeVoice(blocks) {
   const present = blocks.filter((b) => b && typeof b === 'object');
   const effort = present.flatMap((b) => b.effort ?? []).sort(bySurfaceId);
   const bySurface = present.flatMap((b) => b.targetSize?.bySurface ?? []).sort(bySurfaceId);
+  // A part written before the input purpose record existed has no `inputPurpose`.
+  const purposes = present.flatMap((b) => b.inputPurpose?.bySurface ?? []).sort(bySurfaceId);
+  const fields = purposes.flatMap((p) => p.fields ?? []);
   return {
     effort,
     targetSize: {
       surfaces: bySurface.length,
       targets: bySurface.reduce((n, s) => n + (s.targets?.length ?? 0), 0),
       bySurface,
+    },
+    inputPurpose: {
+      surfaces: purposes.length,
+      fields: fields.length,
+      judged: fields.filter((f) => f.purpose !== null).length,
+      bySurface: purposes,
     },
   };
 }
@@ -294,6 +303,16 @@ function voiceMarkdown(voice) {
             .join(', '),
         )} |`;
       }),
+    );
+  }
+  const p = voice.inputPurpose;
+  if (p && p.surfaces > 0) {
+    const judgedOn = p.bySurface.filter((s) =>
+      (s.fields ?? []).some((f) => f.purpose !== null),
+    ).length;
+    lines.push(
+      '',
+      `Input purpose (WCAG 1.3.5): ${p.judged} of ${p.fields} text fields held to a purpose, on ${judgedOn} of ${p.surfaces} surfaces. The rest have no purpose to check, such as a search box.`,
     );
   }
   return lines;
