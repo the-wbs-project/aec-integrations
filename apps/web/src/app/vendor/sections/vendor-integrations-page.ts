@@ -123,10 +123,9 @@ export class VendorIntegrationsPage {
    * In practice never `null`: the product shell only renders its outlet once
    * `ctx.product()` has resolved, so this page does not exist before the catalog
    * lands. The fallback is here because the signal's type says it can be, not
-   * because there is a state that reaches it — and it deliberately does NOT fall
-   * back to "unscoped", which is what `null` means to the section: a momentary
-   * unscoped render would flash every product's integrations onto one product's
-   * tab.
+   * because there is a state that reaches it. `''` matches no row, so the section
+   * lists nothing rather than flashing every product's integrations onto one
+   * product's tab. The section has no unscoped mode since AECI-1811.
    */
   protected readonly contextProductId = computed(() => this.ctx.product()?.id ?? '');
 }

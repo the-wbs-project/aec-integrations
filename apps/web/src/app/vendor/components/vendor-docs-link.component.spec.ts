@@ -11,8 +11,14 @@ import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { getDocsPageByPath } from '../../docs/docs-content';
+import { ViewPublicLink } from '../../shared/view-public-link/view-public-link';
 
-import { VENDOR_GUIDE_PAGES, VendorDocsLink, type VendorGuidePage } from './vendor-docs-link';
+import {
+  STANDALONE_LINK_CLASS,
+  VENDOR_GUIDE_PAGES,
+  VendorDocsLink,
+  type VendorGuidePage,
+} from './vendor-docs-link';
 import { expectVendorDocsLink } from './vendor-docs-link.testing';
 
 @Component({
@@ -45,5 +51,22 @@ describe('VendorDocsLink', () => {
 
     expect(docsPage, `no vendor-guide page at /docs/vendors/${page}`).toBeDefined();
     expect(VENDOR_GUIDE_PAGES[page]()).toBe(docsPage?.title);
+  });
+
+  // AECI-1811: the link is the standalone role as `aec-view-public-link` draws it.
+  // The shared component exports no class, so the portal keeps one copy and this
+  // fails the day the two spellings drift apart.
+  it('draws the same standalone link as aec-view-public-link', () => {
+    const fixture = TestBed.createComponent(ViewPublicLink);
+    fixture.componentRef.setInput('href', '/products/revit');
+    fixture.detectChanges();
+    const shared = (fixture.nativeElement as HTMLElement).querySelector('a') as HTMLAnchorElement;
+    const docs = TestBed.createComponent(Host);
+    docs.detectChanges();
+    const ours = (docs.nativeElement as HTMLElement).querySelector('a') as HTMLAnchorElement;
+
+    const classes = (el: Element) => [...el.classList].sort();
+    expect(classes(ours)).toEqual(classes(shared));
+    expect(classes(ours)).toEqual(STANDALONE_LINK_CLASS.split(' ').sort());
   });
 });
