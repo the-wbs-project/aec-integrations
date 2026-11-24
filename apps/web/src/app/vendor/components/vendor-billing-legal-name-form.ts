@@ -66,7 +66,11 @@ import { isReplayedEvent } from '../../core/event-replay';
           </button>
         </div>
       }
-      <p [class]="hintClass" id="billing-legal-name-hint" i18n="@@vendor.billing.legalName.hint">
+      <p
+        [class]="hintClass + ' max-w-[30rem]'"
+        id="billing-legal-name-hint"
+        i18n="@@vendor.billing.legalName.hint"
+      >
         Your company's full legal name. We record it when an owner accepts the Managed plan
         agreement.
       </p>

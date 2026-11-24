@@ -183,7 +183,7 @@ function parseQuantity(text: string): number | null {
         </dl>
         @if (sub.cancel_at_period_end) {
           <p
-            class="mt-4 max-w-[40rem] text-t-14 leading-[1.6] text-(--text-primary)"
+            class="mt-4 max-w-[34rem] text-t-14 leading-[1.6] text-(--text-primary)"
             data-testid="stripe-cancelling"
             i18n="@@vendor.billing.stripe.sub.cancelling"
           >
@@ -193,7 +193,7 @@ function parseQuantity(text: string): number | null {
         }
         @if (!sub.synced) {
           <p
-            class="mt-4 max-w-[40rem] text-xs text-(--text-secondary)"
+            class="mt-4 max-w-[34rem] text-xs text-(--text-secondary)"
             data-testid="stripe-unsynced"
             i18n="@@vendor.billing.stripe.sub.unsynced"
           >
@@ -363,7 +363,7 @@ function parseQuantity(text: string): number | null {
           Pay by card
         </h3>
         <p
-          class="mt-2 max-w-[40rem] text-t-14 leading-[1.6] text-(--text-secondary)"
+          class="mt-2 max-w-[34rem] text-t-14 leading-[1.6] text-(--text-secondary)"
           i18n="@@vendor.billing.stripe.buy.intro"
         >
           If you want subscriptions of your own, you can pay for them by card through Stripe. Each
@@ -374,7 +374,7 @@ function parseQuantity(text: string): number | null {
             <legend [class]="labelClass + ' p-0'" i18n="@@vendor.billing.stripe.interval.legend">
               Billing period
             </legend>
-            <div class="mt-2 grid max-w-[40rem] gap-2 sm:grid-cols-2">
+            <div class="mt-2 grid max-w-[34rem] gap-2 sm:grid-cols-2">
               <label [class]="choiceClass" data-testid="stripe-interval-year">
                 <input
                   type="radio"
@@ -504,7 +504,7 @@ function parseQuantity(text: string): number | null {
 
           @if (disclosure(); as text) {
             <p
-              class="max-w-[40rem] text-t-14 leading-[1.6] text-(--text-primary)"
+              class="max-w-[34rem] text-t-14 leading-[1.6] text-(--text-primary)"
               data-testid="stripe-disclosure"
             >
               {{ text }}
@@ -513,7 +513,7 @@ function parseQuantity(text: string): number | null {
 
           <!-- AECI-1617 (counsel Q15): the same words as custom_text.submit on Stripe's page. -->
           <p
-            class="max-w-[40rem] text-t-14 leading-[1.6] text-(--text-primary)"
+            class="max-w-[34rem] text-t-14 leading-[1.6] text-(--text-primary)"
             data-testid="stripe-cap"
             i18n="@@vendor.billing.stripe.cap"
           >
@@ -525,7 +525,7 @@ function parseQuantity(text: string): number | null {
             in the agreement.
           </p>
 
-          <p class="max-w-[40rem] text-t-14 leading-[1.6] text-(--text-secondary)">
+          <p class="max-w-[34rem] text-t-14 leading-[1.6] text-(--text-secondary)">
             <ng-container i18n="@@vendor.billing.stripe.agreement">
               On the Stripe page you accept the
               <a [routerLink]="agreementHref" [class]="linkClass">Managed plan agreement</a>

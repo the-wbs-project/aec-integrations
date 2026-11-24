@@ -24,7 +24,7 @@ import { CHOICE_INPUT_CLASS, FIELD_ERROR_CLASS } from '../../shared/form-field/f
     <div role="status" [attr.id]="idPrefix() + '-unused-text'">
       @if (unused() > 0) {
         <div
-          class="aec-notice-neutral max-w-[40rem] space-y-2 rounded-panel border bg-(--accent-warm) p-4 text-t-14 leading-[1.6] text-(--text-primary)"
+          class="aec-notice-neutral max-w-[34rem] space-y-2 rounded-panel border bg-(--accent-warm) p-4 text-t-14 leading-[1.6] text-(--text-primary)"
           data-testid="unused-warning"
         >
           <p>

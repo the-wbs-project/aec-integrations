@@ -72,7 +72,11 @@ import { isReplayedEvent } from '../../core/event-replay';
           </button>
         </div>
       }
-      <p [class]="hintClass" id="billing-email-hint" i18n="@@vendor.billing.email.hint">
+      <p
+        [class]="hintClass + ' max-w-[30rem]'"
+        id="billing-email-hint"
+        i18n="@@vendor.billing.email.hint"
+      >
         Subscription grant, renewal notice and plan-end emails go to this address and to every seat.
       </p>
     </div>
