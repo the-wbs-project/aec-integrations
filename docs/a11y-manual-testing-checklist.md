@@ -83,6 +83,15 @@ Run each surface with **(a) keyboard only**, then **(b) VoiceOver**, then **(c) 
 > must be tied to their field with focus on the first. It reads the DOM, not speech, so it cannot tell
 > whether VoiceOver or NVDA spoke the message. The manual pass above keeps its full scope and cadence.
 
+> **Voice control and switch, automated nightly in Chrome (AECI-1883, `TESTING_STRATEGY.md` §8.4.8).**
+> On every surface in §1, the nightly checks that each control's accessible name contains its visible
+> label, that no two controls share a name while doing different things, and that text fields for the
+> user's name, email, organisation and the like carry their `autocomplete` token. It reports small
+> targets, and counts the Tab presses from load to each page's main task. It reads names, not speech,
+> so it cannot tell whether Dragon or Voice Control understands a spoken command. This pass has no
+> voice-control or switch step, and the note adds none. The manual pass above keeps its full scope and
+> cadence.
+
 **Surface-specific:**
 - [ ] **Home** — trust band, stats, search entry, and section headings announce; the waitlist welcome banner (if `?ref=waitlist`) is announced and dismissible by keyboard.
 - [ ] **Product detail** — rating/review summary, tabs/sections, and external links announce state + destination.
