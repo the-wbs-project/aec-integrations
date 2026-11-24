@@ -188,7 +188,11 @@ export function legalDocumentTitle(document: VendorLegalPending['document']): st
             {{ headingLabel() }}
           </h2>
 
-          <div class="mt-3 max-w-[42rem] space-y-3 text-(--text-secondary)">
+          <!-- Inside the notice the lead holds about 80 characters a line (32rem). -->
+          <div
+            class="mt-3 space-y-3 text-(--text-secondary)"
+            [class]="it.mode === 'required' ? 'max-w-[42rem]' : 'max-w-[32rem]'"
+          >
             @if (it.mode === 'required') {
               @if (canAccept()) {
                 <p i18n="@@vendor.legalAccept.required.lead">
@@ -238,7 +242,7 @@ export function legalDocumentTitle(document: VendorLegalPending['document']): st
             </ul>
           }
 
-          <p class="mt-4 text-t-14">
+          <p class="mt-4">
             <a
               [href]="it.page_path"
               target="_blank"
