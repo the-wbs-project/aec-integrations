@@ -12,8 +12,9 @@
 #      WCAG 2.0/2.1 A and AA fail the test. wcag22aa, best-practice and
 #      experimental are report only. docs/TESTING_STRATEGY.md §8.2 and §8.3.
 #   `report` merges the lanes' summaries into one a11y-nightly-summary.json
-#   (scripts/a11y-nightly-merge-summary.mjs), writes the axe findings by rule to
-#   the job summary, and posts the commit status.
+#   (scripts/a11y-nightly-merge-summary.mjs), writes the axe findings by rule and the
+#   voice report (effort and target size, AECI-1883) to the job summary, and
+#   posts the commit status.
 #
 # TRIGGERS.
 #   1. schedule, 05:40 UTC daily. Runs against main HEAD. Skips when that commit
