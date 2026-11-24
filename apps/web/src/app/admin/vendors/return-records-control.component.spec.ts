@@ -41,7 +41,7 @@ const RESULT: AdminReturnRecordsResponse = {
   template: `
     <p role="status" aria-live="polite">{{ announced() }}</p>
     <aec-return-records-control
-      [vendorId]="vendorId"
+      [vendorId]="vendorId()"
       [ownedAt]="ownedAt()"
       [hasSeats]="hasSeats()"
       [openProposalCount]="openProposalCount()"
@@ -52,7 +52,7 @@ const RESULT: AdminReturnRecordsResponse = {
   `,
 })
 class TestHost {
-  readonly vendorId = VENDOR_ID;
+  readonly vendorId = signal(VENDOR_ID);
   readonly ownedAt = signal<string | null>('2026-10-01T00:00:00.000Z');
   readonly hasSeats = signal<boolean | null>(false);
   readonly openProposalCount = signal(0);
@@ -167,7 +167,7 @@ describe('ReturnRecordsControl', () => {
 
   it('sends the internal note as typed', async () => {
     const returnRecords = vi.fn(async () => RESULT);
-    const { el, refresh, button, typeReason } = await setup(returnRecords);
+    const { el, refresh, button, typeReason, reasonField } = await setup(returnRecords);
     button('Return records to AECi')!.click();
     await refresh();
     typeReason('Approved by mistake');
@@ -176,6 +176,8 @@ describe('ReturnRecordsControl', () => {
     )!;
     const note = el.querySelector<HTMLTextAreaElement>(`[id="${label.getAttribute('for')}"]`)!;
     expect(note.getAttribute('maxlength')).toBe('1000');
+    // The reason keeps AdminReasonSchema's cap as a native limit, as on main.
+    expect(reasonField()!.getAttribute('maxlength')).toBe('1000');
     note.value = 'Ticket 42';
     note.dispatchEvent(new Event('input'));
     button('Return the records')!.click();
@@ -296,5 +298,81 @@ describe('ReturnRecordsControl', () => {
     expect(el.querySelector('[role="alert"]')?.textContent).toContain(
       'A new product proposal for this vendor arrived',
     );
+  });
+});
+
+describe('ReturnRecordsControl: a refusal belongs to its attempt (AECI-2124 review)', () => {
+  const seatsRefusal = () =>
+    vi.fn(async () => {
+      throw new HttpErrorResponse({
+        status: 409,
+        error: { error: { code: 'VENDOR_HAS_SEATS', message: 'x' } },
+      });
+    });
+
+  async function refused() {
+    const ctx = await setup(seatsRefusal(), { hasSeats: null });
+    ctx.button('Return records to AECi')!.click();
+    await ctx.refresh();
+    ctx.typeReason('Approved by mistake');
+    ctx.button('Return the records')!.click();
+    await ctx.refresh();
+    expect(ctx.el.querySelector('[role="alert"]')?.textContent).toContain(
+      'This vendor still has a seat.',
+    );
+    return ctx;
+  }
+
+  async function reopenShowsNoRefusal(ctx: Awaited<ReturnType<typeof refused>>) {
+    expect(ctx.formOpen()).toBe(false);
+    ctx.button('Return records to AECi')!.click();
+    await ctx.refresh();
+    expect(ctx.formOpen()).toBe(true);
+    expect(ctx.el.querySelector('[role="alert"]')).toBeNull();
+    expect(ctx.reasonField()!.getAttribute('aria-invalid')).toBeNull();
+  }
+
+  it('Cancel, then reopen: no old refusal', async () => {
+    const ctx = await refused();
+    ctx.button('Cancel')!.click();
+    await ctx.refresh();
+    await reopenShowsNoRefusal(ctx);
+  });
+
+  it('Escape, then reopen: no old refusal', async () => {
+    const ctx = await refused();
+    ctx
+      .reasonField()!
+      .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await ctx.refresh();
+    await reopenShowsNoRefusal(ctx);
+  });
+
+  it('a close by the opener, then reopen: the draft is kept, the refusal is not', async () => {
+    const ctx = await refused();
+    ctx.button('Return records to AECi')!.click();
+    await ctx.refresh();
+    await reopenShowsNoRefusal(ctx);
+    expect(ctx.reasonField()!.value).toBe('Approved by mistake');
+  });
+});
+
+describe('ReturnRecordsControl reused for another vendor (AECI-2124 review)', () => {
+  it('drops the reason, the note and an open form when the vendor id changes', async () => {
+    const { fixture, refresh, button, reasonField, formOpen, typeReason } = await setup(vi.fn());
+    button('Return records to AECi')!.click();
+    await refresh();
+    typeReason('Typed for the first vendor');
+    // A close by the opener keeps the draft for the same vendor...
+    button('Return records to AECi')!.click();
+    await refresh();
+
+    fixture.componentInstance.vendorId.set('00000000-0000-4000-8000-000000000003');
+    await refresh();
+    expect(formOpen()).toBe(false);
+    button('Return records to AECi')!.click();
+    await refresh();
+    // ...but never for another vendor.
+    expect(reasonField()!.value).toBe('');
   });
 });

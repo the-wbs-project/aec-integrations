@@ -17,6 +17,9 @@
     To return the records, revoke every seat first, banned ones included.
   </p>
   }
+  <!-- Keyed by vendor: a page reused for another vendor gets a fresh form, so no reason
+       or note typed for one vendor is ever shown for, or sent to, another. -->
+  @for (vendor of [vendorId()]; track vendor) {
   <aec-admin-danger-action
     [openerLabel]="openerLabel"
     [confirmLabel]="confirmLabel"
@@ -33,7 +36,8 @@
     [openerDescribedBy]="blockedBySeats() ? idPrefix() + '-return-blocked' : null"
     [error]="failedMessage()"
     [busy]="pending()"
-    [(open)]="confirming"
+    [open]="confirming()"
+    (openChange)="onOpenChange($event)"
     [(note)]="internalNote"
     (confirmed)="confirm($event)"
   >
@@ -49,7 +53,7 @@
     </p>
     }
   </aec-admin-danger-action>
-  } @else {
+  } } @else {
   <p [class]="captionClass" i18n="@@admin.vendors.returnRecords.aeci">
     AECi owns this vendor's records. Promote writes them. A claim approval makes them the vendor's.
   </p>

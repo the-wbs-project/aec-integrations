@@ -1,6 +1,15 @@
 import { DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, computed, inject, input, output, signal } from '@angular/core';
+import {
+  Component,
+  computed,
+  effect,
+  inject,
+  input,
+  output,
+  signal,
+  untracked,
+} from '@angular/core';
 
 import type { AdminReturnRecordsResponse } from '@aeci/shared';
 
@@ -80,6 +89,33 @@ export class ReturnRecordsControl {
 
   protected readonly owned = computed(() => this.ownedAt() !== null);
   protected readonly blockedBySeats = computed(() => this.hasSeats() === true);
+
+  constructor() {
+    // A page reused for another vendor starts this control clean: the form closed, no
+    // refusal, no note. The keyed `@for` in the template drops the danger form's draft.
+    let last: string | null = null;
+    effect(() => {
+      const id = this.vendorId();
+      untracked(() => {
+        if (last !== null && last !== id) {
+          this.confirming.set(false);
+          this.failedMessage.set(null);
+          this.internalNote.set('');
+        }
+        last = id;
+      });
+    });
+  }
+
+  /**
+   * The danger form opened or closed (the opener, Cancel, Escape). A refusal belongs to
+   * the attempt that earned it, so every open and every close clears it: a reopened form
+   * never shows an old refusal (the danger form's parent contract).
+   */
+  protected onOpenChange(open: boolean): void {
+    this.failedMessage.set(null);
+    this.confirming.set(open);
+  }
 
   /** The danger form's confirm: a non-empty, trimmed reason. */
   protected async confirm(reason: string): Promise<void> {
