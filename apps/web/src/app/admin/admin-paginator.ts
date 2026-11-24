@@ -19,10 +19,12 @@ import { AecButton } from '../shared/button/button';
  *
  * Presentational: the parent owns `page` and refetches on `(pageChange)`.
  *
- * FOCUS (AECI-2102). An edge button and a busy pager are `aria-disabled`, not
- * natively disabled. A press that reaches the first or last page, or starts a
- * refetch, would otherwise disable the focused button, and Chromium drops focus
- * to `<body>`. The button keeps focus and its press does nothing until it can act.
+ * FOCUS (AECI-2102). No button is ever natively disabled: a press that reached
+ * the first or last page, or started a refetch, would disable the focused button,
+ * and Chromium drops focus to `<body>`. An edge button is `aria-disabled` and its
+ * press does nothing. While `busy` the nav is `aria-busy` and both presses do
+ * nothing, without the dimmed look (DESIGN.md: a busy state does not set
+ * `aria-disabled`).
  *
  * Its sibling, `AdminCursorPaginator` (`admin-cursor-paginator.ts`), pages by
  * keyset cursor instead. Only `/admin/audit` uses it, because an append-only
@@ -41,6 +43,7 @@ import { AecButton } from '../shared/button/button';
         class="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 pt-4"
         i18n-aria-label="@@admin.paginator.aria"
         aria-label="Pagination"
+        [attr.aria-busy]="busy() ? 'true' : null"
       >
         <p class="text-t-14 tabular-nums text-(--text-secondary)">{{ positionLabel() }}</p>
 
@@ -49,7 +52,7 @@ import { AecButton } from '../shared/button/button';
             aecButton
             variant="secondary"
             compact
-            [attr.aria-disabled]="busy() || page() <= 1 ? 'true' : null"
+            [attr.aria-disabled]="page() <= 1 ? 'true' : null"
             (click)="go(page() - 1)"
             i18n="@@admin.paginator.previous"
           >
@@ -59,7 +62,7 @@ import { AecButton } from '../shared/button/button';
             aecButton
             variant="secondary"
             compact
-            [attr.aria-disabled]="busy() || page() >= pageCount() ? 'true' : null"
+            [attr.aria-disabled]="page() >= pageCount() ? 'true' : null"
             (click)="go(page() + 1)"
             i18n="@@admin.paginator.next"
           >

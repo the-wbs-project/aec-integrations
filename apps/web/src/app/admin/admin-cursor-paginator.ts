@@ -22,17 +22,22 @@ import { AecButton } from '../shared/button/button';
  * While `busy`, every control ignores input, so a second press cannot race the
  * first fetch.
  *
- * FOCUS (AECI-2102). The controls are `aria-disabled`, never natively disabled.
- * A press that starts a fetch, or reaches the last page, would otherwise disable
- * the focused control, and Chromium drops focus to `<body>`. The control keeps
- * focus and does nothing until it can act. A page-size change made during a
- * fetch is put back.
+ * FOCUS (AECI-2102). No control is ever natively disabled: a press that started
+ * a fetch, or reached an edge, would disable the focused control, and Chromium
+ * drops focus to `<body>`. An edge button is `aria-disabled` and its press does
+ * nothing. While `busy` the nav is `aria-busy`, every press does nothing and a
+ * page-size change is put back, without the dimmed look (DESIGN.md: a busy state
+ * does not set `aria-disabled`).
  */
 @Component({
   selector: 'aec-admin-cursor-paginator',
   imports: [AecButton],
   template: `
-    <nav class="flex flex-wrap items-center justify-end gap-3" [attr.aria-label]="label()">
+    <nav
+      class="flex flex-wrap items-center justify-end gap-3"
+      [attr.aria-label]="label()"
+      [attr.aria-busy]="busy() ? 'true' : null"
+    >
       <div class="flex flex-wrap items-center gap-3">
         @if (pageSizes().length > 1) {
           <label
@@ -41,9 +46,8 @@ import { AecButton } from '../shared/button/button';
             <span i18n="@@admin.cursorPaginator.perPage">Rows per page</span>
             <select
               [value]="perPage()"
-              [attr.aria-disabled]="busy() ? 'true' : null"
               (change)="onPerPage($event)"
-              class="aec-field-control rounded-control border bg-(--surface-base) px-3 py-2 text-t-14 text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 aria-disabled:cursor-not-allowed"
+              class="aec-field-control rounded-control border bg-(--surface-base) px-3 py-2 text-t-14 text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 disabled:cursor-not-allowed"
             >
               @for (size of pageSizes(); track size) {
                 <option [value]="size" [selected]="size === perPage()">{{ size }}</option>
@@ -56,7 +60,6 @@ import { AecButton } from '../shared/button/button';
             aecButton
             variant="secondary"
             compact
-            [attr.aria-disabled]="busy() ? 'true' : null"
             (click)="!busy() && first.emit()"
             i18n="@@admin.cursorPaginator.first"
           >
@@ -67,7 +70,7 @@ import { AecButton } from '../shared/button/button';
           aecButton
           variant="secondary"
           compact
-          [attr.aria-disabled]="busy() || !hasPrev() ? 'true' : null"
+          [attr.aria-disabled]="!hasPrev() ? 'true' : null"
           (click)="!busy() && hasPrev() && prev.emit()"
           i18n="@@admin.paginator.previous"
         >
@@ -77,7 +80,7 @@ import { AecButton } from '../shared/button/button';
           aecButton
           variant="secondary"
           compact
-          [attr.aria-disabled]="busy() || !hasNext() ? 'true' : null"
+          [attr.aria-disabled]="!hasNext() ? 'true' : null"
           (click)="!busy() && hasNext() && next.emit()"
           i18n="@@admin.paginator.next"
         >

@@ -83,8 +83,10 @@ describe('AdminPaginator', () => {
     fixture.componentRef.setInput('busy', true);
     fixture.detectChanges();
     const next = button(el, 'Next');
+    // DESIGN.md: a busy state marks the nav aria-busy, not the buttons aria-disabled.
+    expect(el.querySelector('nav')?.getAttribute('aria-busy')).toBe('true');
     expect(next.disabled).toBe(false);
-    expect(next.getAttribute('aria-disabled')).toBe('true');
+    expect(next.getAttribute('aria-disabled')).toBeNull();
     next.click();
     button(el, 'Previous').click();
     expect(emitted).toEqual([]);

@@ -227,8 +227,10 @@ describe('AuditTrail', () => {
       const body = el.querySelector('[data-testid="audit-trail-body"]')!;
       expect(body.getAttribute('aria-busy')).toBe('true');
       expect(body.classList).toContain('opacity-60');
-      // AECI-2102: aria-disabled, so a focused pager keeps focus during the refetch.
-      expect(buttonByText(el, 'Next')!.getAttribute('aria-disabled')).toBe('true');
+      // AECI-2102: the pager stays focusable during the refetch. It is aria-busy, and
+      // its presses do nothing until the fetch lands.
+      expect(el.querySelector('nav[aria-busy="true"]')).not.toBeNull();
+      expect(buttonByText(el, 'Next')!.disabled).toBe(false);
     });
 
     it('is not busy once the fetch lands', () => {

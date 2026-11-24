@@ -63,7 +63,9 @@ describe('AdminCursorPaginator', () => {
     fixture.componentRef.setInput('busy', true);
     fixture.detectChanges();
     expect(events).toEqual(['next']);
-    expect(next.getAttribute('aria-disabled')).toBe('true');
+    // DESIGN.md: a busy state marks the nav aria-busy, not the button aria-disabled.
+    expect(el.querySelector('nav')?.getAttribute('aria-busy')).toBe('true');
+    expect(next.disabled).toBe(false);
     expect(document.activeElement).toBe(next);
     // A second press during the fetch does nothing.
     next.click();
@@ -75,7 +77,6 @@ describe('AdminCursorPaginator', () => {
     const { el, events } = render({ hasPrev: true, hasNext: true, busy: true });
     const select = el.querySelector('select') as HTMLSelectElement;
     expect(select.disabled).toBe(false);
-    expect(select.getAttribute('aria-disabled')).toBe('true');
     select.value = '100';
     select.dispatchEvent(new Event('change'));
     expect(events).toEqual([]);
