@@ -73,6 +73,13 @@ export interface AdminDangerConfirmStep {
  *   element, so write inline content only (text and `<a>`).
  * - `cancelLabel`: Cancel's words, when the form keeps its own message id.
  * - `openerDescribedBy`: the id of a sentence beside the opener that describes it.
+ *   `openerDisabled`: the action is blocked; point `openerDescribedBy` at the reason.
+ * - `noteLabel`, `noteHelp`, `noteMaxLength` and `[(note)]`: an optional internal
+ *   note under the reason, natively capped, never required. Read `note` in the
+ *   `(confirmed)` handler, trimmed by you, blank meaning absent.
+ * - Content marked `dangerFacts` is projected between the warning and the reason:
+ *   read-only facts the operator should see before writing ("3 open product
+ *   proposals will be discarded").
  * - `open`: two-way. Outputs: `confirmed` (the trimmed reason), `cancelled`.
  *
  * Parent contract
@@ -122,6 +129,7 @@ export interface AdminDangerConfirmStep {
       [attr.aria-expanded]="open()"
       [attr.aria-controls]="ids.form"
       [attr.aria-describedby]="openerDescribedBy()"
+      [disabled]="openerDisabled()"
       (click)="toggle()"
     >
       {{ openerLabel() }}
@@ -139,6 +147,7 @@ export interface AdminDangerConfirmStep {
       @if (warning(); as text) {
         <p [id]="ids.warning" [class]="boneClass">{{ text }}</p>
       }
+      <ng-content select="[dangerFacts]" />
       <div class="grid gap-2">
         <label [for]="ids.reason" [class]="labelClass">{{ reasonLabel() }}</label>
         <textarea
@@ -168,6 +177,26 @@ export interface AdminDangerConfirmStep {
           <p [id]="ids.help" class="text-t-14 text-(--text-secondary)">{{ text }}</p>
         }
       </div>
+      @if (noteLabel(); as label) {
+        <div class="grid gap-2">
+          <label [for]="ids.note" [class]="labelClass">{{ label }}</label>
+          <textarea
+            #noteEl
+            [id]="ids.note"
+            rows="2"
+            [class]="inputClass"
+            class="min-h-16 resize-y py-3 read-only:bg-(--surface-sunken)"
+            [value]="note()"
+            [readOnly]="locked()"
+            [attr.maxlength]="noteMaxLength()"
+            [attr.aria-describedby]="noteHelp() ? ids.noteHelp : null"
+            (input)="note.set(noteEl.value)"
+          ></textarea>
+          @if (noteHelp(); as text) {
+            <p [id]="ids.noteHelp" class="text-t-14 text-(--text-secondary)">{{ text }}</p>
+          }
+        </div>
+      }
       @if (locked() && confirmStep(); as step) {
         <div
           #stepEl
@@ -253,6 +282,15 @@ export class AdminDangerAction {
   readonly cancelLabel = input<string | null>(null);
   /** The id of a sentence outside the piece that describes the opener. */
   readonly openerDescribedBy = input<string | null>(null);
+  /** The opener cannot be pressed (the action is blocked). Say why with `openerDescribedBy`. */
+  readonly openerDisabled = input(false);
+  /** An optional internal note under the reason. Null: no note field. */
+  readonly noteLabel = input<string | null>(null);
+  readonly noteHelp = input<string | null>(null);
+  /** The note's native cap. */
+  readonly noteMaxLength = input<number | null>(null);
+  /** The note as typed, two-way. Cleared on open. The caller trims it. */
+  readonly note = model('');
   readonly open = model(false);
   /** The confirm pressed with a valid reason: the trimmed reason. */
   readonly confirmed = output<string>();
@@ -284,6 +322,8 @@ export class AdminDangerAction {
     stepTitle: `aec-danger-${this.n}-step-title`,
     stepBody: `aec-danger-${this.n}-step-body`,
     status: `aec-danger-${this.n}-status`,
+    note: `aec-danger-${this.n}-note`,
+    noteHelp: `aec-danger-${this.n}-note-help`,
   };
 
   protected readonly confirmText = computed(() => {
@@ -376,6 +416,7 @@ export class AdminDangerAction {
       return;
     }
     this.draft.set('');
+    this.note.set('');
     this.problem.set(null);
     this.leaveStepTwo();
     this.open.set(true);

@@ -36,15 +36,25 @@ const STEP: AdminDangerConfirmStep = {
       [confirmStep]="step()"
       [cancelLabel]="cancelLabel()"
       [openerDescribedBy]="describedBy()"
+      [openerDisabled]="openerDisabled()"
+      [noteLabel]="noteLabel()"
+      noteHelp="Only admins see it."
+      [noteMaxLength]="1000"
+      [(note)]="note"
       [error]="error()"
       [errorTemplate]="useRich() ? lastSeat : null"
       [busy]="busy()"
       [(open)]="open"
       (confirmed)="reasons.push($event)"
       (cancelled)="cancels = cancels + 1"
-    />
+    >
+      @if (facts()) {
+        <p dangerFacts>3 open product proposals will be discarded.</p>
+      }
+    </aec-admin-danger-action>
     <ng-template #lastSeat
-      >This is the last seat. Use Suspend on its <a href="/admin/vendors/v1">vendor page</a>.</ng-template
+      >This is the last seat. Use Suspend on its
+      <a href="/admin/vendors/v1">vendor page</a>.</ng-template
     >
     <aec-admin-danger-action
       id="b"
@@ -65,6 +75,10 @@ class Host {
   readonly step = signal<AdminDangerConfirmStep | null>(null);
   readonly cancelLabel = signal<string | null>(null);
   readonly describedBy = signal<string | null>(null);
+  readonly openerDisabled = signal(false);
+  readonly noteLabel = signal<string | null>(null);
+  readonly note = signal('');
+  readonly facts = signal(false);
   readonly error = signal<string | null>(null);
   readonly useRich = signal(false);
   readonly busy = signal(false);
@@ -371,7 +385,7 @@ describe('AdminDangerAction extensions (AECI-2104)', () => {
               continueLabel: 'Continue',
               title: 'Remove this reply permanently?',
               body: body,
-              editLabel: 'Edit the reason'
+              editLabel: 'Edit the reason',
             }"
           />
         `,
@@ -452,6 +466,83 @@ describe('AdminDangerAction extensions (AECI-2104)', () => {
     it('lets a sentence beside the opener describe it', async () => {
       const { button } = await setup((h) => h.describedBy.set('remove-help'));
       expect(button('Remove from the page')!.getAttribute('aria-describedby')).toBe('remove-help');
+    });
+  });
+
+  describe('note, facts and a blocked opener', () => {
+    it('collects an optional note beside the reason, locks it on step two and clears it on open', async () => {
+      const { a, host, settle, button, type, openForm } = await setup((h) => {
+        h.noteLabel.set('Internal note (optional)');
+        h.step.set(STEP);
+      });
+      await openForm();
+      const note = a.querySelector<HTMLTextAreaElement>('textarea:not([required])')!;
+      expect(note.getAttribute('maxlength')).toBe('1000');
+      expect(text(a.querySelector(`#${note.getAttribute('aria-describedby')}`))).toBe(
+        'Only admins see it.',
+      );
+      type('Off topic');
+      note.value = 'Second report';
+      note.dispatchEvent(new Event('input'));
+      expect(host.note()).toBe('Second report');
+      button('Continue to removal')!.click();
+      await settle();
+      expect(note.readOnly).toBe(true);
+      button('Edit the reason')!.click();
+      await settle();
+      expect(note.readOnly).toBe(false);
+      expect(note.value).toBe('Second report');
+      button('Continue to removal')!.click();
+      await settle();
+      button('Remove permanently')!.click();
+      await settle();
+      expect(host.reasons).toEqual(['Off topic']);
+      host.open.set(false);
+      await settle();
+      await openForm();
+      expect(host.note()).toBe('');
+    });
+
+    it('accepts an empty note and renders no note field without a label', async () => {
+      const blank = await setup();
+      await blank.openForm();
+      expect(blank.a.querySelectorAll('textarea')).toHaveLength(1);
+      document.body.replaceChildren();
+      const { host, settle, button, type, openForm } = await setup((h) =>
+        h.noteLabel.set('Internal note (optional)'),
+      );
+      await openForm();
+      type('Off topic');
+      button('Remove permanently')!.click();
+      await settle();
+      expect(host.reasons).toEqual(['Off topic']);
+      expect(host.note()).toBe('');
+    });
+
+    it('projects read-only facts between the warning and the reason', async () => {
+      const { a, openForm } = await setup((h) => h.facts.set(true));
+      await openForm();
+      const form = a.querySelector('form')!;
+      const order = [...form.children].map(
+        (el) => el.tagName + (el.hasAttribute('dangerFacts') ? '+facts' : ''),
+      );
+      expect(order.slice(0, 3)).toEqual(['P', 'P+facts', 'DIV']);
+      expect(text(form.querySelector('[dangerFacts]'))).toBe(
+        '3 open product proposals will be discarded.',
+      );
+    });
+
+    it('keeps a blocked opener shut, described by the reason it is blocked', async () => {
+      const { host, settle, button } = await setup((h) => {
+        h.openerDisabled.set(true);
+        h.describedBy.set('remove-help');
+      });
+      const opener = button('Remove from the page')!;
+      expect(opener.disabled).toBe(true);
+      expect(opener.getAttribute('aria-describedby')).toBe('remove-help');
+      opener.click();
+      await settle();
+      expect(host.open()).toBe(false);
     });
   });
 
