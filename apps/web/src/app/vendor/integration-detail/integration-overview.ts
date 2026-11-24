@@ -52,14 +52,9 @@ import {
   canClaim,
 } from './integration-detail-model';
 import { IntegrationDetailState } from './integration-detail-state';
-import {
-  ALERT,
-  BTN_PRIMARY,
-  BTN_SECONDARY,
-  ICON_BUTTON,
-  ID_STYLES,
-  ROW_ACTION,
-} from './integration-detail-styles';
+import { AecButton } from '../../shared/button/button';
+import { AecIcon } from '../../shared/icon/icon';
+import { ALERT, ID_STYLES, INPUT } from './integration-detail-styles';
 import { VendorNotOurs, selfDisclaimOn, selfDisclaimStands } from '../components/vendor-not-ours';
 import { VendorTip } from './vendor-tip';
 import { VendorHiddenNote } from '../components/vendor-hidden-note';
@@ -92,9 +87,6 @@ interface Group {
 /** Who the caller is to this integration, for the row actions (§6.17.3). */
 type Seat = 'owner-claimed' | 'owner-unclaimed' | 'other';
 
-const PENCIL =
-  'M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z';
-
 /**
  * The Overview section (AECI-1150, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.3).
  *
@@ -114,30 +106,30 @@ const PENCIL =
  */
 @Component({
   selector: 'aec-integration-overview',
-  imports: [VendorTip, VendorNotOurs, VendorHiddenNote, VendorLockedNote],
+  imports: [AecButton, AecIcon, VendorTip, VendorNotOurs, VendorHiddenNote, VendorLockedNote],
   styles: [ID_STYLES],
   template: `
     <div class="space-y-6">
       @for (group of groups(); track group.key) {
         <div>
-          <h4 class="id-h4">{{ group.title }}</h4>
-          <dl class="mt-1 divide-y divide-(--border-default)">
+          <h4 class="aec-overline text-(--text-secondary)">{{ group.title }}</h4>
+          <dl class="mt-2 divide-y divide-(--border-default)">
             @for (row of group.rows; track row.key) {
               <div
                 [id]="rowId(row.key)"
                 tabindex="-1"
-                class="grid scroll-mt-20 items-start gap-x-6 gap-y-0.5 py-2 text-sm focus:outline-2 focus:outline-offset-2 focus:outline-(--accent-primary) sm:grid-cols-[11rem_minmax(0,1fr)]"
+                class="grid scroll-mt-20 items-start gap-x-6 gap-y-1 py-1 text-sm focus:outline-2 focus:outline-offset-2 focus:outline-(--accent-primary) sm:grid-cols-[11rem_minmax(0,1fr)]"
                 [attr.data-testid]="'overview-row-' + row.key"
               >
-                <dt class="flex min-h-8 items-center gap-1 text-(--text-secondary)">
+                <dt class="flex min-h-11 items-center gap-1 text-(--text-secondary)">
                   {{ row.label }}
                   <aec-vendor-tip [label]="aboutLabel(row.label)" [lines]="row.tip" />
                 </dt>
-                <dd class="flex min-h-8 min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+                <dd class="flex min-h-11 min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                   @if (editing() === row.key && row.edit) {
                     <form
                       method="dialog"
-                      class="flex min-w-0 flex-1 flex-wrap items-start gap-2"
+                      class="flex min-w-0 flex-1 flex-wrap items-start gap-2 py-1"
                       [attr.aria-label]="editFormLabel(row.label)"
                       (submit)="save($event, row)"
                     >
@@ -146,7 +138,8 @@ const PENCIL =
                           <textarea
                             #editField
                             rows="3"
-                            class="id-input min-w-0 flex-1 basis-full"
+                            [class]="input"
+                            class="min-w-0 flex-1 basis-full"
                             [attr.aria-label]="row.label"
                             [attr.maxlength]="max(row.edit)"
                             [attr.aria-invalid]="error() ? 'true' : null"
@@ -158,7 +151,8 @@ const PENCIL =
                         @case ('select') {
                           <select
                             #editField
-                            class="id-input min-w-[12rem] flex-1"
+                            [class]="input"
+                            class="min-w-[12rem] flex-1"
                             [attr.aria-label]="row.label"
                             (change)="draft.set(inputValue($event))"
                           >
@@ -173,7 +167,8 @@ const PENCIL =
                           <input
                             #editField
                             [type]="row.control === 'url' ? 'url' : 'text'"
-                            class="id-input min-w-[14rem] flex-1"
+                            [class]="input"
+                            class="min-w-[14rem] flex-1"
                             [attr.aria-label]="row.label"
                             [attr.maxlength]="max(row.edit)"
                             [attr.inputmode]="row.control === 'url' ? 'url' : null"
@@ -186,12 +181,14 @@ const PENCIL =
                         }
                       }
                       <div class="flex gap-2">
-                        <button type="submit" [class]="primary" [disabled]="busy()">
+                        <button aecButton compact type="submit" [disabled]="busy()">
                           <span i18n="@@vendor.im.edit.save">Save</span>
                         </button>
                         <button
+                          aecButton
+                          variant="secondary"
+                          compact
                           type="button"
-                          [class]="secondary"
                           [disabled]="busy()"
                           (click)="cancelEdit(row)"
                           i18n="@@vendor.im.edit.cancel"
@@ -226,8 +223,10 @@ const PENCIL =
                         >
                         @if (overflows() || expanded()) {
                           <button
+                            aecButton
+                            variant="ghost"
                             type="button"
-                            [class]="rowAction"
+                            [class]="'-ms-4'"
                             [attr.aria-expanded]="expanded()"
                             [attr.aria-controls]="rowId(row.key) + '-value'"
                             (click)="expanded.set(!expanded())"
@@ -281,8 +280,9 @@ const PENCIL =
                               <!-- AECI-1225: not offered while the vendor's own "not ours" stands. -->
                               @if (!notOursStands()) {
                                 <button
+                                  aecButton
+                                  variant="ghost"
                                   type="button"
-                                  [class]="rowAction"
                                   [disabled]="claiming()"
                                   (click)="claim()"
                                   data-testid="claim-integration"
@@ -294,8 +294,9 @@ const PENCIL =
                             }
                             @case ('ask') {
                               <button
+                                aecButton
+                                variant="ghost"
                                 type="button"
-                                [class]="rowAction"
                                 (click)="askToOwn()"
                                 data-testid="ask-owner"
                                 i18n="@@vendor.im.owner.ask"
@@ -305,8 +306,9 @@ const PENCIL =
                             }
                             @case ('see') {
                               <button
+                                aecButton
+                                variant="ghost"
                                 type="button"
-                                [class]="rowAction"
                                 (click)="seeOwnerRequest()"
                                 data-testid="see-owner-request"
                                 i18n="@@vendor.im.owner.see"
@@ -320,35 +322,26 @@ const PENCIL =
                             @case ('owner-claimed') {
                               @if (row.edit && canEdit(row.edit)) {
                                 <button
+                                  aecButton
+                                  variant="ghost"
+                                  iconOnly
                                   #pencil
                                   type="button"
-                                  [class]="iconButton"
                                   [attr.aria-label]="editLabel(row.label)"
                                   [attr.data-row]="row.key"
                                   [attr.data-testid]="'edit-' + row.key"
                                   (click)="edit(row)"
                                 >
-                                  <svg
-                                    aria-hidden="true"
-                                    class="h-4 w-4"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    stroke-width="2"
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                  >
-                                    <path [attr.d]="pencilPath" />
-                                    <path d="m15 5 4 4" />
-                                  </svg>
+                                  <aec-icon name="pen" decorative [size]="4" />
                                 </button>
                               }
                             }
                             @case ('owner-unclaimed') {
                               @if (row.edit && claimAllowed()) {
                                 <button
+                                  aecButton
+                                  variant="ghost"
                                   type="button"
-                                  [class]="rowAction"
                                   [attr.aria-label]="claimToEditLabel(row.label)"
                                   (click)="state.jumpTo(rowId('owner'))"
                                   i18n="@@vendor.im.claimToEdit"
@@ -360,8 +353,9 @@ const PENCIL =
                             @default {
                               @if (row.field && !flagFor(row.field)) {
                                 <button
+                                  aecButton
+                                  variant="ghost"
                                   type="button"
-                                  [class]="rowAction"
                                   [attr.aria-label]="requestLabel(row.label)"
                                   [attr.data-testid]="'request-' + row.key"
                                   (click)="state.openRequestForm(row.field)"
@@ -774,11 +768,7 @@ export class IntegrationOverview {
     return (event.target as HTMLInputElement).value;
   }
 
-  protected readonly pencilPath = PENCIL;
-  protected readonly primary = BTN_PRIMARY;
-  protected readonly secondary = BTN_SECONDARY;
-  protected readonly iconButton = ICON_BUTTON;
-  protected readonly rowAction = ROW_ACTION;
+  protected readonly input = INPUT;
   protected readonly alert = ALERT;
 
   // ── Edit (§4.5.6) ──────────────────────────────────────────────────────────

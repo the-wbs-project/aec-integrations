@@ -24,11 +24,4 @@ admin/vendors/suspension-cost-log.html 6
 admin/vendors/suspension-terminate.html 1
 admin/vendors/vendor-suspension-section.html 6
 vendor/components/vendor-contest-form.ts 3
-vendor/components/vendor-contest-protest.ts 3
 vendor/components/vendor-license-assign.ts 1
-vendor/components/vendor-not-ours.ts 2
-vendor/integration-detail/integration-answer-form.ts 3
-vendor/integration-detail/integration-change-requests.ts 1
-vendor/integration-detail/integration-request-form.ts 3
-vendor/integration-detail/integration-row-thread.ts 1
-vendor/integration-detail/integration-shared-data.ts 3

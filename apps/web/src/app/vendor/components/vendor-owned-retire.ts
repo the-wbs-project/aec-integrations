@@ -106,6 +106,7 @@ export const VENDOR_RETIRE_CONFIRM_START_OPEN = new InjectionToken<string | null
                 <button
                   #confirm
                   aecButton
+                  variant="danger"
                   type="button"
                   [disabled]="busy()"
                   (click)="onRetire()"

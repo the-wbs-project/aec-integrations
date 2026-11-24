@@ -7,11 +7,4 @@ vendor/components/vendor-billing-licenses.ts 1
 vendor/components/vendor-contest-form.ts 2
 vendor/components/vendor-license-actions.ts 2
 vendor/components/vendor-license-assign.ts 1
-vendor/components/vendor-not-ours.ts 1
-vendor/integration-detail/integration-change-requests.ts 3
-vendor/integration-detail/integration-links.ts 3
-vendor/integration-detail/integration-overview.ts 1
-vendor/integration-detail/integration-shared-data.ts 8
-vendor/integration-detail/vendor-integration-detail-page.ts 1
-vendor/integration-detail/vendor-tip.ts 4
 vendor/sections/vendor-billing-section.ts 1

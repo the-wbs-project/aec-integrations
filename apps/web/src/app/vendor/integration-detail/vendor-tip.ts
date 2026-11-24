@@ -11,8 +11,11 @@ import {
   viewChild,
 } from '@angular/core';
 
+import { Chip } from '../../shared/chip/chip';
+import { AecIcon } from '../../shared/icon/icon';
+
 import type { Tone } from './integration-detail-model';
-import { ID_STYLES } from './integration-detail-styles';
+import { STATUS_CHIP_ICON, STATUS_CHIP_TONE } from './integration-detail-styles';
 
 let nextId = 0;
 
@@ -44,8 +47,8 @@ let nextId = 0;
  */
 @Component({
   selector: 'aec-vendor-tip',
-  imports: [OverlayModule],
-  styles: [ID_STYLES, ':host { display: inline-flex; vertical-align: middle; }'],
+  imports: [OverlayModule, Chip, AecIcon],
+  styles: [':host { display: inline-flex; max-width: 100%; vertical-align: middle; }'],
   host: { '(document:keydown.escape)': 'close()' },
   template: `
     <button
@@ -67,77 +70,13 @@ let nextId = 0;
     >
       @switch (variant()) {
         @case ('pill') {
-          @switch (tone()) {
-            @case ('ok') {
-              <svg
-                aria-hidden="true"
-                class="h-3 w-3"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="3"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <path d="M20 6 9 17l-5-5" />
-              </svg>
-            }
-            @case ('conflict') {
-              <svg
-                aria-hidden="true"
-                class="h-3 w-3"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="3"
-                stroke-linecap="round"
-              >
-                <path d="M7 7l10 10M17 7L7 17" />
-              </svg>
-            }
-            @case ('attention') {
-              <span
-                aria-hidden="true"
-                class="h-2 w-2 rounded-full bg-(--accent-secondary-deep)"
-              ></span>
-            }
-            @default {
-              <span aria-hidden="true" class="h-2 w-2 rounded-full bg-(--text-secondary)"></span>
-            }
-          }
-          {{ label() }}
+          <aec-chip density="dense" [tone]="chipTone()" [icon]="chipIcon()">{{ label() }}</aec-chip>
         }
         @case ('flag') {
-          <svg
-            aria-hidden="true"
-            class="h-4 w-4"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path
-              d="M4 22V4a1 1 0 0 1 .4-.8A6 6 0 0 1 8 2c3 0 5 2 7.33 2q2 0 3.67-.8a1 1 0 0 1 1.6.8v11a1 1 0 0 1-.4.8A6 6 0 0 1 16 16c-3 0-5-2-8-2a6 6 0 0 0-4 1.528"
-            />
-          </svg>
+          <aec-icon name="flag" decorative [size]="4" />
         }
         @default {
-          <svg
-            aria-hidden="true"
-            class="h-4 w-4"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <path d="M12 16v-4" />
-            <path d="M12 8h.01" />
-          </svg>
+          <aec-icon name="info" decorative [size]="4" />
         }
       }
     </button>
@@ -153,7 +92,7 @@ let nextId = 0;
       <div
         aria-hidden="true"
         data-testid="vendor-tip-panel"
-        class="max-w-xs space-y-1.5 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-3 py-2.5 text-sm leading-relaxed text-(--text-primary) shadow-[0_8px_24px_-4px_rgb(0_0_0/0.12),0_2px_8px_-1px_rgb(0_0_0/0.06)]"
+        class="max-w-xs space-y-2 rounded-panel border border-(--border-default) bg-(--surface-raised) px-3 py-3 text-sm leading-relaxed text-(--text-primary) shadow-menu"
         (mouseenter)="show()"
         (mouseleave)="scheduleClose()"
       >
@@ -189,16 +128,20 @@ export class VendorTip {
     { originX: 'end', originY: 'top', overlayX: 'end', overlayY: 'bottom', offsetY: -6 },
   ];
 
+  protected readonly chipTone = computed(() => STATUS_CHIP_TONE[this.tone()]);
+  protected readonly chipIcon = computed(() => STATUS_CHIP_ICON[this.tone()]);
+
   protected readonly triggerClass = computed(() => {
     const focus =
-      'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+      'focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
     switch (this.variant()) {
       case 'pill':
-        return `id-pill min-h-6 cursor-help ${focus}`;
+        // The chip draws the status. The button around it only adds the pointer and the ring.
+        return `inline-flex min-h-6 max-w-full cursor-help items-center rounded-pill ${focus}`;
       case 'flag':
-        return `inline-flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-(--radius-sm) text-(--accent-secondary-deep) hover:bg-(--surface-sunken) ${focus}`;
+        return `inline-flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-mark text-(--accent-secondary-deep) hover:bg-(--surface-sunken) ${focus}`;
       default:
-        return `inline-flex h-6 w-6 shrink-0 cursor-help items-center justify-center rounded-full text-(--text-secondary) hover:text-(--text-primary) ${focus}`;
+        return `inline-flex h-6 w-6 shrink-0 cursor-help items-center justify-center rounded-pill text-(--text-secondary) hover:text-(--text-primary) ${focus}`;
     }
   });
 
