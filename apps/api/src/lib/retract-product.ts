@@ -362,6 +362,9 @@ export const REVIEW_UPDATES_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHER
  *  does, none when migration 0100 has not reached it. */
 export const CLAIM_THREADS_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'claim_threads';`;
 
+/** AECI-2039: does `claim_owner_answers` exist on the target tier (migration 0130)? */
+export const CLAIM_OWNER_ANSWERS_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'claim_owner_answers';`;
+
 /** AECI-1350: does the `licenses` table exist on this tier yet? One row when it does,
  *  none when migration 0073 has not reached it. */
 export const LICENSES_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'licenses';`;
@@ -857,9 +860,9 @@ export interface ProductDeleteArgs {
    *  names the table. */
   claimThreadsTable?: boolean;
   /** AECI-2039: whether `claim_owner_answers` exists on the target tier (migration
-   *  0130). Defaults to true, the schema at HEAD. A tier without it gets a plan that
-   *  never names the table. The CLI does not probe it yet: every tier that runs this
-   *  code has applied 0130, because migrations deploy first (`docs/CICD_PLAN.md`). */
+   *  0130). Defaults to true, the schema at HEAD. The CLI passes its
+   *  {@link CLAIM_OWNER_ANSWERS_TABLE_SQL} probe, as for every table a later migration
+   *  added, so a tier without it gets a plan that never names the table. */
   claimOwnerAnswersTable?: boolean;
 }
 

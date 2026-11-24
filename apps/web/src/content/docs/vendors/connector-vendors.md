@@ -55,6 +55,8 @@ When the connector is a Sync Service, your company runs both sides of the integr
 - **Change** moves a row to another direction. The old direction is removed and the new one confirmed.
 - **Add a row** adds a type of data and confirms it. The vendors of both products are told in Messages.
 
+If your company also makes one of the two products, the integration is on your product's Integrations tab instead. Open it, and the same controls are under **Data that's shared** on its page.
+
 The two products' vendors cannot answer these rows. Their Integrations tab names your company as the one that maintains them. Until you claim the integration, AEC Integrations keeps its rows and you cannot change them. On an integration platform's integrations, nobody confirms the rows.
 
 Where your company does hold a product at one end and the connection later becomes connector-delivered, the integration keeps its own page. Its Integration links section stops offering your product's group, and your existing links no longer show on the public page. They still appear in your product's group there, and you can remove them.

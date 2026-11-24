@@ -88,6 +88,7 @@ import {
   REVIEW_RESPONSES_TABLE_SQL,
   REVIEW_UPDATES_TABLE_SQL,
   CLAIM_THREADS_TABLE_SQL,
+  CLAIM_OWNER_ANSWERS_TABLE_SQL,
   AUDIT_LOG_DDL_SQL,
   PAGE_VIEWS_DDL_SQL,
   ddlHasPageViewPairColumns,
@@ -357,6 +358,9 @@ export async function main(argv: string[]): Promise<number> {
   // AECI-1536: the same for migration 0100's private-thread table.
   const claimThreadsTable =
     (runD1<{ name: string }>(target, CLAIM_THREADS_TABLE_SQL)[0]?.results.length ?? 0) > 0;
+  // AECI-2039: the same for migration 0130's owner-answer table.
+  const claimOwnerAnswersTable =
+    (runD1<{ name: string }>(target, CLAIM_OWNER_ANSWERS_TABLE_SQL)[0]?.results.length ?? 0) > 0;
   // AECI-1350: the same for migration 0073's `licenses` table.
   const licensesTable =
     (runD1<{ name: string }>(target, LICENSES_TABLE_SQL)[0]?.results.length ?? 0) > 0;
@@ -477,6 +481,7 @@ export async function main(argv: string[]): Promise<number> {
     auditVendorColumns,
     licensesTable,
     claimThreadsTable,
+    claimOwnerAnswersTable,
   }).join('\n');
   let results: D1ExecResult<unknown>[];
   try {

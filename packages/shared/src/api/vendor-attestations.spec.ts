@@ -87,6 +87,7 @@ const INTEGRATION = {
   last_reviewed_at: '2026-08-17T00:00:00.000Z',
   pricing_url: 'https://autodesk.example/pricing',
   flows_maintained_by_owner: false,
+  owner_flows: null,
 };
 
 describe('VENDOR_ATTESTATION_SLOTS', () => {

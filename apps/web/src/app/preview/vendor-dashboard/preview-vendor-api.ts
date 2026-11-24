@@ -2557,6 +2557,7 @@ export class PreviewVendorApi extends VendorApi {
     const entry: VendorIntegration = {
       id,
       flows_maintained_by_owner: false,
+      owner_flows: null,
       name: parsed.data.name ?? null,
       mechanism_kind: (parsed.data.mechanism_kind ?? null) as VendorIntegration['mechanism_kind'],
       mechanism_name: parsed.data.mechanism_name ?? null,

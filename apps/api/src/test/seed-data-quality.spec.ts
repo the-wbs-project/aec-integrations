@@ -44,6 +44,7 @@ const CHAIN = [
   'phase2-fixtures.sql',
   'auth-fixtures.sql',
   'connector-fixtures.sql',
+  'sync-service-owner-fixtures.sql',
   'extension-fixtures.sql',
   'review-response-fixtures.sql',
   'review-update-fixtures.sql',

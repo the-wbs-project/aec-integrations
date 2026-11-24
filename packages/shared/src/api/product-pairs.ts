@@ -532,7 +532,15 @@ export type ProductPairResponse = z.infer<typeof ProductPairResponseSchema>;
  * `computeAgreement` on these.
  */
 export const ClaimTimelineEntrySchema = z.object({
-  attestor: z.enum(['aeci', 'context', 'other']),
+  /**
+   * Who spoke, in the page's context frame, as on {@link PairClaimAttestationSchema}.
+   * `owner` (AECI-2039) is the company that offers a Sync Service pair and runs both
+   * sides of it: the mechanism's `built_by_vendor` on the pair read. Its entries are its
+   * answers on the flow (`claim_owner_answers`), listed only while that company still
+   * maintains the row's flows (claimed, Sync Service, the answer is its own), so a
+   * previous owner's answers never appear under the current owner's name.
+   */
+  attestor: z.enum(['aeci', 'context', 'other', 'owner']),
   asserted: z.boolean(),
   /** Always `null`, as on {@link PairClaimAttestationSchema} (AECI-1139). This is
    *  the second public route that once carried the note. */

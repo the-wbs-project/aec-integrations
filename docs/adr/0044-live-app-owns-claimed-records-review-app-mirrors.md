@@ -162,3 +162,14 @@ changes and the hash of every vendor without delivered pairs is unchanged. An ed
 re-sends its owned builder's record too. The review receiver must accept and ignore the key until
 it mirrors it (§4d rule 9, a `REVIEW - ` issue), and production needs a backfill of the affected
 vendors after the deploy.
+
+**Amendment 2026-11-24 (AECI-2039 follow-up):** An owned v2 integration entry, in either list,
+gains an optional `ownerFlows`. Since AECI-2039 the owner of a claimed Sync Service pair adds,
+confirms and removes its data flows, and the answers live in `claim_owner_answers`, not in
+`attestations`. The claim slots are attestation-based, so they could not carry an owner answer
+or a flow the owner added. `ownerFlows` lists every claim on such a row (`dataObject`,
+`direction`, `origin`) with the owner's counted answer (`yes`, `no` or `null`). It rides only on
+an entry that already has `content` and whose row the owner maintains. No existing field or
+claim slot changes meaning, and every other entry hashes as before. An owner flow write already
+re-sends the builder's record. The receiver must accept and ignore the key until it mirrors it
+(§4d rule 10), and production needs a backfill of the affected vendors after the deploy.

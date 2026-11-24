@@ -34,7 +34,13 @@ import { NOTIFICATION_SENT_ACTION } from '../lib/attestation-notify';
 import type { AuthzVariables } from '../lib/authz';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
-import { createProductPairHandler } from './integrations';
+import { buildOwnershipRecordV2 } from '../lib/ownership-sync';
+import {
+  createPairAlternativesHandler,
+  createPairTimelineHandler,
+  createProductPairHandler,
+} from './integrations';
+import { createProductDetailHandler } from './products';
 import { createListVendorIntegrationsHandler } from './vendor-attestations';
 import {
   createAddOwnerFlowHandler,
@@ -220,6 +226,15 @@ function app(auth: Auth) {
   a.patch('/api/vendor/owned-flows/:claimId', createChangeOwnerFlowHandler(t.factory));
   a.get('/api/vendor/integrations', createListVendorIntegrationsHandler(t.factory));
   a.get('/api/products/:slug/integrations/:otherSlug', createProductPairHandler(t.factory));
+  a.get(
+    '/api/products/:slug/integrations/:otherSlug/timeline',
+    createPairTimelineHandler(t.factory),
+  );
+  a.get(
+    '/api/products/:slug/integrations/:otherSlug/alternatives',
+    createPairAlternativesHandler(t.factory),
+  );
+  a.get('/api/products/:slug', createProductDetailHandler(t.factory));
   return a;
 }
 
@@ -485,5 +500,149 @@ describe('claim, confirm a flow, read it on the pair page', () => {
       .set({ builtByVendorId: VENDOR_E })
       .where(eq(connectorEvidencedPairs.id, E_SS));
     expect(mechanism((await pairPage()).body, E_SS).claims[0].agreement).toBe('unverified');
+  });
+});
+
+// Follow-up item 1: every other public reader of claims applies the owner's answers, so
+// a flow the owner removed shows nowhere public (§14.10 "Readers checked").
+describe('every other public reader applies the owner answers', () => {
+  const answer = (claimId: string, asserted: boolean) =>
+    call(AUTH_C, `/api/vendor/owned-flows/${claimId}/answer`, 'PUT', { asserted });
+
+  it('the connector page counts no removed flow, and counts an added one', async () => {
+    const slugsOnHub = async () => {
+      const body = (await call(AUTH_E, '/api/products/rivets-sync', 'GET')).body;
+      const row = (body.integrations_as_connector as JsonBody[]).find((r) => r.id === E_SS);
+      return [...(row?.data_object_slugs as string[])].sort();
+    };
+    expect(await slugsOnHub()).toEqual(['rfis']);
+
+    const added = await add(AUTH_C, E_SS, 'invoices', 'outbound');
+    expect(await slugsOnHub()).toEqual(['invoices', 'rfis']);
+
+    await answer(CLAIM_SEED, false);
+    const invoices = added.body.flows.find((f: JsonBody) => f.data_object_slug === 'invoices');
+    await answer(invoices.id, false);
+    expect(await slugsOnHub()).toEqual([]);
+  });
+
+  it('the endpoint product page and the alternatives lanes drop a removed flow', async () => {
+    await t.db
+      .insert(products)
+      .values({ id: uuid(20), slug: 'buildertrend', name: 'Buildertrend' });
+    const moving = async () => {
+      const res = await call(
+        AUTH_E,
+        '/api/products/procore/integrations/buildertrend/alternatives',
+        'GET',
+      );
+      expect(res.status).toBe(200);
+      return (res.body.moving.context_only as JsonBody[]).map((o) => o.slug);
+    };
+    const added = await add(AUTH_C, E_SS, 'invoices', 'outbound');
+    expect(await moving()).toContain('invoices');
+    const invoices = added.body.flows.find((f: JsonBody) => f.data_object_slug === 'invoices');
+    await answer(invoices.id, false);
+    expect(await moving()).not.toContain('invoices');
+
+    const page = (await call(AUTH_E, '/api/products/procore', 'GET')).body;
+    const rows = [...page.integrations_as_source, ...page.integrations_as_target] as JsonBody[];
+    const onPage = rows.find((r) => r.id === E_SS);
+    expect(onPage?.data_object_slugs).not.toContain('invoices');
+  });
+
+  it('the timeline lists the owner answers, and withholds a removed flow whole', async () => {
+    // The timeline is history, so it opens only when a pair vendor is verified (§9.3).
+    await t.db.update(vendors).set({ verified: true }).where(eq(vendors.id, VENDOR_A));
+    const timeline = async () =>
+      (await call(AUTH_E, '/api/products/procore/integrations/acumatica/timeline', 'GET')).body;
+    const of = (body: JsonBody, claimId: string) =>
+      (body.claims as JsonBody[]).find((c) => c.claim_id === claimId);
+
+    const added = await add(AUTH_C, E_SS, 'invoices', 'outbound');
+    const invoices = added.body.flows.find((f: JsonBody) => f.data_object_slug === 'invoices');
+    await answer(CLAIM_SEED, true);
+    const body = await timeline();
+    expect(body.diff_access).not.toBe('latest_only');
+    // An added flow has no attestation row, so its history is the owner's answer.
+    expect(of(body, invoices.id)?.entries).toEqual([
+      expect.objectContaining({ attestor: 'owner', asserted: true, retracted_at: null }),
+    ]);
+    expect(of(body, CLAIM_SEED)?.entries.map((e: JsonBody) => e.attestor)).toEqual([
+      'aeci',
+      'owner',
+    ]);
+
+    await answer(CLAIM_SEED, false);
+    expect(of(await timeline(), CLAIM_SEED)).toBeUndefined();
+
+    // A previous owner's answers are not listed under the new owner.
+    await t.db
+      .update(connectorEvidencedPairs)
+      .set({ builtByVendorId: VENDOR_E })
+      .where(eq(connectorEvidencedPairs.id, E_SS));
+    const moved = await timeline();
+    expect(of(moved, CLAIM_SEED)?.entries.map((e: JsonBody) => e.attestor)).toEqual(['aeci']);
+    expect(of(moved, invoices.id)).toBeUndefined();
+  });
+});
+
+// Follow-up item 2: the ownership record carries the owner's flows on its delivered pairs.
+describe('the ownership record', () => {
+  it('lists every flow of a held Sync Service pair with its counted answer', async () => {
+    await add(AUTH_C, E_SS, 'invoices', 'both');
+    await call(AUTH_C, `/api/vendor/owned-flows/${CLAIM_SEED}/answer`, 'PUT', { asserted: false });
+    const record = await buildOwnershipRecordV2(t.db, VENDOR_C, 'vendor_edit');
+    const pair = record?.deliveredPairs?.find((p) => p.id === E_SS);
+    expect(pair?.owner).toBe('vendor');
+    expect(pair?.ownerFlows).toEqual([
+      { dataObject: 'invoices', direction: 'both', origin: 'vendor', answer: 'yes' },
+      { dataObject: 'rfis', direction: 'a_to_b', origin: 'aeci', answer: 'no' },
+    ]);
+    // A held pair whose connector is an Integration platform carries no owner flows.
+    expect(record?.deliveredPairs?.find((p) => p.id === E_PLATFORM)?.ownerFlows).toBeUndefined();
+    // The existing claim slots keep their meaning: an owner answer is never a slot.
+    expect(pair?.claims?.map((c) => c.source)).toEqual(['aeci']);
+  });
+
+  it('an unclaimed pair carries no owner flows', async () => {
+    const record = await buildOwnershipRecordV2(t.db, VENDOR_C, 'vendor_edit');
+    const pair = record?.deliveredPairs?.find((p) => p.id === E_SS_UNCLAIMED);
+    expect(pair?.ownerFlows).toBeUndefined();
+  });
+});
+
+// Follow-up item 3: an owner that also makes an endpoint answers as the owner.
+describe('the owner that also makes an endpoint', () => {
+  beforeEach(async () => {
+    // C makes Procore too, so I_SS is on C's ordinary integrations list.
+    await t.db
+      .insert(productVendors)
+      .values({ productId: P_A, vendorId: VENDOR_C, isPrimary: false });
+  });
+
+  it('carries the owner flows on its integrations list entry, in the row frame', async () => {
+    await call(AUTH_C, `/api/vendor/owned-flows/${CLAIM_SEED_I}/answer`, 'PUT', { asserted: true });
+    const res = await call(AUTH_C, '/api/vendor/integrations', 'GET');
+    const entry = (res.body.integrations as JsonBody[]).find((r) => r.id === I_SS);
+    expect(entry).toMatchObject({
+      is_owner: true,
+      attestable: false,
+      flows_maintained_by_owner: true,
+    });
+    expect(entry?.owner_flows).toMatchObject({
+      editable: true,
+      product_a: { id: P_A },
+      product_b: { id: P_B },
+    });
+    expect(entry?.owner_flows.flows).toEqual([
+      expect.objectContaining({ id: CLAIM_SEED_I, direction: 'outbound', answer: 'yes' }),
+    ]);
+    // Not listed twice: the owned array skips a row the endpoint list carries.
+    expect((res.body.owned as JsonBody[]).some((r) => r.id === I_SS)).toBe(false);
+    // An endpoint vendor that is not the owner gets no owner controls.
+    const a = await call(AUTH_A, '/api/vendor/integrations', 'GET');
+    const theirs = (a.body.integrations as JsonBody[]).find((r) => r.id === I_SS);
+    expect(theirs?.owner_flows).toBeNull();
   });
 });

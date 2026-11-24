@@ -373,11 +373,35 @@ export const OwnershipClaimSchema = z.object({
 });
 export type OwnershipClaim = z.infer<typeof OwnershipClaimSchema>;
 
+/**
+ * One data flow on a row whose OWNER maintains its flows (AECI-2039, §4d `ownerFlows`):
+ * a claimed pair whose connector product is a Sync Service. Every claim on the row is
+ * listed, including a flow the owner added, which has no attestation and so no claim
+ * slot. `answer` is the owner's live answer, counted by the rule the public pages use:
+ * `yes` shows the flow as confirmed by the owner, `no` removes it from every public
+ * page, `null` means the owner has not answered. Unique by `{ dataObject, direction }`.
+ */
+export const OwnershipOwnerFlowSchema = z.object({
+  dataObject: PromoteClaimSchema.shape.dataObject,
+  direction: PromoteClaimSchema.shape.direction,
+  /** `vendor` when the owner added the flow, `aeci` when AEC Integrations seeded it. */
+  origin: z.enum(['aeci', 'vendor']),
+  answer: z.enum(['yes', 'no']).nullable(),
+});
+export type OwnershipOwnerFlow = z.infer<typeof OwnershipOwnerFlowSchema>;
+
+/** The natural key of an owner flow, for uniqueness checks and sorting. */
+export function ownershipOwnerFlowKey(f: Pick<OwnershipOwnerFlow, 'dataObject' | 'direction'>) {
+  return `${f.dataObject}\u0000${f.direction}`;
+}
+
 /** A v2 integration entry: the v1 entry plus `content` and `claims`, both present
- *  exactly when owned. */
+ *  exactly when owned. `ownerFlows` (AECI-2039) is optional and additive: present only
+ *  on an owned entry whose row's owner maintains its flows, else absent. */
 export const OwnershipIntegrationV2Schema = OwnershipIntegrationSchema.extend({
   content: OwnershipIntegrationContentSchema.optional(),
   claims: z.array(OwnershipClaimSchema).optional(),
+  ownerFlows: z.array(OwnershipOwnerFlowSchema).optional(),
 });
 export type OwnershipIntegrationV2 = z.infer<typeof OwnershipIntegrationV2Schema>;
 
@@ -500,6 +524,26 @@ export const OwnershipRecordV2Schema = z
             });
           }
         }
+        // AECI-2039: owner flows ride an owned entry only, one per flow identity.
+        if (intg.ownerFlows !== undefined && intg.content === undefined) {
+          ctx.addIssue({
+            code: 'custom',
+            path: [list, i, 'ownerFlows'],
+            message: 'ownerFlows are present only on a vendor-owned integration',
+          });
+        }
+        const flowKeys = new Set<string>();
+        intg.ownerFlows?.forEach((f, j) => {
+          const key = ownershipOwnerFlowKey(f);
+          if (flowKeys.has(key)) {
+            ctx.addIssue({
+              code: 'custom',
+              path: [list, i, 'ownerFlows', j],
+              message: 'owner flows are unique by { dataObject, direction }',
+            });
+          }
+          flowKeys.add(key);
+        });
         const seen = new Set<string>();
         intg.claims?.forEach((c, j) => {
           const key = ownershipClaimKey(c);
@@ -612,6 +656,8 @@ function sortEdges<T extends OwnershipIntegrationV2>(edges: readonly T[]): T[] {
         ),
       },
       claims: intg.claims && [...intg.claims].sort(byKey(ownershipClaimKey)),
+      // AECI-2039: left out when absent, so an entry without them hashes as before.
+      ownerFlows: intg.ownerFlows && [...intg.ownerFlows].sort(byKey(ownershipOwnerFlowKey)),
     }))
     .sort(byKey((i) => i.id));
 }

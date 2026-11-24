@@ -21,6 +21,7 @@ import { compareText } from '@aeci/shared/text-sort';
 
 import { claimOutcomeLine } from '../components/vendor-claim-outcome';
 import { VendorDocsLink } from '../components/vendor-docs-link';
+import { VendorOwnedFlows, type OwnedFlowsRow } from '../components/vendor-owned-flows';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 
@@ -84,10 +85,17 @@ import { isReplayedEvent } from '../../core/event-replay';
  * read-only with the portal's access sentence. A connector-powered row is read-only
  * and says why. A retired row is read-only, except that a pressed answer can still
  * be cleared (§4.6.2).
+ *
+ * ── THE OWNER OF A SYNC SERVICE ROW (AECI-2039) ─────────────────────────────
+ * When the caller owns a claimed Sync Service row and also makes one of its endpoint
+ * products, the row is listed here, not under "Integrations your company offers". The
+ * caller then answers as the owner: the section renders the owned card's own flow
+ * controls (`aec-vendor-owned-flows`) on `VendorIntegration.owner_flows`, through the
+ * owner routes. The endpoint Yes and No stay closed on the row (AECI-705).
  */
 @Component({
   selector: 'aec-integration-shared-data',
-  imports: [VendorTip, VendorDocsLink, IntegrationAnswerForm],
+  imports: [VendorTip, VendorDocsLink, IntegrationAnswerForm, VendorOwnedFlows],
   styles: [ID_STYLES],
   template: `
     @let i = integration();
@@ -224,7 +232,10 @@ import { isReplayedEvent } from '../../core/event-replay';
       }
     </div>
 
-    @if (!i.attestable) {
+    @if (ownerRow(); as owned) {
+      <!-- AECI-2039: the caller owns this Sync Service row, so it answers as the owner. -->
+      <aec-vendor-owned-flows [row]="owned" labelledBy="data-shared-heading" />
+    } @else if (!i.attestable) {
       <p class="mt-3 max-w-prose text-sm text-(--text-secondary)" data-testid="connector-note">
         {{ connectorNote() }}
       </p>
@@ -238,7 +249,9 @@ import { isReplayedEvent } from '../../core/event-replay';
       </p>
     }
 
-    @if (i.claims.length === 0) {
+    @if (ownerRow()) {
+      <!-- The owner's controls above stand for the table. -->
+    } @else if (i.claims.length === 0) {
       <p class="mt-3 text-sm text-(--text-secondary)" i18n="@@vendor.im.data.empty">
         No data is listed as shared yet.
       </p>
@@ -674,6 +687,25 @@ export class IntegrationSharedData {
   protected readonly directions = ['outbound', 'both', 'inbound'] as const;
 
   protected readonly live = computed(() => !this.integration().retired_at);
+
+  /**
+   * The owner's flow controls' row, when the caller owns this Sync Service row and
+   * maintains its flows (AECI-2039). `null` on every other row.
+   */
+  protected readonly ownerRow = computed<OwnedFlowsRow | null>(() => {
+    const i = this.integration();
+    const owned = i.owner_flows;
+    if (!owned) return null;
+    return {
+      id: i.id,
+      flows: owned.flows,
+      flows_editable: owned.editable,
+      retired_at: i.retired_at,
+      claimed_at: i.claimed_at,
+      product_a: owned.product_a,
+      product_b: owned.product_b,
+    };
+  });
 
   protected readonly canAdd = computed(
     () => this.integration().attestable && this.live() && this.state.canAuthor(),

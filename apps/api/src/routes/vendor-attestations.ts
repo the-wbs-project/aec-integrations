@@ -127,6 +127,7 @@ import {
   type VendorClaim,
   type VendorClaimResponse,
   type OwnedIntegration,
+  type ProductLink,
   type VendorIntegration,
   type VendorOwnAttestation,
   effectiveRetiredBy,
@@ -140,10 +141,12 @@ import { lockedFieldsByEntity } from '../lib/field-overrides';
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { loadOwnedIntegrations } from '../lib/owned-integrations';
 import {
+  loadOwnedFlows,
   ownerAnswersRelationConfig,
   ownerFlowContextOf,
   ownerMaintainsFlows,
   ownerVote,
+  type OwnerFlowContext,
 } from '../lib/owner-flows';
 import { assertIntegrationLive } from '../lib/live-integration';
 import { toSideLinks } from '../lib/integration-vendor-links';
@@ -1163,6 +1166,12 @@ export function createListVendorIntegrationsHandler(
     const raisedAt = await conflictStarts(db, [...conflictIds]);
 
     const surface: VendorIntegration[] = [];
+    // AECI-2039: the rows this caller OWNS and maintains the flows of, though it also
+    // makes an endpoint, so the row is here and not in `owned`. One flow read for all.
+    const ownerFlowRows = new Map<
+      string,
+      { ctx: OwnerFlowContext; productA: ProductLink; productB: ProductLink; live: boolean }
+    >();
     for (const row of rows) {
       // The authority map is the authority, not the `where` above — a row it does
       // not know about is not the caller's to see.
@@ -1171,6 +1180,15 @@ export function createListVendorIntegrationsHandler(
       const attestable = !isConnectorPoweredEdge(row);
       // AECI-2039: on a claimed Sync Service row the owner maintains the flows.
       const ownerCtx = ownerFlowContextOf(row, attestable ? null : row.poweredByProduct);
+      const callerKeepsFlows = row.builtByVendorId === vendorId && ownerMaintainsFlows(ownerCtx);
+      if (callerKeepsFlows) {
+        ownerFlowRows.set(row.id, {
+          ctx: ownerCtx,
+          productA: toOwnedProductLink(row.sourceProduct),
+          productB: toOwnedProductLink(row.targetProduct),
+          live: row.retiredAt === null,
+        });
+      }
 
       // ── ONE ENTRY PER OWNED ENDPOINT, NOT PER INTEGRATION (AECI-666) ───────
       // The portal files integrations under the product they touch, so an
@@ -1286,7 +1304,25 @@ export function createListVendorIntegrationsHandler(
               ),
             ),
           flows_maintained_by_owner: ownerMaintainsFlows(ownerCtx),
+          // Filled below, after one flow read for every such row.
+          owner_flows: null,
         });
+      }
+    }
+    if (ownerFlowRows.size > 0) {
+      const flows = await loadOwnedFlows(
+        db,
+        [...ownerFlowRows].map(([id, entry]) => ({ id, anchor: 'integration', ctx: entry.ctx })),
+      );
+      for (const entry of surface) {
+        const held = ownerFlowRows.get(entry.id);
+        if (!held) continue;
+        entry.owner_flows = {
+          product_a: held.productA,
+          product_b: held.productB,
+          editable: held.live,
+          flows: flows.get(entry.id) ?? [],
+        };
       }
     }
     // Context product first, so the per-product tab's slice is contiguous, then the

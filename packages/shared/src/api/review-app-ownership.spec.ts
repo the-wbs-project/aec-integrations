@@ -260,6 +260,42 @@ describe('OwnershipRecordSchema v2 (REVIEW_APP_PROMOTE_API.md §4d, ADR 0044)', 
     expect(OwnershipRecordV2Schema.parse(ownedV2)).toEqual(ownedV2);
   });
 
+  // AECI-2039 follow-up: the owner's flows on a Sync Service pair, additive.
+  describe('ownerFlows', () => {
+    const flow = { dataObject: 'invoices', direction: 'both', origin: 'vendor', answer: 'yes' };
+    const withFlows = (flows: unknown[], index = 1) => ({
+      ...ownedV2,
+      integrations: ownedV2.integrations.map((e, i) =>
+        i === index ? { ...e, ownerFlows: flows } : e,
+      ),
+    });
+
+    it('accepts them on an owned entry, and a record without them parses unchanged', () => {
+      expect(OwnershipRecordV2Schema.safeParse(withFlows([flow])).success).toBe(true);
+      expect(OwnershipRecordV2Schema.parse(ownedV2).integrations[1]).not.toHaveProperty(
+        'ownerFlows',
+      );
+    });
+
+    it('refuses two flows with one identity, and flows on an entry without content', () => {
+      expect(
+        OwnershipRecordV2Schema.safeParse(withFlows([flow, { ...flow, answer: 'no' }])).success,
+      ).toBe(false);
+      const returned = {
+        ...ownedV2,
+        integrations: [{ id: u(3), table: 'integrations', owner: 'aeci', ownerFlows: [flow] }],
+      };
+      expect(OwnershipRecordV2Schema.safeParse(returned).success).toBe(false);
+    });
+
+    it('hashes a record without them exactly as before, and moves the hash when added', async () => {
+      const before = await computeOwnershipRecordHash(ownedV2);
+      expect(await computeOwnershipRecordHash({ ...ownedV2 })).toBe(before);
+      const added = OwnershipRecordV2Schema.parse(withFlows([flow]));
+      expect(await computeOwnershipRecordHash(added)).not.toBe(before);
+    });
+  });
+
   it('still accepts v1 through the union', () => {
     expect(OwnershipRecordSchema.parse(owned).schemaVersion).toBe(1);
   });

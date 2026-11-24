@@ -76,6 +76,7 @@ const DETAIL_DEFAULTS = {
   pricing_url: null,
   // AECI-2039: no fixture row is a claimed Sync Service row.
   flows_maintained_by_owner: false,
+  owner_flows: null,
 } as const satisfies Partial<VendorIntegration>;
 
 /** The same for each claim (AECI-1153): who added it, when, and any disagreement. */

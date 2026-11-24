@@ -3416,16 +3416,43 @@ After commit it purges the pair tag, both endpoint tags and the connector's tag.
 |---|---|
 | `attestations_slot_key` | Untouched: no owner row is in `attestations`. |
 | `isClaimPubliclyBacked`, `computeAgreement`, `isClaimRefuted`, `integrationAgreement` | Extended as above. Unchanged for any set without an `owner` entry. |
-| Pair page, product page rows (both arms) | Append the owner entry before `publicClaims`. The wire drops it. |
-| Endpoint vendor list (`GET /api/vendor/integrations`) | Agreement includes it. `owner_answer` and `flows_maintained_by_owner` say who keeps the rows. It is never `mine` or `counterparty`. |
-| §7 detectors and nudges | Do not load the table. Unchanged and correct: §14.4 already drops every vendor nudge on a powered edge. |
-| Data-quality suite | No check reads attestations by source for these rows. Unchanged. |
-| Version-diff paywall (§9) | Owner answers carry no version stamps, so no window and no selector changes. |
-| Pair timeline, pair alternatives | Do not load the table. They fail safe: an owner-added flow is withheld from the timeline, and a removed flow can still name its data type on an alternatives lane. Accepted for now. |
-| Retraction lanes | `retract-product` deletes the answers explicitly before the claims. `retract-vendor` nulls `vendor_id`. |
+A flow the owner removed must show nowhere public. Every reader of `claims` and `attestations`
+was checked on 2026-11-24 (follow-up). "Reads" means it joins the owner's answers with
+`withOwnerVote(s)` before any other rule reads the claims.
 
-**Not done here.** The ownership record (`REVIEW_APP_PROMOTE_API.md` §4d, ADR 0044) does not yet
-carry the owner's flows. Promote is untouched and still writes nothing to a claimed row.
+| Reader | Result |
+|---|---|
+| `attestations_slot_key` | Untouched: no owner row is in `attestations`. |
+| `isClaimPubliclyBacked`, `computeAgreement`, `isClaimRefuted`, `integrationAgreement` | Extended as above. Unchanged for any set without an `owner` entry. |
+| Pair page, product page rows (both arms), `data_object_slugs`, `data_objects`, the row agreement, the product page's object filter | Reads. Append the owner entry before `publicClaims`. The wire drops it. |
+| Connector page, `integrations_as_connector` (the powered hub) and its object filter | Reads, since the follow-up. It loaded the slug only and counted every claim, so a removed flow still named its data type there. It now loads `origin`, live attestations and the owner's answers and applies `publicClaims` (`poweredPublicClaims`). |
+| Pair alternatives (`moving`, both lanes) | Reads, since the follow-up. `laneDataObjects` joins the answers before `publicClaims`. |
+| Pair timeline (`GET …/timeline`) | Reads, since the follow-up. The visibility rule joins the live answer, so a removed flow's history is withheld whole. The owner's answers are history entries with `attestor: 'owner'`, live and retracted. Only the current owner's are listed, and only while it maintains the row's flows. So an added flow has a history, and a previous owner's answers never appear under the new owner's name. |
+| Version-diff paywall (§9), `hasVersionStamps` | Reads, since the follow-up. A removed flow's stamps cannot open selectors. Owner answers carry no stamps themselves. |
+| Endpoint vendor list (`GET /api/vendor/integrations`) | Agreement includes it. `owner_answer` and `flows_maintained_by_owner` say who keeps the rows. It is never `mine` or `counterparty`. On a row the caller owns, `owner_flows` carries the owner's flows (§6.17.4 of the portal spec). |
+| Ownership record (§4d `ownerFlows`) | Reads, since the follow-up. See "The ownership record" below. |
+| §7 detectors and nudges, vendor checklist | Safely ignore it. Both drop every connector-powered edge (§14.4), and an owner-added claim has no attestation to nudge on. |
+| Data-quality suite | Safely ignores it. No check reads claims by source for these rows. |
+| Algolia records, JSON-LD, sitemap, IndexNow, home stats | Safely ignore it. None of them carries a claim or a data object. JSON-LD and the pair page's meta read the pair response, which already applies the answers. |
+| Admin counts, metrics snapshot, admin catalog usage, vendor snapshot | Safely ignore it. Operator-only totals of every claim row, not a public statement. |
+| Private row threads, retention prune, handback, promote | Safely ignore it. Threads are between the two companies. Promote writes nothing to a claimed row. A promote delete of a claim on an unclaimed row cascades its answers, which no longer count there. |
+| Retraction lanes | `retract-product` deletes the answers explicitly before the claims. `retract-vendor` nulls `vendor_id`. Both CLIs probe for the table (`CLAIM_OWNER_ANSWERS_TABLE_SQL`), the convention for every table a later migration added. |
+
+**The ownership record (follow-up).** `REVIEW_APP_PROMOTE_API.md` §4d `ownerFlows`, ADR 0044
+amendment. An owned entry of either list whose row the owner maintains (claimed, Sync Service)
+carries `ownerFlows`: every claim on the row with its counted owner answer. It is additive: no
+existing field or claim slot changes meaning, and every other entry hashes as before. An owner
+flow write already re-sends the builder's record, because its `integration.updated` audit entry
+names the row. `claim_owner_answer` entries resolve the same way.
+
+**The owner that also makes an endpoint (follow-up).** An `integrations` row whose owner also
+makes one of its endpoint products is on the owner's ordinary integrations list, not under
+"Integrations your company offers". Its list entry carries `owner_flows`, and "Data that's
+shared" renders the owned card's flow controls on it (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.4).
+The endpoint Yes and No stay closed. A `connector_evidenced_pairs` row never reaches that list,
+so an owner that makes an endpoint already gets its pairs on the owned card.
+
+Promote is untouched and still writes nothing to a claimed row.
 
 ---
 

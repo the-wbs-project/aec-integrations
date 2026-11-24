@@ -34,6 +34,8 @@ import {
   OwnershipClaimSchema,
   ownershipClaimKey,
   OwnershipIntegrationContentSchema,
+  OwnershipOwnerFlowSchema,
+  ownershipOwnerFlowKey,
   OwnershipProductContentSchema,
   OwnershipRecordV2Schema,
   OwnershipSyncMessageSchema,
@@ -42,6 +44,7 @@ import {
   type OwnershipClaim,
   type OwnershipIntegration,
   type OwnershipIntegrationContent,
+  type OwnershipOwnerFlow,
   type OwnershipProductContent,
   type OwnershipProposal,
   type OwnershipRecord,
@@ -60,6 +63,7 @@ import { alias } from 'drizzle-orm/sqlite-core';
 import { getDb, type Db } from '../db/client';
 import {
   attestations,
+  claimOwnerAnswers,
   claims,
   connectorEvidencedPairs,
   integrations,
@@ -81,6 +85,13 @@ import {
   vendors,
   type OwnershipSyncOutcome,
 } from '../db/schema';
+import { isConnectorPoweredEdge } from './connector-powered';
+import {
+  ownerAnswerCounts,
+  ownerFlowContextOf,
+  ownerMaintainsFlows,
+  type OwnerFlowContext,
+} from './owner-flows';
 import type { Env } from '../env';
 import { logToPosthog, submitCount } from '../posthog';
 import { loadOwnedProductIds, loadOwnedVendorIds } from './claimed-vendors';
@@ -308,8 +319,11 @@ export function mirrorTargets(entries: readonly AuditLogEntry[]): MirrorTargets 
       case 'product_version':
         if (entry.productId) productIds.add(entry.productId);
         break;
+      // AECI-2039: `claim_owner_answer` is an owner's answer on a Sync Service pair's
+      // flow, which the record carries as `ownerFlows`.
       case 'claim':
-      case 'attestation': {
+      case 'attestation':
+      case 'claim_owner_answer': {
         const integrationId = metadataIntegrationId(entry);
         if (integrationId) edgeIds.add(integrationId);
         break;
@@ -871,6 +885,103 @@ function claimSlotsByAnchor(rows: readonly AttestationRow[]): Map<string, Owners
 interface EdgeContent {
   content: OwnershipIntegrationContent;
   claims: OwnershipClaim[];
+  /** AECI-2039: present only when the row's owner maintains its flows. */
+  ownerFlows?: OwnershipOwnerFlow[];
+}
+
+/** The facts {@link readOwnerFlows} needs of one edge row, either table. */
+interface OwnerFlowRowFacts {
+  id: string;
+  claimedAt: string | null;
+  builtByVendorId: string | null;
+  /** `powered_by_product_id` on `integrations`, `connector_product_id` on a pair. */
+  connectorProductId: string | null;
+  /** False on an `integrations` row no connector delivers. A pair is always delivered. */
+  delivered: boolean;
+}
+
+/**
+ * The owner flows of the given rows (AECI-2039, §4d `ownerFlows`), keyed by row id, for
+ * the rows whose owner maintains their flows only: a claimed row whose connector is a
+ * Sync Service. Every claim on such a row is listed with the owner's counted answer,
+ * so a flow the owner added (no attestation, so no claim slot) reaches the mirror
+ * too. Two reads per chunk (the connectors, then the claims of the qualifying rows), and
+ * none when no row of the chunk is a claimed delivered row.
+ */
+async function readOwnerFlows(
+  db: Db,
+  anchor: typeof claims.integrationId | typeof claims.connectorEvidencedPairId,
+  rows: readonly OwnerFlowRowFacts[],
+): Promise<Map<string, OwnershipOwnerFlow[]>> {
+  const out = new Map<string, OwnershipOwnerFlow[]>();
+  const candidates = rows.filter(
+    (r) => r.delivered && r.connectorProductId !== null && r.claimedAt !== null,
+  );
+  if (candidates.length === 0) return out;
+  const connectorIds = [...new Set(candidates.map((r) => r.connectorProductId as string))];
+  const connectors = await db
+    .select({
+      id: products.id,
+      productRole: products.productRole,
+      connectorKind: products.connectorKind,
+    })
+    .from(products)
+    .where(inArray(products.id, connectorIds));
+  const connectorById = new Map(connectors.map((c) => [c.id, c]));
+  const ctxById = new Map<string, OwnerFlowContext>();
+  for (const r of candidates) {
+    const ctx = ownerFlowContextOf(r, connectorById.get(r.connectorProductId as string));
+    if (ownerMaintainsFlows(ctx)) ctxById.set(r.id, ctx);
+  }
+  if (ctxById.size === 0) return out;
+  const ids = [...ctxById.keys()];
+  const flowRows = await db
+    .select({
+      anchorId: anchor,
+      dataObject: taxonomyDataObjects.slug,
+      direction: claims.direction,
+      origin: claims.origin,
+      answerAsserted: claimOwnerAnswers.asserted,
+      answerVendorId: claimOwnerAnswers.vendorId,
+      answerRetractedAt: claimOwnerAnswers.retractedAt,
+    })
+    .from(claims)
+    .innerJoin(taxonomyDataObjects, eq(taxonomyDataObjects.id, claims.dataObjectId))
+    // The live answer only: `claim_owner_answers_live_key` allows one per claim.
+    .leftJoin(
+      claimOwnerAnswers,
+      and(eq(claimOwnerAnswers.claimId, claims.id), sql`${claimOwnerAnswers.retractedAt} IS NULL`),
+    )
+    // `anchor_id` leads `claims_identity_key`; the anchor filter keeps the other table out.
+    .where(and(inArray(claims.anchorId, ids), isNotNull(anchor)));
+  for (const row of flowRows) {
+    if (row.anchorId === null) continue;
+    const ctx = ctxById.get(row.anchorId);
+    if (!ctx) continue;
+    const counted =
+      row.answerAsserted !== null &&
+      ownerAnswerCounts(ctx, {
+        asserted: row.answerAsserted,
+        vendorId: row.answerVendorId,
+        retractedAt: row.answerRetractedAt,
+      });
+    const list = out.get(row.anchorId) ?? [];
+    list.push(
+      OwnershipOwnerFlowSchema.parse({
+        dataObject: row.dataObject,
+        direction: row.direction,
+        origin: row.origin === 'vendor' ? 'vendor' : 'aeci',
+        answer: counted ? (row.answerAsserted ? 'yes' : 'no') : null,
+      }),
+    );
+    out.set(row.anchorId, list);
+  }
+  // A maintained row with no claim still carries the key: the owner keeps an empty list.
+  for (const id of ids) if (!out.has(id)) out.set(id, []);
+  for (const list of out.values()) {
+    list.sort((a, b) => compareBinary(ownershipOwnerFlowKey(a), ownershipOwnerFlowKey(b)));
+  }
+  return out;
 }
 
 /**
@@ -909,13 +1020,26 @@ async function readEdgeContent(db: Db, edges: readonly Edge[]): Promise<Map<stri
     }
     const slots = claimSlotsByAnchor(attested);
     const rowsById = new Map(rows.map((r) => [r.id, r]));
+    const ownerFlows = await readOwnerFlows(
+      db,
+      claims.integrationId,
+      rows.map((r) => ({
+        id: r.id,
+        claimedAt: r.claimedAt,
+        builtByVendorId: r.builtByVendorId,
+        connectorProductId: r.poweredByProductId,
+        delivered: isConnectorPoweredEdge(r),
+      })),
+    );
     for (const id of ids) {
       const row = rowsById.get(id);
       if (!row) throw missing(id);
       const projected = projectRow('integration', { ...row, vendorLinks: linksBy.get(id) ?? [] });
+      const flows = ownerFlows.get(id);
       out.set(id, {
         content: OwnershipIntegrationContentSchema.parse(projected),
         claims: slots.get(id) ?? [],
+        ...(flows ? { ownerFlows: flows } : {}),
       });
     }
   }
@@ -928,13 +1052,26 @@ async function readEdgeContent(db: Db, edges: readonly Edge[]): Promise<Map<stri
     ]);
     const slots = claimSlotsByAnchor(attested);
     const rowsById = new Map(rows.map((r) => [r.id, r]));
+    const ownerFlows = await readOwnerFlows(
+      db,
+      claims.connectorEvidencedPairId,
+      rows.map((r) => ({
+        id: r.id,
+        claimedAt: r.claimedAt,
+        builtByVendorId: r.builtByVendorId,
+        connectorProductId: r.connectorProductId,
+        delivered: true,
+      })),
+    );
     for (const id of ids) {
       const row = rowsById.get(id);
       if (!row) throw missing(id);
       const projected = projectRow('connector_evidenced_pair', { ...row, vendorLinks: [] });
+      const flows = ownerFlows.get(id);
       out.set(id, {
         content: OwnershipIntegrationContentSchema.parse(projected),
         claims: slots.get(id) ?? [],
+        ...(flows ? { ownerFlows: flows } : {}),
       });
     }
   }
@@ -988,6 +1125,9 @@ async function readDeliveredPairs(
  *   accepted proposal that created it, else `null` (AECI-1489).
  * - `integrations[].content` and `claims`: on every vendor-owned edge. One claim per
  *   natural-key slot: the live attestation, or the latest retracted one.
+ * - `ownerFlows` on an owned entry, either list (AECI-2039): every claim on a claimed
+ *   Sync Service row with its owner's counted answer. Absent on every other entry, so
+ *   their hash is unchanged.
  * - `deliveredPairs`: the pairs the vendor delivers as a connector's builder
  *   (AECI-2047), each `vendor`-owned with content and claims exactly when it is
  *   claimed or vendor-created. Left out when there are none, so the hash of a record

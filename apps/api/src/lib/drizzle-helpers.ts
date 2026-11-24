@@ -126,6 +126,8 @@ import {
   isOwnerVote,
   ownerAnswersRelationConfig,
   ownerFlowContextOf,
+  ownerMaintainsFlows,
+  withOwnerVote,
   withOwnerVotes,
   type OwnerFlowConnectorFacts,
   type OwnerFlowContext,
@@ -459,29 +461,43 @@ export const connectorEvidencedPairDetailConfig = {
 } as const;
 
 /**
- * The powered hub's claim hydration (AECI-1080): the `data_object` slug and
- * nothing else. The hub has no context product, so it derives no direction and
- * needs neither the claim's direction nor its attestations. Every claim counts.
- * The endpoint embed's one exception, an unbacked vendor-added claim (AECI-1314),
- * is not filtered here. A connector-powered edge refuses vendor authoring, so no
- * vendor-added claim can be created on one.
+ * The powered hub's claim hydration (AECI-1080): the `data_object` slug, plus what
+ * the public-claim filter reads. The hub has no context product, so it derives no
+ * direction. AECI-2039: the owner of a claimed Sync Service pair adds and removes
+ * flows on rows this hub lists, so the hub applies the same filter as the endpoint
+ * embed (`publicClaims` after `withOwnerVotes`). Without it a flow the owner removed
+ * would still name its data type on the connector's page and in its object filter.
+ * Hence `origin`, the live attestations and the owner's live answers.
  */
 const poweredClaimsConfig = {
-  columns: {},
-  with: { dataObject: { columns: { slug: true } } },
+  columns: { origin: true },
+  with: {
+    dataObject: { columns: { slug: true } },
+    attestations: {
+      columns: { source: true, asserted: true, attestedByVendorId: true, retractedAt: true },
+      where: liveAttestationsWhere,
+    },
+    ownerAnswers: ownerAnswersRelationConfig,
+  },
 } as const;
 
 /** `ProductDetail.integrations_as_connector`, `integrations` arm: the list config
  *  plus the depth axis's claim slugs (AECI-1080). `/api/integrations` keeps the
- *  bare config and does not pay for the join. */
+ *  bare config and does not pay for the join. AECI-2039: the row facts the owner-flow
+ *  context reads. The connector is the page product, which the mapper is handed. */
 export const poweredIntegrationConfig = {
-  columns: integrationListConfig.columns,
+  columns: {
+    ...integrationListConfig.columns,
+    poweredByProductId: true,
+    claimedAt: true,
+    ...ownerFlowRowColumns,
+  },
   with: { ...integrationListConfig.with, claims: poweredClaimsConfig },
 } as const;
 
 /** The same bucket's `connector_evidenced_pairs` arm (AECI-1080). */
 export const connectorEvidencedPairPoweredConfig = {
-  columns: connectorEvidencedPairListConfig.columns,
+  columns: { ...connectorEvidencedPairListConfig.columns, claimedAt: true, ...ownerFlowRowColumns },
   with: { ...connectorEvidencedPairListConfig.with, claims: poweredClaimsConfig },
 } as const;
 
@@ -558,6 +574,17 @@ export const connectorEvidencedPairPairConfig = {
 } as const;
 
 /**
+ * AECI-2039: the owner's answers as the timeline reads them, live AND retracted, like
+ * the attestation history beside them. `vendorId` limits them to the current owner's;
+ * `toPairTimelines` lists none unless the owner maintains the row's flows.
+ */
+const timelineOwnerAnswersConfig = {
+  columns: { id: true, asserted: true, vendorId: true, retractedAt: true, createdAt: true },
+} as const;
+/** AECI-2039: the connector's role and kind, for the timeline's owner-flow context. */
+const timelineConnectorColumns = { id: true, productRole: true, connectorKind: true } as const;
+
+/**
  * Timeline hydration for an evidenced pair (AECI-303 / §9.1, AECI-1035) — the twin
  * of `integrationTimelineConfig`, and like it **deliberately without
  * `liveAttestationsWhere`**: the retracted rows are the history. It needs endpoint
@@ -565,9 +592,11 @@ export const connectorEvidencedPairPairConfig = {
  * `toProductPairMechanismFromEvidencedPair`).
  */
 export const connectorEvidencedPairTimelineConfig = {
-  columns: { id: true },
+  // AECI-2039: the owner-flow context's row facts.
+  columns: { id: true, claimedAt: true, ...ownerFlowRowColumns },
   with: {
     productA: { columns: { id: true } },
+    connectorProduct: { columns: timelineConnectorColumns },
     claims: {
       // `origin` and `attestedByVendorId` feed `isClaimPubliclyBacked` (AECI-1314).
       // Neither is serialised: `toClaimTimelineEntry` builds each entry field by field.
@@ -586,6 +615,7 @@ export const connectorEvidencedPairTimelineConfig = {
             deprecatedVersionId: true,
           },
         },
+        ownerAnswers: timelineOwnerAnswersConfig,
       },
     },
   },
@@ -631,14 +661,22 @@ export interface RawProductEvidencedPairRow extends RawConnectorEvidencedPairRow
   builtByVendor?: RawCaptionOwner | null;
 }
 
-/** A claim as the powered hub hydrates it (AECI-1080): the object slug only. */
+/** A claim as the powered hub hydrates it (AECI-1080): the object slug, plus the
+ *  public-claim filter's inputs (AECI-2039). Optional so a hand-built fixture without
+ *  them reads as an AECi-seeded claim with no votes and no owner answer. */
 export interface RawPoweredClaimRow {
   dataObject: { slug: string };
+  origin?: string;
+  attestations?: RawAgreementVoteRow[];
+  ownerAnswers?: RawOwnerAnswer[];
 }
 
 /** Evidenced pair + claim slugs, for `integrations_as_connector`. */
 export interface RawPoweredEvidencedPairRow extends RawConnectorEvidencedPairRow {
   claims: RawPoweredClaimRow[];
+  /** AECI-2039. Optional so a hand-built fixture without them reads as unclaimed. */
+  claimedAt?: string | null;
+  builtByVendorId?: string | null;
 }
 
 export interface RawConnectorEvidencedPairDetailRow extends RawConnectorEvidencedPairRow {
@@ -942,14 +980,24 @@ export const integrationPairConfig = {
  *     claim's history may be published at all, so it must see the same claims the
  *     pair read hides. It computes no agreement and counts only rows whose
  *     `retractedAt` is null, so a withdrawn Yes cannot keep a claim visible.
- *   - It carries no products, vendors, or mechanism columns — only what one history
- *     row renders. The payload is unbounded in principle (the log grows forever),
- *     so it stays as narrow as possible.
+ *   - It carries no products, vendors, or mechanism columns beyond what one history
+ *     row renders, plus the few row facts that decide whether the owner of a Sync
+ *     Service pair speaks on it (AECI-2039: `mechanismKind`, `poweredByProductId`,
+ *     `claimedAt`, `builtByVendorId` and the connector's role and kind). The payload is
+ *     unbounded in principle (the log grows forever), so it stays as narrow as possible.
  */
 export const integrationTimelineConfig = {
-  columns: { id: true },
+  // AECI-2039: the owner-flow context's row facts (`integrationOwnerFlowContext`).
+  columns: {
+    id: true,
+    mechanismKind: true,
+    poweredByProductId: true,
+    claimedAt: true,
+    ...ownerFlowRowColumns,
+  },
   with: {
     sourceProduct: { columns: { id: true } },
+    poweredByProduct: { columns: timelineConnectorColumns },
     claims: {
       // `origin` and `attestedByVendorId` feed `isClaimPubliclyBacked` (AECI-1314).
       // Neither is serialised: `toClaimTimelineEntry` builds each entry field by field.
@@ -968,6 +1016,7 @@ export const integrationTimelineConfig = {
             deprecatedVersionId: true,
           },
         },
+        ownerAnswers: timelineOwnerAnswersConfig,
       },
     },
   },
@@ -1198,22 +1247,28 @@ function compareDataObjectTerms(
 /**
  * The distinct data objects a product's rows list, in the vocabulary's own order. The
  * same claims the product page lists: public and not refuted (`productRowFacts`).
+ * AECI-2039: the owner's answers join first, exactly as in the row mappers, so a flow
+ * the owner of a Sync Service pair removed names no data type on a lane either.
  */
 function laneDataObjects(raw: RawPairAlternativesRow, partnerId?: string): IntegrationTerm[] {
   const objects = new Map<string, { slug: string; name: string; displayOrder: number | null }>();
-  const take = (claims: readonly RawProductDetailClaimRow[]) => {
-    for (const claim of publicClaims(claims)) {
+  const take = (claims: readonly RawProductDetailClaimRow[], ctx: OwnerFlowContext) => {
+    for (const claim of publicClaims(withOwnerVotes(claims, ctx))) {
       if (isClaimRefuted(claim.attestations)) continue;
       const o = claim.dataObject;
       objects.set(o.slug, { slug: o.slug, name: o.name, displayOrder: o.displayOrder ?? null });
     }
   };
   const wanted = (id: string) => partnerId === undefined || id === partnerId;
-  for (const r of raw.sourceIntegrations) if (wanted(r.targetProduct.id)) take(r.claims);
-  for (const r of raw.targetIntegrations) if (wanted(r.sourceProduct.id)) take(r.claims);
+  for (const r of raw.sourceIntegrations) {
+    if (wanted(r.targetProduct.id)) take(r.claims, integrationOwnerFlowContext(r));
+  }
+  for (const r of raw.targetIntegrations) {
+    if (wanted(r.sourceProduct.id)) take(r.claims, integrationOwnerFlowContext(r));
+  }
   for (const r of [...raw.evidencedPairsAsA, ...raw.evidencedPairsAsB]) {
     const partner = r.productA.id === raw.id ? r.productB : r.productA;
-    if (wanted(partner.id)) take(r.claims);
+    if (wanted(partner.id)) take(r.claims, evidencedPairOwnerFlowContext(r));
   }
   return [...objects.values()]
     .sort(compareDataObjectTerms)
@@ -1725,6 +1780,10 @@ export interface RawIntegrationListRow {
 /** List row + claim slugs, for `integrations_as_connector` (AECI-1080). */
 export interface RawPoweredIntegrationRow extends RawIntegrationListRow {
   claims: RawPoweredClaimRow[];
+  /** AECI-2039. Optional so a hand-built fixture without them reads as unclaimed. */
+  poweredByProductId?: string | null;
+  claimedAt?: string | null;
+  builtByVendorId?: string | null;
 }
 
 export interface RawProductIntegrationRow extends RawIntegrationListRow {
@@ -1797,18 +1856,32 @@ export interface RawTimelineAttestationRow {
   deprecatedVersionId: string | null;
 }
 
+/** One owner answer, live or retracted, for the timeline read (AECI-2039). */
+export interface RawTimelineOwnerAnswerRow extends RawOwnerAnswer {
+  id: string;
+  createdAt: string;
+}
+
 /** A claim as the timeline read hydrates it: its whole history, live and retracted. */
 export interface RawTimelineClaimRow {
   id: string;
   /** `claims.origin`. Gates public visibility only (`isClaimPubliclyBacked`, AECI-1314). */
   origin: string;
   attestations: RawTimelineAttestationRow[];
+  /** AECI-2039. Optional so a hand-built fixture without it reads as no answer. */
+  ownerAnswers?: RawTimelineOwnerAnswerRow[];
 }
 
 export interface RawTimelineIntegrationRow {
   id: string;
   sourceProduct: { id: string };
   claims: RawTimelineClaimRow[];
+  /** AECI-2039. Optional so a hand-built fixture without them reads as no owner. */
+  mechanismKind?: string | null;
+  poweredByProductId?: string | null;
+  claimedAt?: string | null;
+  builtByVendorId?: string | null;
+  poweredByProduct?: ({ id: string } & OwnerFlowConnectorFacts) | null;
 }
 
 /** `connectorEvidencedPairTimelineConfig`'s output (AECI-1035). */
@@ -1816,6 +1889,10 @@ export interface RawTimelineEvidencedPairRow {
   id: string;
   productA: { id: string };
   claims: RawTimelineClaimRow[];
+  /** AECI-2039. Optional so a hand-built fixture without them reads as no owner. */
+  claimedAt?: string | null;
+  builtByVendorId?: string | null;
+  connectorProduct?: OwnerFlowConnectorFacts | null;
 }
 
 /**
@@ -2357,8 +2434,9 @@ function productRowFacts(
  * mechanism, before anything reads the claims, so the arrow, the depth count, the
  * lanes and the sync headline all see the same list.
  *
- * Public reads only. The powered hub needs no filter, because a connector-powered
- * edge refuses vendor authoring. Detectors and the vendor portal read every claim.
+ * Public reads only. The powered hub applies the same filter through
+ * `poweredPublicClaims` (AECI-2039: a Sync Service owner adds and removes flows on
+ * connector-powered rows). Detectors and the vendor portal read every claim.
  */
 function publicClaims<T extends { origin: string; attestations: readonly RawAgreementVoteRow[] }>(
   claims: readonly T[],
@@ -2375,8 +2453,8 @@ function publicClaims<T extends { origin: string; attestations: readonly RawAgre
  * (AECI-1314) is already gone: both endpoint mappers drop it with `publicClaims`
  * before calling this.
  *
- * The powered hub passes claims with no `attestations`. A connector-powered edge
- * refuses vendor authoring, so none of its claims can be refuted.
+ * The powered hub passes its public claims (`poweredPublicClaims`), with their live
+ * attestations when the read loaded them, so the same refuted rule applies there.
  */
 function productDetailDataObjectSlugs(
   claims: readonly (RawPoweredClaimRow & { attestations?: readonly RawAgreementVoteRow[] })[],
@@ -2389,25 +2467,57 @@ function productDetailDataObjectSlugs(
 }
 
 /**
+ * The powered hub's public claims (AECI-2039): the endpoint embed's filter, run on the
+ * hub's narrower hydration. A fixture claim without `origin` or `attestations` reads
+ * as AECi-seeded with no votes, which the filter always keeps.
+ */
+function poweredPublicClaims(
+  claims: readonly RawPoweredClaimRow[],
+  ctx: OwnerFlowContext,
+): RawPoweredClaimRow[] {
+  return claims.filter((claim) =>
+    isClaimPubliclyBacked(
+      withOwnerVote(
+        {
+          origin: claim.origin ?? 'aeci',
+          attestations: claim.attestations ?? [],
+          ownerAnswers: claim.ownerAnswers,
+        },
+        ctx,
+      ),
+    ),
+  );
+}
+
+/**
  * A powered edge (`integrations` arm) as the hub reads it: the list item plus the
  * AECI-1080 depth axis. Same counting rule as the endpoint embed, so a pair's
  * object count cannot differ between the connector page and an endpoint page.
+ * `connector` is the hub's own product, the row's `powered_by` (AECI-2039): its role
+ * and kind say whether the row's owner answers for its flows.
  */
-export function toPoweredIntegrationItem(raw: RawPoweredIntegrationRow): PoweredIntegrationItem {
+export function toPoweredIntegrationItem(
+  raw: RawPoweredIntegrationRow,
+  connector: OwnerFlowConnectorFacts | null = null,
+): PoweredIntegrationItem {
+  const ctx = integrationOwnerFlowContext({ ...raw, poweredByProduct: connector });
   return {
     ...toIntegrationListItem(raw),
-    data_object_slugs: productDetailDataObjectSlugs(raw.claims),
+    data_object_slugs: productDetailDataObjectSlugs(poweredPublicClaims(raw.claims, ctx)),
   };
 }
 
 /** The `connector_evidenced_pairs` arm of the same bucket (AECI-1080). A claim's
- *  object does not depend on the pair's orientation, so no frame flip is needed. */
+ *  object does not depend on the pair's orientation, so no frame flip is needed.
+ *  `connector` is the hub's own product, the pair's connector (AECI-2039). */
 export function toPoweredIntegrationItemFromEvidencedPair(
   raw: RawPoweredEvidencedPairRow,
+  connector: OwnerFlowConnectorFacts | null = null,
 ): PoweredIntegrationItem {
+  const ctx = ownerFlowContextOf(raw, connector);
   return {
     ...toIntegrationListItemFromEvidencedPair(raw),
-    data_object_slugs: productDetailDataObjectSlugs(raw.claims),
+    data_object_slugs: productDetailDataObjectSlugs(poweredPublicClaims(raw.claims, ctx)),
   };
 }
 
@@ -2578,12 +2688,14 @@ function toMechanismHeading(name: string | null, mechanismName: string | null): 
 
 /**
  * The owner-flow context of an `integrations` row (AECI-2039). Only a connector-powered
- * row can be a Sync Service pair, and its connector is `powered_by`.
+ * row can be a Sync Service pair, and its connector is `powered_by`. Exported for the
+ * pair read's version-stamp test (`routes/integrations.ts`), which must hide the same
+ * claims the mappers hide.
  */
-function integrationOwnerFlowContext(raw: {
+export function integrationOwnerFlowContext(raw: {
   poweredByProductId?: string | null;
   mechanismKind?: string | null;
-  poweredByProduct?: (RawProductLink & OwnerFlowConnectorFacts) | null;
+  poweredByProduct?: (OwnerFlowConnectorFacts & { id?: string }) | null;
   claimedAt?: string | null;
   builtByVendorId?: string | null;
 }): OwnerFlowContext {
@@ -2592,6 +2704,16 @@ function integrationOwnerFlowContext(raw: {
     mechanismKind: raw.mechanismKind ?? null,
   });
   return ownerFlowContextOf(raw, powered ? raw.poweredByProduct : null);
+}
+
+/** The owner-flow context of a `connector_evidenced_pairs` row (AECI-2039): its
+ *  connector is `connector_product`. The twin of {@link integrationOwnerFlowContext}. */
+export function evidencedPairOwnerFlowContext(raw: {
+  claimedAt?: string | null;
+  builtByVendorId?: string | null;
+  connectorProduct?: OwnerFlowConnectorFacts | null;
+}): OwnerFlowContext {
+  return ownerFlowContextOf(raw, raw.connectorProduct);
 }
 
 /** Order claims for stable rendering: by the data_object's curated
@@ -2916,9 +3038,17 @@ function countVersionStatuses(claims: readonly ProductPairClaim[]): PairVersionD
  * Reads `integrationTimelineConfig`'s output, which — uniquely — includes
  * **retracted** rows. Entries are ordered oldest-first by `created_at` then `id`,
  * a total order so the render is stable regardless of D1 row order. Claims with no
- * attestations at all are omitted: an empty history is nothing to show, and the
+ * history at all are omitted: an empty history is nothing to show, and the
  * browser's "does this claim have a history affordance?" test is the absence of an
  * entry for its id.
+ *
+ * **The owner's answers are history too** (AECI-2039). On a claimed Sync Service pair
+ * the owner's answers (`claim_owner_answers`) are listed with `attestor: 'owner'`,
+ * live and retracted, interleaved by `created_at`. So a flow the owner added, which
+ * has no attestation row, still has a history, and the owner's confirmation is not
+ * missing beside AECi's seed. Only the current owner's answers are listed, and only
+ * while it maintains the row's flows ({@link ownerHistory}). A flow the owner's live
+ * No removed is withheld whole, by the same visibility rule the pair read applies.
  *
  * **A claim the pair read withholds is omitted here too** (AECI-1314). An unbacked
  * vendor-added claim is hidden from the pair page, and this route is the second
@@ -2944,25 +3074,70 @@ export function toPairTimelines(
   // Each anchor's claims are framed against its own endpoint A: `source_product_id`
   // on an integration, `product_a_id` on an evidenced pair (`claim-frame.ts`).
   const anchors = [
-    ...integrations.map((row) => ({ aId: row.sourceProduct.id, claims: row.claims })),
-    ...evidencedPairs.map((row) => ({ aId: row.productA.id, claims: row.claims })),
+    ...integrations.map((row) => ({
+      aId: row.sourceProduct.id,
+      claims: row.claims,
+      ctx: integrationOwnerFlowContext(row),
+    })),
+    ...evidencedPairs.map((row) => ({
+      aId: row.productA.id,
+      claims: row.claims,
+      ctx: evidencedPairOwnerFlowContext(row),
+    })),
   ];
   const timelines: ClaimTimeline[] = [];
   for (const anchor of anchors) {
     const contextIsSource = anchor.aId === contextProductId;
     for (const claim of anchor.claims) {
-      if (claim.attestations.length === 0) continue;
-      if (!isClaimPubliclyBacked(claim)) continue;
-      const entries = [...claim.attestations]
+      // AECI-2039: the owner's live answer decides visibility as on the pair read, so
+      // a flow the owner removed publishes no history here either.
+      if (!isClaimPubliclyBacked(withOwnerVote(claim, anchor.ctx))) continue;
+      const owned = ownerHistory(claim, anchor.ctx);
+      if (claim.attestations.length === 0 && owned.length === 0) continue;
+      const rows: Array<{ createdAt: string; id: string; entry: ClaimTimelineEntry }> = [
+        ...claim.attestations.map((row) => ({
+          createdAt: row.createdAt,
+          id: row.id,
+          entry: toClaimTimelineEntry(row, contextIsSource, versions),
+        })),
+        ...owned.map((row) => ({ createdAt: row.createdAt, id: row.id, entry: toOwnerEntry(row) })),
+      ];
+      const entries = rows
         .sort((a, b) => {
           if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;
           return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
         })
-        .map((row) => toClaimTimelineEntry(row, contextIsSource, versions));
+        .map((row) => row.entry);
       timelines.push({ claim_id: claim.id, entries });
     }
   }
   return timelines;
+}
+
+/**
+ * The owner's answers a claim's history lists (AECI-2039): every answer, live or
+ * retracted, by the vendor that owns the row NOW, and only while that vendor maintains
+ * the row's flows. A previous owner's answers and the answers on a row returned to AEC
+ * Integrations stop counting (`ownerAnswerCounts`), so they are not shown under the
+ * current owner's name either.
+ */
+function ownerHistory(
+  claim: RawTimelineClaimRow,
+  ctx: OwnerFlowContext,
+): RawTimelineOwnerAnswerRow[] {
+  if (!ownerMaintainsFlows(ctx)) return [];
+  return (claim.ownerAnswers ?? []).filter((a) => a.vendorId === ctx.ownerVendorId);
+}
+
+/** One owner answer as a history row. It carries no version stamps and no note. */
+function toOwnerEntry(raw: RawTimelineOwnerAnswerRow): ClaimTimelineEntry {
+  return {
+    attestor: 'owner',
+    asserted: raw.asserted,
+    note: null,
+    created_at: raw.createdAt,
+    retracted_at: raw.retractedAt,
+  };
 }
 
 /** One history row (AECI-303 / §9.1). `note` is always `null`, exactly as on
@@ -3615,8 +3790,12 @@ export function toProductDetail(
     // The evidenced-pair arm cannot hold one: its
     // `connector_evidenced_pairs_distinct_connector` CHECK forbids it.
     integrations_as_connector: [
-      ...raw.poweredIntegrations.map(toPoweredIntegrationItem),
-      ...raw.evidencedPairsAsConnector.map(toPoweredIntegrationItemFromEvidencedPair),
+      // AECI-2039: this product is every row's connector, so its role and kind decide
+      // whether a row's owner answers for its flows.
+      ...raw.poweredIntegrations.map((row) => toPoweredIntegrationItem(row, raw)),
+      ...raw.evidencedPairsAsConnector.map((row) =>
+        toPoweredIntegrationItemFromEvidencedPair(row, raw),
+      ),
     ],
     related_products: relatedProducts.map(toProductListItem),
     extension_of: extensionRows.hosts.map(toProductListItem),

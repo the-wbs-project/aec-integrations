@@ -1727,6 +1727,7 @@ A v2 record carries every v1 field with the same meaning, plus:
 | `integrations[].content` | The integration's content (`OwnershipIntegrationContentSchema`), either table. Present exactly when that integration's `owner` is `vendor`. |
 | `integrations[].claims` | Its claim slots (`OwnershipClaimSchema`). Present exactly when `content` is. |
 | `deliveredPairs[]` | **Optional, AECI-2047.** The pairs this vendor delivers as a connector's builder: every `connector_evidenced_pairs` row whose `built_by_vendor_id` is this vendor and that `integrations[]` does not already list (it lists a pair with one of the vendor's own products as an endpoint). Live and retired rows both. Each entry has the `integrations[]` v2 shape with `table` always `connector_evidenced_pairs`. Its `owner` is the per-row hold, not the product rule: `vendor` exactly when the pair is claimed or vendor-created, which is when promote refuses it (§4b). Then `content` and `claims` are present. **Absent means none**: the live app leaves the key out when the list would be empty, so the record and `recordHash` of a vendor that delivers no pair are exactly as before. Sorted by id, inside `recordHash`. |
+| `integrations[].ownerFlows`, `deliveredPairs[].ownerFlows` | **Optional, AECI-2039 follow-up.** The owner's data flows on a row whose owner maintains them: a claimed pair whose connector product is a Sync Service (`STAGE_2_ATTESTATIONS_SPEC.md` §14.10). Present only on an entry that has `content`, and only for such a row. Absent everywhere else, so every other entry hashes as before. See "Owner flows" below. |
 | `recordHash` | Lowercase hex SHA-256 of the record's canonical JSON, without `version`, `asOf`, `reason` and `recordHash`. Store it. The versions read below echoes it. |
 
 **Content is whole state.** Every key is present, `null` when the live column is empty. Field
@@ -1764,6 +1765,17 @@ its connector, `direction` and every claim are framed to that A and B (§3.4a), 
 per slot. It is the slot's active attestation, or when none is active the most recently
 retracted one, so you learn a position was withdrawn.
 
+**Owner flows** (`OwnershipOwnerFlowSchema`, AECI-2039 follow-up). One entry per claim on the
+row: `dataObject` (slug), `direction` (`a_to_b`, `b_to_a`, `both`, framed to the row's A and B as
+the claim slots are), `origin` (`vendor` when the owner added the flow, `aeci` when it was seeded)
+and `answer`. `answer` is the owner's live answer, counted by the rule the public pages use: the
+answer's vendor is the row's owner now, the row is claimed and the connector is a Sync Service.
+`yes` shows the flow as "Confirmed by {owner}, which offers this integration". `no` removes the
+flow from every public page. `null` means the owner has not answered. Unique by
+`{ dataObject, direction }`, sorted by that key, binary, inside `recordHash`. An owner answer is
+never a claim slot: the slots keep `aeci`, `vendor_a` and `vendor_b` with their meanings, and a
+flow the owner added has no slot, because it has no attestation.
+
 **Left out on purpose:** derived and aggregate columns (`verified`, `review_count`, rating
 averages, `integration_count`), `created_at` and `updated_at`, and the curation columns you
 author yourself (`sourceUrl`, `adminNotes`, research, priority and search columns,
@@ -1778,8 +1790,8 @@ field that is neither a promote field nor listed live-only.
 **`recordHash`.** `computeOwnershipRecordHash(record)` in the shared module computes it.
 Canonical JSON sorts object keys by UTF-16 code unit at every depth, drops `undefined`, and
 keeps array order. Before hashing, the set-like arrays are sorted: products, integrations and
-proposals by id, claim slots by natural key, vendor links by product and kind, and the four
-taxonomy slug lists. Product versions and usefulness groups keep their order, because a reader
+proposals by id, claim slots by natural key, owner flows by `{ dataObject, direction }`
+(AECI-2039), vendor links by product and kind, and the four taxonomy slug lists. Product versions and usefulness groups keep their order, because a reader
 sees it. You may recompute it to check a body. You must store the value you received.
 
 **Rules for a v2 receiver**, on top of rules 1 to 4 below:
@@ -1807,12 +1819,27 @@ sees it. You may recompute it to check a body. You must store the value you rece
    `owner`. Treat the pair as read-only when either record says `vendor`. An entry that leaves the
    list on a later record is no longer this vendor's to mirror. Never infer a delete from it.
 
+10. **`ownerFlows` (AECI-2039 follow-up) is additive.** A receiver that does not know the key
+   must accept the record and ignore it, as for rule 9, and store the `recordHash` it received. To
+   build support: store each entry's `ownerFlows` read-only with the row, replaced whole by the
+   next record. Treat an `answer: no` flow as removed from the public page, not deleted: the owner
+   can clear the answer and the flow returns. A flow with `origin: vendor` is the owner's own and
+   has no claim slot. Never infer a claim delete from a flow leaving the list.
+
 **Rolling out `deliveredPairs[]`.** The key is in the live schema from AECI-2047. A vendor that
 delivers a pair gets a new `recordHash` at the first delivery after the deploy, so run
 `ops:backfill-ownership-sync` for those vendors after the production deploy, before the next 04:00
 UTC drift run. Every other vendor's hash is unchanged. A delivered pair's edit (a claim, an owner
 edit, a retire) now re-sends the builder's record too, when the builder is owned. The review-app
 side is a `REVIEW - ` issue: parse the key, mirror the entries, and apply rule 9.
+
+**Rolling out `ownerFlows`.** A vendor whose owned entry carries the key gets a new `recordHash` at
+its first delivery after the deploy: the builder of a claimed Sync Service pair, and an endpoint
+vendor whose owned entry lists such a pair. Run `ops:backfill-ownership-sync` for those vendors
+after the production deploy, before the next 04:00 UTC drift run. An owner flow write re-sends the
+builder's record, because its `integration.updated` audit entry names the row (`mirrorTargets`).
+The review-app side is the same `REVIEW - ` issue as rule 9 (AECI-2081): parse the key, store it,
+apply rule 10.
 
 **The flag.** The live producer sends v2 only where the per-env wrangler var
 `REVIEW_APP_MIRROR_SCHEMA` is `"2"`. Production is `"2"` since AECI-1455 (2026-10-27), after
@@ -2795,7 +2822,7 @@ window, so reusing the first promote's id would just hand you back that job's ol
 - [ ] **Send a reach claim in `claims[]` on the connector arm, anchored by `connectorPairId`** (§3a, AECI-891) — never as an `integrations[]` claim. The two anchors mean different things: one says somebody built the integration, the other says only that the two ends are joinable. Send the pair before the claim, or expect a re-sendable `kind: "claim"` skip.
 - [ ] **Set `pairs[].surface` to `derived` on any pair you enumerated rather than found** (§3a, AECI-906). `unknown` promises a page exists and nobody read it; `derived` says no page exists. AECi counts `derived` toward reach and publishes it nowhere, so mislabelling it as `unknown` puts a non-existent vendor page into the publication candidate set.
 - [ ] On a synchronous 4xx, surface `error.message` / `error.field` to the curator; on 5xx, retry (same `jobId`) then escalate `trace_id`. On `status: "errored"`, surface `error.code` / `error.message` and retry with a new `jobId` (§6).
-- [ ] **Sync Service pairs (AECI-2041, AECI-2047).** Promote the connector product before its pairs, and re-promote the pairs' endpoints after it (§3.4a). Treat an `unresolvedLinks[] { field: "powered_by" }` entry on a Sync Service pair as an action. A pair on an owned endpoint writes (§4a), but an owned product's own bundle still skips its edges: when both endpoints are owned, send the pair as an integration-only push (§3.5). Accept the ownership record's optional `deliveredPairs[]` (§4d rule 9).
+- [ ] **Sync Service pairs (AECI-2041, AECI-2047).** Promote the connector product before its pairs, and re-promote the pairs' endpoints after it (§3.4a). Treat an `unresolvedLinks[] { field: "powered_by" }` entry on a Sync Service pair as an action. A pair on an owned endpoint writes (§4a), but an owned product's own bundle still skips its edges: when both endpoints are owned, send the pair as an integration-only push (§3.5). Accept the ownership record's optional `deliveredPairs[]` (§4d rule 9) and `ownerFlows` (§4d rule 10, AECI-2039).
 
 ## Usefulness ownership override (AECI-963)
 

@@ -21,6 +21,17 @@ import { VendorPortalStore } from '../vendor-portal-store';
 const DIRECTIONS: readonly ContextDirection[] = ['outbound', 'both', 'inbound'];
 
 /**
+ * What the flow controls read of a row. An owned card passes its `OwnedIntegration`.
+ * The integration detail page builds one from `VendorIntegration.owner_flows` for a
+ * row whose owner also makes an endpoint (AECI-2039). Directions are framed against
+ * `product_a` in both.
+ */
+export type OwnedFlowsRow = Pick<
+  OwnedIntegration,
+  'id' | 'flows' | 'flows_editable' | 'retired_at' | 'claimed_at' | 'product_a' | 'product_b'
+>;
+
+/**
  * The data flows on a Sync Service pair the caller owns (AECI-2039,
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.15.3). Rendered inside the owned card under
  * "Integrations your company offers", which has no detail page (AECI-2045 builds one).
@@ -34,6 +45,12 @@ const DIRECTIONS: readonly ContextDirection[] = ['outbound', 'both', 'inbound'];
  * public page. There is no public "disputed" state: the owner maintains the listing.
  *
  * Directions are framed against `product_a`, as `OwnedFlow.direction` is.
+ *
+ * AECI-2039: the integration detail page's "Data that's shared" renders this same
+ * component for a row the caller owns and also makes an endpoint of, with
+ * `labelledBy` set to its own heading. The component then drops its own heading, so
+ * the section keeps one. The controls are the same in both places (the Same-Behavior
+ * Rule).
  */
 @Component({
   selector: 'aec-vendor-owned-flows',
@@ -43,9 +60,11 @@ const DIRECTIONS: readonly ContextDirection[] = ['outbound', 'both', 'inbound'];
     @let r = row();
     <div class="mt-4" [attr.data-owned-flows]="r.id">
       <div class="flex flex-wrap items-center gap-3">
-        <h4 class="m-0 text-base font-semibold text-(--text-primary)" [id]="headingId()">
-          {{ heading() }}
-        </h4>
+        @if (!labelledBy()) {
+          <h4 class="m-0 text-base font-semibold text-(--text-primary)" [id]="headingId()">
+            {{ heading() }}
+          </h4>
+        }
         @if (r.flows_editable) {
           <button
             type="button"
@@ -150,7 +169,7 @@ const DIRECTIONS: readonly ContextDirection[] = ['outbound', 'both', 'inbound'];
           class="mt-3 overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           tabindex="0"
           role="region"
-          [attr.aria-labelledby]="headingId()"
+          [attr.aria-labelledby]="labelledBy() ?? headingId()"
         >
           <table class="w-full min-w-[36rem] border-collapse text-sm">
             <caption class="sr-only">
@@ -291,7 +310,10 @@ const DIRECTIONS: readonly ContextDirection[] = ['outbound', 'both', 'inbound'];
   `,
 })
 export class VendorOwnedFlows {
-  readonly row = input.required<OwnedIntegration>();
+  readonly row = input.required<OwnedFlowsRow>();
+  /** The id of a heading outside the component that names this table. When set, the
+   *  component renders no heading of its own (AECI-2039, the detail page). */
+  readonly labelledBy = input<string | null>(null);
 
   private readonly api = inject(VendorApi);
   private readonly store = inject(VendorPortalStore);

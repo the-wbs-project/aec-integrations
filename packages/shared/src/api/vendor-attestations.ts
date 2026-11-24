@@ -269,6 +269,32 @@ export const VendorClaimSchema = z.object({
 export type VendorClaim = z.infer<typeof VendorClaimSchema>;
 
 /**
+ * The owner's answer on one flow of a Sync Service pair (AECI-2039). `null` while the
+ * owner has not answered. `'yes'` confirms it. `'no'` removes it from the public page.
+ */
+export const OWNER_FLOW_ANSWERS = ['yes', 'no'] as const;
+export type OwnerFlowAnswer = (typeof OWNER_FLOW_ANSWERS)[number];
+
+/**
+ * One data flow on a row the caller owns (AECI-2039, `STAGE_2_VENDOR_PORTAL_SPEC.md`
+ * §6.15.3). `direction` is framed against `OwnedIntegration.product_a`, like the
+ * row's `contestable_fields.direction`. `agreement` is what the public pair page
+ * shows for it: `owner_confirmed` once the owner said Yes.
+ */
+export const OwnedFlowSchema = z.object({
+  id: z.string().uuid(),
+  data_object_slug: z.string(),
+  data_object_name: z.string(),
+  direction: ContextDirectionSchema,
+  agreement: z.enum(AGREEMENT_STATES),
+  origin: ClaimOriginSchema,
+  /** The owner's own live answer, or `null`. */
+  answer: z.enum(OWNER_FLOW_ANSWERS).nullable(),
+});
+
+export type OwnedFlow = z.infer<typeof OwnedFlowSchema>;
+
+/**
  * One integration the caller may attest on, **as filed under ONE of the caller's
  * products**. `context_product` / `other_product` borrow the pair page's
  * vocabulary: the context is the caller's own endpoint, and every `direction` on
@@ -432,6 +458,26 @@ export const VendorIntegrationSchema = z.object({
    * Defaulted for deploy skew.
    */
   flows_maintained_by_owner: z.boolean().default(false),
+  /**
+   * AECI-2039. Set only when the caller OWNS this row and maintains its flows: a claimed
+   * Sync Service row whose owner also makes one of the two endpoint products. The owner
+   * answers as the owner here, with the owner flow routes (`API_CONTRACTS.md` §6.15a),
+   * never with the endpoint Yes and No, which stay closed on the row (AECI-705).
+   * `flows` and `product_a` / `product_b` are framed exactly as on
+   * {@link OwnedIntegrationSchema}: directions against the row's endpoint A, which is
+   * not always this entry's `context_product`. `null` on every other row. Defaulted
+   * for deploy skew.
+   */
+  owner_flows: z
+    .object({
+      product_a: ProductLinkSchema,
+      product_b: ProductLinkSchema,
+      /** As `OwnedIntegration.flows_editable`: claimed and not retired. */
+      editable: z.boolean(),
+      flows: z.array(OwnedFlowSchema),
+    })
+    .nullable()
+    .default(null),
 });
 
 export type VendorIntegration = z.infer<typeof VendorIntegrationSchema>;
@@ -439,32 +485,6 @@ export type VendorIntegration = z.infer<typeof VendorIntegrationSchema>;
 /** Which table an owned row lives in (AECI-1089). */
 export const OWNED_INTEGRATION_ANCHORS = ['integration', 'evidenced_pair'] as const;
 export type OwnedIntegrationAnchor = (typeof OWNED_INTEGRATION_ANCHORS)[number];
-
-/**
- * The owner's answer on one flow of a Sync Service pair (AECI-2039). `null` while the
- * owner has not answered. `'yes'` confirms it. `'no'` removes it from the public page.
- */
-export const OWNER_FLOW_ANSWERS = ['yes', 'no'] as const;
-export type OwnerFlowAnswer = (typeof OWNER_FLOW_ANSWERS)[number];
-
-/**
- * One data flow on a row the caller owns (AECI-2039, `STAGE_2_VENDOR_PORTAL_SPEC.md`
- * §6.15.3). `direction` is framed against `OwnedIntegration.product_a`, like the
- * row's `contestable_fields.direction`. `agreement` is what the public pair page
- * shows for it: `owner_confirmed` once the owner said Yes.
- */
-export const OwnedFlowSchema = z.object({
-  id: z.string().uuid(),
-  data_object_slug: z.string(),
-  data_object_name: z.string(),
-  direction: ContextDirectionSchema,
-  agreement: z.enum(AGREEMENT_STATES),
-  origin: ClaimOriginSchema,
-  /** The owner's own live answer, or `null`. */
-  answer: z.enum(OWNER_FLOW_ANSWERS).nullable(),
-});
-
-export type OwnedFlow = z.infer<typeof OwnedFlowSchema>;
 
 /**
  * A row the caller's vendor owns but that the attestable surface does not list

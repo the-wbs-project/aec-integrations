@@ -505,6 +505,61 @@ describe('read-only rows', () => {
     });
   });
 
+  // AECI-2039: the caller owns this Sync Service row and makes one of its endpoints,
+  // so the row is here and not on the owned card. It answers as the owner.
+  describe('the owner of a Sync Service row that also makes an endpoint', () => {
+    const connector = VENDOR_INTEGRATIONS_FIXTURE.integrations[4]!;
+    const flowId = '00000000-0000-4000-8000-0000000071a1';
+    const owned = {
+      ...connector,
+      is_owner: true,
+      claimed_at: '2026-09-23T00:00:00.000Z',
+      flows_maintained_by_owner: true,
+      owner_flows: {
+        product_a: connector.context_product,
+        product_b: connector.other_product,
+        editable: true,
+        flows: [
+          {
+            id: flowId,
+            data_object_slug: 'rfis',
+            data_object_name: 'RFIs',
+            direction: 'outbound' as const,
+            agreement: 'unverified' as const,
+            origin: 'aeci' as const,
+            answer: null,
+          },
+        ],
+      },
+    };
+
+    it('renders the owned card controls, not the endpoint answers', async () => {
+      const api = makeApi([owned]);
+      await setup(api, owned);
+      const fixture = await mount(IntegrationSharedData, owned);
+      expect(el(fixture).querySelector(testid(`owned-flow-yes-${flowId}`))).not.toBeNull();
+      expect(el(fixture).querySelector(testid('owned-flow-add-toggle'))).not.toBeNull();
+      expect(text(fixture)).not.toContain('Not needed');
+      expect(el(fixture).querySelector(testid('connector-note'))).toBeNull();
+      // One heading for the section: the embedded controls drop their own.
+      expect(el(fixture).querySelectorAll('h4')).toHaveLength(0);
+      const region = el(fixture).querySelector('[role="region"]');
+      expect(region?.getAttribute('aria-labelledby')).toBe('data-shared-heading');
+    });
+
+    it('answers through the owner route', async () => {
+      const api = makeApi([owned]);
+      await setup(api, owned);
+      const fixture = await mount(IntegrationSharedData, owned);
+      el(fixture)
+        .querySelector<HTMLButtonElement>(testid(`owned-flow-yes-${flowId}`))!
+        .click();
+      await settle(fixture);
+      expect(api.setOwnerFlowAnswer).toHaveBeenCalledWith(flowId, true);
+      expect(api.upsertAttestation).not.toHaveBeenCalled();
+    });
+  });
+
   it('without access, every answer is disabled and the access sentence shows', async () => {
     const api = makeApi([PROCORE]);
     await setup(api, PROCORE, VENDOR_ME_UNVERIFIED_FIXTURE);
