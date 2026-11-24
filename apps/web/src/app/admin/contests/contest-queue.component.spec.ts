@@ -119,20 +119,22 @@ async function flush(fixture: { detectChanges(): void; whenStable(): Promise<unk
 }
 
 function buttonByText(root: HTMLElement, text: string): HTMLButtonElement {
-  const btn = [...root.querySelectorAll('button')].find((b) => b.textContent?.trim() === text);
+  const btn = [...root.querySelectorAll('button')]
+    .filter((b) => !b.closest('form[hidden]'))
+    .find((b) => b.textContent?.trim() === text);
   if (!btn) throw new Error(`No button "${text}"`);
   return btn as HTMLButtonElement;
 }
 
 function typeNote(fixture: { detectChanges(): void }, root: HTMLElement, note: string): void {
-  const textarea = root.querySelector('textarea') as HTMLTextAreaElement;
+  const textarea = root.querySelector('form:not([hidden]) textarea') as HTMLTextAreaElement;
   textarea.value = note;
   textarea.dispatchEvent(new Event('input'));
   fixture.detectChanges();
 }
 
 function submitForm(root: HTMLElement): void {
-  (root.querySelector('form') as HTMLFormElement).dispatchEvent(
+  (root.querySelector('form:not([hidden])') as HTMLFormElement).dispatchEvent(
     new Event('submit', { cancelable: true }),
   );
 }
@@ -296,7 +298,9 @@ describe('ContestQueue', () => {
     const card = el.querySelector('[data-testid="contest-record"]') as HTMLElement;
     expect(card.textContent).toContain('With the owner');
     expect(card.textContent).toContain('cannot decide it');
-    const labels = [...card.querySelectorAll('button')].map((b) => b.textContent?.trim());
+    const labels = [...card.querySelectorAll('button')]
+      .filter((b) => !b.closest('form[hidden]'))
+      .map((b) => b.textContent?.trim());
     expect(labels).not.toContain('Accept');
     expect(labels).not.toContain('Decline');
   });
@@ -308,7 +312,9 @@ describe('ContestQueue', () => {
     const card = el.querySelector('[data-testid="contest-record"]') as HTMLElement;
     expect(card.textContent).toContain('no longer exists');
     expect(card.textContent).not.toContain('cannot decide it');
-    const labels = [...card.querySelectorAll('button')].map((b) => b.textContent?.trim());
+    const labels = [...card.querySelectorAll('button')]
+      .filter((b) => !b.closest('form[hidden]'))
+      .map((b) => b.textContent?.trim());
     expect(labels).toContain('Accept');
     expect(labels).toContain('Decline');
   });
@@ -865,19 +871,24 @@ describe('ContestQueue', () => {
       expect(document.activeElement).toBe(alert);
     });
 
+    // Decline is the shared danger form (AECI-2104): its field has the piece's own id.
     for (const [opener, field] of [
-      ['Accept', 'contest-note-k1'],
-      ['Decline', 'contest-reason-k1'],
+      ['Accept', () => document.getElementById('contest-note-k1')],
+      [
+        'Decline',
+        (el: HTMLElement) => detail(el, 'k1').querySelector('form:not([hidden]) textarea'),
+      ],
     ] as const) {
       it(`opening ${opener} focuses its field, and Escape returns focus to ${opener}`, async () => {
         const { fixture, el, api } = await setup(makeApiMock([makeContest({ id: 'k1' })]));
         buttonByText(detail(el, 'k1'), opener).click();
         await flush(fixture);
-        const input = document.getElementById(field) as HTMLElement;
+        const input = field(el) as HTMLElement;
+        expect(input).toBeTruthy();
         expect(document.activeElement).toBe(input);
         input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
         await flush(fixture);
-        expect(detail(el, 'k1').querySelector('form')).toBeNull();
+        expect(detail(el, 'k1').querySelector('form:not([hidden])')).toBeNull();
         expect(document.activeElement).toBe(buttonByText(detail(el, 'k1'), opener));
         expect(api.decide).not.toHaveBeenCalled();
       });
@@ -896,7 +907,7 @@ describe('ContestQueue', () => {
       expect(document.activeElement).toBe(note);
       note.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       await flush(fixture);
-      expect(detail(el, 'p1').querySelector('form')).toBeNull();
+      expect(detail(el, 'p1').querySelector('form:not([hidden])')).toBeNull();
       expect(document.activeElement).toBe(
         buttonByText(detail(el, 'p1'), 'Agree with the submitter'),
       );

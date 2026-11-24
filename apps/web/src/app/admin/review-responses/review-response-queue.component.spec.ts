@@ -110,24 +110,28 @@ async function flush(fixture: { detectChanges(): void; whenStable(): Promise<unk
 }
 
 function buttonByText(root: HTMLElement, text: string): HTMLButtonElement {
-  const btn = [...root.querySelectorAll('button')].find((b) => b.textContent?.trim() === text);
+  const btn = [...root.querySelectorAll('button')]
+    .filter((b) => !b.closest('form[hidden]'))
+    .find((b) => b.textContent?.trim() === text);
   if (!btn) throw new Error(`No button "${text}"`);
   return btn as HTMLButtonElement;
 }
 
 function hasButton(root: HTMLElement, text: string): boolean {
-  return [...root.querySelectorAll('button')].some((b) => b.textContent?.trim() === text);
+  return [...root.querySelectorAll('button')]
+    .filter((b) => !b.closest('form[hidden]'))
+    .some((b) => b.textContent?.trim() === text);
 }
 
 function typeReason(fixture: { detectChanges(): void }, root: HTMLElement, text: string): void {
-  const textarea = root.querySelector('textarea') as HTMLTextAreaElement;
+  const textarea = root.querySelector('form:not([hidden]) textarea') as HTMLTextAreaElement;
   textarea.value = text;
   textarea.dispatchEvent(new Event('input'));
   fixture.detectChanges();
 }
 
 function submitForm(root: HTMLElement): void {
-  (root.querySelector('form') as HTMLFormElement).dispatchEvent(
+  (root.querySelector('form:not([hidden])') as HTMLFormElement).dispatchEvent(
     new Event('submit', { cancelable: true }),
   );
 }
@@ -204,7 +208,9 @@ describe('ReviewResponseQueue', () => {
     );
     const cards = [...el.querySelectorAll('[data-testid="reply-detail"]')] as HTMLElement[];
     const buttons = (card: HTMLElement) =>
-      [...card.querySelectorAll('button')].map((b) => b.textContent?.trim());
+      [...card.querySelectorAll('button')]
+        .filter((b) => !b.closest('form[hidden]'))
+        .map((b) => b.textContent?.trim());
     expect(buttons(cards[0]!)).toEqual(['Approve', 'Reject']);
     expect(buttons(cards[1]!)).toEqual(['Remove from the page']);
     expect(buttons(cards[2]!)).toEqual([]);
@@ -268,7 +274,7 @@ describe('ReviewResponseQueue', () => {
     buttonByText(el, 'Reject').click();
     fixture.detectChanges();
 
-    const textarea = el.querySelector('textarea') as HTMLTextAreaElement;
+    const textarea = el.querySelector('form:not([hidden]) textarea') as HTMLTextAreaElement;
     const label = el.querySelector(`label[for="${textarea.id}"]`);
     expect(label?.textContent).toContain('(required)');
     expect(textarea.required).toBe(true);
@@ -305,7 +311,7 @@ describe('ReviewResponseQueue', () => {
 
     // The first submit sends nothing. It shows the confirm and locks the reason.
     expect(api.decide).not.toHaveBeenCalled();
-    const confirm = el.querySelector('[data-testid="remove-confirm"]') as HTMLElement;
+    const confirm = el.querySelector('form:not([hidden]) [role="group"]') as HTMLElement;
     expect(confirm).not.toBeNull();
     expect(confirm.getAttribute('role')).toBe('group');
     const title = el.querySelector(`#${confirm.getAttribute('aria-labelledby')}`);
@@ -315,7 +321,9 @@ describe('ReviewResponseQueue', () => {
     expect(body?.textContent).toContain('comes off the product page');
     expect(body?.textContent).toContain('Autodesk can never reply to this review again');
     expect(document.activeElement).toBe(confirm);
-    expect((el.querySelector('textarea') as HTMLTextAreaElement).readOnly).toBe(true);
+    expect((el.querySelector('form:not([hidden]) textarea') as HTMLTextAreaElement).readOnly).toBe(
+      true,
+    );
     expect(hasButton(el, 'Continue to removal')).toBe(false);
 
     buttonByText(el, 'Remove permanently').click();
@@ -339,7 +347,7 @@ describe('ReviewResponseQueue', () => {
     submitForm(el);
     await flush(fixture);
     expect(el.querySelector('[role="alert"]')?.textContent).toContain('Write a reason');
-    expect(el.querySelector('[data-testid="remove-confirm"]')).toBeNull();
+    expect(el.querySelector('form:not([hidden]) [role="group"]')).toBeNull();
     expect(api.decide).not.toHaveBeenCalled();
   });
 
@@ -353,13 +361,13 @@ describe('ReviewResponseQueue', () => {
     await flush(fixture);
     buttonByText(el, 'Cancel').click();
     await flush(fixture);
-    expect(el.querySelector('form')).toBeNull();
-    expect(el.querySelector('[data-testid="remove-confirm"]')).toBeNull();
+    expect(el.querySelector('form:not([hidden])')).toBeNull();
+    expect(el.querySelector('form:not([hidden]) [role="group"]')).toBeNull();
     expect(api.decide).not.toHaveBeenCalled();
     // Reopening starts at the reason step again, not at the confirm.
     buttonByText(el, 'Remove from the page').click();
     fixture.detectChanges();
-    expect(el.querySelector('[data-testid="remove-confirm"]')).toBeNull();
+    expect(el.querySelector('form:not([hidden]) [role="group"]')).toBeNull();
     expect(hasButton(el, 'Continue to removal')).toBe(true);
   });
 
@@ -373,8 +381,8 @@ describe('ReviewResponseQueue', () => {
     await flush(fixture);
     buttonByText(el, 'Edit the reason').click();
     await flush(fixture);
-    const textarea = el.querySelector('textarea') as HTMLTextAreaElement;
-    expect(el.querySelector('[data-testid="remove-confirm"]')).toBeNull();
+    const textarea = el.querySelector('form:not([hidden]) textarea') as HTMLTextAreaElement;
+    expect(el.querySelector('form:not([hidden]) [role="group"]')).toBeNull();
     expect(textarea.readOnly).toBe(false);
     expect(document.activeElement).toBe(textarea);
     expect(api.decide).not.toHaveBeenCalled();
@@ -399,7 +407,7 @@ describe('ReviewResponseQueue', () => {
     fixture.detectChanges();
     buttonByText(el, 'Cancel').click();
     fixture.detectChanges();
-    expect(el.querySelector('form')).toBeNull();
+    expect(el.querySelector('form:not([hidden])')).toBeNull();
     expect(api.decide).not.toHaveBeenCalled();
   });
 
@@ -452,7 +460,7 @@ describe('ReviewResponseQueue', () => {
       'The vendor changed this reply. Read the new version before deciding.',
     );
     expect(api.listReplies).toHaveBeenCalledTimes(2);
-    expect(el.querySelector('form')).toBeNull();
+    expect(el.querySelector('form:not([hidden])')).toBeNull();
     const card = el.querySelector('[data-testid="reply-detail"]')!;
     expect(card.textContent).toContain('The vendor rewrote this reply.');
     expect(card.querySelector('[role="alert"]')).toBeNull();
@@ -526,11 +534,13 @@ describe('ReviewResponseQueue', () => {
       const { fixture, el, api } = await setup(makeApiMock([makeReply({ id: 'r1' })]));
       buttonByText(detail(el, 'r1'), 'Reject').click();
       await flush(fixture);
-      const textarea = detail(el, 'r1').querySelector('textarea') as HTMLTextAreaElement;
+      const textarea = detail(el, 'r1').querySelector(
+        'form:not([hidden]) textarea',
+      ) as HTMLTextAreaElement;
       expect(document.activeElement).toBe(textarea);
       textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       await flush(fixture);
-      expect(detail(el, 'r1').querySelector('form')).toBeNull();
+      expect(detail(el, 'r1').querySelector('form:not([hidden])')).toBeNull();
       expect(document.activeElement).toBe(buttonByText(detail(el, 'r1'), 'Reject'));
       expect(api.decide).not.toHaveBeenCalled();
     });
@@ -545,11 +555,11 @@ describe('ReviewResponseQueue', () => {
       submitForm(detail(el, 'r1'));
       await flush(fixture);
       const confirm = detail(el, 'r1').querySelector(
-        '[data-testid="remove-confirm"]',
+        'form:not([hidden]) [role="group"]',
       ) as HTMLElement;
       confirm.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       await flush(fixture);
-      expect(detail(el, 'r1').querySelector('form')).toBeNull();
+      expect(detail(el, 'r1').querySelector('form:not([hidden])')).toBeNull();
       expect(document.activeElement).toBe(buttonByText(detail(el, 'r1'), 'Remove from the page'));
     });
   });
