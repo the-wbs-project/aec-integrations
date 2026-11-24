@@ -64,6 +64,9 @@ function setup(rows: AdminAuditRow[], over: Partial<Record<string, unknown>> = {
   return { fixture, el: fixture.nativeElement as HTMLElement };
 }
 
+/** The diff disclosure's name (AECI-2128): what it opens, no verb. */
+const DIFF_TOGGLE = 'Fields changed by this action';
+
 function buttonByText(el: HTMLElement, text: string): HTMLButtonElement | undefined {
   return [...el.querySelectorAll('button')].find((b) => b.textContent?.trim() === text);
 }
@@ -138,11 +141,16 @@ describe('AuditTrail', () => {
         after_state: { status: 'revoked', invoice_ref: 'PO-9' },
       }),
     ]);
-    buttonByText(el, 'Show changes')!.click();
+    const toggle = buttonByText(el, DIFF_TOGGLE)!;
+    const diff = el.querySelector<HTMLElement>(`#audit-diff-${ROW_ID}`);
+    // The console recipe renders the detail row closed, hidden until opened.
+    expect(diff?.hidden).toBe(true);
+    toggle.click();
     fixture.detectChanges();
 
-    const diff = el.querySelector(`#audit-diff-${ROW_ID}`);
-    expect(diff?.closest('tr')).not.toBeNull();
+    expect(diff?.tagName).toBe('TR');
+    expect(diff?.hidden).toBe(false);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
     const text = diff?.textContent ?? '';
     expect(text).toContain('status');
     expect(text).toContain('changed');
@@ -156,7 +164,7 @@ describe('AuditTrail', () => {
 
   it('renders a SCALAR snapshot as a single value row instead of throwing', () => {
     const { fixture, el } = setup([makeRow({ before_state: 'a bare string', after_state: 42 })]);
-    buttonByText(el, 'Show changes')!.click();
+    buttonByText(el, DIFF_TOGGLE)!.click();
     fixture.detectChanges();
     const text = el.querySelector(`#audit-diff-${ROW_ID}`)?.textContent ?? '';
     expect(text).toContain('value');
@@ -166,7 +174,7 @@ describe('AuditTrail', () => {
 
   it('offers no diff toggle for a row with no snapshots', () => {
     const { el } = setup([makeRow()]);
-    expect(buttonByText(el, 'Show changes')).toBeUndefined();
+    expect(buttonByText(el, DIFF_TOGGLE)).toBeUndefined();
   });
 
   it('renders the loading, failure and empty states instead of a table', () => {
@@ -207,7 +215,7 @@ describe('AuditTrail', () => {
     it('does not link a row that names a type but no id', () => {
       const { el } = setup([makeRow({ entity_id: null })], { linkEntities: true });
       expect(el.querySelector('tbody a')).toBeNull();
-      expect(el.querySelector('tbody td:nth-child(4)')?.textContent).toContain(
+      expect(el.querySelector('tbody td:nth-child(5)')?.textContent).toContain(
         'vendor_entitlement',
       );
     });
@@ -330,7 +338,7 @@ describe('AuditTrail', () => {
     it('links the Who cell to that actor in the global log when linkActors is on', () => {
       const row = makeRow();
       const { el } = setup([row], { linkActors: true });
-      const link = el.querySelector('tbody td:nth-of-type(2) a') as HTMLAnchorElement;
+      const link = el.querySelector('tbody td:nth-of-type(3) a') as HTMLAnchorElement;
       expect(link.getAttribute('href')).toBe(`/admin/audit?actor_id=${row.actor!.id}`);
       expect(link.getAttribute('title')).toBe('Show every entry by this account');
       expect(link.textContent).toContain('Ada Lovelace');
@@ -341,15 +349,17 @@ describe('AuditTrail', () => {
       expect(
         setup([makeRow({ actor: null, actor_type: 'system' })], {
           linkActors: true,
-        }).el.querySelector('tbody td:nth-of-type(2) a'),
+        }).el.querySelector('tbody td:nth-of-type(3) a'),
       ).toBeNull();
-      expect(setup([makeRow()]).el.querySelector('tbody td:nth-of-type(2) a')).toBeNull();
+      expect(setup([makeRow()]).el.querySelector('tbody td:nth-of-type(3) a')).toBeNull();
     });
 
     it('renders the absolute UTC minute under the relative stamp when asked', () => {
       expect(setup([makeRow()]).el.textContent).not.toContain('2026-08-27 12:00 UTC');
       const { el } = setup([makeRow()], { absoluteTime: true });
-      expect(el.querySelector('tbody td')?.textContent).toContain('2026-08-27 12:00 UTC');
+      expect(el.querySelector('tbody td:nth-of-type(2)')?.textContent).toContain(
+        '2026-08-27 12:00 UTC',
+      );
     });
 
     it('makes When a sort header that emits the flipped order', () => {
@@ -383,14 +393,14 @@ describe('AuditTrail', () => {
 
     it('wires the diff toggle to what it controls', () => {
       const { el } = setup([makeRow({ after_state: { a: 1 } })]);
-      const toggle = buttonByText(el, 'Show changes')!;
+      const toggle = buttonByText(el, DIFF_TOGGLE)!;
       expect(toggle.getAttribute('aria-expanded')).toBe('false');
       expect(toggle.getAttribute('aria-controls')).toBe(`audit-diff-${ROW_ID}`);
     });
 
     it('states the change in words, never by colour alone', () => {
       const { fixture, el } = setup([makeRow({ before_state: { a: 1 }, after_state: { a: 2 } })]);
-      buttonByText(el, 'Show changes')!.click();
+      buttonByText(el, DIFF_TOGGLE)!.click();
       fixture.detectChanges();
       expect(el.querySelector(`#audit-diff-${ROW_ID}`)?.textContent).toContain('changed');
     });

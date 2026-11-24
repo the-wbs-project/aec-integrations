@@ -18,7 +18,26 @@ import { RelativeTime } from '../../shared/relative-time/relative-time';
 import { SortHeader } from '../../shared/sort-header/sort-header';
 import { AdminCursorPaginator } from '../admin-cursor-paginator';
 import { AdminPaginator } from '../admin-paginator';
+import { CONSOLE_TABLE } from '../console/console-table';
+import { AdminDisclosureButton } from '../console/disclosure-button';
+import { AecButton } from '../../shared/button/button';
 import { describeAuditAction } from './audit-action-labels';
+
+/**
+ * The trail's looks beyond the console table recipe (AECI-2128). Shared with
+ * `/admin/audit`, which renders the trail under its own filters.
+ */
+export const AUDIT_CLASSES = {
+  /** A loading line. 16px secondary. */
+  statusLine: 'text-t-16 text-(--text-secondary)',
+  /** A load failure: the sentence, then its Try again button. */
+  loadFailed: 'grid justify-items-start gap-4',
+  /** The sentence of a load failure. */
+  failedText: 'text-t-16 font-semibold text-(--text-primary)',
+  /** A link inside a cell: Forest, underlined, so it reads as a filter link. */
+  inlineLink:
+    'rounded-mark text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)',
+} as const;
 
 /** One row of a `before_state` to `after_state` diff. */
 export interface DiffRow {
@@ -95,7 +114,15 @@ export const AUDIT_TRAIL_RESULT_ID = 'audit-trail-result';
  */
 @Component({
   selector: 'aec-audit-trail',
-  imports: [AdminCursorPaginator, AdminPaginator, RelativeTime, RouterLink, SortHeader],
+  imports: [
+    AdminCursorPaginator,
+    AdminDisclosureButton,
+    AdminPaginator,
+    AecButton,
+    RelativeTime,
+    RouterLink,
+    SortHeader,
+  ],
   templateUrl: './audit-trail.html',
 })
 export class AuditTrail {
@@ -169,6 +196,17 @@ export class AuditTrail {
   protected readonly topPagerLabel = $localize`:@@admin.audit.pager.top:Pagination, above the table`;
   protected readonly bottomPagerLabel = $localize`:@@admin.audit.pager.bottom:Pagination, below the table`;
   protected readonly whenLabel = $localize`:@@admin.audit.col.when:When`;
+  /** The diff disclosure's name: what it opens, no verb (the console recipe). The
+   *  same message as the diff table's caption, so no new string. */
+  protected readonly diffLabel = $localize`:@@admin.audit.diff.caption:Fields changed by this action`;
+
+  protected readonly tc = CONSOLE_TABLE;
+  protected readonly statusLineClass = AUDIT_CLASSES.statusLine;
+  protected readonly loadFailedClass = AUDIT_CLASSES.loadFailed;
+  protected readonly failedTextClass = AUDIT_CLASSES.failedText;
+  protected readonly inlineLinkClass = AUDIT_CLASSES.inlineLink;
+  /** The trail renders once per page, so one caption id is enough. */
+  protected readonly captionId = 'audit-trail-caption';
 
   /**
    * Ids of the rows whose diff is expanded. Collapsed by default: most rows are

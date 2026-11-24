@@ -36,6 +36,18 @@ import {
   labelFor,
 } from '../../account/profile-details/profile-details-model';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import { AecButton } from '../../shared/button/button';
+import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
+import {
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { AecIcon } from '../../shared/icon/icon';
+import { CONSOLE_FILTER } from '../console/console-filter';
+import { CONSOLE_TABLE } from '../console/console-table';
+import { adminStatusTone, type AdminStatusKey } from '../console/status-tones';
+import { USER_CLASSES } from './user-console-classes';
 
 /**
  * `/admin/users/:id` — the operator's user page (AECI-692 /
@@ -86,10 +98,18 @@ import { AecFormSubmit } from '../../shared/form-field/form-submit';
  */
 @Component({
   selector: 'aec-user-detail',
-  imports: [AecFormSubmit, AuditTrail, RouterLink, DatePipe, SortHeader],
+  imports: [AecButton, AecFormSubmit, AecIcon, AuditTrail, Chip, RouterLink, DatePipe, SortHeader],
   templateUrl: './user-detail.html',
 })
 export class UserDetail {
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly f = CONSOLE_FILTER;
+  protected readonly c = USER_CLASSES;
+  protected readonly fieldLabelClass = FIELD_LABEL_CLASS;
+  protected readonly fieldHintClass = FIELD_HINT_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly tone = (key: AdminStatusKey): ConsoleChipTone => adminStatusTone(key);
+
   private readonly api = inject(AdminUsersApi);
   /** The ban writer's client — reused, not re-implemented. */
   private readonly bans = inject(ReviewerBansApi);
@@ -248,6 +268,12 @@ export class UserDetail {
   protected closeBanForm(): void {
     this.banFormOpen.set(false);
     this.focusAfterRender(() => this.banButton()?.nativeElement);
+  }
+
+  /** Escape closes the ban form, as Cancel does, except while the ban is in flight
+   *  (AECI-2128, the console's inline-form rule). */
+  protected onBanFormEscape(): void {
+    if (!this.actionPending()) this.closeBanForm();
   }
 
   private focusAfterRender(target: () => HTMLElement | undefined): void {
