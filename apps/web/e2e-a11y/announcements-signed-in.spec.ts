@@ -15,6 +15,7 @@
  */
 import { expect, test, type Page, type Route } from '@playwright/test';
 import { untilHydrated } from '../e2e/hydration';
+import { knownFailure } from './known-failure';
 import { blockWrites, expectFieldErrorWired, stubWrite } from './support/announcement-flows';
 import {
   describe as describeRecord,
@@ -43,6 +44,10 @@ const ACCOUNT = surface('account');
 const ADMIN_REVIEWS = surface('admin-reviews');
 const ADMIN_REQUESTS = surface('admin-requests');
 const VENDOR_INTEGRATIONS = surface('vendor-integrations');
+
+// A known failure that times out turns red, because a timeout is not the failure it
+// expects. Pages can take a minute to render on a loaded runner, so allow for it.
+test.describe.configure({ timeout: 90_000 });
 
 let fixturesPresent = false;
 test.beforeAll(async () => {
@@ -89,6 +94,10 @@ test.describe('Announcements: review submission', () => {
     surfaceAnnotations(REVIEW),
     async ({ page, context }) => {
       await prepareSurface(context, REVIEW, fixturesPresent);
+      knownFailure(
+        'AECI-1859',
+        'every field error is role="alert", so the empty submit speaks all four errors, not the focused rating\'s',
+      );
       await blockWrites(page);
       const post = await stubWrite(page, '**/api/reviews', { status: 201, json: {} });
       await openSurface(page, REVIEW);
@@ -123,6 +132,10 @@ test.describe('Announcements: account', () => {
     surfaceAnnotations(ACCOUNT),
     async ({ page, context }) => {
       await prepareSurface(context, ACCOUNT, fixturesPresent);
+      knownFailure(
+        'AECI-1858',
+        'the "Display name updated." status is inserted with its text already in it',
+      );
       await blockWrites(page);
       // Answer the PATCH with the profile as it stands, read from the local API.
       let patches = 0;
@@ -242,6 +255,10 @@ for (const queue of [
       surfaceAnnotations(queue.surface),
       async ({ page, context }) => {
         await prepareSurface(context, queue.surface, fixturesPresent);
+        knownFailure(
+          'AECI-2082',
+          'the loading and empty paragraphs are not live regions, and the Try again button that had focus is removed',
+        );
         await blockWrites(page);
         await routeList(page);
         await openSurface(page, queue.surface);
@@ -280,7 +297,7 @@ test.describe('Announcements: vendor portal', () => {
       // The product's own section row (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.11).
       const overview = page
         .getByRole('navigation', { name: /sections$/ })
-        .getByRole('link', { name: 'Overview', exact: true });
+        .getByRole('link', { name: 'Product Overview', exact: true });
       await untilHydrated(overview);
       const rec = await recordAnnouncements(page);
       await overview.click();

@@ -44,6 +44,10 @@ const LOGIN = surface('login');
 const HOME = surface('home');
 const PRODUCT = surface('product-detail');
 
+// A known failure that times out turns red, because a timeout is not the failure it
+// expects. Pages can take a minute to render on a loaded runner, so allow for it.
+test.describe.configure({ timeout: 90_000 });
+
 let fixturesPresent = false;
 test.beforeAll(async () => {
   fixturesPresent = await phase2FixturesPresent();

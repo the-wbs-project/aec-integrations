@@ -773,10 +773,13 @@ status message and form error in checklist §2 is asserted to be heard exactly o
 channel the page promises, at the politeness it promises. §8.4.4 has the method and the flows.
 **This proves the DOM changed. It does not prove a screen reader spoke.** A screen reader can still
 drop, merge or reorder what the page gave it. Real speech is AECI-1886 (NVDA) and AECI-1887
-(VoiceOver), and the manual pass in `docs/a11y-manual-testing-checklist.md` stays as it is. Two PR
+(VoiceOver), and the manual pass in `docs/a11y-manual-testing-checklist.md` stays as it is. Three PR
 specs moved their hand-rolled live-region checks onto the same recorder:
-`preview-vendor-integration-detail.spec.ts` (three portal writes, each heard once and politely) and
-`preview-vendor-portal-nav.spec.ts` (the one polite channel after a section change).
+`preview-vendor-integration-detail.spec.ts` (three portal writes, each heard once and politely),
+`preview-vendor-portal-nav.spec.ts` (the one polite channel after a section change), and the two
+read-only tests of `vendor-dashboard.spec.ts` (one polite channel on every section). That spec's two
+write tests keep their own checks. They save through the real vendor API, whose post-commit hooks
+are not stubbed, so they were not run locally to verify a change.
 
 **Phase 2 implementation (AECI-65).** `apps/web/e2e/phase2-a11y.spec.ts` runs axe against every live Phase 2 page type — product/vendor/integration index+detail, the **product-PAIR page** (added by AECI-303), category/audience/phase browse, the three flat taxonomy indexes (`/categories`, `/audiences`, `/phases`), and the 404 — in the **light theme** (14 URLs; the dark pass was removed in AECI-226), plus the open state of the header's Browse menu (AECI-1774; it replaced the AECI-155 taxonomy flyouts), for 15 axe assertions in total. Detail pages run against committed fixtures (`apps/api/seed/phase2-fixtures.sql`, seeded into the local D1 by `dev:bound`); they self-skip if the fixtures aren't seeded so the suite never wedges CI. Both the header (incl. the Browse menu) and the **footer** are in scope: the footer's former `.exclude('aec-site-footer')` carve-out covered dark-theme contrast debt only, and AECI-226 removed it after verifying the footer is WCAG-AA clean in the (now sole) light theme.
 
@@ -1079,11 +1082,14 @@ checklist §1 and put them under the keyboard suite. The flows that need them na
 
 | Issue | What the record shows | Tests |
 |---|---|---|
-| AECI-1859 | Field errors are `role="alert"`, and the submit focuses the field they describe. One error is heard twice. On a form with several, every error is spoken, not the focused field's | Login bad email, band bad email, claim form |
+| AECI-1859 | Field errors are `role="alert"`, and the submit focuses the field they describe. One error is heard twice. On a form with several, every error is spoken, not the focused field's | Login bad email, band bad email, claim form, review empty submit |
+| AECI-1858 | "Display name updated." is a `role="status"` inserted with its text already in it. Never heard | Account display name saved |
 | AECI-2079 | The claim-confirm error is `role="alert"` and takes focus. Heard twice | `/claims/confirm` failed |
 | AECI-2080 | The waitlist welcome is added after hydration with no live region. Never heard | Home with `?ref=waitlist` |
+| AECI-2082 | The admin queues' loading and empty text are plain paragraphs, and Try again is removed while focused. Never heard | Try again on both queues |
 
-The signed-in flows did not run on landing: the test-user passwords were empty (AECI-2064).
+The signed-in flows ran with real test-user sessions, minted by `prepareSurface`. The failed-load
+alert on both queues, review sent, the delete dialog and the real vendor portal pass.
 
 **Run it** with the rest of the nightly, or alone:
 
