@@ -72,7 +72,7 @@ import { slotClass, type ChartCategory } from './chart-types';
             <tr>
               <th
                 scope="row"
-                class="relative w-full py-2 pe-3 text-start align-middle text-t-14 font-normal
+                class="relative w-full max-w-0 py-2 pe-3 text-start align-middle text-t-14 font-normal
                   text-(--text-primary)"
               >
                 <!-- The mark. A wash rather than a solid fill so the label sits

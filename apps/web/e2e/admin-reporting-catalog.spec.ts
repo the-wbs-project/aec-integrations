@@ -18,7 +18,11 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
 import { mintSessionCookies } from './auth-session';
-import { A3A_CATALOG_OPS_PAGES, stubA3aCatalogOps } from './admin-a3a-catalog-ops.fixtures';
+import {
+  A3A_CATALOG_OPS_PAGES,
+  openA3aForms,
+  stubA3aCatalogOps,
+} from './admin-a3a-catalog-ops.fixtures';
 import { A3A_INSIGHTS_PAGES, stubA3aInsights } from './admin-a3a-insights.fixtures';
 import { A3A_ROSTER_PAGES, stubA3aRoster } from './admin-a3a-roster.fixtures';
 
@@ -76,8 +80,11 @@ test.describe('reporting and catalog pages — console recipe as an admin (AECI-
         await stubAll(page);
         await page.goto(path);
         await expect(page.locator('h2').first()).toBeVisible();
-        await expect(page.getByText(ready).first()).toBeVisible();
+        // A ready word can also sit in a hidden tab panel, so wait for a visible copy.
+        await expect(page.getByText(ready).filter({ visible: true }).first()).toBeVisible();
         await openEverything(page);
+        // The named inline forms (Managed by, mapping edit) and the re-index Done dialog.
+        await openA3aForms(page, path);
 
         const results = await new AxeBuilder({ page })
           .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])

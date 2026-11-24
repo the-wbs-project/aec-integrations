@@ -20,16 +20,17 @@
       <label class="sr-only" for="admin-connectors-search" i18n="@@admin.connectors.search.label">
         Search by connector name or slug
       </label>
-      <input
-        id="admin-connectors-search"
-        type="search"
-        [class]="inputClass"
-        class="w-full max-w-64 min-w-0"
-        i18n-placeholder="@@admin.connectors.search.placeholder"
-        placeholder="MindCloud, agave…"
-        [value]="searchDraft()"
-        (input)="onSearchInput($event)"
-      />
+      <div class="w-64 max-w-full min-w-0">
+        <input
+          id="admin-connectors-search"
+          type="search"
+          [class]="inputClass"
+          i18n-placeholder="@@admin.connectors.search.placeholder"
+          placeholder="MindCloud, agave…"
+          [value]="searchDraft()"
+          (input)="onSearchInput($event)"
+        />
+      </div>
       <button aecButton variant="secondary" type="submit" i18n="@@admin.connectors.search.submit">
         Search
       </button>

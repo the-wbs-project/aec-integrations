@@ -221,14 +221,15 @@
           >
             Search listings by name
           </label>
-          <input
-            id="admin-connector-stub-search"
-            type="search"
-            [class]="inputClass"
-            class="w-full max-w-56 min-w-0"
-            [value]="stubSearchDraft()"
-            (input)="onStubSearchInput($event)"
-          />
+          <div class="w-56 max-w-full min-w-0">
+            <input
+              id="admin-connector-stub-search"
+              type="search"
+              [class]="inputClass"
+              [value]="stubSearchDraft()"
+              (input)="onStubSearchInput($event)"
+            />
+          </div>
           <button
             aecButton
             variant="secondary"
