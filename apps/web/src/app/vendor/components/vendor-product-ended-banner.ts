@@ -1,16 +1,11 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  LOCALE_ID,
-  computed,
-  inject,
-  input,
-} from '@angular/core';
+import { Component, LOCALE_ID, computed, inject, input } from '@angular/core';
 import { formatDate } from '@angular/common';
 import { RouterLink } from '@angular/router';
 
 import type { VendorEntitlementBlock } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
+import { AecPortalNotice, PORTAL_NOTICE_BODY_CLASS } from '../shared/portal-notice';
 import { parseDate, productEndedRecently } from '../vendor-plan';
 
 /**
@@ -35,29 +30,27 @@ import { parseDate, productEndedRecently } from '../vendor-plan';
  */
 @Component({
   selector: 'aec-vendor-product-ended-banner',
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink],
+  imports: [RouterLink, AecButton, AecPortalNotice],
+  host: { class: 'block' },
   template: `
     @if (show()) {
       <section
+        aecPortalNotice
         aria-labelledby="vendor-product-ended-h"
-        class="mb-6 flex flex-wrap items-center justify-between gap-x-8 gap-y-4 rounded-(--radius-md) border border-(--border-strong) bg-(--accent-warm) px-5 py-4"
+        class="flex flex-wrap items-center justify-between gap-x-8 gap-y-4"
         data-testid="product-ended-banner"
       >
-        <div class="min-w-0 max-w-prose">
-          <h2
-            id="vendor-product-ended-h"
-            class="font-display text-xl font-semibold text-(--text-primary)"
-            i18n="@@vendor.productEnded.heading"
-          >
+        <div class="min-w-0">
+          <h2 id="vendor-product-ended-h" i18n="@@vendor.productEnded.heading">
             Managed ended for this product
           </h2>
-          <p class="mt-1 text-sm leading-relaxed text-(--text-primary)">{{ lede() }}</p>
+          <p [class]="bodyClass + ' mt-2'">{{ lede() }}</p>
         </div>
         @if (billingLink(); as link) {
           <a
+            aecButton
             [routerLink]="link"
-            class="inline-flex shrink-0 items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-4 py-2 text-sm font-bold text-(--surface-base) no-underline transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            class="shrink-0"
             data-testid="product-ended-get-licenses"
             i18n="@@vendor.productEnded.cta"
             >Go to Billing</a
@@ -66,7 +59,6 @@ import { parseDate, productEndedRecently } from '../vendor-plan';
       </section>
     }
   `,
-  styles: [':host { display: block; }'],
 })
 export class VendorProductEndedBanner {
   private readonly locale = inject(LOCALE_ID);
@@ -77,6 +69,8 @@ export class VendorProductEndedBanner {
   readonly billingLink = input<string | readonly unknown[] | null>(null);
   /** Clock injection point, read at day granularity, for the 90-day window. */
   readonly now = input<number>(Date.now());
+
+  protected readonly bodyClass = PORTAL_NOTICE_BODY_CLASS;
 
   protected readonly show = computed(() => productEndedRecently(this.plan(), this.now()));
 

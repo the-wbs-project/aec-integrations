@@ -104,6 +104,8 @@ const CALLERS: Record<string, Partial<Record<Kind, number>>> = {
   'vendor/components/vendor-product-connectors.ts': { portal: 1 },
   'vendor/integration-detail/vendor-integration-detail-page.ts': { portal: 4 },
   'vendor/sections/vendor-product-list-page.ts': { portal: 1 },
+  // AECI-1809: the portal header's 48px tile beside the h1.
+  'vendor/vendor-dashboard-tabbed.ts': { portal: 1 },
   'vendors/vendor-detail.ts': { subject: 2 },
   'vendors/vendor-product-row.ts': { link: 1 },
 };

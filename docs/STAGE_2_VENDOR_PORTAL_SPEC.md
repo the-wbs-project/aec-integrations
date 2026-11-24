@@ -1012,7 +1012,7 @@ Design work runs the `apps/web` UI checklist (`CLAUDE.md` §"Design checklist"):
 
 Shipped as the Angular `/vendor` surface (singular — the public `/vendors/:slug` detail is a different, cacheable route). Files under `apps/web/src/app/vendor/`. Decisions taken at build:
 
-- **IA — tabbed.** Both a tabbed and a single-page concept were built as live-toggleable previews (`/preview/vendor-dashboard`, the AECI-270 precedent); the PO chose **tabbed** (`vendor-dashboard-tabbed.ts`: a side-nav — Overview / Profile / Products / Seats — over one content panel; *as built 2026-10-16 (AECI-1390) the tab row also carries an owner-only Billing tab, §6.21*). It was originally an in-page `@switch` with **no child routes**, so the concept could render identically in the preview and on the real page; **§6.2 replaced that with real child routes** and the same relative-link trick keeps the preview working. **§6.4 replaced the side-nav with a horizontal tab row** and turned Products into a filterable dropdown; the nav lives in `vendor-portal-nav.ts` now, not in the shell. **§6.5 then moved Integrations down a level, under the selected product** (alongside a new Taxonomy tab), gave a product its own nav row (`vendor-product-nav.ts`), and put **Messages** in the slot Integrations vacated. **§6.10 turned the Overview into a landing page**: a compact access strip, a glance band, and a "What needs you" list that links to the work (AECI-983). **§6.11 made the header follow the context**: a breadcrumb ("Vendor portal › Company") replaces the "Vendor" eyebrow, an open product takes over the `h1` and the single tab row, the Products dropdown and the separate product nav are deleted, and bare `…/products` is a product list. **§6.12 split Taxonomy into one tab per facet** and moved "How teams use it" under Audiences and Phases (AECI-994). **AECI-999 turned the Integrations tab into a three-level drill-down** (counterpart, integration, data flow), collapsed on arrival, with a health pill, filters and shareable URL state; the build record is `STAGE_2_ATTESTATIONS_SPEC.md` §6.3. **§6.13 added a read-only Connectors section below that list** (AECI-1013): the connectors that deliver or reach the product, with no new tab. The single-page concept (`vendor-dashboard-single.ts`) stays in the tree behind the preview. The presentational pieces (`components/vendor-{verified-status,request-status,seat-roster,profile-form,product-form,products-section}.ts`) are shared by both. **AECI-606** (`STAGE_2_ATTESTATIONS_SPEC.md` §6) adds an Integrations tab and its components (`components/vendor-{integrations-section,integration-card,claim-lane,attestation-control,add-claim-form,notifications-list,attestation-labels}.ts`, joined by `vendor-{counterpart-group,health-pill,integration-health}.ts` in AECI-999, and by `vendor-contest-form.ts` in AECI-1008, the seat-only "Contest a field" action on every card the vendor does not own, §11b.10) to **both** concepts, so the single-page concept does not silently lose a section the tabbed one has.
+- **IA — tabbed.** Both a tabbed and a single-page concept were built as live-toggleable previews (`/preview/vendor-dashboard`, the AECI-270 precedent); the PO chose **tabbed** (`vendor-dashboard-tabbed.ts`: a side-nav — Overview / Profile / Products / Seats — over one content panel; *as built 2026-10-16 (AECI-1390) the tab row also carries an owner-only Billing tab, §6.21*). It was originally an in-page `@switch` with **no child routes**, so the concept could render identically in the preview and on the real page; **§6.2 replaced that with real child routes** and the same relative-link trick keeps the preview working. **§6.4 replaced the side-nav with a horizontal tab row** and turned Products into a filterable dropdown; the nav lives in `vendor-portal-nav.ts` now, not in the shell. **§6.5 then moved Integrations down a level, under the selected product** (alongside a new Taxonomy tab), gave a product its own nav row (`vendor-product-nav.ts`), and put **Messages** in the slot Integrations vacated. **§6.10 turned the Overview into a landing page**: a compact access strip, a glance band, and a "What needs you" list that links to the work (AECI-983). **§6.11 made the header follow the context**: a breadcrumb ("Vendor portal › Company") replaces the "Vendor" eyebrow, an open product takes over the `h1` and the single tab row, the Products dropdown and the separate product nav are deleted, and bare `…/products` is a product list. **§6.12 split Taxonomy into one tab per facet** and moved "How teams use it" under Audiences and Phases (AECI-994). **AECI-999 turned the Integrations tab into a three-level drill-down** (counterpart, integration, data flow), collapsed on arrival, with a health pill, filters and shareable URL state; the build record is `STAGE_2_ATTESTATIONS_SPEC.md` §6.3. **§6.13 added a read-only Connectors section below that list** (AECI-1013): the connectors that deliver or reach the product, with no new tab. The single-page concept (`vendor-dashboard-single.ts`) stayed in the tree behind the preview until AECI-1809 deleted it (§6.25). The presentational pieces (`components/vendor-{verified-status,request-status,seat-roster,profile-form,product-form,products-section}.ts`) are shared by both. **AECI-606** (`STAGE_2_ATTESTATIONS_SPEC.md` §6) adds an Integrations tab and its components (`components/vendor-{integrations-section,integration-card,claim-lane,attestation-control,add-claim-form,notifications-list,attestation-labels}.ts`, joined by `vendor-{counterpart-group,health-pill,integration-health}.ts` in AECI-999, and by `vendor-contest-form.ts` in AECI-1008, the seat-only "Contest a field" action on every card the vendor does not own, §11b.10) to **both** concepts, so the single-page concept does not silently lose a section the tabbed one has.
 - **Gate = the `/admin` pattern.** `vendorMeResolver` (`vendor-me.resolver.ts`) calls `GET /api/vendor/me`; a **403/404 → 404 render** (`<aec-not-found/>` + `RESPONSE_INIT.status = 404` + noindex), a 200 → the portal, a 5xx rethrows. `requireVendor()` rejects reviewers, banned seats, null-`vendor_id` seats, **and site admins** — all surface as the same 404. **401 was in that set and no longer is: since AECI-954 it redirects to `/auth/login?return=<url>` (§6.6).** Non-cacheable + `Cache-Tag`-free by the fail-closed classifier (no `server-runtime.ts` change; the worker login-bounce for anon `/vendor` already shipped with AECI-520). The page sets `robots: noindex`.
 - **Edits.** `vendor-profile-form.ts` / `vendor-product-form.ts` are dirty-diff editors validated **live against the shared `UpdateVendorProfile*`/`UpdateVendorProduct*` schemas** (single source of truth; a single-key parse per field). Only changed fields are PATCHed (the endpoint requires ≥1; Save is disabled until a real change); the echo re-seeds the baseline so the form settles clean. **Optimistic + on-demand revalidation, no socket.** Save-confirmation copy never promises instant search — it says the listing updates now and search refreshes within a day (§8.3(5) / AECI-529). *Amended 2026-11-07: "search" is named as AEC Integrations' own search, because "search results" read as Google. The copy adds that Google and other search engines update on their own schedule. We cannot promise when an outside engine re-crawls a page, even after a GSC or IndexNow request.* `name`/`slug` are read-only with a "rename = correction request" hint, and `public_private` uses the Angular Aria single-select listbox stand-in (ADR 0010). Product taxonomy is its own pattern — see the sub-bullet below.
 
@@ -1214,7 +1214,9 @@ item in the DOM — and in a screen reader's link list — twice. The header los
 own `border-b`, so the row carries the single rule and reads as attached to the
 panel it switches.
 
-- **The active treatment is `-mb-px` + `border-b-2` on the item itself**, pulling
+- *(Superseded by §6.25, AECI-1809: the underline is now the link's own `::after`
+  bar, keyed off `aria-current`, and `.aec-nav-tab` is no longer on the portal row.)*
+  **The active treatment is `-mb-px` + `border-b-2` on the item itself**, pulling
   its border over the row's hairline: the `/search` entity-tab treatment and
   DESIGN.md's "2px `accent-primary` bottom border on the element".
   **The underline COLOUR is a class in `styles.css` (`.aec-nav-tab[aria-current]`).**
@@ -1478,8 +1480,8 @@ field and re-asserts `product.taxonomy.edit` when facet arrays ride along, so tw
 components would mean two dirty-diff implementations racing on one endpoint — two
 chances to send an empty PATCH and two places for the field-level gate to drift. A
 field with no control on screen is never edited, so it never enters `patch()`; that is
-what makes each tab's PATCH carry only its own section. `'all'` remains the default and
-is what `vendor-dashboard-single.ts` keeps using.
+what makes each tab's PATCH carry only its own section. `'all'` remains the default. Its
+one user, `vendor-dashboard-single.ts`, was deleted by AECI-1809 (§6.25).
 
 The Taxonomy tab is **not** route-gated on `product.taxonomy.edit`: a vendor without it
 sees its own facets read-only with the copy explaining what verification unlocks, per
@@ -1495,8 +1497,8 @@ the ownership-reads / capability-writes split. Routing it away would hide owned 
 - **`/vendor/:vendorSlug/integrations` no longer exists.** The portal is private,
   noindex and non-cacheable, used by a handful of accounts, so a stale bookmark landing
   on a 404 was accepted rather than adding a resolve-and-redirect hop.
-- **`vendor-dashboard-single.ts`** (the single-page concept, which has no product
-  selection) renders `aec-vendor-notifications-list` explicitly and leaves
+- *(Deleted by AECI-1809, §6.25.)* **`vendor-dashboard-single.ts`** (the single-page concept, which had no product
+  selection) rendered `aec-vendor-notifications-list` explicitly and leaves
   `contextProductId` unset, keeping the vendor-wide list. Without that it would have
   silently lost a surface the tabbed concept has — the thing AECI-606 added it to both
   concepts to prevent.
@@ -1775,7 +1777,8 @@ and it really does navigate, which is exactly the case the rule covers. A
 modified click (cmd/middle) is left to the browser by the directive, so it lands
 there too.
 
-**The drawer is mounted in BOTH shells** — `vendor-dashboard-tabbed.ts` and
+*(Since AECI-1809 the drawer is mounted in the one shell, `vendor-dashboard-tabbed.ts`: the
+single-page concept is deleted, §6.25.)* **The drawer is mounted in BOTH shells** — `vendor-dashboard-tabbed.ts` and
 `vendor-dashboard-single.ts`. Both concepts compose `vendor-product-form` and
 `vendor-claim-lane`, and a trigger with no drawer mounted `preventDefault()`s into
 nothing. §6.1's rule that the single-page concept never silently loses what the
@@ -1950,7 +1953,7 @@ heading outline is unchanged.
 | Contests to decide | `contests` scope (AECI-1008) | Yes |
 | Reviews with no reply | `reviews` scope (AECI-1179, §11c.16). One `reply_status=none&perPage=1` read per owned product (every owned product since AECI-1590, 2026-11-03; before, only products whose plan held `review.reply`) | Yes |
 
-**The single-page concept (`vendor-dashboard-single.ts`) is unchanged, on purpose.** It
+*(The single-page concept was deleted by AECI-1809, §6.25.)* **The single-page concept (`vendor-dashboard-single.ts`) is unchanged, on purpose.** It
 renders every section on one page, so a list of links to other routes has nowhere
 to point. §6.1's parity rule is about sections, and it loses none.
 
@@ -1996,7 +1999,8 @@ read as a button group. It was unclear which header was in charge of the page.
 - **One component draws both rows.** `vendor-portal-nav.ts` takes `items` and
   `ariaLabel` inputs. The shell prefixes the product items with
   `products/:productSlug/`, because it renders from the portal's route rather than
-  from the product route. Both rows use the `.aec-nav-tab` underline.
+  from the product route. Both rows use the same underline (since AECI-1809 the
+  link's `::after` bar, §6.25).
 - **The context comes from the router, not from the product page.** The shell sits
   above the outlet, so a child cannot hand it a value without a new injectable, and
   every new injectable is one more thing the preview's DI shadow must provide. The
@@ -2969,6 +2973,20 @@ The box label and the server's recorded label are one sentence (`portalAcceptanc
 **Fail open in the shell.** `vendorLegalResolver` reads the state beside `vendorMeResolver`, so SSR renders the gate with no flash of tabs. A failed read resolves `null`, which shows no screen. The server-side write block is the gate that cannot be skipped. `/vendor` is never edge-cached, and the state service is provided by the page, never at root, so no per-seat state reaches a cached page.
 
 **Preview.** `/preview/vendor-dashboard?fixture=<key>`: `legal-required` (owner), `legal-required-member`, `legal-optional-terms`, `legal-optional-managed`, `legal-accepted`. The fixtures use Vendor Terms 1.3 and Managed plan agreement 1.1, because their fixed copies are real pages, so "Read version" resolves. In production a draft is never in force.
+
+**Restyled by AECI-1809 (2026-11-24), words unchanged.** Required mode is two white cards, the screen and the aside (§6.25). Optional mode and the confirmation are the portal's calm notice. Every string above is the same, as the i18n extraction diff on the PR shows. When the button is enabled did not change (AECI-2089 tracks that).
+
+### 6.25 As built: the portal shell in the new design language (AECI-1809, 2026-11-24)
+
+Slice P1 of AECI-1729. The anchor is mock-up 13 (`docs/design/mockups/redesign-2026-11/mockups/13-vendor-portal.html`), approved by Chris on 2026-11-24 with every default. Behaviour, routing, guards, resolvers, API calls, analytics and wording did not change. `DESIGN.md` §5 "Vendor portal" has the visual record.
+
+- **One width.** The shell puts the header, the banner slot, the tab row and the routed section on the site's page wrap (`PORTAL_WRAP_CLASS` in `vendor/shared/portal-layout.ts`, which is `BAND_WRAP_CLASS` plus 96px under the page). A section never adds a width of its own.
+- **The header** is plain white: the shared `aec-breadcrumb` (§6.11's trail, unchanged), then a 48px initial tile or logo (`aec-logo-or-initial`, `md`), the `h1` at its global size, the open product's plan badge and "View public page". The required acceptance screen still drops the banner slot and the tab row.
+- **The tab row** (§6.4, §6.11) keeps one row, `aria-current` and `data-route-focus-keep`. The current tab is Forest at weight 600 with a 2px Forest underline drawn by the link's `::after` on the row's hairline. That replaces §6.4's `-mb-px` + `border-b-2` and the `.aec-nav-tab` class. Labels are 16px, and each reserves its weight-600 width. The row scrolls sideways with no visible scrollbar and a fade at an edge with more tabs past it. A tab reached by Tab scrolls clear of the fades. A pointer focus does not scroll the row, so one click on a half-faded tab navigates. The fades re-measure when the row swaps its tabs and when fonts load. The focus ring is inside the tab.
+- **Every banner is one calm notice** (`aecPortalNotice`, `vendor/shared/portal-notice.ts`): Bone fill, a 1px strong edge, the panel radius, 24px padding, a `--t-20` serif heading, 14px body capped near 32rem. No status colour, no alert role, no dismiss. Plan ended, product ended, listing hidden, the optional acceptance prompt and its confirmation use it. "Go to Billing" is the primary `aecButton`.
+- **A portal form layout** for the later slices (`vendor/shared/portal-form.ts`): two columns of fields from 768px, overline fieldset legends, a save bar that sticks to the foot of the form card with the status at the start and the primary button at the end, full width below 640px. `PORTAL_FORM_CLASS` keeps a focused field clear of the bar (WCAG 2.4.11). The status line is not a live region: the result is announced through `VendorPortalAnnouncer`, the portal's one region (`STAGE_2_REALTIME_SPEC.md` §6.3). `/preview/portal-form` is the demo, and `e2e/preview-portal-form.spec.ts` holds the focus rule at 320 and 1440px. The acceptance screen's two fields use its grid. The Profile form adopts the rest in its own slice.
+- **The account-status screen** (`vendor-suspended-notice.ts`) and the invite page take the same pieces: the page wrap, the global `h1`, white cards and `aecButton`. The preview gains a `suspended` fixture for it.
+- **The single-page concept is deleted** (ruled 2026-11-24). `vendor-dashboard-single.ts` and the preview's concept toggle are gone. The paragraphs above that name it are history.
 
 ## 7. Moderation escalation — ban gate (AECI-524)
 
