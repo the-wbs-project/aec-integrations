@@ -54,13 +54,88 @@ function rules(source: string): Rule[] {
   return out;
 }
 
-const isUniversal = (selector: string): boolean =>
-  selector.split(',').some((s) => /^\*?(::?[a-z-]+)?$/.test(s.trim()) && s.trim() !== '');
+/** Split on separators that are not inside parentheses (`:not(a, b)` stays whole). */
+function splitTopLevel(list: string, sep: RegExp): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let cur = '';
+  for (const ch of list) {
+    if (ch === '(') depth++;
+    else if (ch === ')') depth--;
+    if (depth === 0 && sep.test(ch)) {
+      if (cur.trim()) parts.push(cur.trim());
+      cur = '';
+      continue;
+    }
+    cur += ch;
+  }
+  if (cur.trim()) parts.push(cur.trim());
+  return parts;
+}
 
+/**
+ * True when one complex selector's subject (its last compound) matches any element:
+ * `*`, `*::before`, a bare `::before`, `:where(*)`, `:is(*)`, `*:not(.x)`, `html *`,
+ * `body > *`. `:root` or `.x` is not universal.
+ */
+function subjectIsUniversal(complex: string): boolean {
+  const subject = splitTopLevel(complex, /[\s>+~]/).at(-1) ?? '';
+  if (/^(::[a-z-]+)+$/.test(subject)) return true;
+  const bare = subject
+    .replace(/:(where|is)\(\s*\*\s*\)/g, '*')
+    .replace(/::?[a-z-]+(\((?:[^()]|\([^()]*\))*\))?/g, '');
+  return bare === '*';
+}
+
+const isUniversal = (selector: string): boolean =>
+  splitTopLevel(selector, /,/).some(subjectIsUniversal);
+
+/** `border-color`, a per-side colour, or a `border` shorthand (which always sets one). */
 const setsBorderColour = (body: string): boolean =>
-  /(^|[;\s])border(-(top|right|bottom|left|block|inline)(-(start|end))?)?-color\s*:/.test(body);
+  /(^|[;\s])border(-(top|right|bottom|left|block|inline)(-(start|end))?)?(-color)?\s*:/.test(body);
 
 const inLayer = (r: Rule): boolean => r.context.some((c) => /^@layer\s/.test(c));
+
+describe('the universal-selector and border-colour matchers', () => {
+  it.each([
+    '*',
+    '*::before',
+    '::after',
+    ':where(*)',
+    ':is(*)',
+    '*:not(.aec-card)',
+    'html *',
+    'body > *',
+    '.x, *::after',
+  ])('treats `%s` as universal', (selector) => {
+    expect(isUniversal(selector)).toBe(true);
+  });
+
+  it.each([':root', '.aec-nav-tab', 'table', 'a:hover', ':where(.x)', '* .x', ':not(*, .x) .y'])(
+    'does not treat `%s` as universal',
+    (selector) => {
+      expect(isUniversal(selector)).toBe(false);
+    },
+  );
+
+  it.each([
+    'border-color: red;',
+    'border-top-color: red;',
+    'border-inline-start-color: red;',
+    'border: 1px solid red;',
+    'border-bottom: 1px solid;',
+    'border-block: 0 solid;',
+  ])('sees a border colour in `%s`', (body) => {
+    expect(setsBorderColour(body)).toBe(true);
+  });
+
+  it.each(['border-width: 1px;', 'border-style: solid;', 'border-radius: 4px;', 'outline: 0;'])(
+    'sees no border colour in `%s`',
+    (body) => {
+      expect(setsBorderColour(body)).toBe(false);
+    },
+  );
+});
 
 describe('the global border colour (AECI-2088)', () => {
   const all = rules(css);
@@ -75,7 +150,7 @@ describe('the global border colour (AECI-2088)', () => {
     );
     expect(
       offenders.map((r) => r.selector),
-      'an unlayered `* { border-color }` beats every border-colour utility; put it in @layer base',
+      'an unlayered universal border colour (or `border` shorthand) beats every border-colour utility; put it in @layer base',
     ).toEqual([]);
   });
 

@@ -419,8 +419,8 @@ export class VendorConnectorMappingForm {
   protected readonly inputClass =
     'w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
   /** The error tell is the border plus the message, never a dimmed value. The
-   *  border colour is an arbitrary-property class because border-colour utilities
-   *  lose to the unlayered `*` rule in `styles.css`. */
+   *  border colour is an arbitrary-property class. It never painted until
+   *  AECI-2088 moved the `*` border rule in `styles.css` into `@layer base`. */
   protected readonly inputErrorClass =
     'w-full rounded-(--radius-md) border [border-color:var(--status-error)] bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
   /** Disabled is a surface swap, never opacity (DESIGN.md, AECI-982). */

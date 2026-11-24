@@ -5,9 +5,9 @@ import { describe, expect, it } from 'vitest';
 
 /**
  * Guard (AECI-1765): the card edge and the grid cap live in the stylesheet, which
- * jsdom does not apply. The edge must come from an UNLAYERED rule, because the
- * unlayered `* { border-color }` rule beats every layered utility. This reads the
- * stylesheet and the recipe as text.
+ * jsdom does not apply. The edge comes from an UNLAYERED rule, so it beats any
+ * utility on the card. (Until AECI-2088 the `* { border-color }` rule was unlayered
+ * too and beat every layered utility.) This reads the stylesheet and the recipe as text.
  */
 const SRC = join(process.cwd(), 'src');
 const css = readFileSync(join(SRC, 'styles.css'), 'utf8');
