@@ -1,8 +1,11 @@
+import { NgTemplateOutlet } from '@angular/common';
 import {
   Component,
   ElementRef,
   Injector,
+  TemplateRef,
   afterNextRender,
+  computed,
   effect,
   inject,
   input,
@@ -23,37 +26,92 @@ import {
 let nextId = 0;
 
 /**
- * The console's danger pattern (AECI-1813, ruled 2026-11-24: "The opener is a
- * secondary button. The danger button is the confirm inside the form"). A
- * destructive action never fires from one press. The opener is a compact
- * secondary button. It opens a form under it: a Bone warning box, a required
- * reason, the danger confirm and a ghost Cancel.
+ * The second, locked step of a two-step danger form (AECI-2104). Every string is
+ * already localised by the caller. `body` is a string, or a template when the
+ * sentence carries a value the caller's own `i18n` element interpolates.
+ */
+export interface AdminDangerConfirmStep {
+  /** Step one's button ("Continue to removal"). A secondary button: it destroys nothing. */
+  readonly continueLabel: string;
+  /** The locked step's title ("Remove this review permanently?"). */
+  readonly title: string;
+  /** What the final press does, under the title. */
+  readonly body: string | TemplateRef<unknown>;
+  /** Back to step one with the reason kept ("Edit the reason"). */
+  readonly editLabel: string;
+}
+
+/**
+ * USAGE NOTES (AECI-1813, extended by AECI-2104). Read these, not the code.
+ *
+ * `<aec-admin-danger-action>` is the console's one pattern for a destructive action.
+ * The opener is a compact secondary button. It opens a form under it: an optional
+ * Bone warning box, a required reason, the confirm, and a ghost Cancel. A danger
+ * button appears only as the confirm that does the damage. The piece decides
+ * nothing about who may act: render it only where the action was rendered before,
+ * inside the same `@if`. Every string is an input, already localised.
+ *
+ * Inputs
+ * - `openerLabel`, `confirmLabel`, `reasonLabel`, `reasonRequired` (required strings).
+ *   `reasonRequired` is shown when the confirm is pressed with an empty reason.
+ * - `warning`: what the action does, as a full sentence. Screen readers hear it
+ *   first, because it leads the reason field's description. Leave it null only when
+ *   today's form has no warning (the review queues' Reject).
+ * - `reasonHelp`: a hint under the field.
+ * - `busy` and `busyLabel`: while `busy`, the confirm is disabled and reads
+ *   `busyLabel` ("Rejecting…"), and a polite status line inside the form says it
+ *   once. With no `busyLabel` the confirm keeps its label, as before.
+ * - `maxLength` and `lengthMessage`: with both, a trimmed reason longer than
+ *   `maxLength` is refused on confirm exactly like an empty one (nothing emitted,
+ *   the message shown, the field focused). A form whose one message covers both
+ *   rules ("between 1 and 500 characters") passes that message to both inputs.
+ *   With `maxLength` alone, the field is hard-capped by the native `maxlength`
+ *   attribute and there is nothing to say.
+ * - `confirmStep`: makes the form two-step (see below).
+ * - `error`: the parent's message for the last attempt. `errorTemplate`: the same
+ *   for a message that holds a link. The template is rendered inside the one alert
+ *   element, so write inline content only (text and `<a>`).
+ * - `cancelLabel`: Cancel's words, when the form keeps its own message id.
+ * - `openerDescribedBy`: the id of a sentence beside the opener that describes it.
+ * - `open`: two-way. Outputs: `confirmed` (the trimmed reason), `cancelled`.
+ *
+ * Parent contract
+ * - In the `(confirmed)` handler: clear `error` (and `errorTemplate`) to null and
+ *   set `busy`. `confirmed` fires once per attempt; a second press before the
+ *   parent answers emits nothing.
+ * - On success set `open` to false. Focus returns to the opener.
+ * - On failure clear `busy` and set `error` or `errorTemplate`. The form stays open
+ *   and focus moves to the alert. A new value is needed to move focus again.
+ * - Escape anywhere in the form, and Cancel, close it and return focus to the opener.
+ *
+ * Two steps (`confirmStep`)
+ * - Step one's button is secondary and reads `continueLabel`. It checks the reason
+ *   (required, length) and emits nothing.
+ * - Step two locks the reason (read-only, in place, still described by the warning)
+ *   and shows a Bone box with the step's title, its body, the danger confirm
+ *   (`confirmLabel`, then `busyLabel`), the edit action and Cancel. Focus moves to
+ *   that box, which is named by its title and described by its body, so the
+ *   operator hears what the press does before any button. Focus does not go to the
+ *   danger button: a held or repeated Enter must not fire it.
+ * - The edit action returns to step one with the reason kept and focused.
+ * - `confirmed` fires only from step two. A press that lands before step two has
+ *   rendered emits nothing.
+ * - A parent `error` while on step two keeps the operator on step two, with the
+ *   reason still locked. Focus moves to the alert. They can press the confirm again
+ *   or edit the reason.
  *
  * ```html
  * <aec-admin-danger-action
- *   [openerLabel]="suspendLabel" [confirmLabel]="suspendConfirm" [warning]="suspendWarning"
- *   [reasonLabel]="reasonLabel" [reasonHelp]="reasonHelp" [reasonRequired]="reasonRequired"
- *   [error]="error()" [busy]="busy()" [(open)]="suspending" (confirmed)="suspend($event)"
+ *   [openerLabel]="removeLabel" [confirmLabel]="removeFinal" [busyLabel]="removing"
+ *   [reasonLabel]="reasonLabel" [reasonHelp]="reasonHelp" [reasonRequired]="reasonMissing"
+ *   [maxLength]="500" [confirmStep]="removeStep"
+ *   [error]="error()" [busy]="busy()" [(open)]="removing" (confirmed)="remove($event)"
  * />
  * ```
- *
- * Every string comes from the caller, already localised, except Cancel. A press
- * of the confirm with an empty reason shows `reasonRequired`, focuses the field
- * and emits nothing. Otherwise it emits the trimmed reason, once per attempt: a
- * second press before the parent answers emits nothing. The parent owns the write:
- * it sets `busy` in its handler and clears `error` to null at the start of each
- * attempt; on success it sets `open` to false, on failure it sets `error` and
- * leaves the form open. The pattern decides nothing about who may act.
- *
- * Focus: opening focuses the reason field, whose `aria-describedby` names the
- * warning first, then the help, then the error, so a screen reader hears the
- * warning before typing. Cancel, Escape inside the form, and a close by the parent
- * return focus to the opener. An `error` from the parent takes focus, because a
- * disabled confirm drops it to the page body.
  */
 @Component({
   selector: 'aec-admin-danger-action',
-  imports: [AecButton],
+  imports: [AecButton, NgTemplateOutlet],
   host: { class: 'block' },
   template: `
     <button
@@ -63,6 +121,7 @@ let nextId = 0;
       compact
       [attr.aria-expanded]="open()"
       [attr.aria-controls]="ids.form"
+      [attr.aria-describedby]="openerDescribedBy()"
       (click)="toggle()"
     >
       {{ openerLabel() }}
@@ -77,12 +136,9 @@ let nextId = 0;
       (submit)="submit($event)"
       (keydown.escape)="onEscape($event)"
     >
-      <p
-        [id]="ids.warning"
-        class="rounded-control border border-(--border-strong) bg-(--accent-warm) p-4 text-t-14 text-(--text-primary)"
-      >
-        {{ warning() }}
-      </p>
+      @if (warning(); as text) {
+        <p [id]="ids.warning" [class]="boneClass">{{ text }}</p>
+      }
       <div class="grid gap-2">
         <label [for]="ids.reason" [class]="labelClass">{{ reasonLabel() }}</label>
         <textarea
@@ -91,9 +147,11 @@ let nextId = 0;
           rows="3"
           required
           [class]="inputClass"
-          class="min-h-24 resize-y py-3"
+          class="min-h-24 resize-y py-3 read-only:bg-(--surface-sunken)"
           [value]="draft()"
-          [attr.aria-invalid]="shownError() ? 'true' : null"
+          [readOnly]="locked()"
+          [attr.maxlength]="hardCap()"
+          [attr.aria-invalid]="problem() ? 'true' : null"
           [attr.aria-describedby]="describedBy()"
           (input)="onInput(reason.value)"
         ></textarea>
@@ -101,48 +159,119 @@ let nextId = 0;
           <p #errorEl [id]="ids.error" role="alert" tabindex="-1" [class]="errorClass">
             {{ message }}
           </p>
+        } @else if (errorTemplate(); as tpl) {
+          <p #errorEl [id]="ids.error" role="alert" tabindex="-1" [class]="errorClass">
+            <ng-container [ngTemplateOutlet]="tpl" />
+          </p>
         }
         @if (reasonHelp(); as text) {
           <p [id]="ids.help" class="text-t-14 text-(--text-secondary)">{{ text }}</p>
         }
       </div>
-      <div class="flex flex-wrap gap-3">
-        <button aecButton variant="danger" compact type="submit" [disabled]="busy()">
-          {{ confirmLabel() }}
-        </button>
+      @if (locked() && confirmStep(); as step) {
+        <div
+          #stepEl
+          [id]="ids.step"
+          role="group"
+          tabindex="-1"
+          [attr.aria-labelledby]="ids.stepTitle"
+          [attr.aria-describedby]="ids.stepBody"
+          [class]="boneClass"
+          class="focus-visible:outline-3 focus-visible:outline-offset-3"
+        >
+          <p [id]="ids.stepTitle" class="font-semibold">{{ step.title }}</p>
+          <div [id]="ids.stepBody" class="mt-2 max-w-prose">
+            @if (bodyTemplate(step); as tpl) {
+              <ng-container [ngTemplateOutlet]="tpl" />
+            } @else {
+              <p>{{ step.body }}</p>
+            }
+          </div>
+          <div class="mt-4 flex flex-wrap gap-3">
+            <button aecButton variant="danger" compact type="submit" [disabled]="busy()">
+              {{ confirmText() }}
+            </button>
+            <button aecButton variant="secondary" compact [disabled]="busy()" (click)="edit()">
+              {{ step.editLabel }}
+            </button>
+            <ng-container [ngTemplateOutlet]="cancelButton" />
+          </div>
+        </div>
+      } @else {
+        <div class="flex flex-wrap gap-3">
+          @if (confirmStep(); as step) {
+            <button aecButton variant="secondary" compact type="submit" [disabled]="busy()">
+              {{ step.continueLabel }}
+            </button>
+          } @else {
+            <button aecButton variant="danger" compact type="submit" [disabled]="busy()">
+              {{ confirmText() }}
+            </button>
+          }
+          <ng-container [ngTemplateOutlet]="cancelButton" />
+        </div>
+      }
+      <span [id]="ids.status" role="status" class="sr-only">{{ busyAnnouncement() }}</span>
+    </form>
+
+    <ng-template #cancelButton>
+      @if (cancelLabel(); as words) {
+        <button aecButton variant="ghost" (click)="cancel()">{{ words }}</button>
+      } @else {
         <button aecButton variant="ghost" (click)="cancel()" i18n="@@admin.console.cancel">
           Cancel
         </button>
-      </div>
-    </form>
+      }
+    </ng-template>
   `,
 })
 export class AdminDangerAction {
   /** The opener's label ("Suspend"), already localised. */
   readonly openerLabel = input.required<string>();
-  /** The danger confirm's label ("Suspend and send the notice"). */
+  /** The danger confirm's label ("Suspend and send the notice"). With `confirmStep`, step two's. */
   readonly confirmLabel = input.required<string>();
-  /** What the action does, in the Bone box above the reason. */
-  readonly warning = input.required<string>();
+  /** What the action does, in the Bone box above the reason. Null: no box. */
+  readonly warning = input<string | null>(null);
   readonly reasonLabel = input.required<string>();
   /** Shown when the confirm is pressed with an empty reason. */
   readonly reasonRequired = input.required<string>();
   readonly reasonHelp = input<string | null>(null);
   /** The parent's error for the last attempt. */
   readonly error = input<string | null>(null);
+  /** The parent's error for the last attempt, as content that can hold a link. */
+  readonly errorTemplate = input<TemplateRef<unknown> | null>(null);
   readonly busy = input(false);
+  /** The confirm's label while `busy` ("Rejecting…"). Null keeps `confirmLabel`. */
+  readonly busyLabel = input<string | null>(null);
+  /** The longest trimmed reason. With `lengthMessage` a rule; without, a hard cap. */
+  readonly maxLength = input<number | null>(null);
+  /** Shown when the trimmed reason is longer than `maxLength`. */
+  readonly lengthMessage = input<string | null>(null);
+  /** A second, locked step before the danger confirm. */
+  readonly confirmStep = input<AdminDangerConfirmStep | null>(null);
+  /** Cancel's words. Null keeps the console's own "Cancel". */
+  readonly cancelLabel = input<string | null>(null);
+  /** The id of a sentence outside the piece that describes the opener. */
+  readonly openerDescribedBy = input<string | null>(null);
   readonly open = model(false);
-  /** The confirm pressed with a reason: the trimmed reason. */
+  /** The confirm pressed with a valid reason: the trimmed reason. */
   readonly confirmed = output<string>();
   readonly cancelled = output<void>();
 
   protected readonly draft = signal('');
-  private readonly missing = signal(false);
+  /** The reason's own refusal on the last confirm, until the operator fixes it. */
+  protected readonly problem = signal<'missing' | 'long' | null>(null);
+  /** On step two of a two-step form. */
+  protected readonly locked = signal(false);
   /** One emit per attempt: set on confirm, cleared when the parent answers. */
   private inFlight = false;
+  /** Step two takes presses only once it has rendered and taken focus. */
+  private armed = false;
   protected readonly labelClass = FIELD_LABEL_CLASS;
   protected readonly inputClass = FIELD_INPUT_CLASS;
   protected readonly errorClass = FIELD_ERROR_CLASS;
+  protected readonly boneClass =
+    'rounded-control border border-(--border-strong) bg-(--accent-warm) p-4 text-t-14 text-(--text-primary)';
 
   private readonly n = nextId++;
   protected readonly ids = {
@@ -151,11 +280,26 @@ export class AdminDangerAction {
     reason: `aec-danger-${this.n}-reason`,
     help: `aec-danger-${this.n}-help`,
     error: `aec-danger-${this.n}-error`,
+    step: `aec-danger-${this.n}-step`,
+    stepTitle: `aec-danger-${this.n}-step-title`,
+    stepBody: `aec-danger-${this.n}-step-body`,
+    status: `aec-danger-${this.n}-status`,
   };
+
+  protected readonly confirmText = computed(() => {
+    const busyLabel = this.busyLabel();
+    return this.busy() && busyLabel ? busyLabel : this.confirmLabel();
+  });
+  protected readonly busyAnnouncement = computed(() =>
+    this.busy() && this.open() ? (this.busyLabel() ?? '') : '',
+  );
+  /** The native cap applies only when there is no message to explain a refusal. */
+  protected readonly hardCap = computed(() => (this.lengthMessage() ? null : this.maxLength()));
 
   private readonly opener = viewChild.required<ElementRef<HTMLButtonElement>>('opener');
   private readonly reasonEl = viewChild.required<ElementRef<HTMLTextAreaElement>>('reason');
   private readonly errorEl = viewChild<ElementRef<HTMLElement>>('errorEl');
+  private readonly stepEl = viewChild<ElementRef<HTMLElement>>('stepEl');
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
 
@@ -165,13 +309,14 @@ export class AdminDangerAction {
       const isOpen = this.open();
       untracked(() => {
         if (wasOpen && !isOpen) this.restoreFocus(false);
+        if (!isOpen) this.leaveStepTwo();
         wasOpen = isOpen;
         this.inFlight = false;
       });
     });
     // The parent answered: a new error, or busy clearing. Either ends the attempt.
     effect(() => {
-      const error = this.error();
+      const error = this.error() || this.errorTemplate();
       const busy = this.busy();
       untracked(() => {
         if (!busy) this.inFlight = false;
@@ -185,22 +330,34 @@ export class AdminDangerAction {
     });
   }
 
-  /** Escape inside the open form is Cancel. */
+  /** Escape inside the open form is Cancel, on either step. */
   protected onEscape(event: Event): void {
     event.stopPropagation();
     this.cancel();
   }
 
+  protected bodyTemplate(step: AdminDangerConfirmStep): TemplateRef<unknown> | null {
+    return step.body instanceof TemplateRef ? step.body : null;
+  }
+
+  /** The reason's own refusal first, then the parent's string. `errorTemplate` shows when both are null. */
   protected shownError(): string | null {
-    return this.missing() ? this.reasonRequired() : this.error();
+    const problem = this.problem();
+    if (problem === 'missing') return this.reasonRequired();
+    if (problem === 'long') return this.lengthMessage();
+    return this.error();
+  }
+
+  private hasError(): boolean {
+    return this.problem() !== null || !!this.error() || !!this.errorTemplate();
   }
 
   protected describedBy(): string | null {
     // The warning first: opening moves focus straight to this field, past the box.
     const ids = [
-      this.ids.warning,
+      this.warning() ? this.ids.warning : null,
       this.reasonHelp() ? this.ids.help : null,
-      this.shownError() ? this.ids.error : null,
+      this.hasError() ? this.ids.error : null,
     ];
     return ids.filter(Boolean).join(' ') || null;
   }
@@ -208,7 +365,9 @@ export class AdminDangerAction {
   protected onInput(value: string): void {
     this.draft.set(value);
     this.inFlight = false;
-    if (value.trim()) this.missing.set(false);
+    // The refusal clears once it no longer applies. A new one waits for the next confirm.
+    const problem = this.problem();
+    if (problem && this.check(value.trim()) !== problem) this.problem.set(null);
   }
 
   protected toggle(): void {
@@ -217,7 +376,8 @@ export class AdminDangerAction {
       return;
     }
     this.draft.set('');
-    this.missing.set(false);
+    this.problem.set(null);
+    this.leaveStepTwo();
     this.open.set(true);
     afterNextRender(() => this.reasonEl().nativeElement.focus(), { injector: this.injector });
   }
@@ -226,19 +386,58 @@ export class AdminDangerAction {
     event.preventDefault();
     if (this.busy() || this.inFlight) return;
     const reason = this.draft().trim();
-    if (!reason) {
-      this.missing.set(true);
+    const problem = this.check(reason);
+    if (problem) {
+      this.problem.set(problem);
       this.reasonEl().nativeElement.focus();
       return;
     }
+    if (this.confirmStep()) {
+      if (!this.locked()) {
+        this.enterStepTwo();
+        return;
+      }
+      if (!this.armed) return;
+    }
     this.inFlight = true;
     this.confirmed.emit(reason);
+  }
+
+  /** Step two's edit action: back to step one, the reason kept and focused. */
+  protected edit(): void {
+    this.leaveStepTwo();
+    afterNextRender(() => this.reasonEl().nativeElement.focus(), { injector: this.injector });
   }
 
   protected cancel(): void {
     this.open.set(false);
     this.cancelled.emit();
     this.restoreFocus(true);
+  }
+
+  private check(reason: string): 'missing' | 'long' | null {
+    if (!reason) return 'missing';
+    const max = this.maxLength();
+    if (max !== null && this.lengthMessage() && reason.length > max) return 'long';
+    return null;
+  }
+
+  private enterStepTwo(): void {
+    this.locked.set(true);
+    this.armed = false;
+    afterNextRender(
+      () => {
+        if (!this.locked()) return;
+        this.stepEl()?.nativeElement.focus();
+        this.armed = true;
+      },
+      { injector: this.injector },
+    );
+  }
+
+  private leaveStepTwo(): void {
+    this.locked.set(false);
+    this.armed = false;
   }
 
   private restoreFocus(always: boolean): void {

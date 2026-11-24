@@ -1,0 +1,475 @@
+/**
+ * AECI-2104: the danger form's extensions. The busy label, the length rule, the
+ * two-step confirm, the error that holds a link, the optional warning, Cancel's own
+ * words and the opener's description. The original contract stays pinned in
+ * `console-pieces.component.spec.ts`. Named `.component.spec.ts` so it runs under
+ * `ng test` (TestBed).
+ */
+import { Component, provideZonelessChangeDetection, signal } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import { AdminDangerAction, type AdminDangerConfirmStep } from './danger-action';
+
+const STEP: AdminDangerConfirmStep = {
+  continueLabel: 'Continue to removal',
+  title: 'Remove this review permanently?',
+  body: 'Removal is final.',
+  editLabel: 'Edit the reason',
+};
+
+@Component({
+  imports: [AdminDangerAction],
+  template: `
+    <p id="remove-help">Removing takes the review off the page.</p>
+    <aec-admin-danger-action
+      id="a"
+      openerLabel="Remove from the page"
+      confirmLabel="Remove permanently"
+      [warning]="warning()"
+      reasonLabel="Why you are removing it"
+      reasonRequired="Write a reason before you confirm."
+      reasonHelp="Shown to the reviewer."
+      [busyLabel]="busyLabel()"
+      [maxLength]="maxLength()"
+      [lengthMessage]="lengthMessage()"
+      [confirmStep]="step()"
+      [cancelLabel]="cancelLabel()"
+      [openerDescribedBy]="describedBy()"
+      [error]="error()"
+      [errorTemplate]="useRich() ? lastSeat : null"
+      [busy]="busy()"
+      [(open)]="open"
+      (confirmed)="reasons.push($event)"
+      (cancelled)="cancels = cancels + 1"
+    />
+    <ng-template #lastSeat
+      >This is the last seat. Use Suspend on its <a href="/admin/vendors/v1">vendor page</a>.</ng-template
+    >
+    <aec-admin-danger-action
+      id="b"
+      openerLabel="Suspend"
+      confirmLabel="Suspend and send"
+      warning="This locks every seat out."
+      reasonLabel="Reason"
+      reasonRequired="Enter a reason."
+      [confirmStep]="step()"
+    />
+  `,
+})
+class Host {
+  readonly warning = signal<string | null>('Removal takes the review off the page.');
+  readonly busyLabel = signal<string | null>(null);
+  readonly maxLength = signal<number | null>(null);
+  readonly lengthMessage = signal<string | null>(null);
+  readonly step = signal<AdminDangerConfirmStep | null>(null);
+  readonly cancelLabel = signal<string | null>(null);
+  readonly describedBy = signal<string | null>(null);
+  readonly error = signal<string | null>(null);
+  readonly useRich = signal(false);
+  readonly busy = signal(false);
+  readonly open = signal(false);
+  readonly reasons: string[] = [];
+  cancels = 0;
+}
+
+async function setup(configure: (host: Host) => void = () => undefined) {
+  TestBed.resetTestingModule();
+  TestBed.configureTestingModule({ providers: [provideZonelessChangeDetection()] });
+  const fixture = TestBed.createComponent(Host);
+  configure(fixture.componentInstance);
+  document.body.appendChild(fixture.nativeElement);
+  await fixture.whenStable();
+  const root = fixture.nativeElement as HTMLElement;
+  const settle = async () => {
+    TestBed.tick();
+    await fixture.whenStable();
+    await new Promise((r) => setTimeout(r));
+    TestBed.tick();
+  };
+  const a = root.querySelector<HTMLElement>('#a')!;
+  const button = (text: string, scope: HTMLElement = a) =>
+    [...scope.querySelectorAll<HTMLButtonElement>('button')].find(
+      (b) => b.textContent?.replace(/\s+/g, ' ').trim() === text,
+    );
+  const area = () => a.querySelector<HTMLTextAreaElement>('textarea')!;
+  const type = (value: string) => {
+    area().value = value;
+    area().dispatchEvent(new Event('input'));
+  };
+  const alert = () => a.querySelector<HTMLElement>('[role="alert"]');
+  const stepBox = () => a.querySelector<HTMLElement>('[role="group"]');
+  const status = () => a.querySelector<HTMLElement>('[role="status"]')!;
+  const escape = (el: Element) =>
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  const openForm = async () => {
+    button('Remove from the page')!.click();
+    await settle();
+  };
+  return {
+    root,
+    a,
+    host: fixture.componentInstance,
+    settle,
+    button,
+    area,
+    type,
+    alert,
+    stepBox,
+    status,
+    escape,
+    openForm,
+  };
+}
+
+const text = (el: Element | null | undefined) => el?.textContent?.replace(/\s+/g, ' ').trim();
+
+describe('AdminDangerAction extensions (AECI-2104)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+  afterEach(() => document.body.replaceChildren());
+
+  describe('busy label', () => {
+    it('reads the busy label while busy, says it once, and restores the label after', async () => {
+      const { host, settle, button, type, status, openForm } = await setup((h) =>
+        h.busyLabel.set('Removing…'),
+      );
+      await openForm();
+      expect(text(status())).toBe('');
+      type('Breaks the guidelines');
+      button('Remove permanently')!.click();
+      host.busy.set(true);
+      await settle();
+      const confirm = button('Removing…')!;
+      expect(confirm.disabled).toBe(true);
+      expect(button('Remove permanently')).toBeUndefined();
+      expect(text(status())).toBe('Removing…');
+      host.busy.set(false);
+      await settle();
+      expect(button('Remove permanently')!.disabled).toBe(false);
+      expect(text(status())).toBe('');
+    });
+
+    it('keeps the confirm label while busy when no busy label is given', async () => {
+      const { host, settle, button, status, openForm } = await setup();
+      await openForm();
+      host.busy.set(true);
+      await settle();
+      expect(button('Remove permanently')!.disabled).toBe(true);
+      expect(text(status())).toBe('');
+    });
+  });
+
+  describe('length rule', () => {
+    const limited = (h: Host) => {
+      h.maxLength.set(10);
+      h.lengthMessage.set('Enter a reason between 1 and 10 characters.');
+    };
+
+    it('refuses a trimmed reason over the limit like an empty one, and focuses the field', async () => {
+      const { host, settle, button, area, type, alert, openForm } = await setup(limited);
+      await openForm();
+      type('12345678901');
+      button('Remove permanently')!.click();
+      await settle();
+      expect(host.reasons).toEqual([]);
+      expect(text(alert())).toBe('Enter a reason between 1 and 10 characters.');
+      expect(area().getAttribute('aria-invalid')).toBe('true');
+      expect(area().getAttribute('aria-describedby')).toContain(alert()!.id);
+      expect(document.activeElement).toBe(area());
+    });
+
+    it('takes exactly the limit, and measures the reason after trimming', async () => {
+      const { host, settle, button, type, alert, openForm } = await setup(limited);
+      await openForm();
+      type('   1234567890   ');
+      button('Remove permanently')!.click();
+      await settle();
+      expect(alert()).toBeNull();
+      expect(host.reasons).toEqual(['1234567890']);
+    });
+
+    it('still refuses an empty reason with the required message', async () => {
+      const { settle, button, type, alert, openForm } = await setup(limited);
+      await openForm();
+      type('    ');
+      button('Remove permanently')!.click();
+      await settle();
+      expect(text(alert())).toBe('Write a reason before you confirm.');
+    });
+
+    it('clears the refusal once the reason fits, and waits for the next confirm to refuse again', async () => {
+      const { settle, button, type, alert, openForm } = await setup(limited);
+      await openForm();
+      type('12345678901');
+      button('Remove permanently')!.click();
+      await settle();
+      type('1234567890');
+      await settle();
+      expect(alert()).toBeNull();
+      type('');
+      await settle();
+      expect(alert()).toBeNull();
+    });
+
+    it('caps the field natively when there is no message, and never with one', async () => {
+      const capped = await setup((h) => h.maxLength.set(500));
+      await capped.openForm();
+      expect(capped.area().getAttribute('maxlength')).toBe('500');
+      document.body.replaceChildren();
+      const ruled = await setup(limited);
+      await ruled.openForm();
+      expect(ruled.area().hasAttribute('maxlength')).toBe(false);
+    });
+  });
+
+  describe('two-step confirm', () => {
+    const twoStep = (h: Host) => {
+      h.step.set(STEP);
+      h.busyLabel.set('Removing…');
+    };
+
+    it('checks the reason on step one with a secondary button that emits nothing', async () => {
+      const { host, settle, button, alert, stepBox, openForm } = await setup(twoStep);
+      await openForm();
+      const next = button('Continue to removal')!;
+      expect(next.getAttribute('data-variant')).toBe('secondary');
+      expect(button('Remove permanently')).toBeUndefined();
+      next.click();
+      await settle();
+      expect(text(alert())).toBe('Write a reason before you confirm.');
+      expect(stepBox()).toBeNull();
+      expect(host.reasons).toEqual([]);
+    });
+
+    it('locks the reason on step two and moves focus to the named step, not the danger button', async () => {
+      const { root, host, settle, button, area, type, stepBox, openForm } = await setup(twoStep);
+      await openForm();
+      type('  Breaks the guidelines  ');
+      button('Continue to removal')!.click();
+      await settle();
+      expect(host.reasons).toEqual([]);
+      const box = stepBox()!;
+      expect(document.activeElement).toBe(box);
+      expect(text(root.querySelector(`#${box.getAttribute('aria-labelledby')}`))).toBe(
+        'Remove this review permanently?',
+      );
+      expect(text(root.querySelector(`#${box.getAttribute('aria-describedby')}`))).toBe(
+        'Removal is final.',
+      );
+      expect(area().readOnly).toBe(true);
+      expect(area().value).toBe('  Breaks the guidelines  ');
+      // The warning still leads the locked field's description.
+      const first = area().getAttribute('aria-describedby')!.split(' ')[0];
+      expect(text(root.querySelector(`#${first}`))).toBe('Removal takes the review off the page.');
+      expect(button('Remove permanently')!.getAttribute('data-variant')).toBe('danger');
+      expect(button('Continue to removal')).toBeUndefined();
+    });
+
+    it('edits the reason back on step one, kept and focused', async () => {
+      const { settle, button, area, type, stepBox, openForm } = await setup(twoStep);
+      await openForm();
+      type('Breaks the guidelines');
+      button('Continue to removal')!.click();
+      await settle();
+      button('Edit the reason')!.click();
+      await settle();
+      expect(stepBox()).toBeNull();
+      expect(area().readOnly).toBe(false);
+      expect(area().value).toBe('Breaks the guidelines');
+      expect(document.activeElement).toBe(area());
+      type('Breaks the guidelines twice');
+      button('Continue to removal')!.click();
+      await settle();
+      expect(area().value).toBe('Breaks the guidelines twice');
+    });
+
+    it('emits the trimmed reason once, only from step two', async () => {
+      const { host, settle, button, type, openForm } = await setup(twoStep);
+      await openForm();
+      type('  Breaks the guidelines  ');
+      button('Continue to removal')!.click();
+      await settle();
+      const confirm = button('Remove permanently')!;
+      confirm.click();
+      confirm.click();
+      await settle();
+      expect(host.reasons).toEqual(['Breaks the guidelines']);
+    });
+
+    it('ignores a second press of step one before step two has rendered', async () => {
+      const { a, host, settle, button, type, stepBox, openForm } = await setup(twoStep);
+      await openForm();
+      type('Breaks the guidelines');
+      const form = a.querySelector('form')!;
+      button('Continue to removal')!.click();
+      form.requestSubmit();
+      await settle();
+      expect(host.reasons).toEqual([]);
+      expect(stepBox()).not.toBeNull();
+    });
+
+    it('closes on Escape from either step and returns focus to the opener', async () => {
+      const { host, settle, button, area, type, stepBox, escape, openForm } = await setup(twoStep);
+      const opener = button('Remove from the page')!;
+      await openForm();
+      escape(area());
+      await settle();
+      expect(host.open()).toBe(false);
+      expect(document.activeElement).toBe(opener);
+      await openForm();
+      type('Breaks the guidelines');
+      button('Continue to removal')!.click();
+      await settle();
+      escape(stepBox()!);
+      await settle();
+      expect(host.open()).toBe(false);
+      expect(host.cancels).toBe(2);
+      expect(document.activeElement).toBe(opener);
+      // Opening again starts on step one with an empty reason.
+      await openForm();
+      expect(stepBox()).toBeNull();
+      expect(area().value).toBe('');
+    });
+
+    it('keeps a failed final press on step two, with focus on the error, and lets it retry', async () => {
+      const { host, settle, button, area, type, alert, stepBox, openForm } = await setup(twoStep);
+      await openForm();
+      type('Breaks the guidelines');
+      button('Continue to removal')!.click();
+      await settle();
+      button('Remove permanently')!.click();
+      host.busy.set(true);
+      await settle();
+      expect(button('Removing…')!.disabled).toBe(true);
+      expect(button('Edit the reason')!.disabled).toBe(true);
+      host.busy.set(false);
+      host.error.set('Something went wrong. Please try again.');
+      await settle();
+      expect(text(alert())).toBe('Something went wrong. Please try again.');
+      expect(document.activeElement).toBe(alert());
+      expect(stepBox()).not.toBeNull();
+      expect(area().readOnly).toBe(true);
+      host.error.set(null);
+      button('Remove permanently')!.click();
+      await settle();
+      expect(host.reasons).toEqual(['Breaks the guidelines', 'Breaks the guidelines']);
+    });
+
+    it('takes a template body for a sentence with a value in it', async () => {
+      @Component({
+        imports: [AdminDangerAction],
+        template: `
+          <ng-template #body
+            ><span>Northbeam can never reply to this review again.</span></ng-template
+          >
+          <aec-admin-danger-action
+            openerLabel="Remove"
+            confirmLabel="Remove permanently"
+            reasonLabel="Reason"
+            reasonRequired="Enter a reason."
+            [confirmStep]="{
+              continueLabel: 'Continue',
+              title: 'Remove this reply permanently?',
+              body: body,
+              editLabel: 'Edit the reason'
+            }"
+          />
+        `,
+      })
+      class TemplateHost {}
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({ providers: [provideZonelessChangeDetection()] });
+      const fixture = TestBed.createComponent(TemplateHost);
+      document.body.appendChild(fixture.nativeElement);
+      await fixture.whenStable();
+      const root = fixture.nativeElement as HTMLElement;
+      const settle = async () => {
+        TestBed.tick();
+        await fixture.whenStable();
+        await new Promise((r) => setTimeout(r));
+        TestBed.tick();
+      };
+      root.querySelector<HTMLButtonElement>('button')!.click();
+      await settle();
+      const area = root.querySelector('textarea')!;
+      area.value = 'Off topic';
+      area.dispatchEvent(new Event('input'));
+      root.querySelector('form')!.requestSubmit();
+      await settle();
+      const box = root.querySelector('[role="group"]')!;
+      expect(text(root.querySelector(`#${box.getAttribute('aria-describedby')}`))).toBe(
+        'Northbeam can never reply to this review again.',
+      );
+    });
+  });
+
+  describe('rich error', () => {
+    it('renders the template in the one alert, focuses it, and keeps the link usable', async () => {
+      const { host, settle, area, alert, openForm } = await setup();
+      await openForm();
+      host.useRich.set(true);
+      await settle();
+      const el = alert()!;
+      expect(text(el)).toBe('This is the last seat. Use Suspend on its vendor page.');
+      expect(el.getAttribute('tabindex')).toBe('-1');
+      expect(el.querySelector('a')?.getAttribute('href')).toBe('/admin/vendors/v1');
+      expect(document.activeElement).toBe(el);
+      expect(area().getAttribute('aria-describedby')!.split(' ')).toContain(el.id);
+      expect(area().getAttribute('aria-invalid')).toBeNull();
+    });
+
+    it('gives the reason refusal and the string error priority over the template', async () => {
+      const { host, settle, button, alert, openForm } = await setup((h) => h.useRich.set(true));
+      await openForm();
+      button('Remove permanently')!.click();
+      await settle();
+      expect(text(alert())).toBe('Write a reason before you confirm.');
+      expect(document.querySelectorAll('#a [role="alert"]')).toHaveLength(1);
+      host.error.set('Something went wrong.');
+      await settle();
+      expect(text(alert())).toBe('Write a reason before you confirm.');
+    });
+  });
+
+  describe('warning, Cancel and the opener', () => {
+    it('renders no warning box when there is none, and the help leads the description', async () => {
+      const { root, area, openForm } = await setup((h) => h.warning.set(null));
+      await openForm();
+      const ids = area().getAttribute('aria-describedby')!.split(' ');
+      expect(ids).toHaveLength(1);
+      expect(text(root.querySelector(`#${ids[0]}`))).toBe('Shown to the reviewer.');
+    });
+
+    it("uses the caller's Cancel words and still cancels", async () => {
+      const { host, settle, button, openForm } = await setup((h) => h.cancelLabel.set('Keep it'));
+      await openForm();
+      expect(button('Cancel')).toBeUndefined();
+      button('Keep it')!.click();
+      await settle();
+      expect(host.open()).toBe(false);
+    });
+
+    it('lets a sentence beside the opener describe it', async () => {
+      const { button } = await setup((h) => h.describedBy.set('remove-help'));
+      expect(button('Remove from the page')!.getAttribute('aria-describedby')).toBe('remove-help');
+    });
+  });
+
+  it('gives two instances on one page their own ids, step ids included', async () => {
+    const { root, settle, button, type, openForm } = await setup((h) => h.step.set(STEP));
+    const b = root.querySelector<HTMLElement>('#b')!;
+    await openForm();
+    type('Off topic');
+    button('Continue to removal')!.click();
+    button('Suspend', b)!.click();
+    await settle();
+    const area = b.querySelector('textarea')!;
+    area.value = 'Fraud';
+    area.dispatchEvent(new Event('input'));
+    button('Continue to removal', b)!.click();
+    await settle();
+    const ids = [...root.querySelectorAll('[id]')].map((el) => el.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(root.querySelectorAll('[role="group"]')).toHaveLength(2);
+  });
+});
