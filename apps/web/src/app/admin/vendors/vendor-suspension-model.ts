@@ -4,8 +4,6 @@
  */
 import type { VendorSuspension } from '@aeci/shared';
 
-import { FIELD_INPUT_CLASS } from '../../shared/form-field/form-field-classes';
-
 /** `AbuseCostEntryRequestSchema` and `TerminateVendorRequestSchema`: the amount cap. */
 const MAX_AMOUNT_CENTS = 100_000_000;
 
@@ -129,10 +127,3 @@ export function suspensionErrorMessage(err: unknown): string {
   }
   return $localize`:@@admin.vendors.suspension.error.failed:Something went wrong. Please try again.`;
 }
-
-/**
- * The suspension forms' field (AECI-1623). Since AECI-2124 the section's buttons are
- * `aecButton` and its fields bind `FIELD_INPUT_CLASS` directly; this constant stays for the
- * shared field-recipe spec that pins it.
- */
-export const SUSPENSION_INPUT = `mt-2 ${FIELD_INPUT_CLASS}`;
