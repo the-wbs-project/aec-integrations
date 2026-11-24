@@ -253,6 +253,9 @@ describe('composeCacheTags (AECI-2025)', () => {
     expect(composed.droppedByType['product']).toBeUndefined();
     // The first vendor is the lead and ranks with `pair:`; the rest are dropped next.
     expect(composed.value).toContain(`vendor:vendor-${'x'.repeat(40)}-0`);
+    // Vendors are the rank the budget runs out in: some kept, some dropped.
+    expect(composed.droppedByType['vendor']).toBeGreaterThan(0);
+    expect(composed.droppedByType['vendor']).toBeLessThan(99);
     expect(composed.cacheable).toBe(true);
   });
 

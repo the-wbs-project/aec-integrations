@@ -228,8 +228,10 @@ The label names each `route_class` and `reason`:
 1. Find the page. Search PostHog Logs for `aeci.cache.tags.truncated`. Each line carries `path`,
    `tags_total`, `tags_kept`, `tags_bytes`, `tags_invalid` and `dropped_by_type`.
 2. A large catalog page is expected to land here. A product with more than about 160 partners is
-   `degraded_ttl`, and one with more than about 500 is `uncacheable_product_tags_dropped`. No
-   action is needed unless the render cost shows on `High p95 detail render`.
+   `degraded_ttl`. One with more than about 400 to 500 is `uncacheable_product_tags_dropped`. The
+   exact count depends on slug length. No action is needed unless the render cost shows on
+   `High p95 detail render`. A Tier B page is never stored, so it reports on every visit, not once
+   per TTL. The count is visits, not pages.
 3. `tags_invalid` above 0 means a slug or id holds a space, a non-ASCII character or more than
    1,024 characters. Cloudflare would drop that tag silently. Fix the record's slug, then the
    page caches again on its next render.
