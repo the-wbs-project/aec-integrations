@@ -60,7 +60,7 @@ reproduction, and it is why the defect survived for months.
 | E2E | Playwright | Local `dev:bound` server | Slow (~30s/test) | Every PR |
 | Accessibility | axe-core via Playwright | Local `dev:bound` server | Medium | Every PR |
 | Visual | Playwright screenshots + Chromatic | Deployed environment | Medium | Every PR |
-| Performance | Lighthouse CI | Local `dev:bound` | Slow (~10 min) | Nightly + demo promote gate (§10.4) |
+| Performance | Lighthouse CI | Local `dev:bound` | Slow (~6 min, 3 shards) | Nightly + demo promote gate (§10.4) |
 | Smoke | Playwright (subset) | Staging, production | Medium | Post-deploy |
 | Load | k6 or similar | Staging | Slow | Pre-launch, rarely |
 
@@ -911,7 +911,7 @@ Lighthouse CI is wired in its own [`lighthouse.yml`](../.github/workflows/lighth
 - **Demo promote gate.** `promote-to-demo.yml` reuses a `lighthouse: success` status on the SHA, or calls `lighthouse.yml` to measure it. A failed measurement stops the promote.
 - **Manual** `workflow_dispatch` on any branch, to check a perf change before it merges.
 
-Every run posts the result as a `lighthouse` commit status on the measured SHA. `docs/CICD_PLAN.md` §11c has the design.
+CI splits the 15 URLs across three parallel shards, each with its own `dev:bound` (`AECI_LHCI_SHARD`, AECI-2030). A local `pnpm lighthouse` still measures all 15. Every run posts the result as one `lighthouse` commit status on the measured SHA. `docs/CICD_PLAN.md` §11c has the design.
 
 Budgets follow `STAGE_1_PHASE_2_SPEC.md` §12 (scores ≥ 90 for Performance / Accessibility / Best-Practices / SEO; LCP ≤ 2.5s; CLS ≤ 0.1; detail-page total JS transfer ≤ 200 KB). Per-URL handling: the JS budget targets detail/browse pages only; the `noindex` 404 is exempt from the SEO score.
 
