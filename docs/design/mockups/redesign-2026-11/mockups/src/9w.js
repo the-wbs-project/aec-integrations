@@ -19,7 +19,7 @@
   var DEFAULTS = {
     product: 'medium', // small | cc | revit | medium | live | large | full
     claim: 'claimed', // claimed | unclaimed (the page's own product)
-    partners: 'mixed', // mixed | all | none (which products on the ring show a logo)
+    listings: 'mixed', // mixed | claimed | unclaimed: the products on the ring (ruling 64: only the card's label differs)
     cut: 'fit', // fit | fixed: modes by what fits at the real width, or by the numbers below
     tmin: 28, // smallest tile beside the text (lg and up), px. Phones use 24.
     one: 30, // fixed: one ring up to this many products
@@ -58,6 +58,12 @@
       h ^= s.charCodeAt(i);
       h = Math.imul(h, 16777619);
     }
+    // Final mix (murmur3 fmix32), so a short name's low bits are not biased.
+    h ^= h >>> 16;
+    h = Math.imul(h, 0x85ebca6b);
+    h ^= h >>> 13;
+    h = Math.imul(h, 0xc2b2ae35);
+    h ^= h >>> 16;
     return h >>> 0;
   }
   function initial(name) {
@@ -98,25 +104,31 @@
     return '<svg viewBox="0 0 48 48" aria-hidden="true" focusable="false"><rect width="48" height="48" fill="' + p[0] + '"/>' +
       g.replace(/\{a\}/g, p[2]).replace(/\{d\}/g, p[1]) + '</svg>';
   }
-  /* The logo rule: a claimed product's logo, else the initial tile. Both share the box. */
-  function mark(name, claimed, size) {
+  /* A logo when we hold one, else the initial tile. Both share the box. On the wheel this
+     no longer depends on the claim (ruling 64); the hero and the centre keep the old rule. */
+  function mark(name, hasLogo, size) {
     var cls = 'mk' + (size ? ' ' + size : '');
-    if (claimed) return '<span class="' + cls + ' logo" aria-hidden="true">' + standInLogo(name) + '</span>';
+    if (hasLogo) return '<span class="' + cls + ' logo" aria-hidden="true">' + standInLogo(name) + '</span>';
     return '<span class="' + cls + '" aria-hidden="true"><span class="ini">' + esc(initial(name)) + '</span></span>';
   }
   W.mark = mark;
 
   /* ---------- The model: the connected products A to Z, and the slides ---------- */
+  // Two separate facts (ruling 64): whether the listing is claimed, and whether we hold a
+  // logo. Both are stand-ins: no read tool returns either.
   function partnerClaimed(name, mode) {
-    if (mode === 'all') return true;
-    if (mode === 'none') return false;
+    if (mode === 'claimed') return true;
+    if (mode === 'unclaimed') return false;
     return hash(name + '#claim') % 10 < 3; // stand-in: about 3 in 10 claimed
+  }
+  function partnerHasLogo(name) {
+    return hash(name + '#logo') % 6 !== 0; // stand-in: about 1 in 6 with no logo on record
   }
   function model(state) {
     var raw = DATA.products[state.product] || DATA.products.medium;
     var rows = raw.partners || DATA.products[raw.sliceOf].partners.slice(0, raw.limit);
     var partners = rows.map(function (r) {
-      return { name: r[0], slug: r[1], vendor: r[2], cats: r[3], n: r[4], claimed: partnerClaimed(r[0], state.partners) };
+      return { name: r[0], slug: r[1], vendor: r[2], cats: r[3], n: r[4], claimed: partnerClaimed(r[0], state.listings), logo: partnerHasLogo(r[0]) };
     });
     partners.sort(function (a, b) {
       return cmp(a.name, b.name) || cmp(a.slug, b.slug);
@@ -298,7 +310,7 @@
       s.partners.forEach(function (q, i) {
         var it = L.items[i];
         h += '<li style="--x:' + it.x.toFixed(2) + ';--y:' + it.y.toFixed(2) + '"><a class="tile" href="/products/' + esc(p.slug) + '/integrations/' + esc(q.slug) + '"' +
-          ' data-i="' + i + '" tabindex="' + (i === 0 ? '0' : '-1') + '">' + mark(q.name, q.claimed) + '<span class="lbl">' + esc(q.name) + '</span></a></li>';
+          ' data-i="' + i + '" tabindex="' + (i === 0 ? '0' : '-1') + '">' + mark(q.name, q.logo) + '<span class="lbl">' + esc(q.name) + '</span></a></li>';
       });
     }
     h += '</ul>';
@@ -316,9 +328,14 @@
   }
   W.stageInner = stageInner;
 
-  // The line under the wheel (legal agent's approved wording, 2026-11-23).
-  function footText(mode) {
-    return mode === 'dots' ? 'Too many to show as tiles. Each dot is one integration.' : 'Shown A to Z. Position is not a ranking.';
+  // The lines under the wheel. A tile slide: the ranking line, then ruling 64's logo line,
+  // the same on every tile slide whatever the mix of listings. A dots slide shows no logos,
+  // so it keeps only its own line.
+  function footHtml(mode) {
+    if (mode === 'dots') return 'Too many to show as tiles. Each dot is one integration.';
+    return '<span class="fl">Shown A to Z. Position is not a ranking.</span> ' +
+      '<span class="fl"><span class="ph">Logos identify products only</span> <span class="ph">and imply no endorsement</span> <span class="ph">or affiliation.</span> ' +
+      '<span class="ph">Listings may be unclaimed.</span></span>';
   }
   function renderWheel(m, state, D) {
     var i = Math.max(0, Math.min(state.slide, m.slides.length - 1));
@@ -335,7 +352,7 @@
       '<ul class="jump-list" id="jump-list" aria-label="Jump to a category" hidden></ul></div>';
     h += '<h2 class="wheel-static-title">All integrations<span class="ct">' + countLine(s) + ', ' + plural(m.cats, 'category', 'categories') + '</span></h2>';
     h += '<div class="stage' + (L.mode === 'dots' ? ' dots' : '') + '" data-mode="' + L.mode + '" data-d="' + D + '">' + stageInner(m, s, L, state) + '</div>';
-    h += '<p class="wheel-foot" id="wheel-foot">' + footText(L.mode) + '</p>';
+    h += '<p class="wheel-foot" id="wheel-foot">' + footHtml(L.mode) + '</p>';
     if (L.mode === 'dots') h += '<p class="wheel-more"><a href="#integrations">See all ' + s.integrations + ' in Integrations</a></p>';
     h += '<p class="sr" id="ring-hint">Arrow keys move between products.</p>';
     h += '<p class="sr" aria-live="polite" id="wheel-live"></p>';
@@ -444,7 +461,7 @@
       setHtml(stage, stageInner(m, s, L, state));
       jump.querySelector('.nm span').textContent = s.name;
       jump.querySelector('.ct').textContent = countLine(s);
-      section.querySelector('#wheel-foot').textContent = footText(L.mode);
+      setHtml(section.querySelector('#wheel-foot'), footHtml(L.mode));
       section.dataset.slide = cur;
       var more = section.querySelector('.wheel-more');
       if (more) more.remove();
@@ -508,7 +525,9 @@
     /* The card: hover, keyboard focus and tap-and-hold. Hoverable, and Escape dismisses it. */
     var hideTimer = 0, holdTimer = 0, cardFor = null, held = false;
     function cardHtml(q) {
-      return mark(q.name, q.claimed) + '<div><div class="nm">' + esc(q.name) + '</div>' + (q.vendor ? '<div class="by">by ' + esc(q.vendor) + '</div>' : '') + '</div>';
+      // Ruling 64: an unclaimed listing says so in text, read with the name. A claimed one has no label.
+      var label = q.claimed ? '' : '<span class="sr">, </span><span class="uc">Unclaimed</span>';
+      return mark(q.name, q.logo) + '<div><div class="nm">' + esc(q.name) + label + '</div>' + (q.vendor ? '<div class="by">by ' + esc(q.vendor) + '</div>' : '') + '</div>';
     }
     function showCard(a) {
       clearTimeout(hideTimer);
@@ -636,9 +655,9 @@
   /* ---------- The harness: a control strip and a frame ---------- */
   var CONTROLS = [
     ['product', 'Product', 'select', [['small', 'Small: ALICE Optimize, 6 products'], ['cc', 'CompanyCam, 26 products'], ['revit', 'Autodesk Revit, 38 products'], ['medium', 'Medium: Autodesk Forma, 54 products'], ['live', 'Procore Project Management, live, 57 products'], ['large', 'Large: Procore Project Management, first 140 products A to Z'], ['full', 'Largest: Procore Project Management, all 387 products']]],
-    ['w', 'Width', 'radio', [['1440', '1440'], ['390', '390 phone'], ['320', '320']]],
+    ['w', 'Width', 'radio', [['1440', '1440'], ['390', '390 phone'], ['375', '375'], ['320', '320']]],
     ['claim', 'This product', 'radio', [['claimed', 'Claimed'], ['unclaimed', 'Unclaimed']]],
-    ['partners', 'Logos on the ring', 'radio', [['mixed', 'Mixed'], ['all', 'All claimed'], ['none', 'None claimed']]],
+    ['listings', 'Listings', 'radio', [['mixed', 'Mixed'], ['claimed', 'All claimed'], ['unclaimed', 'All unclaimed']]],
     ['cut', 'Cut-offs', 'radio', [['fit', 'Fit to the width'], ['fixed', 'Fixed numbers, for comparison']]],
     ['tmin', 'Smallest tile beside the text', 'radio', [['24', '24'], ['28', '28'], ['32', '32']]],
     ['one', 'Fixed: one ring up to', 'number'],
@@ -653,7 +672,7 @@
     var win = doc.defaultView;
     var q = new URLSearchParams(win.location.search);
     var state = readState(win.location.search);
-    var w = ['1440', '390', '320'].indexOf(q.get('w')) >= 0 ? q.get('w') : '1440';
+    var w = ['1440', '390', '375', '320'].indexOf(q.get('w')) >= 0 ? q.get('w') : '1440';
     var script = q.get('script') === 'off' ? 'off' : 'on';
     doc.title = 'Mock-up 9w: the integration wheel (AECI-2018)';
     doc.body.className = 'harness';

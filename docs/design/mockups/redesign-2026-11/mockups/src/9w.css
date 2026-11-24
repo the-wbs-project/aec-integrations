@@ -142,14 +142,14 @@ h1 .display { font-size: var(--t-display); line-height: 1; letter-spacing: -0.02
   .wheel-head [data-step='-1'] { grid-column: 1; grid-row: 2; }
   .wheel-head [data-step='1'] { grid-column: 3; grid-row: 2; }
 }
-.wheel-head { position: relative; display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; gap: 8px; }
+.wheel-head { position: relative; display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; gap: 4px; }
 .wheel-step { width: 44px; height: 44px; display: grid; place-items: center; border-radius: var(--radius-control); cursor: pointer;
   background: var(--surface-on-brand-wash); border: 1px solid var(--border-on-brand-strong); color: var(--text-on-brand);
   transition: background-color var(--duration-base) var(--ease-standard), transform var(--duration-fast) var(--ease-standard); }
 .wheel-step:hover { background: var(--surface-on-brand-wash-hover); }
 .wheel-step:active { transform: translateY(1px) scale(0.98); }
 .wheel-title { position: relative; min-width: 0; text-align: center; font-family: var(--font-body); font-weight: 400; }
-.wheel-jump { max-width: 100%; display: inline-flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 12px;
+.wheel-jump { max-width: 100%; display: inline-flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 8px;
   border: 0; background: none; border-radius: var(--radius-control); cursor: pointer; }
 .wheel-jump:hover { background: var(--surface-on-brand-wash); }
 .wheel-jump .nm { display: block; max-width: 100%; text-align: center; text-wrap: balance;
@@ -191,6 +191,10 @@ html:not(.js) .wheel-head { display: none; }
 .tile { display: block; width: 100%; height: 100%; border-radius: var(--radius-mark); text-decoration: none; position: relative;
   transition: transform var(--duration-base) var(--ease-standard); }
 .tile .mk { width: 100%; height: 100%; box-shadow: 0 1px 2px rgb(0 0 0 / 0.16); }
+/* Every logo sits inset on the same neutral tile as an initial: no ground, ring or border
+   from the vendor, claimed or not (ruling 34, kept by ruling 64). */
+.tile .mk.logo, .pcard .mk.logo { padding: 14%; }
+.tile .mk.logo svg, .pcard .mk.logo svg { border-radius: 22%; }
 .tile .mk .ini { font-size: max(var(--t-12), calc(var(--t) * 0.4cqw)); }
 .tile:hover { transform: scale(1.08); }
 .tile:hover .mk, .tile.is-active .mk { box-shadow: 0 0 0 2px var(--text-on-brand); }
@@ -214,6 +218,11 @@ html:not(.js) .wheel-head { display: none; }
 .stage:not(.dots) .dotfield { display: none; }
 
 .wheel-foot { margin-top: 16px; font-size: var(--t-13); line-height: 1.4; text-align: center; color: var(--text-on-brand-secondary); }
+/* Ruling 64: two lines, each its own block, balanced so no word sits alone. */
+.wheel-foot .fl { display: block; }
+.wheel-foot .fl + .fl { margin-top: 4px; }
+/* Each phrase keeps together where it can, so a line never breaks mid-phrase. */
+.wheel-foot .ph { display: inline-block; text-wrap: balance; }
 .wheel-more { display: block; margin-top: 8px; text-align: center; font-size: var(--t-14); font-weight: 600; }
 .wheel-more a { text-decoration: underline; text-decoration-color: var(--border-on-brand-strong); text-underline-offset: 4px; }
 html.js .wheel-more { display: none; }
@@ -232,6 +241,7 @@ html.js .wheel-more { display: none; }
 .pcard[hidden] { display: none; }
 .pcard .mk { width: 48px; height: 48px; }
 .pcard .nm { font: 600 var(--t-20)/1.25 var(--font-display); overflow-wrap: anywhere; }
+.pcard .uc { margin-left: 8px; font: 600 var(--t-13)/1.4 var(--font-body); color: var(--text-secondary); white-space: nowrap; }
 .pcard .by { margin-top: 2px; font-size: var(--t-14); line-height: 1.4; color: var(--text-secondary); }
 .pcard .go { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; padding-top: 12px; border-top: 1px solid var(--border-default);
   font-size: var(--t-13); color: var(--text-secondary); }
