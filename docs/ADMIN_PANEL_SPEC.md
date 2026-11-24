@@ -384,6 +384,37 @@ would put a chore beside three obligations and make the strip's own heading wron
 The nav badge and the §1 daily checklist row in `POST_LAUNCH_MONITORING.md` are
 where this queue is surfaced instead.
 
+### 5.0d The shared danger form — BUILT (AECI-1813, extended by AECI-2104); no screen converted yet
+
+`<aec-admin-danger-action>` (`app/admin/console/danger-action.ts`) is the pattern for an inline destructive action in the console. No screen uses it yet: the review queues move onto it in AECI-2104 part 2, and the vendor, licence and suspension slices follow. The forms it does not cover are listed below. Its usage notes are at the top of that file. A builder follows them without reading the code. The look is in `DESIGN.md` "Operator console". `/preview/admin-console-legend` renders each state open.
+
+**What it always does.** The opener is a compact secondary button. It opens a form under it with an optional Bone warning box, a reason and the confirm. The warning leads the reason field's `aria-describedby`. Escape anywhere in the form and Cancel close it and return focus to the opener. `(confirmed)` emits the trimmed reason once per attempt. An empty reason emits nothing, shows the required message and focuses the field, unless `reasonRequired` is null. The component decides nothing about who may act. It renders only where the action rendered before, inside the same `@if`. Every string is an input, already localised. Cancel keeps `@@admin.console.cancel` unless the caller passes `cancelLabel`.
+
+**What AECI-2104 added, and the forms that needed it.**
+
+| Input | What it does | Needed by |
+| -- | -- | -- |
+| `busyLabel` | The confirm reads it while `busy`. A visually hidden polite status says it once | Every queue form ("Rejecting…", "Removing…"), seat removal, licence revoke |
+| `maxLength` + `lengthMessage` | A trimmed reason over the limit is refused on confirm like an empty one. With no message, the native `maxlength` caps the field instead | The 1 to 500 reject schemas (rule); the queues' remove forms and the 1000-character admin reasons (cap) |
+| `confirmStep` | A second, locked step: title, body (string or template), the danger confirm, "Edit the reason", Cancel | Remove a review, an update or a reply permanently |
+| `errorTemplate` | An error that holds a link, in the same focused alert | The ban's last-seat refusal (`users/user-detail`, the review queue's ban dialog) |
+| `reasonRequired` set to `null` | The reason is optional: not `required`, and an empty reason emits `''`. Still a required input, so every caller states it | Contests Decline ("recommended"); on the later slices, claim reject and request reject |
+| `warning` (now optional) | No Bone box when today's form has none | The queues' Reject |
+| `cancelLabel` | Cancel keeps the form's own message id | Every form being moved |
+| `openerDescribedBy`, `openerDisabled` | The opener is described by a sentence beside it, or blocked with `aria-disabled` and stays focusable | The queues' Remove help; return records when it is blocked |
+| `noteLabel`, `noteHelp`, `noteMaxLength`, `[(note)]` | An optional internal note, natively capped, read in the `(confirmed)` handler | Licence revoke, bulk revoke, seat removal, return records, retire integration, brand-asset holds |
+| `dangerFacts` projection | Read-only text between the warning and the reason. No controls: one would submit the form on Enter | Return records ("3 open product proposals…"), bulk revoke counts |
+
+**The two-step rules.** Step one's button is secondary and reads `continueLabel`. It checks the reason and emits nothing. Step two locks the reason in place, read-only on the sunken fill, still described by the warning. Focus moves to the step's box, a `role="group"` named by its title and described by its body. It does not move to the danger button, so the operator hears the consequence first and a held or repeated Enter cannot fire it. A press that lands before step two has rendered emits nothing. "Edit the reason" returns to step one with the reason kept and focused. A parent `error` on step two keeps the operator there, with the reason locked and focus on the alert, so they can retry or edit.
+
+**What it does not cover.** A dialog (the review queue's ban, the email switches, legal publish, re-index Done). A form whose confirm is decided by several fields (suspend's three reasons and its radio, listing hide and field hide with their summary step, terminate's refund amounts). A form that also approves (claims, product and licence-release requests). Those keep their own forms.
+
+**Three rulings for the move (orchestrator, 2026-11-24, on the AECI-2104 review).** (a) The help text sits above the reason field, after the warning: label, help, field, error, as the review queues and return records have it today. (b) The opener keeps its toggle and `aria-expanded`, but a close by the opener keeps the draft and the note, and reopening shows them. Cancel and Escape discard them and fire `(cancelled)`. A close by the parent on success discards them. (c) The form is an inline section under a top rule, accepted as is.
+
+**While busy the form stays open.** The opener, Cancel, Escape and "Edit the reason" do nothing, and the form carries `aria-busy`. They are not disabled, so focus is never dropped (`DESIGN.md`: a busy state does not set `aria-disabled`). A failure therefore always has an open form to show in. Every open starts on step one with no refusal showing, however it opened. A parent error set before step two opened is not shown on step two. A blocked opener (`openerDisabled`) uses `aria-disabled` and stays focusable, so its reason can be heard.
+
+**Parent contract.** In the `(confirmed)` handler, clear `error` and `errorTemplate` to null and set `busy`, both synchronously. Clear them as well whenever you change `open`. On success set `open` to false. On failure clear `busy` and set `error` or `errorTemplate`. Focus moves to the alert.
+
 ### 5.1 Overview
 
 The analytics digest as a live page. A **traffic-classes card** leads. Below it, a three-column row of stat tiles with sparklines: unique visitors, new sign-ins and active subscribers. Then catalog totals. Each tile carries the deltas the API returns, with the email's `deltaText` semantics. Below those: a 30-day chart of page requests by class, top traffic sources, top viewed products, and a status strip (prod SHA · stats freshness · failing DQ checks · Algolia drift · moderation depth). A **"recompute today's digest"** action so the operator is not waiting for 05:00 UTC — implemented as `GET /api/admin/overview?recompute=1`, which re-runs the digest's metric collection (already a pure read) and returns it. It does **not** send the email and writes nothing; §13 **D8** draws that line.

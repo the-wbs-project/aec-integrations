@@ -1112,8 +1112,9 @@ surfaces mount it — the real portal, the dev preview, and the shell's own spec
   is the `:productSlug` segment. The bare path shows the primary product (the nav
   has no product in hand), the picker is hidden for a single-product vendor, and a
   slug naming a product the vendor does not own is **called out** rather than
-  silently substituted. `VendorProductsSection` keeps its stacked-list rendering
-  for a `null` `selectedSlug`, which is what the single-page concept still uses.
+  silently substituted. A `null` `selectedSlug` renders nothing in
+  `VendorProductsSection`: AECI-1810 removed its stacked-list mode, whose one caller,
+  the single-page concept, AECI-1809 had deleted.
   **Superseded in part by §6.4:** the one-product-at-a-time rule and the
   unknown-slug callout stand, but the picker itself moved out of the section and
   into the nav, where it gained a search box.
@@ -1905,7 +1906,7 @@ comment on the listing, so it is never a row here.
 - **Views** was a placeholder that read "Coming soon" with no number and no server
   read. **Removed 2026-10-13 (Chris)**, with its component `vendor-views-tile.ts`:
   it promised performance reporting before its plan was ruled. The band is now two
-  tiles, two columns from `md`. AECI-941 builds the tile again when the figure ships
+  tiles, side by side from 360px and one above the other below it (AECI-1810). AECI-941 builds the tile again when the figure ships
   (`VENDOR_PERFORMANCE_SPEC.md` §5.6).
 - **In conflict** is the deduped conflict total. Its line reads "On {product}" or
   "Across N products". At zero it is a plain card with a green check badge and
@@ -2736,7 +2737,7 @@ Every plan panel carries decision 10's line, word for word:
 
 | Surface | File | Reads |
 |---|---|---|
-| Vendor overview: "Getting started" checklist full width | `sections/vendor-overview-section.ts`, `components/vendor-checklist.ts` | `GET /api/vendor/checklist`, each product's `plan` |
+| Vendor overview: "Getting started" checklist, in the right column from 1024px (AECI-1810) | `sections/vendor-overview-section.ts`, `components/vendor-checklist.ts` | `GET /api/vendor/checklist`, each product's `plan` |
 | Products list: score and plan badge per row | `sections/vendor-product-list-page.ts`, `components/vendor-plan-badge.ts` | the checklist summary, `product.plan` |
 | Product overview (new route `…/products/:slug/overview`, now the product default and the first product tab, "Product Overview") | `sections/vendor-product-overview-page.ts`, `components/vendor-checklist.ts`, `components/vendor-plan-panel.ts` | `GET /api/vendor/products/:id/checklist`, `product.plan` |
 | "Looks right" | `components/vendor-looks-right.ts`, `components/vendor-review-strip.ts` | the three §13.8 routes |
@@ -2749,7 +2750,7 @@ Decisions taken at build that this section did not fix:
 - **"Looks right" sits in two places per target.** On the product checklist's two rows, and as a strip at the head of the page that holds the thing being confirmed: company Profile, product Profile, product Integrations. Since AECI-1241 both places offer the button only for a step not done when the page or card first knew its state, and keep it with "Checked" for that view once pressed (`STAGE_2_PAID_TIERS_SPEC.md` §13.8 as-built note). A checklist row keeps its label, status and link either way. A done row's body switches to "Checked" copy that points to an edit, on the company row too. The vendor checklist's company step links to Profile rather than confirming from the overview, so the vendor sees what they confirm. After a success the button revalidates the scopes the write moved, which refetches `/me` and every loaded checklist, and announces through the shell's live region. A failure stays beside the button as `role="alert"`.
 - **The checklists live in `VendorPortalStore`, outside its resource machinery.** They map to no scope and no form holds them dirty, so a failed checklist read never holds back a cursor. `revalidate` refetches the vendor checklist, and each product checklist a page has opened, when `profile`, `entitlement`, `products` or `integrations` moves (`STAGE_2_REALTIME_SPEC.md` §2.3). Never from cold.
 - **The banner says "Your Managed plan has ended", never "your pilot".** The copy names no pilot, so any way a last subscription ends reads right (`STAGE_2_PAID_TIERS_SPEC.md` §13.11). It is not dismissible, unlike the mockup's "Hide this". This section wins.
-- **The overview's full plan panel is gone, and so is the vendor-level plan line.** Plans are per product, so a vendor-level "Your plan" card could not be true for a vendor with products on different plans. This supersedes the one-line summary AECI-1218 first built (`vendor-plan-summary.ts`, deleted). The vendor checklist now takes the full width. A replacement "Your public pages" card was built and dropped, because it only repeated the header's "View public page" link and the Products tab. Plan state shows on each product's own overview and as a badge on each Products row. The vendor-wide plan-ended banner is unchanged. The connector catalogue seat's links to each Catalogue tab now sit between the checklist and "What needs you".
+- **The overview's full plan panel is gone, and so is the vendor-level plan line.** Plans are per product, so a vendor-level "Your plan" card could not be true for a vendor with products on different plans. This supersedes the one-line summary AECI-1218 first built (`vendor-plan-summary.ts`, deleted). The vendor checklist took the full width until AECI-1810, which put it in the overview's right column from 1024px, under the two figures, with "What needs you" on the left (`DESIGN.md` §5 "Vendor portal"). A replacement "Your public pages" card was built and dropped, because it only repeated the header's "View public page" link and the Products tab. Plan state shows on each product's own overview and as a badge on each Products row. The vendor-wide plan-ended banner is unchanged. The connector catalogue seat's links to each Catalogue tab now sit between the checklist and "What needs you".
 - **An active row over a tier this build does not know reads as Free, not as ended.** Nothing ended, and the banner never shows for it.
 - **"Not ours?" is a disclosure that files the owner's self-disclaim (AECI-1225, 2026-10-05).** It replaced the AECI-1218 stopgap, which opened the correction form (`vendor-not-ours-link.ts`, deleted). The form has a "Who offers it?" native select and a required reason. On the integration page the select lists the other endpoint vendors and "Someone else, or we don't know", which sends `null`. On the owned-integrations list it offers only "Someone else, or we don't know", because `OwnedIntegration` carries no vendor ids. It posts `POST /api/vendor/integrations/:id/contests` with `field: 'owner'` and `context_product_id: null` (§11b.2). It is mounted on the owned-integrations list and under the Owner row of the integration page, and it sits with the unclaimed rows. The server, not the control, enforces `origin = 'aeci'` (§11b.2).
 - **"Not ours?" reads its state from the `contests` resource.** Open: "You told AEC Integrations this integration is not yours. It is reviewing that.", with Withdraw. Accepted: "AEC Integrations agreed" and says the listing changes at its next catalog update. Declined: a note and the trigger again. "Claim this integration" is hidden while a contest is open or accepted. `VendorPortalStore` adds `contests` to the scopes that refetch loaded checklists, so the "Claim or say not ours" step ticks without a reload (`STAGE_2_REALTIME_SPEC.md` §2.3).

@@ -11,6 +11,11 @@ import {
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { AecButton } from '../../shared/button/button';
+import { AecCard } from '../../shared/card/card';
+import { Chip, type ChipTone } from '../../shared/chip/chip';
+import { AecIcon } from '../../shared/icon/icon';
+import type { AecIconName } from '../../shared/icon/icon-registry';
 import { VendorGlanceBand } from '../components/vendor-glance-band';
 import { VendorChecklist } from '../components/vendor-checklist';
 import { VendorDocsLink } from '../components/vendor-docs-link';
@@ -51,7 +56,9 @@ interface NeedsRow {
  * `…/overview` — the portal's landing page (AECI-983,
  * `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §6.10).
  *
- * Three blocks, top to bottom:
+ * Three blocks. From 1024px they sit in two columns (AECI-1810, mock-up 13): the
+ * list on the start side, the figures and the checklist on the end side. Below
+ * 1024px they stack in this order:
  *  1. **The glance band.** Views (a placeholder until AECI-941), In conflict, and
  *     Suggestions about your listing.
  *  2. **Getting started** (AECI-1218, §6.18). The vendor checklist
@@ -80,6 +87,10 @@ interface NeedsRow {
   imports: [
     NgTemplateOutlet,
     RouterLink,
+    AecButton,
+    AecCard,
+    AecIcon,
+    Chip,
     VendorGlanceBand,
     VendorChecklist,
     VendorDocsLink,
@@ -96,201 +107,203 @@ interface NeedsRow {
             headingId="vendor-overview-listing-hidden-h"
           />
         }
-        <aec-vendor-glance-band
-          [conflictTotal]="conflicts().total"
-          [conflictProducts]="conflicts().byProduct"
-          [conflictsLoading]="integrationsLoading()"
-          [conflictsFailed]="integrationsFailed()"
-          [openCorrections]="corrections().items.length"
-          [newestCorrectionAt]="corrections().newestCreatedAt"
-          (retry)="retryIntegrations()"
-        />
-
         <!--
-          AECI-1218 (STAGE_2_VENDOR_PORTAL_SPEC.md section 6.18). The vendor
-          checklist, full width. Plans live per product, so there is no vendor
-          plan card.
+          AECI-1810 (mock-up 13, ruled 2026-11-24): two columns from 1024px, "What
+          needs you" on the start side and the figures and checklist in a 400px
+          column (432px from 1280px) on the end side. The side column comes FIRST in
+          the DOM, so below 1024px the order stays figures, checklist, then the list.
         -->
-        <div>
-          <div>
-            @if (checklist(); as c) {
-              <aec-vendor-checklist
-                [heading]="checklistHeading"
-                headingId="vendor-overview-checklist-h"
-                [lede]="checklistLede"
-                [rows]="checklistRows()"
-                [done]="c.done"
-                [total]="c.total"
-              />
-            } @else if (checklistFailed()) {
-              <div
-                class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-5"
-              >
-                <p
-                  class="text-sm text-(--text-primary)"
-                  role="alert"
-                  i18n="@@vendor.checklist.failed"
-                >
-                  The checklist could not be loaded.
-                </p>
-                <button
-                  type="button"
-                  [class]="retryClass"
-                  (click)="retryChecklist()"
-                  i18n="@@vendor.checklist.retry"
-                >
-                  Try again
-                </button>
-              </div>
-            } @else {
-              <div
-                class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-5"
-                aria-busy="true"
-              >
-                <p class="text-sm text-(--text-secondary)" i18n="@@vendor.checklist.loading">
-                  Loading the checklist…
-                </p>
+        <div
+          class="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,25rem)] lg:items-start xl:grid-cols-[minmax(0,1fr)_minmax(0,27rem)] xl:gap-12"
+        >
+          <div class="grid min-w-0 gap-6 lg:col-start-2 lg:row-start-1">
+            <aec-vendor-glance-band
+              [conflictTotal]="conflicts().total"
+              [conflictProducts]="conflicts().byProduct"
+              [conflictsLoading]="integrationsLoading()"
+              [conflictsFailed]="integrationsFailed()"
+              [openCorrections]="corrections().items.length"
+              [newestCorrectionAt]="corrections().newestCreatedAt"
+              (retry)="retryIntegrations()"
+            />
+
+            <!--
+              AECI-1218 (STAGE_2_VENDOR_PORTAL_SPEC.md section 6.18). The vendor
+              checklist. Plans live per product, so there is no vendor plan card.
+            -->
+            <div>
+              @if (checklist(); as c) {
+                <aec-vendor-checklist
+                  [heading]="checklistHeading"
+                  headingId="vendor-overview-checklist-h"
+                  [lede]="checklistLede"
+                  [rows]="checklistRows()"
+                  [done]="c.done"
+                  [total]="c.total"
+                />
+              } @else if (checklistFailed()) {
+                <div aecCard class="p-6">
+                  <p
+                    class="text-sm text-(--text-primary)"
+                    role="alert"
+                    i18n="@@vendor.checklist.failed"
+                  >
+                    The checklist could not be loaded.
+                  </p>
+                  <button
+                    aecButton
+                    variant="secondary"
+                    type="button"
+                    class="mt-4"
+                    (click)="retryChecklist()"
+                    i18n="@@vendor.checklist.retry"
+                  >
+                    Try again
+                  </button>
+                </div>
+              } @else {
+                <div aecCard class="p-6" aria-busy="true">
+                  <p class="text-sm text-(--text-secondary)" i18n="@@vendor.checklist.loading">
+                    Loading the checklist…
+                  </p>
+                </div>
+              }
+            </div>
+
+            @if (catalogueSeat() && connectorProducts().length > 0) {
+              <!--
+                AECI-1083: where the catalogue seat's work is. Navigation, not a call
+                to action, so a plain link per connector product. Outside the paused
+                box because the seat keeps the Free edits, so it is not paused.
+              -->
+              <div>
+                @for (p of connectorProducts(); track p.slug) {
+                  <p class="text-sm">
+                    <a
+                      [routerLink]="['..', 'products', p.slug, 'catalogue']"
+                      class="rounded-mark font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
+                      data-catalogue-link
+                      >{{ catalogueLinkLabel(p.name) }}</a
+                    >
+                  </p>
+                }
               </div>
             }
           </div>
-        </div>
 
-        @if (catalogueSeat() && connectorProducts().length > 0) {
-          <!--
-            AECI-1083: where the catalogue seat's work is. Navigation, not a call
-            to action, so a plain link per connector product. Outside the paused
-            box because the seat keeps the Free edits, so it is not paused.
-          -->
-          <div>
-            @for (p of connectorProducts(); track p.slug) {
-              <p class="text-sm">
-                <a
-                  [routerLink]="['..', 'products', p.slug, 'catalogue']"
-                  class="font-medium text-(--accent-primary) underline underline-offset-2 focus-visible:rounded-(--radius-sm) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                  data-catalogue-link
-                  >{{ catalogueLinkLabel(p.name) }}</a
-                >
-              </p>
-            }
-          </div>
-        }
-
-        <section aria-labelledby="vendor-overview-needs-h">
-          <h2
-            id="vendor-overview-needs-h"
-            class="font-display text-xl font-semibold text-(--text-primary)"
-            i18n="@@vendor.overview.needs.heading"
+          <section
+            class="min-w-0 lg:col-start-1 lg:row-start-1"
+            aria-labelledby="vendor-overview-needs-h"
           >
-            What needs you
-          </h2>
-          <p class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
-            {{ lede() }}
-          </p>
-          <p class="mt-1"><aec-vendor-docs-link page="your-dashboard" /></p>
+            <h2 id="vendor-overview-needs-h" i18n="@@vendor.overview.needs.heading">
+              What needs you
+            </h2>
+            <div class="mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+              <p class="max-w-prose text-sm leading-relaxed text-(--text-secondary)">
+                {{ lede() }}
+              </p>
+              <p><aec-vendor-docs-link page="your-dashboard" /></p>
+            </div>
 
-          @if (needs().paused) {
-            <div
-              class="mt-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) px-4 py-4"
-            >
-              @if (catalogueSeat()) {
-                <!--
+            @if (needs().paused) {
+              <div aecCard class="mt-4 p-6">
+                @if (catalogueSeat()) {
+                  <!--
                   AECI-1082. The catalogue seat never had this access and is never
                   sold it (STAGE_2_SPEC.md section 8.9), so nothing here is paused
                   and nothing comes "back on". Same box, a different statement.
                 -->
-                <p
-                  class="text-sm font-semibold text-(--text-primary)"
-                  i18n="@@vendor.overview.catalogue.title"
-                >
-                  This seat maintains your connector catalog.
+                  <p
+                    class="text-sm font-semibold text-(--text-primary)"
+                    i18n="@@vendor.overview.catalogue.title"
+                  >
+                    This seat maintains your connector catalog.
+                  </p>
+                  <p
+                    class="mt-1 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+                    i18n="@@vendor.overview.catalogue.body"
+                  >
+                    Everything on record is here to read, and seat invites can still be managed.
+                  </p>
+                } @else {
+                  <p
+                    class="text-sm font-semibold text-(--text-primary)"
+                    i18n="@@vendor.overview.paused.title"
+                  >
+                    Editing is paused.
+                  </p>
+                  <p
+                    class="mt-1 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+                    i18n="@@vendor.overview.paused.body"
+                  >
+                    Everything on record is here to read, and seat invites can still be managed. Ask
+                    AEC Integrations if this looks wrong.
+                  </p>
+                }
+              </div>
+            } @else if (outstanding() === 0 && integrationsReady()) {
+              <div aecCard class="mt-4 p-6">
+                <p class="flex items-start gap-2 text-sm font-semibold text-(--text-primary)">
+                  <span class="flex h-5 shrink-0 items-center text-(--accent-primary)">
+                    <aec-icon name="check-circle" decorative [size]="4" />
+                  </span>
+                  <span i18n="@@vendor.overview.clear.title">Nothing needs you right now.</span>
                 </p>
                 <p
                   class="mt-1 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
-                  i18n="@@vendor.overview.catalogue.body"
+                  i18n="@@vendor.overview.clear.body"
                 >
-                  Everything on record is here to read, and seat invites can still be managed.
+                  Your products and company profile are filled in, every data flow on record has
+                  your position, and no suggestions are open. New items appear here as they come in.
                 </p>
-              } @else {
-                <p
-                  class="text-sm font-semibold text-(--text-primary)"
-                  i18n="@@vendor.overview.paused.title"
-                >
-                  Editing is paused.
-                </p>
-                <p
-                  class="mt-1 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
-                  i18n="@@vendor.overview.paused.body"
-                >
-                  Everything on record is here to read, and seat invites can still be managed. Ask
-                  AEC Integrations if this looks wrong.
-                </p>
-              }
-            </div>
-          } @else if (outstanding() === 0 && integrationsReady()) {
-            <div
-              class="mt-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) px-4 py-4"
-            >
-              <p class="flex items-start gap-2 text-sm font-semibold text-(--text-primary)">
-                <svg
-                  aria-hidden="true"
-                  class="mt-0.5 h-4 w-4 shrink-0 text-(--accent-primary)"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M20 6 9 17l-5-5" />
-                </svg>
-                <span i18n="@@vendor.overview.clear.title">Nothing needs you right now.</span>
-              </p>
-              <p
-                class="mt-1 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
-                i18n="@@vendor.overview.clear.body"
-              >
-                Your products and company profile are filled in, every data flow on record has your
-                position, and no suggestions are open. New items appear here as they come in.
-              </p>
-            </div>
-          }
+              </div>
+            }
 
-          @if (nowRows().length > 0) {
-            <div class="mt-6">
-              <h3 class="aec-overline text-(--text-secondary)" i18n="@@vendor.overview.band.now">
-                Needs you now
-              </h3>
-              <ul class="m-0 mt-3 list-none space-y-2 p-0">
-                @for (row of nowRows(); track row.key) {
-                  <li>
-                    <ng-container
-                      [ngTemplateOutlet]="rowTpl"
-                      [ngTemplateOutletContext]="{ $implicit: row }"
-                    />
-                  </li>
+            <!--
+            AECI-1810 (ruled 2026-11-24): the rows share ONE card, divided by
+            hairlines, under their overline groups. A hairline also parts the groups.
+          -->
+            @if (nowRows().length > 0 || worthRows().length > 0) {
+              <div aecCard class="mt-4 overflow-hidden" data-testid="needs-card">
+                @if (nowRows().length > 0) {
+                  <div [class]="groupClass">
+                    <h3 [class]="groupHeadingClass" i18n="@@vendor.overview.band.now">
+                      Needs you now
+                    </h3>
+                    <ul [class]="rowListClass">
+                      @for (row of nowRows(); track row.key) {
+                        <li>
+                          <ng-container
+                            [ngTemplateOutlet]="rowTpl"
+                            [ngTemplateOutletContext]="{ $implicit: row }"
+                          />
+                        </li>
+                      }
+                    </ul>
+                  </div>
                 }
-              </ul>
-            </div>
-          }
 
-          @if (worthRows().length > 0) {
-            <div class="mt-6">
-              <h3 class="aec-overline text-(--text-secondary)" i18n="@@vendor.overview.band.worth">
-                Worth doing
-              </h3>
-              <ul class="m-0 mt-3 list-none space-y-2 p-0">
-                @for (row of worthRows(); track row.key) {
-                  <li>
-                    <ng-container
-                      [ngTemplateOutlet]="rowTpl"
-                      [ngTemplateOutletContext]="{ $implicit: row }"
-                    />
-                  </li>
+                @if (worthRows().length > 0) {
+                  <div [class]="groupClass">
+                    <h3 [class]="groupHeadingClass" i18n="@@vendor.overview.band.worth">
+                      Worth doing
+                    </h3>
+                    <ul [class]="rowListClass">
+                      @for (row of worthRows(); track row.key) {
+                        <li>
+                          <ng-container
+                            [ngTemplateOutlet]="rowTpl"
+                            [ngTemplateOutletContext]="{ $implicit: row }"
+                          />
+                        </li>
+                      }
+                    </ul>
+                  </div>
                 }
-              </ul>
-            </div>
-          }
-        </section>
+              </div>
+            }
+          </section>
+        </div>
       </div>
     }
 
@@ -299,73 +312,39 @@ interface NeedsRow {
         [routerLink]="row.commands"
         [queryParams]="row.queryParams"
         [fragment]="row.fragment ?? undefined"
-        class="flex items-start gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-4 py-3 no-underline transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        class="group/row flex min-h-16 items-start gap-4 px-4 py-3 text-(--text-primary) no-underline transition-colors hover:bg-(--surface-sunken) focus-visible:outline-3 focus-visible:-outline-offset-3 focus-visible:outline-(--accent-primary) sm:px-6"
         [attr.data-item]="row.key"
       >
-        <svg
-          aria-hidden="true"
+        <span
           [class]="
-            'mt-0.5 h-4 w-4 shrink-0 ' +
+            'flex h-5 shrink-0 items-center ' +
             (row.tone === 'conflict' ? 'text-(--status-error)' : 'text-(--text-secondary)')
           "
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
         >
-          @switch (row.icon) {
-            @case ('alert') {
-              <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" />
-              <path d="M12 9v4" />
-              <path d="M12 17h.01" />
-            }
-            @case ('clock') {
-              <circle cx="12" cy="12" r="10" />
-              <path d="M12 6v6l4 2" />
-            }
-            @case ('pencil') {
-              <path
-                d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"
-              />
-            }
-            @case ('users') {
-              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-              <circle cx="9" cy="7" r="4" />
-              <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-            }
-          }
-        </svg>
+          <aec-icon [name]="rowIcon(row.icon)" decorative [size]="4" />
+        </span>
         <!--
-          AECI-1116. Below sm the pill drops under the text instead of taking a
-          column beside it. At 375px a long pill ("Reply by the due date") left
+          AECI-1116. Below sm the chip drops under the text instead of taking a
+          column beside it. At 375px a long chip ("Reply by the due date") left
           the title and body about two words a line.
         -->
         <span
-          class="flex min-w-0 flex-1 flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3"
+          class="flex min-w-0 flex-1 flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-4"
         >
           <span class="min-w-0 flex-1">
-            <span class="block text-sm font-semibold text-(--text-primary)">{{ row.title }}</span>
-            <span class="mt-0.5 block text-xs leading-relaxed text-(--text-secondary)">{{
-              row.body
-            }}</span>
+            <span
+              class="block text-sm font-semibold text-(--text-primary) group-hover/row:text-(--accent-primary)"
+              >{{ row.title }}</span
+            >
+            <span class="block text-t-13 text-(--text-secondary)">{{ row.body }}</span>
           </span>
-          <span [class]="pillClass(row.tone)">{{ row.pill }}</span>
+          <aec-chip density="dense" [tone]="chipTone(row.tone)" [icon]="chipIcon(row.tone)">{{
+            row.pill
+          }}</aec-chip>
         </span>
-        <svg
-          aria-hidden="true"
-          class="h-4 w-4 shrink-0 self-center text-(--text-secondary) rtl:-scale-x-100"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <path d="m9 18 6-6-6-6" />
-        </svg>
+        <span class="flex shrink-0 self-center text-(--text-tertiary)">
+          <aec-icon name="chevron-right" decorative [size]="4" [mirrorRtl]="true" />
+        </span>
       </a>
     </ng-template>
   `,
@@ -460,8 +439,6 @@ export class VendorOverviewSection {
   });
   protected readonly checklistHeading = $localize`:@@vendor.checklist.vendor.heading:Getting started`;
   protected readonly checklistLede = $localize`:@@vendor.checklist.vendor.lede:Your company, then each product. Each step finishes when you take the action.`;
-  protected readonly retryClass =
-    'mt-3 inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-3 py-1.5 text-sm font-semibold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
   protected readonly lede = computed(() => {
     const n = this.outstanding();
@@ -539,18 +516,50 @@ export class VendorOverviewSection {
     });
   }
 
-  protected pillClass(tone: NeedsRow['tone']): string {
-    const base =
-      'inline-flex shrink-0 items-center rounded-(--radius-sm) border px-2 py-0.5 text-xs font-semibold tracking-[0.01em]';
+  /**
+   * The row's chip on the shared ladder (AECI-1810). The same three steps as the old
+   * pills: the one red for a conflict, a strong edge for work with a clock on it, and
+   * the quiet sunken chip for the rest.
+   */
+  protected chipTone(tone: NeedsRow['tone']): ChipTone {
     switch (tone) {
       case 'conflict':
-        return `${base} aec-pill-conflict bg-(--surface-raised) text-(--status-error)`;
+        return 'error';
       case 'attention':
-        return `${base} aec-pill-attention bg-(--surface-raised) text-(--text-primary)`;
+        return 'strong';
       default:
-        return `${base} bg-(--surface-sunken) text-(--text-secondary)`;
+        return 'sunken';
     }
   }
+
+  /**
+   * Work with a clock on it carries the "!" mark, as on the Integrations list
+   * (AECI-1811, `STATUS_CHIP_ICON.attention`), so the two strong-edged chips read
+   * the same on both pages. The conflict row already has its warning icon. The
+   * chip draws the mark decorative, so the chip's words carry the state.
+   */
+  protected chipIcon(tone: NeedsRow['tone']): AecIconName | null {
+    return tone === 'attention' ? 'exclamation' : null;
+  }
+
+  protected rowIcon(icon: NeedsRow['icon']): AecIconName {
+    switch (icon) {
+      case 'alert':
+        return 'warning';
+      case 'clock':
+        return 'clock';
+      case 'pencil':
+        return 'pencil';
+      case 'users':
+        return 'users';
+    }
+  }
+
+  /** A group in the one card. The second group stands under a hairline. */
+  protected readonly groupClass = '[&+&]:border-t [&+&]:border-(--border-default)';
+  protected readonly groupHeadingClass =
+    'aec-overline px-4 pt-4 pb-2 text-(--text-secondary) sm:px-6';
+  protected readonly rowListClass = 'm-0 list-none divide-y divide-(--border-default) p-0';
 
   private row(item: NeedsItem): NeedsRow {
     const commands = linkCommands(item.link);
