@@ -2237,8 +2237,8 @@ The §8.9 seat maintains its own connector catalogue (`STAGE_2_SPEC.md` §8.9(1)
 > (§6.17.5), `integration-change-requests.ts` + `integration-request-form.ts` (§6.17.6),
 > `integration-settings.ts` (§6.17.7), `vendor-tip.ts` (the §6.17.9 tooltip), `integration-detail-model.ts`
 > (status, copy and pure functions), `integration-detail-state.ts` (the page-scoped store) and
-> `integration-detail-styles.ts` (`ID_STYLES`, the component-scoped coloured borders `DESIGN.md`
-> "Vendor portal" needs). The list row and its status filter moved into
+> `integration-detail-styles.ts` (the shared class strings and the status chip maps; its
+> component-scoped borders went with AECI-1811 part 2). The list row and its status filter moved into
 > `vendor/components/vendor-integration-list-model.ts`. Five deviations from this section, each ruled
 > during the build rather than reopening it:
 >
