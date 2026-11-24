@@ -264,7 +264,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
                     @if (!seat.is_self) {
                       <button
                         aecButton
-                        variant="danger"
+                        variant="secondary"
                         compact
                         type="button"
                         [disabled]="busySeat() === seat.user_id"
@@ -332,7 +332,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
                   </button>
                   <button
                     aecButton
-                    variant="danger"
+                    variant="secondary"
                     compact
                     type="button"
                     [disabled]="busyInvite()?.id === invite.id"

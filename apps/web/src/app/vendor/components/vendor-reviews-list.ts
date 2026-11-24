@@ -552,10 +552,13 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
                               <p class="basis-full text-sm text-(--text-primary)">
                                 {{ withdrawQuestion(item) }}
                               </p>
-                              <!-- Primary, not danger: Resubmit can put a withdrawn reply
-                                   back (DESIGN.md §5 Buttons, ruled 2026-11-24). -->
+                              <!-- Danger on a published reply: withdrawing takes it off the
+                                   public page, and a resubmit only returns it to pending,
+                                   where AECi can still reject it (spec section 11c). Primary
+                                   on a pending reply, which was never public. -->
                               <button
                                 aecButton
+                                [variant]="withdrawConfirmVariant(item)"
                                 type="button"
                                 [id]="withdrawConfirmId(item)"
                                 [disabled]="busy() !== null"
@@ -808,6 +811,17 @@ export class VendorReviewsList {
       case 'resubmit':
         return $localize`:@@vendor.reviews.action.resubmit:Resubmit`;
     }
+  }
+
+  /**
+   * The Withdraw confirm's look (ruled for AECI-1812). Withdrawing a published reply
+   * clears `published_at` and takes it off the product page; a resubmit only returns
+   * it to `pending`, where AECi can still reject it (STAGE_2_VENDOR_PORTAL_SPEC.md
+   * §11c). That cannot be undone, so the confirm is danger. A pending reply was never
+   * public, so withdrawing it loses nothing and the confirm is primary.
+   */
+  protected withdrawConfirmVariant(item: VendorReviewItem): 'danger' | 'primary' {
+    return item.response?.status === 'published' ? 'danger' : 'primary';
   }
 
   protected canWithdraw(item: VendorReviewItem): boolean {
