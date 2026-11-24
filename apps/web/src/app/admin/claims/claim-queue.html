@@ -1,646 +1,673 @@
+<!-- AECI-2111: the claim queue is a console table (mock-up 14, ruled 2026-11-24). The
+     claim's facts, its verification signals and the decision sit in the row's
+     expanded detail, as on the review queues (AECI-2102). -->
 <section aria-labelledby="admin-claims-heading">
-  <div class="flex flex-wrap items-end justify-between gap-4">
-    <h2
-      id="admin-claims-heading"
-      class="text-lg font-bold text-(--text-primary)"
-      i18n="@@admin.claims.heading"
-    >
-      Vendor claims
-    </h2>
+  <h2
+    id="admin-claims-heading"
+    tabindex="-1"
+    class="text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3"
+    i18n="@@admin.claims.heading"
+  >
+    Vendor claims
+  </h2>
 
-    <div class="flex flex-wrap items-center gap-2">
+  <!-- Reviewer-assisted claim review — a human decides on the assembled signals. -->
+  <p [class]="captionClass" class="mt-2 max-w-prose" i18n="@@admin.claims.intro">
+    Review the identity and ownership signals, then approve to activate vendor access or reject the
+    claim. No claim is granted automatically.
+  </p>
+
+  <div [class]="f.toolbar">
+    <div [class]="f.group">
       <span
         id="admin-claims-status-label"
-        class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+        [class]="f.label"
         i18n="@@admin.claims.filter.status.label"
         >Status</span
       >
-      <div
-        role="group"
-        aria-labelledby="admin-claims-status-label"
-        class="inline-flex flex-wrap gap-1 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1"
-      >
+      <div role="group" aria-labelledby="admin-claims-status-label" [class]="f.seg">
         @for (opt of statusOptions; track opt.key) {
         <button
           type="button"
           (click)="setStatus(opt.key)"
           [attr.aria-pressed]="statusFilter() === opt.key"
-          class="rounded-(--radius-sm) px-3 py-1 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) aria-pressed:bg-(--accent-primary) aria-pressed:text-(--surface-base) text-(--text-secondary) hover:text-(--text-primary)"
+          [class]="f.option"
         >
-          {{ opt.label }}
+          @if (statusFilter() === opt.key) {
+          <aec-icon name="check" decorative [size]="4" />
+          } {{ opt.label }}
         </button>
         }
       </div>
     </div>
   </div>
 
-  <!-- Reviewer-assisted claim review — a human decides on the assembled signals. -->
-  <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.claims.intro">
-    Review the identity and ownership signals, then approve to activate vendor access or reject the
-    claim. No claim is granted automatically.
-  </p>
-
   <!-- Polite announcements: rows vanish on success, so announce the outcome. -->
   <p class="sr-only" role="status" aria-live="polite">{{ liveMessage() }}</p>
 
   @if (loading()) {
-  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.claims.loading">
+  <p class="mt-6 text-t-16 text-(--text-secondary)" i18n="@@admin.claims.loading">
     Loading the claim-review queue…
   </p>
   } @else if (loadFailed()) {
-  <div class="mt-8 space-y-3">
+  <div class="mt-6 space-y-4">
     <p
-      class="text-sm font-medium text-(--text-primary)"
+      class="text-t-16 font-semibold text-(--text-primary)"
       role="alert"
       i18n="@@admin.claims.loadFailed"
     >
       We couldn't load the claim-review queue. Your session may have expired.
     </p>
-    <button
-      type="button"
-      (click)="retry()"
-      class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-5 py-2.5 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-      i18n="@@admin.claims.retry"
-    >
+    <button aecButton variant="secondary" (click)="retry()" i18n="@@admin.claims.retry">
       Try again
     </button>
   </div>
   } @else if (visibleClaims().length === 0) {
-  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.claims.empty">
-    No claims match this filter.
-  </p>
+  <p [class]="t.empty" class="mt-6" i18n="@@admin.claims.empty">No claims match this filter.</p>
   } @else { @if (truncated()) {
-  <p class="mt-6 text-xs text-(--text-secondary)" i18n="@@admin.claims.cappedNote">
+  <p [class]="captionClass" class="mt-6" i18n="@@admin.claims.cappedNote">
     Showing the first {{ loadedCount() }} of {{ total() }} claims. Moderate these to see the rest.
   </p>
   }
 
-  <ul role="list" class="mt-6 space-y-5">
-    @for (r of visibleClaims(); track r.id) {
-    <li>
-      <article
-        [attr.aria-labelledby]="'claim-' + r.id + '-target'"
-        class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-6"
-      >
-        <!-- Header: status badge, duplicate flag, target (linked), age -->
-        <div class="flex flex-wrap items-start justify-between gap-3">
-          <div class="min-w-0">
-            <div class="flex flex-wrap items-center gap-2">
-              <span
-                class="inline-flex items-center gap-1.5 rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
-                >{{ statusLabel(r.status) }}</span
+  <div
+    [class]="t.region"
+    class="mt-6"
+    role="region"
+    tabindex="0"
+    aria-labelledby="admin-claims-caption"
+  >
+    <table [class]="t.table" class="min-w-[56rem]">
+      <caption id="admin-claims-caption" [class]="t.caption" i18n="@@admin.claims.heading">
+        Vendor claims
+      </caption>
+      <thead>
+        <tr>
+          <th scope="col" [class]="t.head">
+            <span class="sr-only" i18n="@@admin.reviews.col.details">Details</span>
+          </th>
+          <th scope="col" [class]="t.head" i18n="@@admin.claims.col.listing">Listing</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.claims.meta.submitter">Submitter</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.claims.signals.domain">Email domain</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.claims.meta.submitted">Submitted</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.claims.filter.status.label">Status</th>
+        </tr>
+      </thead>
+      @for (r of visibleClaims(); track r.id) {
+      <tbody data-testid="claim-record">
+        <tr [class]="isOpen(r.id) ? t.rowOpen : t.row" data-testid="claim-row">
+          <td [class]="t.disclosure">
+            <aec-admin-disclosure-button
+              [expanded]="isOpen(r.id)"
+              [controls]="'claim-' + r.id + '-detail'"
+              [label]="rowLabel(r)"
+              (toggled)="toggleRow(r.id)"
+            />
+          </td>
+          <th scope="row" [id]="'claim-' + r.id + '-target'" [class]="t.rowHead">
+            @if (targetRouterLink(r); as link) {
+            <a [routerLink]="link" [class]="t.link">{{ r.target?.name }}</a>
+            } @else {
+            <span class="text-(--text-secondary)">{{ targetFallbackLabel(r.target_type) }}</span>
+            }
+          </th>
+          <td [class]="t.cell">
+            {{ r.submitter_email }} @if (r.submitter_name) {
+            <span [class]="t.sub">{{ r.submitter_name }}</span>
+            }
+          </td>
+          <td [class]="t.cell"><aec-domain-match-signal [value]="r.domain_match" /></td>
+          <td [class]="t.nowrap">
+            {{ r.created_at | date: 'medium' }}
+            <span [class]="t.sub">{{ age(r.created_at) }}</span>
+          </td>
+          <td [class]="t.cell">
+            <span class="flex flex-wrap gap-1">
+              <aec-chip density="dense" [tone]="statusTone(r.status)"
+                >{{ statusLabel(r.status) }}</aec-chip
               >
               @if (r.is_duplicate) {
-              <span
-                class="inline-flex items-center gap-1.5 rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-bold text-(--text-primary)"
-                i18n="@@admin.claims.duplicate"
-                >Possible duplicate</span
+              <aec-chip density="dense" [tone]="tone('possibleDuplicate')"
+                ><span i18n="@@admin.claims.duplicate">Possible duplicate</span></aec-chip
               >
               }
-            </div>
-
-            <h3
-              [id]="'claim-' + r.id + '-target'"
-              class="mt-2 text-base font-bold text-(--text-primary)"
-            >
-              @if (targetRouterLink(r); as link) {
-              <a
-                [routerLink]="link"
-                class="text-(--text-primary) no-underline transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                >{{ r.target?.name }}</a
-              >
-              } @else {
-              <span class="text-(--text-secondary)">{{ targetFallbackLabel(r.target_type) }}</span>
-              }
-            </h3>
-          </div>
-
-          <div class="flex shrink-0 items-center gap-3">
-            <span class="text-xs text-(--text-secondary)">{{ age(r.created_at) }}</span>
-            <!-- AECI-739: the detail route — where the operator note is written and
-                 the duplicate chip above is explained. -->
-            <a
-              [routerLink]="['/admin/claims', r.id]"
-              class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-3 py-1.5 text-xs font-bold text-(--text-primary) no-underline transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              i18n="@@admin.claims.openDetail"
-            >
-              Open claim
-            </a>
-          </div>
-        </div>
-
-        <!-- Submitter -->
-        <dl class="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-(--text-secondary)">
-          <!-- AECI-1364: the product page the claim was sent from. The claim is on the
-               company above; this says where the claimant started. -->
-          @if (r.context_product; as product) {
-          <div class="flex gap-1.5" data-testid="claim-context-product">
-            <dt class="font-bold" i18n="@@admin.claims.meta.cameFrom">Came from</dt>
-            <dd>
-              <a
-                [routerLink]="['/products', product.slug]"
-                class="text-(--text-primary) underline-offset-2 hover:text-(--accent-primary) hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                >{{ product.name }}</a
-              >
-            </dd>
-          </div>
-          }
-          <div class="flex gap-1.5">
-            <dt class="font-bold" i18n="@@admin.claims.meta.submitter">Submitter</dt>
-            <dd>
-              {{ r.submitter_email }}@if (r.submitter_name) {
-              <span> · {{ r.submitter_name }}</span>
-              } @if (r.submitter_title || r.submitter_role; as title) {
-              <span> · {{ title }}</span>
-              }
-            </dd>
-          </div>
-          <div class="flex gap-1.5">
-            <dt class="font-bold" i18n="@@admin.claims.meta.submitted">Submitted</dt>
-            <dd>{{ r.created_at | date: 'medium' }}</dd>
-          </div>
-          <!-- AECI-1063: the self-reported "How did you find us?" answer. -->
-          <div class="flex gap-1.5" data-testid="claim-found-via">
-            <dt class="font-bold" i18n="@@admin.foundVia.label">Found us via</dt>
-            <dd>
-              {{ foundViaLabel(r.found_via) }}@if (r.found_via_detail) {
-              <span> · {{ r.found_via_detail }}</span>
-              }
-            </dd>
-          </div>
-        </dl>
-
-        <!-- Verification signals -->
-        <div
-          class="mt-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4"
+            </span>
+          </td>
+        </tr>
+        <tr
+          [id]="'claim-' + r.id + '-detail'"
+          [class]="t.detailRow"
+          [hidden]="!isOpen(r.id)"
+          data-testid="claim-detail-row"
         >
-          <h4
-            class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-            i18n="@@admin.claims.signals.heading"
-          >
-            Verification signals
-          </h4>
-
-          <dl class="mt-3 grid gap-4 sm:grid-cols-2">
-            <!-- Email-domain match -->
-            <div>
-              <dt
-                class="text-xs font-bold text-(--text-secondary)"
-                i18n="@@admin.claims.signals.domain"
-              >
-                Email domain
-              </dt>
-              <dd class="mt-1">
-                <aec-domain-match-signal [value]="r.domain_match" />
-              </dd>
-            </div>
-
-            <!-- Auth account exists (link vs provision) -->
-            <div>
-              <dt
-                class="text-xs font-bold text-(--text-secondary)"
-                i18n="@@admin.claims.signals.account"
-              >
-                Claimant account
-              </dt>
-              <dd class="mt-1 text-xs text-(--text-primary)">
-                {{ accountLabel(r.status, r.has_auth_account, r.granted) }}
-              </dd>
-            </div>
-
-            <!-- Product roles: the §5.2 payer test (AECI-738) -->
-            <div>
-              <dt
-                class="text-xs font-bold text-(--text-secondary)"
-                i18n="@@admin.claims.signals.roles"
-              >
-                Products by role
-              </dt>
-              <dd class="mt-1 text-xs text-(--text-primary)">
-                @if (r.product_roles === null) {
-                <span class="text-(--text-secondary)" i18n="@@admin.claims.signals.unavailable"
-                  >Unavailable</span
-                >
-                } @else if (r.product_roles.total === 0) {
-                <span
-                  class="inline-flex items-center gap-1.5 rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-medium text-(--text-primary)"
-                  i18n="@@admin.claims.roles.none"
-                  >No products on record — role unknown</span
-                >
-                } @else if (r.is_pure_connector_vendor) {
-                <span
-                  class="inline-flex items-center gap-1.5 rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-medium text-(--text-primary)"
-                  i18n="@@admin.claims.roles.pureConnector"
-                  >Pure connector vendor</span
-                >
-                <p class="mt-1 text-(--text-secondary)">
-                  {{ roleBreakdownLabel(r.product_roles) }}
-                </p>
-                } @else {
-                <p>
-                  {{ r.product_roles.total }}
-                  <span i18n="@@admin.claims.roles.total">product(s)</span>
-                </p>
-                <p class="mt-1 text-(--text-secondary)">
-                  {{ roleBreakdownLabel(r.product_roles) }}
-                </p>
-                }
-              </dd>
-            </div>
-
-            <!-- Integrations owned: the §5.2 step 1a owner test (AECI-1041).
-                 Both delivered-tier tables, live rows only. -->
-            <div>
-              <dt
-                class="text-xs font-bold text-(--text-secondary)"
-                i18n="@@admin.claims.signals.ownedIntegrations"
-              >
-                Integrations owned
-              </dt>
-              <dd class="mt-1 text-xs text-(--text-primary)">
-                @if (r.owned_integrations === null) {
-                <span class="text-(--text-secondary)" i18n="@@admin.claims.signals.ownedUnavailable"
-                  >Unavailable</span
-                >
-                } @else { {{ ownedLabel(r.owned_integrations) }} }
-              </dd>
-            </div>
-
-            <!-- Existing seats -->
-            <div>
-              <dt
-                class="text-xs font-bold text-(--text-secondary)"
-                i18n="@@admin.claims.signals.seats"
-              >
-                Existing seats
-              </dt>
-              <dd class="mt-1 text-xs text-(--text-primary)">
-                @if (r.existing_seats === null) {
-                <span class="text-(--text-secondary)" i18n="@@admin.claims.signals.unavailable"
-                  >Unavailable</span
-                >
-                } @else if (r.existing_seats.length === 0) {
-                <span class="text-(--text-secondary)" i18n="@@admin.claims.seats.first"
-                  >First claim: no existing seats</span
-                >
-                } @else {
-                <p>
-                  {{ r.existing_seats.length }}
-                  <span i18n="@@admin.claims.seats.count">existing seat(s)</span>
-                </p>
-                <ul class="mt-1 space-y-0.5">
-                  @for (seat of r.existing_seats; track $index) {
-                  <li class="flex flex-wrap items-center gap-1.5 text-(--text-secondary)">
-                    <span>{{ seatLabel(seat, r.seat_emails_available) }}</span>
-                    @if (seat.work_email_verified) {
-                    <span
-                      class="inline-flex items-center gap-1.5 rounded-full border border-(--border-default) px-2 py-0.5 text-[0.65rem] font-medium"
-                      i18n="@@admin.claims.seat.verified"
-                      >work email verified</span
-                    >
+          <td [attr.colspan]="columnCount" [class]="t.detailCell">
+            <div [class]="t.detailInner">
+              <div [class]="detailGridClass">
+                <!-- The claim: who sent it, the verification signals, the record -->
+                <div class="grid min-w-0 content-start gap-6">
+                  <dl [class]="factsClass">
+                    <!-- AECI-1364: the product page the claim was sent from. The claim is on
+                         the company above; this says where the claimant started. -->
+                    @if (r.context_product; as product) {
+                    <div data-testid="claim-context-product">
+                      <dt [class]="labelClass" i18n="@@admin.claims.meta.cameFrom">Came from</dt>
+                      <dd class="mt-1">
+                        <a [routerLink]="['/products', product.slug]" [class]="inlineLinkClass"
+                          >{{ product.name }}</a
+                        >
+                      </dd>
+                    </div>
                     }
-                  </li>
+                    <div>
+                      <dt [class]="labelClass" i18n="@@admin.claims.meta.submitter">Submitter</dt>
+                      <dd class="mt-1">
+                        {{ r.submitter_email }}@if (r.submitter_name) {
+                        <span> · {{ r.submitter_name }}</span>
+                        } @if (r.submitter_title || r.submitter_role; as title) {
+                        <span> · {{ title }}</span>
+                        }
+                      </dd>
+                    </div>
+                    <div>
+                      <dt [class]="labelClass" i18n="@@admin.claims.meta.submitted">Submitted</dt>
+                      <dd class="mt-1">{{ r.created_at | date: 'medium' }}</dd>
+                    </div>
+                    <!-- AECI-1063: the self-reported "How did you find us?" answer. -->
+                    <div data-testid="claim-found-via">
+                      <dt [class]="labelClass" i18n="@@admin.foundVia.label">Found us via</dt>
+                      <dd class="mt-1">
+                        {{ foundViaLabel(r.found_via) }}@if (r.found_via_detail) {
+                        <span> · {{ r.found_via_detail }}</span>
+                        }
+                      </dd>
+                    </div>
+                  </dl>
+
+                  <!-- Verification signals -->
+                  <div class="border-t border-(--border-default) pt-4">
+                    <p [class]="labelClass" i18n="@@admin.claims.signals.heading">
+                      Verification signals
+                    </p>
+
+                    <dl class="mt-3 grid gap-4 text-t-14 sm:grid-cols-2">
+                      <!-- Email-domain match -->
+                      <div>
+                        <dt [class]="labelClass">
+                          <span i18n="@@admin.claims.signals.domain">Email domain</span>
+                        </dt>
+                        <dd class="mt-1"><aec-domain-match-signal [value]="r.domain_match" /></dd>
+                      </div>
+
+                      <!-- Auth account exists (link vs provision) -->
+                      <div>
+                        <dt [class]="labelClass" i18n="@@admin.claims.signals.account">
+                          Claimant account
+                        </dt>
+                        <dd class="mt-1 text-(--text-primary)">
+                          {{ accountLabel(r.status, r.has_auth_account, r.granted) }}
+                        </dd>
+                      </div>
+
+                      <!-- Product roles: the §5.2 payer test (AECI-738) -->
+                      <div>
+                        <dt [class]="labelClass" i18n="@@admin.claims.signals.roles">
+                          Products by role
+                        </dt>
+                        <dd class="mt-1 text-(--text-primary)">
+                          @if (r.product_roles === null) {
+                          <span
+                            class="text-(--text-secondary)"
+                            i18n="@@admin.claims.signals.unavailable"
+                            >Unavailable</span
+                          >
+                          } @else if (r.product_roles.total === 0) {
+                          <aec-chip density="dense" [tone]="tone('noProductsOnRecord')"
+                            ><span i18n="@@admin.claims.roles.none"
+                              >No products on record — role unknown</span
+                            ></aec-chip
+                          >
+                          } @else if (r.is_pure_connector_vendor) {
+                          <aec-chip density="dense" [tone]="tone('pureConnectorVendor')"
+                            ><span i18n="@@admin.claims.roles.pureConnector"
+                              >Pure connector vendor</span
+                            ></aec-chip
+                          >
+                          <p class="mt-1 text-(--text-secondary)">
+                            {{ roleBreakdownLabel(r.product_roles) }}
+                          </p>
+                          } @else {
+                          <p>
+                            {{ r.product_roles.total }}
+                            <span i18n="@@admin.claims.roles.total">product(s)</span>
+                          </p>
+                          <p class="mt-1 text-(--text-secondary)">
+                            {{ roleBreakdownLabel(r.product_roles) }}
+                          </p>
+                          }
+                        </dd>
+                      </div>
+
+                      <!-- Integrations owned: the §5.2 step 1a owner test (AECI-1041).
+                           Both delivered-tier tables, live rows only. -->
+                      <div>
+                        <dt [class]="labelClass" i18n="@@admin.claims.signals.ownedIntegrations">
+                          Integrations owned
+                        </dt>
+                        <dd class="mt-1 text-(--text-primary)">
+                          @if (r.owned_integrations === null) {
+                          <span
+                            class="text-(--text-secondary)"
+                            i18n="@@admin.claims.signals.ownedUnavailable"
+                            >Unavailable</span
+                          >
+                          } @else { {{ ownedLabel(r.owned_integrations) }} }
+                        </dd>
+                      </div>
+
+                      <!-- Existing seats -->
+                      <div>
+                        <dt [class]="labelClass" i18n="@@admin.claims.signals.seats">
+                          Existing seats
+                        </dt>
+                        <dd class="mt-1 text-(--text-primary)">
+                          @if (r.existing_seats === null) {
+                          <span
+                            class="text-(--text-secondary)"
+                            i18n="@@admin.claims.signals.unavailable"
+                            >Unavailable</span
+                          >
+                          } @else if (r.existing_seats.length === 0) {
+                          <span class="text-(--text-secondary)" i18n="@@admin.claims.seats.first"
+                            >First claim: no existing seats</span
+                          >
+                          } @else {
+                          <p>
+                            {{ r.existing_seats.length }}
+                            <span i18n="@@admin.claims.seats.count">existing seat(s)</span>
+                          </p>
+                          <ul class="mt-1 space-y-1">
+                            @for (seat of r.existing_seats; track $index) {
+                            <li class="flex flex-wrap items-center gap-2 text-(--text-secondary)">
+                              <span>{{ seatLabel(seat, r.seat_emails_available) }}</span>
+                              @if (seat.work_email_verified) {
+                              <aec-chip density="dense" [tone]="tone('workEmailVerified')"
+                                ><span i18n="@@admin.claims.seat.verified"
+                                  >work email verified</span
+                                ></aec-chip
+                              >
+                              }
+                            </li>
+                            }
+                          </ul>
+                          }
+                        </dd>
+                      </div>
+
+                      <!-- Prior / duplicate requests -->
+                      <div>
+                        <dt [class]="labelClass" i18n="@@admin.claims.signals.prior">
+                          Prior requests
+                        </dt>
+                        <dd class="mt-1 text-(--text-primary)">
+                          @if (r.related_requests === null) {
+                          <span
+                            class="text-(--text-secondary)"
+                            i18n="@@admin.claims.signals.unavailable2"
+                            >Unavailable</span
+                          >
+                          } @else if (r.related_requests.length === 0) {
+                          <span class="text-(--text-secondary)" i18n="@@admin.claims.prior.none"
+                            >None from this email</span
+                          >
+                          } @else {
+                          <p>
+                            {{ r.related_requests.length }}
+                            <span i18n="@@admin.claims.prior.count"
+                              >prior request(s) from this email</span
+                            >
+                          </p>
+                          <ul class="mt-1 space-y-1 text-(--text-secondary)">
+                            @for (prior of r.related_requests; track prior.id) {
+                            <li>
+                              {{ prior.kind }} · {{ prior.status }} · {{ prior.created_at | date:
+                              'mediumDate' }}
+                            </li>
+                            }
+                          </ul>
+                          } @if (r.duplicate_of_request_id) {
+                          <p class="mt-1 text-(--text-secondary)" i18n="@@admin.claims.prior.chain">
+                            Flagged against an earlier request.
+                          </p>
+                          }
+                        </dd>
+                      </div>
+                    </dl>
+
+                    <!--
+                      Person / LinkedIn link (opened by the reviewer; a link only).
+                      AECI-847: the claimant's OWN profile when they supplied one, otherwise
+                      the built name search. Never both — the search is a guess, and showing
+                      it beside real evidence invites reading it as corroboration.
+                    -->
+                    <p class="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-t-14">
+                      @if (r.submitter_linkedin_url) {
+                      <a
+                        [href]="r.submitter_linkedin_url"
+                        target="_blank"
+                        rel="noopener nofollow"
+                        [class]="inlineLinkClass"
+                        ><span i18n="@@admin.claims.linkedin.supplied"
+                          >LinkedIn profile the claimant gave</span
+                        >
+                        <aec-new-tab-icon
+                      /></a>
+                      } @else {
+                      <a
+                        [href]="linkedInSearchUrl(r)"
+                        target="_blank"
+                        rel="noopener nofollow"
+                        [class]="inlineLinkClass"
+                        ><span i18n="@@admin.claims.linkedin">Search LinkedIn for this person</span>
+                        <aec-new-tab-icon
+                      /></a>
+                      }
+                      <!-- Source link -->
+                      @if (r.source_url) {
+                      <a
+                        [href]="r.source_url"
+                        target="_blank"
+                        rel="noopener nofollow"
+                        [class]="inlineLinkClass"
+                        ><span i18n="@@admin.claims.sourceUrl">Source link</span> <aec-new-tab-icon
+                      /></a>
+                      }
+                    </p>
+                  </div>
+
+                  <!--
+                    The target vendor and a link to its Billing tab (AECI-1375: licenses are
+                    the plan, so the entitlement readout is gone). Deliberately OUTSIDE the
+                    isActionable block: managing a vendor granted months ago is the ordinary
+                    case, and those rows are terminal claims. Points at the RESOLVED target
+                    vendor, so a product claim links to that product's primary vendor.
+                  -->
+                  @if (r.entitlement_vendor; as v) {
+                  <div
+                    class="flex flex-wrap items-center justify-between gap-3 border-t border-(--border-default) pt-4"
+                  >
+                    <p class="min-w-0 text-t-14 text-(--text-secondary)">
+                      <span i18n="@@admin.claims.ent.vendor2">Vendor</span>: {{ v.name }}
+                    </p>
+                    <a
+                      aecButton
+                      variant="secondary"
+                      compact
+                      [routerLink]="['/admin/vendors', v.id]"
+                      [queryParams]="{ tab: 'billing' }"
+                      class="shrink-0"
+                      i18n="@@admin.claims.ent.manage"
+                    >
+                      Manage billing
+                    </a>
+                  </div>
                   }
-                </ul>
-                }
-              </dd>
-            </div>
 
-            <!-- Prior / duplicate requests -->
-            <div>
-              <dt
-                class="text-xs font-bold text-(--text-secondary)"
-                i18n="@@admin.claims.signals.prior"
-              >
-                Prior requests
-              </dt>
-              <dd class="mt-1 text-xs text-(--text-primary)">
-                @if (r.related_requests === null) {
-                <span class="text-(--text-secondary)" i18n="@@admin.claims.signals.unavailable2"
-                  >Unavailable</span
-                >
-                } @else if (r.related_requests.length === 0) {
-                <span class="text-(--text-secondary)" i18n="@@admin.claims.prior.none"
-                  >None from this email</span
-                >
-                } @else {
-                <p>
-                  {{ r.related_requests.length }}
-                  <span i18n="@@admin.claims.prior.count">prior request(s) from this email</span>
-                </p>
-                <ul class="mt-1 space-y-0.5 text-(--text-secondary)">
-                  @for (prior of r.related_requests; track prior.id) {
-                  <li>
-                    {{ prior.kind }} · {{ prior.status }} · {{ prior.created_at | date: 'mediumDate'
-                    }}
-                  </li>
+                  <!--
+                    Operator note (AECI-739). Rendered on the ROW, not only on the detail
+                    page, because the queue is where the operator looks. It was built for the
+                    parked connector claim, which AECI-1367 retired. It stays as the record of
+                    what was said out of band. Read-only here: it is written on
+                    `/admin/claims/:id`, so the field has one home.
+                  -->
+                  @if (r.admin_notes; as note) {
+                  <div class="border-t border-(--border-default) pt-4">
+                    <p [class]="labelClass" i18n="@@admin.claims.note.heading">Operator note</p>
+                    <p [class]="bodyClass" class="mt-2 line-clamp-3">{{ note }}</p>
+                    <a
+                      [routerLink]="['/admin/claims', r.id]"
+                      [class]="inlineLinkClass"
+                      class="mt-2 inline-block text-t-14"
+                      i18n="@@admin.claims.note.openToEdit"
+                      >Read or edit the full note</a
+                    >
+                  </div>
                   }
-                </ul>
-                } @if (r.duplicate_of_request_id) {
-                <p class="mt-1 text-(--text-secondary)" i18n="@@admin.claims.prior.chain">
-                  Flagged against an earlier request.
-                </p>
-                }
-              </dd>
+
+                  <!-- The claimant's comments (the claim body; "Additional comments" since AECI-1293) -->
+                  @if (r.body) {
+                  <div class="border-t border-(--border-default) pt-4">
+                    <p [class]="labelClass" i18n="@@admin.claims.comments">Comments</p>
+                    <p [class]="bodyClass" class="mt-2">{{ r.body }}</p>
+                  </div>
+                  }
+                </div>
+
+                <!-- The decision side: the flags an operator weighs, then Grant and Reject -->
+                <div class="grid min-w-0 content-start gap-4">
+                  <!-- AECI-739: the detail route — where the operator note is written and
+                       the duplicate chip is explained. -->
+                  <div>
+                    <a
+                      aecButton
+                      variant="secondary"
+                      compact
+                      [routerLink]="['/admin/claims', r.id]"
+                      i18n="@@admin.claims.openDetail"
+                    >
+                      Open claim
+                    </a>
+                  </div>
+
+                  <!-- AECI-1368: the company already has an owner seat, so its owners decide
+                       first. A warning, never a gate: Grant and Reject below stay enabled. -->
+                  @if (isActionable(r.status) && r.routed_to_owners_at; as routedAt) {
+                  <div [class]="noticeClass" data-testid="claim-owner-routed">
+                    <p class="font-semibold">
+                      <ng-container i18n="@@admin.claims.ownerRouted.title"
+                        >With owners until</ng-container
+                      >
+                      {{ ownerDeadline(routedAt) | date: 'medium' }}
+                    </p>
+                    <p class="mt-1 max-w-[75ch]" i18n="@@admin.claims.ownerRouted.body">
+                      This company already has an owner seat, so its owners were asked to accept or
+                      decline this claim from their Seats page. You can still grant or reject it. If
+                      they have not decided by then, it comes back to this queue.
+                    </p>
+                  </div>
+                  } @else if (isActionable(r.status) && r.owner_fallback_at) {
+                  <p [class]="captionClass" data-testid="claim-owner-fallback">
+                    <ng-container i18n="@@admin.claims.ownerFallback"
+                      >The company's owners did not decide within {{ reviewDays }} days. Handed
+                      back</ng-container
+                    >
+                    {{ r.owner_fallback_at | date: 'medium' }}
+                  </p>
+                  }
+
+                  <!-- AECI-1367 (Chris's ruling 2026-10-14): a pure-connector vendor is approved
+                       like anyone else. This is a neutral flag, not a warning and not a gate.
+                       The claim-submitted-alert email carries the same line. -->
+                  @if (isActionable(r.status) && r.is_pure_connector_vendor === true) {
+                  <div [class]="neutralBoxClass" data-testid="claim-connector-flag">
+                    <p class="font-semibold" i18n="@@admin.claims.connectorFlag.title">
+                      Connector vendor: contact them directly
+                    </p>
+                    <p
+                      class="mt-1 max-w-[75ch] text-(--text-secondary)"
+                      i18n="@@admin.claims.connectorFlag.body"
+                    >
+                      Every product this vendor lists is a connector. Approve the claim as usual,
+                      and reach out to them about how they want to use their listing.
+                    </p>
+                  </div>
+                  }
+
+                  <!-- AECI-1420: the claimant's address is seated on another vendor or is a site
+                       admin, so the server refuses Grant. The red box says so before anyone
+                       presses it, and Grant below is disabled and points at it. -->
+                  @if (hasConflict(r)) {
+                  <aec-claim-account-conflict
+                    class="block"
+                    [claim]="r"
+                    [boxId]="conflictBoxId(r.id)"
+                  />
+                  }
+
+                  <!-- Actions (open / in-review only) -->
+                  @if (isActionable(r.status)) {
+                  <div class="flex flex-wrap items-center gap-3">
+                    <button
+                      aecButton
+                      variant="secondary"
+                      [id]="'claim-' + r.id + '-grant'"
+                      (click)="openApprove(r.id)"
+                      [disabled]="pendingActionId() === r.id || formOpenId() === r.id || hasConflict(r)"
+                      [attr.aria-disabled]="hasConflict(r) ? 'true' : null"
+                      [attr.aria-describedby]="
+                        'claim-' + r.id + '-target' + (hasConflict(r) ? ' ' + conflictBoxId(r.id) : '')
+                      "
+                      data-testid="claim-grant"
+                      i18n="@@admin.claims.approve"
+                    >
+                      Grant vendor account
+                    </button>
+                    <button
+                      aecButton
+                      variant="secondary"
+                      [id]="'claim-' + r.id + '-reject'"
+                      (click)="openReject(r.id)"
+                      [disabled]="pendingActionId() === r.id || formOpenId() === r.id"
+                      [attr.aria-describedby]="'claim-' + r.id + '-target'"
+                      i18n="@@admin.claims.reject"
+                    >
+                      Reject
+                    </button>
+                  </div>
+
+                  <!-- Approve confirmation. Every approval lands on Free (AECI-1367), so there is
+                       no plan to pick and no arrangement to record. -->
+                  @if (formOpenId() === r.id && formMode() === 'approve') {
+                  <form
+                    method="dialog"
+                    novalidate
+                    (aecSubmit)="confirmApprove(r.id)"
+                    (keydown.escape)="cancelForm(r.id)"
+                    [class]="formClass"
+                  >
+                    <p
+                      [id]="'claim-' + r.id + '-approve-help'"
+                      tabindex="-1"
+                      [class]="helpClass"
+                      class="focus-visible:outline-3 focus-visible:outline-offset-3"
+                      i18n="@@admin.claims.approve.freeHelp"
+                    >
+                      The vendor starts on the Free plan. They can buy Managed subscriptions later
+                      from Billing.
+                    </p>
+                    <div class="mt-2 flex flex-wrap gap-3">
+                      <button
+                        aecButton
+                        compact
+                        type="submit"
+                        [disabled]="pendingActionId() === r.id"
+                        [attr.aria-describedby]="'claim-' + r.id + '-target'"
+                      >
+                        @if (pendingActionId() === r.id) {
+                        <span i18n="@@admin.claims.approving">Granting…</span>
+                        } @else {
+                        <span i18n="@@admin.claims.approve.confirm">Confirm grant</span>
+                        }
+                      </button>
+                      <button
+                        aecButton
+                        variant="ghost"
+                        (click)="cancelForm(r.id)"
+                        [disabled]="pendingActionId() === r.id"
+                        i18n="@@admin.claims.form.cancel"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                  }
+
+                  <!-- Reject form: internal decision note (audit-only; the claimant email is neutral) -->
+                  @if (formOpenId() === r.id && formMode() === 'reject') {
+                  <form
+                    method="dialog"
+                    novalidate
+                    (aecSubmit)="confirmReject(r.id)"
+                    (keydown.escape)="cancelForm(r.id)"
+                    [class]="formClass"
+                  >
+                    <label
+                      [attr.for]="'claim-reason-' + r.id"
+                      [class]="labelClass"
+                      i18n="@@admin.claims.reject.label"
+                    >
+                      Internal reason (optional)
+                    </label>
+                    <p
+                      [id]="'claim-reason-' + r.id + '-help'"
+                      [class]="hintClass"
+                      i18n="@@admin.claims.reject.help"
+                    >
+                      Recorded in the audit log, not shared with the claimant. The rejection email
+                      is neutral.
+                    </p>
+                    <textarea
+                      [id]="'claim-reason-' + r.id"
+                      rows="3"
+                      [attr.aria-describedby]="'claim-reason-' + r.id + '-help'"
+                      [value]="formText()"
+                      (input)="onFormInput($event)"
+                      [class]="inputClass"
+                      class="min-h-24 resize-y py-3"
+                    ></textarea>
+                    <div class="mt-2 flex flex-wrap gap-3">
+                      <button
+                        aecButton
+                        variant="danger"
+                        compact
+                        type="submit"
+                        [disabled]="pendingActionId() === r.id"
+                        [attr.aria-describedby]="'claim-' + r.id + '-target'"
+                      >
+                        @if (pendingActionId() === r.id) {
+                        <span i18n="@@admin.claims.rejecting">Rejecting…</span>
+                        } @else {
+                        <span i18n="@@admin.claims.reject.confirm">Confirm rejection</span>
+                        }
+                      </button>
+                      <button
+                        aecButton
+                        variant="ghost"
+                        (click)="cancelForm(r.id)"
+                        [disabled]="pendingActionId() === r.id"
+                        i18n="@@admin.claims.form.cancel2"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                  } @if (failedActionId() === r.id) {
+                  <p
+                    [id]="'claim-' + r.id + '-failed'"
+                    tabindex="-1"
+                    [class]="failedClass"
+                    role="alert"
+                  >
+                    {{ failedActionMessage() }}
+                  </p>
+                  } }
+                </div>
+              </div>
             </div>
-          </dl>
-
-          <!--
-            Person / LinkedIn link (opened by the reviewer; a link only).
-            AECI-847: the claimant's OWN profile when they supplied one, otherwise
-            the built name search. Never both — the search is a guess, and showing
-            it beside real evidence invites reading it as corroboration.
-          -->
-          <div class="mt-3">
-            @if (r.submitter_linkedin_url) {
-            <a
-              [href]="r.submitter_linkedin_url"
-              target="_blank"
-              rel="noopener nofollow"
-              class="inline-flex items-center gap-1.5 rounded-full border border-(--border-strong) px-3 py-1 text-xs font-medium text-(--text-primary) no-underline transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              ><span i18n="@@admin.claims.linkedin.supplied"
-                >LinkedIn profile the claimant gave</span
-              >
-              <aec-new-tab-icon
-            /></a>
-            } @else {
-            <a
-              [href]="linkedInSearchUrl(r)"
-              target="_blank"
-              rel="noopener nofollow"
-              class="inline-flex items-center gap-1.5 rounded-full border border-(--border-default) px-3 py-1 text-xs font-medium text-(--text-secondary) no-underline transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              ><span i18n="@@admin.claims.linkedin">Search LinkedIn for this person</span>
-              <aec-new-tab-icon
-            /></a>
-            }
-          </div>
-        </div>
-
-        <!--
-          The target vendor and a link to its Billing tab (AECI-1375: licenses are
-          the plan, so the entitlement readout is gone). Deliberately OUTSIDE the
-          isActionable block: managing a vendor granted months ago is the ordinary
-          case, and those rows are terminal claims. Points at the RESOLVED target
-          vendor, so a product claim links to that product's primary vendor.
-        -->
-        @if (r.entitlement_vendor; as v) {
-        <div
-          class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4"
-        >
-          <p class="min-w-0 text-xs text-(--text-secondary)">
-            <span i18n="@@admin.claims.ent.vendor2">Vendor</span>: {{ v.name }}
-          </p>
-          <a
-            [routerLink]="['/admin/vendors', v.id]"
-            [queryParams]="{ tab: 'billing' }"
-            class="inline-flex shrink-0 items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            i18n="@@admin.claims.ent.manage"
-          >
-            Manage billing
-          </a>
-        </div>
-        }
-
-        <!-- Source link -->
-        @if (r.source_url) {
-        <div class="mt-3">
-          <a
-            [href]="r.source_url"
-            target="_blank"
-            rel="noopener nofollow"
-            class="inline-flex items-center gap-1.5 rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary) no-underline transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            ><span i18n="@@admin.claims.sourceUrl">Source link</span> <aec-new-tab-icon
-          /></a>
-        </div>
-        }
-
-        <!--
-          Operator note (AECI-739). Rendered on the CARD, not only on the detail
-          page, because the queue is where the operator looks. It was built for the
-          parked connector claim, which AECI-1367 retired. It stays as the record of
-          what was said out of band. Read-only here: it is written on
-          `/admin/claims/:id`, so the field has one home.
-        -->
-        @if (r.admin_notes; as note) {
-        <div
-          class="mt-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
-        >
-          <h4
-            class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-            i18n="@@admin.claims.note.heading"
-          >
-            Operator note
-          </h4>
-          <p
-            class="mt-2 line-clamp-3 whitespace-pre-line text-sm leading-relaxed text-(--text-primary)"
-          >
-            {{ note }}
-          </p>
-          <a
-            [routerLink]="['/admin/claims', r.id]"
-            class="mt-2 inline-block text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            i18n="@@admin.claims.note.openToEdit"
-            >Read or edit the full note</a
-          >
-        </div>
-        }
-
-        <!-- The claimant's comments (the claim body; "Additional comments" since AECI-1293) -->
-        @if (r.body) {
-        <div class="mt-4">
-          <p
-            class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-            i18n="@@admin.claims.comments"
-          >
-            Comments
-          </p>
-          <p class="mt-1 whitespace-pre-line text-sm leading-relaxed text-(--text-secondary)">
-            {{ r.body }}
-          </p>
-        </div>
-        }
-
-        <!-- AECI-1368: the company already has an owner seat, so its owners decide
-             first. A warning, never a gate: Grant and Reject below stay enabled. -->
-        @if (isActionable(r.status) && r.routed_to_owners_at; as routedAt) {
-        <div
-          class="mt-5 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
-          data-testid="claim-owner-routed"
-        >
-          <p class="text-sm font-bold text-(--text-primary)">
-            <ng-container i18n="@@admin.claims.ownerRouted.title">With owners until</ng-container>
-            {{ ownerDeadline(routedAt) | date: 'medium' }}
-          </p>
-          <p
-            class="mt-1 max-w-[75ch] text-xs leading-relaxed text-(--text-secondary)"
-            i18n="@@admin.claims.ownerRouted.body"
-          >
-            This company already has an owner seat, so its owners were asked to accept or decline
-            this claim from their Seats page. You can still grant or reject it. If they have not
-            decided by then, it comes back to this queue.
-          </p>
-        </div>
-        } @else if (isActionable(r.status) && r.owner_fallback_at) {
-        <p class="mt-5 text-xs text-(--text-secondary)" data-testid="claim-owner-fallback">
-          <ng-container i18n="@@admin.claims.ownerFallback"
-            >The company's owners did not decide within {{ reviewDays }} days. Handed
-            back</ng-container
-          >
-          {{ r.owner_fallback_at | date: 'medium' }}
-        </p>
-        }
-
-        <!-- AECI-1367 (Chris's ruling 2026-10-14): a pure-connector vendor is approved
-             like anyone else. This is a neutral flag, not a warning and not a gate.
-             The claim-submitted-alert email carries the same line. -->
-        @if (isActionable(r.status) && r.is_pure_connector_vendor === true) {
-        <div
-          class="mt-5 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
-          data-testid="claim-connector-flag"
-        >
-          <p
-            class="text-sm font-bold text-(--text-primary)"
-            i18n="@@admin.claims.connectorFlag.title"
-          >
-            Connector vendor: contact them directly
-          </p>
-          <p
-            class="mt-1 max-w-[75ch] text-xs leading-relaxed text-(--text-secondary)"
-            i18n="@@admin.claims.connectorFlag.body"
-          >
-            Every product this vendor lists is a connector. Approve the claim as usual, and reach
-            out to them about how they want to use their listing.
-          </p>
-        </div>
-        }
-
-        <!-- AECI-1420: the claimant's address is seated on another vendor or is a site
-             admin, so the server refuses Grant. The red box says so before anyone
-             presses it, and Grant below is disabled and points at it. -->
-        @if (hasConflict(r)) {
-        <aec-claim-account-conflict class="mt-5 block" [claim]="r" [boxId]="conflictBoxId(r.id)" />
-        }
-
-        <!-- Actions (open / in-review only) -->
-        @if (isActionable(r.status)) {
-        <div class="mt-5 flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            (click)="openApprove(r.id)"
-            [disabled]="pendingActionId() === r.id || formOpenId() === r.id || hasConflict(r)"
-            [attr.aria-disabled]="hasConflict(r) ? 'true' : null"
-            [attr.aria-describedby]="hasConflict(r) ? conflictBoxId(r.id) : null"
-            data-testid="claim-grant"
-            class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-            i18n="@@admin.claims.approve"
-          >
-            Grant vendor account
-          </button>
-          <button
-            type="button"
-            (click)="openReject(r.id)"
-            [disabled]="pendingActionId() === r.id || formOpenId() === r.id"
-            class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-            i18n="@@admin.claims.reject"
-          >
-            Reject
-          </button>
-        </div>
-
-        <!-- Approve confirmation. Every approval lands on Free (AECI-1367), so there is
-             no plan to pick and no arrangement to record. -->
-        @if (formOpenId() === r.id && formMode() === 'approve') {
-        <form
-          method="dialog"
-          novalidate
-          (aecSubmit)="confirmApprove(r.id)"
-          class="mt-4 space-y-3 border-t border-(--border-default) pt-4"
-        >
-          <p class="text-xs text-(--text-secondary)" i18n="@@admin.claims.approve.freeHelp">
-            The vendor starts on the Free plan. They can buy Managed subscriptions later from
-            Billing.
-          </p>
-          <div class="flex flex-wrap gap-3 pt-1">
-            <button
-              type="submit"
-              [disabled]="pendingActionId() === r.id"
-              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--accent-primary) bg-(--accent-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              @if (pendingActionId() === r.id) {
-              <span i18n="@@admin.claims.approving">Granting…</span>
-              } @else {
-              <span i18n="@@admin.claims.approve.confirm">Confirm grant</span>
-              }
-            </button>
-            <button
-              type="button"
-              (click)="closeForm()"
-              [disabled]="pendingActionId() === r.id"
-              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-              i18n="@@admin.claims.form.cancel"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-        }
-
-        <!-- Reject form: internal decision note (audit-only; the claimant email is neutral) -->
-        @if (formOpenId() === r.id && formMode() === 'reject') {
-        <form
-          method="dialog"
-          novalidate
-          (aecSubmit)="confirmReject(r.id)"
-          class="mt-4 space-y-2 border-t border-(--border-default) pt-4"
-        >
-          <label
-            [attr.for]="'claim-reason-' + r.id"
-            class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-            i18n="@@admin.claims.reject.label"
-          >
-            Internal reason (optional)
-          </label>
-          <p class="text-xs text-(--text-secondary)" i18n="@@admin.claims.reject.help">
-            Recorded in the audit log, not shared with the claimant. The rejection email is neutral.
-          </p>
-          <textarea
-            [id]="'claim-reason-' + r.id"
-            rows="3"
-            [value]="formText()"
-            (input)="onFormInput($event)"
-            class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          ></textarea>
-          <div class="flex flex-wrap gap-3 pt-1">
-            <button
-              type="submit"
-              [disabled]="pendingActionId() === r.id"
-              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              @if (pendingActionId() === r.id) {
-              <span i18n="@@admin.claims.rejecting">Rejecting…</span>
-              } @else {
-              <span i18n="@@admin.claims.reject.confirm">Confirm rejection</span>
-              }
-            </button>
-            <button
-              type="button"
-              (click)="closeForm()"
-              [disabled]="pendingActionId() === r.id"
-              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-              i18n="@@admin.claims.form.cancel2"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-        } @if (failedActionId() === r.id) {
-        <p class="mt-3 text-sm font-medium text-(--text-primary)" role="alert">
-          {{ failedActionMessage() }}
-        </p>
-        } }
-      </article>
-    </li>
-    }
-  </ul>
+          </td>
+        </tr>
+      </tbody>
+      }
+    </table>
+  </div>
   }
 </section>

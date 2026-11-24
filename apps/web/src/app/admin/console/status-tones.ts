@@ -79,6 +79,10 @@ export const ADMIN_STATUS_TONES = {
   done: 'positive',
   /** A review reply or a vendor thread reply that is live. */
   published: 'positive',
+  /** A product request we added to the catalog (`PRODUCT_REQUEST_STATUSES` added). */
+  added: 'positive',
+  /** An open row thread between two companies: live, and nothing waits on AECi. */
+  threadOpen: 'positive',
 
   // quiet: closed, withdrawn or not measured. Nothing to do.
   rejected: 'quiet',
@@ -110,6 +114,8 @@ export const ADMIN_STATUS_TONES = {
   revoked: 'quiet',
   /** A closed vendor thread. */
   closed: 'quiet',
+  /** A product request for a product the catalog already lists (`already_listed`). */
+  alreadyListed: 'quiet',
 
   // attention: look before you act. Not a fault.
   toxicityHigh: 'attention',

@@ -4,8 +4,6 @@
 # Lower your line when you fix some. Delete it when the file reaches zero. Never add a line.
 admin/activity/activity-feed.html 3
 admin/audit/audit-log.html 6
-admin/claims/claim-detail.html 1
-admin/claims/claim-queue.html 1
 admin/connectors/managed-by-control.html 2
 admin/connectors/mapping-edit-control.html 2
 admin/dmca/dmca-notices.html 14
@@ -14,9 +12,6 @@ admin/email/email-switches.html 1
 admin/legal/legal-versions.html 3
 admin/legal/litigation-holds.html 5
 admin/reindex/reindex-history.html 2
-admin/requests/license-release-queue.html 1
-admin/requests/product-request-queue.ts 2
-admin/requests/request-queue.html 1
 admin/users/user-detail.html 1
 admin/vendors/ban-term-licenses-control.html 1
 admin/vendors/grant-licenses-control.html 15
