@@ -2,13 +2,14 @@ import { describe, expect, it } from 'vitest';
 
 import { AEC_ICONS } from './app/shared/icon/icon-registry';
 import {
+  MIN_FILES,
   checkShrinkOnly,
   countPerFile,
   countSource,
+  filesByFolder,
   portalAdminSources,
   readAllowlist,
   stripComments,
-  totalsByFolder,
 } from './guard-allowlists/shrink-only.harness';
 
 /**
@@ -28,17 +29,18 @@ export function inlineSvgCount(_rel: string, src: string): number {
 }
 
 describe('portal and admin inline icon svg only shrinks (AECI-2083)', () => {
-  const counts = countPerFile(portalAdminSources(SKIP), inlineSvgCount);
+  const files = portalAdminSources(SKIP);
+  const counts = countPerFile(files, inlineSvgCount);
 
   it('matches guard-allowlists/inline-icon-svg.txt', () => {
     expect(checkShrinkOnly(counts, readAllowlist('inline-icon-svg'))).toEqual([]);
   });
 
-  it('still finds offenders in both folders, and never reads admin/charts', () => {
-    const totals = totalsByFolder(counts);
-    expect(totals['admin']).toBeGreaterThan(0);
-    expect(totals['vendor']).toBeGreaterThan(0);
-    expect([...counts.keys()].filter((p) => SKIP.test(p))).toEqual([]);
+  it('reads both folders, so it cannot pass on an empty scan, and never admin/charts', () => {
+    const perFolder = filesByFolder(files);
+    expect(perFolder['admin']).toBeGreaterThan(MIN_FILES.admin);
+    expect(perFolder['vendor']).toBeGreaterThan(MIN_FILES.vendor);
+    expect(files.filter((p) => SKIP.test(p))).toEqual([]);
   });
 
   it('holds the two glyphs the portal drew that the registry lacked', () => {

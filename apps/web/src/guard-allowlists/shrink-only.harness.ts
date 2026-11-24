@@ -152,9 +152,37 @@ export function formatAllowlist(counts: ReadonlyMap<string, number>): string {
     .join('\n');
 }
 
-/** The total per folder, for the spec titles and the report. */
-export function totalsByFolder(counts: ReadonlyMap<string, number>): Record<string, number> {
-  const totals: Record<string, number> = { admin: 0, vendor: 0 };
-  for (const [path, n] of counts) totals[path.split('/')[0]!] += n;
-  return totals;
+/**
+ * The fewest source files each folder held when the guards were written (admin 182,
+ * vendor 132 on 2026-11-24). A scan that reads fewer has broken, and a guard that
+ * reads nothing passes on nothing. A redesign moves files, it does not delete the
+ * console, so this floor stays true when every count reaches zero.
+ */
+export const MIN_FILES: Readonly<Record<(typeof PORTAL_ADMIN_FOLDERS)[number], number>> = {
+  admin: 120,
+  vendor: 80,
+};
+
+/**
+ * A guard that reads `[class]` bindings names each one it cannot read, with a reason,
+ * so nothing is skipped silently. Returns a problem for an unreadable binding that is
+ * not named and for a named one that is gone (delete its entry).
+ */
+export function checkUnreadable(
+  found: readonly string[],
+  named: Readonly<Record<string, string>>,
+): string[] {
+  return [
+    ...found.filter((u) => !(u in named)).map((u) => `${u}: unreadable, name it with a reason`),
+    ...Object.keys(named)
+      .filter((k) => !found.includes(k))
+      .map((k) => `${k}: no longer unreadable, delete its entry`),
+  ];
+}
+
+/** Files per folder, for the floor check. */
+export function filesByFolder(files: readonly string[]): Record<string, number> {
+  const out: Record<string, number> = { admin: 0, vendor: 0 };
+  for (const f of files) out[f.split('/')[0]!] = (out[f.split('/')[0]!] ?? 0) + 1;
+  return out;
 }

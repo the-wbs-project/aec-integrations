@@ -35,7 +35,7 @@ admin/legal/litigation-holds.ts 2
 admin/overview/overview.html 3
 admin/overview/stat-tile.ts 1
 admin/overview/status-strip.ts 5
-admin/overview/traffic-classes-card.ts 2
+admin/overview/traffic-classes-card.ts 3
 admin/reindex/reindex-history.html 4
 admin/reindex/reindex-list.html 10
 admin/requests/license-release-queue.html 4
@@ -126,7 +126,7 @@ vendor/integration-detail/integration-detail-styles.ts 6
 vendor/integration-detail/integration-links.ts 1
 vendor/integration-detail/integration-row-thread.ts 2
 vendor/integration-detail/integration-shared-data.ts 1
-vendor/integration-detail/vendor-integration-detail-page.ts 5
+vendor/integration-detail/vendor-integration-detail-page.ts 6
 vendor/integration-detail/vendor-thread-page.ts 1
 vendor/integration-detail/vendor-tip.ts 2
 vendor/sections/vendor-billing-section.ts 5

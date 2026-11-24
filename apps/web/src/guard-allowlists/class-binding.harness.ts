@@ -17,6 +17,17 @@ export interface Scope {
   importFile: (name: string) => string;
 }
 
+/** What a constant imported from a `skipImport` path resolves to: a shared recipe. */
+export const SHARED_RECIPE = 'aec-shared-recipe';
+
+/**
+ * The classes `[class.name]="…"` bindings may add to an element. The condition is not
+ * read: a guard treats each named class as present, because it can be.
+ */
+export function conditionalClasses(attrs: string): string[] {
+  return [...attrs.matchAll(/\[class\.([^\]=\s]+)\]=/g)].map((m) => m[1]!);
+}
+
 /** A string literal that may span lines: '…', "…" or a template with no `${}`. */
 export const LITERAL = String.raw`'([^']*)'|"([^"]*)"|\`([^\`$]*)\``;
 
@@ -115,8 +126,8 @@ export function resolveBinding(expr: string, scope: Scope): string | null {
 
 /**
  * A component's sources, and a reader for the files it imports by relative path.
- * `skipImport` refuses an import path, so a guard can treat a shared constant as
- * on-recipe without reading it.
+ * `skipImport` names import paths whose constants count as on-recipe: a name imported
+ * from one resolves to {@link SHARED_RECIPE}, read but never inspected.
  */
 export function scopeFor(path: string, src: string, skipImport?: RegExp): Scope {
   // An external template binds names its component class defines.
@@ -129,7 +140,8 @@ export function scopeFor(path: string, src: string, skipImport?: RegExp): Scope 
         const imp = s.match(
           new RegExp(`import\\s*\\{[^}]*\\b${name}\\b[^}]*\\}\\s*from\\s*'(\\.[^']+)'`),
         );
-        if (imp && !skipImport?.test(imp[1]!)) return safeRead(join(dirname(path), `${imp[1]}.ts`));
+        if (imp && skipImport?.test(imp[1]!)) return `const ${name} = '${SHARED_RECIPE}';`;
+        if (imp) return safeRead(join(dirname(path), `${imp[1]}.ts`));
       }
       return '';
     },

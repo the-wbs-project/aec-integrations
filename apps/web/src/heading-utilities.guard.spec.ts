@@ -4,15 +4,23 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import { resolveBinding, scopeFor, type Scope } from './guard-allowlists/class-binding.harness';
 import {
+  conditionalClasses,
+  resolveBinding,
+  scopeFor,
+  type Scope,
+} from './guard-allowlists/class-binding.harness';
+import {
+  MIN_FILES,
   checkShrinkOnly,
+  checkUnreadable,
   countPerFile,
   countSource,
+  filesByFolder,
   portalAdminSources,
   readAllowlist,
+  readSource,
   stripComments,
-  totalsByFolder,
 } from './guard-allowlists/shrink-only.harness';
 
 /**
@@ -33,8 +41,9 @@ import {
  * AECI-2083: `admin/` and `vendor/` are read too, against a shrink-only allowlist
  * (`guard-allowlists/heading-utilities.txt`, rules in `shrink-only.harness.ts`). Each
  * listed file keeps exactly its count of headings that carry a dead utility until a
- * redesign slice fixes it. Comments are not read there, and an unreadable binding is
- * not counted. The binding reader lives in `guard-allowlists/class-binding.harness.ts`.
+ * redesign slice fixes it. Comments are not read there. An unreadable binding fails
+ * until it is named in `PORTAL_ADMIN_UNREADABLE`, and a `[class.x]` binding counts its
+ * class. The binding reader lives in `guard-allowlists/class-binding.harness.ts`.
  */
 
 const SRC_DIR = dirname(fileURLToPath(import.meta.url)); // apps/web/src
@@ -84,6 +93,8 @@ export function deadHeadingUtilities(
       if (value === null) scan.unresolved.push(`${file} <${tag}> [class]="${bound[1]}"`);
       else classes.push(value);
     }
+    // AECI-2083: a `[class.text-xl]="…"` binding can add the class, so it counts.
+    classes.push(...conditionalClasses(attrs!));
     const dead = classes
       .join(' ')
       .split(/\s+/)
@@ -158,23 +169,41 @@ describe('public h1, h2 and h3 carry no utility the heading rule overrides (AECI
   });
 });
 
-/** Headings with a dead utility in one portal or admin file (AECI-2083). */
-export function portalAdminHeadingCount(rel: string, src: string): number {
-  return deadHeadingUtilities(rel, stripComments(src), scopeFor(join(APP_DIR, rel), src)).found
-    .length;
+/** The scan of one portal or admin file, comments aside (AECI-2083). */
+function portalAdminHeadingScan(rel: string, src: string): HeadingScan {
+  return deadHeadingUtilities(rel, stripComments(src), scopeFor(join(APP_DIR, rel), src));
 }
 
+/** Headings with a dead utility in one portal or admin file (AECI-2083). */
+export function portalAdminHeadingCount(rel: string, src: string): number {
+  return portalAdminHeadingScan(rel, src).found.length;
+}
+
+/**
+ * Portal and admin heading bindings the guard cannot read, each with its reason
+ * (AECI-2083). A new one fails until it is named here. Empty today.
+ */
+const PORTAL_ADMIN_UNREADABLE: Record<string, string> = {};
+
 describe('portal and admin headings with a dead utility only shrink (AECI-2083)', () => {
-  const counts = countPerFile(portalAdminSources(), portalAdminHeadingCount);
+  const files = portalAdminSources();
+  const counts = countPerFile(files, portalAdminHeadingCount);
 
   it('matches guard-allowlists/heading-utilities.txt', () => {
     expect(checkShrinkOnly(counts, readAllowlist('heading-utilities'))).toEqual([]);
   });
 
-  it('still finds offenders in both folders, so the scan is reading', () => {
-    const totals = totalsByFolder(counts);
-    expect(totals['admin']).toBeGreaterThan(0);
-    expect(totals['vendor']).toBeGreaterThan(0);
+  it('reads both folders, so it cannot pass on an empty scan', () => {
+    const perFolder = filesByFolder(files);
+    expect(perFolder['admin']).toBeGreaterThan(MIN_FILES.admin);
+    expect(perFolder['vendor']).toBeGreaterThan(MIN_FILES.vendor);
+  });
+
+  it('reads every class binding on a portal or admin heading, or names it', () => {
+    const unresolved = files.flatMap(
+      (rel) => portalAdminHeadingScan(rel, readSource(rel)).unresolved,
+    );
+    expect(checkUnreadable(unresolved, PORTAL_ADMIN_UNREADABLE)).toEqual([]);
   });
 
   it('counts each heading with a dead utility, and skips comments', () => {
@@ -182,9 +211,10 @@ describe('portal and admin headings with a dead utility only shrink (AECI-2083)'
       `<h2 class="font-display text-xl font-semibold">A</h2>`,
       `<h3 class="mt-2">B</h3>`,
       `<h3 class="text-sm">C</h3>`,
+      `<h3 [class.font-bold]="strong">D</h3>`,
       `<!-- <h2 class="text-xl">a comment</h2> -->`,
     ].join('\n');
-    expect(portalAdminHeadingCount('vendor/x.html', src)).toBe(2);
+    expect(portalAdminHeadingCount('vendor/x.html', src)).toBe(3);
   });
 
   it('fails on a new offender and on a stale entry', () => {
@@ -194,6 +224,16 @@ describe('portal and admin headings with a dead utility only shrink (AECI-2083)'
     const fixed = countSource(portalAdminHeadingCount, rel, `<h2>A</h2>`);
     expect(checkShrinkOnly(fixed, `${rel} 1`)).toEqual([
       `${rel}: now 0, delete its line (stale entry)`,
+    ]);
+  });
+
+  it('fails on an unreadable binding that is not named, and on a stale name', () => {
+    const scan = portalAdminHeadingScan('vendor/x.html', `<h2 [class]="titleClass()">A</h2>`);
+    expect(checkUnreadable(scan.unresolved, {})).toEqual([
+      'vendor/x.html <h2> [class]="titleClass()": unreadable, name it with a reason',
+    ]);
+    expect(checkUnreadable([], { 'vendor/x.html <h2> [class]="t()"': 'why' })).toEqual([
+      'vendor/x.html <h2> [class]="t()": no longer unreadable, delete its entry',
     ]);
   });
 });

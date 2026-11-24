@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  MIN_FILES,
   checkShrinkOnly,
   countPerFile,
   countSource,
+  filesByFolder,
   portalAdminSources,
   readAllowlist,
   stripComments,
-  totalsByFolder,
 } from './guard-allowlists/shrink-only.harness';
 
 /**
@@ -30,16 +31,17 @@ export function nativeButtonCount(_rel: string, src: string): number {
 }
 
 describe('portal and admin buttons not on aecButton only shrink (AECI-2083)', () => {
-  const counts = countPerFile(portalAdminSources(), nativeButtonCount);
+  const files = portalAdminSources();
+  const counts = countPerFile(files, nativeButtonCount);
 
   it('matches guard-allowlists/native-button.txt', () => {
     expect(checkShrinkOnly(counts, readAllowlist('native-button'))).toEqual([]);
   });
 
-  it('still finds offenders in both folders, so the scan is reading', () => {
-    const totals = totalsByFolder(counts);
-    expect(totals['admin']).toBeGreaterThan(0);
-    expect(totals['vendor']).toBeGreaterThan(0);
+  it('reads both folders, so it cannot pass on an empty scan', () => {
+    const perFolder = filesByFolder(files);
+    expect(perFolder['admin']).toBeGreaterThan(MIN_FILES.admin);
+    expect(perFolder['vendor']).toBeGreaterThan(MIN_FILES.vendor);
   });
 
   it('counts each button without aecButton, and skips comments', () => {

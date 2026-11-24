@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type BrowserContext } from '@playwright/test';
 
+import { untilAppStable } from './hydration';
+
 /**
  * AECI-2083: axe (WCAG 2.2 AA) on every `/preview/admin-*` route, at 1440 and 390.
  *
@@ -103,6 +105,9 @@ test.describe('axe on the admin previews, against a shrink-only allowlist (AECI-
         const page = await context.newPage();
         const res = await page.goto(route);
         expect(res?.status(), `${route} answers`).toBe(200);
+        // Hydrated and stable: stability also waits for the fake API reads, so the
+        // admin component has rendered its data before axe reads the page.
+        await untilAppStable(page);
         await page.waitForLoadState('networkidle', { timeout: 5_000 }).catch(() => undefined);
         await expect(page.locator('main').first()).toBeVisible();
         const result = await new AxeBuilder({ page }).withTags(TAGS).analyze();
