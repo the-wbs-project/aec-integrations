@@ -17,6 +17,7 @@ import { navigateToSearchQuery } from '../layout/search-submit';
 import type { AutocompleteSuggestion } from '../search/autocomplete-mapping';
 import { SearchAutocomplete } from '../search/search-autocomplete';
 import { AecButton } from '../shared/button/button';
+import { FIELD_LABEL_FONT_CLASS } from '../shared/form-field/form-field-classes';
 import { productSlug, routeFinderPair } from '../shared/pair-finder/pair-finder-route';
 
 const INPUT_ID = 'product-pair-other';
@@ -77,7 +78,7 @@ const INPUT_ID = 'product-pair-other';
         [kinds]="productKinds"
         [label]="otherLabel"
         [labelVisible]="true"
-        labelClass="mb-2 block text-t-14 font-semibold text-(--text-on-brand-secondary)"
+        [labelClass]="labelClass"
         [placeholder]="placeholder"
         [fieldClass]="fieldClass"
         [focusRingClass]="focusRing"
@@ -116,6 +117,8 @@ export class ProductPairFinder {
   private readonly pairForm = viewChild.required<ElementRef<HTMLFormElement>>('pairForm');
 
   protected readonly inputId = INPUT_ID;
+  /** The Label role's type in the on-brand ink: this finder sits on Forest (AECI-2003). */
+  protected readonly labelClass = `mb-2 block ${FIELD_LABEL_FONT_CLASS} text-(--text-on-brand-secondary)`;
   protected readonly otherLabel = $localize`:@@home.hero.pair.other.label:Connects to`;
   protected readonly placeholder = $localize`:@@home.hero.pair.placeholder:Type a product name`;
   protected readonly productKinds = ['product'] as const;

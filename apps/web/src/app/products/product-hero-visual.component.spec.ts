@@ -399,6 +399,11 @@ describe('ProductHero visual: the pair finder (AECI-1787)', () => {
     expect(form.querySelector('label[for="product-pair-other"]')!.textContent!.trim()).toBe(
       'Connects to',
     );
+    // AECI-2003: the Label role's type, kept in the on-brand ink because it sits on Forest.
+    const label = form.querySelector('label[for="product-pair-other"]')!;
+    expect(label.classList).toContain('text-t-13');
+    expect(label.classList).toContain('text-(--text-on-brand-secondary)');
+    expect(label.classList).not.toContain('text-t-14');
     expect(input.getAttribute('placeholder')).toBe('Type a product name');
     const button = form.querySelector('button[type="submit"]')!;
     expect(button.textContent!.trim()).toBe('Show integrations');
