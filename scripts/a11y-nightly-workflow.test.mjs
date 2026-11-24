@@ -3,8 +3,10 @@
  * Runs under `node --test` from root `pnpm test:scripts`.
  *
  * What must hold, or a lane drops out of the result without anyone seeing:
- *   1. The `e2e-axe` matrix lists exactly 1..E2E_AXE_SHARDS, and its name says /N.
+ *   1. The `suite` and `e2e-axe` matrices list exactly 1..SUITE_SHARDS and
+ *      1..E2E_AXE_SHARDS, and each job name says /N (AECI-1874 sharded `suite`).
  *   2. Every summary `report` merges is one a job uploads, under that name and file.
+ *      The merge step's own shell body runs here, so the part list is checked as built.
  *   3. `report` decides the outcome from BOTH lanes. The step's own shell body runs here.
  *   4. The alert and confirm-alert jobs read `report`'s outcome, not one lane's result.
  *   5. The PR e2e job never turns the sweep on.
@@ -14,7 +16,7 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
@@ -55,40 +57,91 @@ function stepScript(name) {
   return body.join('\n');
 }
 
-function shardTotal() {
-  const match = WORKFLOW.match(/E2E_AXE_SHARDS: '(\d+)'/);
-  assert.ok(match, 'a11y-nightly.yml sets E2E_AXE_SHARDS');
+function shardTotal(name = 'E2E_AXE_SHARDS') {
+  const match = WORKFLOW.match(new RegExp(`${name}: '(\\d+)'`));
+  assert.ok(match, `a11y-nightly.yml sets ${name}`);
   return Number(match[1]);
 }
 
-test('the e2e-axe matrix lists exactly 1..E2E_AXE_SHARDS, and its name says so', () => {
-  const total = shardTotal();
-  const body = job('e2e-axe');
-  const match = body.match(/shard: \[([\d,\s]+)\]/);
-  assert.ok(match, 'e2e-axe has a shard matrix');
-  assert.deepEqual(
-    match[1].split(',').map((n) => Number(n.trim())),
-    Array.from({ length: total }, (_, i) => i + 1),
-  );
-  assert.match(body, new RegExp(`\\(shard \\$\\{\\{ matrix\\.shard \\}\\}/${total}\\)`));
-  assert.match(body, /-c playwright\.e2e-axe\.config\.ts --shard="\$SHARD\/\$E2E_AXE_SHARDS"/);
+const LANES = [
+  { job: 'e2e-axe', total: 'E2E_AXE_SHARDS', config: 'playwright.e2e-axe.config.ts' },
+  { job: 'suite', total: 'SUITE_SHARDS', config: 'playwright.a11y-nightly.config.ts' },
+];
+
+for (const lane of LANES) {
+  test(`the ${lane.job} matrix lists exactly 1..${lane.total}, and its name says so`, () => {
+    const total = shardTotal(lane.total);
+    const body = job(lane.job);
+    const match = body.match(/shard: \[([\d,\s]+)\]/);
+    assert.ok(match, `${lane.job} has a shard matrix`);
+    assert.deepEqual(
+      match[1].split(',').map((n) => Number(n.trim())),
+      Array.from({ length: total }, (_, i) => i + 1),
+    );
+    assert.match(body, new RegExp(`\\(shard \\$\\{\\{ matrix\\.shard \\}\\}/${total}\\)`));
+    assert.match(body, /fail-fast: false/);
+    const run = new RegExp(
+      `-c ${lane.config.replace(/\./g, '\\.')} --shard="\\$SHARD/\\$${lane.total}"`,
+    );
+    assert.match(body, run);
+  });
+}
+
+test('the suite posts pending once, from shard 1, and runs no unsharded copy', () => {
+  const body = job('suite');
+  assert.match(body, /- name: Mark the a11y-nightly status pending\n\s+if: matrix\.shard == 1\n/);
+  assert.doesNotMatch(body, /pnpm test:a11y:nightly\s*$/m);
 });
 
 test('every summary report merges is one a lane uploads', () => {
   // The e2e-a11y suite writes the default name. The sweep config writes its own.
   assert.match(
     job('suite'),
-    /name: a11y-nightly-summary-suite\n\s+path: apps\/web\/a11y-nightly-summary\.json/,
+    /name: a11y-nightly-summary-suite-\$\{\{ matrix\.shard \}\}\n\s+path: apps\/web\/a11y-nightly-summary\.json/,
   );
   assert.match(AXE_CONFIG, /outputFile: 'a11y-e2e-axe-summary\.json'/);
   assert.match(
     job('e2e-axe'),
     /name: a11y-nightly-summary-e2e-axe-\$\{\{ matrix\.shard \}\}\n\s+path: apps\/web\/a11y-e2e-axe-summary\.json/,
   );
-  const merge = stepScript('Merge into a11y-nightly-summary.json');
-  assert.match(merge, /a11y-parts\/a11y-nightly-summary-suite\/a11y-nightly-summary\.json/);
-  assert.match(merge, /a11y-parts\/a11y-nightly-summary-e2e-axe-\$n\/a11y-e2e-axe-summary\.json/);
-  assert.match(merge, /seq 1 "\$E2E_AXE_SHARDS"/);
+  // Run the merge step as written, with no parts downloaded. The merged file
+  // must name every expected part as missing: one per shard of each lane.
+  const dir = mkdtempSync(join(tmpdir(), 'a11y-merge-step-'));
+  tempDirs.push(dir);
+  mkdirSync(join(dir, 'scripts'));
+  copyFileSync(
+    join(ROOT, 'scripts/a11y-nightly-merge-summary.mjs'),
+    join(dir, 'scripts/a11y-nightly-merge-summary.mjs'),
+  );
+  const stepSummary = join(dir, 'step-summary.md');
+  writeFileSync(stepSummary, '');
+  execFileSync('bash', ['-c', stepScript('Merge into a11y-nightly-summary.json')], {
+    cwd: dir,
+    env: {
+      ...process.env,
+      SUITE_SHARDS: String(shardTotal('SUITE_SHARDS')),
+      E2E_AXE_SHARDS: String(shardTotal('E2E_AXE_SHARDS')),
+      GITHUB_STEP_SUMMARY: stepSummary,
+    },
+    stdio: ['ignore', 'ignore', 'inherit'],
+  });
+  const merged = JSON.parse(readFileSync(join(dir, 'a11y-nightly-summary.json'), 'utf8'));
+  const expected = [
+    ...Array.from(
+      { length: shardTotal('SUITE_SHARDS') },
+      (_, i) => `a11y-parts/a11y-nightly-summary-suite-${i + 1}/a11y-nightly-summary.json`,
+    ),
+    ...Array.from(
+      { length: shardTotal('E2E_AXE_SHARDS') },
+      (_, i) => `a11y-parts/a11y-nightly-summary-e2e-axe-${i + 1}/a11y-e2e-axe-summary.json`,
+    ),
+  ];
+  assert.deepEqual(
+    merged.parts.map((p) => p.file),
+    expected,
+  );
+  assert.ok(merged.parts.every((p) => !p.found));
+  assert.equal(merged.status, 'failed', 'missing parts never read as green');
   // The alert downloads the merged file under the name it always used.
   assert.match(job('report'), /name: a11y-nightly-summary\n\s+path: a11y-nightly-summary\.json/);
   assert.match(job('alert'), /name: a11y-nightly-summary\n\s+path: a11y-results/);

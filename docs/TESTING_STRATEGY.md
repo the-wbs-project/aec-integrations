@@ -876,7 +876,24 @@ one: the base URL, the `webServer` block and the `.dev.vars` auth hydration. Run
 AECI_WEB_PORT=8790 PLAYWRIGHT_BASE_URL=http://localhost:8790 pnpm test:a11y:nightly
 ```
 
-Use the web port `dev:agent` printed in place of `8790`.
+Use the web port `dev:agent` printed in place of `8790`. With no `--shard`, the command runs the whole
+suite, as before.
+
+**Shards (AECI-1874).** CI runs the suite in eight shards, one runner each
+(`docs/CICD_PLAN.md` §11a-quater has the measured times). Playwright splits by test, because the base
+config sets `fullyParallel`. So a spec's tests can land on different shards, and no test may depend on
+another test having run:
+
+- A `describe` with `test.describe.configure({ mode: 'serial' })` or `{ mode: 'default' }` stays on one
+  shard, whole. A group that shares a `beforeAll` record must use one of the two, as
+  `aria-cross-page.spec.ts` (`mode: 'default'`) and `focus-ring.spec.ts` (`mode: 'serial'`) do.
+- Which surface checks the site header (`headerOwnerFor` in `support/header-owner.ts`) is a pure
+  function of the manifest and the fixture probe. It does not depend on which test ran first, so the
+  owner surface checks the header on whichever shard it lands.
+- Known failures and the summary are per test. Each shard writes its own summary, and the workflow
+  merges them (§8.4.2).
+
+To see where tests land: `playwright test -c playwright.a11y-nightly.config.ts --list --shard=3/8`.
 
 **The manifest.** `apps/web/e2e-a11y/surfaces.ts` is the one list of surfaces. It has the seven surfaces
 of `docs/a11y-manual-testing-checklist.md` §1, as nine routes, and the 14 URLs of `phase2-a11y.spec.ts`.
@@ -897,7 +914,7 @@ anywhere else in `e2e-a11y/`, or a call without a literal `'AECI-<n>'`, fails `p
 (`scripts/a11y-known-failures.test.mjs`).
 
 **The summary.** `e2e-a11y/summary-reporter.ts` writes `apps/web/a11y-nightly-summary.json` after every
-run. In CI the workflow merges it with the e2e axe sweep's summaries, and the alert reads the merged
+run, and after every shard in CI. The workflow merges the shards' files with the e2e axe sweep's, and the alert reads the merged
 file to name the failing surfaces (§8.4.2). CI keeps that file as an artifact for 30 days. AECI-1682
 will read it for the dated record.
 
@@ -1030,10 +1047,11 @@ AECI_WEB_PORT=8790 PLAYWRIGHT_BASE_URL=http://localhost:8790 pnpm test:e2e:axe
 Use the web port `dev:agent` printed in place of `8790`. A full local run took about 10 minutes with
 the default workers.
 
-Each lane writes its own summary with the same reporter: `a11y-nightly-summary.json` for `e2e-a11y/`
-and `a11y-e2e-axe-summary.json` for the sweep. The workflow's `report` job merges them into the one
-`a11y-nightly-summary.json` the alert reads (`scripts/a11y-nightly-merge-summary.mjs`). The merge
-adds `parts`, which names each lane file and whether it was found. A missing part makes the merged
+Each shard of each lane writes its own summary with the same reporter: `a11y-nightly-summary.json` for
+an `e2e-a11y/` shard and `a11y-e2e-axe-summary.json` for a sweep shard. The workflow's `report` job
+merges all twelve into the one `a11y-nightly-summary.json` the alert reads
+(`scripts/a11y-nightly-merge-summary.mjs`). The merge adds `parts`, which names each shard's file and
+whether it was found. A missing part makes the merged
 `status` `failed`. A test row names its spec in `file`. Without a `route` annotation, `route` is the
 path the sweep scanned.
 
