@@ -37,8 +37,8 @@ import type { ProductClaimCount } from '../overview/vendor-overview-model';
  *    from the home cards' Forest figures: `conflict` is the one sanctioned red,
  *    and a conflict count that looks like good news defeats the tile. At zero
  *    there is no figure, so red never appears for good news.
- *  - **Hover moves the surface, not the border.** A border-colour utility never
- *    applies here (the unlayered `*` rule in `styles.css`).
+ *  - **Hover moves the surface, not the border.** Built while a border-colour
+ *    utility never applied (the unlayered `*` rule, fixed in AECI-2088).
  *
  * Every label row is `min-h-9`, and `md:min-h-12` so
  * a label that wraps to two lines at `md` does not push its figure below the rest.

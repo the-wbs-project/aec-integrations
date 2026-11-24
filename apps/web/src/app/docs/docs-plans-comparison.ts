@@ -37,8 +37,8 @@
  * Static: no fetch and no visitor state, so the SSR HTML and the hydrated HTML
  * match and the page stays edge-cacheable. Chrome only, so every string is
  * `$localize`d. Light only. Styled by the unlayered `.aec-plan-*` classes in
- * `styles.css`, because a border-color utility loses to the unlayered `*` rule
- * and this renders outside `.aec-prose`.
+ * `styles.css`, written while a border-color utility lost to the then-unlayered
+ * `*` rule (fixed in AECI-2088), and because this renders outside `.aec-prose`.
  */
 import { Component, LOCALE_ID, inject } from '@angular/core';
 

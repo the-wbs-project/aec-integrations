@@ -236,8 +236,9 @@ const URL_SYNC_DEBOUNCE_MS = 350;
                header's bottom padding), so the active tab's underline lands on
                it instead of drawing a second rule. It scrolls sideways rather
                than overflowing the viewport if the labels ever outgrow it. The
-               underline colour comes from .aec-nav-tab in styles.css, because
-               border-colour utilities lose to the unlayered * rule there.
+               underline colour comes from .aec-nav-tab in styles.css, written
+               while border-colour utilities lost to the unlayered * rule
+               (fixed in AECI-2088).
                Selected: the Forest underline and weight 600, so colour is not
                the only cue (ruling 9 of 2026-11-16). 44px tall. -->
           <div

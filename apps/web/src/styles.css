@@ -148,9 +148,8 @@
   --focus-ring-on-brand: var(--accent-warm); /* #F5F2EA (Bone) */
   /* Border of every form control. 3.71:1 on white, 3.55 on raised, 3.37 on
      sunken, 3.31 on Bone. AECI-1764 moved every control onto it. Never on the
-     hero panel (2.77:1). A `border-border-field` utility will NOT apply: the
-     unlayered `* { border-color }` rule wins. Apply it from an unlayered
-     class, as `.aec-field-control` does. */
+     hero panel (2.77:1). Controls take it from `.aec-field-control`. Since
+     AECI-2088 a `border-(--border-field)` utility applies too. */
   --border-field: oklch(61.63% 0.0134 286); /* #84848D */
   /* The ONE hover fill for the Bone main button on Forest (mock-up --cta-hover).
      Forest text on it 9.46:1, text-primary 15.18:1. */
@@ -833,20 +832,37 @@ h1.aec-docs-title,
   }
 }
 
-*,
-*::before,
-*::after {
-  border-color: var(--border-default);
+/* The default border colour (AECI-2088). In `@layer base`, so a border-colour
+   utility (`border-(--x)`, `divide-(--x)`, `border-transparent`) beats it. It was
+   unlayered until AECI-2088, and an unlayered rule beats every layered rule
+   whatever its specificity, so no border-colour utility applied anywhere.
+   `border-color-layer.guard.spec.ts` fails if it moves out of the layer again.
+
+   The selector list is Tailwind preflight's own (`border: 0 solid` resets the
+   colour to `currentcolor` on all five), so every box it resets gets the token.
+   Preflight also sets `table { border-color: inherit }`, which outranks `*`
+   inside the layer, so `table` is named here to keep a table's own edge on the
+   token. This block sits after `@import 'tailwindcss'`, so it wins over
+   preflight at equal specificity. */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button,
+  table {
+    border-color: var(--border-default);
+  }
 }
 
 /* Tab-style nav items: the vendor portal's section row (`vendor-nav.ts`).
-   The rule directly above sets `border-color` on `*` OUTSIDE any cascade layer,
-   and an unlayered rule beats every layered rule regardless of specificity — so
-   Tailwind's `border-transparent` and `border-(--accent-primary)` silently never
-   reach a `border-b-2` tab and its underline comes out `--border-default` grey
-   in BOTH states. (Same trap the anchor-color note below records; it bites every
-   border-color utility in the app, not just here.) A class is unlayered too and
-   outranks `*`, so it can express what the utilities cannot.
+   Why this and the edge classes below are unlayered: until AECI-2088 the `*`
+   border rule above was unlayered too, and an unlayered rule beats every layered
+   rule whatever its specificity. So `border-transparent` and
+   `border-(--accent-primary)` never reached a `border-b-2` tab, and no other
+   border-colour utility applied either. The rule is in `@layer base` now, so a
+   utility works. These classes still win over a utility beside them, because a
+   class outside any layer beats every layer. New code may use either.
 
    `aria-current` is the state, in both spellings the row uses: `page` on the
    four routed links (from `routerLinkActive`) and `true` on the Products
@@ -863,12 +879,10 @@ h1.aec-docs-title,
 }
 
 /* Status callouts whose border carries the state (the mailing-list signup band's
-   subscribed / already-subscribed / error notices). Same trap as `.aec-nav-tab`
-   above: `border-(--accent-primary)` and `border-(--status-error)` are layered
-   utilities, so the unlayered `*` rule wins and both edges come out
-   `--border-default` grey. Error is the case that matters — the red boundary is
-   what carries severity — and the success wash is only 1.14:1 against white, so
-   its border is the boundary. Declared here so they outrank `*` on specificity. */
+   subscribed / already-subscribed / error notices). Unlayered for the history the
+   `.aec-nav-tab` note records. Error is the case that matters — the red boundary
+   is what carries severity — and the success wash is only 1.14:1 against white,
+   so its border is the boundary. */
 .aec-notice-success {
   border-color: var(--accent-primary);
 }
@@ -882,9 +896,8 @@ h1.aec-docs-title,
 }
 
 /* Subscription status chips on the vendor Billing tab (AECI-1866,
-   `vendor-billing-licenses.ts`). Same trap as `.aec-nav-tab`: a layered
-   `border-(--accent-primary)` never beats the unlayered `*` rule, which is why
-   every chip came out the same grey. Existing tokens only (DESIGN.md allows no new
+   `vendor-billing-licenses.ts`). Unlayered for the history the `.aec-nav-tab`
+   note records. Existing tokens only (DESIGN.md allows no new
    status colour). Live is the Forest wash with its Forest boundary (the wash alone
    is 1.14:1 on white, so the border carries the edge). Warning is Clay deep text,
    the system's warning hue, text-only so the Clay-Restriction Rule holds. Ended is
@@ -922,9 +935,8 @@ h1.aec-docs-title,
   outline-color: var(--accent-primary);
 }
 
-/* Coloured borders on the vendor overview's status pills (AECI-983). A
-   `border-(--status-error)` utility never reaches the element, for the reason
-   the `.aec-nav-tab` note records, so the tone lives on an unlayered class. */
+/* Coloured borders on the vendor overview's status pills (AECI-983). Unlayered
+   for the history the `.aec-nav-tab` note records. */
 .aec-pill-conflict {
   border-color: var(--status-error);
 }
@@ -933,9 +945,8 @@ h1.aec-docs-title,
   border-color: var(--border-strong);
 }
 
-/* The pair page's version-diff row edge (AECI-303, products-pair.ts). Same trap as
-   `.aec-nav-tab`: a `border-s-(--accent-primary)` utility never beats the `*` rule, so
-   the added row's Forest edge rendered grey. Start edge only, so RTL keeps it. */
+/* The pair page's version-diff row edge (AECI-303, products-pair.ts). Unlayered
+   for the history the `.aec-nav-tab` note records. Start edge only, so RTL keeps it. */
 .aec-diff-added {
   border-inline-start-color: var(--accent-primary);
 }
@@ -945,9 +956,8 @@ h1.aec-docs-title,
 }
 
 /* The shared form-control recipe (FIELD_INPUT_CLASS and the `aec-select`
-   trigger), AECI-1764. Unlayered for the reason `.aec-nav-tab` records: a
-   border-colour utility loses to the `*` rule, and an unlayered rule here moves
-   every caller at once, including hand-written copies of the class.
+   trigger), AECI-1764. Unlayered, so it moves every caller at once, including
+   hand-written copies of the class, and wins over any utility beside it.
    Edge: `--border-field`, 3.71:1 on white. Shape: 12px radius, 44px floor, no
    shadow. Focus: the edge goes Forest and the 3px outline sits 3px out (an
    outline, so forced colours keeps it). Invalid: a 2px `--status-error` edge,
@@ -956,8 +966,8 @@ h1.aec-docs-title,
 
 /* The one chip (AECI-1763, DESIGN.md §5 Badges, clash 22). `aec-chip` sets the
    data attributes and nothing else, so this block is the whole recipe. It is
-   unlayered for the reason `.aec-nav-tab` records: a border-colour utility loses
-   to the `*` rule, and the chip's edge carries its tone.
+   unlayered for the history the `.aec-nav-tab` note records, and the chip's edge
+   carries its tone.
 
    Shape is the pill (clash 12). No shadow, no Clay. Default is 13px at weight
    400, about 31px tall (13px at 1.6 plus 8px padding and the 2px edge). Dense is
@@ -1131,8 +1141,8 @@ button.aec-chip:focus-visible {
 }
 
 /* The shared form-control border (FIELD_INPUT_CLASS and the `aec-select`
-   trigger). Unlayered for the reason `.aec-nav-tab` records: a border-colour
-   utility loses to the `*` rule. Rest is the 3:1 `--border-input`. Invalid is
+   trigger). Unlayered for the history the `.aec-nav-tab` note records. Rest is
+   the 3:1 `--border-input`. Invalid is
    `--status-error`, keyed off `aria-invalid` so the attribute that tells a
    screen reader is the one that paints the edge. */
 .aec-field-control {
@@ -1189,8 +1199,8 @@ button.aec-chip:focus-visible {
 }
 
 /* The hairline on a Forest ground: the header and footer dividers (AECI-1845).
-   Unlayered for the reason `.aec-nav-tab` records: a `border-(--x)` utility
-   loses to the `*` rule. Pair it with a width utility such as `border-t`.
+   Unlayered for the history the `.aec-nav-tab` note records. Pair it with a
+   width utility such as `border-t`.
    `.aec-on-brand-edge` is the 3:1 control edge on Forest (4.01:1): the header
    search icon, menu toggle and account trigger. */
 .aec-on-brand-rule {
@@ -1203,7 +1213,7 @@ button.aec-chip:focus-visible {
 
 /* The stronger hairline on a light ground: the rule that closes the home hero's
    Bone band above the credibility row (AECI-1792). `--border-default` is about
-   1.1:1 on Bone and all but vanishes. Unlayered for the same reason as above.
+   1.1:1 on Bone and all but vanishes. Unlayered for the same history as above.
    Pair it with a width utility such as `border-t`. */
 .aec-rule-strong {
   border-color: var(--border-strong);
@@ -1216,8 +1226,7 @@ button.aec-chip:focus-visible {
 }
 
 /* The shared button's edge (AECI-1758, `shared/button/button.ts`). Unlayered for
-   the reason `.aec-nav-tab` records: a `border-(--x)` utility loses to the `*`
-   rule. Every variant carries a 1px edge so all of them are 44px. Filled and
+   the history the `.aec-nav-tab` note records. Every variant carries a 1px edge so all of them are 44px. Filled and
    ghost buttons keep it transparent, which forced-colours mode paints as a real
    edge. The secondary button's edge is `--border-strong`. */
 .aec-btn {
@@ -1235,7 +1244,7 @@ button.aec-chip:focus-visible {
 }
 
 /* The shared card surface (AECI-1765, `shared/card/card.ts`). Unlayered for the
-   reason `.aec-nav-tab` records: a `border-(--x)` utility loses to the `*` rule.
+   history the `.aec-nav-tab` note records.
    The 1px edge is transparent. A resting card has no hairline beside its shadow
    (DESIGN.md section 4, "Open values"). Forced-colours mode drops `box-shadow` and
    paints a transparent border in a system colour, so the card keeps an edge there.
@@ -1447,7 +1456,7 @@ button.aec-chip:focus-visible {
 }
 
 /* A scroll box whose last row may be clipped (the "About you" audience list).
-   A bottom hairline from the `*` rule plus an always-drawn thin scrollbar, so
+   A bottom hairline from the `*` border default plus an always-drawn thin scrollbar, so
    the overflow reads as scrollable where overlay scrollbars hide. */
 .aec-scroll-box {
   scrollbar-width: thin;
@@ -1541,8 +1550,8 @@ textarea:-webkit-autofill:focus {
    panel, info hint or tooltip body: 12px radius, white fill, `--shadow-menu`.
    Layout (width, padding, height, position) stays with the caller. Z-index stays
    with the CDK overlay container.
-   EDGE: a real 1px hairline. The colour is the unlayered `*` border rule above
-   (`--border-default`), which is why none is set here. A shadow is never the only
+   EDGE: a real 1px hairline. The colour is the `@layer base` border default
+   above (`--border-default`), which is why none is set here. A shadow is never the only
    edge, so forced-colours mode, which drops `box-shadow`, still draws one.
    RADIUS: DESIGN.md names no overlay radius. Card for the two modal surfaces and
    control for the popover, chosen by the orchestrator and flagged for Chris. A
@@ -2741,8 +2750,8 @@ html[data-consent-reserve]
    - The global `h1, h2, h3` rule is unlayered, so a `text-*` utility on a heading
      is dead (DESIGN.md "The Unlayered-Heading Rule"). A class beats the element
      selector, so the docs heading sizes live here.
-   - The rail's open panel needs a border colour, which a layered utility cannot
-     set past the unlayered `*` rule (the `.aec-nav-tab` note). */
+   - The rail's open panel's border colour is here for the history the
+     `.aec-nav-tab` note records. */
 
 /* Page h1 on the home, a section index and an article: DeepWiki's quiet title
    rather than a hero. Was 30px, off the ramp. AECI-1748 snaps it to --t-36 (28 to
@@ -2763,8 +2772,8 @@ html[data-consent-reserve]
 }
 
 /* The Plans page's cards and comparison table (`docs-plans-comparison.ts`;
-   anchor site Mintlify's billing page). Unlayered for the `.aec-nav-tab`
-   reason: a border-color utility loses to the unlayered `*` rule. The Free and
+   anchor site Mintlify's billing page). Unlayered for the history the
+   `.aec-nav-tab` note records. The Free and
    Managed cards are the shared card (`aecCard`, ruling A7). `.aec-plan-card` is
    left on the plans rail (`plan-cta.ts`). The Managed card keeps a 2px Forest
    border; this rule sits after `.aec-card`, so it wins over the transparent edge. */
