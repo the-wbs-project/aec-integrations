@@ -267,6 +267,7 @@ function parseQuantity(text: string): number | null {
               <p
                 brnDialogDescription
                 class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
+                data-testid="stripe-add-intro"
                 i18n="@@vendor.billing.stripe.add.intro"
               >
                 New subscriptions join your Stripe plan and are billed on the same schedule, at
@@ -525,7 +526,10 @@ function parseQuantity(text: string): number | null {
             in the agreement.
           </p>
 
-          <p class="max-w-[32rem] text-t-14 leading-[1.6] text-(--text-secondary)">
+          <p
+            class="max-w-[32rem] text-t-14 leading-[1.6] text-(--text-secondary)"
+            data-testid="stripe-agreement"
+          >
             <ng-container i18n="@@vendor.billing.stripe.agreement">
               On the Stripe page you accept the
               <a [routerLink]="agreementHref" [class]="linkClass">Managed plan agreement</a>

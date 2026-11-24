@@ -190,24 +190,85 @@ test.describe('billing tables', () => {
       expect(overflows, `${name} scrolls inside its region`).toBe(true);
     }
   });
+});
 
-  test('the checkout button keeps its place after the disclosure and the cap', async ({ page }) => {
-    await page.goto(BILLING);
-    await untilAppStable(page);
-    const order = await page.evaluate(() => {
-      const ids = ['stripe-disclosure', 'stripe-cap', 'stripe-checkout'];
-      const els = ids.map((id) => document.querySelector(`[data-testid="${id}"]`)!);
-      return els.every(
-        (el, i) =>
-          i === 0 ||
-          (els[i - 1]!.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+/**
+ * Every sentence around a pay or accept action stays above that action, in source
+ * order AND on screen, at every width (AECI-1812 review). Each element's top is below
+ * the one before it, and each sits wholly above the action button.
+ */
+async function expectRenderedOrder(page: Page, ids: readonly string[], label: string) {
+  const boxes = [];
+  for (const id of ids) {
+    const el = page.getByTestId(id).first();
+    await expect(el, `${id} is on the page`).toBeVisible();
+    boxes.push({ id, box: (await el.boundingBox())! });
+  }
+  const sourceOrder = await page.evaluate((list) => {
+    const els = list.map((id) => document.querySelector(`[data-testid="${id}"]`)!);
+    return els.every(
+      (el, i) =>
+        i === 0 ||
+        (els[i - 1]!.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+    );
+  }, ids);
+  expect(sourceOrder, `${label}: source order`).toBe(true);
+  const action = boxes[boxes.length - 1]!;
+  for (let i = 1; i < boxes.length; i++) {
+    const prev = boxes[i - 1]!;
+    const cur = boxes[i]!;
+    expect(cur.box.y, `${label}: ${cur.id} is below ${prev.id}`).toBeGreaterThan(prev.box.y);
+    if (cur !== action) {
+      expect(
+        cur.box.y + cur.box.height,
+        `${label}: ${cur.id} ends above ${action.id}`,
+      ).toBeLessThanOrEqual(action.box.y);
+    }
+  }
+}
+
+for (const width of [1440, 390, 320]) {
+  test.describe(`order around pay and accept at ${width}px`, () => {
+    test.beforeEach(async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+    });
+
+    test('Pay by card: disclosure, cap and agreement note sit above "Continue to Stripe"', async ({
+      page,
+    }) => {
+      await page.goto(BILLING);
+      await untilAppStable(page);
+      await expectRenderedOrder(
+        page,
+        ['stripe-disclosure', 'stripe-cap', 'stripe-agreement', 'stripe-checkout'],
+        `buy form at ${width}px`,
+      );
+      // The one primary action on the page.
+      await expect(page.getByTestId('stripe-checkout')).toHaveAttribute('data-variant', 'primary');
+    });
+
+    test('Add subscriptions: the proration sentence sits above the submit', async ({ page }) => {
+      await page.goto(`${BILLING}?billing=card`);
+      await untilAppStable(page);
+      await unstickSwitcher(page);
+      await reach(page, [
+        { click: '[data-testid="stripe-add-open"]', shows: '[data-testid="stripe-add-dialog"]' },
+      ]);
+      await expectRenderedOrder(
+        page,
+        ['stripe-add-intro', 'stripe-add-submit'],
+        `add dialog at ${width}px`,
       );
     });
-    expect(order).toBe(true);
-    // The one primary action on the page.
-    await expect(page.locator('[data-testid="stripe-checkout"]')).toHaveAttribute(
-      'data-variant',
-      'primary',
-    );
+
+    test('a waiting grant: the agreement sentence sits above Accept', async ({ page }) => {
+      await page.goto(BILLING);
+      await untilAppStable(page);
+      await expectRenderedOrder(
+        page,
+        ['pending-grant-version-link', 'pending-grant-accept-label', 'pending-grant-accept'],
+        `grant card at ${width}px`,
+      );
+    });
   });
-});
+}

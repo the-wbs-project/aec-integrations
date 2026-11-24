@@ -20,9 +20,10 @@ import {
 } from './vendor-billing-styles';
 
 /**
- * How a status chip is coloured (AECI-1866). `live` is the Forest wash, `warning` is
- * Clay deep text for a live subscription that ends soon or will not renew, and
- * `ended` is the neutral chip. The chip's words always carry the same state, so the
+ * How a status chip is coloured (AECI-1866, AECI-1812; `LICENSE_CHIP_TONE` in
+ * `vendor-billing-styles.ts`). `live` is the Forest wash. `warning`, for a live
+ * subscription that ends soon or will not renew, is the strong edge with a clock.
+ * `ended` is the quiet chip. The chip's words always carry the same state, so the
  * colour is never the only signal.
  */
 export type VendorBillingLicenseTone = 'live' | 'warning' | 'ended';

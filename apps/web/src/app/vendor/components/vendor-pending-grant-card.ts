@@ -275,7 +275,11 @@ export function grantAcceptFailure(err: unknown): GrantAcceptFailure {
               [class]="choiceInputClass + ' mt-1'"
               data-testid="pending-grant-accept-box"
             />
-            <label [attr.for]="id('accept')" class="text-t-14 leading-[1.6] text-(--text-primary)">
+            <label
+              [attr.for]="id('accept')"
+              class="text-t-14 leading-[1.6] text-(--text-primary)"
+              data-testid="pending-grant-accept-label"
+            >
               @if (agreementHref(); as href) {
                 <span i18n="@@vendor.billing.grantPending.acceptLabel"
                   >I have read and accept the
