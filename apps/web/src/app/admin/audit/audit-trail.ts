@@ -19,8 +19,8 @@ import { SortHeader } from '../../shared/sort-header/sort-header';
 import { AdminCursorPaginator } from '../admin-cursor-paginator';
 import { AdminPaginator } from '../admin-paginator';
 import { CONSOLE_TABLE } from '../console/console-table';
-import { AdminDisclosureButton } from '../console/disclosure-button';
 import { AecButton } from '../../shared/button/button';
+import { AecIcon } from '../../shared/icon/icon';
 import { describeAuditAction } from './audit-action-labels';
 
 /**
@@ -116,7 +116,7 @@ export const AUDIT_TRAIL_RESULT_ID = 'audit-trail-result';
   selector: 'aec-audit-trail',
   imports: [
     AdminCursorPaginator,
-    AdminDisclosureButton,
+    AecIcon,
     AdminPaginator,
     AecButton,
     RelativeTime,
@@ -196,9 +196,10 @@ export class AuditTrail {
   protected readonly topPagerLabel = $localize`:@@admin.audit.pager.top:Pagination, above the table`;
   protected readonly bottomPagerLabel = $localize`:@@admin.audit.pager.bottom:Pagination, below the table`;
   protected readonly whenLabel = $localize`:@@admin.audit.col.when:When`;
-  /** The diff disclosure's name: what it opens, no verb (the console recipe). The
-   *  same message as the diff table's caption, so no new string. */
-  protected readonly diffLabel = $localize`:@@admin.audit.diff.caption:Fields changed by this action`;
+  /** The leading toggle cell: the console's disclosure cell, widened for the
+   *  toggle's visible words ("Show changes", ruled on PR #1495). */
+  protected readonly toggleCellClass =
+    'py-0 ps-1 pe-3 align-middle whitespace-nowrap border-b border-(--border-default)';
 
   protected readonly tc = CONSOLE_TABLE;
   protected readonly statusLineClass = AUDIT_CLASSES.statusLine;

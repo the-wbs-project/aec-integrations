@@ -755,12 +755,14 @@
           {{ failedMessage() }}
         </p>
         }
-        <!-- A publish and a re-send both email people and cannot be taken back: danger. -->
+        <!-- A publish cannot be undone: danger. A re-send only re-queues the notice for
+             companies not yet delivered and takes nothing from anyone: primary (ruled on
+             PR #1495). -->
         <div [class]="c.actions" class="mt-6">
           @if (dialogMode() === 'resend') {
           <button
             aecButton
-            variant="danger"
+            variant="primary"
             type="button"
             data-testid="legal-resend-confirm"
             (click)="confirmResend()"

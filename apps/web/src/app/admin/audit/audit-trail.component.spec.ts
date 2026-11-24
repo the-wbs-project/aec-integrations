@@ -64,11 +64,29 @@ function setup(rows: AdminAuditRow[], over: Partial<Record<string, unknown>> = {
   return { fixture, el: fixture.nativeElement as HTMLElement };
 }
 
-/** The diff disclosure's name (AECI-2128): what it opens, no verb. */
-const DIFF_TOGGLE = 'Fields changed by this action';
+/** The diff toggle's visible words (kept, ruled on PR #1495). */
+const DIFF_TOGGLE = 'Show changes';
 
 function buttonByText(el: HTMLElement, text: string): HTMLButtonElement | undefined {
   return [...el.querySelectorAll('button')].find((b) => b.textContent?.trim() === text);
+}
+
+/**
+ * Open the diff for `ROW_ID` and return its detail row. Asserts the toggle really
+ * opened it: the diff table is built only when open, so a broken toggle leaves
+ * no text to find.
+ */
+function openDiff(fixture: { detectChanges: () => void }, el: HTMLElement): HTMLElement {
+  const toggle = buttonByText(el, DIFF_TOGGLE)!;
+  const row = el.querySelector<HTMLElement>(`#audit-diff-${ROW_ID}`)!;
+  expect(row.hidden).toBe(true);
+  expect(row.querySelector('table')).toBeNull();
+  toggle.click();
+  fixture.detectChanges();
+  expect(row.hidden).toBe(false);
+  expect(toggle.getAttribute('aria-expanded')).toBe('true');
+  expect(toggle.textContent?.trim()).toBe('Hide changes');
+  return row;
 }
 
 describe('AuditTrail', () => {
@@ -141,17 +159,10 @@ describe('AuditTrail', () => {
         after_state: { status: 'revoked', invoice_ref: 'PO-9' },
       }),
     ]);
-    const toggle = buttonByText(el, DIFF_TOGGLE)!;
-    const diff = el.querySelector<HTMLElement>(`#audit-diff-${ROW_ID}`);
-    // The console recipe renders the detail row closed, hidden until opened.
-    expect(diff?.hidden).toBe(true);
-    toggle.click();
-    fixture.detectChanges();
-
-    expect(diff?.tagName).toBe('TR');
-    expect(diff?.hidden).toBe(false);
-    expect(toggle.getAttribute('aria-expanded')).toBe('true');
-    const text = diff?.textContent ?? '';
+    // The detail row is always there, hidden; its table is built only when opened.
+    const diff = openDiff(fixture, el);
+    expect(diff.tagName).toBe('TR');
+    const text = diff.textContent ?? '';
     expect(text).toContain('status');
     expect(text).toContain('changed');
     // A key present on only one side must still appear: dropping it would hide
@@ -164,9 +175,7 @@ describe('AuditTrail', () => {
 
   it('renders a SCALAR snapshot as a single value row instead of throwing', () => {
     const { fixture, el } = setup([makeRow({ before_state: 'a bare string', after_state: 42 })]);
-    buttonByText(el, DIFF_TOGGLE)!.click();
-    fixture.detectChanges();
-    const text = el.querySelector(`#audit-diff-${ROW_ID}`)?.textContent ?? '';
+    const text = openDiff(fixture, el).textContent ?? '';
     expect(text).toContain('value');
     expect(text).toContain('a bare string');
     expect(text).toContain('42');
@@ -396,13 +405,26 @@ describe('AuditTrail', () => {
       const toggle = buttonByText(el, DIFF_TOGGLE)!;
       expect(toggle.getAttribute('aria-expanded')).toBe('false');
       expect(toggle.getAttribute('aria-controls')).toBe(`audit-diff-${ROW_ID}`);
+      // Described by its row's header, so two toggles can be told apart.
+      const describedBy = toggle.getAttribute('aria-describedby');
+      const header = el.querySelector(`#${describedBy}`);
+      expect(header?.getAttribute('scope')).toBe('row');
+      expect(header?.textContent).toContain('Entitlement set');
     });
 
     it('states the change in words, never by colour alone', () => {
       const { fixture, el } = setup([makeRow({ before_state: { a: 1 }, after_state: { a: 2 } })]);
-      buttonByText(el, DIFF_TOGGLE)!.click();
+      expect(openDiff(fixture, el).textContent).toContain('changed');
+    });
+
+    it('closes again: Hide changes hides the row and drops the table', () => {
+      const { fixture, el } = setup([makeRow({ after_state: { a: 1 } })]);
+      const row = openDiff(fixture, el);
+      buttonByText(el, 'Hide changes')!.click();
       fixture.detectChanges();
-      expect(el.querySelector(`#audit-diff-${ROW_ID}`)?.textContent).toContain('changed');
+      expect(row.hidden).toBe(true);
+      expect(row.querySelector('table')).toBeNull();
+      expect(buttonByText(el, DIFF_TOGGLE)!.getAttribute('aria-expanded')).toBe('false');
     });
   });
 });

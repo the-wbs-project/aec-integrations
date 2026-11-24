@@ -128,14 +128,33 @@
       @for (v of views(); track v.row.id) {
       <tbody>
         <tr [class]="isDiffOpen(v.row.id) ? tc.rowOpen : tc.row">
-          <td [class]="tc.disclosure">
+          <!-- The toggle keeps its visible words (ruled on PR #1495). The shared
+               `AdminDisclosureButton` is icon-only and takes no description, so this
+               is the same 44px ghost button with its chevron and the words beside it,
+               described by the row's header so each toggle can be told apart. -->
+          <td [class]="toggleCellClass">
             @if (v.diff.length > 0) {
-            <aec-admin-disclosure-button
-              [expanded]="isDiffOpen(v.row.id)"
-              [controls]="'audit-diff-' + v.row.id"
-              [label]="diffLabel"
-              (toggled)="toggleDiff(v.row.id)"
-            />
+            <button
+              aecButton
+              variant="ghost"
+              compact
+              type="button"
+              [attr.aria-expanded]="isDiffOpen(v.row.id)"
+              [attr.aria-controls]="'audit-diff-' + v.row.id"
+              [attr.aria-describedby]="'audit-row-' + v.row.id"
+              (click)="toggleDiff(v.row.id)"
+            >
+              <span
+                class="inline-flex text-(--text-secondary) transition-transform duration-fast ease-standard motion-reduce:transition-none"
+                [class.rotate-180]="isDiffOpen(v.row.id)"
+                ><aec-icon name="chevron-down" decorative
+              /></span>
+              @if (isDiffOpen(v.row.id)) {
+              <span i18n="@@admin.audit.diff.hide">Hide changes</span>
+              } @else {
+              <span i18n="@@admin.audit.diff.show">Show changes</span>
+              }
+            </button>
             } @else {
             <span
               class="inline-flex w-11 justify-center text-(--text-secondary)"
@@ -159,7 +178,7 @@
           The raw token stays underneath, because an operator correlating this
           against a log line still needs the exact value.
         -->
-          <th scope="row" [class]="tc.rowHead">
+          <th scope="row" [id]="'audit-row-' + v.row.id" [class]="tc.rowHead">
             {{ v.description }}
             <span [class]="tc.sub" class="font-mono">{{ v.row.action }}</span>
           </th>
@@ -208,12 +227,14 @@
         <!--
         The expanded diff is a full-width row rather than a panel outside the
         table, so it stays adjacent to the row it belongs to in both the visual
-        and the accessibility tree. Always rendered, hidden until opened, as the
-        console recipe asks.
+        and the accessibility tree. The row is always rendered, hidden until
+        opened, so `aria-controls` always resolves; the diff table inside it is
+        built only when opened, so a 100-row page does not render 100 tables.
       -->
         @if (v.diff.length > 0) {
         <tr [id]="'audit-diff-' + v.row.id" [class]="tc.detailRow" [hidden]="!isDiffOpen(v.row.id)">
           <td colspan="5" [class]="tc.detailCell">
+            @if (isDiffOpen(v.row.id)) {
             <div [class]="tc.detailInner">
               <table [class]="tc.table" class="text-t-13">
                 <caption [class]="tc.caption" i18n="@@admin.audit.diff.caption">
@@ -246,6 +267,7 @@
                 </tbody>
               </table>
             </div>
+            }
           </td>
         </tr>
         }

@@ -302,6 +302,18 @@ function diffTable(el: HTMLElement): HTMLTableElement | null {
   return el.querySelector('[id^="audit-diff-"] table');
 }
 
+/** Press "Show changes" and assert it really opened its row (AECI-2128): the diff
+ *  table is built only when open, so a broken toggle leaves no text to read. */
+function openDiff(el: HTMLElement, fixture: { detectChanges: () => void }): void {
+  const toggle = buttonByText(el, 'Show changes')!;
+  expect(diffTable(el)).toBeNull();
+  toggle.click();
+  fixture.detectChanges();
+  const row = el.querySelector<HTMLElement>(`#${toggle.getAttribute('aria-controls')}`)!;
+  expect(row.hidden).toBe(false);
+  expect(toggle.getAttribute('aria-expanded')).toBe('true');
+}
+
 describe('VendorDetail', () => {
   describe('the heading names the entity (AECI-777)', () => {
     it('shows the vendor name once loaded, not the word "Vendor"', async () => {
@@ -1056,8 +1068,7 @@ describe('VendorDetail', () => {
           }),
         ]),
       );
-      buttonByText(el, 'Fields changed by this action')!.click();
-      fixture.detectChanges();
+      openDiff(el, fixture);
 
       const text = diffTable(el)?.textContent ?? '';
       expect(text).toContain('status');
@@ -1076,8 +1087,7 @@ describe('VendorDetail', () => {
           makeAuditRow({ before_state: { a: 1 }, after_state: { a: 2 } }),
         ]),
       );
-      buttonByText(el, 'Fields changed by this action')!.click();
-      fixture.detectChanges();
+      openDiff(el, fixture);
       expect(diffTable(el)?.textContent).toContain('changed');
     });
 
@@ -1089,8 +1099,7 @@ describe('VendorDetail', () => {
           makeAuditRow({ before_state: 'a bare string', after_state: 42 }),
         ]),
       );
-      buttonByText(el, 'Fields changed by this action')!.click();
-      fixture.detectChanges();
+      openDiff(el, fixture);
       const text = diffTable(el)?.textContent ?? '';
       expect(text).toContain('value');
       expect(text).toContain('a bare string');
@@ -1099,7 +1108,7 @@ describe('VendorDetail', () => {
 
     it('offers no diff toggle for a row with no snapshots', async () => {
       const { el } = await setupAudit(makeApiMock(makeVendor(), [makeAuditRow()]));
-      expect(buttonByText(el, 'Fields changed by this action')).toBeUndefined();
+      expect(buttonByText(el, 'Show changes')).toBeUndefined();
     });
 
     it('renders the empty state for a scope with no rows', async () => {
@@ -1187,7 +1196,7 @@ describe('VendorDetail', () => {
       const { el } = await setupAudit(
         makeApiMock(makeVendor(), [makeAuditRow({ after_state: { a: 1 } })]),
       );
-      const toggle = buttonByText(el, 'Fields changed by this action')!;
+      const toggle = buttonByText(el, 'Show changes')!;
       expect(toggle.getAttribute('aria-expanded')).toBe('false');
       expect(toggle.getAttribute('aria-controls')).toBeTruthy();
     });

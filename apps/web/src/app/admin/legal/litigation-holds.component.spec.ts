@@ -325,6 +325,28 @@ describe('AdminLitigationHolds focus and buttons (AECI-2128)', () => {
     await rerender();
   });
 
+  it('a release with the place form open lands focus on the section heading', async () => {
+    const { el, click, type, submit, rerender } = await setup({ ...EMPTY, open: [hold()] });
+    await click('#admin-hold-place-open');
+    await click('#admin-hold-release-open-h-1');
+    await type('#admin-hold-release-h-1', 'Matter settled');
+    await submit('[data-testid="hold-release-form"]');
+    await rerender();
+    // "Place a hold" is not rendered while its form is open.
+    expect(el.querySelector('[data-testid="hold-place-form"]')).not.toBeNull();
+    expect(el.querySelector('#admin-hold-place-open')).toBeNull();
+    expect(document.activeElement?.id).toBe('admin-legal-holds-h');
+  });
+
+  it('a release with the place form closed lands focus on "Place a hold"', async () => {
+    const { click, type, submit, rerender } = await setup({ ...EMPTY, open: [hold()] });
+    await click('#admin-hold-release-open-h-1');
+    await type('#admin-hold-release-h-1', 'Matter settled');
+    await submit('[data-testid="hold-release-form"]');
+    await rerender();
+    expect(document.activeElement?.id).toBe('admin-hold-place-open');
+  });
+
   it('a refused release moves focus to its error', async () => {
     const { click, type, submit } = await setup(
       { ...EMPTY, open: [hold()] },

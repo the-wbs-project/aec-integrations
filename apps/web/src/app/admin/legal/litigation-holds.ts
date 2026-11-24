@@ -132,10 +132,21 @@ export class AdminLitigationHolds {
     void this.fetch();
   }
 
-  private focus(selector: string): void {
-    afterNextRender(() => this.host.nativeElement.querySelector<HTMLElement>(selector)?.focus(), {
-      injector: this.injector,
-    });
+  /** Focus the first of `selectors` that is rendered, tried in order. */
+  private focus(...selectors: string[]): void {
+    afterNextRender(
+      () => {
+        const root = this.host.nativeElement;
+        for (const selector of selectors) {
+          const target = root.querySelector<HTMLElement>(selector);
+          if (target) {
+            target.focus();
+            return;
+          }
+        }
+      },
+      { injector: this.injector },
+    );
   }
 
   protected textOf(event: Event): string {
@@ -246,7 +257,9 @@ export class AdminLitigationHolds {
         $localize`:@@admin.legal.holds.announce.released:Hold released. The retention prune resumes on its next run.`,
       );
       await this.fetch();
-      this.focus('#admin-hold-place-open');
+      // "Place a hold" is not rendered while the place form is open, so fall back to
+      // the section heading rather than letting focus drop to the body.
+      this.focus('#admin-hold-place-open', '#admin-legal-holds-h');
     } catch (error) {
       this.releaseError.set(holdErrorMessage(error));
       this.focus(`[id="admin-hold-release-failed-${hold.id}"]`);

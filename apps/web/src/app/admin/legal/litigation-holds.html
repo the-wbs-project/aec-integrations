@@ -9,7 +9,16 @@
 -->
 <section aria-labelledby="admin-legal-holds-h" data-testid="litigation-holds" class="grid gap-4">
   <div class="grid gap-2">
-    <h2 id="admin-legal-holds-h" i18n="@@admin.legal.holds.heading">Litigation holds</h2>
+    <!-- tabindex="-1": a release that finishes while the place form is open lands
+         focus here, because "Place a hold" is not rendered then. -->
+    <h2
+      id="admin-legal-holds-h"
+      tabindex="-1"
+      class="focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
+      i18n="@@admin.legal.holds.heading"
+    >
+      Litigation holds
+    </h2>
     <p [class]="c.caption" i18n="@@admin.legal.holds.lead">
       A hold stops the nightly retention prune from deleting records a legal matter needs. A vendor
       hold keeps that vendor's audit records, agreement acceptances and subscription grants. Every

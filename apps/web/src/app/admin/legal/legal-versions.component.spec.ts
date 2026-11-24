@@ -688,7 +688,12 @@ describe('AdminLegalVersions: the change notice (AECI-1620)', () => {
       'An address that already got this notice for a company is not emailed again.',
     );
 
-    dialogButton('Send the notice again').click();
+    // Ruled on PR #1495: a re-send takes nothing from anyone, so it confirms with the
+    // primary button, not danger.
+    const confirm = dialogButton('Send the notice again');
+    expect(confirm.className).toContain('bg-(--accent-primary)');
+    expect(confirm.className).not.toContain('bg-(--status-error)');
+    confirm.click();
     await ctx.rerender();
     expect(text(dialogEl())).toContain('Queuing…');
     expect(dialogButton('Cancel').disabled).toBe(true);
