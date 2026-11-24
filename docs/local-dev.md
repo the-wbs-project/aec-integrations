@@ -164,6 +164,8 @@ its own pair.
 lsof -nP -iTCP -sTCP:LISTEN | grep workerd
 ```
 
+After a `kill -9`, a stale `.wrangler/registry` folder breaks the service binding with "Network connection lost", and deleting that folder fixes it.
+
 ## 4. Local tracing
 
 Wrangler (pinned `^4.123.0`) captures OpenTelemetry traces for every local Worker invocation.

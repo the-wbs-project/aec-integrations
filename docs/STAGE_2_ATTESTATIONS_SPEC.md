@@ -1427,8 +1427,8 @@ portal still never recomputes agreement. States, most urgent first:
 | `empty` | No data flows | No claims. |
 
 A counterpart takes its most urgent integration's state, and its counts are the sum. Pill tones reuse
-the overview's "What needs you" pills (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.10), including the
-unlayered `.aec-pill-*` border classes. The copy says "data flows", not "data points", to match
+the overview's "What needs you" pills (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.10). Since AECI-1811
+they are `aec-chip` tones, and the old unlayered pill border classes are gone (AECI-1729). The copy says "data flows", not "data points", to match
 every other sentence on the tab.
 
 **Order is alphabetical by counterpart, never by health.** An Affirm is optimistic and changes health
