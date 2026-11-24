@@ -149,8 +149,9 @@ describe('ContestQueue', () => {
       page: 1,
       perPage: 100,
     });
-    const card = el.querySelector('article') as HTMLElement;
-    const link = card.querySelector('h3 a');
+    const card = el.querySelector('[data-testid="contest-record"]') as HTMLElement;
+    // AECI-2102: the pair is the row header of the record's summary row.
+    const link = card.querySelector('th[scope="row"] a');
     expect(link?.textContent?.trim()).toBe('Procore and Summit');
     expect(link?.getAttribute('href')).toBe('/products/procore/integrations/summit');
     expect(card.textContent).toContain('Procore Sync');
@@ -168,8 +169,10 @@ describe('ContestQueue', () => {
     const { el } = await setup(
       makeApiMock([makeContest({ id: 'k1', integration: { ...base.integration, pair_path: '' } })]),
     );
-    expect(el.querySelector('article h3 a')).toBeNull();
-    expect(el.querySelector('article h3')?.textContent).toContain('Procore and Summit');
+    expect(el.querySelector('[data-testid="contest-record"] th a')).toBeNull();
+    expect(el.querySelector('[data-testid="contest-record"] th')?.textContent).toContain(
+      'Procore and Summit',
+    );
   });
 
   it('names the delivering connector on an evidenced-pair contest (AECI-1092)', async () => {
@@ -184,7 +187,7 @@ describe('ContestQueue', () => {
         makeContest({ id: 'k2' }),
       ]),
     );
-    const cards = el.querySelectorAll('article');
+    const cards = el.querySelectorAll('[data-testid="contest-record"]');
     expect(cards[0]!.querySelector('[data-testid="contest-connector"]')?.textContent).toContain(
       'Delivered through Kroo Connector',
     );
@@ -212,7 +215,9 @@ describe('ContestQueue', () => {
         }),
       ]),
     );
-    const [named, empty] = [...el.querySelectorAll('article')] as HTMLElement[];
+    const [named, empty] = [
+      ...el.querySelectorAll('[data-testid="contest-record"]'),
+    ] as HTMLElement[];
     expect(named.textContent).toContain('Owner');
     expect(named.textContent).not.toContain('Builder');
     expect(named.textContent).not.toContain(SUMMIT.id);
@@ -235,7 +240,7 @@ describe('ContestQueue', () => {
         }),
       ]),
     );
-    const article = el.querySelector('article') as HTMLElement;
+    const article = el.querySelector('[data-testid="contest-record"]') as HTMLElement;
     expect(
       article.querySelector('[data-testid="contest-self-disclaim"]')?.textContent?.trim(),
     ).toBe('Summit Estimating is the vendor on file and says this integration is not theirs.');
@@ -254,7 +259,7 @@ describe('ContestQueue', () => {
         }),
       ]),
     );
-    const card = el.querySelector('article') as HTMLElement;
+    const card = el.querySelector('[data-testid="contest-record"]') as HTMLElement;
     expect(card.textContent).toContain('Procore sends to Summit');
     expect(card.textContent).toContain('Syncs both ways');
     expect(card.textContent).not.toContain('a_to_b');
@@ -288,7 +293,7 @@ describe('ContestQueue', () => {
 
   it('shows owner-routed rows read-only: "With the owner", no decision buttons', async () => {
     const { el } = await setup(makeApiMock([makeContest({ id: 'k1', routed_to: 'owner' })]));
-    const card = el.querySelector('article') as HTMLElement;
+    const card = el.querySelector('[data-testid="contest-record"]') as HTMLElement;
     expect(card.textContent).toContain('With the owner');
     expect(card.textContent).toContain('cannot decide it');
     const labels = [...card.querySelectorAll('button')].map((b) => b.textContent?.trim());
@@ -300,7 +305,7 @@ describe('ContestQueue', () => {
     const { el } = await setup(
       makeApiMock([makeContest({ id: 'k1', routed_to: 'owner', owner_vendor: null })]),
     );
-    const card = el.querySelector('article') as HTMLElement;
+    const card = el.querySelector('[data-testid="contest-record"]') as HTMLElement;
     expect(card.textContent).toContain('no longer exists');
     expect(card.textContent).not.toContain('cannot decide it');
     const labels = [...card.querySelectorAll('button')].map((b) => b.textContent?.trim());
@@ -331,7 +336,7 @@ describe('ContestQueue', () => {
       decision: 'accept',
       note: 'Confirmed on their docs site.',
     });
-    expect(el.querySelector('article')).toBeNull();
+    expect(el.querySelector('[data-testid="contest-record"]')).toBeNull();
     expect(store.pendingContests()).toBe(2);
     expect(el.querySelector('[role="status"]')?.textContent).toContain('Contest accepted');
     // No longer claims the listing is unchanged: on a claimed row it is (AECI-1005).
@@ -350,7 +355,7 @@ describe('ContestQueue', () => {
     await flush(fixture);
 
     expect(api.decide).toHaveBeenCalledWith('k1', { decision: 'decline' });
-    expect(el.querySelector('article')).toBeNull();
+    expect(el.querySelector('[data-testid="contest-record"]')).toBeNull();
     expect(store.pendingContests()).toBe(0);
     expect(el.querySelector('[role="status"]')?.textContent).toContain('Contest declined');
   });
@@ -369,7 +374,7 @@ describe('ContestQueue', () => {
 
     expect(el.querySelector('[role="status"]')?.textContent).toContain('Already decided');
     expect(api.listContests).toHaveBeenCalledTimes(2);
-    expect(el.querySelector('article')).toBeNull();
+    expect(el.querySelector('[data-testid="contest-record"]')).toBeNull();
     expect(store.pendingContests()).toBe(4);
   });
 
@@ -383,9 +388,9 @@ describe('ContestQueue', () => {
     submitForm(el);
     await flush(fixture);
 
-    const alert = el.querySelector('article [role="alert"]');
+    const alert = el.querySelector('[data-testid="contest-record"] [role="alert"]');
     expect(alert?.textContent).toContain("The integration's owner decides this contest");
-    expect(el.querySelector('article')).not.toBeNull();
+    expect(el.querySelector('[data-testid="contest-record"]')).not.toBeNull();
   });
 
   it('shows the live value beside the recorded one only when it moved (AECI-1006)', async () => {
@@ -395,7 +400,7 @@ describe('ContestQueue', () => {
         makeContest({ id: 'moved', live_value: 'https://owner.example.com' }),
       ]),
     );
-    const [fresh, moved] = [...el.querySelectorAll('article')];
+    const [fresh, moved] = [...el.querySelectorAll('[data-testid="contest-record"]')];
     expect(fresh!.querySelector('[data-testid="contest-live-value"]')).toBeNull();
     expect(moved!.querySelector('[data-testid="contest-live-value"]')?.textContent).toContain(
       'https://owner.example.com',
@@ -520,7 +525,7 @@ describe('ContestQueue', () => {
         'Write a reason for the vendor',
       );
       expect(el.querySelector('label[for="contest-note-k1"]')?.textContent).toContain('(required)');
-      expect(el.querySelector('article')).not.toBeNull();
+      expect(el.querySelector('[data-testid="contest-record"]')).not.toBeNull();
     });
   });
 
@@ -616,7 +621,9 @@ describe('ContestQueue', () => {
     submitForm(el);
     await flush(fixture);
     expect(el.querySelector('#contest-note-k1-error')).toBeNull();
-    expect(el.querySelector('article [role="alert"]')?.textContent).toContain('try again');
+    expect(
+      el.querySelector('[data-testid="contest-record"] [role="alert"]')?.textContent,
+    ).toContain('try again');
   });
 
   it('shows a generic retryable error on any other failure', async () => {
@@ -627,7 +634,9 @@ describe('ContestQueue', () => {
     fixture.detectChanges();
     submitForm(el);
     await flush(fixture);
-    expect(el.querySelector('article [role="alert"]')?.textContent).toContain('try again');
+    expect(
+      el.querySelector('[data-testid="contest-record"] [role="alert"]')?.textContent,
+    ).toContain('try again');
   });
 
   it('links the Linear issue on an accepted row, or says it is pending', async () => {
@@ -644,14 +653,16 @@ describe('ContestQueue', () => {
         makeContest({ id: 'k2', status: 'accepted', decided_at: '2026-09-18T01:00:00.000Z' }),
       ]),
     );
-    const [filed, pending] = [...el.querySelectorAll('article')] as HTMLElement[];
+    const [filed, pending] = [
+      ...el.querySelectorAll('[data-testid="contest-record"]'),
+    ] as HTMLElement[];
     const link = filed.querySelector('a[target="_blank"]');
     expect(link?.getAttribute('href')).toBe('https://linear.app/aeci/issue/AECI-2000');
     expect(link?.getAttribute('rel')).toContain('noopener');
     expect(filed.textContent).toContain('Checked.');
     expect(pending.textContent).toContain('Linear issue pending');
     // A decided row carries no decision buttons.
-    expect([...filed.querySelectorAll('button')]).toHaveLength(0);
+    expect([...filed.querySelectorAll('[data-testid="contest-detail"] button')]).toHaveLength(0);
   });
 
   it('shows the load-failure state with a retry', async () => {
@@ -682,8 +693,31 @@ describe('ContestQueue', () => {
       expect(label?.textContent?.trim()).toBeTruthy();
     }
     expect(el.querySelectorAll('[aria-live]')).toHaveLength(1);
-    const article = el.querySelector('article')!;
-    expect(el.querySelector(`#${article.getAttribute('aria-labelledby')}`)?.tagName).toBe('H3');
+    // AECI-2102: one table, its region named by the caption; each record a row header.
+    expect(el.querySelector('h3, h4')).toBeNull();
+    const region = el.querySelector('[role="region"]') as HTMLElement;
+    expect(el.querySelector(`#${region.getAttribute('aria-labelledby')}`)?.tagName).toBe('CAPTION');
+    expect(el.querySelectorAll('tbody th[scope="row"]')).toHaveLength(1);
+  });
+
+  it('is one table row per change request, its detail opened by a named disclosure (AECI-2102)', async () => {
+    const { el, fixture } = await setup(makeApiMock([makeContest({ id: 'k1' })]));
+    const headers = [...el.querySelectorAll('thead th')].map((th) => th.textContent?.trim());
+    expect(headers).toEqual(['Details', 'Integration', 'Field', 'Filed by', 'Submitted', 'Status']);
+    const detail = el.querySelector('[data-testid="contest-detail"]') as HTMLElement;
+    expect(detail.querySelector('td')?.getAttribute('colspan')).toBe(String(headers.length));
+    const button = el.querySelector('button[aria-controls="contest-k1-detail"]') as HTMLElement;
+    expect(detail.hidden).toBe(true);
+    expect(button.textContent?.trim()).toBe(
+      'Change request on Procore and Summit, Documentation link, filed by Summit Estimating',
+    );
+    button.click();
+    fixture.detectChanges();
+    expect(detail.hidden).toBe(false);
+    expect(button.getAttribute('aria-expanded')).toBe('true');
+    expect(
+      el.querySelector('[data-testid="contest-row"] .aec-chip')?.getAttribute('data-tone'),
+    ).toBe('waiting');
   });
 
   // ─── AECI-1009: protests ────────────────────────────────────────────────────
@@ -720,7 +754,7 @@ describe('ContestQueue', () => {
       page: 1,
       perPage: 100,
     });
-    const card = el.querySelector('article') as HTMLElement;
+    const card = el.querySelector('[data-testid="contest-record"]') as HTMLElement;
     expect(card.textContent).toContain('did not answer the contest within 30 days');
     expect(card.textContent).toContain(OPEN_PROTEST.reason);
     expect(card.textContent).toContain('Reply due');
@@ -739,13 +773,17 @@ describe('ContestQueue', () => {
     await flush(fixture);
     buttonByText(el, 'Agree with the owner').click();
     await flush(fixture);
-    submitForm(el.querySelector('article') as HTMLElement);
+    submitForm(el.querySelector('[data-testid="contest-record"]') as HTMLElement);
     await flush(fixture);
     expect(api.decideProtest).not.toHaveBeenCalled();
     expect(el.querySelector('[role="alert"]')?.textContent).toContain('Write a note');
 
-    typeNote(fixture, el.querySelector('article') as HTMLElement, 'Procore says its half is beta.');
-    submitForm(el.querySelector('article') as HTMLElement);
+    typeNote(
+      fixture,
+      el.querySelector('[data-testid="contest-record"]') as HTMLElement,
+      'Procore says its half is beta.',
+    );
+    submitForm(el.querySelector('[data-testid="contest-record"]') as HTMLElement);
     await flush(fixture);
     expect(api.decideProtest).toHaveBeenCalledWith('p1', {
       decision: 'reject',
@@ -768,8 +806,8 @@ describe('ContestQueue', () => {
     await flush(fixture);
     buttonByText(el, 'Agree with the submitter').click();
     await flush(fixture);
-    typeNote(fixture, el.querySelector('article') as HTMLElement, 'ok');
-    submitForm(el.querySelector('article') as HTMLElement);
+    typeNote(fixture, el.querySelector('[data-testid="contest-record"]') as HTMLElement, 'ok');
+    submitForm(el.querySelector('[data-testid="contest-record"]') as HTMLElement);
     await flush(fixture);
     expect(decrement).not.toHaveBeenCalled();
     expect(el.querySelector('[role="status"]')?.textContent).toContain('Already decided');

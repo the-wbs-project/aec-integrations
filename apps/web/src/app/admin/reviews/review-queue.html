@@ -184,8 +184,8 @@
           <th scope="col" [class]="t.head" i18n="@@admin.reviews.filter.label">Status</th>
         </tr>
       </thead>
-      <tbody>
-        @for (r of pagedReviews(); track r.id) {
+      @for (r of pagedReviews(); track r.id) {
+      <tbody data-testid="review-record">
         <tr [class]="isOpen(r.id) ? t.rowOpen : t.row" data-testid="review-row">
           <td [class]="t.disclosure">
             <aec-admin-disclosure-button
@@ -596,8 +596,8 @@
             </div>
           </td>
         </tr>
-        }
       </tbody>
+      }
     </table>
   </div>
 
