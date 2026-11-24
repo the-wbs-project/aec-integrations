@@ -91,7 +91,7 @@ The whole server side is one Hono route (`apps/api/src/routes/vendor-updates.ts`
 | `vendor-live-sync.ts` | §4 | the surface-scoped poll loop — cadence, diff, per-scope settle |
 | `vendor-announcer.ts` | §6.3 | the **root** announcement channel behind the one live region (new) |
 | `vendor-notification-baseline.ts` | §6.2 | the **root** session baseline behind the "N new" count (new) |
-| `vendor-dashboard-tabbed.ts` / `vendor-dashboard-single.ts` | §6.1, §6.3 | the two concept shells: the capability gate and the region itself |
+| `vendor-dashboard-tabbed.ts` | §6.1, §6.3 | the shell: the capability gate and the region itself (the single-page concept `vendor-dashboard-single.ts` was deleted by AECI-1809) |
 
 **Two of the four services are root singletons and two are deliberately not, and the split is not arbitrary.** `VendorPortalStore` and `VendorLiveSync` are `@Injectable()` **with an explicit `use-injectable-provided-in` lint suppression**, because they inject `VendorApi` and the dev-only preview shadows `VendorApi` in a **component** `providers` array (`preview/vendor-dashboard/vendor-dashboard-preview.ts`); a root-provided service resolves from the root environment injector, walks straight past that shadow, and fires real network calls from a route with no session. So the store is provided by both surface owners (`VendorPage` and `VendorDashboardPreview`), and the sync loop by `VendorPage` alone — the preview has no session to poll with, so it gets a live store and no loop.
 

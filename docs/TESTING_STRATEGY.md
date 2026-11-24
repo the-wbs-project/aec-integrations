@@ -697,13 +697,9 @@ Run axe on:
     `<p role="status">` fed by `VendorPortalAnnouncer`
     (`apps/web/src/app/vendor/vendor-announcer.ts`) — so it is present from first
     paint on every section, not just after the integrations read. It is declared
-    **once per dashboard concept**:
-    `apps/web/src/app/vendor/vendor-dashboard-tabbed.ts` (Concept A, what the
-    portal renders) and `apps/web/src/app/vendor/vendor-dashboard-single.ts`
-    (Concept B, preview-only — it composes the same integrations section, which
-    announces through the channel and declares no region of its own, so without
-    it every attestation write on Concept B is silent). Only one concept ever
-    renders at a time, so they cannot race. Two consequences for this run: the
+    **once**, in `apps/web/src/app/vendor/vendor-dashboard-tabbed.ts`, the shell
+    the portal and the preview render. (A second, preview-only single-page concept
+    declared one too. AECI-1809 deleted it.) Two consequences for this run: the
     axe pass must be **re-run after the hoist** (a region moving is exactly the
     kind of change that invalidates a prior pass), and any assertion about it
     should be made on the shell rather than on the section body. Since the
