@@ -15,7 +15,7 @@ import { untilAppStable } from './hydration';
  * AECi on a declined request, and "Not ours?". Since AECI-1812 also the integrations
  * list's forms, which took `aecKeepClearOfSaveBar`: "Add an integration" step 2, "Ask
  * us to add it", the owner edit form, the connector catalogue's match form, and "Add a
- * product".
+ * product". Since AECI-2132 also "Request a change" on a connector-delivered pair.
  *
  * Every request off the local stack is answered here: PostHog with an empty 200, the
  * rest aborted. Nothing is submitted.
@@ -169,6 +169,18 @@ const FORMS: readonly {
     url: `${PRODUCTS}?create=open`,
     steps: [],
     form: '[data-testid="product-create-form"]',
+  },
+  // AECI-2132: "Request a change" on a connector-delivered pair (the Connectors section).
+  {
+    name: 'request a change on a delivered pair',
+    url: `${PRODUCTS}/summit-model-coordination/integrations`,
+    steps: [
+      {
+        trigger: '[data-contest-target] button[aria-controls]',
+        shows: '[data-testid="contest-form"]',
+      },
+    ],
+    form: '[data-testid="contest-form"]',
   },
   {
     name: 'the connector match form',
