@@ -363,6 +363,7 @@ describe('AdminDangerAction extensions (AECI-2104)', () => {
       expect(document.activeElement).toBe(alert());
       expect(stepBox()).not.toBeNull();
       expect(area().readOnly).toBe(true);
+      expect(area().getAttribute('aria-invalid')).toBe('true');
       host.error.set(null);
       button('Remove permanently')!.click();
       await settle();
@@ -432,7 +433,8 @@ describe('AdminDangerAction extensions (AECI-2104)', () => {
       expect(el.querySelector('a')?.getAttribute('href')).toBe('/admin/vendors/v1');
       expect(document.activeElement).toBe(el);
       expect(area().getAttribute('aria-describedby')!.split(' ')).toContain(el.id);
-      expect(area().getAttribute('aria-invalid')).toBeNull();
+      // As with a string error (AECI-1813), the field is marked invalid.
+      expect(area().getAttribute('aria-invalid')).toBe('true');
     });
 
     it('gives the reason refusal and the string error priority over the template', async () => {

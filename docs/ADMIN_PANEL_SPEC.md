@@ -400,7 +400,7 @@ Every inline destructive action in the console uses one component, `<aec-admin-d
 | `errorTemplate` | An error that holds a link, in the same focused alert | The ban's last-seat refusal (`users/user-detail`, the review queue's ban dialog) |
 | `warning` (now optional) | No Bone box when today's form has none | The queues' Reject |
 | `cancelLabel` | Cancel keeps the form's own message id | Every form being moved |
-| `openerDescribedBy`, `openerDisabled` | The opener is described by a sentence beside it, or blocked with its reason | The queues' Remove help; return records and terminate when blocked |
+| `openerDescribedBy`, `openerDisabled` | The opener is described by a sentence beside it, or blocked with its reason | The queues' Remove help; return records when it is blocked |
 | `noteLabel`, `noteHelp`, `noteMaxLength`, `[(note)]` | An optional internal note, natively capped, read in the `(confirmed)` handler | Licence revoke, bulk revoke, seat removal, return records, retire integration, brand-asset holds |
 | `dangerFacts` projection | Read-only facts between the warning and the reason | Return records ("3 open product proposals…"), bulk revoke counts |
 

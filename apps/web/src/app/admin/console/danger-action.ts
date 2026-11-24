@@ -160,7 +160,7 @@ export interface AdminDangerConfirmStep {
           [value]="draft()"
           [readOnly]="locked()"
           [attr.maxlength]="hardCap()"
-          [attr.aria-invalid]="problem() ? 'true' : null"
+          [attr.aria-invalid]="hasError() ? 'true' : null"
           [attr.aria-describedby]="describedBy()"
           (input)="onInput(reason.value)"
         ></textarea>
@@ -389,7 +389,7 @@ export class AdminDangerAction {
     return this.error();
   }
 
-  private hasError(): boolean {
+  protected hasError(): boolean {
     return this.problem() !== null || !!this.error() || !!this.errorTemplate();
   }
 
