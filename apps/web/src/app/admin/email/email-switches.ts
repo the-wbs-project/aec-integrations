@@ -30,6 +30,7 @@ import { AecButton } from '../../shared/button/button';
 import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
 import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import { CONSOLE_FAILED_TEXT_CLASS, CONSOLE_STATUS_LINE_CLASS } from '../console/console-detail';
 
 /** The change the open dialog would make. */
 interface PendingChange {
@@ -85,9 +86,9 @@ export class EmailSwitches {
   protected readonly labelClass = FIELD_LABEL_CLASS;
   protected readonly inputClass = FIELD_INPUT_CLASS;
   /** A status line: loading. 16px secondary, as on the rest of the page. */
-  protected readonly statusLineClass = 'text-t-16 text-(--text-secondary)';
+  protected readonly statusLineClass = CONSOLE_STATUS_LINE_CLASS;
   /** The sentence of a load failure or a refused change. */
-  protected readonly failedTextClass = 'text-t-16 font-semibold text-(--text-primary)';
+  protected readonly failedTextClass = CONSOLE_FAILED_TEXT_CLASS;
   /** A switch's chip tone: `active` while it sends or copies, `paused` when paused. */
   protected readonly tone = (key: Extract<AdminStatusKey, 'active' | 'paused'>): ConsoleChipTone =>
     adminStatusTone(key);

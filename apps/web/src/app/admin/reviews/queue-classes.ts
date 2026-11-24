@@ -5,14 +5,6 @@
  * console's own piece, `CONSOLE_FILTER` in `admin/console/console-filter.ts`.
  */
 
-/**
- * The queues' notice (mock-up 14 `.warnbox`, the console's one cautionary box):
- * Bone fill, a strong edge, control radius. It replaces the Clay edge the cards
- * used, because Clay never carries an edge in the console.
- */
-export const QUEUE_NOTICE_CLASS =
-  'rounded-control border border-(--border-strong) bg-(--accent-warm) p-4 text-t-14 text-(--text-primary)';
-
 /** A detail row's two columns: the record on the start side, the decision on the end side. */
 export const QUEUE_DETAIL_GRID_CLASS =
   'grid gap-x-12 gap-y-6 pt-2 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]';

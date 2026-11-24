@@ -30,13 +30,15 @@ import { adminStatusTone } from '../console/status-tones';
 import { QUEUE_FAILED_CLASS } from '../reviews/queue-classes';
 import {
   VENDOR_ACTIONS_CLASS,
-  VENDOR_FAILED_TEXT_CLASS,
   VENDOR_FIELD_CLASS,
   VENDOR_FORM_CLASS,
-  VENDOR_LOAD_FAILED_CLASS,
-  VENDOR_STATUS_LINE_CLASS,
 } from './vendor-console-classes';
 import { STANDALONE_LINK_CLASS } from '../../vendor/components/vendor-docs-link';
+import {
+  CONSOLE_FAILED_TEXT_CLASS,
+  CONSOLE_LOAD_FAILED_CLASS,
+  CONSOLE_STATUS_LINE_CLASS,
+} from '../console/console-detail';
 
 /** Rows per fetch. The API caps a page at 100; a vendor owning more is told so. */
 export const INTEGRATIONS_PAGE_SIZE = 100;
@@ -91,9 +93,9 @@ export class VendorIntegrationsPanel {
   protected readonly t = CONSOLE_TABLE;
   protected readonly captionClass = CONSOLE_CAPTION_CLASS;
   protected readonly linkClass = STANDALONE_LINK_CLASS;
-  protected readonly statusLineClass = VENDOR_STATUS_LINE_CLASS;
-  protected readonly loadFailedClass = VENDOR_LOAD_FAILED_CLASS;
-  protected readonly failedTextClass = VENDOR_FAILED_TEXT_CLASS;
+  protected readonly statusLineClass = CONSOLE_STATUS_LINE_CLASS;
+  protected readonly loadFailedClass = CONSOLE_LOAD_FAILED_CLASS;
+  protected readonly failedTextClass = CONSOLE_FAILED_TEXT_CLASS;
   protected readonly formClass = VENDOR_FORM_CLASS;
   protected readonly fieldClass = VENDOR_FIELD_CLASS;
   protected readonly labelClass = FIELD_LABEL_CLASS;

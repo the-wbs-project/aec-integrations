@@ -31,7 +31,8 @@ import {
   FIELD_LABEL_CLASS,
 } from '../../shared/form-field/form-field-classes';
 import { CONSOLE_CAPTION_CLASS } from '../console/console-table';
-import { QUEUE_FAILED_CLASS, QUEUE_NOTICE_CLASS } from '../reviews/queue-classes';
+import { QUEUE_FAILED_CLASS } from '../reviews/queue-classes';
+import { CONSOLE_NOTICE_CLASS } from '../console/console-detail';
 
 /**
  * Terminate, on an open suspension (AECI-1623). Ends every subscription and refunds the
@@ -81,7 +82,7 @@ export class SuspensionTerminate {
   readonly announce = output<string>();
 
   protected readonly captionClass = CONSOLE_CAPTION_CLASS;
-  protected readonly noticeClass = QUEUE_NOTICE_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
   protected readonly failedClass = QUEUE_FAILED_CLASS;
   protected readonly fieldClass = VENDOR_FIELD_CLASS;
   protected readonly actionsClass = VENDOR_ACTIONS_CLASS;

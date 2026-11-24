@@ -24,7 +24,6 @@ import { AdminRequestsApi } from './admin-requests-api';
 import { LicenseReleaseQueue } from './license-release-queue';
 import { ProductRequestQueue } from './product-request-queue';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
-import { CLAIM_INLINE_LINK_CLASS } from '../claims/claim-classes';
 import { CONSOLE_FILTER } from '../console/console-filter';
 import {
   CONSOLE_CAPTION_CLASS,
@@ -41,6 +40,7 @@ import {
   QUEUE_FORM_CLASS,
 } from '../reviews/queue-classes';
 import { queueFocusAfterRemoval } from '../reviews/queue-focus';
+import { CONSOLE_FOREST_LINK_CLASS } from '../console/console-detail';
 
 /** One request covers a launch-scale moderation backlog. The API caps `perPage`
  *  at 100; we load the max and surface a note if the server reports more. */
@@ -123,7 +123,7 @@ export class RequestQueue {
   protected readonly labelClass = CONSOLE_LABEL_CLASS;
   protected readonly captionClass = CONSOLE_CAPTION_CLASS;
   protected readonly inputClass = FIELD_INPUT_CLASS;
-  protected readonly inlineLinkClass = CLAIM_INLINE_LINK_CLASS;
+  protected readonly inlineLinkClass = CONSOLE_FOREST_LINK_CLASS;
   protected readonly detailGridClass = QUEUE_DETAIL_GRID_CLASS;
   protected readonly bodyClass = QUEUE_BODY_CLASS;
   protected readonly factsClass = QUEUE_FACTS_CLASS;

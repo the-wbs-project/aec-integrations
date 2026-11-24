@@ -35,11 +35,8 @@ import {
 } from './vendor-suspension-model';
 import {
   VENDOR_ACTIONS_CLASS,
-  VENDOR_FAILED_TEXT_CLASS,
   VENDOR_FIELD_CLASS,
   VENDOR_FORM_CLASS,
-  VENDOR_LOAD_FAILED_CLASS,
-  VENDOR_STATUS_LINE_CLASS,
 } from './vendor-console-classes';
 import { AecButton } from '../../shared/button/button';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
@@ -50,7 +47,13 @@ import {
   FIELD_LABEL_CLASS,
 } from '../../shared/form-field/form-field-classes';
 import { CONSOLE_CAPTION_CLASS, CONSOLE_LABEL_CLASS } from '../console/console-table';
-import { QUEUE_FAILED_CLASS, QUEUE_NOTICE_CLASS } from '../reviews/queue-classes';
+import { QUEUE_FAILED_CLASS } from '../reviews/queue-classes';
+import {
+  CONSOLE_FAILED_TEXT_CLASS,
+  CONSOLE_LOAD_FAILED_CLASS,
+  CONSOLE_NOTICE_CLASS,
+  CONSOLE_STATUS_LINE_CLASS,
+} from '../console/console-detail';
 
 /**
  * How long after Terminate the page re-reads the state. The API answers once the D1 batch
@@ -121,10 +124,10 @@ export class VendorSuspensionSection {
   /** Text for the host's polite live region. */
   readonly announce = output<string>();
 
-  protected readonly statusLineClass = VENDOR_STATUS_LINE_CLASS;
-  protected readonly loadFailedClass = VENDOR_LOAD_FAILED_CLASS;
-  protected readonly failedTextClass = VENDOR_FAILED_TEXT_CLASS;
-  protected readonly noticeClass = QUEUE_NOTICE_CLASS;
+  protected readonly statusLineClass = CONSOLE_STATUS_LINE_CLASS;
+  protected readonly loadFailedClass = CONSOLE_LOAD_FAILED_CLASS;
+  protected readonly failedTextClass = CONSOLE_FAILED_TEXT_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
   protected readonly failedClass = QUEUE_FAILED_CLASS;
   protected readonly labelClass = CONSOLE_LABEL_CLASS;
   protected readonly captionClass = CONSOLE_CAPTION_CLASS;

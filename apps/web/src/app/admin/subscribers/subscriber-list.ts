@@ -12,7 +12,6 @@ import {
 } from '@aeci/shared';
 
 import { AdminPaginator } from '../admin-paginator';
-import { CLAIM_INLINE_LINK_CLASS } from '../claims/claim-classes';
 import { CONSOLE_FILTER } from '../console/console-filter';
 import {
   CONSOLE_CAPTION_CLASS,
@@ -28,6 +27,7 @@ import { AecIcon } from '../../shared/icon/icon';
 import { SortHeader } from '../../shared/sort-header/sort-header';
 import { AdminSubscribersApi } from './admin-subscribers-api';
 import { isReplayedEvent } from '../../core/event-replay';
+import { CONSOLE_FOREST_LINK_CLASS } from '../console/console-detail';
 
 /**
  * Rows per page. The shared `PageQuerySchema` default, and unchanged from it on
@@ -120,7 +120,7 @@ export class SubscriberList {
   protected readonly f = CONSOLE_FILTER;
   protected readonly captionClass = CONSOLE_CAPTION_CLASS;
   protected readonly panelClass = CONSOLE_PANEL_CLASS;
-  protected readonly inTextLinkClass = CLAIM_INLINE_LINK_CLASS;
+  protected readonly inTextLinkClass = CONSOLE_FOREST_LINK_CLASS;
   protected readonly tone = adminStatusTone;
   /** The email identity cell: a long address breaks rather than widening the row. */
   protected readonly rowHeadClass = `${CONSOLE_TABLE.rowHead} break-all`;

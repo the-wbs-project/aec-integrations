@@ -30,9 +30,7 @@
     class="mt-4 grid max-w-[32rem] gap-4 border-t border-(--border-default) pt-4"
     (aecSubmit)="submit()"
   >
-    <p
-      class="rounded-control border border-(--border-strong) bg-(--accent-warm) p-4 text-t-14 text-(--text-primary)"
-    >
+    <p [class]="noticeClass">
       @if (formMode() === 'vendor') {
       <span i18n="@@admin.connectors.managed.confirm.freeze">
         Handing this catalogue over freezes the review lane for it. From then on the review app's

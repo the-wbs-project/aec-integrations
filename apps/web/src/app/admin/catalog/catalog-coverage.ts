@@ -23,6 +23,7 @@ import {
 import { AecButton } from '../../shared/button/button';
 import { AdditionsTable, type AdditionsRow } from './additions-table';
 import { AdminCatalogApi } from './admin-catalog-api';
+import { CONSOLE_FIGURE_CLASS } from '../console/console-detail';
 
 /** Days on the Daily tab, matching the overview's 30-day traffic chart. */
 const SERIES_DAYS = 30;
@@ -149,8 +150,7 @@ export class CatalogCoverage {
   protected readonly labelClass = CONSOLE_LABEL_CLASS;
   protected readonly captionClass = CONSOLE_CAPTION_CLASS;
   /** A total, as on the Overview's catalog totals: 24px at 600 in the display face. */
-  protected readonly totalClass =
-    'mt-1 font-display text-t-24 font-semibold leading-tight tabular-nums lining-nums text-(--text-primary)';
+  protected readonly totalClass = CONSOLE_FIGURE_CLASS;
   /** A small secondary line under a panel's heading or list. */
   protected readonly smallClass = 'text-t-13 text-(--text-secondary)';
   /** A sample product or integration link in a gap panel. */

@@ -36,12 +36,12 @@ import {
   QUEUE_DETAIL_GRID_CLASS,
   QUEUE_FAILED_CLASS,
   QUEUE_FORM_CLASS,
-  QUEUE_NOTICE_CLASS,
 } from '../reviews/queue-classes';
 import { queueFocusAfterRemoval } from '../reviews/queue-focus';
 import { formatTermDate } from '../../shared/term-date/format-term-date';
 import { AdminRequestsApi } from './admin-requests-api';
 import { isReplayedEvent } from '../../core/event-replay';
+import { CONSOLE_NOTICE_CLASS } from '../console/console-detail';
 
 /** One request covers the backlog. The API caps `perPage` at 100. */
 const PAGE_SIZE = 100;
@@ -89,7 +89,7 @@ export class LicenseReleaseQueue {
   protected readonly captionClass = CONSOLE_CAPTION_CLASS;
   protected readonly inputClass = FIELD_INPUT_CLASS;
   protected readonly hintClass = FIELD_HINT_CLASS;
-  protected readonly noticeClass = QUEUE_NOTICE_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
   protected readonly detailGridClass = QUEUE_DETAIL_GRID_CLASS;
   protected readonly bodyClass = QUEUE_BODY_CLASS;
   protected readonly formClass = QUEUE_FORM_CLASS;

@@ -26,6 +26,7 @@ import {
   classDeltaReason,
   trafficClassLabel,
 } from './traffic-classes';
+import { CONSOLE_FIGURE_CLASS } from '../console/console-detail';
 
 /**
  * Metrics whose 30-day trend the `/overview` bundle does NOT carry, fetched in a
@@ -94,8 +95,7 @@ export class AdminOverview {
   protected readonly labelClass = CONSOLE_LABEL_CLASS;
   protected readonly errorClass = FIELD_ERROR_CLASS;
   /** A catalog total: 24px at 600 in the display face, tabular figures. */
-  protected readonly totalClass =
-    'mt-1 font-display text-t-24 font-semibold leading-tight tabular-nums lining-nums text-(--text-primary)';
+  protected readonly totalClass = CONSOLE_FIGURE_CLASS;
 
   protected readonly overview = signal<AdminOverviewResponse | null>(null);
   protected readonly loading = signal(true);

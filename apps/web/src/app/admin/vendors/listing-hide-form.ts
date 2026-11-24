@@ -34,13 +34,14 @@ import {
   FIELD_LABEL_CLASS,
 } from '../../shared/form-field/form-field-classes';
 import { CONSOLE_LABEL_CLASS } from '../console/console-table';
-import { QUEUE_FAILED_CLASS, QUEUE_NOTICE_CLASS } from '../reviews/queue-classes';
+import { QUEUE_FAILED_CLASS } from '../reviews/queue-classes';
 import {
   VENDOR_ACTIONS_CLASS,
   VENDOR_FIELD_CLASS,
   VENDOR_FORM_CLASS,
   VENDOR_PAIRS_CLASS,
 } from './vendor-console-classes';
+import { CONSOLE_NOTICE_CLASS } from '../console/console-detail';
 
 export type ListingHideMode = 'hide' | 'restore';
 
@@ -101,7 +102,7 @@ export class ListingHideForm {
   protected readonly urlMax = HTTPS_URL_MAX_LENGTH;
   // AECI-2112: the console's form recipe (mock-up 14) and the shared field classes.
   protected readonly formClass = VENDOR_FORM_CLASS;
-  protected readonly noticeClass = QUEUE_NOTICE_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
   protected readonly fieldClass = VENDOR_FIELD_CLASS;
   protected readonly labelClass = FIELD_LABEL_CLASS;
   protected readonly hintClass = FIELD_HINT_CLASS;

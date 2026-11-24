@@ -42,7 +42,6 @@ import {
   QUEUE_FAILED_CLASS,
   QUEUE_FORM_CLASS,
   QUEUE_HELP_CLASS,
-  QUEUE_NOTICE_CLASS,
 } from '../reviews/queue-classes';
 import { queueFocusAfterRemoval } from '../reviews/queue-focus';
 import { AdminContestsApi } from './admin-contests-api';
@@ -55,6 +54,7 @@ import {
   FIELD_INPUT_CLASS,
 } from '../../shared/form-field/form-field-classes';
 import { AecIcon } from '../../shared/icon/icon';
+import { CONSOLE_NOTICE_CLASS } from '../console/console-detail';
 
 /** One request covers a launch-scale backlog. The API caps `perPage` at 100; we
  *  load the max and say so when the server reports more. */
@@ -134,7 +134,7 @@ export class ContestQueue {
   protected readonly inputClass = FIELD_INPUT_CLASS;
   protected readonly hintClass = FIELD_HINT_CLASS;
   protected readonly errorClass = FIELD_ERROR_CLASS;
-  protected readonly noticeClass = QUEUE_NOTICE_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
   protected readonly detailGridClass = QUEUE_DETAIL_GRID_CLASS;
   protected readonly bodyClass = QUEUE_BODY_CLASS;
   protected readonly factsClass = QUEUE_FACTS_CLASS;

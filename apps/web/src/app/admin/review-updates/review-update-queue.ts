@@ -33,13 +33,13 @@ import {
   QUEUE_FACTS_CLASS,
   QUEUE_FAILED_CLASS,
   QUEUE_HELP_CLASS,
-  QUEUE_NOTICE_CLASS,
 } from '../reviews/queue-classes';
 import { queueFocusAfterRemoval } from '../reviews/queue-focus';
 import { AdminReviewUpdatesApi } from './admin-review-updates-api';
 import { AecButton } from '../../shared/button/button';
 import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
 import { AecIcon } from '../../shared/icon/icon';
+import { CONSOLE_NOTICE_CLASS } from '../console/console-detail';
 
 /** One request covers a launch-scale backlog. The API caps `perPage` at 100; we
  *  load the max and say so when the server reports more. */
@@ -133,7 +133,7 @@ export class ReviewUpdateQueue {
   protected readonly t = CONSOLE_TABLE;
   protected readonly f = CONSOLE_FILTER;
   protected readonly labelClass = CONSOLE_LABEL_CLASS;
-  protected readonly noticeClass = QUEUE_NOTICE_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
   protected readonly detailGridClass = QUEUE_DETAIL_GRID_CLASS;
   protected readonly bodyClass = QUEUE_BODY_CLASS;
   protected readonly factsClass = QUEUE_FACTS_CLASS;

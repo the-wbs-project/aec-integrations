@@ -29,6 +29,7 @@ import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
 import { CHOICE_INPUT_CLASS, FIELD_INPUT_CLASS } from '../../shared/form-field/form-field-classes';
 import { AecIcon } from '../../shared/icon/icon';
 import { AdminPageViewsApi } from './admin-page-views-api';
+import { CONSOLE_FIGURE_CLASS } from '../console/console-detail';
 
 /** A second line in a cell, in the console's sub-line type. */
 const SUB_LINE = 'mt-1 block text-t-13 leading-[1.4]';
@@ -123,8 +124,7 @@ export class ActivityFeed {
   protected readonly labelClass = CONSOLE_LABEL_CLASS;
   protected readonly captionClass = CONSOLE_CAPTION_CLASS;
   /** A summary figure: 24px at 600 in the display face, as the Overview's totals. */
-  protected readonly totalClass =
-    'mt-1 font-display text-t-24 font-semibold leading-tight tabular-nums lining-nums text-(--text-primary)';
+  protected readonly totalClass = CONSOLE_FIGURE_CLASS;
   /** The lines under a summary figure. */
   protected readonly summaryNoteClass = 'mt-1 text-t-13 text-(--text-secondary)';
   /** The date fields: the field recipe at the width a date needs. */

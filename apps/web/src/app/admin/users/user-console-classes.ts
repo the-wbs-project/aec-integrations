@@ -3,6 +3,15 @@ import {
   CONSOLE_LABEL_CLASS,
   CONSOLE_PANEL_CLASS,
 } from '../console/console-table';
+import {
+  CONSOLE_FACTS_CLASS,
+  CONSOLE_FACT_VALUE_CLASS,
+  CONSOLE_FAILED_TEXT_CLASS,
+  CONSOLE_LOAD_FAILED_CLASS,
+  CONSOLE_NOTICE_CLASS,
+  CONSOLE_STATUS_LINE_CLASS,
+  CONSOLE_TEXT_LINK_CLASS,
+} from '../console/console-detail';
 
 /**
  * The looks `/admin/users` and `/admin/users/:id` need beyond the console recipe
@@ -14,26 +23,23 @@ export const USER_CLASSES = {
   panel: CONSOLE_PANEL_CLASS,
   label: CONSOLE_LABEL_CLASS,
   /** A loading, empty or "not available" line. 16px secondary. */
-  statusLine: 'text-t-16 text-(--text-secondary)',
+  statusLine: CONSOLE_STATUS_LINE_CLASS,
   /** A load failure: the sentence, then its Try again button. */
-  loadFailed: 'grid justify-items-start gap-4',
+  loadFailed: CONSOLE_LOAD_FAILED_CLASS,
   /** The sentence of a load failure or a refused write. */
-  failedText: 'text-t-16 font-semibold text-(--text-primary)',
+  failedText: CONSOLE_FAILED_TEXT_CLASS,
   /** A fact the operator should know that is not a caution: sunken, hairline. */
   note: 'rounded-control border border-(--border-default) bg-(--surface-sunken) p-4 text-t-14 text-(--text-secondary)',
   /** A caution (mock-up 14 `.warnbox`): Bone fill, strong edge. */
-  caution:
-    'rounded-control border border-(--border-strong) bg-(--accent-warm) p-4 text-t-14 text-(--text-primary)',
+  caution: CONSOLE_NOTICE_CLASS,
   /** A link inside running text or a fact: the text's own ink, underlined. */
-  inlineLink:
-    'rounded-mark text-(--text-primary) underline decoration-(--border-strong) underline-offset-4 hover:decoration-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)',
+  inlineLink: CONSOLE_TEXT_LINK_CLASS,
   /** A standalone link under a heading: Forest, underlined. */
   link: 'rounded-mark text-t-14 font-semibold text-(--accent-primary) underline underline-offset-4 hover:text-(--accent-primary-hover) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)',
   /** A `dl` of facts: Label-role terms over 16px values, filling the panel. */
-  facts:
-    'grid grid-cols-[repeat(auto-fill,minmax(8rem,1fr))] gap-x-6 gap-y-4 md:grid-cols-[repeat(auto-fill,minmax(12rem,1fr))]',
+  facts: CONSOLE_FACTS_CLASS,
   /** A fact's value. */
-  factValue: 'mt-1 text-t-16 text-(--text-primary) wrap-anywhere',
+  factValue: CONSOLE_FACT_VALUE_CLASS,
   /** A help line under a heading or a table. */
   help: 'text-xs text-(--text-secondary)',
   /** The stack inside a panel: 16px apart. */

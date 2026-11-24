@@ -29,12 +29,13 @@ import {
   FIELD_LABEL_CLASS,
 } from '../../shared/form-field/form-field-classes';
 import { CONSOLE_CAPTION_CLASS } from '../console/console-table';
-import { QUEUE_FAILED_CLASS, QUEUE_NOTICE_CLASS } from '../reviews/queue-classes';
+import { QUEUE_FAILED_CLASS } from '../reviews/queue-classes';
 import {
   VENDOR_ACTIONS_CLASS,
   VENDOR_FIELD_CLASS,
   VENDOR_FORM_CLASS,
 } from './vendor-console-classes';
+import { CONSOLE_NOTICE_CLASS } from '../console/console-detail';
 
 /** `ProvisionVendorSeatSchema.reason`'s cap, mirrored so the textarea can stop an
  *  over-long note before the round trip. A 400 from this endpoint covers BOTH the
@@ -149,7 +150,7 @@ export class ProvisionSeatControl {
 
   protected readonly bodyClass = 'text-t-14 text-(--text-primary)';
   protected readonly captionClass = CONSOLE_CAPTION_CLASS;
-  protected readonly noticeClass = QUEUE_NOTICE_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
   protected readonly failedClass = QUEUE_FAILED_CLASS;
   protected readonly formClass = VENDOR_FORM_CLASS;
   protected readonly fieldClass = VENDOR_FIELD_CLASS;

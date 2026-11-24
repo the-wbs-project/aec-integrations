@@ -24,16 +24,18 @@ import {
   FIELD_LABEL_CLASS,
 } from '../../shared/form-field/form-field-classes';
 import { CONSOLE_CAPTION_CLASS, CONSOLE_TABLE } from '../console/console-table';
-import { QUEUE_NOTICE_CLASS } from '../reviews/queue-classes';
 import {
   VENDOR_ACTIONS_CLASS,
-  VENDOR_FAILED_TEXT_CLASS,
   VENDOR_FIELD_CLASS,
   VENDOR_FORM_CLASS,
-  VENDOR_LOAD_FAILED_CLASS,
   VENDOR_PANEL_CLASS,
-  VENDOR_STATUS_LINE_CLASS,
 } from './vendor-console-classes';
+import {
+  CONSOLE_FAILED_TEXT_CLASS,
+  CONSOLE_LOAD_FAILED_CLASS,
+  CONSOLE_NOTICE_CLASS,
+  CONSOLE_STATUS_LINE_CLASS,
+} from '../console/console-detail';
 
 type HoldAction = 'hold' | 'lift';
 
@@ -64,11 +66,11 @@ export class BrandAssetRemovals {
   protected readonly t = CONSOLE_TABLE;
   protected readonly panelClass = VENDOR_PANEL_CLASS;
   protected readonly captionClass = CONSOLE_CAPTION_CLASS;
-  protected readonly statusLineClass = VENDOR_STATUS_LINE_CLASS;
-  protected readonly loadFailedClass = VENDOR_LOAD_FAILED_CLASS;
-  protected readonly failedTextClass = VENDOR_FAILED_TEXT_CLASS;
+  protected readonly statusLineClass = CONSOLE_STATUS_LINE_CLASS;
+  protected readonly loadFailedClass = CONSOLE_LOAD_FAILED_CLASS;
+  protected readonly failedTextClass = CONSOLE_FAILED_TEXT_CLASS;
   protected readonly formClass = VENDOR_FORM_CLASS;
-  protected readonly noticeClass = QUEUE_NOTICE_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
   protected readonly fieldClass = VENDOR_FIELD_CLASS;
   protected readonly labelClass = FIELD_LABEL_CLASS;
   protected readonly hintClass = FIELD_HINT_CLASS;
