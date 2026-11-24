@@ -330,17 +330,21 @@ account, added as a user on the site, limits the damage of a leak. The code neve
    once.
 4. Store the key as the GitHub secret `BWT_API_KEY_PRODUCTION`. `gh secret set` prompts for the
    value.
-5. Add `"BWT_SITE_URL": "<the URL from step 2>"` to the production `vars` block in
+5. **Stop here until AECI-2075 is answered.** The Bing lane must stay off in production until
+   then. The key is read-write, and it travels in the request URL as `?apikey=`. We do not know whether Cloudflare's stored traces record an outbound call's query string. If they do, anyone with trace access to the account could read the
+   key. Steps 1 to 4 are safe meanwhile: without the var the lane makes no call, so the key is
+   never sent.
+6. Add `"BWT_SITE_URL": "<the URL from step 2>"` to the production `vars` block in
    `apps/api/wrangler.jsonc`, where the comment marks the place, and merge it.
-6. Run `promote-to-prod`. It pushes the key and deploys the var.
-7. After the next Sunday 22:00 UTC run, open `/admin/system`. The `search-ingest` row's
+7. Run `promote-to-prod`. It pushes the key and deploys the var.
+8. After the next Sunday 22:00 UTC run, open `/admin/system`. The `search-ingest` row's
    `detail.bing` should read `outcome: ok`, with each call `ok`.
 
 ```bash
 gh secret set BWT_API_KEY_PRODUCTION
 ```
 
-To rotate the key, delete it in BWT, generate a new one, and repeat steps 4 and 6. The old key
+To rotate the key, delete it in BWT, generate a new one, and repeat steps 4 and 7. The old key
 stops working at once, so the next run reads `failed` until the new key is pushed.
 
 ## Promotion model

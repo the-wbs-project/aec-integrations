@@ -2484,8 +2484,9 @@ error code, such as `bwt_ThrottleUser`.
 Microsoft does not define it. It is not a true count, and it is never compared with or added to
 the Google figures. The Bing clicks and impressions include every vertical, Chat included.
 
-**The key never appears in a log or a `job_runs` row.** If you ever see `apikey=` followed by
-anything but `REDACTED`, treat the key as leaked: delete it in BWT and rotate it.
+**The key never appears in our logs or a `job_runs` row.** A failed fetch is recorded as
+`network_error`, never the runtime's text. If you ever see `apikey=` in either, or in a Cloudflare
+trace, treat the key as leaked: delete it in BWT and rotate it (`docs/environments.md`).
 
 ## Backfill traffic classifications
 

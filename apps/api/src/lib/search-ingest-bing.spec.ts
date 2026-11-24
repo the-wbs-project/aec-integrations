@@ -30,7 +30,6 @@ import {
   BWT_API_BASE,
   callBingWebmaster,
   parseBingDate,
-  redactBingSecret,
   type BingMethod,
 } from './bing-webmaster-api';
 import {
@@ -43,8 +42,8 @@ import {
 } from './search-ingest-bing';
 import { SEARCH_INGEST_WWW_SITEMAP } from './search-ingest';
 
-/** Looks like a BWT key: 32 hex characters. */
-const KEY = 'eedecc1ea4ae341cc57365e075ebc8b6';
+/** Obviously not a real BWT key. */
+const KEY = 'test-bwt-key-not-real';
 const SITE = 'https://www.aecintegrations.com/';
 
 /** Sunday 2026-11-22 22:00 UTC, the cron's slot. 14:00 the same day in California. */
@@ -188,8 +187,19 @@ let t: TestDb;
 beforeEach(async () => {
   t = await makeTestDb();
   responses.length = 0;
+  // Every call here takes an injected stub. The global fetch fails loudly, so a
+  // missed injection can never reach Bing.
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => {
+      throw new Error('no network in tests');
+    }),
+  );
 });
-afterEach(() => t.dispose());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  t.dispose();
+});
 
 const deps = (
   fetchImpl: ReturnType<typeof bing>,
@@ -362,26 +372,33 @@ describe('callBingWebmaster', () => {
     ).toEqual({ ok: false, kind: 'rejected', message: 'http_400' });
   });
 
-  it('scrubs the key from a thrown fetch error that quotes the URL', async () => {
+  it('records a thrown fetch error as network_error, never the runtime text', async () => {
     const fetchImpl = vi.fn(async (url: string) => {
       throw new Error(`connect ECONNRESET while fetching ${url}`);
     });
     const res = await callBingWebmaster(fetchImpl as never, 'GetCrawlStats', SITE, KEY, {
       sleep: async () => {},
     });
-    expect(res).toMatchObject({ ok: false, kind: 'transient' });
+    // The thrown text really held the key, so the assertion below is not vacuous.
+    expect(String(fetchImpl.mock.calls[0]![0])).toContain(`apikey=${KEY}`);
+    expect(res).toEqual({ ok: false, kind: 'transient', message: 'network_error' });
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
     expect(JSON.stringify(res)).not.toContain(KEY);
-    expect(JSON.stringify(res)).toContain('apikey=REDACTED');
   });
-});
 
-describe('redactBingSecret', () => {
-  it('removes the literal key and any apikey= value', () => {
-    expect(redactBingSecret(`x?siteUrl=a&apikey=${KEY}&y=1`, KEY)).toBe(
-      'x?siteUrl=a&apikey=REDACTED&y=1',
-    );
-    expect(redactBingSecret(`key ${KEY} leaked`, KEY)).toBe('key REDACTED leaked');
-    expect(redactBingSecret('?APIKEY=other', KEY)).toBe('?APIKEY=REDACTED');
+  it('reads a null or absent d as zero rows, and any other non-array as rejected', async () => {
+    for (const body of [{ d: null }, {}]) {
+      const fetchImpl = bing({ GetFeeds: body });
+      expect(
+        await callBingWebmaster(fetchImpl as never, 'GetFeeds', SITE, KEY, {
+          sleep: async () => {},
+        }),
+      ).toEqual({ ok: true, rows: [] });
+    }
+    const odd = bing({ GetFeeds: { d: { Url: 'x' } } });
+    expect(
+      await callBingWebmaster(odd as never, 'GetFeeds', SITE, KEY, { sleep: async () => {} }),
+    ).toEqual({ ok: false, kind: 'rejected', message: 'unexpected_body' });
   });
 });
 
@@ -479,7 +496,11 @@ describe('runBingSearchIngest', () => {
   it('reads an empty answer as no_data and stores no 0', async () => {
     const result = await runBingSearchIngest(
       deps(
-        bing({ GetRankAndTrafficStats: { d: [] }, GetCrawlStats: { d: [] }, GetFeeds: { d: [] } }),
+        bing({
+          GetRankAndTrafficStats: { d: [] },
+          GetCrawlStats: { d: null },
+          GetFeeds: { d: [] },
+        }),
       ),
     );
     expect(result.outcome).toBe('ok');

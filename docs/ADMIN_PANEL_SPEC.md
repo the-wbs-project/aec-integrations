@@ -2796,6 +2796,12 @@ the work succeeds, because newly indexed pages enter at rank 40 to 80. Stage 1 i
 window and stage 3 is a trailing window of a different source, so the stages will not reconcile
 exactly.
 
+**Bing has stages 0, 1, 2 and 4, and never stage 3.** Stage 2 is `search.bing.www.in_index`.
+Stage 4 is CTR from `search.bing.www.clicks` and `.impressions`, with no position beside it.
+There is no Bing "pages with an impression" figure, because Microsoft does not document the
+window `GetPageStats` covers (§5.24.10). AECI-823 must not expect one, and the Bing stage-3 row is
+absent rather than empty. A mock-up that draws a Bing impressed stage draws a stage with no data.
+
 **A stage with no data is omitted, not zeroed.** Stage 1 is always present for both engines,
 because it comes from D1. Stages 2 to 4 appear only after AECI-820 or AECI-821 has written that
 engine's keys. AECI-823 asks for the Bing lane to be hidden entirely until AECI-821 lands. This
@@ -3006,11 +3012,12 @@ lanes are independent: neither reads the other's result, and each has its own ou
 |---|---|
 | Credential | `BWT_API_KEY`, a Bing Webmaster Tools API key, sent as `?apikey=`. Production only, pushed by `promote-to-prod.yml` from `BWT_API_KEY_PRODUCTION`. The key is user-wide and has no read-only scope, so it is never logged, and `lib/bing-webmaster-api.ts` scrubs it from any error text |
 | Site | `BWT_SITE_URL`, a plain per-env var, the site exactly as BWT registered it. Unset on every tier until the operator supplies it |
+| Trace gate | **The lane stays off in production until AECI-2075 is answered. Do not set `BWT_SITE_URL` before then.** The key is read-write, and it travels in the request URL as `?apikey=`. We do not know whether Cloudflare's stored traces record an outbound call's query string. If they do, anyone with trace access to the account could read the key |
 | Gate | `skipped` without the key (`no_creds`), without the site URL (`no_site_url`), or when the site URL is not the `www.` site (`site_url_not_www`), because every key names `www` |
 | Endpoints | `GET https://ssl.bing.com/webmaster/api.svc/json/{Method}?siteUrl=…&apikey=…` for `GetRankAndTrafficStats`, `GetCrawlStats` and `GetFeeds` |
 | Where it runs | The Worker. `lib/bing-webmaster-api.ts` is a pure transport like `callIndexNow`, so it can move to a GitHub Actions runner if Bing refuses the shared Cloudflare egress. The runner variant is not built |
 | Calls per run | Three, sequential. Each retries a 5xx, a dropped connection or Bing's `InternalError` twice |
-| Window | The Google lane's: 14 Pacific days ending three days before the run. Bing returns up to six months. Days outside the window are not written |
+| Window | The Google lane's: 14 Pacific days ending three days before the run. Bing returns up to six months. Days outside the window are not written. **The gap is real:** two missed Sundays in a row leave about three days that no later run fills, though Bing still holds them |
 | Errors | Bing sends every API error as HTTP 400 with `{"ErrorCode":n,"Message":"…"}`. The body is read. `ThrottleUser` and `ThrottleHost` are `throttled`, routine and not retried. `InvalidApiKey`, `NotAuthorized`, `UserBlocked` and `UserNotFound` are `auth`. Every other non-200 body is discarded |
 | Overwriting `measured` | Allowed, as for Google. Bing keeps six months. A day Bing did not return, or a field it left out, writes no row and never a 0 |
 | Sitemap state | `LastCrawled`, `Submitted`, `Status` and `UrlCount` go to `job_runs.detail.bing.sitemap`. `UrlCount` and the crawl age also go to the two `sitemap_*` keys |

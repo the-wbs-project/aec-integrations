@@ -3658,7 +3658,7 @@ describe('search_ingest: cron → reconcile queue → consumer (AECI-820)', () =
 });
 
 describe('search_ingest: the Bing lane (AECI-821)', () => {
-  const KEY = 'eedecc1ea4ae341cc57365e075ebc8b6';
+  const KEY = 'test-bwt-key-not-real';
   // No test here may reach Bing. A lane that is not stubbed hits this and fails.
   beforeEach(() => {
     vi.stubGlobal(
@@ -3850,7 +3850,7 @@ describe('search_ingest: the Bing lane (AECI-821)', () => {
     const logged = vi.mocked(logToPosthog).mock.calls.map((c) => c[3]);
     expect(logged.some((l) => l.message === 'aeci.search_ingest.bing.partial')).toBe(true);
     expect(JSON.stringify(logged)).not.toContain(KEY);
-    expect(JSON.stringify(logged)).toContain('apikey=REDACTED');
+    expect(JSON.stringify(logged)).toContain('network_error');
     const tags = vi.mocked(submitCount).mock.calls.map((c) => [c[3], c[4], c[5]]);
     expect(JSON.stringify(tags)).not.toContain(KEY);
   });

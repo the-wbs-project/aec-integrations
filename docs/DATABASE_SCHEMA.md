@@ -4334,7 +4334,7 @@ flows are readable through the timeseries endpoint today (the stocks await
 **The search console keys (AECI-818).** The eight rows above were specified by
 `ADMIN_PANEL_SPEC.md` §5.24.8 and are written by the 00:15 snapshot from the first run after
 AECI-818 deployed. Earlier days have none, and Panel 2 reads them as not recorded. None needed a
-migration. Bing's ingest keys (`search.bing.*`) join this table when AECI-821 writes them.
+migration. Bing's ingest keys (`search.bing.www.*`, AECI-821) are listed below the Google ones.
 AECI-820 narrowed the `findSnapshotGap` probe first: a day counts as captured only by a row for
 one of `ADMIN_SNAPSHOT_METRIC_KEYS`, so an ingest row can never clear the prune (§5.24.8).
 
@@ -4351,6 +4351,17 @@ Google's Pacific date.
 | `search.google.www_page.queries_28d` | count | Pacific, the window's last day | Search Analytics, `query`, `www.` filter, 28 days |
 | `search.google.www_sitemap.urls_submitted` / `.errors` / `.warnings` | stock | UTC, the run's day | Sitemaps list, the `www.` `sitemap.xml` entry |
 | `search.google.www_sitemap.download_age_days` | days, REAL | UTC, the run's day | the same. No row when Google reports no download |
+
+**The Bing ingest keys (AECI-821).** All `source = 'measured'`. "Pacific" means the row's `day` is
+the calendar date of Bing's `Date` at the offset Bing states.
+
+| Key | Kind | `day` | Source call |
+|---|---|---|---|
+| `search.bing.www.clicks` / `.impressions` | flow | Pacific | `GetRankAndTrafficStats`, every vertical |
+| `search.bing.www.in_index` | count, as reported by Bing | Pacific | `GetCrawlStats` `InIndex`. Microsoft does not define it |
+| `search.bing.www.crawled_pages` / `.crawl_errors` | flow | Pacific | `GetCrawlStats` |
+| `search.bing.www.sitemap_urls` | stock | UTC, the run's day | `GetFeeds`, the `www.` `sitemap.xml` entry |
+| `search.bing.www.sitemap_crawl_age_days` | days, REAL | UTC, the run's day | the same. No row when Bing reports no crawl |
 
 **`catalog.integrations_total` spans both delivered-tier tables, and that is what makes the
 AECI-721 migration invisible to this series.** `STAGE_1_5_SPEC.md` §13.5 flagged this producer as

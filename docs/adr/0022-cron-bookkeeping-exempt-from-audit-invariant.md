@@ -677,8 +677,10 @@ through the app, or a delete path would fail a leg. Any of those audits in the s
 (`apps/api/src/lib/search-ingest-bing.ts`) upserts the `search.bing.www.*` keys from Bing Webmaster
 Tools. They are not domain state. Only the admin console and the operator email read them. Bing is
 the record, and `in_index` is stored as Bing reported it. There is no delete path, and a day or a
-field Bing did not return writes no row. Five of the seven keys are daily series that Bing keeps
-for six months, so a re-run within that time writes the same rows. **The two `sitemap_*` keys are
+field Bing did not return writes no row. Five of the seven keys are daily series. The lane writes
+only a 14-day window, so a re-run within that window writes the same rows. A run missed by more
+than about 11 days leaves the oldest days of the gap unwritten, even though Bing still holds six
+months. **The two `sitemap_*` keys are
 run-time readings, like the Google `www_sitemap` keys.** They record the feed list's URL count and
 the days since Bing last crawled the sitemap, as of the run. A later run cannot rebuild them. The
 run's `job_runs.detail.bing.sitemap` is their record, as for Google.

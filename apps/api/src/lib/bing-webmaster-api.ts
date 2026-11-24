@@ -37,10 +37,13 @@
  *
  * The API key travels as `?apikey=`, as Microsoft's samples show. Every message this
  * module returns is built from our own vocabulary (`http_400`, `bwt_ThrottleUser`),
- * never from Bing's free-text `Message`. A thrown fetch error's text is passed
- * through {@link redactBingSecret}, which removes the key and any `apikey=` value.
- * So the key cannot reach a log line, a `job_runs` detail or a metric attribute
- * through this module.
+ * never from Bing's free-text `Message`. A thrown fetch error is recorded as the
+ * fixed code `network_error`, never the runtime's text. So the key cannot reach a
+ * log line, a `job_runs` detail or a metric attribute through this module.
+ *
+ * Cloudflare's own stored traces are a separate question, open as AECI-2075. We do
+ * not know whether they record an outbound call's query string, so the lane stays off
+ * in production until it is answered (`docs/environments.md`).
  *
  * Never throws. Every failure is a structured result, so one failed call cannot
  * stop the lane's other calls.
@@ -146,16 +149,6 @@ interface CallOpts {
 
 const realSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-/**
- * Remove the key from free text: the literal key, and the value of any `apikey=`
- * parameter. Applied to every message built from text we did not write.
- */
-export function redactBingSecret(text: string, apiKey: string): string {
-  let out = text.replace(/([?&]apikey=)[^&#\s"']*/gi, '$1REDACTED');
-  if (apiKey) out = out.split(apiKey).join('REDACTED');
-  return out;
-}
-
 /** The request URL. Holds the key, so it is passed to `fetch` and nowhere else. */
 export function bingRequestUrl(
   base: string,
@@ -218,10 +211,10 @@ export async function callBingWebmaster<T>(
     let res: Response;
     try {
       res = await fetchImpl(url, { method: 'GET', headers: { accept: 'application/json' } });
-    } catch (error) {
-      // A runtime may put the request URL in the error text. Scrub it.
-      const text = error instanceof Error ? error.message : 'network_error';
-      last = { ok: false, kind: 'transient', message: redactBingSecret(text, apiKey) };
+    } catch {
+      // A fixed code, never the runtime's text: that text may quote the request URL,
+      // and the URL holds the key.
+      last = { ok: false, kind: 'transient', message: 'network_error' };
       continue;
     }
     if (res.ok) {
@@ -233,6 +226,9 @@ export async function callBingWebmaster<T>(
         continue;
       }
       const d = (body as { d?: unknown } | null)?.d;
+      // A null or absent `d` is an empty answer: zero rows, which the lane reads as
+      // `no_data`. Any other non-array is a shape we do not know.
+      if (d === null || d === undefined) return { ok: true, rows: [] };
       if (!Array.isArray(d)) return { ok: false, kind: 'rejected', message: 'unexpected_body' };
       return { ok: true, rows: d as T[] };
     }
