@@ -61,8 +61,8 @@ async function openEveryRow(page: Page): Promise<void> {
 test.describe('claims, requests and threads — console recipe as an admin (AECI-2111)', () => {
   let cookies: Awaited<ReturnType<typeof mintSessionCookies>> = null;
 
-  test.beforeAll(async ({}, testInfo) => {
-    const baseURL = testInfo.project.use.baseURL;
+  test.beforeAll(async () => {
+    const baseURL = test.info().project.use.baseURL;
     if (baseURL) cookies = await mintSessionCookies(baseURL);
   });
 
