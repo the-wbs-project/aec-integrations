@@ -2,6 +2,7 @@ import { formatDate } from '@angular/common';
 import {
   Component,
   ElementRef,
+  Injector,
   LOCALE_ID,
   afterNextRender,
   computed,
@@ -37,7 +38,17 @@ import {
 } from './vendor-contest-labels';
 import { VendorDocsLink } from './vendor-docs-link';
 import { isReplayedEvent } from '../../core/event-replay';
-import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
+import { AecButton } from '../../shared/button/button';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { AecIcon } from '../../shared/icon/icon';
+import { FORM_PANEL } from '../integration-detail/integration-detail-styles';
+import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
+import { PORTAL_NESTED_SAVE_BAR_CLASS, PORTAL_SAVE_BUTTON_CLASS } from '../shared/portal-form';
 
 /** The owner picker's value for "neither endpoint vendor". Never a UUID, so it
  *  can never collide with a vendor id. It becomes `null` on the wire. */
@@ -115,26 +126,43 @@ interface SelectOption {
  * other product. Every control starts at the current value, so a vendor edits
  * what is on record rather than retyping it, and an unchanged value is caught
  * before it reaches the server's `CONTEST_NO_CHANGE`.
+ *
+ * ── THE LOOK (AECI-2132) ────────────────────────────────────────────────────
+ * One family with the other nested contest forms (`integration-request-form.ts`,
+ * `vendor-contest-protest.ts`, `vendor-not-ours.ts`): the opener is a compact
+ * secondary `aecButton`, the form is the nested `FORM_PANEL` with the sticky nested
+ * save bar (`aecKeepClearOfSaveBar` keeps a focused field clear of it), fields take
+ * the shared recipe and the Label role, and a select's chevron is `aec-icon`. Send is
+ * primary: a sent request can still be withdrawn from Messages.
+ *
+ * ── KEYBOARD ────────────────────────────────────────────────────────────────
+ * Escape inside the form is Cancel: it closes, discards the draft and returns focus
+ * to "Request a change". It does nothing while the request is sending. A refusal from
+ * the server (or the schema) takes focus, so a keyboard user hears it and is not left
+ * on the disabled Send button. A field error stays beside its field and takes no
+ * focus.
  */
 @Component({
   selector: 'aec-vendor-contest-form',
-  imports: [VendorDocsLink],
+  imports: [AecButton, AecIcon, KeepClearOfSaveBar, VendorDocsLink],
   styles: [':host { display: block; }'],
   template: `
     <div class="border-t border-(--border-default) px-5 py-4">
       @if (openFieldLabels(); as labels) {
-        <p class="mb-3 text-xs text-(--text-secondary)" data-testid="open-contests">
+        <p class="mb-3" [class]="hintClass" data-testid="open-contests">
           {{ labels }}
         </p>
       }
 
       <button
         #trigger
+        aecButton
+        variant="secondary"
+        compact
         type="button"
         [attr.aria-expanded]="open()"
         [attr.aria-controls]="fieldId('panel')"
         (click)="toggle()"
-        [class]="triggerClass"
         i18n="@@vendor.contest.trigger"
       >
         Request a change
@@ -142,22 +170,26 @@ interface SelectOption {
 
       @if (open()) {
         <form
+          aecKeepClearOfSaveBar
           method="dialog"
           [id]="fieldId('panel')"
-          class="mt-4 space-y-5"
+          class="mt-4 space-y-6"
+          [class]="panelClass"
           novalidate
           (submit)="onSubmit($event)"
+          (keydown.escape)="onEscape($event)"
           [attr.aria-labelledby]="fieldId('title')"
+          data-testid="contest-form"
         >
           <div class="max-w-prose space-y-1">
             <p
               [id]="fieldId('title')"
-              class="text-sm font-semibold text-(--text-primary)"
+              class="text-t-14 font-semibold text-(--text-primary)"
               i18n="@@vendor.contest.form.title"
             >
               Request a change on this integration
             </p>
-            <p class="text-xs text-(--text-secondary)" i18n="@@vendor.contest.form.intro">
+            <p [class]="hintClass" i18n="@@vendor.contest.form.intro">
               Tell us which detail is wrong, what it should say, and why. The integration’s owner or
               AEC Integrations reviews it. Nothing on the public page changes unless it is accepted.
               You can follow it in Messages.
@@ -188,18 +220,9 @@ interface SelectOption {
                   </option>
                 }
               </select>
-              <svg
-                class="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-(--text-secondary)"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <path d="m6 9 6 6 6-6" />
-              </svg>
+              <span [class]="selectChevronClass">
+                <aec-icon name="chevron-down" decorative [size]="4" />
+              </span>
             </div>
             @if (attempted() && field() === null) {
               <p role="alert" [class]="errorClass">
@@ -282,18 +305,9 @@ interface SelectOption {
                         </option>
                       }
                     </select>
-                    <svg
-                      class="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-(--text-secondary)"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="m6 9 6 6 6-6" />
-                    </svg>
+                    <span [class]="selectChevronClass">
+                      <aec-icon name="chevron-down" decorative [size]="4" />
+                    </span>
                   </div>
                 }
               }
@@ -303,10 +317,7 @@ interface SelectOption {
                 </p>
               }
               @if (f === 'owner') {
-                <p
-                  class="text-xs text-(--text-secondary)"
-                  i18n="@@vendor.contest.form.ownerHintOffered"
-                >
+                <p [class]="hintClass" i18n="@@vendor.contest.form.ownerHintOffered">
                   The vendor that owns and offers this integration. A change request about this
                   field always goes to AEC Integrations.
                 </p>
@@ -338,7 +349,7 @@ interface SelectOption {
             ></textarea>
             <p
               [id]="fieldId('reason') + '-hint'"
-              class="text-xs text-(--text-secondary)"
+              [class]="hintClass"
               i18n="@@vendor.contest.form.reasonHint"
             >
               Required. Link to a source if you have one, such as your own documentation.
@@ -350,8 +361,18 @@ interface SelectOption {
             }
           </div>
 
-          <div class="flex flex-wrap items-center gap-3 border-t border-(--border-default) pt-4">
-            <button type="submit" [class]="primaryButtonClass" [disabled]="submitting()">
+          @if (notice(); as message) {
+            <p #noticeEl role="alert" tabindex="-1" [class]="noticeClass">{{ message }}</p>
+          }
+
+          <div [class]="saveBarClass">
+            <button
+              aecButton
+              type="submit"
+              [class]="saveButtonClass"
+              [disabled]="submitting()"
+              [attr.aria-busy]="submitting() ? 'true' : null"
+            >
               @if (submitting()) {
                 <span i18n="@@vendor.contest.form.sending">Sending…</span>
               } @else {
@@ -359,8 +380,10 @@ interface SelectOption {
               }
             </button>
             <button
+              aecButton
+              variant="secondary"
               type="button"
-              [class]="secondaryButtonClass"
+              [class]="saveButtonClass"
               [disabled]="submitting()"
               (click)="close()"
               i18n="@@vendor.contest.form.cancel"
@@ -368,10 +391,6 @@ interface SelectOption {
               Cancel
             </button>
           </div>
-
-          @if (notice(); as message) {
-            <p role="alert" class="text-sm font-medium text-(--text-primary)">{{ message }}</p>
-          }
         </form>
       }
     </div>
@@ -384,6 +403,7 @@ export class VendorContestForm {
   private readonly store = inject(VendorPortalStore);
   private readonly announcer = inject(VendorPortalAnnouncer);
   private readonly locale = inject(LOCALE_ID);
+  private readonly injector = inject(Injector);
 
   readonly integration = input.required<VendorContestTarget>();
   /** AECI-1092: which table `integration.id` names. An evidenced pair posts to its
@@ -402,6 +422,7 @@ export class VendorContestForm {
     c.integration_id === this.integration().id && (c.anchor ?? 'integration') === this.anchor();
 
   private readonly trigger = viewChild<ElementRef<HTMLButtonElement>>('trigger');
+  private readonly noticeEl = viewChild<ElementRef<HTMLElement>>('noticeEl');
 
   protected readonly open = signal(false);
   protected readonly submitting = signal(false);
@@ -579,6 +600,20 @@ export class VendorContestForm {
     this.trigger()?.nativeElement.focus();
   }
 
+  /** Escape inside the open form is Cancel. Ignored while the request is sending. */
+  protected onEscape(event: Event): void {
+    if (this.submitting()) return;
+    event.stopPropagation();
+    this.close();
+  }
+
+  /** A refused send: show the sentence, then move focus to it once it renders, so
+   *  focus never rests on the disabled Send button (AECI-1994). */
+  private refuse(message: string): void {
+    this.notice.set(message);
+    afterNextRender(() => this.noticeEl()?.nativeElement.focus(), { injector: this.injector });
+  }
+
   protected onField(value: string): void {
     const f = (this.fields() as readonly string[]).includes(value)
       ? (value as IntegrationContestField)
@@ -613,7 +648,7 @@ export class VendorContestForm {
       context_product_id: this.integration().context_product.id,
     } satisfies SubmitIntegrationContestInput);
     if (!parsed.success) {
-      this.notice.set(
+      this.refuse(
         $localize`:@@vendor.contest.error.shape:Check the value and the reason, then try again.`,
       );
       return;
@@ -636,8 +671,8 @@ export class VendorContestForm {
       this.close();
       void this.store.revalidate(['contests']);
     } catch (err) {
-      this.notice.set(contestSubmitErrorMessage(err));
       this.submitting.set(false);
+      this.refuse(contestSubmitErrorMessage(err));
     }
   }
 
@@ -662,16 +697,18 @@ export class VendorContestForm {
     return (event.target as HTMLInputElement | HTMLTextAreaElement).value;
   }
 
-  protected readonly triggerClass =
-    'inline-flex items-center rounded-(--radius-md) border border-(--border-default) px-3 py-1.5 text-sm font-medium text-(--text-primary) transition-colors hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly selectClass =
-    'w-full cursor-pointer appearance-none rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) py-2 pe-9 ps-3 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly labelClass =
-    'block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase';
-  protected readonly inputClass =
-    'w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly primaryButtonClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
-  protected readonly secondaryButtonClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-default) px-4 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
+  /** A select: the field recipe, with room for the chevron at the end. */
+  protected readonly selectClass = `${FIELD_INPUT_CLASS} cursor-pointer appearance-none pe-12`;
+  protected readonly selectChevronClass =
+    'pointer-events-none absolute end-4 top-1/2 flex -translate-y-1/2 text-(--text-secondary)';
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  /** A refusal from the server or the schema: the field error look. It takes focus, and
+   *  shows the ring the portal's other focused refusals show. */
+  protected readonly noticeClass = `${FIELD_ERROR_CLASS} rounded-mark focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)`;
+  /** A form nested in a row: the bordered panel and the nested sticky save bar. */
+  protected readonly panelClass = FORM_PANEL;
+  protected readonly saveBarClass = PORTAL_NESTED_SAVE_BAR_CLASS;
+  protected readonly saveButtonClass = PORTAL_SAVE_BUTTON_CLASS;
 }

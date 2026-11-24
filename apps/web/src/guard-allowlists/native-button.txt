@@ -23,7 +23,6 @@ admin/threads/thread-list.html 1
 admin/traffic/traffic.html 4
 admin/users/user-detail.html 1
 admin/vendors/vendor-detail.html 1
-vendor/components/vendor-contest-form.ts 3
 vendor/components/vendor-integrations-section.ts 1
 vendor/components/vendor-license-actions.ts 2
 vendor/components/vendor-nudge-mute-toggle.ts 1
