@@ -10,6 +10,9 @@ import {
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { AecButton } from '../../shared/button/button';
+import { AecCard } from '../../shared/card/card';
+import { AecIcon } from '../../shared/icon/icon';
 import type { ProductClaimCount } from '../overview/vendor-overview-model';
 
 /**
@@ -22,9 +25,11 @@ import type { ProductClaimCount } from '../overview/vendor-overview-model';
  * through `vendor-overview-model.ts` and passes it in, and owns the retry.
  *
  * ── VOCABULARY ──────────────────────────────────────────────────────────────
- * The former home stats cards (since removed from the home), the sanctioned figure row: bordered
- * `--surface-raised` cards, a large Source Serif numeral, a quiet line beneath.
- * Not the admin `StatTile`, whose chart hues DESIGN.md keeps inside `/admin`.
+ * The former home stats cards (since removed from the home), the sanctioned figure row,
+ * now on the shared white card (`aecCard`, AECI-1810, mock-up 13): a large Source Serif
+ * numeral, a quiet line beneath. Two tiles side by side from 360px, one above the
+ * other below it. Not the admin `StatTile`, whose chart hues DESIGN.md keeps inside
+ * `/admin`.
  *
  * Rules on top of it:
  *  - **A zero is never a bare 0.** It renders a sentence ("No conflicts").
@@ -37,41 +42,45 @@ import type { ProductClaimCount } from '../overview/vendor-overview-model';
  *    from the home cards' Forest figures: `conflict` is the one sanctioned red,
  *    and a conflict count that looks like good news defeats the tile. At zero
  *    there is no figure, so red never appears for good news.
- *  - **Hover moves the surface, not the border.** Built while a border-colour
- *    utility never applied (the unlayered `*` rule, fixed in AECI-2088).
+ *  - **A link tile lifts on hover** (the interactive card), and its label turns
+ *    Forest and underlines. The `group/card` wrapper holds the hover, so the
+ *    tile does not flicker as it rises.
  *
- * Every label row is `min-h-9`, and `md:min-h-12` so
- * a label that wraps to two lines at `md` does not push its figure below the rest.
+ * Every label row is `sm:min-h-11` (two lines), and `min-h-16` (three) on a phone,
+ * so a label that wraps does not push its figure below the other tile's.
  */
 @Component({
   selector: 'aec-vendor-glance-band',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink],
+  imports: [RouterLink, AecButton, AecCard, AecIcon],
   template: `
-    <section class="grid grid-cols-1 gap-4 md:grid-cols-2" [attr.aria-label]="regionLabel">
+    <section class="grid grid-cols-1 gap-4 min-[360px]:grid-cols-2" [attr.aria-label]="regionLabel">
       <!-- In conflict. aria-busy while the integrations read settles; no
            role="status", the shell owns the one announcement channel. -->
-      <div [attr.aria-busy]="conflictsLoading()">
+      <div class="group/card" [attr.aria-busy]="conflictsLoading()">
         @if (conflictsLoading()) {
-          <div [class]="tileClass">
-            <div class="flex min-h-9 md:min-h-12 items-center">
+          <div aecCard class="flex h-full flex-col gap-2 p-6">
+            <div [class]="labelRowClass">
               <p [class]="labelClass" i18n="@@vendor.overview.conflict.label">In conflict</p>
             </div>
-            <p class="text-sm text-(--text-secondary)" i18n="@@vendor.overview.conflict.loading">
+            <p [class]="lineClass" i18n="@@vendor.overview.conflict.loading">
               Checking your data flows…
             </p>
           </div>
         } @else if (conflictsFailed()) {
-          <div [class]="tileClass">
-            <div class="flex min-h-9 md:min-h-12 items-center">
+          <div aecCard class="flex h-full flex-col gap-2 p-6">
+            <div [class]="labelRowClass">
               <p [class]="labelClass" i18n="@@vendor.overview.conflict.label">In conflict</p>
             </div>
             <p class="text-sm text-(--text-primary)" i18n="@@vendor.overview.conflict.failed">
               Could not load your data flows.
             </p>
             <button
+              aecButton
+              variant="secondary"
+              compact
               type="button"
-              class="self-start rounded-(--radius-sm) border border-(--border-default) px-3 py-1.5 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              class="self-start"
               (click)="retry.emit()"
               i18n="@@vendor.overview.conflict.retry"
             >
@@ -81,54 +90,37 @@ import type { ProductClaimCount } from '../overview/vendor-overview-model';
         } @else {
           @if (conflictTotal() > 0) {
             <a
+              aecCard
+              interactive
               [routerLink]="conflictLink()"
               [queryParams]="conflictQueryParams()"
-              [class]="tileLinkClass"
+              class="flex h-full flex-col gap-2 p-6 text-(--text-primary) no-underline"
               [attr.aria-label]="conflictAria()"
               data-tile="conflict"
             >
-              <div class="flex min-h-9 md:min-h-12 items-center">
-                <p [class]="labelClass" i18n="@@vendor.overview.conflict.label">In conflict</p>
+              <div [class]="labelRowClass">
+                <p [class]="labelLinkClass" i18n="@@vendor.overview.conflict.label">In conflict</p>
               </div>
               <div class="flex items-center gap-3">
                 <span [class]="badgeClass" class="bg-(--status-error)" aria-hidden="true">
-                  <svg
-                    viewBox="0 0 16 16"
-                    class="size-4"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                  >
-                    <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
-                  </svg>
+                  <aec-icon name="x" decorative [size]="4" />
                 </span>
                 <p [class]="figureClass" class="text-(--status-error)">{{ conflictTotal() }}</p>
               </div>
-              <p class="text-sm text-(--text-secondary)">{{ conflictLine() }}</p>
+              <p [class]="lineClass">{{ conflictLine() }}</p>
             </a>
           } @else {
-            <div [class]="tileClass" data-tile="conflict">
-              <div class="flex min-h-9 md:min-h-12 items-center">
+            <div aecCard class="flex h-full flex-col gap-2 p-6" data-tile="conflict">
+              <div [class]="labelRowClass">
                 <p [class]="labelClass" i18n="@@vendor.overview.conflict.label">In conflict</p>
               </div>
-              <div class="flex items-center gap-3">
+              <div class="flex flex-wrap items-center gap-3">
                 <span [class]="badgeClass" class="bg-(--accent-primary)" aria-hidden="true">
-                  <svg
-                    viewBox="0 0 16 16"
-                    class="size-4"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <path d="M3.5 8.5l3 3 6-7" />
-                  </svg>
+                  <aec-icon name="check" decorative [size]="4" />
                 </span>
                 <p [class]="zeroClass" i18n="@@vendor.overview.conflict.zero">No conflicts</p>
               </div>
-              <p class="text-sm text-(--text-secondary)" i18n="@@vendor.overview.conflict.zeroLine">
+              <p [class]="lineClass" i18n="@@vendor.overview.conflict.zeroLine">
                 Nobody has contradicted what you have recorded
               </p>
             </div>
@@ -138,65 +130,50 @@ import type { ProductClaimCount } from '../overview/vendor-overview-model';
 
       <!-- Suggestions = open corrections. The body and the submitter are off the
            wire, so the copy reports a state and never implies a reply. -->
-      @if (openCorrections() > 0) {
-        <a
-          [routerLink]="['..', 'messages']"
-          [class]="tileLinkClass"
-          [attr.aria-label]="suggestionsAria()"
-          data-tile="suggestions"
-        >
-          <div class="flex min-h-9 md:min-h-12 items-center">
-            <p [class]="labelClass" i18n="@@vendor.overview.suggestions.label">
-              Suggestions about your listing
+      <div class="group/card">
+        @if (openCorrections() > 0) {
+          <a
+            aecCard
+            interactive
+            [routerLink]="['..', 'messages']"
+            class="flex h-full flex-col gap-2 p-6 text-(--text-primary) no-underline"
+            [attr.aria-label]="suggestionsAria()"
+            data-tile="suggestions"
+          >
+            <div [class]="labelRowClass">
+              <p [class]="labelLinkClass" i18n="@@vendor.overview.suggestions.label">
+                Suggestions about your listing
+              </p>
+            </div>
+            <div class="flex items-center gap-3">
+              <span [class]="badgeClass" class="bg-(--accent-primary)" aria-hidden="true">
+                <aec-icon name="exclamation" decorative [size]="4" />
+              </span>
+              <p [class]="figureClass" class="text-(--accent-primary)">{{ openCorrections() }}</p>
+            </div>
+            @if (newestLine(); as line) {
+              <p [class]="lineClass">{{ line }}</p>
+            }
+          </a>
+        } @else {
+          <div aecCard class="flex h-full flex-col gap-2 p-6" data-tile="suggestions">
+            <div [class]="labelRowClass">
+              <p [class]="labelClass" i18n="@@vendor.overview.suggestions.label">
+                Suggestions about your listing
+              </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-3">
+              <span [class]="badgeClass" class="bg-(--accent-primary)" aria-hidden="true">
+                <aec-icon name="check" decorative [size]="4" />
+              </span>
+              <p [class]="zeroClass" i18n="@@vendor.overview.suggestions.zero">None open</p>
+            </div>
+            <p [class]="lineClass" i18n="@@vendor.overview.suggestions.zeroLine">
+              Anyone can suggest a correction from your public pages
             </p>
           </div>
-          <div class="flex items-center gap-3">
-            <span [class]="badgeClass" class="bg-(--accent-primary)" aria-hidden="true">
-              <svg
-                viewBox="0 0 16 16"
-                class="size-4"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-              >
-                <path d="M8 3.5v5M8 11.5v.5" />
-              </svg>
-            </span>
-            <p [class]="figureClass" class="text-(--accent-primary)">{{ openCorrections() }}</p>
-          </div>
-          @if (newestLine(); as line) {
-            <p class="text-sm text-(--text-secondary)">{{ line }}</p>
-          }
-        </a>
-      } @else {
-        <div [class]="tileClass" data-tile="suggestions">
-          <div class="flex min-h-9 md:min-h-12 items-center">
-            <p [class]="labelClass" i18n="@@vendor.overview.suggestions.label">
-              Suggestions about your listing
-            </p>
-          </div>
-          <div class="flex items-center gap-3">
-            <span [class]="badgeClass" class="bg-(--accent-primary)" aria-hidden="true">
-              <svg
-                viewBox="0 0 16 16"
-                class="size-4"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <path d="M3.5 8.5l3 3 6-7" />
-              </svg>
-            </span>
-            <p [class]="zeroClass" i18n="@@vendor.overview.suggestions.zero">None open</p>
-          </div>
-          <p class="text-sm text-(--text-secondary)" i18n="@@vendor.overview.suggestions.zeroLine">
-            Anyone can suggest a correction from your public pages
-          </p>
-        </div>
-      }
+        }
+      </div>
     </section>
   `,
   styles: [':host { display: block; }'],
@@ -274,12 +251,15 @@ export class VendorGlanceBand {
       : $localize`:@@vendor.overview.suggestions.aria.many:${n}:COUNT: suggestions about your listing are open. Open messages.`;
   });
 
-  protected readonly tileClass =
-    'flex h-full flex-col gap-2 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-6';
-  protected readonly tileLinkClass = `${this.tileClass} no-underline transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)`;
+  /** The label row holds two lines of label (three on a phone, where the tiles are
+   *  narrow), so the figures line up when one label wraps and the other does not. */
+  protected readonly labelRowClass = 'flex items-start min-[360px]:min-h-16 sm:min-h-11';
+  protected readonly labelClass = 'text-sm font-semibold text-(--text-primary)';
+  /** On a link tile the label takes the card title's hover: Forest, underlined. */
+  protected readonly labelLinkClass = `${this.labelClass} underline-offset-4 group-hover/card:text-(--accent-primary) group-hover/card:underline`;
   protected readonly badgeClass =
     'inline-flex size-8 shrink-0 items-center justify-center rounded-full text-(--surface-base)';
-  protected readonly labelClass = 'text-sm text-(--text-secondary)';
   protected readonly figureClass = 'font-display text-5xl font-semibold tabular-nums';
-  protected readonly zeroClass = 'font-display text-2xl font-semibold text-(--text-primary)';
+  protected readonly zeroClass = 'font-display text-t-20 font-semibold text-(--text-primary)';
+  protected readonly lineClass = 'text-t-13 text-(--text-secondary)';
 }

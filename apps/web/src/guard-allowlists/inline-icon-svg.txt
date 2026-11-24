@@ -8,17 +8,13 @@ admin/vendors/grant-licenses-control.html 1
 admin/vendors/vendor-detail.html 2
 vendor/components/vendor-billing-licenses.ts 1
 vendor/components/vendor-bullet-list-editor.ts 4
-vendor/components/vendor-checklist.ts 2
 vendor/components/vendor-contest-form.ts 2
-vendor/components/vendor-glance-band.ts 4
 vendor/components/vendor-license-actions.ts 2
 vendor/components/vendor-license-assign.ts 1
 vendor/components/vendor-logo-field.ts 1
-vendor/components/vendor-looks-right.ts 1
 vendor/components/vendor-not-ours.ts 1
 vendor/components/vendor-product-facet-editor.ts 1
 vendor/components/vendor-product-form.ts 2
-vendor/components/vendor-removal-election.ts 1
 vendor/components/vendor-reviews-list.ts 3
 vendor/components/vendor-seat-invite-dialog.ts 1
 vendor/history/vendor-history-page.ts 1
@@ -29,5 +25,3 @@ vendor/integration-detail/integration-shared-data.ts 8
 vendor/integration-detail/vendor-integration-detail-page.ts 1
 vendor/integration-detail/vendor-tip.ts 4
 vendor/sections/vendor-billing-section.ts 1
-vendor/sections/vendor-overview-section.ts 3
-vendor/sections/vendor-product-list-page.ts 1
