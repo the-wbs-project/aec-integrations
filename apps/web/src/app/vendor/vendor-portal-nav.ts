@@ -162,9 +162,10 @@ export class VendorPortalNav {
   protected readonly fadeEnd = signal(false);
 
   private readonly row = viewChild.required<ElementRef<HTMLElement>>('row');
+  private readonly destroyRef = inject(DestroyRef);
 
   constructor() {
-    const destroyRef = inject(DestroyRef);
+    const destroyRef = this.destroyRef;
     afterNextRender(() => {
       this.measure();
       if (typeof ResizeObserver === 'undefined') return;
