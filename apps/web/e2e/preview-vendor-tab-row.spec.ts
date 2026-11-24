@@ -50,6 +50,13 @@ test.describe('portal tab row at 390px (AECI-1809)', () => {
   test('one pointer click on a half-faded tab navigates', async ({ page }) => {
     await page.goto(`${PATH}/overview?fixture=verified`);
     await untilAppStable(page);
+    // At 390px the preview's sticky fixture bar and the cookie banner cover the row.
+    // Both are outside the surface under test, so the pointer must not meet them.
+    await page.addStyleTag({
+      content:
+        '[aria-label="Concept switcher (dev only)"],aec-consent-banner{display:none!important}',
+    });
+    await row(page).evaluate((ul) => ul.scrollIntoView({ block: 'center' }));
     await expect(row(page)).toHaveClass(/aec-fade-end/);
     const target = await halfHiddenTab(page);
     await untilHydrated(row(page).locator(`a[href="${target.href}"]`));

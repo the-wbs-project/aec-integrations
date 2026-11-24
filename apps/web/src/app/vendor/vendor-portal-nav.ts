@@ -178,7 +178,11 @@ export class VendorPortalNav {
     });
     afterNextRender(() => {
       // Web fonts change every tab's width after first paint.
-      void this.doc.fonts?.ready.then(() => this.measure());
+      let gone = false;
+      destroyRef.onDestroy(() => (gone = true));
+      void this.doc.fonts?.ready.then(() => {
+        if (!gone) this.measure();
+      });
       if (typeof ResizeObserver === 'undefined') return;
       const observer = new ResizeObserver(() => this.measure());
       observer.observe(this.row().nativeElement);
