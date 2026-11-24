@@ -290,7 +290,7 @@ interface PendingRemoval {
         } @else {
           <fieldset class="m-0 min-w-0 border-0 p-0" [attr.aria-describedby]="termsDescribedBy()">
             <legend class="sr-only">{{ config().legend }}</legend>
-            <ul class="-mx-6 border-y border-(--border-default) md:-mx-8">
+            <ul class="-mx-6 border-t border-(--border-default) md:-mx-8">
               @for (row of rows(); track row.slug) {
                 <li class="border-b border-(--border-default) last:border-b-0">
                   <label [class]="rowLabelClass(row)">

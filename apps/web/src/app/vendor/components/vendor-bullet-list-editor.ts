@@ -70,10 +70,10 @@ export function newBullet(text = ''): BulletDraft {
             track bullet.id;
             let i = $index, first = $first, last = $last
           ) {
-            <!-- AECI-1810: the row controls are 44px aecButtons. Below about 360px they
+            <!-- AECI-1810: the row controls are 44px aecButtons. Below about 420px they
                  wrap under the point, so the text box keeps a usable width. -->
             <li class="flex flex-wrap items-start gap-2">
-              <div class="flex min-w-40 flex-1 items-start gap-2">
+              <div class="flex min-w-56 flex-1 items-start gap-2">
                 <span
                   aria-hidden="true"
                   class="mt-4 size-2 shrink-0 rounded-pill bg-(--text-secondary)"
