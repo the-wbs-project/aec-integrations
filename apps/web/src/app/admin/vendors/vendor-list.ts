@@ -26,10 +26,10 @@ import { FIELD_INPUT_CLASS } from '../../shared/form-field/form-field-classes';
 import { CONSOLE_CAPTION_CLASS, CONSOLE_TABLE } from '../console/console-table';
 import { adminStatusTone, type AdminStatusKey } from '../console/status-tones';
 import {
-  VENDOR_FAILED_TEXT_CLASS,
-  VENDOR_LOAD_FAILED_CLASS,
-  VENDOR_STATUS_LINE_CLASS,
-} from './vendor-console-classes';
+  CONSOLE_FAILED_TEXT_CLASS,
+  CONSOLE_LOAD_FAILED_CLASS,
+  CONSOLE_STATUS_LINE_CLASS,
+} from '../console/console-detail';
 
 /** Rows per fetch. Scroll appends a page at a time, so this is a chunk size
  *  rather than a "page" the operator ever names. */
@@ -135,9 +135,9 @@ export class VendorList {
   protected readonly t = CONSOLE_TABLE;
   protected readonly captionClass = CONSOLE_CAPTION_CLASS;
   protected readonly inputClass = FIELD_INPUT_CLASS;
-  protected readonly statusLineClass = VENDOR_STATUS_LINE_CLASS;
-  protected readonly loadFailedClass = VENDOR_LOAD_FAILED_CLASS;
-  protected readonly failedTextClass = VENDOR_FAILED_TEXT_CLASS;
+  protected readonly statusLineClass = CONSOLE_STATUS_LINE_CLASS;
+  protected readonly loadFailedClass = CONSOLE_LOAD_FAILED_CLASS;
+  protected readonly failedTextClass = CONSOLE_FAILED_TEXT_CLASS;
 
   /** A console chip tone, by the console's word for the status. */
   protected tone(key: AdminStatusKey): ConsoleChipTone {

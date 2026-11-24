@@ -27,7 +27,6 @@ import {
 import { AdminSummaryStore } from '../admin-summary.store';
 import { AdminRequestsApi } from './admin-requests-api';
 import { isReplayedEvent } from '../../core/event-replay';
-import { CLAIM_INLINE_LINK_CLASS } from '../claims/claim-classes';
 import { CONSOLE_FILTER } from '../console/console-filter';
 import {
   CONSOLE_CAPTION_CLASS,
@@ -44,6 +43,7 @@ import {
   QUEUE_FORM_CLASS,
 } from '../reviews/queue-classes';
 import { queueFocusAfterRemoval } from '../reviews/queue-focus';
+import { CONSOLE_FOREST_LINK_CLASS } from '../console/console-detail';
 
 /** One request covers the backlog. The API caps `perPage` at 100. */
 const PAGE_SIZE = 100;
@@ -466,7 +466,7 @@ export class ProductRequestQueue {
   protected readonly captionClass = CONSOLE_CAPTION_CLASS;
   protected readonly inputClass = FIELD_INPUT_CLASS;
   protected readonly hintClass = FIELD_HINT_CLASS;
-  protected readonly inlineLinkClass = CLAIM_INLINE_LINK_CLASS;
+  protected readonly inlineLinkClass = CONSOLE_FOREST_LINK_CLASS;
   protected readonly detailGridClass = QUEUE_DETAIL_GRID_CLASS;
   protected readonly bodyClass = QUEUE_BODY_CLASS;
   protected readonly factsClass = QUEUE_FACTS_CLASS;

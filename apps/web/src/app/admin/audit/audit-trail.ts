@@ -20,8 +20,13 @@ import { AdminCursorPaginator } from '../admin-cursor-paginator';
 import { AdminPaginator } from '../admin-paginator';
 import { CONSOLE_TABLE } from '../console/console-table';
 import { AecButton } from '../../shared/button/button';
-import { AecIcon } from '../../shared/icon/icon';
+import { AdminDisclosureButton } from '../console/disclosure-button';
 import { describeAuditAction } from './audit-action-labels';
+import {
+  CONSOLE_FAILED_TEXT_CLASS,
+  CONSOLE_LOAD_FAILED_CLASS,
+  CONSOLE_STATUS_LINE_CLASS,
+} from '../console/console-detail';
 
 /**
  * The trail's looks beyond the console table recipe (AECI-2128). Shared with
@@ -29,11 +34,11 @@ import { describeAuditAction } from './audit-action-labels';
  */
 export const AUDIT_CLASSES = {
   /** A loading line. 16px secondary. */
-  statusLine: 'text-t-16 text-(--text-secondary)',
+  statusLine: CONSOLE_STATUS_LINE_CLASS,
   /** A load failure: the sentence, then its Try again button. */
-  loadFailed: 'grid justify-items-start gap-4',
+  loadFailed: CONSOLE_LOAD_FAILED_CLASS,
   /** The sentence of a load failure. */
-  failedText: 'text-t-16 font-semibold text-(--text-primary)',
+  failedText: CONSOLE_FAILED_TEXT_CLASS,
   /** A link inside a cell: Forest, underlined, so it reads as a filter link. */
   inlineLink:
     'rounded-mark text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)',
@@ -116,7 +121,7 @@ export const AUDIT_TRAIL_RESULT_ID = 'audit-trail-result';
   selector: 'aec-audit-trail',
   imports: [
     AdminCursorPaginator,
-    AecIcon,
+    AdminDisclosureButton,
     AdminPaginator,
     AecButton,
     RelativeTime,

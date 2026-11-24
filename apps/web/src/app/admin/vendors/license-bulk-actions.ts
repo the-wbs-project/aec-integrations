@@ -25,8 +25,8 @@ import {
   FIELD_INPUT_CLASS,
   FIELD_LABEL_CLASS,
 } from '../../shared/form-field/form-field-classes';
-import { QUEUE_NOTICE_CLASS } from '../reviews/queue-classes';
 import { VENDOR_ACTIONS_CLASS, VENDOR_FIELD_CLASS } from './vendor-console-classes';
+import { CONSOLE_NOTICE_CLASS } from '../console/console-detail';
 
 type Mode = 'extend' | 'revoke';
 
@@ -93,7 +93,7 @@ export class LicenseBulkActions {
   protected readonly hintClass = FIELD_HINT_CLASS;
   protected readonly inputClass = FIELD_INPUT_CLASS;
   protected readonly errorClass = FIELD_ERROR_CLASS;
-  protected readonly noticeClass = QUEUE_NOTICE_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
   protected readonly fieldClass = VENDOR_FIELD_CLASS;
   protected readonly actionsClass = VENDOR_ACTIONS_CLASS;
   /** The open form under the bar: a hairline above, capped at 36rem, no box. */

@@ -36,10 +36,9 @@ import { todayLocal } from './listing-hide-form';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
 import { AecButton } from '../../shared/button/button';
 import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
-import { FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
 import { adminStatusTone } from '../console/status-tones';
-import { QUEUE_NOTICE_CLASS } from '../reviews/queue-classes';
 import { queueFocusAfterRemoval } from '../reviews/queue-focus';
+import { CONSOLE_NOTICE_CLASS } from '../console/console-detail';
 
 /** Which inline action is open on one hide. */
 type HideAction = { readonly id: string; readonly kind: 'restore' | 'reply' };
@@ -78,9 +77,7 @@ export class AdminFieldHides {
 
   // AECI-2112: the same table and form recipe as Field corrections (mock-up 14).
   protected readonly c = FIELD_OVERRIDE_CLASSES;
-  // Named on its own so the label guard can read it (AECI-2083).
-  protected readonly labelClass = FIELD_LABEL_CLASS;
-  protected readonly noticeClass = QUEUE_NOTICE_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
   /** "Decision overdue, no status reply" is a missed policy clock: critical. */
   protected readonly overdueTone: ConsoleChipTone = adminStatusTone('overdue');
 

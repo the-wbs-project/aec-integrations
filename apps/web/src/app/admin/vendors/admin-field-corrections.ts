@@ -48,12 +48,14 @@ import { QUEUE_FAILED_CLASS } from '../reviews/queue-classes';
 import { queueFocusAfterRemoval } from '../reviews/queue-focus';
 import {
   VENDOR_ACTIONS_CLASS,
-  VENDOR_FAILED_TEXT_CLASS,
   VENDOR_FIELD_CLASS,
   VENDOR_FORM_CLASS,
-  VENDOR_LOAD_FAILED_CLASS,
-  VENDOR_STATUS_LINE_CLASS,
 } from './vendor-console-classes';
+import {
+  CONSOLE_FAILED_TEXT_CLASS,
+  CONSOLE_LOAD_FAILED_CLASS,
+  CONSOLE_STATUS_LINE_CLASS,
+} from '../console/console-detail';
 
 /**
  * The class constants the two override sections share (AECI-2112): Field
@@ -62,9 +64,9 @@ import {
 export const FIELD_OVERRIDE_CLASSES = {
   t: CONSOLE_TABLE,
   caption: CONSOLE_CAPTION_CLASS,
-  statusLine: VENDOR_STATUS_LINE_CLASS,
-  loadFailed: VENDOR_LOAD_FAILED_CLASS,
-  failedText: VENDOR_FAILED_TEXT_CLASS,
+  statusLine: CONSOLE_STATUS_LINE_CLASS,
+  loadFailed: CONSOLE_LOAD_FAILED_CLASS,
+  failedText: CONSOLE_FAILED_TEXT_CLASS,
   form: VENDOR_FORM_CLASS,
   field: VENDOR_FIELD_CLASS,
   label: FIELD_LABEL_CLASS,
@@ -153,8 +155,6 @@ export class AdminFieldCorrections {
   readonly announce = output<string>();
 
   protected readonly c = FIELD_OVERRIDE_CLASSES;
-  // Named on its own so the label guard can read it (AECI-2083).
-  protected readonly labelClass = FIELD_LABEL_CLASS;
 
   private readonly api = inject(AdminVendorsApi);
   private readonly injector = inject(Injector);

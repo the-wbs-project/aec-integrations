@@ -16,9 +16,9 @@ import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { listingHideKindLabel } from '../../shared/listing-hide/listing-hide-kind-label';
 import { AecButton } from '../../shared/button/button';
 import { CONSOLE_CAPTION_CLASS, CONSOLE_LABEL_CLASS } from '../console/console-table';
-import { QUEUE_NOTICE_CLASS } from '../reviews/queue-classes';
 import { ListingHideForm, type ListingHideMode } from './listing-hide-form';
 import { VENDOR_INLINE_LINK_CLASS, VENDOR_PAIRS_CLASS } from './vendor-console-classes';
+import { CONSOLE_NOTICE_CLASS } from '../console/console-detail';
 
 /**
  * "Listing visibility" on the Vendor tab of `/admin/vendors/:id` (AECI-1238,
@@ -54,7 +54,7 @@ export class VendorListingVisibility {
   readonly announce = output<string>();
 
   // AECI-2112: the console's notice and fact recipes (mock-up 14).
-  protected readonly noticeClass = QUEUE_NOTICE_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
   protected readonly pairsClass = VENDOR_PAIRS_CLASS;
   protected readonly termClass = CONSOLE_LABEL_CLASS;
   protected readonly captionClass = CONSOLE_CAPTION_CLASS;

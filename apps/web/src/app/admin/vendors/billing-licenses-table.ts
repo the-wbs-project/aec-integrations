@@ -33,15 +33,14 @@ import {
   CONSOLE_TABLE,
 } from '../console/console-table';
 import { adminStatusTone, type AdminStatusKey } from '../console/status-tones';
-import { QUEUE_NOTICE_CLASS } from '../reviews/queue-classes';
 import { seatLabel } from '../seat-label';
+import { VENDOR_INLINE_LINK_CLASS, VENDOR_PANEL_CLASS } from './vendor-console-classes';
 import {
-  VENDOR_FAILED_TEXT_CLASS,
-  VENDOR_INLINE_LINK_CLASS,
-  VENDOR_LOAD_FAILED_CLASS,
-  VENDOR_PANEL_CLASS,
-  VENDOR_STATUS_LINE_CLASS,
-} from './vendor-console-classes';
+  CONSOLE_FAILED_TEXT_CLASS,
+  CONSOLE_LOAD_FAILED_CLASS,
+  CONSOLE_NOTICE_CLASS,
+  CONSOLE_STATUS_LINE_CLASS,
+} from '../console/console-detail';
 
 /**
  * One license as the Billing tab renders it: the wire row plus every label derived
@@ -328,10 +327,10 @@ export class BillingLicensesTable {
   protected readonly panelClass = VENDOR_PANEL_CLASS;
   protected readonly labelClass = CONSOLE_LABEL_CLASS;
   protected readonly captionClass = CONSOLE_CAPTION_CLASS;
-  protected readonly noticeClass = QUEUE_NOTICE_CLASS;
-  protected readonly statusLineClass = VENDOR_STATUS_LINE_CLASS;
-  protected readonly loadFailedClass = VENDOR_LOAD_FAILED_CLASS;
-  protected readonly failedTextClass = VENDOR_FAILED_TEXT_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
+  protected readonly statusLineClass = CONSOLE_STATUS_LINE_CLASS;
+  protected readonly loadFailedClass = CONSOLE_LOAD_FAILED_CLASS;
+  protected readonly failedTextClass = CONSOLE_FAILED_TEXT_CLASS;
   protected readonly inlineLinkClass = VENDOR_INLINE_LINK_CLASS;
   protected readonly choiceClass = CHOICE_INPUT_CLASS;
   /** An ended row's identity cell: the row head in secondary ink (AECI-1866). */

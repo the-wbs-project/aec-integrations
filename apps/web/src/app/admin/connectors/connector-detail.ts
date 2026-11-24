@@ -39,6 +39,7 @@ import { mappingStatusLabel, mappingStatusTone } from './connector-labels';
 import { ManagedByControl } from './managed-by-control';
 import { MappingEditControl } from './mapping-edit-control';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import { CONSOLE_FACT_VALUE_CLASS, CONSOLE_FOREST_LINK_CLASS } from '../console/console-detail';
 
 const STUB_PAGE_SIZE = 25;
 const PAIR_PAGE_SIZE = 25;
@@ -118,11 +119,9 @@ export class ConnectorDetail {
   /** Facts as label over value, in as many columns as fit (mock-up 14 `.facts-dl`). */
   protected readonly factsClass =
     'grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-x-6 gap-y-4';
-  protected readonly factValueClass =
-    'mt-1 text-t-16 text-(--text-primary) [overflow-wrap:anywhere]';
+  protected readonly factValueClass = CONSOLE_FACT_VALUE_CLASS;
   /** A link in a panel or a cell's body: Forest, underlined at rest. */
-  protected readonly inlineLinkClass =
-    'inline-flex items-center gap-1 rounded-mark text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-3 focus-visible:outline-offset-3';
+  protected readonly inlineLinkClass = CONSOLE_FOREST_LINK_CLASS;
   /** A neutral box for a fact or a section's own failure: sunken, hairline. */
   protected readonly neutralBoxClass =
     'rounded-control border border-(--border-default) bg-(--surface-sunken) p-4';

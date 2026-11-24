@@ -34,13 +34,12 @@ import { AecIcon } from '../../shared/icon/icon';
 import { AdminEmailApi, type AdminEmailFilters } from './admin-email-api';
 import { EmailSwitches } from './email-switches';
 import { isReplayedEvent } from '../../core/event-replay';
+import {
+  CONSOLE_FAILED_TEXT_CLASS,
+  CONSOLE_LOAD_FAILED_CLASS,
+  CONSOLE_STATUS_LINE_CLASS,
+} from '../console/console-detail';
 
-/** A status line under a heading: loading, a count. 16px secondary. */
-const EMAIL_STATUS_LINE_CLASS = 'text-t-16 text-(--text-secondary)';
-/** A load failure: the sentence, then its Try again button. */
-const EMAIL_LOAD_FAILED_CLASS = 'grid justify-items-start gap-4';
-/** The sentence of a load failure or a refused search. */
-const EMAIL_FAILED_TEXT_CLASS = 'text-t-16 font-semibold text-(--text-primary)';
 /** A link in a cell that is not the row's identity: the text's ink, underlined. */
 const EMAIL_INLINE_LINK_CLASS =
   'rounded-mark text-(--text-primary) underline decoration-(--border-strong) underline-offset-4 hover:decoration-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
@@ -117,9 +116,9 @@ export class EmailActivity {
   protected readonly inputClass = FIELD_INPUT_CLASS;
   protected readonly hintClass = FIELD_HINT_CLASS;
   protected readonly errorClass = FIELD_ERROR_CLASS;
-  protected readonly statusLineClass = EMAIL_STATUS_LINE_CLASS;
-  protected readonly loadFailedClass = EMAIL_LOAD_FAILED_CLASS;
-  protected readonly failedTextClass = EMAIL_FAILED_TEXT_CLASS;
+  protected readonly statusLineClass = CONSOLE_STATUS_LINE_CLASS;
+  protected readonly loadFailedClass = CONSOLE_LOAD_FAILED_CLASS;
+  protected readonly failedTextClass = CONSOLE_FAILED_TEXT_CLASS;
   protected readonly inlineLinkClass = EMAIL_INLINE_LINK_CLASS;
   protected readonly keyClass = EMAIL_KEY_CLASS;
   protected readonly groupHeadClass = EMAIL_GROUP_HEAD_CLASS;

@@ -12,13 +12,11 @@ import {
 } from './guard-allowlists/class-binding.harness';
 import {
   MIN_FILES,
-  checkShrinkOnly,
   checkUnreadable,
   countPerFile,
   countSource,
   filesByFolder,
   portalAdminSources,
-  readAllowlist,
   readSource,
   stripComments,
 } from './guard-allowlists/shrink-only.harness';
@@ -38,10 +36,9 @@ import {
  * `computed()`, a concatenation, an import) is skipped, not guessed. It has no false
  * positive, because every listed utility on these three elements is dead.
  *
- * AECI-2083: `admin/` and `vendor/` are read too, against a shrink-only allowlist
- * (`guard-allowlists/heading-utilities.txt`, rules in `shrink-only.harness.ts`). Each
- * listed file keeps exactly its count of headings that carry a dead utility until a
- * redesign slice fixes it. Comments are not read there. An unreadable binding fails
+ * AECI-2083: `admin/` and `vendor/` are read too. They were on a shrink-only
+ * allowlist until the redesign slices emptied it, and since AECI-1729 they hold the
+ * public rule with no exceptions. Comments are not read there. An unreadable binding fails
  * until it is named in `PORTAL_ADMIN_UNREADABLE`, and a `[class.x]` binding counts its
  * class. The binding reader lives in `guard-allowlists/class-binding.harness.ts`.
  */
@@ -185,12 +182,17 @@ export function portalAdminHeadingCount(rel: string, src: string): number {
  */
 const PORTAL_ADMIN_UNREADABLE: Record<string, string> = {};
 
-describe('portal and admin headings with a dead utility only shrink (AECI-2083)', () => {
+/*
+ * AECI-1729: the portal and admin slices emptied the shrink-only allowlist, so the
+ * cleanup slice deleted `guard-allowlists/heading-utilities.txt`. The portal and the
+ * console now hold the public rule: no exceptions.
+ */
+describe('portal and admin headings carry no dead utility (AECI-2083, AECI-1729)', () => {
   const files = portalAdminSources();
   const counts = countPerFile(files, portalAdminHeadingCount);
 
-  it('matches guard-allowlists/heading-utilities.txt', () => {
-    expect(checkShrinkOnly(counts, readAllowlist('heading-utilities'))).toEqual([]);
+  it('finds none in the portal or the console (no exceptions)', () => {
+    expect([...counts]).toEqual([]);
   });
 
   it('reads both folders, so it cannot pass on an empty scan', () => {
@@ -217,14 +219,12 @@ describe('portal and admin headings with a dead utility only shrink (AECI-2083)'
     expect(portalAdminHeadingCount('vendor/x.html', src)).toBe(3);
   });
 
-  it('fails on a new offender and on a stale entry', () => {
+  it('counts a new offender, so the no-exceptions check fails on it', () => {
     const rel = 'vendor/x.html';
-    const offender = countSource(portalAdminHeadingCount, rel, `<h2 class="text-xl">A</h2>`);
-    expect(checkShrinkOnly(offender, '')).toEqual([`${rel}: 1 found, 0 allowed (new offender)`]);
-    const fixed = countSource(portalAdminHeadingCount, rel, `<h2>A</h2>`);
-    expect(checkShrinkOnly(fixed, `${rel} 1`)).toEqual([
-      `${rel}: now 0, delete its line (stale entry)`,
+    expect([...countSource(portalAdminHeadingCount, rel, `<h2 class="text-xl">A</h2>`)]).toEqual([
+      [rel, 1],
     ]);
+    expect([...countSource(portalAdminHeadingCount, rel, `<h2>A</h2>`)]).toEqual([]);
   });
 
   it('fails on an unreadable binding that is not named, and on a stale name', () => {

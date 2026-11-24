@@ -5,7 +5,7 @@ import {
 } from '../../shared/form-field/form-field-classes';
 import type { ChipTone } from '../../shared/chip/chip';
 import type { AecIconName } from '../../shared/icon/icon-registry';
-import { PORTAL_FORM_CLASS, PORTAL_SAVE_STATUS_CLASS } from '../shared/portal-form';
+import { PORTAL_FORM_CLASS } from '../shared/portal-form';
 
 import type { Tone } from './integration-detail-model';
 
@@ -41,9 +41,6 @@ export const FORM_PANEL = `rounded-panel border border-(--border-default) bg-(--
 
 /** A read-only note inside a row (a company's note, a reason): the sunken panel. */
 export const NOTE_PANEL = 'rounded-panel bg-(--surface-sunken) px-4 py-3';
-
-/** The nested save bar's status line, at the start. Plain text, never a live region. */
-export const NESTED_SAVE_STATUS = PORTAL_SAVE_STATUS_CLASS;
 
 /** The in-text link role (DESIGN.md, "The Link Treatment Rule"). */
 export const IN_TEXT_LINK =

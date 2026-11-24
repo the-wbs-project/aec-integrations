@@ -13,6 +13,7 @@ import { ManagedByApi } from './managed-by-api';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
 import { AecButton } from '../../shared/button/button';
 import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
+import { CONSOLE_NOTICE_CLASS } from '../console/console-detail';
 
 /**
  * The `managed_by` flip control (AECI-722's UI over AECI-720's endpoint).
@@ -53,6 +54,7 @@ export class ManagedByControl {
 
   protected readonly labelClass = FIELD_LABEL_CLASS;
   protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
 
   readonly catalogId = input.required<string>();
   readonly managedBy = input.required<ConnectorManagedBy>();
