@@ -7,16 +7,25 @@
  * that. `guardWrites` aborts every request that is not a read, on any origin:
  * the app's own API, Supabase (a sign-out would end the CI session too), and
  * analytics. A route a spec adds after this one runs first, so a stub still answers.
+ *
+ * AECI-1882: the guard is on the browser context as well as the page. A tab or
+ * window the page opens shares the context's session cookies but not the page's
+ * routes, so without the context route its writes would reach the network.
+ * Playwright runs page routes before context routes, so a stub a spec adds with
+ * `page.route` after the guard still answers its one write.
  */
-import type { Page } from '@playwright/test';
+import type { Page, Route } from '@playwright/test';
 
 const READS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
-/** Abort every non-read request. Register before any stub. */
+function abortWrites(route: Route): Promise<void> {
+  return READS.has(route.request().method()) ? route.fallback() : route.abort('blockedbyclient');
+}
+
+/** Abort every non-read request, from this page and any page its context opens. Register before any stub. */
 export async function guardWrites(page: Page): Promise<void> {
-  await page.route('**/*', (route) =>
-    READS.has(route.request().method()) ? route.fallback() : route.abort('blockedbyclient'),
-  );
+  await page.context().route('**/*', abortWrites);
+  await page.route('**/*', abortWrites);
 }
 
 /**

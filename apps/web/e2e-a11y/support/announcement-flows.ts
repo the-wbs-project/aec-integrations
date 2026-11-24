@@ -14,10 +14,14 @@ import { guardWrites } from './page-guards';
 
 const READS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
-/** Abort every write, and keep a list of what was aborted for failure messages. Call before any stub. */
+/**
+ * Abort every write, from this page and any tab or window its context opens
+ * (`guardWrites`), and keep a list of what was aborted for failure messages.
+ * Call before any stub.
+ */
 export async function blockWrites(page: Page): Promise<{ aborted: string[] }> {
   const aborted: string[] = [];
-  page.on('requestfailed', (req) => {
+  page.context().on('requestfailed', (req) => {
     if (!READS.has(req.method())) aborted.push(`${req.method()} ${new URL(req.url()).pathname}`);
   });
   await guardWrites(page);

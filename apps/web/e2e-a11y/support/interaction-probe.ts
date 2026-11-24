@@ -343,26 +343,42 @@ export async function overflowsViewport(page: Page, box: Box): Promise<string | 
   }, box);
 }
 
-/** The elements with hover listeners that are drawn now. */
-export async function hoverTriggers(page: Page): Promise<HoverTrigger[]> {
+/**
+ * The elements with hover listeners that are drawn now, and how many listeners
+ * were passed over because their element has no box (hidden, or not drawn at
+ * this width). A count, so a surface where the check found nothing says so.
+ */
+export async function hoverTriggers(
+  page: Page,
+): Promise<{ triggers: HoverTrigger[]; noBox: number }> {
   await ensureProbe(page);
   return page.evaluate(() => {
     const api = window.__aeciInteraction;
     const probe = window.__aeciKeyboardProbe!;
-    if (!api) return [];
+    if (!api) return { triggers: [], noBox: 0 };
     const out: HoverTrigger[] = [];
+    let noBox = 0;
     for (const el of api.hover) {
       if (!el.isConnected || el === document.body || el === document.documentElement) continue;
-      if (!el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
+      if (!el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) {
+        noBox++;
+        continue;
+      }
       const r = el.getBoundingClientRect();
-      if (r.width === 0 || r.height === 0) continue;
+      if (r.width === 0 || r.height === 0) {
+        noBox++;
+        continue;
+      }
       // A host element's own box can be the whole open panel. Point at its first
       // control instead, the thing a reader hovers.
       const control = el.matches('a, button, [role="button"]')
         ? el
         : (el.querySelector('a[href], button, [role="button"]') ?? el);
       const box = control.getBoundingClientRect();
-      if (box.width === 0 || box.height === 0) continue;
+      if (box.width === 0 || box.height === 0) {
+        noBox++;
+        continue;
+      }
       const name =
         control.getAttribute('aria-label') ??
         (control.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 40);
@@ -373,7 +389,7 @@ export async function hoverTriggers(page: Page): Promise<HoverTrigger[]> {
         box: { x: box.left, y: box.top, width: box.width, height: box.height },
       });
     }
-    return out;
+    return { triggers: out, noBox };
   });
 }
 

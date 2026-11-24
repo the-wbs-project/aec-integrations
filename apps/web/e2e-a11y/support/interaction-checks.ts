@@ -89,8 +89,14 @@ async function focusLabel(page: Page): Promise<string> {
 async function hoverPass(ctx: CheckContext, where: string): Promise<string[]> {
   const { page } = ctx;
   const problems: string[] = [];
-  const triggers = (await hoverTriggers(page)).filter(
-    (t) => ctx.checksSharedChrome || !t.inSharedChrome,
+  const found = await hoverTriggers(page);
+  const triggers = found.triggers.filter((t) => ctx.checksSharedChrome || !t.inSharedChrome);
+  const elsewhere = found.triggers.length - triggers.length;
+  ctx.notes.push(
+    `hover, ${where}: ${triggers.length} trigger(s) checked, ${found.noBox} listener(s) passed over for having no box` +
+      (elsewhere > 0
+        ? `, ${elsewhere} in the site header or footer checked on another surface`
+        : ''),
   );
   for (const t of triggers) {
     const points = await pressPoints(page, t.key);
@@ -358,7 +364,10 @@ export function describeOnInput(r: OnInputResult): string {
 
 const LETTERS = 'abcdefghijklmnopqrstuvwxyz'.split('');
 
-/** With focus on `body`, press a to z. The URL, focus and the page must not change. */
+/**
+ * With focus on `body`, press a to z. The URL, focus and the page must not
+ * change, and no write may be sent: a shortcut can act with no visible change.
+ */
 export async function checkCharacterShortcuts(ctx: CheckContext): Promise<string[]> {
   const { page } = ctx;
   await blurActive(page);
@@ -368,24 +377,27 @@ export async function checkCharacterShortcuts(ctx: CheckContext): Promise<string
   // A stability sample needs a gap: does the page change with no key pressed?
   await page.waitForTimeout(1_000);
   const b = await pageSnapshot(page);
+  const writesBefore = ctx.writes();
   const churns = a.elements !== b.elements || a.text !== b.text;
   if (churns) ctx.notes.push('shortcuts: the page changes on its own, so text is not compared');
+  const changed = (at: string, changes: string[]): string[] => {
+    const writes = ctx.writes() - writesBefore;
+    const all = writes > 0 ? [...changes, `${writes} write(s) were sent`] : changes;
+    return all.length > 0 ? [`${at} on the page body: ${all.join(', ')}`] : [];
+  };
   for (const letter of LETTERS) {
     await page.keyboard.press(letter);
-    const changes = snapshotChanges(b, await pageSnapshot(page), churns);
-    if (changes.length > 0) {
+    const found = changed(`"${letter}"`, snapshotChanges(b, await pageSnapshot(page), churns));
+    if (found.length > 0) {
       await ctx.reload();
-      return [`"${letter}" on the page body: ${changes.join(', ')}`];
+      return found;
     }
   }
   // A key's effect can land a frame or a navigation later. Give it one window.
   await page.waitForTimeout(500);
-  const changes = snapshotChanges(b, await pageSnapshot(page), churns);
-  if (changes.length > 0) {
-    await ctx.reload();
-    return [`a to z on the page body: ${changes.join(', ')}`];
-  }
-  return [];
+  const found = changed('a to z', snapshotChanges(b, await pageSnapshot(page), churns));
+  if (found.length > 0) await ctx.reload();
+  return found;
 }
 
 // ── Check 5: motion (WCAG 2.2.2) ────────────────────────────────────────────

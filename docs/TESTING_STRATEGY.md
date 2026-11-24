@@ -1012,7 +1012,8 @@ reached while hidden (inside `aria-hidden`, or with no box). The pure half is pi
 `pnpm --filter @aeci/web test:unit`. Playwright ignores `*.unit.spec.ts`.
 
 **Writes are blocked.** The signed-in surfaces run as the shared test accounts, and they hold the account
-delete and ban dialogs. `guardWrites` aborts every request that is not a read, on any origin, so a stray
+delete and ban dialogs. `guardWrites` aborts every request that is not a read, on any origin, from the page and from any tab
+or window it opens (the route is on the browser context too, AECI-1882), so a stray
 Enter cannot delete the account, ban anyone, or sign the session out. The tests close the delete and ban
 dialogs with Escape and never confirm them. The one confirm they press, "Confirm rejection" on the way to
 the ban dialog, answers from a stub.
@@ -1353,7 +1354,9 @@ a ring a card draws for its link is a ring. Then:
   its box. None does today.
 
 A field whose only change on blur is its error text and red edge therefore fails "visible". Changed
-pixels left out are named in the finding's detail.
+pixels left out are named in the finding's detail. A change on blur that a parent element draws, such
+as a wrapper turning its border red, still counts as the focus ring, because ancestors are left out of
+the changed-element rule.
 
 **Unmeasured stops.** Every stop that gets no verdict is counted in the `focus-stops-unmeasured`
 annotation and named, with its reason, in a `focus-unmeasured` annotation. Two reasons are expected: an
@@ -1594,12 +1597,12 @@ the manifest, public pages included. `e2e-a11y/interaction-flows.spec.ts` runs c
 | 1 | Content on hover | 1.4.13 | Content that hover shows closes when the pointer moves onto it, or Escape does not close it while the pointer is on it, or Escape moves focus. At 768px wide it also fails when the content pushes the page sideways or leaves the viewport (AECI-1846) |
 | 2 | Pointer cancellation | 2.5.2 | A press on a control, a move off it and a release somewhere with nothing interactive changes the URL, loads a page, sends a write, opens a popup or flips a state |
 | 3 | On input | 3.2.2 | Changing a form control changes the address, loads a page, opens a window or moves focus off the control, and the control is not on the on-input list |
-| 4 | Character shortcuts | 2.1.4 | With focus on `body`, a key from a to z changes the URL, the title, the scroll, focus, the open popups or the page's text |
+| 4 | Character shortcuts | 2.1.4 | With focus on `body`, a key from a to z changes the URL, the title, the scroll, focus, the open popups or the page's text, or sends a write |
 | 5a | Motion | 2.2.2 | An animation longer than 5 seconds, or endless, is still running on a drawn element 5 seconds after it started |
 | 5b | Reduced motion | 2.3.3 (AAA), and 2.2.2 | With `reducedMotion: 'reduce'`, any animation or transition the page ran, from its first frame, lasted more than 100ms |
 | 6a | Forced colours, axe | WCAG 2 A and AA rules | With `forcedColors: 'active'`, axe with the sweep's tags and exclusions (`e2e/axe-sweep.ts`) finds a gate violation |
 | 6b | Forced colours, focus ring | 2.4.7, 1.4.11, 2.4.11 | With `forcedColors: 'active'`, the focus ring check of §8.4.5 fails on a Tab stop |
-| 7 | Error prevention | 3.3.4 | The claim, checkout, account delete or a moderation action writes with no confirm or review step first |
+| 7 | Error prevention | 3.3.4 | The claim, checkout, account delete, reject, remove or ban writes with no confirm or review step first. Approve is a pending ruling (below) |
 
 **How each surface runs.** Each surface is loaded twice, each time in a `beforeAll` that runs the
 checks and records their problems. Each check is then its own test, which judges the record with
@@ -1608,7 +1611,10 @@ media and runs 5a, 4, 1, 2 and 3 in that order: the two that only read go first,
 changes the page reloads it before the next. Load B has reduced motion and forced colours together and
 runs 6a, 6b, then 5b, so 5b covers the load, the settle scroll and every focus move of the walk. Each
 describe is `mode: 'default'`, so it stays on one shard and a failed test re-runs the hook for the
-tests left (§8.4 "Shards"). The site header and footer are checked once per persona for checks 1 to 3
+tests left (§8.4 "Shards"). Each describe also sets `retries: 0`. The findings are deterministic, so a
+retry adds nothing, and in CI (`retries: 1`) it would run the whole surface load again. A regression in
+a shared component could fail many loads at once and push a shard toward its 30-minute limit on the
+night the summary matters most. The site header and footer are checked once per persona for checks 1 to 3
 (`headerOwnerFor`, §8.4.1).
 
 **How a control is found.** No list is kept by hand.
@@ -1617,7 +1623,9 @@ tests left (§8.4 "Shards"). The site header and footer are checked once per per
   `mouseenter`, `mouseover`, `pointerenter` or `pointerover` listener. Angular binds a template's
   `(mouseenter)` with `addEventListener`, so every hover panel in the app is found. Each one is pointed
   at, and the new content is what was drawn after the hover and not before. The pointer then moves onto
-  the largest new element whose centre takes the pointer.
+  the largest new element whose centre takes the pointer. Each load records an annotation with the
+  number of triggers checked and the number of listeners passed over because their element has no
+  box, so a surface where the check found nothing says so.
 - Check 2: one activatable control of each kind (component, landmark, role, and the name for anything
   but a link), up to 60 a surface. A press that changed something is run again from a fresh load as
   the same pointer path with no press, and only what the press added counts. A control that opens on
@@ -1630,9 +1638,12 @@ tests left (§8.4 "Shards"). The site header and footer are checked once per per
   check focuses the control with `focus()`, because it tests the change, not how focus got there.
 - Check 7: the flows are scripted by hand (below).
 
-**Check 3's on-input list** is `ON_INPUT_LIST` in `support/on-input-list.ts`. A listed control may
-change the page the way its entry says. An entry that stops matching turns the test red. On landing
-(2026-11-24) every entry is **pending Chris's ruling**:
+**Pending rulings.** Two kinds of finding wait for Chris. Both pass today and assert exactly what
+happens now, so a change in either direction turns a test red.
+
+Check 3's on-input list is `ON_INPUT_LIST` in `support/on-input-list.ts`. A listed control may change
+the page the way its entry says. An entry that stops matching turns the test red. Every entry is
+**pending Chris's ruling**:
 
 | Entry | Surfaces | What it does on change | Status |
 |---|---|---|---|
@@ -1644,6 +1655,11 @@ No control on any surface loads a new page, opens a window or moves focus on cha
 `/categories`, `/audiences` and `/phases` reorders in place and does not write to the address, while
 the sort on the listing pages does. That is a difference under `DESIGN.md` "The Same-Behavior Rule",
 reported to Chris, not decided here.
+
+Check 7's Approve is the other: one click on Approve sends the approve, with no confirm step and no
+undo (AECI-2121). The test asserts one click, one call to the stub and no dialog, and carries the
+annotation "pending Chris's ruling, AECI-2121". If Chris rules that Approve needs a confirm, the test
+changes then.
 
 **Check 7, the flows.** Each test proves the step is there and stops on it. `blockWrites` runs first,
 so no write reaches the network, the local API included. A count of every write the page tried is how
@@ -1658,7 +1674,7 @@ so no write reaches the network, the local API included. A count of every write 
 | Reject | `/admin/reviews` | Reject opens a reason and "Confirm rejection". Nothing is sent | "Confirm rejection" |
 | Remove | The same, Approved tab | A reason, then "Continue to removal", then "Remove permanently". Nothing is sent | "Remove permanently" |
 | Ban | The same | A stubbed reject raises "Ban reviewer", which opens a dialog with a reason and "Confirm ban". Only the stubbed reject was sent | "Confirm ban" |
-| Approve | The same | One click sends the approve, to a stub. It has no confirm step (AECI-2121) | Nothing else |
+| Approve | The same | One click sends the approve, to a stub, with no confirm step. Pending Chris's ruling (AECI-2121) | Nothing else |
 
 The checkout tests reach no Stripe route and no route that creates a Checkout Session or charges a
 card. The vendor test account is a member seat and the local API has no Stripe key, so three reads are
@@ -1666,9 +1682,14 @@ answered in the browser: the billing page's transfer state with `seat_owner` set
 /api/vendor/billing` with Stripe on, and the empty list of accepted agreements. The moderation tests
 run over a stubbed queue list, so no real review is touched.
 
-Not covered: a signed-in claim whose email matches the session goes straight in, with no confirm step
-(`createClaimSubmitHandler` in `apps/api/src/routes/requests.ts`). The server makes that choice, so a
-browser stub cannot test it without the real write.
+Not covered:
+
+- A signed-in claim whose email matches the session goes straight in, with no confirm step
+  (`createClaimSubmitHandler` in `apps/api/src/routes/requests.ts`). The server makes that choice, so a
+  browser stub cannot test it without the real write.
+- The signed-out claim's emailed confirm is the server's choice too. The test's own stub answers
+  `confirmation_required: true`, so the test proves the page shows the confirm step when the server
+  asks for it. It does not prove the server asks.
 
 **Known barriers on landing (2026-11-24).** `KNOWN_INTERACTION_BARRIERS` in `interaction.spec.ts`:
 
@@ -1676,8 +1697,7 @@ browser stub cannot test it without the real write.
 |---|---|---|---|
 | AECI-2119 | 1 | Escape does not close an admin nav dropdown opened by hover, at both widths | Both admin surfaces |
 | AECI-2120 | 2 | A press on "Browse" dragged off and released leaves the Browse panel open | The header owner of each persona |
-| AECI-2097 | 6b | The vendor portal section nav clips its links' focus ring, in forced colours too | Both vendor portal surfaces |
-| AECI-2121 | 7 | One click on Approve sends the approve. Marked in `interaction-flows.spec.ts` | Admin moderation queue |
+| AECI-2097 | 6b | The vendor portal section nav clips its links' focus ring, in forced colours too. The mark covers only a strong ring that is too short (`isClippedPortalRing`), so any other contrast finding on those links still fails | Both vendor portal surfaces |
 
 AECI-2099 (a click closes what hover opened) is why checks 1 and 2 never click a hover trigger.
 
@@ -1688,13 +1708,18 @@ AECI-2099 (a click closes what hover opened) is why checks 1 and 2 never click a
   here means the page survives forced colours in Chromium. The manual pass still checks a real theme.
 - The contrast rules (`color-contrast`, `color-contrast-enhanced`) are off in 6a. Under forced colours
   the reader's palette replaces the author's colours, so those rules measure colours nobody sees. The
-  sweep checks contrast with forced colours off (§8.2).
+  sweep checks contrast with forced colours off (§8.2). An element with `forced-color-adjust: none`
+  keeps its own colours and is not checked for contrast here. Today's uses in `styles.css` and
+  `shared/meter/meter.ts` paint system colour pairs (`Highlight` on `HighlightText`, `CanvasText` on
+  `Canvas`), so they follow the reader's theme.
 - Check 1 finds hover content shown by a script listener. A reveal done in CSS alone, with `:hover`
   showing a hidden element, is not found. The app has none today. Content shown on focus alone is the
   keyboard suite's (§8.4.1).
-- Check 2 skips text fields and native selects, which have no pointer function, and a control whose
-  centre is covered or that has no free point near it. The skips are in the test's annotations.
-- Check 5 sees CSS and Web Animations. A video, a GIF or a canvas drawn by script is not seen.
+- Check 2 does not look at text fields or native selects: they are not in its selector, because they
+  have no pointer function. It also passes over a control whose centre is covered or that has no free
+  point near it, and those skips are in the test's annotations.
+- Check 5 sees CSS and Web Animations. A video, a GIF, a canvas drawn by script, or a carousel that
+  swaps its slides by script with no CSS animation is not seen.
 - Checks 1 to 6 run in Chromium at 1280 by 720, and check 1 also at 768 by 1024.
 
 **Run it** alone with one worker:

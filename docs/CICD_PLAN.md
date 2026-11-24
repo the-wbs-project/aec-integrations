@@ -1506,10 +1506,17 @@ worker, 2026-11-24, against a fresh local D1, 290 tests:
 Playwright splits by test count, not by time. Two groups carry most of the time: the signed-out
 keyboard walks (80 tests, 7.0 min) and the focus ring (25 tests, 6.1 min). Their tests land next to each
 other, so one shard of four took 10.7 minutes while another took 1.5. Eight shards bring the slowest to
-about 7 minutes, under a quarter of the limit before about 4 minutes of setup. A GitHub runner is slower
-than the laptop these numbers come from, and four more suites are planned (magnification, interaction
-scripts, voice and switch stand-ins, a second rule engine). At their likely size the slowest shard
-should stay near half the limit. The second rule engine (AECI-1884) is 22 tests. One local worker ran
+about 7 minutes, under a quarter of the limit before about 4 minutes of setup. Those numbers predate
+the last four suites (magnification, interaction scripts, voice and switch stand-ins, a second rule
+engine), which have all landed. The nightly config now holds 600 tests. A GitHub runner is slower than
+the laptop these numbers come from, and no shard time has been measured since, locally or in CI.
+
+The interaction scripts (AECI-1882, `TESTING_STRATEGY.md` §8.4.7) are 185 tests and took 15.2 to 17.4
+minutes on one local worker. Almost all of that is 44 surface loads in `beforeAll` hooks. Playwright
+gives each shard a contiguous slice of the sorted test list, so the loads cluster: on 2026-11-25
+shards 4 and 5 each held about ten interaction surfaces in a row, and shard 4 holds `/admin/reviews`,
+the slowest load at about 75 seconds. Those ten surfaces took about 9 minutes locally, on top of the
+other suites' tests on the same shard. Read the shard times off the first nightly. The second rule engine (AECI-1884) is 22 tests. One local worker ran
 them in 1.2 to 2.0 minutes, and once in 3.3 minutes under load. Playwright gives a shard a contiguous slice of the
 sorted list, so all 22 land on one shard. On 2026-11-24 that was shard 4, with 13 focus ring tests
 and 21 keyboard tests. It needs no workflow step, because `pnpm install` installs the engine. Two tests in the eight-shard run timed out on a 5-second ARIA read
