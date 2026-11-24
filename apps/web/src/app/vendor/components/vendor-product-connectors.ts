@@ -86,7 +86,7 @@ type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
               >Connectors</span
             >
           </h2>
-          <p class="max-w-prose text-sm text-(--text-secondary)" i18n="@@vendor.connectors.intro">
+          <p class="max-w-[30rem] text-sm text-(--text-secondary)" i18n="@@vendor.connectors.intro">
             Integration platforms that list this product. AEC Integrations maintains this list from
             each platform's published catalog, so it is read-only here.
           </p>
@@ -131,12 +131,9 @@ type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
                     }
                   </ul>
                   @for (target of contestable(group); track target.id) {
-                    <div
-                      class="mt-4 rounded-panel border border-(--border-default) bg-(--surface-base)"
-                      data-contest-target
-                    >
+                    <div class="mt-4" data-contest-target>
                       <p
-                        class="px-6 pt-4 text-sm text-(--text-secondary)"
+                        class="pb-2 text-sm text-(--text-secondary)"
                         i18n="@@vendor.connectors.contest.intro"
                       >
                         {{ target.other_product.name }}, through {{ group.connector.name }}. Offered

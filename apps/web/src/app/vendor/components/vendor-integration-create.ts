@@ -510,10 +510,7 @@ function emptyDraft(): Draft {
                     <p [class]="labelClass" i18n="@@vendor.integrationCreate.counterpart.label">
                       The other product
                     </p>
-                    <div
-                      [class]="productBoxClass + ' bg-(--surface-base)'"
-                      data-testid="create-counterpart"
-                    >
+                    <div [class]="productBoxClass" data-testid="create-counterpart">
                       <aec-logo-or-initial
                         [claimStatus]="'stored'"
                         [src]="chosen.logo_url ?? null"
@@ -933,7 +930,7 @@ function emptyDraft(): Draft {
             <div
               role="group"
               aria-labelledby="vendor-create-own-label vendor-create-own-name"
-              [class]="productBoxClass + ' bg-(--surface-sunken)'"
+              [class]="productBoxClass"
               data-testid="create-own-product"
             >
               @if (contextOwnProduct(); as own) {
@@ -1746,7 +1743,7 @@ export class VendorIntegrationCreate implements OnInit {
     'block font-display text-t-20 font-semibold text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
   /** A product shown in a box (the tab's own, or the chosen one): 44px, the control radius. */
   protected readonly productBoxClass =
-    'flex min-h-11 items-center gap-3 rounded-control border border-(--border-default) px-4 py-2';
+    'flex min-h-11 items-center gap-3 rounded-control bg-(--surface-sunken) px-4 py-2';
   /** The likely duplicates: a bordered panel across both columns, no card in a card. */
   protected readonly dupesClass = `rounded-panel border border-(--border-default) ${PORTAL_FORM_SPAN_CLASS}`;
   /** The portal's row action ("Claim to edit", "Request a change"). */

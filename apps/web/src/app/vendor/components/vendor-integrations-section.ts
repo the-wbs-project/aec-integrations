@@ -135,7 +135,7 @@ const SEGMENT_RESTING = 'text-(--text-primary) hover:bg-(--surface-sunken)';
   ],
   template: `
     <div class="space-y-6" [attr.aria-busy]="loading() ? 'true' : null">
-      <p class="max-w-prose text-sm text-(--text-secondary)" i18n="@@vendor.attest.intro">
+      <p class="max-w-[30rem] text-sm text-(--text-secondary)" i18n="@@vendor.attest.intro">
         These are the integrations on record for your products. Open one to check what data is
         shared and to fix anything that is wrong. The other company sees the same integration from
         their side.

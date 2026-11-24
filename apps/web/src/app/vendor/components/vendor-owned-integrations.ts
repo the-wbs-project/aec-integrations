@@ -110,7 +110,7 @@ export function ownedRowsForProduct(
             >
           </h2>
           <p
-            class="max-w-prose text-sm text-(--text-secondary)"
+            class="max-w-[30rem] text-sm text-(--text-secondary)"
             i18n="@@vendor.ownedIntegrations.intro"
           >
             Your company is recorded as the owner of these integrations. They are listed here,
