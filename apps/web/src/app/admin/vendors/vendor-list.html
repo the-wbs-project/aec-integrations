@@ -1,18 +1,31 @@
 <section aria-labelledby="admin-vendors-heading">
-  <div class="flex flex-wrap items-end justify-between gap-4">
-    <h2
-      id="admin-vendors-heading"
-      class="text-lg font-bold text-(--text-primary)"
-      i18n="@@admin.vendors.heading"
-    >
-      Vendors
-    </h2>
+  <!-- AECI-2112: the console's page head (mock-up 14): the heading and its intro, then
+       the search and the Claimed filter in one row under them. -->
+  <h2 id="admin-vendors-heading" i18n="@@admin.vendors.heading">Vendors</h2>
 
-    <div class="flex flex-wrap items-center gap-3">
-      <form method="dialog" novalidate (submit)="onSearchSubmit($event)" class="flex gap-2">
-        <label for="admin-vendors-search" class="sr-only" i18n="@@admin.vendors.search.label">
-          Search by company name or slug
-        </label>
+  <!--
+    Says what this screen is FOR. The claim queue can only reach a vendor that
+    filed a claim; this is the one that reaches the rest, which is what concierge
+    onboarding needs.
+  -->
+  <p [class]="captionClass" class="mt-2 max-w-[42rem]" i18n="@@admin.vendors.intro2">
+    Every vendor in the catalog, including those that never filed a claim. Open one to manage its
+    subscriptions, review its seats, and read its audit trail.
+  </p>
+
+  <!-- The Claimed filter stays the shared select, as on /admin/users (AECI-1934). -->
+  <div class="mt-6 flex flex-wrap items-end gap-x-6 gap-y-4">
+    <form
+      method="dialog"
+      novalidate
+      (submit)="onSearchSubmit($event)"
+      class="flex min-w-0 flex-wrap items-center gap-2"
+    >
+      <label for="admin-vendors-search" class="sr-only" i18n="@@admin.vendors.search.label">
+        Search by company name or slug
+      </label>
+      <!-- The field recipe is full width, so the 16rem cap sits on a wrapper. -->
+      <div class="w-64 max-w-full">
         <input
           id="admin-vendors-search"
           type="search"
@@ -20,85 +33,80 @@
           (input)="onSearchInput($event)"
           i18n-placeholder="@@admin.vendors.search.placeholder"
           placeholder="Company name or slug"
-          class="w-56 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          [class]="inputClass"
         />
-        <button
-          type="submit"
-          class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          i18n="@@admin.vendors.search.submit"
-        >
-          Search
-        </button>
-        @if (search()) {
-        <button
-          type="button"
-          (click)="clearSearch()"
-          class="inline-flex items-center rounded-(--radius-md) px-3 py-2 text-sm font-medium text-(--text-secondary) transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          i18n="@@admin.vendors.search.clear"
-        >
-          Clear
-        </button>
-        }
-      </form>
+      </div>
+      <button
+        aecButton
+        variant="secondary"
+        compact
+        type="submit"
+        i18n="@@admin.vendors.search.submit"
+      >
+        Search
+      </button>
+      @if (search()) {
+      <button
+        aecButton
+        variant="ghost"
+        type="button"
+        (click)="clearSearch()"
+        i18n="@@admin.vendors.search.clear"
+      >
+        Clear
+      </button>
+      }
+    </form>
 
-      <aec-select
-        i18n-label="@@admin.vendors.filter.claimed.label"
-        label="Claimed"
-        [options]="claimedOptions"
-        [value]="claimed()"
-        idPrefix="admin-vendors-claimed"
-        (changed)="onClaimedChange($event)"
-      />
-    </div>
+    <aec-select
+      i18n-label="@@admin.vendors.filter.claimed.label"
+      label="Claimed"
+      [options]="claimedOptions"
+      [value]="claimed()"
+      idPrefix="admin-vendors-claimed"
+      (changed)="onClaimedChange($event)"
+    />
   </div>
-
-  <!--
-    Says what this screen is FOR. The claim queue can only reach a vendor that
-    filed a claim; this is the one that reaches the rest, which is what concierge
-    onboarding needs.
-  -->
-  <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.intro2">
-    Every vendor in the catalog, including those that never filed a claim. Open one to manage its
-    subscriptions, review its seats, and read its audit trail.
-  </p>
 
   <p class="sr-only" role="status" aria-live="polite">{{ liveMessage() }}</p>
 
   <aec-brand-asset-removals (announce)="liveMessage.set($event)" />
 
   @if (loading()) {
-  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.vendors.loading">
-    Loading vendors…
-  </p>
+  <p [class]="statusLineClass" class="mt-6" i18n="@@admin.vendors.loading">Loading vendors…</p>
   } @else if (loadFailed() && isEmpty()) {
-  <div
-    role="alert"
-    class="mt-8 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
-  >
-    <p class="text-sm font-medium text-(--text-primary)" i18n="@@admin.vendors.error">
+  <div role="alert" [class]="loadFailedClass" class="mt-6">
+    <p [class]="failedTextClass" i18n="@@admin.vendors.error">
       We couldn't load the vendor list. Your session may have expired.
     </p>
     <button
+      aecButton
+      variant="secondary"
       type="button"
       (click)="retry()"
-      class="mt-3 inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       i18n="@@admin.vendors.retry"
     >
       Try again
     </button>
   </div>
   } @else if (isEmpty()) {
-  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.vendors.empty2">
+  <p [class]="t.empty" class="mt-6" i18n="@@admin.vendors.empty2">
     No vendors match this search or filter.
   </p>
   } @else {
-  <div class="mt-6 overflow-x-auto">
-    <table class="w-full min-w-[60rem] border-collapse text-sm">
-      <caption class="sr-only" i18n="@@admin.vendors.table.caption3">
+  <div
+    [class]="t.region"
+    class="mt-6"
+    role="region"
+    tabindex="0"
+    aria-labelledby="admin-vendors-caption"
+  >
+    <table [class]="t.table" class="min-w-[60rem]">
+      <caption id="admin-vendors-caption" [class]="t.caption" i18n="@@admin.vendors.table.caption3">
         Vendors in the catalog, with account state, claim date, live subscriptions and counts
       </caption>
       <thead>
-        <tr class="border-b border-(--border-strong)">
+        <tr>
           <th
             scope="col"
             aec-sort-header
@@ -108,7 +116,7 @@
             [activeSort]="sort()"
             [direction]="directionFor('name')"
             (sortChange)="onSortChange($event)"
-            class="py-2 pe-4 text-start"
+            [class]="t.head"
           ></th>
           <th
             scope="col"
@@ -119,7 +127,7 @@
             [activeSort]="sort()"
             [direction]="directionFor('slug')"
             (sortChange)="onSortChange($event)"
-            class="py-2 pe-4 text-start"
+            [class]="t.head"
           ></th>
           <th
             scope="col"
@@ -130,7 +138,7 @@
             [activeSort]="sort()"
             [direction]="directionFor('claimed')"
             (sortChange)="onSortChange($event)"
-            class="py-2 pe-4 text-start"
+            [class]="t.head"
           ></th>
           <th
             scope="col"
@@ -141,7 +149,7 @@
             [activeSort]="sort()"
             [direction]="directionFor('verified')"
             (sortChange)="onSortChange($event)"
-            class="py-2 pe-4 text-start"
+            [class]="t.head"
           ></th>
           <th
             scope="col"
@@ -152,7 +160,7 @@
             [activeSort]="sort()"
             [direction]="directionFor('licenses')"
             (sortChange)="onSortChange($event)"
-            class="py-2 pe-4 text-start"
+            [class]="t.headNum"
           ></th>
           <th
             scope="col"
@@ -163,7 +171,7 @@
             [activeSort]="sort()"
             [direction]="directionFor('products')"
             (sortChange)="onSortChange($event)"
-            class="py-2 pe-4 text-start"
+            [class]="t.headNum"
           ></th>
           <th
             scope="col"
@@ -174,20 +182,15 @@
             [activeSort]="sort()"
             [direction]="directionFor('updated')"
             (sortChange)="onSortChange($event)"
-            class="py-2 text-start"
+            [class]="t.head"
           ></th>
         </tr>
       </thead>
       <tbody>
         @for (v of vendors(); track v.id) {
-        <tr class="border-b border-(--border-default) align-top">
-          <th scope="row" class="py-2.5 pe-4 text-start font-bold text-(--text-primary)">
-            <a
-              [routerLink]="['/admin/vendors', v.id]"
-              class="text-(--text-primary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:decoration-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            >
-              {{ v.company_name }}
-            </a>
+        <tr [class]="t.row">
+          <th scope="row" [class]="t.rowHead">
+            <a [routerLink]="['/admin/vendors', v.id]" [class]="t.link">{{ v.company_name }}</a>
           </th>
 
           <!--
@@ -196,15 +199,15 @@
             and a support thread, so it belongs where it can be scanned and sorted
             — and lifting it out of the name cell makes every row one line tall.
           -->
-          <td class="py-2.5 pe-4 font-mono text-xs text-(--text-tertiary)">{{ v.slug }}</td>
+          <td [class]="t.cell" class="font-mono text-t-13 text-(--text-secondary)">{{ v.slug }}</td>
 
           <!--
             Claimed on is record ownership, owned_at (ADR 0042), not the paid
             mirror beside it. A Free-plan claim shows a date here and a dash there.
           -->
-          <td class="py-2.5 pe-4 text-(--text-secondary)">
+          <td [class]="t.nowrap" class="text-(--text-secondary)">
             @if (v.owned_at) { {{ v.owned_at | date: 'mediumDate' : 'UTC' }} } @else {
-            <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
+            <span aria-hidden="true">&ndash;</span>
             <span class="sr-only" i18n="@@admin.vendors.notClaimed">Not claimed</span>
             }
           </td>
@@ -213,17 +216,14 @@
             Account active and Live licenses sit in adjacent columns so an operator
             can see an active account with no live license, or the reverse.
           -->
-          <td class="py-2.5 pe-4">
+          <td [class]="t.cell">
             @if (v.verified) {
-            <span
-              class="inline-flex items-center rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-medium text-(--text-primary)"
-              i18n="@@admin.vendors.badge.verified"
+            <aec-chip density="dense" [tone]="tone('accountActive')"
+              ><span i18n="@@admin.vendors.badge.verified">Active</span></aec-chip
             >
-              Active
-            </span>
             } @else {
             <span
-              class="text-(--text-tertiary)"
+              class="text-(--text-secondary)"
               i18n-aria-label="@@admin.vendors.badge.notVerified"
               aria-label="Account inactive"
               >&ndash;</span
@@ -231,11 +231,11 @@
             }
           </td>
 
-          <td class="py-2.5 pe-4 tabular-nums text-(--text-primary)">{{ v.live_license_count }}</td>
+          <td [class]="t.num">{{ v.live_license_count }}</td>
 
-          <td class="py-2.5 pe-4 tabular-nums text-(--text-primary)">{{ v.product_count }}</td>
+          <td [class]="t.num">{{ v.product_count }}</td>
 
-          <td class="py-2.5 text-(--text-secondary)">
+          <td [class]="t.nowrap" class="text-(--text-secondary)">
             {{ v.updated_at | date: 'mediumDate' : 'UTC' }}
           </td>
         </tr>
@@ -254,17 +254,15 @@
   -->
   <div class="mt-6">
     @if (loadFailed()) {
-    <div
-      role="alert"
-      class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4 text-center"
-    >
-      <p class="text-sm font-medium text-(--text-primary)" i18n="@@admin.vendors.error.more">
+    <div role="alert" class="grid justify-items-center gap-4 text-center">
+      <p [class]="failedTextClass" i18n="@@admin.vendors.error.more">
         We couldn't load any more vendors.
       </p>
       <button
+        aecButton
+        variant="secondary"
         type="button"
         (click)="retry()"
-        class="mt-3 inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
         i18n="@@admin.vendors.retry.more"
       >
         Try again
