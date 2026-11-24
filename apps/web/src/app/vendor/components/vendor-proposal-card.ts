@@ -151,7 +151,7 @@ export function proposalDecisionIsStale(err: unknown): boolean {
       </div>
 
       @if (proposal().product.description_excerpt; as description) {
-        <p class="mt-2 max-w-[34rem] text-t-14 leading-[1.6] text-(--text-primary)">
+        <p class="mt-2 max-w-[32rem] text-t-14 leading-[1.6] text-(--text-primary)">
           {{ description }}
         </p>
       } @else {
@@ -226,7 +226,7 @@ export function proposalDecisionIsStale(err: unknown): boolean {
 
       @if (droppedCount() > 0) {
         <p
-          class="mt-4 max-w-[34rem] text-t-13 text-(--text-secondary)"
+          class="mt-4 max-w-[32rem] text-t-13 text-(--text-secondary)"
           data-testid="proposal-dropped-note"
         >
           {{ droppedNote() }}
@@ -234,7 +234,7 @@ export function proposalDecisionIsStale(err: unknown): boolean {
       }
       @if (vendorMissing()) {
         <p
-          class="mt-4 max-w-[34rem] text-t-14 leading-[1.6] text-(--text-primary)"
+          class="mt-4 max-w-[32rem] text-t-14 leading-[1.6] text-(--text-primary)"
           data-testid="proposal-vendor-missing"
         >
           <span i18n="@@vendor.proposals.card.vendorMissing"
@@ -255,7 +255,7 @@ export function proposalDecisionIsStale(err: unknown): boolean {
           role="group"
           [attr.aria-labelledby]="id('confirm-title')"
           [attr.aria-describedby]="id('confirm-body')"
-          class="mt-6 max-w-[34rem] rounded-panel border border-(--border-strong) bg-(--surface-sunken) p-4"
+          class="mt-6 max-w-[32rem] rounded-panel border border-(--border-strong) bg-(--surface-sunken) p-4"
           (keydown.escape)="onEscape($event)"
           data-testid="proposal-confirm"
         >
@@ -341,7 +341,7 @@ export function proposalDecisionIsStale(err: unknown): boolean {
       }
 
       @if (notice(); as message) {
-        <p role="alert" [class]="errorClass + ' mt-4 max-w-[34rem]'" data-testid="proposal-error">
+        <p role="alert" [class]="errorClass + ' mt-4 max-w-[32rem]'" data-testid="proposal-error">
           {{ message }}
         </p>
       }
