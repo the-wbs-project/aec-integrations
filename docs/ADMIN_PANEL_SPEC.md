@@ -2641,7 +2641,7 @@ matches all of these:
 
 | Column | Predicate | Why |
 |---|---|---|
-| `is_bot` | `= 1` | Serves the read from `page_views_bot_idx (is_bot, created_at)` |
+| `is_bot` | `= 1`, as a literal | Implies the WHERE of the partial index `page_views_crawl_path_idx` (migration `0129`, AECI-818), which serves the read. `page_views_bot_idx` would range-scan nearly every bot row |
 | `bot_name` | `= 'Googlebot'` for the Google lane, `= 'Bingbot'` for the Bing lane | The ingest-time label from `NAMED_BOTS`. No other crawler counts: not Applebot, not AI crawlers, not SEO tools, and not `Datacenter (Google)` or `Datacenter (Microsoft)`, which are ASN verdicts, not search crawlers |
 | `cf_verified_bot_category` | `IS NOT NULL` | Cloudflare verified the bot (`isEdgeVerified`). Anyone can send a Googlebot user agent |
 | `concrete_path` | equals the URL's path. A pair URL also matches its other orientation | `path` is a route pattern and cannot name a URL. A NULL `concrete_path` never matches any URL |
@@ -2751,7 +2751,7 @@ UTC). The current week is excluded, because it is partial.
 | Crawled within 7 days | For product and vendor pages published in each week, the share with a verified fetch within `SEO_CRAWL_COHORT_DAYS` of the anchor. Google and Bing | `page_views` matched on `product_id` or `vendor_id`, not on path, so a slug change does not lose the fetch | Live. `page_views` keeps 400 days |
 | Lane depth | Each Panel 1 lane's count on the last day of each week, with the change from the week before | `metrics_daily`: the `seo.*` and `queue.*` keys in §5.24.8 | Stored. A stock cannot be rebuilt later |
 | Pair pages with no reviews | The count on the last day of each week, with the change from the week before. A trend, never a work list (§5.24.5) | `metrics_daily`: `seo.pairs_without_reviews` | Stored |
-| Oldest re-index row | Age of the oldest tier-1 or tier-2 row on the last day of each week | `metrics_daily`: `queue.reindex_oldest_tier12_age_days` | Stored |
+| Oldest re-index row | Age of the oldest tier-1 or tier-2 row on the week's last sampled day. "None" when that day held no such row. It never falls back to an earlier day, because the key writes no row when the tier is empty | `metrics_daily`: `queue.reindex_oldest_tier12_age_days`, read on the day `queue.reindex_pending` was last written | Stored |
 | Requests recorded (self-reported) | Count of `recrawl_submissions` rows with `channel = 'gsc_manual'` and `outcome = 'requested'` per week | `recrawl_submissions` | Live. The table is append-only and §7.4 does not prune it |
 
 ADR 0031 declined an alert on re-index depth because depth cannot tell a busy catalog from a

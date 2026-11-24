@@ -3958,6 +3958,18 @@ export const pageViews = sqliteTable(
     index('page_views_operator_pair_idx')
       .on(t.userAgentHash, t.cfAsn, t.createdAt)
       .where(sql`"is_operator" = 1`),
+    // AECI-818 — the search console's crawled-path read (`readLastFetchByPath` in
+    // `lib/seo-queue.ts`), run on every `/api/admin/seo/queue` request and by the
+    // 00:15 snapshot. It groups crawler rows by `(bot_name, concrete_path)` back to
+    // `CONCRETE_PATH_SINCE`. Without this index the only seek is
+    // `page_views_bot_idx`, and `is_bot = 1` is most of the table, so the read
+    // range-scanned nearly every bot row. COVERING (every column the read touches)
+    // and PARTIAL, so the write cost lands only on bot rows that carry a concrete
+    // path. The read spells `is_bot = 1` as a literal: a bound `?` would not let
+    // SQLite prove the index's WHERE.
+    index('page_views_crawl_path_idx')
+      .on(t.botName, t.concretePath, t.createdAt, t.cfVerifiedBotCategory)
+      .where(sql`"is_bot" = 1 AND "concrete_path" IS NOT NULL`),
     // AECI-743 — the constraint that makes the de-duplication atomic, plus the
     // seek ingest uses to probe the current and previous bucket for its metric.
     // UNIQUE is the load-bearing word: `ON CONFLICT DO NOTHING` against it settles

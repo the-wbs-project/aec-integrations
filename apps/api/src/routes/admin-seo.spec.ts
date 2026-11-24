@@ -237,12 +237,41 @@ describe('GET /api/admin/seo/trend', () => {
     expect(body.weeks.map((w) => w.week_start)).toEqual(['2026-11-16', '2026-11-09']);
     expect(body.weeks[0]?.lanes).toEqual({
       reindex_pending: 7,
-      reindex_oldest_tier12_age_days: null,
+      // The depth was sampled on 2026-11-19 with no age row: "none", not null.
+      reindex_oldest_tier12_age_days: 'none',
       uncrawled_google: 40,
       uncrawled_bing: null,
       pairs_without_reviews: 880,
     });
     expect(Object.values(body.weeks[1]!.lanes).every((v) => v === null)).toBe(true);
+  });
+
+  it('never carries the oldest re-index age forward from an earlier day in the week', async () => {
+    const row = (day: string, metric: string, value: number) => ({
+      day,
+      metric,
+      value,
+      source: 'measured',
+      computedAt: `${day}T23:59:00.000Z`,
+    });
+    await t.db.insert(metricsDaily).values([
+      // Week of 2026-11-16: a tier-1 row on Wednesday, the queue empty by Friday.
+      row('2026-11-18', 'queue.reindex_pending', 3),
+      row('2026-11-18', 'queue.reindex_oldest_tier12_age_days', 4.5),
+      row('2026-11-20', 'queue.reindex_pending', 0),
+      // Week of 2026-11-09: the age is read on the last sampled day.
+      row('2026-11-15', 'queue.reindex_pending', 2),
+      row('2026-11-15', 'queue.reindex_oldest_tier12_age_days', 1.2),
+    ]);
+    const body = SeoTrendResponseSchema.parse(
+      await (await get('/api/admin/seo/trend?weeks=3')).json(),
+    );
+    expect(body.weeks.map((w) => w.lanes.reindex_oldest_tier12_age_days)).toEqual([
+      'none',
+      1.2,
+      // Week of 2026-11-02: nothing sampled, so not recorded.
+      null,
+    ]);
   });
 
   it('computes the cohort and the self-reported requests per week', async () => {

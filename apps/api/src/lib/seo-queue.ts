@@ -131,10 +131,17 @@ const VERIFIED_OR_PRE_EDGE: SQL = or(
   lt(pageViews.createdAt, EDGE_VERIFIED_SINCE),
 )!;
 
-/** `is_bot = 1` first, so the read takes `page_views_bot_idx (is_bot, created_at)`. */
+/**
+ * The crawler predicate. `is_bot = 1` is a LITERAL, never a bound parameter: the
+ * crawled-path read relies on the partial `page_views_crawl_path_idx`, and SQLite
+ * uses a partial index only when the query's WHERE provably implies the index's
+ * WHERE. A bound `is_bot = ?` does not.
+ */
+const IS_BOT: SQL = sql`${pageViews.isBot} = 1`;
+
 function searchCrawlerWhere(fromIso: string, toIso: string): SQL {
   return and(
-    eq(pageViews.isBot, true),
+    IS_BOT,
     gte(pageViews.createdAt, fromIso),
     lt(pageViews.createdAt, toIso),
     inArray(pageViews.botName, Object.values(ENGINE_BOT_NAME)),
@@ -172,15 +179,7 @@ export type LastFetchByPath = Record<SeoEngine, Map<string, string>>;
  * the catalog in memory.
  */
 export async function readLastFetchByPath(db: Db, toIso: string): Promise<LastFetchByPath> {
-  const rows = await db
-    .select({
-      path: pageViews.concretePath,
-      bot: pageViews.botName,
-      last: sql<string>`max(${pageViews.createdAt})`,
-    })
-    .from(pageViews)
-    .where(and(searchCrawlerWhere(CONCRETE_PATH_SINCE, toIso), isNotNull(pageViews.concretePath)))
-    .groupBy(pageViews.concretePath, pageViews.botName);
+  const rows = await crawledPathsQuery(db, toIso);
 
   const out: LastFetchByPath = { google: new Map(), bing: new Map() };
   for (const r of rows) {
@@ -192,6 +191,37 @@ export async function readLastFetchByPath(db: Db, toIso: string): Promise<LastFe
     if (prior === undefined || r.last > prior) map.set(path, r.last);
   }
   return out;
+}
+
+/**
+ * The grouped read behind {@link readLastFetchByPath}, exported so a spec can
+ * `EXPLAIN QUERY PLAN` it. It is served by `page_views_crawl_path_idx` (migration
+ * `0129`), a covering scan of Googlebot and Bingbot rows with a concrete path
+ * rather than a range scan of every bot row.
+ *
+ * `INDEXED BY` pins the index. Left to itself, SQLite picks `page_views_bot_idx`,
+ * because `(is_bot, created_at)` matches an equality and a range while the
+ * partial index matches only `bot_name IN (…)`. It cannot know that `is_bot = 1`
+ * is most of the table. The pin is also the tripwire: SQLite refuses the
+ * statement ("no query solution") if the index is missing or if the WHERE stops
+ * implying its WHERE, so a regression fails loudly instead of scanning. The WHERE
+ * therefore carries the index's own two terms, `is_bot = 1` and
+ * `concrete_path IS NOT NULL`, verbatim.
+ */
+export function crawledPathsQuery(db: Db, toIso: string) {
+  return (
+    db
+      // `sql` fields, not column refs: Drizzle refuses a column of a table it does
+      // not see in FROM, and `INDEXED BY` makes FROM a raw fragment.
+      .select({
+        path: sql<string | null>`${pageViews.concretePath}`,
+        bot: sql<string | null>`${pageViews.botName}`,
+        last: sql<string>`max(${pageViews.createdAt})`,
+      })
+      .from(sql`${pageViews} INDEXED BY page_views_crawl_path_idx`)
+      .where(and(searchCrawlerWhere(CONCRETE_PATH_SINCE, toIso), isNotNull(pageViews.concretePath)))
+      .groupBy(pageViews.botName, pageViews.concretePath)
+  );
 }
 
 /** The newest fetch of a catalog URL. A pair URL also matches its other

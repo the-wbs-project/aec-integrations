@@ -219,18 +219,33 @@ export function createAdminSeoTrendHandler(
 
       // The week's Sunday, else the latest day in the week with a row. Per key, so
       // one missing key does not null the others.
-      const lanes = {} as SeoTrendLanes;
-      for (const field of Object.keys(TREND_LANE_KEYS) as (keyof SeoTrendLanes)[]) {
-        let value: number | null = null;
+      const latestIn = (key: AdminSnapshotMetricKey): { day: string; value: number } | null => {
         for (let i = days.length - 1; i >= 0; i -= 1) {
-          const v = byKeyDay.get(`${TREND_LANE_KEYS[field]}|${days[i]}`);
-          if (v !== undefined) {
-            value = v;
-            break;
-          }
+          const v = byKeyDay.get(`${key}|${days[i]}`);
+          if (v !== undefined) return { day: days[i]!, value: v };
         }
-        lanes[field] = value;
-      }
+        return null;
+      };
+      const depth = (field: Exclude<keyof SeoTrendLanes, 'reindex_oldest_tier12_age_days'>) =>
+        latestIn(TREND_LANE_KEYS[field])?.value ?? null;
+
+      // The oldest-age key writes NO row on a day with no tier-1 or tier-2 row, so
+      // it must not fall back to an earlier day: a queue that empties on Friday
+      // would still show Wednesday's age. It is read on the day the re-index depth
+      // was last sampled. That day with no age row is `'none'`.
+      const sampled = latestIn(TREND_LANE_KEYS.reindex_pending);
+      const age = sampled
+        ? (byKeyDay.get(`${TREND_LANE_KEYS.reindex_oldest_tier12_age_days}|${sampled.day}`) ??
+          'none')
+        : null;
+
+      const lanes: SeoTrendLanes = {
+        reindex_pending: depth('reindex_pending'),
+        reindex_oldest_tier12_age_days: age,
+        uncrawled_google: depth('uncrawled_google'),
+        uncrawled_bing: depth('uncrawled_bing'),
+        pairs_without_reviews: depth('pairs_without_reviews'),
+      };
 
       // Product and vendor pages only. A pair's anchor moves when its row moves
       // between tables, so a pair cohort would mix publications with moves.

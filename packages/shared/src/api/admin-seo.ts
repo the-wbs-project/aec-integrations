@@ -109,7 +109,14 @@ export type SeoTrendQuery = z.infer<typeof SeoTrendQuerySchema>;
  *  that week: not recorded, never zero (§5.24.6). */
 export const SeoTrendLanesSchema = z.object({
   reindex_pending: z.number().nonnegative().nullable(),
-  reindex_oldest_tier12_age_days: z.number().nonnegative().nullable(),
+  /**
+   * The age in days on the week's last sampled day. `'none'` means that day was
+   * sampled and the queue held no tier-1 or tier-2 row: the snapshot writes no
+   * age row then, by design. Null means the week was not recorded at all. This key
+   * never falls back to an earlier day in the week, because a missing row is a
+   * value ("none"), not a gap.
+   */
+  reindex_oldest_tier12_age_days: z.union([z.number().nonnegative(), z.literal('none')]).nullable(),
   uncrawled_google: z.number().nonnegative().nullable(),
   uncrawled_bing: z.number().nonnegative().nullable(),
   /** Catalog pair pages where neither endpoint has a review. A count only, never

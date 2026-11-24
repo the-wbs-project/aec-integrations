@@ -1,0 +1,1 @@
+CREATE INDEX `page_views_crawl_path_idx` ON `page_views` (`bot_name`,`concrete_path`,`created_at`,`cf_verified_bot_category`) WHERE "is_bot" = 1 AND "concrete_path" IS NOT NULL;

@@ -4135,11 +4135,25 @@ create unique index page_views_dedupe_key_idx on page_views(dedupe_key); -- AECI
 -- table is zero. The key order matches the correlated subquery: seek on
 -- (user_agent_hash, cf_asn), then range-scan created_at. Verify with EXPLAIN QUERY PLAN;
 -- it should read `SEARCH op USING COVERING INDEX page_views_operator_pair_idx`.
+create index page_views_crawl_path_idx
+  on page_views(bot_name, concrete_path, created_at, cf_verified_bot_category)
+  where is_bot = 1 and concrete_path is not null; -- AECI-818, migration 0129
+-- Serves the search console's crawled-path read (readLastFetchByPath, lib/seo-queue.ts),
+-- run on every /api/admin/seo/queue request and once by the 00:15 snapshot. Covering,
+-- so the read never touches the table. The read pins it with INDEXED BY: unpinned,
+-- SQLite picks page_views_bot_idx (is_bot, created_at), which range-scans nearly every
+-- bot row since CONCRETE_PATH_SINCE. The write cost is one more index entry on each
+-- bot row with a concrete path. Human rows and path-less rows pay nothing.
+-- migration-0129.spec.ts asserts `USING COVERING INDEX page_views_crawl_path_idx`.
 ```
 
 **Migration `0014` is the repo's first table recreate** — every `ALTER` before it is an `ADD`. SQLite refuses `DROP COLUMN` on a column carrying an index **or** a `FOREIGN KEY` clause, and `user_id` had both (`page_views_user_idx` + the FK to `profiles`), so the drop is a `__new_page_views` copy-and-rename; `session_id` and `profile_role` ride along in it for free. Two things about that file are load-bearing: the copy lists `id` explicitly, so the autoincrement PK survives (the Activity feed paginates on `(created_at DESC, id DESC)` and would repeat or skip rows otherwise), and drizzle-kit's emitted `PRAGMA foreign_keys=OFF` was **hand-replaced with `PRAGMA defer_foreign_keys = true`**, which is the lever D1 supports. Regenerating that migration reintroduces the wrong pragma. See `docs/migrations.md`.
 
 **Migration `0072` (AECI-1301) is three plain `ADD` statements**: `cf_ray`, `cf_verified_bot` and `cf_verified_bot_category`. It has no CHECK and no index, so drizzle-kit emits no table recreate. AECI-1348 retired `cf_verified_bot` without a migration. The column was NULL on every row, because Cloudflare sends `botManagement` only to a Bot Management zone. Dropping it would be a recreate (`docs/migrations.md` §0), so it stays and nothing writes it.
+
+**Migration `0129` (AECI-818) is one `CREATE INDEX`**: the partial covering
+`page_views_crawl_path_idx` above. No table recreate. `apps/api/src/test/migration-0129.spec.ts`
+fails if the file grows any other statement, and checks the query plan of the read it serves.
 
 **Migration `0095` (AECI-1457) is one plain `ADD`**: `turnstile_verdict`. No CHECK and no index, so no table recreate. `apps/api/src/test/migration-0095.spec.ts` fails if the file ever grows a `__new_page_views` copy.
 

@@ -5637,7 +5637,7 @@ GET /api/admin/seo/trend?weeks=12
         week_start: "2026-11-23",
         lanes: {
           reindex_pending: 37,
-          reindex_oldest_tier12_age_days: 3.2,
+          reindex_oldest_tier12_age_days: 3.2,   // or "none", or null
           uncrawled_google: 412,
           uncrawled_bing: 96,
           pairs_without_reviews: 880
@@ -5667,6 +5667,12 @@ here: it is a Panel 2 count, not a Panel 1 lane (Chris, 2026-11-24). If Sunday h
 day in that week that has one. A key with no row in the whole week is **null**, never 0, so a
 week before the keys began reads as not recorded. Each lane is reported on its own, so one
 missing key does not null the others.
+
+**`reindex_oldest_tier12_age_days` is the exception and never falls back.** The snapshot writes no
+row for it on a day with no tier-1 or tier-2 row, so a missing row is a value, not a gap. It is
+read on the latest day in the week with a `queue.reindex_pending` row. That day with no age row
+reads `"none"`. A week with no `queue.reindex_pending` row reads null, not recorded. So the field
+is a number, `"none"` or null.
 
 **`cohort`** is product and vendor pages whose publish anchor falls in the week, and how many
 had a verified fetch within `SEO_CRAWL_COHORT_DAYS` of it. A fetch is matched on
