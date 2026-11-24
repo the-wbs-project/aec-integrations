@@ -102,7 +102,14 @@ interface CountSite {
     | 'publish-floor'
     | 'algolia-facet';
   /** The facet, or `*` when one comparator or cut serves every facet. */
-  readonly facet: 'categories' | 'audiences' | 'phases' | 'trades' | 'vendor_name' | '*';
+  readonly facet:
+    | 'categories'
+    | 'audiences'
+    | 'phases'
+    | 'trades'
+    | 'vendor_name'
+    | 'connector_kind'
+    | '*';
   /** For a sort or a cut, the expression as written, whitespace collapsed. */
   readonly detail?: string;
 }
@@ -315,6 +322,26 @@ const FREE_COUNT_SITES: readonly CountSite[] = [
   { file: 'search/search-controller.ts', kind: 'algolia-facet', facet: 'categories' },
   { file: 'search/search-controller.ts', kind: 'algolia-facet', facet: 'phases' },
   { file: 'search/search-controller.ts', kind: 'algolia-facet', facet: 'vendor_name' },
+];
+
+/**
+ * The "Connector type" filter (AECI-1662). `connector_kind` is admin-set: no plan
+ * capability writes it (`entitlements.spec.ts`). Its two options read in vocabulary
+ * order, Integration platform then Sync Service, whatever the counts: `/search`
+ * re-sorts them (`orderFacetItems`), and `/products` and browse take the order of
+ * `GET /api/products/facets`, which maps `CONNECTOR_KINDS`. The only count use is the
+ * hide-at-zero-unless-checked cut, over the same Free product counts.
+ */
+const CONNECTOR_KIND_COUNT_SITES: readonly CountSite[] = [
+  { file: 'search/search-controller.ts', kind: 'algolia-facet', facet: 'connector_kind' },
+  // The facet sidebar's kind group, beside the taxonomy cut of the same text in the
+  // exception. The scan cannot tell the two apart, so the key repeats.
+  {
+    file: 'shared/facets/facet-sidebar.ts',
+    kind: 'count-cut',
+    facet: '*',
+    detail: 'item.count > 0',
+  },
 ];
 
 /** Count comparisons that only choose what to print, never an order or a cut. */
@@ -1416,6 +1443,7 @@ describe('on-page ordering firewall: the taxonomy term-count exception', () => {
       ...exception.sites,
       ...exception.indexing,
       ...FREE_COUNT_SITES,
+      ...CONNECTOR_KIND_COUNT_SITES,
       ...DISPLAY_COUNT_SITES,
     ]
       .map(siteKey)
@@ -1465,6 +1493,22 @@ describe('on-page ordering firewall: the taxonomy term-count exception', () => {
         expect(site.facet).toBe('vendor_name');
       }
     }
+  });
+
+  it('the connector type filter reads an admin-set input in a fixed order', () => {
+    expect(PRODUCT_FIELD_CAPABILITIES).not.toHaveProperty('connector_kind');
+    // /search: the kinds re-sorted into vocabulary order before any count is read.
+    expect(webSource('search/search-facet-order.ts')).toMatch(
+      /attribute === 'connector_kind'[\s\S]*?kinds\.indexOf\(a\.value\) - kinds\.indexOf\(b\.value\)/,
+    );
+    // /products and browse: the API emits the kinds in vocabulary order, and the
+    // sidebar maps them without a sort.
+    expect(readFileSync(join(API_SRC, 'routes', 'product-facets.ts'), 'utf8')).toMatch(
+      /connector_kinds: CONNECTOR_KINDS\.map\(/,
+    );
+    expect(webSource('shared/facets/facet-sidebar.ts')).toMatch(
+      /\(facets\.connector_kinds \?\? \[\]\)\s*\.map\([\s\S]*?\}\)\)\s*\.filter\(\(item\) => item\.count > 0 \|\| item\.isRefined\);/,
+    );
   });
 });
 
@@ -1705,10 +1749,10 @@ const ORDER_SITES: readonly OrderSite[] = [
   },
   {
     file: 'apps/web/src/app/search/search-facet-order.ts',
-    count: 2,
+    count: 3,
     registered: ['taxonomy-term-product-count'],
     allowed:
-      'lifecycle order for phases on /search; a checked value Algolia left out, placed by the same compareFacetValues (AECI-1899)',
+      'lifecycle order for phases on /search; a checked value Algolia left out, placed by the same compareFacetValues (AECI-1899); the connector type options in vocabulary order whatever the counts, an admin-set input no plan writes (AECI-1662)',
   },
   {
     file: 'apps/web/src/app/search/search-url-state.ts',
