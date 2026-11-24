@@ -19,7 +19,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { legalVersionsInForce, type LegalInForceMaps } from '@aeci/shared/api/legal-in-force';
-import { legalEffectiveAtMs } from '@aeci/shared/api/legal-versions';
+import { legalEffectiveAtMs } from '@aeci/shared/api/legal-moment';
 
 import {
   type LegalDocLookup,

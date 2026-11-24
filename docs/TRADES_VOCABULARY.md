@@ -416,7 +416,7 @@ Two further consequences worth stating explicitly:
   (`TaxonomyTermWithCountSchema`), and each consuming surface applies the floor. This keeps the gate
   in one presentational place instead of splitting the vocabulary into two API shapes.
 
-`TRADE_PUBLISH_MIN_PRODUCTS` is exported from `packages/shared` (`src/api/taxonomy.ts`) alongside
+`TRADE_PUBLISH_MIN_PRODUCTS` is exported from `packages/shared` (`src/api/trade-publish.ts`) alongside
 the `isPublishedTrade` helper, so every consumer reads one value. **The gate is fully shipped.** Its
 consumers, and where each applies the floor:
 

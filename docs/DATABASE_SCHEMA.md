@@ -3039,7 +3039,7 @@ create unique index legal_versions_document_version_key on legal_versions(docume
 - **The effective moment is 12:00 UTC**, not midnight, so a version never starts on the evening
   before in the Americas (legal README "The effective moment").
 - **No CHECK and no FK**, the house rule for enum-like text (§8.6d): Zod owns the vocabulary in
-  `packages/shared/src/api/legal-versions.ts`, and a CHECK change on D1 is a table recreate
+  `packages/shared/src/api/agreement-schemas.ts`, and a CHECK change on D1 is a table recreate
   (`docs/migrations.md` §0). The migration is one `CREATE TABLE` and one `CREATE UNIQUE INDEX`,
   guarded by `src/test/migration-0119.spec.ts`.
 - **Readers.** `GET /api/admin/legal-versions`, the acceptance screen (AECI-1677), and since

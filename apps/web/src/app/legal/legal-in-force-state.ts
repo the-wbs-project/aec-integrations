@@ -30,7 +30,7 @@ import {
   legalUpcomingInForce,
   type LegalPublishedLite,
 } from '@aeci/shared/api/legal-in-force';
-import { LEGAL_DOCUMENT_SLUGS, legalEffectiveAtMs } from '@aeci/shared/api/legal-versions';
+import { LEGAL_DOCUMENT_SLUGS, legalEffectiveAtMs } from '@aeci/shared/api/legal-moment';
 
 import {
   LEGAL_UPCOMING,

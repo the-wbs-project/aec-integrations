@@ -26,7 +26,8 @@ import {
   LEGAL_READER_KNOWN_VERSIONS,
   LEGAL_READER_UPCOMING_VERSIONS,
 } from './agreements';
-import { compareLegalVersions, legalEffectiveAtMs } from './legal-versions';
+import { compareLegalVersions } from './legal-versions';
+import { legalEffectiveAtMs } from './legal-moment';
 
 describe('LEGAL_AGREEMENT_KNOWN_VERSIONS (AECI-1500)', () => {
   it('ends with the current version of every agreement', () => {

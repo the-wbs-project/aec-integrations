@@ -215,10 +215,28 @@
                 // page it renders. 5.5 kB of headroom was left and CI measures
                 // ~1 kB more than local (the AECI-955 note). The zod recovery
                 // named above still applies; lower this line when it lands.
+                //
+                // AECI-2031 (2026-11-24): lowered 1.22MB -> 820kB. The redesign
+                // merge (AECI-1720, #1459) took the zod chunk (428.7 kB raw, 78 kB
+                // transferred) out of the initial set. No dependency changed. This
+                // is NOT the zod recovery named above: lazy route chunks can still
+                // import the zod chunk, and then the page fetches it while it
+                // hydrates. The budget cannot see that. AECI-2033 took zod off
+                // home, `/docs/*` and `/legal/*`, and
+                // `scripts/check-zod-free-routes.mjs` guards those routes. Pages
+                // that carry the mailing-list signup still load it. Measured
+                // with `ng build`: 1.20 MB at `43cee265e` (the commit before the
+                // redesign), 790,460 B at the redesign merge, 790,640 B at
+                // `c8b35c117`. 820kB leaves about 29 kB for eager growth plus the
+                // ~1 kB that CI measures over local (the AECI-955 note). Before you
+                // raise this line, check that zod has not come back. Find the
+                // chunk that contains `ZodBase64URL` (`grep -l` over
+                // `dist/browser/chunk-*.js`). `dist/browser/index.csr.html` must
+                // not name it.
                 {
                   "type": "initial",
                   "maximumWarning": "500kB",
-                  "maximumError": "1.22MB"
+                  "maximumError": "820kB"
                 },
                 {
                   "type": "anyComponentStyle",

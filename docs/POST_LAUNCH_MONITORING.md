@@ -560,7 +560,7 @@ mechanism exists to prevent.
 ### Trade publication floor (AECI-539 / AECI-546)
 
 Also a compute constant rather than a monitor: `TRADE_PUBLISH_MIN_PRODUCTS` in
-`packages/shared/src/api/taxonomy.ts`. `TRADES_VOCABULARY.md` §6 names it launch-tunable and points
+`packages/shared/src/api/trade-publish.ts`. `TRADES_VOCABULARY.md` §6 names it launch-tunable and points
 here, so it is listed for real.
 
 | Constant | Current | Retune signal |
