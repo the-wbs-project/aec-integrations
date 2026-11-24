@@ -11,8 +11,8 @@
  * own `axe` status. `schemaVersion` changes only when a field changes meaning or
  * goes away.
  *
- * AECI-1883: the `voice` block folds the `voice-effort` and `voice-target-size`
- * annotations of `voice-control.spec.ts` with `summarizeVoice()`. It is empty
+ * AECI-1883: the `voice` block folds the `voice-effort`, `voice-target-size` and
+ * `voice-input-purpose` annotations of `voice-control.spec.ts` with `summarizeVoice()`. It is empty
  * lists for a run with no voice-control test. Adding it kept `schemaVersion` 1.
  *
  * AECI-1884: the `ibm` block folds the `ibm-equal-access` annotations of

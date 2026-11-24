@@ -16,9 +16,13 @@
  *                only: written to the summary, never fails.
  *             4. Input purpose (WCAG 1.3.5): a field that collects the user's
  *                name, email, organisation and the like carries the matching
- *                `autocomplete` token. Fails the run.
+ *                `autocomplete` token. Fails the run. Every text field it saw,
+ *                and the purpose it held each to, goes to the summary. Fields
+ *                inside dialogs are not read (§8.4.8).
  *   effort    5. Tab presses from load to the surface's primary action
- *                (`PRIMARY_ACTIONS`), with the keyboard suite's `tabWalk`.
+ *                (`PRIMARY_ACTIONS`), with the keyboard suite's `tabWalk`. Each
+ *                action is matched by its role, the component or test id it
+ *                sits in, and its name or link target, read in `onStop`.
  *                Written to the summary with its change from the committed
  *                baseline. Fails only above `effortMargin`, or when the walk
  *                never reaches the action.
@@ -30,7 +34,7 @@
  *
  * `docs/TESTING_STRATEGY.md` §8.4.8.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { knownFailure } from './known-failure';
 import { SURFACES, type A11ySurface } from './surfaces';
 import { expectOnlyKnownProblems, type KnownProblem } from './support/known-barriers';
@@ -46,6 +50,7 @@ import {
   effortMargin,
   effortVerdict,
   inputPurposeProblems,
+  judgedFields,
   labelInNameProblems,
   sharedControlNameProblems,
   type ControlFact,
@@ -53,6 +58,7 @@ import {
 import { readControls, readTargetSize } from './support/voice-probe';
 import {
   VOICE_EFFORT_ANNOTATION,
+  VOICE_INPUT_PURPOSE_ANNOTATION,
   VOICE_TARGET_SIZE_ANNOTATION,
   type EffortRecord,
 } from './support/voice-summary';
@@ -66,79 +72,157 @@ import {
  */
 interface PrimaryAction {
   readonly action: string;
-  readonly matches: (stop: TabStop) => boolean;
+  /**
+   * Is this stop the action? `chain` is every `data-testid` and every `aec-*`
+   * component host from the stop up to the document, innermost first, read in
+   * the walk's `onStop` hook. A stop that matches nothing ends the walk as
+   * `not-reached`, which fails the test.
+   */
+  readonly matches: (stop: TabStop, chain: readonly string[]) => boolean;
   readonly baseline: number;
 }
 
-const inMain = (role: string, name?: RegExp) => (s: TabStop) =>
-  s.landmark === 'main' && s.role === role && (!name || name.test(s.name));
+/**
+ * Match a stop by what it is: its role, the component or test id it sits in,
+ * and its name or its link target. Always in `main`. A new link or button that
+ * lands ahead of the action does not match, so it cannot pass as a shorter walk.
+ */
+interface Target {
+  readonly role: string;
+  /** An `aec-*` component host or a `data-testid` on the stop's chain. A RegExp matches any one. */
+  readonly within: string | RegExp;
+  readonly name?: RegExp;
+  readonly href?: RegExp;
+}
 
-const FIRST_RESULT = 'the first result card';
-const FIRST_TERM = 'the first term card';
+const target =
+  ({ role, within, name, href }: Target) =>
+  (s: TabStop, chain: readonly string[]): boolean =>
+    s.landmark === 'main' &&
+    s.role === role &&
+    chain.some((c) => (typeof within === 'string' ? c === within : within.test(c))) &&
+    (!name || name.test(s.name)) &&
+    (!href || (s.href !== null && href.test(s.href)));
+
+/** The stop's chain: every `data-testid` and `aec-*` host from it up. Moves no focus. */
+async function stopChain(page: Page, key: number): Promise<string[]> {
+  return page.evaluate((k) => {
+    const out: string[] = [];
+    for (let a = window.__aeciKeyboardProbe!.byKey(k); a; a = a.parentElement) {
+      const id = a.getAttribute('data-testid');
+      if (id) out.push(id);
+      if (a.tagName.startsWith('AEC-')) out.push(a.tagName.toLowerCase());
+    }
+    return out;
+  }, key);
+}
+
+/** A product card on a listing: a link to `/products/<slug>` in the shared card grid. */
+const FIRST_RESULT: PrimaryAction['matches'] = target({
+  role: 'link',
+  within: 'aec-product-card-grid',
+  href: /^\/products\/[^/?#]+$/,
+});
+const FIRST_RESULT_LABEL = 'the first result card';
+
+/** A term card on a taxonomy index: a link to `/<facet>/<slug>` in the index component. */
+const firstTerm = (facet: string): PrimaryAction['matches'] =>
+  target({ role: 'link', within: 'aec-taxonomy-index', href: new RegExp(`^/${facet}/[^/?#]+$`) });
+const FIRST_TERM_LABEL = 'the first term card';
 
 export const PRIMARY_ACTIONS: Readonly<Record<string, PrimaryAction>> = {
-  home: { action: 'the hero search box', matches: inMain('combobox', /^Search$/), baseline: 8 },
+  home: {
+    action: 'the hero search box',
+    matches: target({ role: 'combobox', within: 'aec-home-hero', name: /^Search$/ }),
+    baseline: 8,
+  },
   'product-detail': {
-    action: 'the first "Sign in to review" link',
-    matches: inMain('link', /^Sign in to review$/),
+    action: 'the "Sign in to review" link in the hero',
+    matches: target({
+      role: 'link',
+      within: 'aec-product-hero',
+      name: /^Sign in to review$/,
+      href: /^\/auth\/login\?/,
+    }),
     baseline: 12,
   },
   'review-submission': {
     action: 'the first star rating',
-    matches: inMain('option', /star/),
+    matches: target({ role: 'option', within: 'aec-review-form', name: /^1 star$/ }),
     baseline: 9,
   },
-  login: { action: 'the email field', matches: inMain('textbox', /^Email$/), baseline: 9 },
+  login: {
+    action: 'the email field',
+    matches: target({ role: 'textbox', within: 'aec-login-page', name: /^Email$/ }),
+    baseline: 9,
+  },
   account: {
     action: 'the display name field',
-    matches: inMain('textbox', /^Display name$/),
+    matches: target({ role: 'textbox', within: 'aec-account-page', name: /^Display name$/ }),
     baseline: 14,
   },
   'admin-reviews': {
     action: 'the first Approve button',
-    matches: inMain('button', /^Approve$/),
+    matches: target({ role: 'button', within: 'aec-review-queue', name: /^Approve$/ }),
     baseline: 23,
   },
   'admin-requests': {
-    action: 'the first queue filter (the seed has no request rows)',
-    matches: inMain('button'),
+    action: 'the "Open" filter of the first queue (the seed has no request rows)',
+    matches: target({ role: 'button', within: 'aec-request-queue', name: /^Open$/ }),
     baseline: 12,
   },
   'vendor-products': {
     action: 'the first product card',
-    matches: inMain('link'),
+    matches: target({
+      role: 'link',
+      within: 'aec-vendor-product-list-page',
+      href: /^\/vendor\/[^/]+\/products\/[^/?#]+$/,
+    }),
     baseline: 17,
   },
   'vendor-integrations': {
     action: 'the first integration row',
-    matches: inMain('link'),
+    matches: target({
+      role: 'link',
+      within: /^integration-row-/,
+      href: /^\/vendor\/[^/]+\/products\/[^/]+\/integrations\/[0-9a-f-]{36}$/,
+    }),
     baseline: 28,
   },
-  'product-index': { action: FIRST_RESULT, matches: inMain('link'), baseline: 38 },
-  'vendor-index': { action: FIRST_RESULT, matches: inMain('link'), baseline: 38 },
+  'product-index': { action: FIRST_RESULT_LABEL, matches: FIRST_RESULT, baseline: 38 },
+  'vendor-index': { action: FIRST_RESULT_LABEL, matches: FIRST_RESULT, baseline: 38 },
   'vendor-detail': {
     action: "the first of the vendor's products",
-    matches: inMain('link', /^View /),
+    matches: target({
+      role: 'link',
+      within: 'vendor-products-scroller',
+      name: /^View /,
+      href: /^\/products\/[^/?#]+$/,
+    }),
     baseline: 14,
   },
-  'integration-index': { action: FIRST_RESULT, matches: inMain('link'), baseline: 38 },
+  'integration-index': { action: FIRST_RESULT_LABEL, matches: FIRST_RESULT, baseline: 38 },
   'integration-detail': {
     action: 'the "View listing" link',
-    matches: inMain('link', /^View listing/),
+    matches: target({ role: 'link', within: 'aec-products-pair', name: /^View listing/ }),
     baseline: 17,
   },
   'product-pair': {
     action: 'the "View listing" link',
-    matches: inMain('link', /^View listing/),
+    matches: target({ role: 'link', within: 'aec-products-pair', name: /^View listing/ }),
     baseline: 17,
   },
-  'category-browse': { action: FIRST_RESULT, matches: inMain('link'), baseline: 18 },
-  'audience-browse': { action: FIRST_RESULT, matches: inMain('link'), baseline: 22 },
-  'phase-browse': { action: FIRST_RESULT, matches: inMain('link'), baseline: 21 },
-  'categories-index': { action: FIRST_TERM, matches: inMain('link'), baseline: 10 },
-  'audiences-index': { action: FIRST_TERM, matches: inMain('link'), baseline: 10 },
-  'phases-index': { action: FIRST_TERM, matches: inMain('link'), baseline: 10 },
-  'not-found': { action: 'the "Go home" link', matches: inMain('link', /^Go home$/), baseline: 13 },
+  'category-browse': { action: FIRST_RESULT_LABEL, matches: FIRST_RESULT, baseline: 18 },
+  'audience-browse': { action: FIRST_RESULT_LABEL, matches: FIRST_RESULT, baseline: 22 },
+  'phase-browse': { action: FIRST_RESULT_LABEL, matches: FIRST_RESULT, baseline: 21 },
+  'categories-index': { action: FIRST_TERM_LABEL, matches: firstTerm('categories'), baseline: 10 },
+  'audiences-index': { action: FIRST_TERM_LABEL, matches: firstTerm('audiences'), baseline: 10 },
+  'phases-index': { action: FIRST_TERM_LABEL, matches: firstTerm('phases'), baseline: 10 },
+  'not-found': {
+    action: 'the "Go home" link',
+    matches: target({ role: 'link', within: 'aec-not-found', name: /^Go home$/, href: /^\/$/ }),
+    baseline: 13,
+  },
 };
 
 /** A field 1.3.5 does not cover: it collects something, but not about the person filling it in. */
@@ -283,6 +367,22 @@ test.describe('a11y nightly voice control and switch', () => {
             if (allowed) note('input purpose allowed', `"${c.name}". ${allowed.reason}`);
             return !allowed;
           });
+          // What check 4 judged, so a green run can be told from one that judged nothing.
+          const judged = judgedFields(fields);
+          for (const f of judged) {
+            note(
+              'input purpose judged',
+              f.purpose === null
+                ? `"${f.field}" (${f.type}, ${f.landmark}): no purpose, not judged`
+                : `"${f.field}" (${f.type}, ${f.landmark}): ${f.purpose}, wants "${f.wants}", has ${
+                    f.has === null ? 'none' : `"${f.has}"`
+                  }`,
+            );
+          }
+          note(
+            VOICE_INPUT_PURPOSE_ANNOTATION,
+            JSON.stringify({ surfaceId: surface.id, route: surface.route, fields: judged }),
+          );
           const sharedAll = sharedControlNameProblems(controls);
           expect(
             SAME_ACTION.filter((s) => s.applies(surface) && !sharedAll.includes(s.problem)).map(
@@ -319,7 +419,14 @@ test.describe('a11y nightly voice control and switch', () => {
           await fakeHeaderSearch(page);
           await openSurface(page, surface, { settle: true });
 
-          const walk = await tabWalk(page, { until: primary!.matches });
+          // `onStop` runs before `until` at each stop, so the chain is there to match on.
+          const chains = new Map<number, readonly string[]>();
+          const walk = await tabWalk(page, {
+            onStop: async (stop) => {
+              chains.set(stop.key, await stopChain(page, stop.key));
+            },
+            until: (stop) => primary!.matches(stop, chains.get(stop.key) ?? []),
+          });
           const reached = walk.end === 'matched' ? walk.stops.at(-1)! : null;
           const presses = reached?.press ?? null;
           const record: EffortRecord = {
@@ -331,6 +438,9 @@ test.describe('a11y nightly voice control and switch', () => {
             margin: effortMargin(primary!.baseline),
             change: presses === null ? null : presses - primary!.baseline,
             verdict: effortVerdict(presses, primary!.baseline),
+            matched: reached
+              ? `${reached.role} "${reached.name}"${reached.href ? ` ${reached.href}` : ''}`
+              : null,
           };
           note(VOICE_EFFORT_ANNOTATION, JSON.stringify(record));
 

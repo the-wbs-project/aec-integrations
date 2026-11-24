@@ -280,6 +280,45 @@ export function inputPurposeProblems(controls: readonly ControlFact[]): string[]
   return [...problems].sort();
 }
 
+/** One text field as check 4 saw it, so a green run shows what it judged. */
+export interface FieldJudged {
+  /** The accessible name, masked. */
+  readonly field: string;
+  readonly type: string;
+  readonly landmark: string;
+  /** The purpose it was held to, or `null` when no purpose fits (a search box, a headline). */
+  readonly purpose: string | null;
+  /** The token that satisfies it, or `null` with no purpose. */
+  readonly wants: string | null;
+  /** The `autocomplete` attribute as written, or `null` when absent. */
+  readonly has: string | null;
+  readonly ok: boolean;
+}
+
+/**
+ * Every text-entry field on the page (search, number and password included),
+ * with the purpose check 4 held it to. A field with no purpose is listed too,
+ * so "nothing found" can be told apart from "nothing judged".
+ */
+export function judgedFields(controls: readonly ControlFact[]): FieldJudged[] {
+  const out: FieldJudged[] = [];
+  for (const c of controls) {
+    if (!c.field) continue;
+    const purpose = purposeOf(c);
+    const has = c.field.autocomplete;
+    out.push({
+      field: quote(c.name),
+      type: c.field.type,
+      landmark: c.landmark,
+      purpose: purpose?.purpose ?? null,
+      wants: purpose?.tokens[0] ?? null,
+      has,
+      ok: !purpose || purpose.tokens.includes(autocompleteField(has) ?? ''),
+    });
+  }
+  return out;
+}
+
 /** The action key of a link, so two links to one page are one action. */
 export function linkAction(href: string, origin: string): string {
   let target = href;

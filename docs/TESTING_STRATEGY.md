@@ -933,7 +933,7 @@ will read it for the dated record.
 | `totals` | `passed`, `failed`, `skipped`, `expectedFailures` |
 | `tests[]` | `title`, `surfaceId`, `route`, `file`, `outcome`, `knownFailure` (the issue ID or `null`), and `axe` (the sweep's verdict or `null`) |
 | `axe` | The e2e axe sweep's results. Always an object: zero counts and empty lists for a run with no sweep. See §8.4.2 |
-| `voice` | The voice-control checks' effort counts and target size report. Always an object: empty lists for a run with no voice-control test. See §8.4.8 |
+| `voice` | The voice-control checks' effort counts, target size report and the fields input purpose judged. Always an object: empty lists for a run with no voice-control test. See §8.4.8 |
 | `ibm` | IBM Equal Access findings, report only: violations, needs review and recommendations. Each is marked by how axe saw the same element: failed it, only marked it for review, or said nothing. Only an axe failure takes a finding off the unique list. Always an object: zero counts and empty lists for a run with no IBM test. See §8.4.9 |
 
 **Adding a check.** Write a new spec in `e2e-a11y/` that loops over `SURFACES`. Add the
@@ -1720,25 +1720,36 @@ sweep's row for states the manifest does not reach.
 comes to the page for. That is a judgement. `PRIMARY_ACTIONS` in the spec writes each one down, with its
 baseline: the Tab presses from load to it on a freshly seeded D1, measured on 2026-11-24.
 
-| Surface | Primary action | Baseline | Margin |
-|---|---|---|---|
-| `home` | The hero search box | 8 | 3 |
-| `product-detail` | The first "Sign in to review" link | 12 | 3 |
-| `review-submission` | The first star rating | 9 | 3 |
-| `login` | The email field | 9 | 3 |
-| `account` | The display name field | 14 | 3 |
-| `admin-reviews` | The first Approve button | 23 | 5 |
-| `admin-requests` | The first queue filter. The seed has no request rows | 12 | 3 |
-| `vendor-products` | The first product card | 17 | 4 |
-| `vendor-integrations` | The first integration row | 28 | 6 |
-| `product-index`, `vendor-index`, `integration-index` | The first result card | 38 | 8 |
-| `vendor-detail` | The first of the vendor's products | 14 | 3 |
-| `integration-detail`, `product-pair` | The "View listing" link | 17 | 4 |
-| `category-browse` | The first result card | 18 | 4 |
-| `audience-browse` | The first result card | 22 | 5 |
-| `phase-browse` | The first result card | 21 | 5 |
-| `categories-index`, `audiences-index`, `phases-index` | The first term card | 10 | 3 |
-| `not-found` | The "Go home" link | 13 | 3 |
+**How a target is matched.** Each action is matched by what it is, never by "the first link in `main`".
+A matcher names the role, the component it sits in, and its name or link target, and the stop must be
+in `main`. The component is an `aec-*` host element or a `data-testid` on the chain from the stop up to
+the document. The walk's `onStop` hook reads that chain at each stop, and `until` matches on it. So a new
+link or button that lands in `main` ahead of the action does not match. The walk counts it and goes on
+to the real action, and the extra press shows in the change. A target that matches no stop ends the walk
+as `not-reached`, which fails the test. The effort row records the stop it matched in `matched`.
+
+| Surface | Primary action | Matched by: role, within, then name or target | Baseline | Margin |
+|---|---|---|---|---|
+| `home` | The hero search box | combobox, `aec-home-hero`, name "Search" | 8 | 3 |
+| `product-detail` | The "Sign in to review" link in the hero | link, `aec-product-hero`, name "Sign in to review", target `/auth/login?…` | 12 | 3 |
+| `review-submission` | The first star rating | option, `aec-review-form`, name "1 star" | 9 | 3 |
+| `login` | The email field | textbox, `aec-login-page`, name "Email" | 9 | 3 |
+| `account` | The display name field | textbox, `aec-account-page`, name "Display name" | 14 | 3 |
+| `admin-reviews` | The first Approve button | button, `aec-review-queue`, name "Approve" | 23 | 5 |
+| `admin-requests` | The "Open" filter of the first queue. The seed has no request rows | button, `aec-request-queue`, name "Open" | 12 | 3 |
+| `vendor-products` | The first product card | link, `aec-vendor-product-list-page`, target `/vendor/<slug>/products/<slug>` | 17 | 4 |
+| `vendor-integrations` | The first integration row | link, test id `integration-row-*`, target `/vendor/…/integrations/<uuid>` | 28 | 6 |
+| `product-index`, `vendor-index`, `integration-index` | The first result card | link, `aec-product-card-grid`, target `/products/<slug>` | 38 | 8 |
+| `vendor-detail` | The first of the vendor's products | link, test id `vendor-products-scroller`, name "View …", target `/products/<slug>` | 14 | 3 |
+| `integration-detail`, `product-pair` | The "View listing" link | link, `aec-products-pair`, name "View listing …" | 17 | 4 |
+| `category-browse` | The first result card | link, `aec-product-card-grid`, target `/products/<slug>` | 18 | 4 |
+| `audience-browse` | The first result card | the same | 22 | 5 |
+| `phase-browse` | The first result card | the same | 21 | 5 |
+| `categories-index`, `audiences-index`, `phases-index` | The first term card | link, `aec-taxonomy-index`, target `/categories/<slug>`, `/audiences/<slug>` or `/phases/<slug>` | 10 | 3 |
+| `not-found` | The "Go home" link | link, `aec-not-found`, name "Go home", target `/` | 13 | 3 |
+
+No baseline changed when the matchers were tightened on 2026-11-25. Each new matcher picks the same stop
+the old "first link" or "first button" picked, at the same press.
 
 **The margin** is three presses, or a fifth of the baseline when that is more (`effortMargin`). One new
 link in the shared header adds a press to every surface and passes. A new block of links or filters
@@ -1748,22 +1759,56 @@ the baseline pass. The summary shows the change, so update the baseline in the s
 it, and say why. Three one-worker runs gave the same count on every surface. A count that changes
 between runs is a bug in the test, not in the page.
 
-**The summary.** The `controls` and `effort` tests write a `voice-target-size` and a `voice-effort`
-annotation. `summary-reporter.ts` folds them into the summary's `voice` block with `summarizeVoice`
-(`support/voice-summary.ts`, pinned by its unit spec). Each shard writes its own. The merge combines
-them with `mergeVoice` (`scripts/a11y-nightly-merge-summary.mjs`), and the job summary gets an effort
-table and a target size line. Adding the block kept `schemaVersion` 1.
+**What check 4 judges.** The `controls` test lists every text-entry field it reads, as one
+`input purpose judged` annotation each and as the summary's `inputPurpose` record. Each field shows the
+purpose it was held to, or "no purpose, not judged". So a green run can be told from a run that judged
+nothing. The purposes are the ones WCAG 1.3.5 lists that this app's forms collect: email, phone, first
+and last name, display name, name, organisation, job title, web address, postal code, country and
+street address. The app has no password field, because sign-in is a magic link or Google. A
+one-time code is not in the WCAG list. So neither has an entry.
+
+On 2026-11-25 the check saw 49 text fields on the 22 surfaces and held 18 of them to a purpose, on 16
+surfaces. All 18 carried the right token:
+
+| Surfaces | Fields held to a purpose |
+|---|---|
+| The 13 public pages with the mailing list band, and `login` | "Email address" or "Email": `email` |
+| `account` | "Display name": `nickname`. "Firm name": `organization`. "LinkedIn profile": `url` |
+| `review-submission` | "Your firm (optional)": `organization` |
+| `home`, `admin-reviews`, `admin-requests`, `vendor-products`, `vendor-integrations`, `not-found` | None. Their only text fields are search and filter boxes |
+
+The other 31 fields have no purpose to check: the header search on every page, the hero and pair
+finder search boxes, the portal and audience filter boxes, the review headline and body, and the
+"Years using this product" number. So on six surfaces "found nothing" means check 4 had nothing to
+judge, not that it judged and passed.
+
+**Fields inside dialogs are not read.** Check 4 reads the page at load, so a field that only appears in
+a dialog is not judged. No dialog on a manifest surface holds a field about the user: the account delete
+dialog has no field, and the ban dialog on `/admin/reviews` (`support/overlay-scenarios.ts`) asks about
+the banned reviewer. The claim dialog has organisation and web address fields, but it opens from
+`/vendor-program` and `/docs/vendors/plans`, which are not in the manifest. That is a gap.
+
+**The summary.** The `controls` test writes a `voice-target-size` and a `voice-input-purpose`
+annotation, and the `effort` test a `voice-effort` one. `summary-reporter.ts` folds them into the
+summary's `voice` block with `summarizeVoice` (`support/voice-summary.ts`, pinned by its unit spec).
+Each shard writes its own. The merge combines them with `mergeVoice`
+(`scripts/a11y-nightly-merge-summary.mjs`), and the job summary gets an effort table, a target size line
+and an input purpose line. Adding the block, and later `inputPurpose` and `effort[].matched`, kept
+`schemaVersion` 1.
 
 | `voice` field | Meaning |
 |---|---|
-| `effort[]` | One row per surface: `surfaceId`, `route`, `action`, `presses` (`null` when not reached), `baseline`, `margin`, `change`, `verdict` (`same`, `fewer`, `more`, `over-margin` or `not-reached`) |
+| `effort[]` | One row per surface: `surfaceId`, `route`, `action`, `presses` (`null` when not reached), `baseline`, `margin`, `change`, `verdict` (`same`, `fewer`, `more`, `over-margin` or `not-reached`), and `matched`, the stop the walk matched |
 | `targetSize.surfaces`, `targetSize.targets` | Surfaces measured, and findings across them |
 | `targetSize.bySurface[]` | `surfaceId`, `route`, and `targets[]`: axe's `target`, a `verdict` (`fails` measured, `review` when axe could not decide), and `why` |
+| `inputPurpose.surfaces`, `.fields`, `.judged` | Surfaces read, text fields seen, and fields held to a purpose |
+| `inputPurpose.bySurface[]` | `surfaceId`, `route`, and `fields[]`: `field`, `type`, `landmark`, `purpose` (`null` when not judged), `wants`, `has`, `ok` |
 
 **Known barriers on landing (2026-11-24).** `KNOWN_PROBLEMS` uses `expectOnlyKnownProblems`
 (`support/known-barriers.ts`), narrowed per issue. A new problem on a marked surface still fails, and a
-fixed one turns its mark red. All five are check 2. Checks 1 and 4 found nothing, and check 3 reported
-nothing on any surface: the 44px button floor in `DESIGN.md` clears 24px.
+fixed one turns its mark red. All five are check 2. Check 1 found nothing. Check 4 found every field it
+judged right (above). Check 3 reported nothing on any surface: the 44px button floor in `DESIGN.md`
+clears 24px.
 
 | Issue | What the check finds | Surfaces |
 |---|---|---|
@@ -1782,8 +1827,10 @@ Renaming the consent banner's Decline to a second "Accept" failed check 2. `auto
 email field failed check 4. Two empty 12 by 12px buttons 2px apart came back from check 3 as `fails`,
 and the run stayed green. Four extra buttons at the top of `main` took the email field from 9 presses to
 13 and failed check 5 above its margin of 3. One 12px button with its icon still inside came back as
-`review` ("overflow content"), which is why the report keeps axe's undecided results. None of it was
-committed.
+`review` ("overflow content"), which is why the report keeps axe's undecided results. On 2026-11-25, on
+`/products`, a link to `/products/zz-inserted` put at the top of `main` did not match the first result
+card. The walk went on to the real card, at 39 presses, and recorded "more". With the card grid removed,
+the walk closed without a match and the test failed as not reached. None of it was committed.
 
 **What real voice and switch sessions show that these checks do not.**
 
