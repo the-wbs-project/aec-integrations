@@ -28,6 +28,7 @@ import {
   type PageLinkName,
 } from './support/aria-tree';
 import { pageTree } from './support/aria-suite';
+import { expectOnlyKnownProblems, type KnownProblem } from './support/known-barriers';
 import { fakeHeaderSearch, guardWrites } from './support/page-guards';
 import { openSurface, phase2FixturesPresent, signInAs } from './support/surface-page';
 
@@ -42,6 +43,64 @@ interface PageRecord {
 }
 
 const PERSONAS: readonly Persona[] = ['anonymous', 'reviewer', 'admin', 'vendor'];
+
+/**
+ * The known barriers, with the problem strings each covers. Any other problem,
+ * and a known issue that no longer reproduces, still fails the test
+ * (`expectOnlyKnownProblems` in `support/known-barriers.ts`).
+ */
+interface CrossPageKnownProblem extends KnownProblem {
+  readonly persona: Persona;
+  readonly check: 'titles' | 'link names';
+}
+
+const KNOWN_PROBLEMS: readonly CrossPageKnownProblem[] = [
+  {
+    persona: 'anonymous',
+    check: 'link names',
+    issue: 'AECI-2078',
+    matches: (p) => /^\/audiences\/[a-z-]+ \(in main\) /.test(p),
+    mark: () =>
+      knownFailure(
+        'AECI-2078',
+        'home names the audience links by role, /audiences names them by discipline',
+      ),
+  },
+  {
+    persona: 'vendor',
+    check: 'link names',
+    issue: 'AECI-2087',
+    matches: (p) => /^\/vendor\/[a-z0-9-]+\/overview \(in main\) /.test(p),
+    mark: () =>
+      knownFailure(
+        'AECI-2087',
+        'the portal overview is linked as "Vendor portal", "Vendor Overview" and the vendor name',
+      ),
+  },
+  {
+    persona: 'admin',
+    check: 'titles',
+    issue: 'AECI-2084',
+    matches: (p) => p.startsWith('"Admin · AEC Integrations" is the title of '),
+    mark: () =>
+      knownFailure('AECI-2084', 'both admin queues are titled "Admin · AEC Integrations"'),
+  },
+  {
+    persona: 'vendor',
+    check: 'titles',
+    issue: 'AECI-2085',
+    matches: (p) => p.startsWith('"Vendor portal · AEC Integrations" is the title of '),
+    mark: () =>
+      knownFailure(
+        'AECI-2085',
+        'both portal screens are titled "Vendor portal · AEC Integrations"',
+      ),
+  },
+];
+
+function knownFor(persona: Persona, check: CrossPageKnownProblem['check']): KnownProblem[] {
+  return KNOWN_PROBLEMS.filter((k) => k.persona === persona && k.check === check);
+}
 
 for (const persona of PERSONAS) {
   const surfaces = SURFACES.filter((s) => s.persona === persona);
@@ -93,20 +152,11 @@ for (const persona of PERSONAS) {
     });
 
     test('titles: every page has a unique, non-empty title', annotations, () => {
-      if (persona === 'admin') {
-        knownFailure('AECI-2084', 'both admin queues are titled "Admin · AEC Integrations"');
-      }
-      if (persona === 'vendor') {
-        knownFailure(
-          'AECI-2085',
-          'both portal screens are titled "Vendor portal · AEC Integrations"',
-        );
-      }
       const pages = new Map<string, { page: string; title: string }>();
       for (const r of records) {
         if (!pages.has(r.finalPath)) pages.set(r.finalPath, { page: r.finalPath, title: r.title });
       }
-      expect(titleProblems([...pages.values()])).toEqual([]);
+      expectOnlyKnownProblems(titleProblems([...pages.values()]), knownFor(persona, 'titles'));
     });
 
     test('header and footer: the same snapshot on every page', annotations, () => {
@@ -125,22 +175,10 @@ for (const persona of PERSONAS) {
     });
 
     test('link names: one target, one name, on every page', annotations, () => {
-      if (persona === 'anonymous') {
-        knownFailure(
-          'AECI-2078',
-          'home names three audience links by role, /audiences names them by discipline',
-        );
-      }
-      if (persona === 'vendor') {
-        knownFailure(
-          'AECI-2087',
-          'the portal overview is linked as "Vendor portal" and as the vendor name',
-        );
-      }
       const names: PageLinkName[] = records.flatMap((r) =>
         r.facts.links.map((l) => ({ page: r.surface.route, ...l })),
       );
-      expect(inconsistentNameProblems(names)).toEqual([]);
+      expectOnlyKnownProblems(inconsistentNameProblems(names), knownFor(persona, 'link names'));
     });
 
     test('on every page: search, navigation links and footer links', annotations, () => {

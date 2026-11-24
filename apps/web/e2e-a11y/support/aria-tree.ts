@@ -233,47 +233,46 @@ export interface PageLinkName {
   readonly region: Region;
 }
 
-/** Words that say how to reach a page, not which page it is. */
-const FILLER = new Set([
-  'a',
-  'all',
-  'an',
-  'and',
-  'by',
-  'for',
-  'go',
-  'more',
-  'of',
-  'open',
-  'products',
-  'see',
-  'the',
-  'to',
-  'view',
-  '<n>',
-  '&',
-]);
+/**
+ * The leading words a link may add to a page's name without naming a different
+ * page. Each is an accepted case, listed so a new one is a reviewed change:
+ *
+ *   "View all categories"   an index link, beside the footer's "Categories"
+ *   "View Fixture Procore"  a card's call to action, beside the plain name
+ *   "Back to Fixture …"     a back link, beside the plain name
+ *
+ * Two more accepted cases need no entry, because the containment rule below
+ * covers them: a name followed by a count ("Project Management 2 products"
+ * beside "Project Management") and a name followed by a description ("Trades
+ * Tools built for the work you sell." beside "Trades").
+ */
+const ACCEPTED_LEADS: readonly (readonly string[])[] = [['view', 'all'], ['view'], ['back', 'to']];
 
-function keyWords(name: string): Set<string> {
-  return new Set(
-    normalizeLinkName(maskVolatile(name))
-      .split(/[\s/,.:;()]+/)
-      .filter((w) => w !== '' && !FILLER.has(w)),
-  );
+/** The masked, case-folded words of a name, with an accepted lead removed. */
+export function nameWords(name: string): string[] {
+  const words = normalizeLinkName(maskVolatile(name))
+    .split(/[^\p{L}\p{N}<>&]+/u)
+    .filter((w) => w !== '');
+  for (const lead of ACCEPTED_LEADS) {
+    if (lead.every((w, i) => words[i] === w) && words.length > lead.length) {
+      return words.slice(lead.length);
+    }
+  }
+  return words;
 }
 
 /**
  * Two names identify the same target consistently when, masked and case-folded,
- * they share a word that names the page. "Fixture Procore" and "View Fixture
- * Procore" agree, and so do "View all trades" and "Trades Tools built for the
- * work you sell". "Subcontractors" and "Specialty Contracting" do not. WCAG 3.2.4.
+ * every word of one is a word of the other. "Fixture Procore" and "View Fixture
+ * Procore" agree. "Vendor portal" and "Vendor Overview" do not, and nor do
+ * "General contractors" and "General Contracting". WCAG 3.2.4.
  */
 export function namesConsistent(a: string, b: string): boolean {
-  const x = keyWords(a);
-  const y = keyWords(b);
-  if (x.size === 0 || y.size === 0) return normalizeLinkName(a) === normalizeLinkName(b);
-  for (const w of x) if (y.has(w)) return true;
-  return false;
+  const x = nameWords(a);
+  const y = nameWords(b);
+  if (x.length === 0 || y.length === 0) return normalizeLinkName(a) === normalizeLinkName(b);
+  const [short, long] = x.length <= y.length ? [x, new Set(y)] : [y, new Set(x)];
+  return short.every((w) => long.has(w));
 }
 
 /**

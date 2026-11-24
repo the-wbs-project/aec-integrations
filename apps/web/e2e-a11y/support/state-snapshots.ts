@@ -2,17 +2,24 @@
  * AECI-1879: before-and-after ARIA snapshots for every stateful control in a scope.
  *
  * The controls are found on the page, not listed by hand, so a new disclosure,
- * tab set, combobox or toggle is snapshotted the day it ships:
+ * tab set, combobox or toggle is snapshotted the day it ships. Every flip is by
+ * keyboard: real Tab presses bring focus to the control (`tabTo`), then a key
+ * acts on it. A pointer is never used, because several triggers open on
+ * `mouseenter` and a click then toggles them shut again (the admin nav row,
+ * `layout/nav-disclosure.ts`, and the toxicity legend in the review queue).
  *
- *   disclosure  a button with `aria-expanded`. Clicked, then clicked again.
- *   combobox    `role="combobox"`. A button opens on click. A text box opens on
+ *   disclosure  a button with `aria-expanded`. Enter, then Enter again.
+ *   combobox    `role="combobox"`. A button opens on Enter. A text box opens on
  *               ArrowDown, or on a typed fixture query when ArrowDown shows nothing.
  *               Closed with Escape.
  *   toggle      a button with `aria-pressed`, or `role="switch"`. In a group of
- *               pressed buttons, the ones not pressed are clicked, and the one
- *               that was pressed is clicked to restore.
- *   tab         `role="tab"` that is not selected. Clicked, then the old tab is.
- *   details     a `<summary>`. Clicked, then clicked again.
+ *               pressed buttons, each one not pressed gets Enter, and the one
+ *               that was pressed gets Enter to restore.
+ *   tab         `role="tab"` that is not selected. Enter, then the old tab gets Enter.
+ *   details     a `<summary>`. Enter, then Enter again.
+ *
+ * A control whose state does not change, or that Tab cannot reach, is reported
+ * as a problem, so the test cannot pass on a flip that never happened.
  *
  * Two kinds are left out on purpose. A link with `aria-expanded` (the header's
  * Browse link) navigates when activated. A trigger with `aria-haspopup="dialog"`
@@ -26,6 +33,8 @@
 import { expect, type Locator, type Page } from '@playwright/test';
 import { untilHydrated } from '../../e2e/hydration';
 import { maskAriaSnapshot } from './aria-tree';
+import { keyForLocator } from './probe';
+import { tabTo } from './tab-walk';
 
 export type StateKind = 'disclosure' | 'combobox' | 'toggle' | 'tab' | 'details';
 
@@ -87,8 +96,12 @@ async function snapshotOf(page: Page, control: Locator, kind: StateKind): Promis
 }
 
 /**
- * The snapshot once it has stopped changing. A popup can show before its options
- * land (a debounced query, a fetch), so one read can catch it half drawn.
+ * The snapshot once it has stopped changing: two reads 500 ms apart that agree.
+ *
+ * There is no DOM signal to wait on instead. The search suggestions arrive from
+ * a debounced query and set no `aria-busy`, and app stability (`untilAppStable`)
+ * is only observable once, at hydration, through `jsaction`. So the read repeats
+ * until it holds still, and fails with its own message if it never does.
  */
 async function settledSnapshot(page: Page, control: Locator, kind: StateKind): Promise<string> {
   let last = await snapshotOf(page, control, kind);
@@ -98,7 +111,7 @@ async function settledSnapshot(page: Page, control: Locator, kind: StateKind): P
     if (next === last) return next;
     last = next;
   }
-  return last;
+  throw new Error(`the ${kind} snapshot was still changing after 10 seconds:\n${last}`);
 }
 
 /** The state attribute a kind flips, read for the wait. */
@@ -129,38 +142,44 @@ async function waitForChange(
   }
 }
 
-/** Open or flip the control. Returns false when its state never changed. */
-async function act(page: Page, control: Locator, kind: StateKind, tag: string): Promise<boolean> {
-  const from = await stateOf(control, kind);
-  if (kind === 'combobox' && tag === 'input') {
-    await control.click();
-    if ((await stateOf(control, kind)) !== 'true') await page.keyboard.press('ArrowDown');
-    if (await waitForChange(control, kind, from, 5_000)) return true;
-    await control.pressSequentially(FIXTURE_QUERY);
-    return waitForChange(control, kind, from);
-  }
-  await control.click();
-  return waitForChange(control, kind, from);
+/** Real Tab presses until focus is on the element with this probe key. */
+async function focusByTab(page: Page, key: number): Promise<boolean> {
+  return (await tabTo(page, key)) !== null;
 }
 
 /**
- * The element `selector` finds from `control` today, as a locator that keeps
- * finding that same element after the page's state changes. Null when none.
+ * Open or flip the focused control by keyboard. `from` is its state before Tab
+ * reached it, so a combobox that opens on focus counts as changed. Returns false
+ * when its state never changed.
  */
-async function pinned(control: Locator, selector: string): Promise<Locator | null> {
-  const found = control.locator(selector).first();
-  if ((await found.count()) === 0) return null;
-  const marker = `aeci-1879-${Math.random().toString(36).slice(2)}`;
-  await found.evaluate((el, m) => el.setAttribute('data-aria-restore', m), marker);
-  return control.page().locator(`[data-aria-restore="${marker}"]`);
+async function act(
+  page: Page,
+  control: Locator,
+  kind: StateKind,
+  tag: string,
+  from: string | null,
+): Promise<boolean> {
+  if ((await stateOf(control, kind)) !== from) return true;
+  if (kind === 'combobox' && tag === 'input') {
+    await page.keyboard.press('ArrowDown');
+    if (await waitForChange(control, kind, from, 5_000)) return true;
+    await page.keyboard.type(FIXTURE_QUERY);
+    return waitForChange(control, kind, from);
+  }
+  await page.keyboard.press('Enter');
+  return waitForChange(control, kind, from);
 }
 
 export interface StateRecord {
   readonly label: string;
   readonly kind: StateKind;
-  /** False when acting on the control changed none of its state. */
-  readonly changed: boolean;
   readonly text: string;
+}
+
+export interface StateResult {
+  readonly records: readonly StateRecord[];
+  /** One sentence per control that Tab could not reach or whose state did not change. */
+  readonly problems: readonly string[];
 }
 
 /**
@@ -172,8 +191,9 @@ export async function snapshotStates(
   page: Page,
   scope: () => Locator,
   reload: () => Promise<void>,
-): Promise<StateRecord[]> {
+): Promise<StateResult> {
   const records: StateRecord[] = [];
+  const problems: string[] = [];
   const all = () => scope().locator(CONTROLS);
   const visibility = async (): Promise<boolean[]> => {
     const n = await all().count();
@@ -188,9 +208,11 @@ export async function snapshotStates(
   const reloadAndWait = async () => {
     await reload();
     await expect
-      .poll(async () => JSON.stringify(await visibility()), { timeout: 30_000 })
-      .toBe(JSON.stringify(shown))
-      .catch(() => undefined);
+      .poll(async () => JSON.stringify(await visibility()), {
+        message: 'after the reload, the same stateful controls show as on the first load',
+        timeout: 30_000,
+      })
+      .toBe(JSON.stringify(shown));
   };
   for (let i = 0; i < shown.length; i++) {
     if (!shown[i]) continue;
@@ -201,54 +223,59 @@ export async function snapshotStates(
     if (info.kind === 'toggle' && info.pressed && info.grouped) continue;
     if (info.kind === 'tab' && info.selected) continue;
 
-    const label = (await control.ariaSnapshot())
-      .split('\n')[0]!
-      .replace(/^- /, '')
-      .replace(/:$/, '');
+    const label = maskAriaSnapshot(
+      (await control.ariaSnapshot()).split('\n')[0]!.replace(/^- /, '').replace(/:$/, ''),
+    ).trim();
     await untilHydrated(control, 30_000);
     const startUrl = page.url();
     const before = await snapshotOf(page, control, info.kind);
-    // Pin the element to restore to now: a locator is resolved when it is used,
-    // and after the flip "the pressed one" is the control itself.
-    const pressedSibling =
+    // The element to restore to, keyed now: after the flip "the pressed one" is
+    // the control itself.
+    const restoreTo =
       info.kind === 'toggle' && info.grouped
-        ? await pinned(control, 'xpath=../*[@aria-pressed="true"]')
-        : null;
-    const selectedTab =
-      info.kind === 'tab'
-        ? await pinned(
-            control,
-            'xpath=ancestor::*[@role="tablist"][1]//*[@role="tab"][@aria-selected="true"]',
-          )
-        : null;
-    const changed = await act(page, control, info.kind, info.tag);
+        ? control.locator('xpath=../*[@aria-pressed="true"]').first()
+        : info.kind === 'tab'
+          ? control
+              .locator(
+                'xpath=ancestor::*[@role="tablist"][1]//*[@role="tab"][@aria-selected="true"]',
+              )
+              .first()
+          : null;
+    const restoreKey =
+      restoreTo && (await restoreTo.count()) > 0 ? await keyForLocator(page, restoreTo) : null;
+
+    const controlKey = await keyForLocator(page, control);
+    const from = await stateOf(control, info.kind);
+    if (!(await focusByTab(page, controlKey))) {
+      problems.push(`${info.kind} ${label}: Tab never reached it`);
+      await reloadAndWait();
+      continue;
+    }
+    const changed = await act(page, control, info.kind, info.tag, from);
+    if (!changed) problems.push(`${info.kind} ${label}: its state did not change`);
     const after = changed
       ? await settledSnapshot(page, control, info.kind)
       : '# no state changed\n';
-    records.push({
-      label: maskAriaSnapshot(label).trim(),
-      kind: info.kind,
-      changed,
-      text: `## before\n${before}## after\n${after}`,
-    });
+    records.push({ label, kind: info.kind, text: `## before\n${before}## after\n${after}` });
 
-    // Undo in place where the control can, then check the page is back. A
-    // re-rendered control (a view switch) can drop the pinned element, so a
-    // failed undo falls back to the reload.
-    try {
-      if (info.kind === 'combobox') await page.keyboard.press('Escape');
-      else if (changed && pressedSibling) await pressedSibling.click({ timeout: 10_000 });
-      else if (changed && selectedTab) await selectedTab.click({ timeout: 10_000 });
-      else if (changed) await control.click({ timeout: 10_000 });
-    } catch {
-      // The comparison below sees the page is not back.
+    // Undo in place, by keyboard, where the control can, then check the page is
+    // back. A re-rendered control (a view switch) drops its probe key, so an undo
+    // that cannot reach its element falls back to the reload.
+    if (info.kind === 'combobox') {
+      await page.keyboard.press('Escape');
+    } else if (changed && restoreKey !== null) {
+      if (await focusByTab(page, restoreKey)) await page.keyboard.press('Enter');
+    } else if (changed && (await focusByTab(page, controlKey))) {
+      await page.keyboard.press('Enter');
     }
+    // A page that will not hold still here is not back either, so it is
+    // reloaded rather than failed: the "after" read above already settled.
     const restored =
       new URL(page.url()).pathname === new URL(startUrl).pathname &&
       (await settledSnapshot(page, control, info.kind).catch(() => '')) === before;
     if (!restored) await reloadAndWait();
   }
-  return records;
+  return { records, problems };
 }
 
 /** The committed text for one scope's records. */

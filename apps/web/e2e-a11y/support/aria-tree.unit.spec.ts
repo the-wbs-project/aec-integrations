@@ -150,14 +150,35 @@ describe('maskAriaSnapshot', () => {
 });
 
 describe('the cross-page rules', () => {
-  it('names agree when they share a word that names the page', () => {
-    expect(namesConsistent('Fixture Procore', 'View Fixture Procore')).toBe(true);
+  it('names agree when one holds every word of the other', () => {
+    // Equal once masked and case-folded.
+    expect(namesConsistent('Suggest a correction', 'suggest a correction')).toBe(true);
+    // A name followed by a count.
+    expect(namesConsistent('Project Management 2 products', 'Project Management')).toBe(true);
+    // A name followed by a description.
+    expect(namesConsistent('Trades Tools built for the work you sell.', 'Trades')).toBe(true);
+    // The accepted leads: "View all", "View" and "Back to".
+    expect(namesConsistent('View all categories', 'Categories')).toBe(true);
     expect(namesConsistent('View all trades', 'Trades Tools built for the work you sell.')).toBe(
       true,
     );
-    expect(namesConsistent('Project Management 2 products', 'Project Management')).toBe(true);
+    expect(namesConsistent('View Fixture Procore', 'Fixture Procore')).toBe(true);
+    expect(
+      namesConsistent('← Back to Fixture Procore Technologies', 'Fixture Procore Technologies'),
+    ).toBe(true);
+  });
+
+  it('names disagree when either has a word the other lacks', () => {
+    // AECI-2087: one shared word is not enough.
+    expect(namesConsistent('Vendor portal', 'Vendor Overview')).toBe(false);
+    expect(namesConsistent('Vendor portal', 'Fixture Procore Technologies')).toBe(false);
+    // AECI-2078: a different word ending is a different word.
+    expect(namesConsistent('General contractors 4 products', 'General Contracting')).toBe(false);
+    expect(namesConsistent('Estimators 4 products', 'Estimator')).toBe(false);
     expect(namesConsistent('Subcontractors 3 products', 'Specialty Contracting')).toBe(false);
+    // A lead is accepted only in front of a name, never as the whole name.
     expect(namesConsistent('View all', 'See more')).toBe(false);
+    expect(namesConsistent('View', 'Fixture Procore')).toBe(false);
   });
 
   it('compares a target within one landmark only', () => {

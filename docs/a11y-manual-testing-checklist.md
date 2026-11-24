@@ -66,7 +66,9 @@ Run each surface with **(a) keyboard only**, then **(b) VoiceOver**, then **(c) 
 > accessibility nightly now checks: the roles, names, states and headings of `main` against a reviewed
 > snapshot; one `h1` and no skipped heading level; the four landmarks, and a unique name on every
 > navigation and search landmark; that no two links share a name but go to different places; and the
-> before and after state of every disclosure, tab, combobox and toggle. Across pages it checks a unique
+> before and after state, flipped by keyboard, of each disclosure button, tab, combobox, toggle button and
+> `<summary>`. It leaves out links with `aria-expanded` (activating one navigates) and buttons that open a
+> dialog. The keyboard walkthroughs (`TESTING_STRATEGY.md` §8.4.1) open and close both. Across pages it checks a unique
 > title, the same header and footer, a consistent name for each link target, and search, navigation and
 > footer links on every page. It reads the accessibility tree, not a screen reader, so it cannot judge
 > whether a name is clear, whether reading order makes sense, or what is announced. The manual pass above
