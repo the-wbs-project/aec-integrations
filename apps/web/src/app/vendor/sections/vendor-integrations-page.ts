@@ -5,6 +5,10 @@ import { VendorIntegrationsSection } from '../components/vendor-integrations-sec
 import { VendorOwnedIntegrations } from '../components/vendor-owned-integrations';
 import { VendorProductConnectors } from '../components/vendor-product-connectors';
 import {
+  VendorSyncServicePairCreate,
+  offersSyncServicePairCreate,
+} from '../components/vendor-sync-service-pair-create';
+import {
   VendorReviewStrip,
   reviewStepState,
   reviewStripShown,
@@ -40,6 +44,10 @@ import { vendorProductContext } from './vendor-product-context';
  * (`vendor-owned-integrations.ts`). They ride the same `GET /api/vendor/integrations`
  * read, so the live cursor covers them.
  *
+ * AECI-2040 adds, on a Sync Service product only, the form that adds a pair the Sync
+ * Service delivers (`vendor-sync-service-pair-create.ts`). The new pair then shows in
+ * the owned rows below it, with its data flows panel.
+ *
  * AECI-1013 adds the read-only Connectors section below the list: the connectors
  * that deliver or reach this product. It is its own per-product read, outside the
  * live cursor, and it renders nothing when no connector reaches the product.
@@ -51,6 +59,7 @@ import { vendorProductContext } from './vendor-product-context';
     VendorOwnedIntegrations,
     VendorProductConnectors,
     VendorReviewStrip,
+    VendorSyncServicePairCreate,
   ],
   template: `
     @if (me(); as m) {
@@ -76,6 +85,11 @@ import { vendorProductContext } from './vendor-product-context';
             [urlState]="true"
           />
         </div>
+        <!-- AECI-2040: a Sync Service adds the pairs it delivers. Only on a Sync Service
+             product: an Integration platform or an unclassified connector never gets it. -->
+        @if (syncServiceProduct(); as sync) {
+          <aec-vendor-sync-service-pair-create class="mt-10" [product]="sync" />
+        }
         <!-- AECI-1089: the owner's rows the list above does not carry. It renders
              nothing, and so takes no space, when none touch this product. -->
         <aec-vendor-owned-integrations [contextProductId]="contextProductId()" />
@@ -129,4 +143,10 @@ export class VendorIntegrationsPage {
    * tab.
    */
   protected readonly contextProductId = computed(() => this.ctx.product()?.id ?? '');
+
+  /** The tab's product when it is a Sync Service (AECI-2040), else `null`. */
+  protected readonly syncServiceProduct = computed(() => {
+    const product = this.ctx.product();
+    return product && offersSyncServicePairCreate(product) ? product : null;
+  });
 }

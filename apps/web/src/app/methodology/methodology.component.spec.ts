@@ -183,10 +183,13 @@ describe('MethodologyPage', () => {
       // AECI-1663 (ruling 14): no plan is asked for, so the Managed clause is gone.
       expect(text).not.toContain('but only while it holds a Managed plan');
       expect(text).toContain('It cannot change how the integration is delivered.');
-      // Decision 9 still holds for create and own links.
-      expect(text).toContain(
+      // Decision 9 still holds for own links, and for create except a Sync Service
+      // (AECI-2040, ruling 7 on AECI-2035).
+      expect(text).not.toContain(
         'No vendor can add one of these integrations or put its own links on one.',
       );
+      expect(text).toContain('A Sync Service can add the integrations it delivers');
+      expect(text).toContain('no vendor can put its own links on one.');
     });
 
     it('says a hide keeps the data and is not a finding (AECI-1238)', () => {

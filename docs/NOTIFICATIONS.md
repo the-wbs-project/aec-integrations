@@ -79,9 +79,9 @@ run `pnpm docs:notifications` and commit this file.
 | `email` | 59 |
 | `email+portal` | 1 |
 | `supabase-email` | 1 |
-| `portal` | 33 |
+| `portal` | 34 |
 | `linear` | 4 |
-| **Total** | **98** |
+| **Total** | **99** |
 
 ## Email (Resend) (`email`, 59)
 
@@ -176,7 +176,7 @@ tier rule cannot stop it and no metric counts it. The template is
 |---|---|---|---|---|---|---|---|---|---|---|
 | `supabase-sign-in` | The magic-link or confirm-signup email for anyone who signs in. | external | supabase: signInWithOtp (apps/web/src/app/auth/auth.service.ts) | `any-tier` | GoTrue's own rate limits. | `none` | `none` | no | docs/email.md §Magic-link sender | Supabase sends it over the Resend SMTP relay. No app code sends it, so the tier gate cannot stop it. It carries no Resend tags. Since AECI-1222 production records its delivery events (tier auth) in notification_delivery_events, matched by subject and sender; no tier records the send itself. Not pausable: Supabase sends it, so no switch here can stop it. |
 
-## Vendor portal feed only (`portal`, 33)
+## Vendor portal feed only (`portal`, 34)
 
 Delivered only as `notification.sent` audit rows, written in the same `db.batch` as the
 change that caused them. The row is its own ledger. The vendor portal reads them through
@@ -219,6 +219,7 @@ notification at all.
 | `portal-review-response` | Tells a vendor that AECi approved, rejected or removed its reply to a review. | external | route: PATCH /api/admin/review-responses/:id (routes/admin-review-responses.ts) | `any-tier` | One row per decision, in the decision batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11c.12 | metadata.event names the decision. Reject and remove carry the reason. No email, as for contests. Not pausable: a portal row, not email. |
 | `portal-review-update` | Tells each owning vendor that a reviewer published an update to a review of its product. | external | route: PATCH /api/admin/review-updates/:id (routes/admin-review-updates.ts) | `any-tier` | One row per owning vendor, in the approve batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11c.12 | Written for a vendor with no seat too, as portal-review. No vendor email. Reject and remove write none. Not pausable: a portal row, not email. |
 | `portal-seat-revoked-by-aeci` | Tells a vendor's remaining seats that AECi removed one of its seats, and why. | external | route: DELETE /api/admin/vendors/:id/seats/:userId (routes/admin-vendors.ts) | `any-tier` | One row per revoke, in the revoke batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11d | Not written when the revoke leaves no seat: nobody could read it, and the audit row is the record. Every plan, no tier rule. Carries the reason, never the internal note. Not pausable: a portal row, not email. |
+| `portal-sync-service-pair-create` | Tells the vendors of both products a Sync Service added a pair it delivers between them (ruling 11 on AECI-2035). | external | route: POST /api/vendor/sync-service-pairs (routes/vendor-sync-service-pair-create.ts) | `any-tier` | One row per recipient, in the create batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §4.7.7 | Not pausable: a portal row, not email. Same `integration_create` kind as the vendor create, so the feed renders it alike. |
 | `portal-thread-closed` | Tells both companies a private row thread closed, and links the thread's page by id. | external | route: Every thread close: retire, withdrawn row, vendor row delete, promote claim delete, stale-twin delete and move, retract-product, the datatool prune and the retraction consumer (lib/claim-thread-lifecycle.ts) | `any-tier` | One row per company per close, in the close batch. A thread closes once. | `audit_log` | `none` | no | docs/STAGE_2_ATTESTATIONS_SPEC.md §15.8 | Not pausable: a portal row, not email. Sent for every close reason, so a thread whose row is later deleted keeps a link back. The company's Conversations list (AECI-1551) is the path past the 90-day feed. The row carries ids and names, never a message. |
 | `portal-thread-message` | Tells the other company a seat wrote on a private row thread, and links the thread's page by id. | external | route: POST /api/vendor/claims/:claimId/thread/messages (routes/vendor-threads.ts) | `any-tier` | One row per message, in the post batch. The Messages list shows only the newest row per thread. | `audit_log` | `none` | no | docs/STAGE_2_ATTESTATIONS_SPEC.md §15.8 | Not pausable: a portal row, not email. The row carries ids, never the message. |
 

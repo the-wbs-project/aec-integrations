@@ -1559,6 +1559,19 @@ rolls back and ends `errored` with `VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE` (4
 failing on the unique index. The functions are `findVendorHeldEvidencedTwin` and
 `vendorOwnedEvidencedTwinSentinel` in `apps/api/src/lib/integration-twins.ts`.
 
+**A Sync Service's own pairs (AECI-2040, 2026-11-24).** A Sync Service now adds the pairs it
+delivers in the portal (`POST /api/vendor/sync-service-pairs`, `STAGE_2_VENDOR_PORTAL_SPEC.md`
+§4.7.7, rulings 7 and 11 on AECI-2035). Such a pair lands in `connector_evidenced_pairs` with
+`origin = 'vendor'`, its Sync Service vendor in `built_by_vendor_id` and `claimed_at` set. It is
+vendor-held, so nothing above changes for you: an edge naming its id gets §4b's `claimed` skip,
+and a push of the same pair through the same connector with no `supabaseId` gets the
+`VENDOR_OWNED_TWIN` skip with the vendor pair's id. Nothing is written beside it. As for any
+vendor-created row, the review app has no record of it until AECI-2047's ownership record lists
+it under `deliveredPairs[]`. The portal create has its own guard, the other way round: it refuses
+a pair that is already on record through the same connector, in either table, live or retired
+(`findSyncServicePairBlock` in `apps/api/src/lib/integration-twins.ts`). So a pair you promote
+first is never added again by the vendor.
+
 The two guards never search each other's table. Promote routes every write whose stated
 connector is a third product into `connector_evidenced_pairs`, and the unique index that can fail
 a promote exists on that table only.

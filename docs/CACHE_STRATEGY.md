@@ -509,6 +509,13 @@ helper enqueues for all of them (`purgeTags` / `afterVendorWrite` in
   endpoint counts are recomputed inside the create batch for the same reason, and the
   pair and both product URLs are queued for re-crawl.
 
+- **A Sync Service's own pair** (`POST /api/vendor/sync-service-pairs`, AECI-2040) → the
+  vendor create's tags plus the connector's `product:{slug}`: `pair:{min}__{max}`, both
+  endpoint `product:` tags, the connector's `product:` tag, `vendor:{caller}`,
+  `index:products`, `taxonomy` and `sitemap`. The connector's page lists the pair and its
+  count moved, so it is purged as on an evidenced-pair retire. All three counts are
+  recomputed inside the create batch, and the pair re-crawl is queued.
+
 - **Integration retire and restore** (`POST /api/vendor/integrations/:id/retire` /
   `/restore`, AECI-1010, and the admin pair `POST /api/admin/integrations/:id/retire` /
   `/restore`, AECI-1046, which shares the tail and sends with `source: 'moderation'`; the

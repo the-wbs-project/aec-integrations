@@ -175,6 +175,14 @@ export const ApiErrorCode = {
   INTEGRATION_NOT_VENDOR_HELD: 'INTEGRATION_NOT_VENDOR_HELD',
   // AECI-1006 owner edits (`API_CONTRACTS.md` §4): a value that is wrong for its field.
   INTEGRATION_INVALID_VALUE: 'INTEGRATION_INVALID_VALUE',
+  // AECI-2040 (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.7): a Sync Service adds its own pair.
+  // `CONNECTOR_NOT_SYNC_SERVICE` (422) answers a connector product the caller holds that
+  // is not a Sync Service: an Integration platform, an unclassified connector or an
+  // application. `INTEGRATION_ALREADY_ON_RECORD` (409) answers a pair that is already on
+  // record through the same connector, in either table, live or retired; `details` names
+  // the row so the portal can open it (claim or restore it instead).
+  CONNECTOR_NOT_SYNC_SERVICE: 'CONNECTOR_NOT_SYNC_SERVICE',
+  INTEGRATION_ALREADY_ON_RECORD: 'INTEGRATION_ALREADY_ON_RECORD',
   // AECI-1237 admin field corrections (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5).
   // `FIELD_LOCKED_BY_AECI` (409) answers a vendor write that would change a field AECi
   // corrected and locked; `details.fields` names them. `FIELD_OVERRIDE_ACTIVE` (409)

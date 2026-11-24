@@ -2755,8 +2755,9 @@ function toProductPairMechanismFromEvidencedPair(
     // structural, and the byline reads it from `via`. Setting both would let a
     // renderer print the connector twice.
     powered_by_product: null,
-    // Promote is the only writer of this table (decision 9 keeps vendors off it).
-    origin: 'aeci',
+    // AECI-2040: a Sync Service adds its own pairs here, so the stored origin is read,
+    // as on the `integrations` arm. Anything but `'vendor'` reads as AECi's.
+    origin: raw.origin === 'vendor' ? 'vendor' : 'aeci',
     via: toProductLink(raw.connectorProduct),
     // AECI-933: the same fact as the `integrations` arm, read from `via`'s product.
     connector_vendor_id: connectorVendorId(raw.connectorProduct),

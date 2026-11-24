@@ -41,6 +41,8 @@ import type {
   ClaimIntegrationResponse,
   CreateVendorIntegrationInput,
   CreateVendorIntegrationResponse,
+  CreateSyncServicePairInput,
+  CreateSyncServicePairResponse,
   PossibleDuplicatesResponse,
   CreateVendorProductInput,
   CreateVendorProductResponse,
@@ -1005,6 +1007,14 @@ export class VendorApi {
   createIntegration(body: CreateVendorIntegrationInput): Promise<CreateVendorIntegrationResponse> {
     return firstValueFrom(
       this.http.post<CreateVendorIntegrationResponse>('/api/vendor/integrations', body),
+    );
+  }
+
+  /** `POST /api/vendor/sync-service-pairs` (AECI-2040): the caller's Sync Service adds
+   *  a pair it delivers between two listed products. A duplicate is a `409`. */
+  createSyncServicePair(body: CreateSyncServicePairInput): Promise<CreateSyncServicePairResponse> {
+    return firstValueFrom(
+      this.http.post<CreateSyncServicePairResponse>('/api/vendor/sync-service-pairs', body),
     );
   }
 

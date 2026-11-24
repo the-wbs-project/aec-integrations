@@ -1,7 +1,7 @@
 # ADR 0035: Integrations are vendor-owned; AECi seeds
 
 - Status: Accepted
-- Date: 2026-09-21 (amended 2026-09-22 with the AECI-1005 rulings on the connector-powered claim, owner-unknown claims and AECi accepts on claimed rows, and with the AECI-1011 create and twin guard. Amended 2026-09-23 with the AECI-1040 owner carve-out to decisions 9 and 15. Amended 2026-11-09 with ruling 14, AECI-1663)
+- Date: 2026-09-21 (amended 2026-09-22 with the AECI-1005 rulings on the connector-powered claim, owner-unknown claims and AECi accepts on claimed rows, and with the AECI-1011 create and twin guard. Amended 2026-09-23 with the AECI-1040 owner carve-out to decisions 9 and 15. Amended 2026-11-09 with ruling 14, AECI-1663. Amended 2026-11-24 with rulings 7 and 11 on AECI-2035, AECI-2040)
 - Issue: AECI-1005 (epic AECI-1003)
 - Supersedes: the rule "integrations are AECi-curated and are not vendor-editable", wherever it appeared (`routes/promote.ts`, `API_CONTRACTS.md` §6.12, `REVIEW_APP_PROMOTE_API.md` §4a)
 
@@ -105,7 +105,7 @@ Ruled 2026-09-23 and built in the AECI-1040 follow-ups: the schema and promote f
 2. **The predicate is unchanged.** Connector-powered still means `isConnectorPoweredEdge`, or any row of `connector_evidenced_pairs`. The carve-out tests the caller's relationship to the row. It does not narrow the predicate.
 3. **Every owner is covered.** Third-party owners are covered. So are endpoint vendors that own Convention-A or `iPaaS` rows.
 4. **Carve-out writes need an active entitlement.** This is the named exception to decision 15. It closes the free-seat hole of `STAGE_2_SPEC.md` §8.10(6) at write time. A §8.9 catalogue seat has no entitlement row, so it cannot use the carve-out. *Superseded 2026-11-09 by ruling 14 (AECI-1663): any seat may use the carve-out.*
-5. **Still refused:** vendor create of a connector-powered row, and per-side link writes on one (decision 6). A vendor that wants a connector-powered row added messages AECi.
+5. **Still refused:** vendor create of a connector-powered row, and per-side link writes on one (decision 6). A vendor that wants a connector-powered row added messages AECi. *Amended 2026-11-24 (rulings 7 and 11 on AECI-2035, built by AECI-2040): a Sync Service may create the pairs it delivers, between any two listed products, owned or not, through `POST /api/vendor/sync-service-pairs`. The row is born claimed with `origin = 'vendor'` in `connector_evidenced_pairs`, and both endpoint vendors are told. `POST /api/vendor/integrations` still refuses every connector-powered row, and the refusal stands for Integration platforms and unclassified connectors. Per-side links stay closed (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.7).*
 6. **`mechanism_kind` stays frozen** on an owner edit of a connector-powered `integrations` row, because it decides routing. That stops the owner moving its row out of the connector lane.
 7. **Contests keep AECI-1008's routing, with one exception.** A content contest goes to the owner once the owner has claimed the row. Before the claim it goes to AECi. An `owner` contest always goes to AECi. **A `mechanism_kind` contest on a connector-powered `integrations` row always goes to AECi**, even on a claimed row (follow-up ruling A). Contests on evidenced pairs ship with the claim on that table.
 8. **The frozen-row objection to option B no longer applies.** Option B was rejected because a claimed connector-powered row would have no editor. Under the carve-out the owner that claims it is its editor.

@@ -105,7 +105,7 @@ When you choose the other product, we check for integrations already on record f
 
 You can still add yours. The list never stops you.
 
-The new integration is owned by your company and claimed from the moment you add it. It goes live without review, its public page says "Added by the vendor", and the company that makes the other product is told. Both products must already be listed. You cannot add one that is delivered through a connector.
+The new integration is owned by your company and claimed from the moment you add it. It goes live without review, its public page says "Added by the vendor", and the company that makes the other product is told. Both products must already be listed. You cannot add one that is delivered through a connector here. A Sync Service adds the integrations it delivers from its own product's tab. See [For connector vendors](/docs/vendors/connector-vendors).
 
 Once you add it, the confirmation links to your integration and to its public page. If another similar integration was added for the same two products while you filled in the form, the confirmation lists it too. If you added a copy anyway, retire the one you added from its page. Then claim the existing one if it is yours, or request a change on it if a detail is wrong. AEC Integrations' catalog updates will not add a second copy of an integration you hold.
 

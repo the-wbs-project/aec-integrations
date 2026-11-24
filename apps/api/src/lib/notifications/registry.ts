@@ -1369,6 +1369,23 @@ export const NOTIFICATIONS = {
     summary: 'Tells the other endpoint vendors a vendor created an integration on their product.',
     note: 'Not pausable: a portal row, not email.',
   },
+  'portal-sync-service-pair-create': {
+    channel: 'portal',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/vendor/sync-service-pairs (routes/vendor-sync-service-pair-create.ts)',
+    },
+    envRule: 'any-tier',
+    dedupe: 'One row per recipient, in the create batch.',
+    ledger: ['audit_log'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §4.7.7',
+    summary:
+      'Tells the vendors of both products a Sync Service added a pair it delivers between them (ruling 11 on AECI-2035).',
+    note: 'Not pausable: a portal row, not email. Same `integration_create` kind as the vendor create, so the feed renders it alike.',
+  },
   'portal-claim-added': {
     channel: 'portal',
     audience: 'external',

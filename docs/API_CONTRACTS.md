@@ -336,6 +336,8 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `FIELD_HIDE_CLEARED` | 409 | `POST /api/admin/field-hides/:id/restore` or `/status-reply` on a hide already cleared, by a restore, a correction or the vendor's own edit, including a lost race. Nothing was written (AECI-1238) |
 | `INTEGRATION_NOT_CLAIMED` | 409 | Retire, restore (AECI-1010) or `PATCH /api/vendor/integrations/:id` (AECI-1006) by the recorded owner of a row it has not claimed yet. Claim first (`POST /api/vendor/integrations/:id/claim`): ownership is taken by the claim, and until then promote still writes the row, so an edit would be overwritten. Also the answer when the claim was cleared under the owner between its read and its batch |
 | `INTEGRATION_INVALID_VALUE` | 422 | `PATCH /api/vendor/integrations/:id`, and `POST /api/vendor/integrations` (AECI-1011): a value wrong for its field. Not an `http(s)` URL, not a known `mechanism_kind`, a connector-delivered kind (`iPaaS`, `integrator`), not a caller-relative direction, or a clear of `name`, `mechanism_kind` or `direction`. Also, on the PATCH (AECI-1090): any change or clear of `mechanism_kind` on a connector-powered `integrations` row, where it is frozen, and any `mechanism_kind` at all on a `connector_evidenced_pairs` row, which has no such column. `field` names the field (AECI-1006) |
+| `CONNECTOR_NOT_SYNC_SERVICE` | 422 | `POST /api/vendor/sync-service-pairs` (AECI-2040): the named connector product is the caller's, but it is not a Sync Service. An Integration platform, an unclassified connector or an `application`. Ruling 1 of 2026-09-23 stands for them: ask AECi to add the pair. `field: connector_product_id` |
+| `INTEGRATION_ALREADY_ON_RECORD` | 409 | `POST /api/vendor/sync-service-pairs` (AECI-2040): the pair is already on record through the same connector, in `connector_evidenced_pairs` (any holder) or in `integrations` (`powered_by_product_id` = the connector, either orientation), live or retired. Nothing was written. `details: { existing_id, anchor, retired, owned_by_caller, claimed }`. A retired one is restored, never added again |
 | `INTEGRATION_CLAIMED_DURING_PROMOTE` | 409 | Promote job error only (`GET /api/promote/jobs/:id`). An integration in the bundle was claimed after the promote planned its write and before it committed. Nothing was written; re-push with a new `jobId` (`REVIEW_APP_PROMOTE_API.md` §4b) |
 | `CONTEST_CHANGED_DURING_PROMOTE` | 409 | Promote job error only. A contest on an edge the bundle moves between `integrations` and `connector_evidenced_pairs` was filed, withdrawn or decided after the promote planned the move and before it committed. Nothing was written; re-push with a new `jobId`, and the re-push re-anchors the contests as they now stand (AECI-1110, `REVIEW_APP_PROMOTE_API.md` §3.4a) |
 | `THREAD_CHANGED_DURING_PROMOTE` | 409 | Promote job error only, product and connector-catalog arms. A private row thread on an edge the bundle moves into `connector_evidenced_pairs` or makes connector-powered in place (AECI-1541), or on a claim the push deletes, opened or closed after the promote planned the batch and before it committed. Nothing was written; re-push with a new `jobId`, and the re-push closes the threads as they now stand (AECI-1536, `REVIEW_APP_PROMOTE_API.md` §3.4a) |
@@ -11157,6 +11159,52 @@ export const PossibleDuplicatesResponseSchema = z.object({
 **The list is the create's.** The same strong-match query, oldest first, with the caller as owner and no connector. So a create run straight after returns the same `possible_duplicates`, unless a row landed in between.
 
 **Nothing else.** No audit row, no purge, no cache tag. The response is `private, no-store`. It exposes nothing new: every match sits on the caller's own product, so `GET /api/vendor/integrations` already lists it.
+
+#### A Sync Service adds its own pair — `POST /api/vendor/sync-service-pairs`
+
+AECI-2040 (rulings 7 and 11 on AECI-2035, 2026-11-24; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.7). A sibling of the vendor create above, which keeps its contract: its `.strict()` body still refuses a connector. Zod in `packages/shared/src/api/sync-service-pair-create.ts`, handler in `apps/api/src/routes/vendor-sync-service-pair-create.ts`, refusals and sentinels in `apps/api/src/lib/sync-service-pair-create.ts`, the twin guard in `apps/api/src/lib/integration-twins.ts` (`findSyncServicePairBlock`).
+
+| Method | Path | Gate | Success |
+|---|---|---|---|
+| `POST` | `/api/vendor/sync-service-pairs` | seat, `rateLimit('write')`, `connector_product_id` a listed Sync Service the caller holds | `201 { pair }` |
+
+```typescript
+export const CreateSyncServicePairSchema = z
+  .object({
+    connector_product_id: z.string().uuid(),    // the caller's Sync Service
+    product_id: z.string().uuid(),              // any listed product; frames `direction`
+    counterpart_product_id: z.string().uuid(),  // any listed product
+    // The nine fields an owner edits on `connector_evidenced_pairs` (no
+    // `mechanism_kind`: the table has none). `name` and `direction` are required.
+    name, mechanism_name, direction, description, listing_url, docs_url,
+    pricing_model, maturity, pricing_url,
+  })
+  .strict();   // `mechanism_kind`, `origin`, `built_by_vendor_id`, … is a 400.
+               // Equal endpoints, or an endpoint equal to the connector, is a 400.
+
+export const CreateSyncServicePairResponseSchema = z.object({
+  pair: z.object({
+    id, connector_product_id,
+    product_a_id, product_b_id,      // canonical: product_a_id < product_b_id
+    origin: z.literal('vendor'),
+    owner_vendor_id,                 // the caller
+    claimed_at,                      // set: promote never writes this row
+    maintained_by: z.literal('vendor'),
+    last_reviewed_at, created_at, updated_at,
+  }),
+});
+```
+
+| Refusal | Status | When |
+|---|---|---|
+| `NOT_FOUND` | 404 | The connector is not the caller's, hidden, not promoted or missing. Or an endpoint is hidden, not promoted or missing. One answer for each, so the catalog cannot be probed |
+| `CONNECTOR_NOT_SYNC_SERVICE` | 422 | The connector is the caller's but not a Sync Service |
+| `INTEGRATION_INVALID_VALUE` | 422 | A value wrong for its field (`integrationEditValueProblem`) |
+| `INTEGRATION_ALREADY_ON_RECORD` | 409 | The pair is on record through this connector, in either table, live or retired |
+| `INTEGRATION_CHANGED_WHILE_SAVING` | 409 | A commit-time sentinel fired and the re-read finds no refusal to give |
+| `VENDOR_SUSPENDED`, `LEGAL_ACCEPTANCE_REQUIRED` | 403 | The guard's own refusals, as on every vendor write |
+
+**One batch:** three sentinels (the connector is still the caller's listed Sync Service, both endpoints are still listed, nothing blocks the pair), the INSERT, the `integration.created` audit row (entity `connector_evidenced_pair`, `metadata.reason: 'sync-service-create'`), one `notification.sent` row (`kind: 'integration_create'`, registry id `portal-sync-service-pair-create`) per vendor of either endpoint except the caller, and three count recomputes (both endpoints and the connector). After commit: by-id Algolia sync, purge `pair:{a}__{b}`, both endpoint `product:` tags, the connector's `product:` tag, `vendor:{caller}`, `index:products`, `taxonomy` and `sitemap`, queue the pair re-crawl, and re-send the ownership record.
 
 #### Product requests — `POST` + `GET /api/vendor/product-requests`
 

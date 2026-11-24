@@ -535,6 +535,8 @@ const COUNT_WRITERS = [
   'routes/integration-retire-write.ts',
   'routes/promote.ts',
   'routes/vendor-integration-create.ts',
+  // AECI-2040: a Sync Service adds its own pair. A seat is the gate, never a plan.
+  'routes/vendor-sync-service-pair-create.ts',
 ];
 
 /**

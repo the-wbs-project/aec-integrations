@@ -284,6 +284,7 @@ import {
   createRetireIntegrationHandler,
 } from './routes/vendor-integration-retire';
 import { createCreateVendorIntegrationHandler } from './routes/vendor-integration-create';
+import { createCreateSyncServicePairHandler } from './routes/vendor-sync-service-pair-create';
 import { createPossibleDuplicatesHandler } from './routes/vendor-integration-duplicates';
 import {
   createDeleteIntegrationLinkHandler,
@@ -1618,6 +1619,18 @@ authVendor.post(
   requireVendor(),
   rateLimit('write'),
   createCreateVendorIntegrationHandler(),
+);
+// AECI-2040 (rulings 7 and 11 on AECI-2035): a Sync Service adds a pair it delivers,
+// between any two listed products, owned or not. A sibling of the create above, which
+// stays closed on connector-delivered rows for every other connector (ruling 1 of
+// 2026-09-23). A SEAT IS THE WHOLE GATE. Gate order: `requireVendor()` →
+// `rateLimit('write')` → connector is the caller's Sync Service → endpoints listed →
+// not on record, the last three inside the handler (`lib/sync-service-pair-create.ts`).
+authVendor.post(
+  '/api/vendor/sync-service-pairs',
+  requireVendor(),
+  rateLimit('write'),
+  createCreateSyncServicePairHandler(),
 );
 // AECI-1377 (§4.7.6): ask AECi to add the other product of an integration. A seat is
 // the whole gate, as for the create above. Under /api/vendor/*, not /api/requests/*:

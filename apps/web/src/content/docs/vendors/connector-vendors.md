@@ -37,7 +37,13 @@ The Catalog tab is for a connector product with a published catalog, which is us
 
 ## Integrations delivered through a connector
 
-Where a connector product carries the data and your company holds neither product, the company recorded as the owner can claim the integration, on any plan. That includes a company that sells the connector and makes neither product. Those integrations appear on your Integrations tab under **Integrations your company offers**, as a list of cards rather than a page each, because they have no product of yours at either end. Once you claim one, AEC Integrations stops updating it. You can then edit its details and retire or restore it, from the same card, on any plan. Its type is set by AEC Integrations and cannot be edited. Retiring it also stops it counting on the connector product. No company can add links to one, or add a new one. Other companies can still request a change on one that appears on their Integrations tab.
+Where a connector product carries the data and your company holds neither product, the company recorded as the owner can claim the integration, on any plan. That includes a company that sells the connector and makes neither product. Those integrations appear on your Integrations tab under **Integrations your company offers**, as a list of cards rather than a page each, because they have no product of yours at either end. Once you claim one, AEC Integrations stops updating it. You can then edit its details and retire or restore it, from the same card, on any plan. Its type is set by AEC Integrations and cannot be edited. Retiring it also stops it counting on the connector product. No company can add links to one. A Sync Service can add a new one it delivers, as below. An integration platform cannot add one. Other companies can still request a change on one that appears on their Integrations tab.
+
+### A Sync Service adds an integration it delivers
+
+If your product is a Sync Service, its Integrations tab has **Add an integration** under **Integrations (your product) delivers**. Use it for an integration your Sync Service delivers between two products on the site. Neither product needs to be yours, and either may already be owned by its company. Choose the two products by name, then fill in the details: name, description, connection name, direction, listing page, documentation, pricing, pricing page, and release stage. There is no type to choose, because your Sync Service is how it is delivered.
+
+The integration goes live without review. Your company owns it and has claimed it from the start. The vendors of both products are told that you added it. It then appears under **Integrations your company offers** on the same tab, where you add the data it syncs. If it is already on record through your Sync Service, you are told so and nothing is added. If it is retired, restore it instead.
 
 ### The data rows on a Sync Service integration
 

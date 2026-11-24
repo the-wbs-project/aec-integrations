@@ -58,6 +58,11 @@
  * unstated. The one collision each table can raise is its own, and the unique index
  * exists only on the evidenced one. A de-route of a vendor-held pair never reaches
  * either guard, because the ownership fence refuses it first.
+ *
+ * **A fourth caller searches both tables (AECI-2040).** A Sync Service adding its own
+ * pair is refused when the pair is on record through the same connector in either
+ * table ({@link findSyncServicePairBlock}, at the end of this module). It is also the
+ * seam the AECI-2042 veto joins.
  */
 
 import { and, eq, isNotNull, isNull, notInArray, or, sql, type SQL } from 'drizzle-orm';
@@ -256,13 +261,21 @@ export const vendorHeldEvidencedPairWhere: SQL = or(
   eq(connectorEvidencedPairs.origin, 'vendor'),
 )!;
 
-function evidencedTwinWhere(candidate: EvidencedTwinCandidate): SQL {
-  const clauses: SQL[] = [
+/** The unique index's key, `connector_evidenced_pairs_pair_idx`, and nothing else. */
+function evidencedKeyWhere(candidate: {
+  readonly connectorProductId: string;
+  readonly productAId: string;
+  readonly productBId: string;
+}): SQL {
+  return and(
     eq(connectorEvidencedPairs.connectorProductId, candidate.connectorProductId),
     eq(connectorEvidencedPairs.productAId, candidate.productAId),
     eq(connectorEvidencedPairs.productBId, candidate.productBId),
-    vendorHeldEvidencedPairWhere,
-  ];
+  )!;
+}
+
+function evidencedTwinWhere(candidate: EvidencedTwinCandidate): SQL {
+  const clauses: SQL[] = [evidencedKeyWhere(candidate), vendorHeldEvidencedPairWhere];
   if (candidate.excludeId !== undefined) {
     clauses.push(sql`${connectorEvidencedPairs.id} <> ${candidate.excludeId}`);
   }
@@ -316,4 +329,122 @@ export async function anyVendorOwnedEvidencedTwin(
     if (await findVendorHeldEvidencedTwin(db, candidate)) return true;
   }
   return false;
+}
+
+// ─── The Sync Service create guard (AECI-2040) ──────────────────────────────
+//
+// A Sync Service adds its own pair (`routes/vendor-sync-service-pair-create.ts`,
+// `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.7). Unlike promote's two guards above, this one
+// REFUSES, and it searches BOTH tables, because a vendor is asking to add a pair and
+// either table may already hold it through the same connector:
+//
+//   - `connector_evidenced_pairs`: the unique index's key (connector, A, B), held by
+//     anyone, curated or vendor-held, live or retired. A retired pair is the owner's to
+//     restore, never to add again beside it;
+//   - `integrations`: a strong match ({@link strongMatchWhere}) with the same connector
+//     in `powered_by_product_id`, the two products in either order, any owner, any
+//     kind, live or retired. Promote routes a third-party connector into the evidenced
+//     table, so such a row is rare, but one stored before AECI-721 would otherwise get
+//     a twin beside it.
+//
+// The read and the in-batch sentinel share one predicate per table, so a pair the read
+// let through that appears before the batch commits aborts the create.
+//
+// The other direction, a later promote of the same pair from the review app, needs no
+// new code: the new row is vendor-held (`origin = 'vendor'`, claimed), so promote's
+// evidenced guard above skips it as `VENDOR_OWNED_TWIN`.
+//
+// **The AECI-2042 seam.** An endpoint vendor's veto must also block re-creation. It is
+// a third block reason: add it to `SyncServicePairBlockReason`, give it a check in
+// {@link findSyncServicePairBlock} and the same predicate in
+// {@link syncServicePairBlockWhere}. Nothing else needs to change: the route refuses on
+// any block, and the sentinel aborts on any block.
+
+/** The pair a Sync Service wants to add, in the table's canonical order. */
+export interface SyncServicePairCandidate {
+  readonly connectorProductId: string;
+  /** `productAId < productBId`. */
+  readonly productAId: string;
+  readonly productBId: string;
+}
+
+/** Why a Sync Service create is refused. AECI-2042 adds the endpoint veto here. */
+export type SyncServicePairBlockReason = 'evidenced_twin' | 'integration_twin';
+
+export interface SyncServicePairBlock {
+  readonly reason: SyncServicePairBlockReason;
+  /** The row that holds the pair. */
+  readonly id: string;
+  readonly anchor: 'integration' | 'evidenced_pair';
+  readonly builtByVendorId: string | null;
+  readonly claimedAt: string | null;
+  readonly retiredAt: string | null;
+}
+
+function integrationTwinOfPairWhere(candidate: SyncServicePairCandidate): SQL {
+  return strongMatchWhere({
+    productIds: [candidate.productAId, candidate.productBId],
+    poweredByProductId: candidate.connectorProductId,
+    // Any owner, any kind: a vendor adding a pair must not twin anyone's row.
+    ownerVendorId: null,
+  });
+}
+
+/**
+ * The first row that blocks `candidate`, or `null`. Sequential reads, never a fan-out.
+ * Exported so the AECI-2042 veto can join it (see the section note above).
+ */
+export async function findSyncServicePairBlock(
+  db: Db,
+  candidate: SyncServicePairCandidate,
+): Promise<SyncServicePairBlock | null> {
+  const [pair] = await db
+    .select({
+      id: connectorEvidencedPairs.id,
+      builtByVendorId: connectorEvidencedPairs.builtByVendorId,
+      claimedAt: connectorEvidencedPairs.claimedAt,
+      retiredAt: connectorEvidencedPairs.retiredAt,
+    })
+    .from(connectorEvidencedPairs)
+    .where(evidencedKeyWhere(candidate))
+    .limit(1);
+  if (pair) return { reason: 'evidenced_twin', anchor: 'evidenced_pair', ...pair };
+
+  const [row] = await db
+    .select({
+      id: integrations.id,
+      builtByVendorId: integrations.builtByVendorId,
+      claimedAt: integrations.claimedAt,
+      retiredAt: integrations.retiredAt,
+    })
+    .from(integrations)
+    .where(integrationTwinOfPairWhere(candidate))
+    .orderBy(integrations.createdAt, integrations.id)
+    .limit(1);
+  if (row) return { reason: 'integration_twin', anchor: 'integration', ...row };
+
+  return null;
+}
+
+/** "Something blocks `candidate`", as one SQL predicate: the sentinel's half of
+ *  {@link findSyncServicePairBlock}. */
+export function syncServicePairBlockWhere(candidate: SyncServicePairCandidate): SQL {
+  return sql`(EXISTS (SELECT 1 FROM ${connectorEvidencedPairs} WHERE ${evidencedKeyWhere(candidate)}) OR EXISTS (SELECT 1 FROM ${integrations} WHERE ${integrationTwinOfPairWhere(candidate)}))`;
+}
+
+/** The token {@link syncServicePairBlockSentinel} raises. */
+export const SYNC_SERVICE_PAIR_BLOCKED_TOKEN = 'sync-service-pair-blocked';
+
+/**
+ * The commit-time half of the create guard. Pushed ahead of the INSERT; ABORTS the
+ * batch when a block appeared after the read (a promote or a second create landed in
+ * between). SQLite raises "malformed JSON" for it, and the route re-reads to give the
+ * precise refusal. Selects FROM `ONE_ROW`, so it runs once.
+ */
+export function syncServicePairBlockSentinel(db: Db, candidate: SyncServicePairCandidate) {
+  return db
+    .select({
+      guard: sql`CASE WHEN ${syncServicePairBlockWhere(candidate)} THEN json(${SYNC_SERVICE_PAIR_BLOCKED_TOKEN}) END`,
+    })
+    .from(ONE_ROW);
 }

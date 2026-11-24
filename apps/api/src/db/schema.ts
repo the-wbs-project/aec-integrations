@@ -5906,11 +5906,13 @@ export const connectorEvidencedPairs = sqliteTable(
      *  (`routes/vendor-integration-claims.ts`, AECI-1089) for the owner, on any plan
      *  since AECI-1663. */
     claimedAt: text('claimed_at'),
-    /** Who created the row. Always `'aeci'` today, because vendor create stays
-     *  closed on connector-powered rows (`STAGE_2_SPEC.md` §8.10(8), ruling 1).
-     *  It exists so the vendor-held predicate reads identically on both tables,
-     *  and because the ops lanes' `notVendorHeldSql` switches on only when
-     *  both `claimed_at` and `origin` exist. Enforced by the hand-written CHECK. */
+    /** Who created the row: `'aeci'` from promote, or `'vendor'` when a Sync Service
+     *  added its own pair (AECI-2040, `routes/vendor-sync-service-pair-create.ts`).
+     *  Every other vendor create stays closed on connector-powered rows
+     *  (`STAGE_2_SPEC.md` §8.10(8), ruling 1, reopened for Sync Services only). The
+     *  vendor-held predicate reads it identically on both tables, and the ops lanes'
+     *  `notVendorHeldSql` switches on only when both `claimed_at` and `origin` exist.
+     *  Enforced by the hand-written CHECK. */
     origin: text('origin').notNull().default('aeci'),
     /** When the pair was retired, or NULL while it is live. Written only by the
      *  retire routes (AECI-1091); promote never writes it. Every count, id set and

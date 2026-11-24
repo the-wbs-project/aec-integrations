@@ -5511,9 +5511,11 @@ count, id set and public read filters `retired_at IS NULL` on this table too
   'vendor'`. The one definition is `isVendorHeld` in `apps/api/src/lib/integration-claims.ts`.
   Its SQL forms are `vendorHeldIntegrationWhere` and `vendorHeldEvidencedPairWhere` in
   `apps/api/src/lib/integration-twins.ts`. The ops lanes' plain-JS copy is
-  `scripts/ops/2026-09-retraction-consumer/vendor-held.mjs`. `origin` is always `'aeci'` on
-  this table today, because vendor create stays closed on connector-powered rows (ruling 1).
-  It exists so the predicate reads identically on both tables.
+  `scripts/ops/2026-09-retraction-consumer/vendor-held.mjs`. `origin` is `'aeci'` from
+  promote, or `'vendor'` when a Sync Service added its own pair (AECI-2040,
+  `POST /api/vendor/sync-service-pairs`, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.7). Every other
+  vendor create stays closed on connector-powered rows (ruling 1). The predicate reads
+  identically on both tables.
 - **`ALTER TABLE … ADD COLUMN` only. Never recreate this table.** It is a cascade parent of
   `claims`, and `attestations` cascade from `claims`, so a recreate deletes both, two levels deep
   (`docs/migrations.md` §0 and §3.3a). `apps/api/src/test/migration-0049.spec.ts` is the

@@ -102,6 +102,10 @@
  * unknown proposal id, so it proves the guard passed with the `404` a proposal of
  * another vendor also gets (`vendor-proposals.spec.ts` covers the rest).
  *
+ * AECI-2040 adds `POST /api/vendor/sync-service-pairs`, a seat-only write. VENDOR_A
+ * holds no Sync Service, so the granted-seat cell proves the guard passed with the
+ * connector's `404` (`vendor-sync-service-pair-create.spec.ts` covers the rest).
+ *
  * AECI-1424 adds the owner's product create, `POST /api/vendor/products`. An owner-seat
  * route. VENDOR_A does not own its record, so the granted-seat cell proves the guard
  * passed with `409 VENDOR_NOT_OWNED` (`vendor-product-create.spec.ts` covers the rest).
@@ -173,6 +177,7 @@ import {
 } from './vendor-attestations';
 import { createListDataObjectsHandler } from './vendor-data-objects';
 import { createCreateVendorIntegrationHandler } from './vendor-integration-create';
+import { createCreateSyncServicePairHandler } from './vendor-sync-service-pair-create';
 import { createPossibleDuplicatesHandler } from './vendor-integration-duplicates';
 import { createUpdateVendorIntegrationHandler } from './vendor-integration-edits';
 import {
@@ -528,6 +533,12 @@ function makeApp() {
     requireVendor(guard),
     createCreateVendorIntegrationHandler(t.factory),
   );
+  // AECI-2040 — seat only; the Sync Service, endpoint and duplicate checks are inside.
+  app.post(
+    '/api/vendor/sync-service-pairs',
+    requireVendor(guard),
+    createCreateSyncServicePairHandler(t.factory),
+  );
   // AECI-1377 — seat only; the context-product check is inside the handler.
   app.get(
     '/api/vendor/product-requests',
@@ -881,6 +892,20 @@ const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?:
       direction: 'outbound',
     },
     ok: 201,
+  },
+  // AECI-2040 — seat only. VENDOR_A holds no Sync Service, so an unknown connector id
+  // proves the guard passed with the connector's 404.
+  {
+    path: '/api/vendor/sync-service-pairs',
+    method: 'POST',
+    body: {
+      connector_product_id: uuid(993),
+      product_id: PRODUCT_A,
+      counterpart_product_id: PRODUCT_B,
+      name: 'Revit and MicroStation',
+      direction: 'both',
+    },
+    ok: 404,
   },
   {
     path: '/api/vendor/claims',
