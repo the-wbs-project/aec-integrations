@@ -32,8 +32,9 @@ export function homeCrumb(): BreadcrumbItem {
  * hover underlines and goes to Bone, and the ring is Bone. `truncate` keeps the
  * trail on one line with an ellipsis, for the docs top bar. The default wraps.
  *
- * It reads no visitor state, so it is safe in cached SSR HTML. Portal and admin
- * keep their own breadcrumbs (R2).
+ * It reads no visitor state, so it is safe in cached SSR HTML. The admin console
+ * renders it too (`admin/admin-breadcrumb.ts`, AECI-1813). The vendor portal keeps
+ * its own until its shell slice.
  */
 @Component({
   selector: 'aec-breadcrumb',

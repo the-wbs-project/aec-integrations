@@ -127,6 +127,16 @@ export const previewRoutes: Routes = [
         (m) => m.AccountReviewUpdatesPreview,
       ),
   },
+  // AECI-1813 — the console legend in the real app: the seven chip tones, the
+  // status-to-tone map, the table recipe, the paginator, the inline control form
+  // and the danger pattern, over fixtures.
+  {
+    path: 'admin-console-legend',
+    loadComponent: () =>
+      import('./admin-console-legend/admin-console-legend-preview').then(
+        (m) => m.AdminConsoleLegendPreview,
+      ),
+  },
   // AECI-1461 — `/admin/activity` over a fake API, so the Class column, the class
   // filter and the all-classes figure render without an admin session.
   {
