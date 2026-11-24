@@ -6,7 +6,16 @@ import { RouterLink } from '@angular/router';
 import type { AdminThreadHelpFilter, AdminThreadRow } from '@aeci/shared';
 
 import { AdminPaginator } from '../admin-paginator';
-import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
+import { AecButton } from '../../shared/button/button';
+import { Chip } from '../../shared/chip/chip';
+import { AecIcon } from '../../shared/icon/icon';
+import { CONSOLE_FILTER } from '../console/console-filter';
+import {
+  CONSOLE_CAPTION_CLASS,
+  CONSOLE_PANEL_CLASS,
+  CONSOLE_TABLE,
+} from '../console/console-table';
+import { adminStatusTone } from '../console/status-tones';
 import { threadCompanies, threadStateLabel, threadSubject } from './admin-thread-labels';
 import { AdminThreadsApi } from './admin-threads-api';
 
@@ -22,12 +31,12 @@ const PER_PAGE = 24;
  * "Help requested" filter finds those threads. There is no badge and no action.
  *
  * Same shape as `SubscriberList`: SSR paints the shell, `afterNextRender` fetches,
- * an `aec-select` filter returns to page 1, and the shared `aec-admin-paginator`
+ * the console's segmented filter (`CONSOLE_FILTER`, AECI-2111) returns to page 1, and the shared `aec-admin-paginator`
  * pages. Each row links to `/admin/threads/:id`, where every message is shown.
  */
 @Component({
   selector: 'aec-thread-list',
-  imports: [AdminPaginator, AecSelect, DatePipe, RouterLink],
+  imports: [AdminPaginator, AecButton, AecIcon, Chip, DatePipe, RouterLink],
   templateUrl: './thread-list.html',
 })
 export class ThreadList {
@@ -44,7 +53,17 @@ export class ThreadList {
   protected readonly loadFailed = signal(false);
   protected readonly liveMessage = signal('');
 
-  protected readonly helpOptions: readonly AecSelectOption[] = [
+  // AECI-2111: the console recipe (mock-up 14).
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly f = CONSOLE_FILTER;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly panelClass = CONSOLE_PANEL_CLASS;
+  protected readonly tone = adminStatusTone;
+
+  protected readonly helpOptions: ReadonlyArray<{
+    readonly value: AdminThreadHelpFilter;
+    readonly label: string;
+  }> = [
     { value: 'all', label: $localize`:@@admin.threads.filter.all:All threads` },
     { value: 'requested', label: $localize`:@@admin.threads.filter.requested:Help requested` },
   ];
@@ -62,8 +81,15 @@ export class ThreadList {
     });
   }
 
-  protected onHelpChange(value: string | null): void {
-    this.help.set((value as AdminThreadHelpFilter | null) ?? 'all');
+  /** Open is live, closed is quiet (`ADMIN_STATUS_TONES`). */
+  protected stateTone(thread: AdminThreadRow) {
+    return adminStatusTone(thread.closed_reason ? 'closed' : 'threadOpen');
+  }
+
+  protected onHelpChange(value: AdminThreadHelpFilter): void {
+    // Pressing the pressed option changes nothing, as on the other console filters.
+    if (this.help() === value) return;
+    this.help.set(value);
     // A filter change returns to page 1, as on every admin list.
     this.page.set(1);
     void this.load();
