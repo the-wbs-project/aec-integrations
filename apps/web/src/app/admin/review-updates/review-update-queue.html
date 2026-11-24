@@ -311,45 +311,8 @@
                 <!-- Decisions, from the shared state machine -->
                 <div class="grid min-w-0 content-start gap-4">
                   @if (decisionsFor(u).length > 0) {
-                  <div class="flex flex-wrap items-center gap-3">
-                    @if (canApprove(u)) {
-                    <button
-                      aecButton
-                      (click)="approve(u.id)"
-                      [disabled]="pendingActionId() === u.id"
-                      [attr.aria-describedby]="'update-' + u.id + '-help' + (wontRender(u) ? ' update-' + u.id + '-warning' : '')"
-                    >
-                      @if (pendingActionId() === u.id && formOpenId() !== u.id) {
-                      <span i18n="@@admin.reviewUpdates.approving">Approving…</span>
-                      } @else {
-                      <span i18n="@@admin.reviewUpdates.approve">Approve</span>
-                      }
-                    </button>
-                    } @if (canReject(u)) {
-                    <button
-                      aecButton
-                      variant="secondary"
-                      [id]="'update-' + u.id + '-reject-open'"
-                      (click)="openForm(u.id, 'reject')"
-                      [disabled]="pendingActionId() === u.id || formOpenId() === u.id"
-                      i18n="@@admin.reviewUpdates.reject"
-                    >
-                      Reject
-                    </button>
-                    } @if (canRemove(u)) {
-                    <button
-                      aecButton
-                      variant="secondary"
-                      [id]="'update-' + u.id + '-remove-open'"
-                      (click)="openForm(u.id, 'remove')"
-                      [disabled]="pendingActionId() === u.id || formOpenId() === u.id"
-                      [attr.aria-describedby]="'update-' + u.id + '-help'"
-                      i18n="@@admin.reviewUpdates.remove"
-                    >
-                      Remove from the page
-                    </button>
-                    }
-                  </div>
+                  <!-- AECI-2104: Reject and Remove are the shared danger form. Each opens
+                       under its opener. The help line describes Approve or Remove. -->
                   <p [id]="'update-' + u.id + '-help'" [class]="helpClass">
                     @if (canApprove(u)) {
                     <span i18n="@@admin.reviewUpdates.approve.help"
@@ -364,157 +327,59 @@
                     >
                     }
                   </p>
-
-                  @if (formOpenId() === u.id && formMode(); as mode) {
-                  <form
-                    method="dialog"
-                    novalidate
-                    (aecSubmit)="confirmReasoned(u.id, mode)"
-                    (keydown.escape)="dismissForm(u.id)"
-                    [class]="formClass"
-                  >
-                    <label [attr.for]="'update-reason-' + u.id" [class]="labelClass">
-                      @if (mode === 'reject') {
-                      <span i18n="@@admin.reviewUpdates.reason.label.reject"
-                        >Why you are rejecting it (required)</span
-                      >
+                  <div class="flex flex-wrap items-start gap-3">
+                    @if (canApprove(u)) {
+                    <button
+                      aecButton
+                      (click)="approve(u.id)"
+                      [disabled]="pendingActionId() === u.id"
+                      [attr.aria-describedby]="'update-' + u.id + '-help' + (wontRender(u) ? ' update-' + u.id + '-warning' : '')"
+                    >
+                      @if (pendingActionId() === u.id && formOpenId() !== u.id) {
+                      <span i18n="@@admin.reviewUpdates.approving">Approving…</span>
                       } @else {
-                      <span i18n="@@admin.reviewUpdates.reason.label.remove"
-                        >Why you are removing it (required)</span
-                      >
+                      <span i18n="@@admin.reviewUpdates.approve">Approve</span>
                       }
-                    </label>
-                    <p
-                      [id]="'update-reason-' + u.id + '-help'"
-                      [class]="hintClass"
-                      i18n="@@admin.reviewUpdates.reason.help"
-                    >
-                      Shown to the reviewer on their account page. Name the guideline the update
-                      breaks, so they know what to change.
-                    </p>
-                    <textarea
-                      [id]="'update-reason-' + u.id"
-                      rows="3"
-                      [attr.maxlength]="reasonMax"
-                      required
-                      [attr.aria-invalid]="reasonMissing() ? 'true' : null"
-                      [attr.aria-describedby]="'update-reason-' + u.id + '-help' + (reasonMissing() ? ' update-reason-' + u.id + '-error' : '')"
-                      [value]="formText()"
-                      [readOnly]="removeConfirming()"
-                      (input)="onFormInput($event)"
-                      [class]="inputClass"
-                      class="min-h-24 resize-y py-3 read-only:bg-(--surface-sunken)"
-                    ></textarea>
-                    @if (reasonMissing()) {
-                    <p
-                      [id]="'update-reason-' + u.id + '-error'"
-                      role="alert"
-                      [class]="errorClass"
-                      i18n="@@admin.reviewUpdates.reason.missing"
-                    >
-                      Write a reason before you confirm.
-                    </p>
-                    } @if (mode === 'remove' && removeConfirming()) {
-                    <!--
-                      Removal is final for this update, so it takes a second, deliberate step.
-                      Focus lands on this group, which is named and described by its own text,
-                      so the warning is heard before any button.
-                    -->
-                    <div
-                      [id]="'update-remove-confirm-' + u.id"
-                      role="group"
-                      tabindex="-1"
-                      [attr.aria-labelledby]="'update-remove-confirm-' + u.id + '-title'"
-                      [attr.aria-describedby]="'update-remove-confirm-' + u.id + '-body'"
-                      [class]="noticeClass"
-                      class="mt-2 focus-visible:outline-3 focus-visible:outline-offset-3"
-                      data-testid="remove-confirm"
-                    >
-                      <p
-                        [id]="'update-remove-confirm-' + u.id + '-title'"
-                        class="font-semibold"
-                        i18n="@@admin.reviewUpdates.removeConfirm.title"
-                      >
-                        Remove this update permanently?
-                      </p>
-                      <p
-                        [id]="'update-remove-confirm-' + u.id + '-body'"
-                        class="mt-2 max-w-prose"
-                        i18n="@@admin.reviewUpdates.removeConfirm.body"
-                      >
-                        Removal is final. The update comes off the product page, and its ratings
-                        stop counting in the product's averages. Nobody can undo it from this
-                        screen.
-                      </p>
-                      <div class="mt-4 flex flex-wrap gap-3">
-                        <button
-                          aecButton
-                          variant="danger"
-                          compact
-                          type="submit"
-                          [disabled]="pendingActionId() === u.id"
-                        >
-                          @if (pendingActionId() === u.id) {
-                          <span i18n="@@admin.reviewUpdates.removing">Removing…</span>
-                          } @else {
-                          <span i18n="@@admin.reviewUpdates.removeConfirm.confirm"
-                            >Remove permanently</span
-                          >
-                          }
-                        </button>
-                        <button
-                          aecButton
-                          variant="secondary"
-                          compact
-                          (click)="editRemoveReason(u.id)"
-                          [disabled]="pendingActionId() === u.id"
-                          i18n="@@admin.reviewUpdates.removeConfirm.edit"
-                        >
-                          Edit the reason
-                        </button>
-                        <button
-                          aecButton
-                          variant="ghost"
-                          (click)="dismissForm(u.id)"
-                          [disabled]="pendingActionId() === u.id"
-                          i18n="@@admin.reviewUpdates.cancel"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                    } @else {
-                    <div class="mt-2 flex flex-wrap gap-3">
-                      <button
-                        aecButton
-                        [variant]="mode === 'reject' ? 'danger' : 'secondary'"
-                        compact
-                        type="submit"
-                        [disabled]="pendingActionId() === u.id"
-                      >
-                        @if (pendingActionId() === u.id) {
-                        <span i18n="@@admin.reviewUpdates.saving">Saving…</span>
-                        } @else if (mode === 'reject') {
-                        <span i18n="@@admin.reviewUpdates.reject.confirm">Confirm rejection</span>
-                        } @else {
-                        <span i18n="@@admin.reviewUpdates.remove.continue"
-                          >Continue to removal</span
-                        >
-                        }
-                      </button>
-                      <button
-                        aecButton
-                        variant="ghost"
-                        (click)="dismissForm(u.id)"
-                        [disabled]="pendingActionId() === u.id"
-                        i18n="@@admin.reviewUpdates.cancel"
-                      >
-                        Cancel
-                      </button>
-                    </div>
+                    </button>
+                    } @if (canReject(u)) {
+                    <aec-admin-danger-action
+                      class="min-w-0 flex-1"
+                      [openerLabel]="copy.reject"
+                      [confirmLabel]="copy.rejectConfirm"
+                      [busyLabel]="copy.saving"
+                      [reasonLabel]="copy.rejectLabel"
+                      [reasonHelp]="copy.reasonHelp"
+                      [reasonRequired]="copy.missing"
+                      [maxLength]="reasonMax"
+                      [cancelLabel]="copy.cancel"
+                      [openerDisabled]="pendingActionId() === u.id && formOpenId() !== u.id"
+                      [busy]="busyWith(u.id, 'reject')"
+                      [open]="formOpenId() === u.id && formMode() === 'reject'"
+                      (openChange)="onFormOpen(u.id, 'reject', $event)"
+                      (confirmed)="decide(u.id, 'reject', $event)"
+                    />
+                    } @if (canRemove(u)) {
+                    <aec-admin-danger-action
+                      class="min-w-0 flex-1"
+                      [openerLabel]="copy.remove"
+                      [confirmLabel]="copy.removeConfirm"
+                      [busyLabel]="copy.removing"
+                      [reasonLabel]="copy.removeLabel"
+                      [reasonHelp]="copy.reasonHelp"
+                      [reasonRequired]="copy.missing"
+                      [maxLength]="reasonMax"
+                      [confirmStep]="removeStep"
+                      [cancelLabel]="copy.cancel"
+                      [openerDescribedBy]="'update-' + u.id + '-help'"
+                      [openerDisabled]="pendingActionId() === u.id && formOpenId() !== u.id"
+                      [busy]="busyWith(u.id, 'remove')"
+                      [open]="formOpenId() === u.id && formMode() === 'remove'"
+                      (openChange)="onFormOpen(u.id, 'remove', $event)"
+                      (confirmed)="decide(u.id, 'remove', $event)"
+                    />
                     }
-                  </form>
-                  } } @if (failedActionId() === u.id) {
+                  </div>
+                  } @if (failedActionId() === u.id) {
                   <p
                     [id]="'update-' + u.id + '-failed'"
                     tabindex="-1"

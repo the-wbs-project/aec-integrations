@@ -24,6 +24,7 @@ import {
 import { AdminSummaryStore } from '../admin-summary.store';
 import { CONSOLE_FILTER } from '../console/console-filter';
 import { CONSOLE_LABEL_CLASS, CONSOLE_TABLE } from '../console/console-table';
+import { AdminDangerAction } from '../console/danger-action';
 import { AdminDisclosureButton } from '../console/disclosure-button';
 import { adminStatusTone } from '../console/status-tones';
 import {
@@ -31,7 +32,6 @@ import {
   QUEUE_DETAIL_GRID_CLASS,
   QUEUE_FACTS_CLASS,
   QUEUE_FAILED_CLASS,
-  QUEUE_FORM_CLASS,
   QUEUE_HELP_CLASS,
   QUEUE_NOTICE_CLASS,
 } from '../reviews/queue-classes';
@@ -39,12 +39,6 @@ import { queueFocusAfterRemoval } from '../reviews/queue-focus';
 import { AdminReviewResponsesApi } from './admin-review-responses-api';
 import { AecButton } from '../../shared/button/button';
 import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
-import { AecFormSubmit } from '../../shared/form-field/form-submit';
-import {
-  FIELD_ERROR_CLASS,
-  FIELD_HINT_CLASS,
-  FIELD_INPUT_CLASS,
-} from '../../shared/form-field/form-field-classes';
 import { AecIcon } from '../../shared/icon/icon';
 
 /** One request covers a launch-scale backlog. The API caps `perPage` at 100; we
@@ -86,7 +80,8 @@ type DecisionWithoutVersion =
  * reason" and "Cancel". Only "Remove permanently" sends the `PATCH`. Focus moves
  * to the group, which is labelled and described by its own text, so a screen
  * reader hears the warning before any button. This is the inline two-step confirm
- * the seat revoke on `/admin/vendors/:id` uses, not a dialog.
+ * the seat revoke on `/admin/vendors/:id` uses, not a dialog. Both reason forms
+ * are the shared danger form (`admin/console/danger-action.ts`, AECI-2104).
  *
  * ── THE BADGE ───────────────────────────────────────────────────────────────
  * `pending_review_responses` counts `status = 'pending'`. A successful approve or
@@ -104,7 +99,15 @@ type DecisionWithoutVersion =
  */
 @Component({
   selector: 'aec-review-response-queue',
-  imports: [AdminDisclosureButton, AecButton, AecFormSubmit, AecIcon, Chip, DatePipe, RouterLink],
+  imports: [
+    AdminDangerAction,
+    AdminDisclosureButton,
+    AecButton,
+    AecIcon,
+    Chip,
+    DatePipe,
+    RouterLink,
+  ],
   templateUrl: './review-response-queue.html',
 })
 export class ReviewResponseQueue {
@@ -115,18 +118,33 @@ export class ReviewResponseQueue {
 
   protected readonly reasonMax = REVIEW_RESPONSE_REASON_MAX;
 
+  /** The reason forms' words. The reason is natively capped at `reasonMax`. The
+   *  remove step's body names the vendor, so it is a template in the row. */
+  protected readonly copy = {
+    reject: $localize`:@@admin.replies.reject:Reject`,
+    remove: $localize`:@@admin.replies.remove:Remove from the page`,
+    rejectLabel: $localize`:@@admin.replies.reason.label.reject:Why you are rejecting it (required)`,
+    removeLabel: $localize`:@@admin.replies.reason.label.remove:Why you are removing it (required)`,
+    reasonHelp: $localize`:@@admin.replies.reason.help:Shown to the vendor in its portal. Name the guideline the reply breaks, so the vendor knows what to change.`,
+    missing: $localize`:@@admin.replies.reason.missing:Write a reason before you confirm.`,
+    rejectConfirm: $localize`:@@admin.replies.reject.confirm:Confirm rejection`,
+    saving: $localize`:@@admin.replies.saving:Saving…`,
+    removeContinue: $localize`:@@admin.replies.remove.continue:Continue to removal`,
+    removeTitle: $localize`:@@admin.replies.removeConfirm.title:Remove this reply permanently?`,
+    removeEdit: $localize`:@@admin.replies.removeConfirm.edit:Edit the reason`,
+    removeConfirm: $localize`:@@admin.replies.removeConfirm.confirm:Remove permanently`,
+    removing: $localize`:@@admin.replies.removing:Removing…`,
+    cancel: $localize`:@@admin.replies.cancel:Cancel`,
+  } as const;
+
   protected readonly t = CONSOLE_TABLE;
   protected readonly f = CONSOLE_FILTER;
   protected readonly labelClass = CONSOLE_LABEL_CLASS;
-  protected readonly inputClass = FIELD_INPUT_CLASS;
-  protected readonly hintClass = FIELD_HINT_CLASS;
-  protected readonly errorClass = FIELD_ERROR_CLASS;
   protected readonly noticeClass = QUEUE_NOTICE_CLASS;
   protected readonly detailGridClass = QUEUE_DETAIL_GRID_CLASS;
   protected readonly bodyClass = QUEUE_BODY_CLASS;
   protected readonly factsClass = QUEUE_FACTS_CLASS;
   protected readonly helpClass = QUEUE_HELP_CLASS;
-  protected readonly formClass = QUEUE_FORM_CLASS;
   protected readonly failedClass = QUEUE_FAILED_CLASS;
   /** The table's columns, for the detail cell's `colspan`. */
   protected readonly columnCount = 6;
@@ -143,13 +161,18 @@ export class ReviewResponseQueue {
 
   /** Id of the reply whose decision is in flight (disables its buttons). */
   protected readonly pendingActionId = signal<string | null>(null);
+  /** Which decision is in flight on `pendingActionId` (AECI-2104). A form's busy
+   *  label and its hidden status speak only for its own decision, so an Approve
+   *  pressed while a reason form is open never reads as that form's action. */
+  private readonly pendingDecision = signal<ReviewResponseDecision | null>(null);
+
+  /** The decision `action` is the one in flight on row `id`. */
+  protected busyWith(id: string, action: ReviewResponseDecision): boolean {
+    return this.pendingActionId() === id && this.pendingDecision() === action;
+  }
   /** The reply and decision whose reason form is open, one at a time. */
   protected readonly formOpenId = signal<string | null>(null);
   protected readonly formMode = signal<ReasonedDecision | null>(null);
-  protected readonly formText = signal('');
-  protected readonly reasonMissing = signal(false);
-  /** True once a remove form's reason is in and the final confirm is showing. */
-  protected readonly removeConfirming = signal(false);
   /** Id and message of the reply whose last decision failed (inline alert). */
   protected readonly failedActionId = signal<string | null>(null);
   protected readonly failedActionMessage = signal('');
@@ -287,61 +310,31 @@ export class ReviewResponseQueue {
 
   // ── Decisions ────────────────────────────────────────────────────────────
 
-  protected openForm(id: string, mode: ReasonedDecision): void {
-    this.failedActionId.set(null);
-    this.formText.set('');
-    this.reasonMissing.set(false);
-    this.removeConfirming.set(false);
-    this.formMode.set(mode);
-    this.formOpenId.set(id);
-    // The opener disables itself, so move focus into the form it opened.
-    this.focusAfterRender(`reply-reason-${id}`);
-  }
-
-  /** Cancel or Escape in a reason form: close it and return focus to its opener. */
-  protected dismissForm(id: string): void {
-    if (this.pendingActionId() === id) return;
-    const mode = this.formMode();
-    this.closeForm();
-    if (mode) this.focusAfterRender(`reply-${id}-${mode}-open`);
+  /** A reason form opened or closed (its opener, Cancel or Escape). One form is
+   *  open at a time. The danger form starts each open clean, focuses its own field
+   *  and ignores a close while the row's request runs. */
+  protected onFormOpen(id: string, mode: ReasonedDecision, open: boolean): void {
+    if (open) {
+      this.failedActionId.set(null);
+      this.formMode.set(mode);
+      this.formOpenId.set(id);
+    } else if (this.formOpenId() === id && this.formMode() === mode) {
+      this.closeForm();
+    }
   }
 
   protected closeForm(): void {
     this.formOpenId.set(null);
     this.formMode.set(null);
-    this.formText.set('');
-    this.reasonMissing.set(false);
-    this.removeConfirming.set(false);
-  }
-
-  protected onFormInput(event: Event): void {
-    this.formText.set((event.target as HTMLTextAreaElement).value);
-    if (this.reasonMissing()) this.reasonMissing.set(false);
   }
 
   protected approve(id: string): Promise<void> {
     return this.submit(id, { decision: 'approve' });
   }
 
-  protected confirmReasoned(id: string, decision: ReasonedDecision): Promise<void> {
-    const reason = this.formText().trim();
-    if (reason === '') {
-      this.reasonMissing.set(true);
-      return Promise.resolve();
-    }
-    // A removal is final, so the first submit only asks for the deliberate confirm.
-    if (decision === 'remove' && !this.removeConfirming()) {
-      this.removeConfirming.set(true);
-      this.focusAfterRender(`reply-remove-confirm-${id}`);
-      return Promise.resolve();
-    }
+  /** The danger form checked the reason. For Remove, this is step two's press. */
+  protected decide(id: string, decision: ReasonedDecision, reason: string): Promise<void> {
     return this.submit(id, { decision, reason });
-  }
-
-  /** Leave the remove confirm and unlock the reason. Sends nothing. */
-  protected editRemoveReason(id: string): void {
-    this.removeConfirming.set(false);
-    this.focusAfterRender(`reply-reason-${id}`);
   }
 
   /** Focus an element of this queue once the next render lands: by id, or by a
@@ -365,6 +358,7 @@ export class ReviewResponseQueue {
     const input: DecideReviewResponseInput = { ...decision, expected_updated_at: row.updated_at };
     this.failedActionId.set(null);
     this.pendingActionId.set(id);
+    this.pendingDecision.set(decision.decision);
     try {
       await this.api.decide(id, input);
       this.closeForm();
@@ -377,6 +371,7 @@ export class ReviewResponseQueue {
       this.handleDecisionError(id, err);
     } finally {
       this.pendingActionId.set(null);
+      this.pendingDecision.set(null);
     }
   }
 
