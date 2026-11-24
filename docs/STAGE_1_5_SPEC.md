@@ -2340,7 +2340,8 @@ review-side). And AECI-1065's endpoint-vendor mapping proposals, which were prec
     reach_ (hero) versus _how many pairs does it sit in the middle of_ (section heading, §12.3) —
     and on a Convention-A connector the honest answers are 43 and 0.
   - **AECI-2046:** the hero has no pair finder on a `connector`, and its category hub reads the
-    categories of the products the connector reaches (§13.13 "Connector page fixes"). A Sync
+    categories of the products the connector reaches (§13.13 "Connector page fixes"). AECI-2018
+    later replaced the hub and the finder with the integrations wheel. A Sync
     Service page also gains the "What it syncs" block (§13.13).
   - **No role gate.** This bullet states only the `N > 0` condition and the build honours that
     literally: a mis-roled `application` that powers edges is described just as accurately by the
@@ -2954,11 +2955,14 @@ cards. Every other fixture connector stays NULL.
   page with the connector as an endpoint, which is almost always an empty `noindex` page.
   The smaller of the two options was taken: the finder is not rendered on a `connector`
   product. A `hybrid` keeps it, because it is an endpoint too. With no category hub either,
-  the hero has no panel.
+  the hero has no panel. *Since AECI-2018 no product page has a pair finder: the
+  integrations wheel replaced the finder and the hub.*
 - **The category hub reads the products it reaches.** On a connector page the hub also
   counts the pairs the product powers: each pair once under each category either endpoint
   carries (`PoweredIntegrationItem.endpoint_categories`), with the §13.4(2) rows left out.
-  The order stays A to Z (`product-page-hero-visual`).
+  The order stays A to Z. *Superseded by AECI-2018:* the hub is gone. The wheel reads only
+  the page product's own endpoint rows, so a pure connector has no wheel and no hero panel.
+  `endpoint_categories` stays on the payload with no reader for now.
 - **The pair page shows the Sync Service's rating.** A Sync Service card prints the Sync
   Service product's rating beside the two endpoint cards' ratings, with the same accessible
   name, from `ProductPairMechanism.connector_rating`. Like theirs, it shows only above the

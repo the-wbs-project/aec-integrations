@@ -16,6 +16,9 @@ import {
 import type { AdminDeliveredPair, AdminDeliveredPairsResponse } from '@aeci/shared';
 import { compareText } from '@aeci/shared/text-sort';
 
+import { AecButton } from '../../shared/button/button';
+import { FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
+
 import { AdminVendorsApi } from './admin-vendors-api';
 
 type LoadState = 'loading' | 'loaded' | 'failed';
@@ -39,9 +42,11 @@ const NO_OWNER = '__none__';
  */
 @Component({
   selector: 'aec-delivered-pairs-panel',
+  imports: [AecButton],
   template: `
     <section [attr.aria-labelledby]="headingId()" class="space-y-3">
-      <h3 [id]="headingId()" class="text-sm font-bold text-(--text-primary)">
+      <!-- The global h3 rule sets its type, so it carries no type utility (AECI-2083). -->
+      <h3 [id]="headingId()">
         {{ heading() }}
       </h3>
       @switch (state()) {
@@ -57,7 +62,9 @@ const NO_OWNER = '__none__';
             </p>
             <button
               type="button"
-              [class]="buttonClass"
+              aecButton
+              variant="secondary"
+              compact
               (click)="load()"
               i18n="@@admin.deliveredPairs.retry"
             >
@@ -102,13 +109,13 @@ const NO_OWNER = '__none__';
                       <div class="space-y-1">
                         <label
                           [for]="fieldId(pair, 'owner')"
-                          class="block text-xs font-bold text-(--text-primary)"
+                          [class]="labelClass"
                           i18n="@@admin.deliveredPairs.form.owner"
                           >Owner</label
                         >
                         <select
                           [id]="fieldId(pair, 'owner')"
-                          class="block w-full rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-2 py-1.5 text-sm text-(--text-primary)"
+                          class="block w-full rounded-control border border-(--border-strong) bg-(--surface-base) px-2 py-1.5 text-sm text-(--text-primary)"
                           (change)="pickedOwner.set(selectValue($event))"
                         >
                           <option
@@ -128,7 +135,7 @@ const NO_OWNER = '__none__';
                       <div class="space-y-1">
                         <label
                           [for]="fieldId(pair, 'reason')"
-                          class="block text-xs font-bold text-(--text-primary)"
+                          [class]="labelClass"
                           i18n="@@admin.deliveredPairs.form.reasonShown"
                           >Reason (required, shown to the current owner of a claimed pair)</label
                         >
@@ -137,7 +144,7 @@ const NO_OWNER = '__none__';
                           [id]="fieldId(pair, 'reason')"
                           rows="2"
                           maxlength="1000"
-                          class="block w-full rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-2 py-1.5 text-sm text-(--text-primary)"
+                          class="block w-full rounded-control border border-(--border-strong) bg-(--surface-base) px-2 py-1.5 text-sm text-(--text-primary)"
                           [value]="reason()"
                           [attr.aria-invalid]="formError() ? 'true' : null"
                           (input)="reason.set(textValue($event))"
@@ -149,7 +156,7 @@ const NO_OWNER = '__none__';
                         </p>
                       }
                       <div class="flex flex-wrap gap-2">
-                        <button type="submit" [class]="buttonClass" [disabled]="saving()">
+                        <button aecButton compact type="submit" [disabled]="saving()">
                           @if (saving()) {
                             <span i18n="@@admin.deliveredPairs.form.saving">Saving…</span>
                           } @else {
@@ -158,7 +165,9 @@ const NO_OWNER = '__none__';
                         </button>
                         <button
                           type="button"
-                          [class]="buttonClass"
+                          aecButton
+                          variant="secondary"
+                          compact
                           [disabled]="saving()"
                           (click)="cancel(pair)"
                           i18n="@@admin.deliveredPairs.form.cancel"
@@ -173,7 +182,9 @@ const NO_OWNER = '__none__';
                       type="button"
                       [attr.data-change-for]="pair.id"
                       [attr.aria-label]="changeLabel(pair)"
-                      [class]="buttonClass"
+                      aecButton
+                      variant="secondary"
+                      compact
                       (click)="edit(pair)"
                       i18n="@@admin.deliveredPairs.change"
                     >
@@ -377,8 +388,8 @@ export class DeliveredPairsPanel implements OnInit {
     );
   }
 
-  protected readonly buttonClass =
-    'cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-1.5 text-xs font-medium text-(--text-primary) disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  /** The Label role (AECI-2083 admin recipe). */
+  protected readonly labelClass = FIELD_LABEL_CLASS;
 }
 
 function errorCode(err: unknown): string | null {

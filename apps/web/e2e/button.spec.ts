@@ -134,7 +134,7 @@ test.describe('aecButton rendered (AECI-1758)', () => {
         WHITE,
         'transparent',
       ]);
-      // The unlayered `.aec-btn-secondary` rule must beat the `* { border-color }` rule.
+      // The unlayered `.aec-btn-secondary` rule must beat the `* { border-color }` default.
       const secondary = await style(page.getByTestId('btn-secondary'));
       expect(secondary.borderColor).toBe(BORDER_STRONG);
       const link = await style(page.getByTestId('btn-link'));
@@ -182,7 +182,7 @@ test.describe('aecButton rendered (AECI-1758)', () => {
       const rest = await style(button);
       expect(rest.color).toBe(BONE);
       expect(rest.radius).toBe('12px');
-      // The unlayered `.aec-btn-on-brand-secondary` rule must beat `* { border-color }`:
+      // The unlayered `.aec-btn-on-brand-secondary` rule must beat the `* { border-color }` default:
       // Bone at 50% over Forest, not the transparent base edge and not --border-default.
       expect(rest.borderColor).not.toBe('transparent');
       expect(rest.borderColor).not.toBe('rgb(228, 228, 231)');

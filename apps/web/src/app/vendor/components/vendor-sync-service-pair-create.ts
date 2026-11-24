@@ -22,7 +22,8 @@ import {
 } from '@aeci/shared';
 
 import { isReplayedEvent } from '../../core/event-replay';
-import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
+import { AecButton } from '../../shared/button/button';
+import { FIELD_ERROR_CLASS, FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
 import { LogoOrInitial } from '../../shared/logo-or-initial/logo-or-initial';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import {
@@ -91,7 +92,7 @@ export function offersSyncServicePairCreate(product: SyncServiceTabProduct | nul
  */
 @Component({
   selector: 'aec-vendor-sync-service-pair-create',
-  imports: [LogoOrInitial, NewTabIcon, ProductCombobox],
+  imports: [AecButton, LogoOrInitial, NewTabIcon, ProductCombobox],
   host: { class: 'block' },
   template: `
     <section class="space-y-3" aria-labelledby="vendor-sync-create-heading" data-sync-create>
@@ -113,7 +114,7 @@ export function offersSyncServicePairCreate(product: SyncServiceTabProduct | nul
         <div
           #receipt
           tabindex="-1"
-          class="relative max-w-2xl rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4 pe-12 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          class="relative max-w-2xl rounded-panel border border-(--border-default) bg-(--surface-raised) p-4 pe-12 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           data-testid="sync-create-receipt"
         >
           <p class="text-sm font-semibold text-(--text-primary)" i18n="@@vendor.syncCreate.done">
@@ -133,8 +134,10 @@ export function offersSyncServicePairCreate(product: SyncServiceTabProduct | nul
             /></a>
           </p>
           <button
+            aecButton
+            variant="ghost"
             type="button"
-            class="absolute end-2 top-2 rounded-(--radius-sm) px-2 py-1 text-sm text-(--text-secondary) hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            class="absolute end-2 top-2"
             (click)="dismiss()"
             i18n="@@vendor.syncCreate.dismiss"
           >
@@ -146,8 +149,9 @@ export function offersSyncServicePairCreate(product: SyncServiceTabProduct | nul
       @if (!open()) {
         <button
           #trigger
+          aecButton
+          variant="secondary"
           type="button"
-          [class]="triggerClass"
           aria-controls="vendor-sync-create-form"
           [attr.aria-expanded]="false"
           (click)="openForm()"
@@ -160,13 +164,13 @@ export function offersSyncServicePairCreate(product: SyncServiceTabProduct | nul
         <form
           id="vendor-sync-create-form"
           method="dialog"
-          class="max-w-2xl space-y-6 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
+          class="max-w-2xl space-y-6 rounded-panel border border-(--border-default) bg-(--surface-raised) p-4"
           novalidate
           (submit)="onSubmit($event)"
           data-testid="sync-create-form"
         >
           <fieldset class="space-y-4">
-            <legend [class]="legendClass" i18n="@@vendor.syncCreate.products.legend">
+            <legend class="mb-3" [class]="legendClass" i18n="@@vendor.syncCreate.products.legend">
               The two products it connects
             </legend>
             @for (side of sides; track side) {
@@ -178,7 +182,7 @@ export function offersSyncServicePairCreate(product: SyncServiceTabProduct | nul
                   <div
                     role="group"
                     [attr.aria-labelledby]="'vendor-sync-' + side + '-label'"
-                    class="flex max-w-sm items-center gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) px-3 py-2"
+                    class="flex max-w-sm items-center gap-3 rounded-control border border-(--border-default) bg-(--surface-sunken) px-3 py-2"
                     [attr.data-testid]="'sync-create-chosen-' + side"
                   >
                     <aec-logo-or-initial
@@ -192,8 +196,9 @@ export function offersSyncServicePairCreate(product: SyncServiceTabProduct | nul
                       >{{ chosen.name }}</span
                     >
                     <button
+                      aecButton
+                      variant="ghost"
                       type="button"
-                      [class]="textButtonClass"
                       [disabled]="saving()"
                       [attr.aria-label]="changeAria(side, chosen.name)"
                       (click)="clearSide(side)"
@@ -228,7 +233,7 @@ export function offersSyncServicePairCreate(product: SyncServiceTabProduct | nul
 
           @for (group of groups; track group.key) {
             <fieldset class="space-y-4">
-              <legend [class]="legendClass">{{ groupLabel(group.key) }}</legend>
+              <legend class="mb-3" [class]="legendClass">{{ groupLabel(group.key) }}</legend>
               @for (field of group.fields; track field) {
                 <div class="space-y-2">
                   <label [for]="fieldId(field)" [class]="labelClass">
@@ -299,12 +304,7 @@ export function offersSyncServicePairCreate(product: SyncServiceTabProduct | nul
           </p>
 
           <div class="flex flex-wrap items-center gap-3 border-t border-(--border-default) pt-4">
-            <button
-              type="submit"
-              [class]="primaryButtonClass"
-              [disabled]="saving()"
-              data-testid="sync-create-submit"
-            >
+            <button aecButton type="submit" [disabled]="saving()" data-testid="sync-create-submit">
               @if (saving()) {
                 <span i18n="@@vendor.syncCreate.saving">Adding…</span>
               } @else {
@@ -312,8 +312,9 @@ export function offersSyncServicePairCreate(product: SyncServiceTabProduct | nul
               }
             </button>
             <button
+              aecButton
+              variant="secondary"
               type="button"
-              [class]="secondaryButtonClass"
               [disabled]="saving()"
               (click)="close()"
               i18n="@@vendor.syncCreate.cancel"
@@ -561,22 +562,14 @@ export class VendorSyncServicePairCreate {
     }
   }
 
-  protected readonly triggerClass =
-    'inline-flex items-center rounded-(--radius-md) border border-(--border-strong) px-4 py-2 text-sm font-semibold text-(--text-primary) transition-colors hover:border-(--accent-primary) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly legendClass = 'mb-3 text-sm font-semibold text-(--text-primary)';
-  protected readonly labelClass =
-    'block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase';
+  /** The Label role (AECI-2083 portal recipe), for the legends and the field labels. */
+  protected readonly legendClass = FIELD_LABEL_CLASS;
+  protected readonly labelClass = FIELD_LABEL_CLASS;
   protected readonly inputClass =
-    'w-full max-w-xl rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+    'w-full max-w-xl rounded-control border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
   protected readonly errorClass = `max-w-prose ${FIELD_ERROR_CLASS}`;
-  protected readonly primaryButtonClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
-  protected readonly secondaryButtonClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-default) px-4 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
-  protected readonly textButtonClass =
-    'cursor-pointer rounded-(--radius-sm) text-sm font-medium text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed';
   protected readonly publicLinkClass =
-    'inline-flex items-center gap-1.5 rounded-(--radius-md) text-sm font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+    'inline-flex items-center gap-1.5 rounded-mark text-sm font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 }
 
 /** The refusals `POST /api/vendor/sync-service-pairs` can answer, mapped to what to

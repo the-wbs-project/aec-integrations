@@ -12,7 +12,8 @@ import {
 
 import type { VendorDeliveredPair } from '@aeci/shared';
 
-import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
+import { AecButton } from '../../shared/button/button';
+import { FIELD_ERROR_CLASS, FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { readVendorApiError } from '../vendor-api-error';
@@ -40,6 +41,7 @@ const REASON_MAX = 2000;
  */
 @Component({
   selector: 'aec-vendor-delivered-pairs',
+  imports: [AecButton],
   host: { class: 'block' },
   template: `
     @if (state() === 'failed') {
@@ -49,7 +51,8 @@ const REASON_MAX = 2000;
         </p>
         <button
           type="button"
-          [class]="secondaryClass"
+          aecButton
+          variant="secondary"
           (click)="retry()"
           i18n="@@vendor.deliveredPairs.retry"
         >
@@ -82,7 +85,7 @@ const REASON_MAX = 2000;
         <ul class="m-0 list-none space-y-4 p-0">
           @for (pair of pairs(); track pair.id) {
             <li
-              class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-4 py-3"
+              class="rounded-panel border border-(--border-default) bg-(--surface-raised) px-4 py-3"
               [attr.data-delivered-pair]="pair.id"
             >
               <h3 class="m-0">
@@ -114,7 +117,7 @@ const REASON_MAX = 2000;
                   <div class="space-y-1">
                     <label
                       [for]="reasonId(pair)"
-                      class="block text-sm font-semibold text-(--text-primary)"
+                      [class]="labelClass"
                       i18n="@@vendor.deliveredPairs.reason.label"
                       >Why your company offers it (required)</label
                     >
@@ -139,7 +142,7 @@ const REASON_MAX = 2000;
                         '-hint' +
                         (reasonError() ? ' ' + reasonId(pair) + '-error' : '')
                       "
-                      class="block w-full rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--accent-primary)"
+                      class="block w-full rounded-control border border-(--border-strong) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--accent-primary)"
                     ></textarea>
                     @if (reasonError(); as message) {
                       <p [id]="reasonId(pair) + '-error'" [class]="errorClass">{{ message }}</p>
@@ -148,7 +151,7 @@ const REASON_MAX = 2000;
                   <div class="flex flex-wrap items-center gap-2">
                     <button
                       type="submit"
-                      [class]="primaryClass"
+                      aecButton
                       [disabled]="sending()"
                       data-testid="delivered-send"
                     >
@@ -160,7 +163,8 @@ const REASON_MAX = 2000;
                     </button>
                     <button
                       type="button"
-                      [class]="secondaryClass"
+                      aecButton
+                      variant="secondary"
                       [disabled]="sending()"
                       (click)="cancel(pair)"
                       i18n="@@vendor.deliveredPairs.cancel"
@@ -175,7 +179,8 @@ const REASON_MAX = 2000;
                     #askTrigger
                     type="button"
                     [attr.data-ask-for]="pair.id"
-                    [class]="secondaryClass"
+                    aecButton
+                    variant="secondary"
                     (click)="ask(pair)"
                     data-testid="delivered-ask"
                     i18n="@@vendor.deliveredPairs.ask"
@@ -346,10 +351,7 @@ export class VendorDeliveredPairs {
   }
 
   protected readonly errorClass = FIELD_ERROR_CLASS;
-  protected readonly primaryClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-4 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
-  protected readonly secondaryClass =
-    'inline-flex items-center rounded-(--radius-md) border border-(--border-default) px-3 py-1.5 text-start text-sm font-medium text-(--text-primary) transition-colors hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
+  protected readonly labelClass = FIELD_LABEL_CLASS;
 }
 
 /** One sentence per refusal the request can collect. */

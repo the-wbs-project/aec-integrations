@@ -32,10 +32,20 @@ function render(points: StackedBarPoint[], inputs: Record<string, unknown> = {})
 }
 
 const headers = (el: HTMLElement) =>
-  [...el.querySelectorAll('table.sr-only thead th')].map((th) => th.textContent?.trim());
+  [...el.querySelectorAll('.sr-only table thead th')].map((th) => th.textContent?.trim());
 
 describe('StackedBarChart', () => {
   beforeEach(() => TestBed.resetTestingModule());
+
+  it('clips its hidden table inside an sr-only wrapper, so it cannot widen the page (AECI-1813)', () => {
+    const el = render([{ label: 'd1', segments: [1, 2] }], { seriesLabels: ['Human', 'Bot'] });
+    const table = el.querySelector('table')!;
+    // A table ignores sr-only's 1px box, so the class sits on a wrapper that clips it.
+    expect(table.classList.contains('sr-only')).toBe(false);
+    expect(table.parentElement!.classList.contains('sr-only')).toBe(true);
+    // Still in the accessibility tree: no aria-hidden on the way up.
+    expect(table.closest('[aria-hidden="true"]')).toBeNull();
+  });
 
   it('keeps the two-series default fills for a caller that passes none', () => {
     const el = render([{ label: 'd1', segments: [1, 1] }], { seriesLabels: ['Human', 'Bot'] });
@@ -65,7 +75,7 @@ describe('StackedBarChart', () => {
     expect(el.querySelectorAll('rect[data-not-measured]')).toHaveLength(1);
     expect(el.querySelectorAll('ul li')).toHaveLength(5);
     expect(headers(el)).toEqual(['Day', ...FOUR, 'Not classified']);
-    const row = [...el.querySelectorAll('table.sr-only tbody tr')][1]!;
+    const row = [...el.querySelectorAll('.sr-only table tbody tr')][1]!;
     expect([...row.querySelectorAll('td')].map((td) => td.textContent?.trim())).toEqual([
       'Not classified',
       'Not classified',
@@ -108,7 +118,7 @@ describe('StackedBarChart', () => {
     expect(legend).toContain('Classifier changed: v1 to v2');
     expect(legend).toContain('Collection method changed');
     expect(headers(el)).toEqual(['Day', ...FOUR, 'Classifier version', 'Change before this day']);
-    const cells = [...el.querySelectorAll('table.sr-only tbody tr')][1]!.querySelectorAll('td');
+    const cells = [...el.querySelectorAll('.sr-only table tbody tr')][1]!.querySelectorAll('td');
     expect(cells[4]!.textContent?.trim()).toBe('v2');
     expect(cells[5]!.textContent).toContain('Classifier changed: v1 to v2');
   });

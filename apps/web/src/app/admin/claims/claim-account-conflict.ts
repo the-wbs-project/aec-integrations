@@ -28,8 +28,9 @@ export function claimantSeatConflict(claim: AdminClaim): ClaimantSeatConflict | 
  * carries `boxId` so the queue's disabled Grant can point at it with
  * `aria-describedby`.
  *
- * Red is the error token on an unlayered class: a border-colour utility never
- * reaches the element (see `.aec-notice-error` in `styles.css`). Light only.
+ * Red is the error token on an unlayered class (`.aec-notice-error` in
+ * `styles.css`), written while a border-colour utility never reached the element
+ * (fixed in AECI-2088). Light only.
  */
 @Component({
   selector: 'aec-claim-account-conflict',

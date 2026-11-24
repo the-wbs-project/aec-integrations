@@ -9,6 +9,7 @@ import type {
   VendorVetoesResponse,
 } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 
@@ -31,16 +32,13 @@ import { VendorPortalAnnouncer } from '../vendor-announcer';
  */
 @Component({
   selector: 'aec-vendor-pair-rights-list',
-  imports: [DatePipe],
+  imports: [AecButton, DatePipe],
   host: { class: 'block' },
   template: `
     @if (hasAny()) {
       <section class="space-y-4" aria-labelledby="pair-rights-heading">
-        <h3
-          id="pair-rights-heading"
-          class="font-display text-lg font-semibold text-(--text-primary)"
-          i18n="@@vendor.pairRights.heading"
-        >
+        <!-- The global h3 rule sets its type, so it carries no type utility (AECI-2083). -->
+        <h3 id="pair-rights-heading" i18n="@@vendor.pairRights.heading">
           Sync Service integrations on your products
         </h3>
 
@@ -54,7 +52,7 @@ import { VendorPortalAnnouncer } from '../vendor-announcer';
             </h4>
             <ul class="m-0 list-none space-y-2 p-0">
               @for (v of vetoes().filed; track v.id) {
-                <li class="rounded-(--radius-md) border border-(--border-default) p-3 text-sm">
+                <li class="rounded-panel border border-(--border-default) p-3 text-sm">
                   <p class="font-medium text-(--text-primary)">{{ pairName(v.pair) }}</p>
                   @if (v.in_force) {
                     <p class="text-(--text-secondary)" i18n="@@vendor.pairRights.filed.inForce">
@@ -62,7 +60,9 @@ import { VendorPortalAnnouncer } from '../vendor-announcer';
                     </p>
                     <button
                       type="button"
-                      [class]="buttonClass"
+                      aecButton
+                      variant="secondary"
+                      compact
                       [disabled]="busy()"
                       (click)="withdrawVeto(v)"
                       i18n="@@vendor.pairRights.filed.withdraw"
@@ -88,7 +88,7 @@ import { VendorPortalAnnouncer } from '../vendor-announcer';
             </h4>
             <ul class="m-0 list-none space-y-2 p-0">
               @for (v of vetoes().received; track v.id) {
-                <li class="rounded-(--radius-md) border border-(--border-default) p-3 text-sm">
+                <li class="rounded-panel border border-(--border-default) p-3 text-sm">
                   <p class="font-medium text-(--text-primary)">{{ pairName(v.pair) }}</p>
                   @if (v.in_force) {
                     <p class="text-(--text-primary)" i18n="@@vendor.pairRights.received.by">
@@ -122,7 +122,7 @@ import { VendorPortalAnnouncer } from '../vendor-announcer';
             </h4>
             <ul class="m-0 list-none space-y-2 p-0">
               @for (r of reports().submitted; track r.id) {
-                <li class="rounded-(--radius-md) border border-(--border-default) p-3 text-sm">
+                <li class="rounded-panel border border-(--border-default) p-3 text-sm">
                   <p class="font-medium text-(--text-primary)">{{ reportTitle(r) }}</p>
                   <p class="text-(--text-secondary)">{{ statusText(r) }}</p>
                   @if (r.decision_note) {
@@ -135,7 +135,9 @@ import { VendorPortalAnnouncer } from '../vendor-announcer';
                     @if (r.status === 'open') {
                       <button
                         type="button"
-                        [class]="buttonClass"
+                        aecButton
+                        variant="secondary"
+                        compact
                         [disabled]="busy()"
                         (click)="withdrawReport(r)"
                         i18n="@@vendor.pairRights.submitted.withdraw"
@@ -146,7 +148,9 @@ import { VendorPortalAnnouncer } from '../vendor-announcer';
                     @if (r.protest_closes_at && !r.protest) {
                       <button
                         type="button"
-                        [class]="buttonClass"
+                        aecButton
+                        variant="secondary"
+                        compact
                         [disabled]="busy()"
                         (click)="protest(r)"
                         i18n="@@vendor.pairRights.submitted.protest"
@@ -171,7 +175,7 @@ import { VendorPortalAnnouncer } from '../vendor-announcer';
             </h4>
             <ul class="m-0 list-none space-y-2 p-0">
               @for (r of reports().received; track r.id) {
-                <li class="rounded-(--radius-md) border border-(--border-default) p-3 text-sm">
+                <li class="rounded-panel border border-(--border-default) p-3 text-sm">
                   <p class="font-medium text-(--text-primary)">{{ reportTitle(r) }}</p>
                   <p class="text-(--text-secondary)" i18n="@@vendor.pairRights.inbox.from">
                     From {{ r.submitter_name ?? unknownVendor }}: {{ r.reason }}
@@ -184,7 +188,9 @@ import { VendorPortalAnnouncer } from '../vendor-announcer';
                     <div class="mt-2 flex flex-wrap gap-2">
                       <button
                         type="button"
-                        [class]="buttonClass"
+                        aecButton
+                        variant="secondary"
+                        compact
                         [disabled]="busy()"
                         (click)="decide(r, 'accept')"
                         i18n="@@vendor.pairRights.inbox.accept"
@@ -193,7 +199,9 @@ import { VendorPortalAnnouncer } from '../vendor-announcer';
                       </button>
                       <button
                         type="button"
-                        [class]="buttonClass"
+                        aecButton
+                        variant="secondary"
+                        compact
                         [disabled]="busy()"
                         (click)="decide(r, 'decline')"
                         i18n="@@vendor.pairRights.inbox.decline"
@@ -224,8 +232,6 @@ export class VendorPairRightsList {
   protected readonly error = signal<string | null>(null);
 
   protected readonly unknownVendor = $localize`:@@vendor.pairRights.unknownVendor:a vendor`;
-  protected readonly buttonClass =
-    'rounded-(--radius-sm) border border-(--border-default) px-3 py-1.5 text-sm font-medium text-(--text-primary) transition-colors hover:border-(--border-strong) disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
   constructor() {
     afterNextRender(() => void this.load());

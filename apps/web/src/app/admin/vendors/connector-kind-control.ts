@@ -5,6 +5,7 @@ import { CONNECTOR_KINDS, isConnectorKind, type ConnectorKind } from '@aeci/shar
 
 import { connectorKindLabel as publicConnectorKindLabel } from '../../products/connector-kind-labels';
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
+import { AecButton } from '../../shared/button/button';
 import { AdminVendorsApi } from './admin-vendors-api';
 
 /**
@@ -30,7 +31,7 @@ export function connectorKindLabel(kind: ConnectorKind | null): string {
  */
 @Component({
   selector: 'aec-connector-kind-control',
-  imports: [AecSelect],
+  imports: [AecButton, AecSelect],
   template: `
     <div class="mt-2 flex flex-wrap items-end gap-2">
       <aec-select
@@ -43,8 +44,10 @@ export function connectorKindLabel(kind: ConnectorKind | null): string {
         (changed)="onPick($event)"
       />
       <button
+        aecButton
+        variant="secondary"
+        compact
         type="button"
-        class="cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-1.5 text-xs font-medium text-(--text-primary) disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
         [disabled]="!dirty() || pending()"
         (click)="save()"
       >

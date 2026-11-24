@@ -8,6 +8,9 @@ import {
   type SyncFacts,
 } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
+import { FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
+
 import { AdminVendorsApi } from './admin-vendors-api';
 
 /** The four values the form edits. `recorded_at` is the server's stamp. */
@@ -35,23 +38,19 @@ interface FactField {
  */
 @Component({
   selector: 'aec-sync-facts-control',
+  imports: [AecButton],
   template: `
     <fieldset class="mt-3 min-w-0 space-y-2 border-0 p-0">
-      <legend
-        class="text-xs font-semibold text-(--text-primary)"
-        i18n="@@admin.vendors.products.syncFacts.legend"
-      >
+      <legend [class]="labelClass" i18n="@@admin.vendors.products.syncFacts.legend">
         Sync Service facts
       </legend>
       @for (field of fields; track field.key) {
         <div class="space-y-1">
-          <label class="block text-xs text-(--text-secondary)" [attr.for]="inputId(field.key)">{{
-            field.label
-          }}</label>
+          <label [class]="labelClass" [attr.for]="inputId(field.key)">{{ field.label }}</label>
           <input
             [type]="field.key === 'source_url' ? 'url' : 'text'"
             autocomplete="off"
-            class="w-full min-w-48 rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-2 py-1 text-xs text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            class="w-full min-w-48 rounded-control border border-(--border-default) bg-(--surface-base) px-2 py-1 text-xs text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
             [id]="inputId(field.key)"
             [attr.maxlength]="field.max"
             [value]="draft()[field.key] ?? ''"
@@ -60,8 +59,10 @@ interface FactField {
         </div>
       }
       <button
+        aecButton
+        variant="secondary"
+        compact
         type="button"
-        class="cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-1.5 text-xs font-medium text-(--text-primary) disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
         [disabled]="!dirty() || pending()"
         (click)="save()"
       >
@@ -80,6 +81,9 @@ interface FactField {
   `,
 })
 export class SyncFactsControl {
+  /** The Label role (AECI-2083 admin recipe). */
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+
   private readonly api = inject(AdminVendorsApi);
 
   readonly productId = input.required<string>();

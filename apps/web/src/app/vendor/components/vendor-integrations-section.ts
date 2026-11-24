@@ -405,8 +405,8 @@ export class VendorIntegrationsSection implements OnInit {
 
   /**
    * Show only the integrations filed under THIS product (AECI-666). `null` keeps
-   * the whole surface, which the single-page concept (`vendor-dashboard-single.ts`)
-   * still renders. Filtering happens here, not in the request: the store holds ONE
+   * the whole surface (the single-page concept that rendered it was deleted by
+   * AECI-1809). Filtering happens here, not in the request: the store holds ONE
    * vendor-wide read, and the freshness cursor scopes it the same way.
    */
   readonly contextProductId = input<string | null>(null);

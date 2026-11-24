@@ -24,6 +24,8 @@ export type ChipDensity = 'default' | 'dense';
  * `forest` is Forest text and edge on the raised ground. `wash` is the
  * Forest-soft fill with Forest text and a Forest edge (a selected filter chip,
  * or "Confirmed by both companies"). `error` is the one red.
+ *
+ * The rest are the console's status tones ({@link ConsoleChipTone}).
  */
 export type ChipTone =
   | 'neutral'
@@ -33,15 +35,48 @@ export type ChipTone =
   | 'strong-sunken'
   | 'forest'
   | 'wash'
-  | 'error';
+  | 'error'
+  | ConsoleChipTone;
+
+/**
+ * The seven status tones of the admin console (AECI-1813, mock-up 14's legend).
+ * Words always carry the state, so a tone is never the only signal. Contrast of
+ * the text on its own fill:
+ *
+ * | Tone        | Look                                                    | Ratio   |
+ * |-------------|---------------------------------------------------------|---------|
+ * | `count`     | Forest fill, white text. A queue count, not a status    | 12.34:1 |
+ * | `neutral`   | Raised fill, default edge, primary ink. A fact          | 18.97:1 |
+ * | `waiting`   | White fill, strong edge, primary ink, a hollow ring     | 19.80:1 |
+ * | `positive`  | Forest-soft fill, Forest edge and ink. Live or done     | 10.80:1 |
+ * | `quiet`     | Raised fill, default edge, secondary ink. Closed        |  7.41:1 |
+ * | `attention` | Raised fill, strong edge, Clay-deep ink. Look first     |  5.59:1 |
+ * | `critical`  | White fill, error edge and ink. A fault. The only red   |  6.54:1 |
+ *
+ * `neutral` and `quiet` are the ladder's own steps, in `styles.css`. The other
+ * five (`positive` draws as `wash`, `critical` as `error`) are drawn by a stylesheet
+ * only the admin console loads (`admin/console/chip-tones.ts`), so the public bundle
+ * carries none of them and a public page that set one would get the resting chip.
+ * Which status takes which tone is one map: `ADMIN_STATUS_TONES` in
+ * `admin/console/status-tones.ts`.
+ */
+export type ConsoleChipTone =
+  | 'count'
+  | 'neutral'
+  | 'waiting'
+  | 'positive'
+  | 'quiet'
+  | 'attention'
+  | 'critical';
 
 /**
  * `aec-chip` (AECI-1763; DESIGN.md §5 Badges, "The public chip", clash 22).
  *
- * The one chip recipe. The look lives in `styles.css` under `.aec-chip`, which is
- * unlayered because a `border-color` utility never reaches an element (the `*`
- * rule wins). This component only chooses the element and sets the data
- * attributes the CSS keys off.
+ * The one chip recipe. The public look lives in `styles.css` under `.aec-chip`,
+ * which is unlayered. It was written while a `border-color` utility never reached
+ * an element (the `*` rule won, until AECI-2088). The admin console's five extra
+ * tones live in `admin/console/chip-tones.ts`, which only the console loads. This
+ * component only chooses the element and sets the data attributes the CSS keys off.
  *
  * Three elements, one look:
  *   - static (default): a `<span>`. It has no hover, no pointer and no focus
@@ -55,7 +90,9 @@ export type ChipTone =
  * and a 3px focus ring at 3px offset. In forced-colours mode a selected chip maps
  * to `Highlight` and `HighlightText`.
  *
- * Chips never take Clay and never take a shadow. Sentence case. Light theme only.
+ * Public chips never take Clay. The one exception is admin only: the console's
+ * `attention` tone sets its text in Clay deep (5.59:1 on the raised fill). Chips
+ * never take a shadow. Sentence case. Light theme only.
  */
 @Component({
   selector: 'aec-chip',

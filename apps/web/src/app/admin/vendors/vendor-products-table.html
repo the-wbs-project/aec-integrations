@@ -127,8 +127,11 @@
           }
           <!-- AECI-2045: every pair this connector delivers, with its owner. -->
           <button
+            aecButton
+            variant="ghost"
+            compact
             type="button"
-            class="mt-2 block cursor-pointer rounded-(--radius-sm) text-xs font-medium text-(--accent-primary) underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            class="mt-2"
             [attr.aria-expanded]="deliveredOpenId() === row.id"
             [attr.aria-controls]="'delivered-pairs-' + row.id"
             (click)="toggleDelivered(row)"
@@ -178,7 +181,7 @@
 
         <td class="py-2.5 text-end">
           <!--
-            A plain href with `target="_blank"`, matching View Page in Basics: the
+            A plain href with `target="_blank"`, matching View page in Basics: the
             operator opens the public product to CHECK the record, so navigating
             away from the admin page is the wrong outcome. There is no admin
             product detail page to link to instead. AECI-980 added the drawn cue

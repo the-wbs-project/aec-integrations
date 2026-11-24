@@ -32,7 +32,7 @@ import { vendorProductContext } from './vendor-product-context';
           <aec-vendor-connector-catalogue [productId]="p.id" [productName]="p.name" />
         } @else if (p.product_role === 'connector') {
           <p
-            class="max-w-[52ch] rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4 text-sm leading-relaxed text-(--text-primary)"
+            class="max-w-[52ch] rounded-panel border border-(--border-default) bg-(--surface-raised) p-4 text-sm leading-relaxed text-(--text-primary)"
             data-catalogue-sync-service
           >
             <span i18n="@@vendor.catalogue.syncService"
@@ -49,7 +49,7 @@ import { vendorProductContext } from './vendor-product-context';
           </p>
         } @else {
           <p
-            class="max-w-[52ch] rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4 text-sm leading-relaxed text-(--text-primary)"
+            class="max-w-[52ch] rounded-panel border border-(--border-default) bg-(--surface-raised) p-4 text-sm leading-relaxed text-(--text-primary)"
             data-catalogue-not-connector
             i18n="@@vendor.catalogue.notConnector"
           >

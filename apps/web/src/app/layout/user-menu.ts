@@ -242,9 +242,8 @@ export class UserMenu {
    * The trigger on the Forest header (AECI-1771). It stays a circle, because a
    * person is a circle. A Bone-wash fill with a 1px edge from the unlayered
    * `.aec-on-brand-edge` class, which computes to `--border-on-brand-strong`
-   * (4.01:1; the wash alone is 1.33:1, no boundary). A `border-(--x)` utility
-   * would lose to the global `*` border-color rule, which is why the class is
-   * used. Bone glyph (8.31:1 on the wash), a deeper wash on hover, and the Bone
+   * (4.01:1; the wash alone is 1.33:1, no boundary). The class predates
+   * AECI-2088, when a `border-(--x)` utility lost to the global `*` rule. Bone glyph (8.31:1 on the wash), a deeper wash on hover, and the Bone
    * focus ring. 44px, the main-control size.
    */
   protected readonly triggerClass =

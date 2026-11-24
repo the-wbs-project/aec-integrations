@@ -16,6 +16,7 @@ import {
 import type { AdminVendorProductRow, SyncFacts } from '@aeci/shared';
 import { roleTakesConnectorKind } from '@aeci/shared/api/connector-kind';
 
+import { AecButton } from '../../shared/button/button';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { AdminPaginator } from '../admin-paginator';
 import { ConnectorKindControl } from './connector-kind-control';
@@ -47,7 +48,7 @@ import { ListingHideForm, type ListingHideMode } from './listing-hide-form';
  * vendor-level roll-up, which cannot say WHICH product is the connector), and
  * promotion status is the one field that explains a product missing from the
  * public site. There is no admin product detail page to link to, so the name
- * points at the public page in a new tab — same rule as View Page in Basics: an
+ * points at the public page in a new tab — same rule as View page in Basics: an
  * operator opens it to CHECK something, so navigating away is the wrong outcome.
  *
  * AECI-955 adds the narrow logo-only content edit exception (Stage 2.5 §11).
@@ -68,6 +69,7 @@ import { ListingHideForm, type ListingHideMode } from './listing-hide-form';
   selector: 'aec-vendor-products-table',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
+    AecButton,
     AdminLogoEditor,
     AdminPaginator,
     ConnectorKindControl,

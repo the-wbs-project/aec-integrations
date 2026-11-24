@@ -53,6 +53,11 @@ import {
  * - `'stored'`: a portal or admin surface showing the stored value (ADR 0051 decision 4,
  *   "Portal and admin reads keep the real value"), and the account avatar, which is a
  *   person and not a listing. Never on a public listing surface.
+ * - `'wheel'`: the product hero's integrations wheel and its card (AECI-2018). Ruling 64
+ *   (2026-11-24) lets a wheel tile show a product's logo whenever we hold one, claimed or
+ *   not, at any tile size. It widens the rule for the wheel only, so the callers spec
+ *   allows it in the wheel's file and nowhere else. The logo comes from the wheel's own
+ *   `ProductDetail.wheel_marks`, never from a list payload.
  *
  * Any other value, including `undefined` from an API that predates `claim_status`,
  * renders the tile. `logo-or-initial.callers.spec.ts` classifies every caller, checks
@@ -62,15 +67,21 @@ import {
  * rounded logo and its tile share the box, the border and the fill, and the tile takes
  * no muted styling.
  */
-/** `md` (48px, AECI-1720) is the product page's integration card mark (mock-up 6). */
-export type LogoSize = 'hero' | 'lg' | 'md' | 'sm';
+/**
+ * `md` (48px, AECI-1720) is the product page's integration card mark (mock-up 6).
+ * `tile` (AECI-2018) is a tile on the product hero's integrations wheel: it fills the box
+ * the wheel draws (24px to 48px), insets the logo on the neutral tile, and takes the
+ * initial's size from the wheel's `--aec-wheel-initial`.
+ */
+export type LogoSize = 'hero' | 'lg' | 'md' | 'sm' | 'tile';
 
 /**
  * What the caller knows about the logo's claim state (AECI-1851). See the class comment:
- * a subject's `ClaimStatus`, `'server-filtered'` for a public list or link payload, or
- * `'stored'` for a portal, admin or person surface.
+ * a subject's `ClaimStatus`, `'server-filtered'` for a public list or link payload,
+ * `'stored'` for a portal, admin or person surface, or `'wheel'` for the product hero's
+ * integrations wheel (ruling 64).
  */
-export type LogoClaim = ClaimStatus | 'server-filtered' | 'stored';
+export type LogoClaim = ClaimStatus | 'server-filtered' | 'stored' | 'wheel';
 
 /** The one alt text for a logo that identifies a product or vendor (AECI-1569). */
 export function logoAlt(name: string): string {
@@ -171,6 +182,7 @@ export class LogoOrInitial {
       case 'claimed':
       case 'server-filtered':
       case 'stored':
+      case 'wheel':
         return true;
       case 'unclaimed':
         return this.ownPage() && this.size() === 'sm';
@@ -191,13 +203,13 @@ export class LogoOrInitial {
   /** The intrinsic size `NgOptimizedImage` reserves. `hero` is the slot's largest box. */
   protected readonly dim = computed(() => {
     const size = this.size();
-    return size === 'hero' ? 104 : size === 'lg' ? 64 : size === 'md' ? 48 : 32;
+    return size === 'hero' ? 104 : size === 'lg' ? 64 : size === 'md' || size === 'tile' ? 48 : 32;
   });
 
   /** The box: fixed for `lg` and `sm`, the caller's box for `hero`. */
   private readonly boxClass = computed(() => {
     const size = this.size();
-    return size === 'hero'
+    return size === 'hero' || size === 'tile'
       ? 'size-full'
       : size === 'lg'
         ? 'h-16 w-16'
@@ -215,8 +227,8 @@ export class LogoOrInitial {
   );
 
   /** The frame a rounded logo and its initial tile share, so the tile never looks
-   *  lesser (AECI-1769). The border colour is `--border-default` from the unlayered
-   *  `*` rule in `styles.css`, which beats any border-colour utility. A person's photo
+   *  lesser (AECI-1769). The border colour is `--border-default`, the `@layer base`
+   *  default in `styles.css`. A person's photo
    *  stays unframed, as shipped (AECI-850). */
   private readonly frameClass = computed(() =>
     this.shape() === 'circle' ? '' : 'border bg-(--surface-raised)',
@@ -226,8 +238,12 @@ export class LogoOrInitial {
     this.shape() === 'circle' ? 'object-cover' : 'object-contain',
   );
 
+  /** A wheel tile insets its logo on the neutral tile (mock-up 9w, ruling 64). */
+  private readonly insetClass = computed(() => (this.size() === 'tile' ? ' p-[14%]' : ''));
+
   protected readonly imgClass = computed(
-    () => `${this.boxClass()} ${this.radiusClass()} ${this.frameClass()} ${this.fitClass()}`,
+    () =>
+      `${this.boxClass()} ${this.radiusClass()} ${this.frameClass()} ${this.fitClass()}${this.insetClass()}`,
   );
 
   /**
@@ -239,6 +255,7 @@ export class LogoOrInitial {
    */
   private readonly initialClass = computed(() => {
     const size = this.size();
+    if (size === 'tile') return 'font-body text-(length:--aec-wheel-initial)';
     return size === 'hero'
       ? 'font-display text-t-36'
       : size === 'lg'

@@ -3,6 +3,9 @@ import { Component, afterNextRender, inject, signal } from '@angular/core';
 
 import type { AdminVeto, PairContest, PairRightPair } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
+import { FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
+
 import { AdminContestsApi } from './admin-contests-api';
 
 type Form = { id: string; kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'rejected' } | null;
@@ -25,7 +28,7 @@ type Form = { id: string; kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'reje
  */
 @Component({
   selector: 'aec-admin-pair-rights',
-  imports: [DatePipe],
+  imports: [AecButton, DatePipe],
   host: { class: 'block' },
   template: `
     <section class="mt-10 space-y-6" aria-labelledby="admin-pair-rights-heading">
@@ -48,7 +51,7 @@ type Form = { id: string; kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'reje
         }
         <ul class="m-0 list-none space-y-3 p-0">
           @for (r of reports(); track r.id) {
-            <li class="rounded-(--radius-md) border border-(--border-default) p-4 text-sm">
+            <li class="rounded-panel border border-(--border-default) p-4 text-sm">
               <p class="font-medium text-(--text-primary)">{{ title(r) }}</p>
               <p class="text-(--text-secondary)" i18n="@@admin.pairRights.reports.from">
                 {{ r.submitter_name }} on {{ r.created_at | date: 'mediumDate' }}: {{ r.reason }}
@@ -61,7 +64,9 @@ type Form = { id: string; kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'reje
                 <div class="mt-2 flex flex-wrap gap-2">
                   <button
                     type="button"
-                    [class]="buttonClass"
+                    aecButton
+                    variant="secondary"
+                    compact
                     (click)="openForm(r.id, 'accept')"
                     i18n="@@admin.pairRights.accept"
                   >
@@ -69,7 +74,9 @@ type Form = { id: string; kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'reje
                   </button>
                   <button
                     type="button"
-                    [class]="buttonClass"
+                    aecButton
+                    variant="secondary"
+                    compact
                     (click)="openForm(r.id, 'decline')"
                     i18n="@@admin.pairRights.decline"
                   >
@@ -92,7 +99,7 @@ type Form = { id: string; kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'reje
                       </p>
                     }
                     <label
-                      class="block font-medium"
+                      [class]="labelClass"
                       for="rpt-note-{{ r.id }}"
                       i18n="@@admin.pairRights.note"
                       >Note shown to the vendor</label
@@ -101,12 +108,12 @@ type Form = { id: string; kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'reje
                       id="rpt-note-{{ r.id }}"
                       rows="3"
                       maxlength="1000"
-                      class="w-full rounded-(--radius-sm) border border-(--border-default) p-2"
+                      class="w-full rounded-control border border-(--border-default) p-2"
                       (input)="note.set(valueOf($event))"
                     ></textarea>
                     @if (form()?.kind === 'accept' && r.kind === 'existence') {
                       <label
-                        class="block font-medium"
+                        [class]="labelClass"
                         for="rpt-src-{{ r.id }}"
                         i18n="@@admin.pairRights.source"
                         >Proof link (required)</label
@@ -114,13 +121,15 @@ type Form = { id: string; kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'reje
                       <input
                         id="rpt-src-{{ r.id }}"
                         type="url"
-                        class="w-full rounded-(--radius-sm) border border-(--border-default) p-2"
+                        class="w-full rounded-control border border-(--border-default) p-2"
                         (input)="source.set(valueOf($event))"
                       />
                     }
                     <button
                       type="submit"
-                      [class]="buttonClass"
+                      aecButton
+                      variant="secondary"
+                      compact
                       [disabled]="busy()"
                       i18n="@@admin.pairRights.confirm"
                     >
@@ -148,7 +157,7 @@ type Form = { id: string; kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'reje
         }
         <ul class="m-0 list-none space-y-3 p-0">
           @for (r of protests(); track r.id) {
-            <li class="rounded-(--radius-md) border border-(--border-default) p-4 text-sm">
+            <li class="rounded-panel border border-(--border-default) p-4 text-sm">
               <p class="font-medium text-(--text-primary)">{{ title(r) }}</p>
               <p class="text-(--text-secondary)">{{ r.protest?.reason }}</p>
               <p class="text-(--text-secondary)" i18n="@@admin.pairRights.protests.advice">
@@ -157,7 +166,9 @@ type Form = { id: string; kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'reje
               <div class="mt-2 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  [class]="buttonClass"
+                  aecButton
+                  variant="secondary"
+                  compact
                   (click)="openForm(r.id, 'upheld')"
                   i18n="@@admin.pairRights.upheld"
                 >
@@ -165,7 +176,9 @@ type Form = { id: string; kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'reje
                 </button>
                 <button
                   type="button"
-                  [class]="buttonClass"
+                  aecButton
+                  variant="secondary"
+                  compact
                   (click)="openForm(r.id, 'rejected')"
                   i18n="@@admin.pairRights.rejected"
                 >
@@ -179,7 +192,7 @@ type Form = { id: string; kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'reje
                   (submit)="$event.preventDefault(); decideProtest(r)"
                 >
                   <label
-                    class="block font-medium"
+                    [class]="labelClass"
                     for="pp-note-{{ r.id }}"
                     i18n="@@admin.pairRights.noteRequired"
                     >Note shown to both vendors (required)</label
@@ -189,12 +202,14 @@ type Form = { id: string; kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'reje
                     rows="3"
                     maxlength="1000"
                     required
-                    class="w-full rounded-(--radius-sm) border border-(--border-default) p-2"
+                    class="w-full rounded-control border border-(--border-default) p-2"
                     (input)="note.set(valueOf($event))"
                   ></textarea>
                   <button
                     type="submit"
-                    [class]="buttonClass"
+                    aecButton
+                    variant="secondary"
+                    compact
                     [disabled]="busy()"
                     i18n="@@admin.pairRights.confirm"
                   >
@@ -225,7 +240,7 @@ type Form = { id: string; kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'reje
         }
         <ul class="m-0 list-none space-y-3 p-0">
           @for (v of vetoes(); track v.id) {
-            <li class="rounded-(--radius-md) border border-(--border-default) p-4 text-sm">
+            <li class="rounded-panel border border-(--border-default) p-4 text-sm">
               <p class="font-medium text-(--text-primary)">{{ pairName(v.pair) }}</p>
               <p class="text-(--text-secondary)" i18n="@@admin.pairRights.vetoes.by">
                 Removed by {{ v.vendor_name }} on {{ v.filed_at | date: 'mediumDate' }}:
@@ -233,7 +248,9 @@ type Form = { id: string; kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'reje
               </p>
               <button
                 type="button"
-                [class]="buttonClass"
+                aecButton
+                variant="secondary"
+                compact
                 (click)="openForm(v.id, 'lift')"
                 i18n="@@admin.pairRights.lift"
               >
@@ -246,7 +263,7 @@ type Form = { id: string; kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'reje
                   (submit)="$event.preventDefault(); lift(v)"
                 >
                   <label
-                    class="block font-medium"
+                    [class]="labelClass"
                     for="lift-note-{{ v.id }}"
                     i18n="@@admin.pairRights.noteLift"
                     >Why it ends, shown to the vendors (required)</label
@@ -256,12 +273,14 @@ type Form = { id: string; kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'reje
                     rows="3"
                     maxlength="1000"
                     required
-                    class="w-full rounded-(--radius-sm) border border-(--border-default) p-2"
+                    class="w-full rounded-control border border-(--border-default) p-2"
                     (input)="note.set(valueOf($event))"
                   ></textarea>
                   <button
                     type="submit"
-                    [class]="buttonClass"
+                    aecButton
+                    variant="secondary"
+                    compact
                     [disabled]="busy()"
                     i18n="@@admin.pairRights.confirm"
                   >
@@ -294,8 +313,8 @@ export class AdminPairRights {
   protected readonly error = signal<string | null>(null);
   protected readonly status = signal('');
 
-  protected readonly buttonClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-1.5 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
+  /** The Label role (AECI-2083 admin recipe). */
+  protected readonly labelClass = FIELD_LABEL_CLASS;
 
   constructor() {
     afterNextRender(() => void this.load());

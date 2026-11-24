@@ -347,7 +347,7 @@ Cache-Tag purge is available on all Cloudflare plans as of April 2025. The Pro p
 
 ### 8.2 Tag vocabulary
 
-Cache-Tag values are comma-separated strings, ≤ 16 KB per response, no spaces.
+Cache-Tag values are comma-separated strings, ≤ 16 KB per response, no spaces. Since AECI-2025 a page whose tags would pass Cloudflare's limits (16 KB, 1,000 tags, 1,024 characters a tag) never fails: it keeps its most important tags and is cached for 60 s, or is not stored at all. `CACHE_STRATEGY.md` §3 rule 11 governs.
 
 | Tag | Attached to |
 |---|---|

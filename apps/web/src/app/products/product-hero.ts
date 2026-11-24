@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, input, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import type { ProductDetail } from '@aeci/shared';
@@ -20,12 +20,10 @@ import { LogoOrInitial, logoAlt } from '../shared/logo-or-initial/logo-or-initia
 import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 import { UnclaimedNote } from '../shared/unclaimed-note/unclaimed-note';
 
-import { categoryHub } from './category-hub';
 import { heroConnectsLabel } from './connector-kind-labels';
 import { descriptionParagraphs } from './product-about';
 import { connectedProductCount } from './powered-hub-grouping';
-import { ProductCategoryHub } from './product-category-hub';
-import { ProductPairFinder } from './product-pair-finder';
+import { ProductIntegrationWheel } from './product-integration-wheel';
 import { RoleBadge } from './role-badge';
 
 /**
@@ -50,10 +48,10 @@ import { RoleBadge } from './role-badge';
  *     (`on-brand-secondary`), with the website's under-review line. Every correction and
  *     caption is in "About this listing" (AECI-1666).
  *
- * The `heroPanel` slot holds the visual of ruling R3 decision 1 (AECI-1787): the category
- * hub (`aec-product-category-hub`), when any integration's partner has a category, with
- * the pair finder (`aec-product-pair-finder`) under it. With no hub the panel holds the
- * finder alone. The hub orders A to Z by name (ruling R1).
+ * The `heroPanel` slot holds the integrations wheel (`aec-product-integration-wheel`,
+ * AECI-2018), which replaced ruling R3 decision 1's category hub and pair finder. It
+ * shows the products this one has an integration with, A to Z by name (ruling R1). With
+ * no integration on record there is no wheel and no panel: the facts card says so.
  *
  * Nothing else here orders anything. No paid-plan input is read.
  */
@@ -69,8 +67,7 @@ import { RoleBadge } from './role-badge';
     HeroBand,
     LogoOrInitial,
     NewTabIcon,
-    ProductCategoryHub,
-    ProductPairFinder,
+    ProductIntegrationWheel,
     ReviewCta,
     ReviewStars,
     RoleBadge,
@@ -279,32 +276,11 @@ import { RoleBadge } from './role-badge';
       }
       <aec-review-cta heroActions [slug]="p.slug" [productId]="p.id" variant="on-brand-secondary" />
 
-      <!-- AECI-1787: the category hub with the pair finder under it (ruling R3 decision 1).
-           Both are in the server HTML. The finder routes after hydration. Below lg the
-           panel stacks under the hero text, so it keeps the hub alone and the finder
-           waits for lg: the finder there added about 200px above the facts card. With no
-           hub the panel holds nothing below lg, so styles.css hides it
-           (.aec-hero-panel-lg-only). -->
-      <!-- AECI-2046: on a connector the finder is not rendered, because it would
-           send the visitor to a pair page with the connector as an endpoint, which is
-           almost always empty. With no hub either, there is no panel at all. -->
-      @if (hub().length > 0 || showFinder()) {
-        <div
-          heroPanel
-          class="flex flex-col gap-6"
-          [class.aec-hero-panel-lg-only]="hub().length === 0"
-          data-testid="product-hero-visual"
-        >
-          @if (hub().length > 0) {
-            <aec-product-category-hub [entries]="hub()" (expandedChange)="onHubToggle($event)" />
-          }
-          @if (showFinder()) {
-            <aec-product-pair-finder
-              class="max-lg:hidden"
-              [productSlug]="p.slug"
-              [productName]="p.name"
-            />
-          }
+      <!-- AECI-2018: the integrations wheel. Its first slide is in the server HTML. With
+           no integration on record it is not rendered, and the band draws no panel. -->
+      @if (hasWheel()) {
+        <div heroPanel data-testid="product-hero-visual">
+          <aec-product-integration-wheel [product]="p" />
         </div>
       }
     </aec-hero-band>
@@ -315,20 +291,6 @@ export class ProductHero {
 
   protected readonly logoAlt = logoAlt;
 
-  private readonly band = viewChild.required(HeroBand);
-
-  /**
-   * Owner ruling 2026-11-17, item 82: "Show all" grows the panel in place, and the
-   * band centres its two columns, so the text column used to jump down (about 300px
-   * with 32 categories). The hub emits before it changes, so the band can pin both
-   * columns where they sit now. Collapsed, the layout is exactly as before.
-   */
-  protected onHubToggle(expanding: boolean): void {
-    if (expanding) this.band().holdColumns();
-    else this.band().releaseColumns();
-  }
-
-  /** The category hub's entries, A to Z (AECI-1787, `category-hub.ts`). */
   /**
    * The hero lede (AECI-1720 restore C, mock-up 6 `.lede`): the description's first
    * paragraph, split the way the About band splits it, its lines joined by a space.
@@ -339,25 +301,12 @@ export class ProductHero {
     return first ? first.join(' ') : null;
   });
 
-  protected readonly hub = computed(() => {
+  /** The wheel shows when the page has an endpoint row: every row has a partner. */
+  protected readonly hasWheel = computed(() => {
     const p = this.product();
-    return categoryHub(
-      p.integrations_as_source,
-      p.integrations_as_target,
-      p.integrations_as_connector,
-      p.slug,
-    );
+    return p.integrations_as_source.length + p.integrations_as_target.length > 0;
   });
   protected readonly websiteLabel = correctionLabel('website');
-
-  /**
-   * Whether the hero's pair finder renders (AECI-2046). Not on a `connector` product: its
-   * question, "Does {product} connect to...?", routes to a pair page with the connector as
-   * an endpoint, and that page is almost always empty and `noindex`. The pairs a
-   * connector delivers are listed on its own page instead. A `hybrid` keeps it, because
-   * it is an endpoint too.
-   */
-  protected readonly showFinder = computed(() => this.product().product_role !== 'connector');
 
   protected readonly crumbs = computed<BreadcrumbItem[]>(() => [
     homeCrumb(),

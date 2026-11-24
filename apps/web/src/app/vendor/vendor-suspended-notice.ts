@@ -1,5 +1,8 @@
 import { Component, inject, input, signal } from '@angular/core';
 
+import { BAND_WRAP_CLASS } from '../shared/band-wrap';
+import { AecButton } from '../shared/button/button';
+import { AecCard } from '../shared/card/card';
 import { VendorApi } from './vendor-api';
 
 /**
@@ -16,21 +19,17 @@ import { VendorApi } from './vendor-api';
  */
 @Component({
   selector: 'aec-vendor-suspended-notice',
+  imports: [AecButton, AecCard],
+  host: { class: 'block' },
   template: `
-    <section
-      class="mx-auto w-full max-w-6xl px-6 py-16 text-(--text-primary) md:py-24"
-      aria-labelledby="vendor-suspended-heading"
-    >
-      <h1
-        id="vendor-suspended-heading"
-        class="font-display text-3xl font-semibold tracking-tight md:text-4xl"
-        i18n="@@vendor.suspended.heading"
-      >
+    <!-- AECI-1809: on the page wrap, the h1 at its global size, the billing panel a white card. -->
+    <section [class]="wrapClass" aria-labelledby="vendor-suspended-heading">
+      <h1 id="vendor-suspended-heading" i18n="@@vendor.suspended.heading">
         This vendor account is suspended
       </h1>
 
-      <div class="mt-8 grid gap-8 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-        <div class="space-y-4 text-base text-(--text-secondary)">
+      <div class="mt-8 grid gap-8 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] md:items-start">
+        <div class="max-w-[42rem] space-y-4 text-t-16 text-(--text-secondary)">
           <p i18n="@@vendor.suspended.locked">
             The portal for {{ vendorName() }} is locked for every seat. The public listing stays
             live, and billing is unchanged.
@@ -43,22 +42,22 @@ import { VendorApi } from './vendor-api';
             Questions go to
             <a
               [href]="'mailto:' + supportEmail"
-              class="font-medium text-(--text-primary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:decoration-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              class="rounded-mark text-(--text-primary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:decoration-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
               >{{ supportEmail }}</a
             >.
           </p>
         </div>
 
-        <div
-          class="self-start rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-5"
-        >
-          <h2 class="text-base font-bold" i18n="@@vendor.suspended.billing.heading">Billing</h2>
-          <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@vendor.suspended.billing.body">
+        <div aecCard class="p-6">
+          <h2 i18n="@@vendor.suspended.billing.heading">Billing</h2>
+          <p class="mt-2 text-t-14 text-(--text-secondary)" i18n="@@vendor.suspended.billing.body">
             Owner seats can still see invoices and cancel in Stripe.
           </p>
           <button
+            aecButton
+            variant="secondary"
             type="button"
-            class="mt-4 inline-flex cursor-pointer items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            class="mt-4"
             [disabled]="busy()"
             (click)="openPortal()"
           >
@@ -70,7 +69,7 @@ import { VendorApi } from './vendor-api';
           </button>
           @if (portalFailed()) {
             <p
-              class="mt-3 text-sm font-medium text-(--text-primary)"
+              class="mt-3 text-t-14 font-semibold text-(--text-primary)"
               role="alert"
               i18n="@@vendor.suspended.billing.fallback"
             >
@@ -81,7 +80,6 @@ import { VendorApi } from './vendor-api';
       </div>
     </section>
   `,
-  styles: [':host { display: block; }'],
 })
 export class VendorSuspendedNotice {
   private readonly api = inject(VendorApi);
@@ -89,6 +87,7 @@ export class VendorSuspendedNotice {
   readonly vendorName = input.required<string>();
 
   protected readonly supportEmail = 'support@aecintegrations.com';
+  protected readonly wrapClass = `${BAND_WRAP_CLASS} py-16 text-(--text-primary) md:py-24`;
   protected readonly busy = signal(false);
   protected readonly portalFailed = signal(false);
 

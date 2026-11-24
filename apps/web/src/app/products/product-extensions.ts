@@ -35,7 +35,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 /** The "Built within" link card: the vendor card's shape, plus a visible focus ring. */
 const CARD_CLASS =
   'flex h-full items-center gap-3 rounded-panel border border-(--border-default) ' +
-  'p-3 no-underline transition-colors hover:border-(--border-strong) ' +
+  'p-3 no-underline transition-colors ' +
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent-primary) ' +
   'focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-base)';
 

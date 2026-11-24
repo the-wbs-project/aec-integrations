@@ -109,8 +109,8 @@ type ThreadView = Omit<VendorThread, 'claim_id'> & { claim_id: string | null };
 @Component({
   selector: 'aec-integration-row-thread',
   imports: [AecConsentBox],
-  // The divider is component CSS: a layered border-color utility never applies
-  // (see ID_STYLES).
+  // The divider is component CSS, written while a layered border-color utility
+  // never applied (see ID_STYLES; fixed in AECI-2088).
   styles: [ID_STYLES, '.id-thread { border-top: 1px solid var(--border-default); }'],
   template: `
     <div class="id-thread mt-3 pt-3" [attr.data-testid]="'thread-' + key()">

@@ -18,6 +18,7 @@ import {
   type OwnedIntegration,
 } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
 import {
   VendorIntegrationEditForm,
   type EditFormValues,
@@ -35,7 +36,7 @@ import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { notSetLabel, pageFieldLabel } from './integration-detail-model';
-import { BTN_PRIMARY, BTN_SECONDARY, ID_STYLES } from './integration-detail-styles';
+import { ID_STYLES } from './integration-detail-styles';
 
 /** The nine fields an owner edits on a connector-delivered row, in the page's order. */
 const DETAIL_FIELDS: readonly IntegrationEditField[] = [
@@ -68,7 +69,7 @@ const DIRECTIONS: readonly string[] = ['outbound', 'inbound', 'both'];
  */
 @Component({
   selector: 'aec-owned-integration-overview',
-  imports: [VendorIntegrationEditForm, VendorNotOurs],
+  imports: [AecButton, VendorIntegrationEditForm, VendorNotOurs],
   styles: [ID_STYLES],
   template: `
     @let r = row();
@@ -142,7 +143,9 @@ const DIRECTIONS: readonly string[] = ['outbound', 'inbound', 'both'];
                 type="button"
                 [attr.aria-expanded]="editing()"
                 [attr.aria-controls]="formPrefix() + '-form'"
-                [class]="secondary"
+                aecButton
+                variant="secondary"
+                compact
                 (click)="editing.set(!editing())"
                 data-testid="owned-overview-edit"
                 i18n="@@vendor.ownedIntegrations.edit"
@@ -188,7 +191,8 @@ const DIRECTIONS: readonly string[] = ['outbound', 'inbound', 'both'];
               <div class="mt-3">
                 <button
                   type="button"
-                  [class]="primary"
+                  aecButton
+                  compact
                   [disabled]="claiming()"
                   (click)="claim()"
                   data-testid="owned-overview-claim"
@@ -308,7 +312,4 @@ export class OwnedIntegrationOverview {
     this.editing.set(false);
     afterNextRender(() => this.editTrigger()?.nativeElement.focus(), { injector: this.injector });
   }
-
-  protected readonly primary = BTN_PRIMARY;
-  protected readonly secondary = BTN_SECONDARY;
 }

@@ -13,6 +13,7 @@
     "dev:conductor": "bash scripts/dev-conductor.sh",
     "dev:agent": "bash scripts/dev-launch.sh",
     "baseline:screenshots": "node apps/web/scripts/baseline-screenshots.mjs",
+    "baseline:screenshots:portal-admin": "node apps/web/scripts/portal-admin-screenshots.mjs",
     "dev:web": "pnpm --filter @aeci/web dev",
     "dev:api": "pnpm --filter @aeci/api dev",
     "dev:bound": "mkdir -p .wrangler/registry && WRANGLER_REGISTRY_PATH=$PWD/.wrangler/registry pnpm --parallel --filter @aeci/api --filter @aeci/web run dev:preview",

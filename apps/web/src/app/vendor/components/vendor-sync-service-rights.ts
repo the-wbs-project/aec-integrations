@@ -2,6 +2,8 @@ import { Component, computed, inject, input, output, signal } from '@angular/cor
 
 import type { EvidencedPairContestTarget, PairFlowDirection } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
+import { FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 
@@ -26,6 +28,7 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
  */
 @Component({
   selector: 'aec-vendor-sync-service-rights',
+  imports: [AecButton],
   host: { class: 'block' },
   template: `
     @let rights = target().sync_service_rights;
@@ -34,7 +37,9 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
         <div class="flex flex-wrap gap-2">
           <button
             type="button"
-            [class]="buttonClass"
+            aecButton
+            variant="secondary"
+            compact
             [attr.aria-expanded]="panel() === 'veto'"
             (click)="open('veto')"
             i18n="@@vendor.syncRights.veto.trigger"
@@ -43,7 +48,9 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
           </button>
           <button
             type="button"
-            [class]="buttonClass"
+            aecButton
+            variant="secondary"
+            compact
             [disabled]="rights.open_reports.includes('existence')"
             [attr.aria-expanded]="panel() === 'existence'"
             (click)="open('existence')"
@@ -54,7 +61,9 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
           @if (rights.flows.length > 0) {
             <button
               type="button"
-              [class]="buttonClass"
+              aecButton
+              variant="secondary"
+              compact
               [attr.aria-expanded]="panel() === 'flow'"
               (click)="open('flow')"
               i18n="@@vendor.syncRights.flow.trigger"
@@ -86,14 +95,14 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
                 Change requests.
               </p>
               <label
-                class="block text-sm font-medium text-(--text-primary)"
+                [class]="labelClass"
                 for="veto-reason-{{ target().id }}"
                 i18n="@@vendor.syncRights.veto.reasonLabel"
                 >Why you do not authorise it (required)</label
               >
               <textarea
                 id="veto-reason-{{ target().id }}"
-                class="w-full rounded-(--radius-sm) border border-(--border-default) p-2 text-sm"
+                class="w-full rounded-control border border-(--border-default) p-2 text-sm"
                 rows="3"
                 maxlength="1000"
                 required
@@ -103,7 +112,8 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
               <div class="flex gap-2">
                 <button
                   type="submit"
-                  [class]="primaryClass"
+                  aecButton
+                  compact
                   [disabled]="busy()"
                   i18n="@@vendor.syncRights.veto.confirm"
                 >
@@ -111,7 +121,9 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
                 </button>
                 <button
                   type="button"
-                  [class]="buttonClass"
+                  aecButton
+                  variant="secondary"
+                  compact
                   (click)="close()"
                   i18n="@@vendor.syncRights.cancel"
                 >
@@ -134,14 +146,14 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
                 confirm it, we take it off the site.
               </p>
               <label
-                class="block text-sm font-medium text-(--text-primary)"
+                [class]="labelClass"
                 for="exist-reason-{{ target().id }}"
                 i18n="@@vendor.syncRights.existence.reasonLabel"
                 >What you know (required)</label
               >
               <textarea
                 id="exist-reason-{{ target().id }}"
-                class="w-full rounded-(--radius-sm) border border-(--border-default) p-2 text-sm"
+                class="w-full rounded-control border border-(--border-default) p-2 text-sm"
                 rows="3"
                 maxlength="1000"
                 required
@@ -151,7 +163,8 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
               <div class="flex gap-2">
                 <button
                   type="submit"
-                  [class]="primaryClass"
+                  aecButton
+                  compact
                   [disabled]="busy()"
                   i18n="@@vendor.syncRights.send"
                 >
@@ -159,7 +172,9 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
                 </button>
                 <button
                   type="button"
-                  [class]="buttonClass"
+                  aecButton
+                  variant="secondary"
+                  compact
                   (click)="close()"
                   i18n="@@vendor.syncRights.cancel"
                 >
@@ -186,14 +201,14 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
                 }
               </p>
               <label
-                class="block text-sm font-medium text-(--text-primary)"
+                [class]="labelClass"
                 for="flow-claim-{{ target().id }}"
                 i18n="@@vendor.syncRights.flow.claimLabel"
                 >Data flow</label
               >
               <select
                 id="flow-claim-{{ target().id }}"
-                class="rounded-(--radius-sm) border border-(--border-default) p-2 text-sm"
+                class="rounded-control border border-(--border-default) p-2 text-sm"
                 (change)="claimId.set(valueOf($event))"
               >
                 @for (f of rights.flows; track f.claim_id) {
@@ -206,14 +221,14 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
                 }
               </select>
               <label
-                class="block text-sm font-medium text-(--text-primary)"
+                [class]="labelClass"
                 for="flow-dir-{{ target().id }}"
                 i18n="@@vendor.syncRights.flow.proposedLabel"
                 >What is right</label
               >
               <select
                 id="flow-dir-{{ target().id }}"
-                class="rounded-(--radius-sm) border border-(--border-default) p-2 text-sm"
+                class="rounded-control border border-(--border-default) p-2 text-sm"
                 (change)="proposed.set(valueOf($event))"
               >
                 <option value="" i18n="@@vendor.syncRights.flow.none">
@@ -224,14 +239,14 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
                 <option value="both">{{ directionLabel('both') }}</option>
               </select>
               <label
-                class="block text-sm font-medium text-(--text-primary)"
+                [class]="labelClass"
                 for="flow-reason-{{ target().id }}"
                 i18n="@@vendor.syncRights.flow.reasonLabel"
                 >Why (required)</label
               >
               <textarea
                 id="flow-reason-{{ target().id }}"
-                class="w-full rounded-(--radius-sm) border border-(--border-default) p-2 text-sm"
+                class="w-full rounded-control border border-(--border-default) p-2 text-sm"
                 rows="3"
                 maxlength="1000"
                 required
@@ -241,7 +256,8 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
               <div class="flex gap-2">
                 <button
                   type="submit"
-                  [class]="primaryClass"
+                  aecButton
+                  compact
                   [disabled]="busy()"
                   i18n="@@vendor.syncRights.send"
                 >
@@ -249,7 +265,9 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
                 </button>
                 <button
                   type="button"
-                  [class]="buttonClass"
+                  aecButton
+                  variant="secondary"
+                  compact
                   (click)="close()"
                   i18n="@@vendor.syncRights.cancel"
                 >
@@ -286,10 +304,8 @@ export class VendorSyncServiceRights {
       this.target().owner?.name ?? $localize`:@@vendor.syncRights.ownerFallback:The Sync Service`,
   );
 
-  protected readonly buttonClass =
-    'rounded-(--radius-sm) border border-(--border-default) px-3 py-1.5 text-sm font-medium text-(--text-primary) transition-colors hover:border-(--border-strong) disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly primaryClass =
-    'rounded-(--radius-sm) bg-(--accent-primary) px-3 py-1.5 text-sm font-bold text-(--surface-base) disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  /** The Label role (AECI-2083 portal recipe). */
+  protected readonly labelClass = FIELD_LABEL_CLASS;
 
   /** A form control's value, from its event. */
   protected valueOf(event: Event): string {

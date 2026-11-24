@@ -285,9 +285,9 @@ export const PoweredIntegrationItemSchema = IntegrationListItemSchema.extend({
   /**
    * The categories of the row's two endpoints, unioned and deduped by slug
    * (AECI-2046). Ordered as a product's own categories are: curated `display_order`,
-   * NULLs last, then name, then slug. Row data for the hero's category hub on a
-   * connector page, which counts each pair once under each category either endpoint
-   * carries. No order of rows on the server reads it. `[]` when neither endpoint has a
+   * NULLs last, then name, then slug. Added as row data for the hero's category hub on
+   * a connector page, which AECI-2018 removed, so no page reads it now. No order of rows
+   * on the server reads it. `[]` when neither endpoint has a
    * category. Optional: absent (an older API, a hand-built fixture) reads as `[]`.
    */
   endpoint_categories: z.array(IntegrationTermSchema).optional(),

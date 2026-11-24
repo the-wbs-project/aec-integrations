@@ -118,9 +118,10 @@ The pattern, if you write another one:
 - **Every state switchable**, empty states included. A concept that only looks
   good populated has not been reviewed.
 - **Declare what the app supplies from elsewhere**: the Spartan `--radius-*`
-  chain, `.aec-overline`, and the unlayered `* { border-color }` rule, which
-  defeats every Tailwind border-colour utility and needs the `.aec-nav-tab`
-  escape hatch.
+  chain, `.aec-overline`, and the `@layer base` `* { border-color }` default
+  (`--border-default`). Since AECI-2088 a Tailwind border-colour utility beats
+  that default, but an unlayered edge class such as `.aec-nav-tab` beats the
+  utility.
 - **Carry a FINDINGS block** at the bottom naming what the port has to resolve.
   The mock-up is where those are cheapest to notice. The AECI-983 file found
   five, including two live defects in shipped code and one figure that cannot

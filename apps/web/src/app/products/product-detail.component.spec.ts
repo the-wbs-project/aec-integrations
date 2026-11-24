@@ -2086,11 +2086,23 @@ describe('ProductDetailPage band shell and hero (AECI-1778)', () => {
     expect(link.querySelector('svg')).not.toBeNull();
   });
 
-  it('fills the hero panel slot with the visual of ruling R3 (AECI-1787)', () => {
-    const { el } = setup(buildProduct());
+  it('fills the hero panel slot with the integrations wheel (AECI-2018)', () => {
+    const row: ProductIntegrationItem = {
+      ...edge(procore, vista),
+      mechanism_kind: 'native',
+      context_direction: null,
+      powered_by_product: null,
+      data_object_slugs: [],
+      data_objects: [],
+      partner_categories: [],
+      agreement: null,
+    };
+    const { el } = setup(buildProduct({ integrations_as_source: [row] }));
     const panel = el.querySelector('.aec-hero-panel')!;
     expect(panel.querySelector('[data-testid="product-hero-visual"]')).not.toBeNull();
-    expect(panel.querySelector('[data-testid="product-pair-finder"]')).not.toBeNull();
+    expect(panel.querySelector('[data-testid="product-hero-wheel"]')).not.toBeNull();
+    // The pair finder of ruling R3 is gone from the product page.
+    expect(el.querySelector('[data-testid="product-pair-finder"]')).toBeNull();
   });
 
   it('puts the mailing-list band on white, so the page keeps one Bone band', () => {

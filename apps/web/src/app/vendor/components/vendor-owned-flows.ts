@@ -4,15 +4,9 @@ import type { ContextDirection, DataObjectOption, OwnedFlow, OwnedIntegration } 
 import { compareText } from '@aeci/shared/text-sort';
 
 import { isReplayedEvent } from '../../core/event-replay';
-import {
-  ALERT,
-  BTN_PRIMARY,
-  BTN_SECONDARY,
-  HELP,
-  ID_STYLES,
-  LABEL,
-  ROW_ACTION,
-} from '../integration-detail/integration-detail-styles';
+import { AecButton } from '../../shared/button/button';
+import { FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
+import { ALERT, HELP, ID_STYLES } from '../integration-detail/integration-detail-styles';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorPortalStore } from '../vendor-portal-store';
@@ -75,6 +69,7 @@ export type OwnedFlowsRow = Pick<
  */
 @Component({
   selector: 'aec-vendor-owned-flows',
+  imports: [AecButton],
   styles: [ID_STYLES],
   host: { class: 'block' },
   template: `
@@ -90,7 +85,9 @@ export type OwnedFlowsRow = Pick<
           <button
             type="button"
             class="ms-auto"
-            [class]="secondary"
+            aecButton
+            variant="secondary"
+            compact
             [attr.aria-expanded]="adding()"
             [attr.aria-controls]="prefix() + '-add'"
             data-testid="owned-flow-add-toggle"
@@ -157,7 +154,8 @@ export type OwnedFlowsRow = Pick<
             <div class="flex flex-wrap gap-3">
               <button
                 type="submit"
-                [class]="primary"
+                aecButton
+                compact
                 [disabled]="busy() !== null || dataOptions().length === 0"
                 data-testid="owned-flow-add-submit"
               >
@@ -165,7 +163,9 @@ export type OwnedFlowsRow = Pick<
               </button>
               <button
                 type="button"
-                [class]="secondary"
+                aecButton
+                variant="secondary"
+                compact
                 [disabled]="busy() !== null"
                 (click)="adding.set(false)"
                 i18n="@@vendor.im.add.cancel"
@@ -255,7 +255,9 @@ export type OwnedFlowsRow = Pick<
                         </select>
                         <button
                           type="button"
-                          [class]="rowAction"
+                          aecButton
+                          variant="ghost"
+                          compact
                           [disabled]="busy() !== null"
                           (click)="saveDirection(flow)"
                           i18n="@@vendor.ownedFlows.saveDirection"
@@ -264,7 +266,9 @@ export type OwnedFlowsRow = Pick<
                         </button>
                         <button
                           type="button"
-                          [class]="rowAction"
+                          aecButton
+                          variant="ghost"
+                          compact
                           (click)="changing.set(null)"
                           i18n="@@vendor.im.add.cancel"
                         >
@@ -277,7 +281,9 @@ export type OwnedFlowsRow = Pick<
                         @if (r.flows_editable) {
                           <button
                             type="button"
-                            [class]="rowAction"
+                            aecButton
+                            variant="ghost"
+                            compact
                             [attr.aria-label]="directionLabel(flow)"
                             [attr.data-testid]="'owned-flow-change-' + flow.id"
                             (click)="startChange(flow)"
@@ -351,10 +357,8 @@ export class VendorOwnedFlows {
   private readonly dataObjects = signal<readonly DataObjectOption[]>([]);
   protected readonly vocabularyFailed = signal(false);
 
-  protected readonly primary = BTN_PRIMARY;
-  protected readonly secondary = BTN_SECONDARY;
-  protected readonly rowAction = ROW_ACTION;
-  protected readonly label = LABEL;
+  /** The Label role (AECI-2083 portal recipe). */
+  protected readonly label = FIELD_LABEL_CLASS;
   protected readonly help = HELP;
   protected readonly alert = ALERT;
   protected readonly addFormLabel = $localize`:@@vendor.ownedFlows.addForm:Add a row of data`;

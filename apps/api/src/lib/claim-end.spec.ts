@@ -29,6 +29,7 @@ import {
   toVendorDetail,
   toVendorListItem,
   vendorDetailConfig,
+  wheelLogoOf,
   vendorListConfig,
 } from './drizzle-helpers';
 import { integrations } from '../db/schema';
@@ -394,6 +395,148 @@ describe('the public mappers', () => {
     expect((await computeMostIntegratedProduct(t.db))?.product.logo_url).toBe(LOGO);
     await endClaim();
     expect((await computeMostIntegratedProduct(t.db))?.product.logo_url).toBeNull();
+  });
+});
+
+// AECI-2018, ruling 64 (2026-11-24): a wheel tile shows a product's logo whenever we hold
+// one, claimed or not. It widens the logo rule for the wheel ONLY, so these pin both
+// halves: the wheel's own field carries the logo, and every other read is unchanged.
+describe("the integrations wheel's marks (ruling 64)", () => {
+  const PARTNER_LOGO = 'https://cdn.example/p.png';
+  const UPLOAD = 'https://cdn.example/vendor-upload.png';
+  const SOURCED = 'https://cdn.example/aeci-sourced.png';
+  const detail = async () =>
+    toProductDetail(
+      (await t.db.query.products.findFirst({
+        ...productDetailConfig,
+        where: eq(products.id, PRODUCT),
+      }))!,
+      [],
+    );
+  const mark = async (id: string) => (await detail()).wheel_marks!.find((m) => m.product_id === id);
+  const listPartner = async () =>
+    toProductListItem(
+      (await t.db.query.products.findFirst({
+        ...productListConfig,
+        where: eq(products.id, PARTNER),
+      }))!,
+    );
+  const setPartner = (values: Partial<typeof products.$inferInsert>) =>
+    t.db.update(products).set(values).where(eq(products.id, PARTNER));
+  /** PARTNER joins Acme, so it is claimed while Acme's claim runs. */
+  const claimPartner = () =>
+    t.db.insert(productVendors).values({ productId: PARTNER, vendorId: VENDOR, isPrimary: true });
+  const endClaim = () =>
+    t.db.update(vendors).set({ claimEndedAt: NOW }).where(eq(vendors.id, VENDOR));
+
+  beforeEach(async () => {
+    // PRODUCT (claimed through Acme) integrates with PARTNER, which has no vendor, so is
+    // unclaimed, and holds promote's logo (`logo_source` NULL).
+    await t.db.insert(integrations).values({
+      id: u(40),
+      sourceProductId: PRODUCT,
+      targetProductId: PARTNER,
+      name: 'Edge',
+    } as never);
+  });
+
+  it("carries an unclaimed partner's sourced logo, and says it is unclaimed", async () => {
+    expect(await mark(PARTNER)).toEqual({
+      product_id: PARTNER,
+      logo_url: PARTNER_LOGO,
+      claim_status: 'unclaimed',
+    });
+  });
+
+  it("leaves the row's own link, the list card and the integration list as they were", async () => {
+    const page = await detail();
+    expect(page.integrations_as_source[0]!.target).toMatchObject({
+      id: PARTNER,
+      logo_url: null,
+    });
+    expect((await listPartner()).logo_url).toBeNull();
+    const item = toIntegrationListItem(
+      (await t.db.query.integrations.findFirst({
+        ...integrationListConfig,
+        where: eq(integrations.id, u(40)),
+      }))!,
+    );
+    expect(item.target.logo_url).toBeNull();
+  });
+
+  it("shows a claimed partner's own upload", async () => {
+    await claimPartner();
+    await setPartner({ logoUrl: UPLOAD, logoSource: 'vendor', sourcedLogoUrl: SOURCED });
+    expect(await mark(PARTNER)).toEqual({
+      product_id: PARTNER,
+      logo_url: UPLOAD,
+      claim_status: 'claimed',
+    });
+  });
+
+  // Vendor Terms 1.3: permission to show an uploaded logo ends with the claim. The daily
+  // removal job restores the sourced logo later, and a hold can delay it, so for that
+  // window the stored column still holds the upload. The wheel never shows it.
+  it('after the claim ends and before the removal job runs: the sourced logo, never the upload', async () => {
+    await claimPartner();
+    await setPartner({ logoUrl: UPLOAD, logoSource: 'vendor', sourcedLogoUrl: SOURCED });
+    await endClaim();
+    expect(await mark(PARTNER)).toEqual({
+      product_id: PARTNER,
+      logo_url: SOURCED,
+      claim_status: 'unclaimed',
+    });
+    // Under a removal hold, the same.
+    await t.db.update(vendors).set({ brandAssetsHoldAt: NOW }).where(eq(vendors.id, VENDOR));
+    expect((await mark(PARTNER))!.logo_url).toBe(SOURCED);
+    // With no sourced logo on record, no logo at all.
+    await setPartner({ sourcedLogoUrl: null });
+    expect((await mark(PARTNER))!.logo_url).toBeNull();
+  });
+
+  it("shows an AECi correction's logo on an unclaimed partner", async () => {
+    await setPartner({ logoUrl: SOURCED, logoSource: 'admin' });
+    expect((await mark(PARTNER))!.logo_url).toBe(SOURCED);
+  });
+
+  it('fails closed: an unclaimed product read without logo_source shows no logo', () => {
+    const bare = { id: PARTNER, name: 'Partner', slug: 'partner', logoUrl: UPLOAD };
+    expect(wheelLogoOf(bare, false)).toBeNull();
+    expect(wheelLogoOf(bare, true)).toBe(UPLOAD);
+  });
+
+  it("carries the page product's own mark for the centre, by the same rule", async () => {
+    expect(await mark(PRODUCT)).toEqual({
+      product_id: PRODUCT,
+      logo_url: LOGO,
+      claim_status: 'claimed',
+    });
+    await t.db
+      .update(products)
+      .set({ logoSource: 'vendor', sourcedLogoUrl: SOURCED })
+      .where(eq(products.id, PRODUCT));
+    await endClaim();
+    expect(await mark(PRODUCT)).toEqual({
+      product_id: PRODUCT,
+      logo_url: SOURCED,
+      claim_status: 'unclaimed',
+    });
+  });
+
+  it('lists a product once, whichever side and however many rows', async () => {
+    await t.db.insert(integrations).values([
+      { id: u(41), sourceProductId: PARTNER, targetProductId: PRODUCT, name: 'Back' },
+      { id: u(42), sourceProductId: PRODUCT, targetProductId: PARTNER, name: 'Again' },
+    ] as never);
+    expect((await detail()).wheel_marks!.map((m) => m.product_id)).toEqual([PRODUCT, PARTNER]);
+  });
+
+  // A removal on objection clears `logo_url` and `sourced_logo_url` (routes/logos.ts), so
+  // the wheel holds nothing to show. Its purge is `product:{partner}`, which every product
+  // page carries for each partner (the web resolver spec pins that half).
+  it('shows no logo once the logo is removed', async () => {
+    await setPartner({ logoUrl: null, sourcedLogoUrl: null });
+    expect((await mark(PARTNER))!.logo_url).toBeNull();
   });
 });
 

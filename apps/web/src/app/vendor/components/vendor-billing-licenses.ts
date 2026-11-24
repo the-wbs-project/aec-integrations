@@ -165,9 +165,9 @@ export function toVendorBillingLicenseRow(
  * panel (AECI-1502), never a control in this table.
  *
  * ── STATUS CHIPS (AECI-1866) ────────────────────────────────────────────────
- * The tone classes are unlayered `.aec-status-chip--*` rules in `styles.css`: a
- * Tailwind border-colour utility never beats the unlayered `* { border-color }`
- * rule there, which is why every chip used to come out the same grey.
+ * The tone classes are unlayered `.aec-status-chip--*` rules in `styles.css`. They
+ * were written while a Tailwind border-colour utility never beat the unlayered
+ * `* { border-color }` rule (fixed in AECI-2088), when every chip came out grey.
  *
  * ── THE ACTIONS SLOT (E5.5) ──────────────────────────────────────────────────
  * `rowActions` is a template rendered in an Actions column when set, the admin

@@ -7,6 +7,7 @@ import { map } from 'rxjs';
 import type { AdminSummaryResponse } from '@aeci/shared';
 
 import { NotFound } from '../not-found/not-found';
+import { BAND_WRAP_CLASS } from '../shared/band-wrap';
 import { AdminBreadcrumb } from './admin-breadcrumb';
 import { AdminNavDropdown } from './admin-nav-dropdown';
 import {
@@ -17,6 +18,7 @@ import {
   type AdminNavItem,
 } from './admin-nav';
 import { AdminSummaryStore } from './admin-summary.store';
+import { useAdminChipTones } from './console/chip-tones';
 
 /** One category as the row renders it. Derived once, at module scope: the IA is
  *  a static array, so recomputing per instance would buy nothing. */
@@ -26,7 +28,7 @@ interface AdminNavEntry {
    *  renders as a plain link to it rather than as a dropdown. See `admin-nav.ts`
    *  for why that rule is structural rather than a flag. */
   readonly sole: AdminNavItem | null;
-  /** The last category's panel hangs from the end edge, or a 14rem panel opening
+  /** The last category's panel hangs from the end edge, or a 16rem panel opening
    *  two thirds of the way across a phone viewport runs off the screen. */
   readonly align: 'start' | 'end';
 }
@@ -108,9 +110,12 @@ const NAV_ENTRIES: readonly AdminNavEntry[] = ADMIN_NAV_GROUPS.map((group, index
     @if (s === null) {
       <aec-not-found />
     } @else {
-      <section class="mx-auto w-full max-w-7xl px-6 py-10 md:px-8">
+      <!-- AECI-1813: the 1328px page wrap the header and footer sit on, 48px above
+           and 96px below the content (32 and 64 below md). The h1 takes the global
+           heading size (the Unlayered-Heading Rule). -->
+      <section [class]="wrapClass" class="pb-16 pt-8 md:pb-24 md:pt-12">
         <header class="mb-8">
-          <h1 class="text-2xl font-bold text-(--text-primary)" i18n="@@admin.shell.title">Admin</h1>
+          <h1 class="text-(--text-primary)" i18n="@@admin.shell.title">Admin</h1>
 
           <!-- AECI-1855: a persistent section row. A pressed link keeps focus after it
                navigates (core/route-focus.ts, data-route-focus-keep). -->
@@ -169,6 +174,7 @@ export class AdminShell {
    *  only consumer: the header offers one "Admin portal" door and never
    *  restates these screens. */
   protected readonly navEntries = NAV_ENTRIES;
+  protected readonly wrapClass = BAND_WRAP_CLASS;
   protected readonly itemClass = ADMIN_NAV_ITEM_CLASS;
   protected readonly itemActiveClass = ADMIN_NAV_ITEM_ACTIVE_CLASS;
 
@@ -181,6 +187,9 @@ export class AdminShell {
   );
 
   constructor() {
+    // AECI-1813: the console chip tones, a stylesheet only the console loads.
+    useAdminChipTones();
+
     // The parent `/admin` route data is fixed for this shell instance's lifetime
     // (navigating between children never re-runs the resolver; a fresh visit
     // re-instantiates the shell), so seed the shared store synchronously here —
