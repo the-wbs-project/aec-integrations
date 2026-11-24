@@ -1469,7 +1469,9 @@ describe('on-page ordering firewall: the taxonomy term-count exception', () => {
 
   it('every tolerated site orders by the one capability the entry names, which is still Managed-only', () => {
     for (const site of [...exception.sites, ...exception.indexing]) {
-      if (site.facet === '*' || site.facet === 'vendor_name') continue;
+      // `connector_kind` sites live in their own list (AECI-1662), never in this exception.
+      if (site.facet === '*' || site.facet === 'vendor_name' || site.facet === 'connector_kind')
+        continue;
       expect(PRODUCT_FIELD_CAPABILITIES[FACET_FIELD[site.facet]], siteKey(site)).toBe(
         exception.capability,
       );
