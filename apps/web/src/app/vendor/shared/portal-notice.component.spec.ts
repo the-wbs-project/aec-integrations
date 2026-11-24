@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { BAND_WRAP_CLASS } from '../../shared/band-wrap';
 import {
   PORTAL_FIELDSET_CLASS,
+  PORTAL_FORM_CLASS,
   PORTAL_FORM_GRID_CLASS,
   PORTAL_SAVE_BAR_CLASS,
   PORTAL_SAVE_BUTTON_CLASS,
@@ -61,6 +62,14 @@ describe('the portal layout and form helpers (AECI-1809)', () => {
     expect(PORTAL_SAVE_BAR_CLASS).toContain('bottom-0');
     expect(PORTAL_SAVE_BAR_CLASS).toContain('justify-end');
     expect(PORTAL_SAVE_BUTTON_CLASS).toBe('max-sm:w-full');
+  });
+
+  it('keeps focused controls clear of the sticky bar, but not the bar’s own button', () => {
+    // WCAG 2.4.11: the scroll margin is taller than the bar, and taller again below sm.
+    expect(PORTAL_FORM_CLASS).toContain(':scroll-mb-24');
+    expect(PORTAL_FORM_CLASS).toContain('max-sm:');
+    expect(PORTAL_FORM_CLASS).toContain(':not(.aec-portal-save-bar_*)');
+    expect(PORTAL_SAVE_BAR_CLASS.split(' ')).toContain('aec-portal-save-bar');
   });
 
   it('separates fieldsets with a hairline', () => {

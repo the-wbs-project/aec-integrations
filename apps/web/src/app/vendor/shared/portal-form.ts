@@ -9,7 +9,7 @@
  * The shape:
  *
  * ```html
- * <form aecCard phoneFlush class="p-6 md:p-8" …>
+ * <form aecCard phoneFlush [class]="formClass + ' p-6 md:p-8'" …>
  *   <fieldset [class]="fieldsetClass">
  *     <legend [class]="legendClass" i18n="…">Profile details</legend>
  *     <div [class]="gridClass">
@@ -18,11 +18,22 @@
  *     </div>
  *   </fieldset>
  *   <div [class]="saveBarClass">
- *     <p [class]="saveStatusClass" role="status">…</p>
- *     <button aecButton type="submit" class="max-sm:w-full">Save changes</button>
+ *     <p [class]="saveStatusClass">{{ status() }}</p>
+ *     <button aecButton type="submit" [class]="saveButtonClass">Save changes</button>
  *   </div>
  * </form>
  * ```
+ *
+ * - **The status line is not a live region.** The portal has ONE polite live region,
+ *   in the shell (`STAGE_2_REALTIME_SPEC.md` §6.3: never add a second). Show the
+ *   result in the status line as plain text, and announce the same sentence through
+ *   `inject(VendorPortalAnnouncer).announce(message)` (`vendor/vendor-announcer.ts`).
+ *   A field error stays `role="alert"` beside its field (`FIELD_ERROR_CLASS`).
+ * - **A focused field never hides under the bar** (WCAG 2.4.11).
+ *   {@link PORTAL_FORM_CLASS} on the `<form>` gives every control in it a bottom
+ *   scroll margin taller than the bar, so the browser's own focus scrolling stops it
+ *   above the bar: 96px, and 192px below `sm`, where the status line and a full-width
+ *   button stack.
  *
  * - **Two columns from `md`** (768px), one below. A field that needs the width (a
  *   description, a logo, an option row) spans both with {@link PORTAL_FORM_SPAN_CLASS}.
@@ -36,6 +47,15 @@
  *
  * Whole class names, so Tailwind's scanner sees each one. Light only.
  */
+
+/**
+ * On the `<form>` that carries the save bar: every focusable control in it keeps clear
+ * of the sticky bar when focus scrolls it into view (WCAG 2.4.11). The margin is a
+ * scroll margin, not layout: nothing moves until the browser scrolls to a control.
+ */
+export const PORTAL_FORM_CLASS =
+  '[&_:is(input,select,textarea,button,a,[tabindex]):not(.aec-portal-save-bar_*)]:scroll-mb-24 ' +
+  'max-sm:[&_:is(input,select,textarea,button,a,[tabindex]):not(.aec-portal-save-bar_*)]:scroll-mb-48';
 
 /** A fieldset in a portal form. The next fieldset stands 32px clear, over a hairline. */
 export const PORTAL_FIELDSET_CLASS =
@@ -59,7 +79,7 @@ export const PORTAL_FIELD_CLASS = 'min-w-0 space-y-2';
  * has no frame (`phoneFlush`), so the bar loses its rounded foot too.
  */
 export const PORTAL_SAVE_BAR_CLASS =
-  'sticky bottom-0 z-10 -mx-6 -mb-6 mt-8 flex flex-wrap items-center justify-end gap-x-6 gap-y-3 border-t bg-(--surface-base) px-6 py-4 sm:rounded-b-card md:-mx-8 md:-mb-8 md:px-8';
+  'aec-portal-save-bar sticky bottom-0 z-10 -mx-6 -mb-6 mt-8 flex flex-wrap items-center justify-end gap-x-6 gap-y-3 border-t bg-(--surface-base) px-6 py-4 sm:rounded-b-card md:-mx-8 md:-mb-8 md:px-8';
 
 /** The save bar's status line, at the start. It takes the room the button leaves. */
 export const PORTAL_SAVE_STATUS_CLASS = 'me-auto min-w-0 flex-[1_1_20rem] text-t-14 leading-[1.5]';

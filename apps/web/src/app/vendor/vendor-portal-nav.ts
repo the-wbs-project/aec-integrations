@@ -1,8 +1,10 @@
+import { DOCUMENT } from '@angular/common';
 import {
   Component,
   DestroyRef,
   ElementRef,
   afterNextRender,
+  afterRenderEffect,
   inject,
   input,
   signal,
@@ -163,11 +165,20 @@ export class VendorPortalNav {
 
   private readonly row = viewChild.required<ElementRef<HTMLElement>>('row');
   private readonly destroyRef = inject(DestroyRef);
+  private readonly doc = inject(DOCUMENT);
 
   constructor() {
     const destroyRef = this.destroyRef;
-    afterNextRender(() => {
+    // After every render that read `items()`: the shell swaps the vendor row for a
+    // product row in this same component, and the row keeps its own width while its
+    // tabs change, so neither scroll nor the ResizeObserver would fire. Browser-only.
+    afterRenderEffect(() => {
+      this.items();
       this.measure();
+    });
+    afterNextRender(() => {
+      // Web fonts change every tab's width after first paint.
+      void this.doc.fonts?.ready.then(() => this.measure());
       if (typeof ResizeObserver === 'undefined') return;
       const observer = new ResizeObserver(() => this.measure());
       observer.observe(this.row().nativeElement);
@@ -184,10 +195,18 @@ export class VendorPortalNav {
     this.fadeEnd.set(max > 1 && at < max - 1);
   }
 
-  /** Scrolls the ROW, never the page, so a tab reached by Tab sits clear of both fades. */
+  /**
+   * Scrolls the ROW, never the page, so a tab reached by Tab sits clear of both fades.
+   *
+   * Keyboard focus only (`:focus-visible`). Chrome focuses a link on mousedown, so
+   * scrolling on a pointer focus would move the row before mouseup: the release would
+   * land on a different tab, or on the row itself, and the click would do nothing
+   * (review of PR #1483).
+   */
   protected reveal(event: FocusEvent): void {
     const link = (event.target as Element | null)?.closest('a');
     if (!(link instanceof HTMLElement)) return;
+    if (!link.matches(':focus-visible')) return;
     const row = this.row().nativeElement;
     if (row.scrollWidth - row.clientWidth <= 1) return;
     const start = link.offsetLeft;

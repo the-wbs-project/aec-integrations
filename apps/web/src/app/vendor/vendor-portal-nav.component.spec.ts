@@ -13,8 +13,9 @@
  *  - the landmark name and the items come from the caller, so the same row draws
  *    the vendor sections and a product's sections (§6.11).
  */
-import { Component, provideZonelessChangeDetection } from '@angular/core';
+import { Component, provideZonelessChangeDetection, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -46,10 +47,11 @@ let hostLabel = 'Portal sections';
 @Component({
   selector: 'aec-test-nav-host',
   imports: [VendorPortalNav],
-  template: `<aec-vendor-portal-nav [items]="items" [ariaLabel]="label" />`,
+  template: `<aec-vendor-portal-nav [items]="items()" [ariaLabel]="label" />`,
 })
 class TestNavHost {
-  protected readonly items = hostItems;
+  /** A signal, so a spec can swap the row in place, as the shell does. */
+  readonly items = signal<readonly VendorNavItem[]>(hostItems);
   protected readonly label = hostLabel;
 }
 
@@ -245,6 +247,33 @@ describe('VendorPortalNav', () => {
 
     geometry(900, 300, 600);
     expect(list.classList.contains('aec-fade-start')).toBe(true);
+    expect(list.classList.contains('aec-fade-end')).toBe(false);
+  });
+
+  it('re-measures the fades when the row swaps its tabs at the same width (AECI-1809)', async () => {
+    // The shell swaps the vendor row for a product row in the same component. The row
+    // keeps its width, so neither scroll nor a resize fires: the fades must follow the
+    // items. jsdom has no layout, so the row's scroll width follows its tab count.
+    const harness = await mount();
+    const list = root(harness).querySelector('nav ul') as HTMLElement;
+    Object.defineProperty(list, 'clientWidth', { configurable: true, value: 300 });
+    Object.defineProperty(list, 'scrollWidth', {
+      configurable: true,
+      get: () => list.querySelectorAll('li').length * 100,
+    });
+    list.dispatchEvent(new Event('scroll'));
+    harness.detectChanges();
+    expect(list.classList.contains('aec-fade-end')).toBe(true);
+
+    // Swap to a three-tab row: it fits, so the end fade must go.
+    const host = harness.fixture.debugElement.query(By.directive(TestNavHost))
+      .componentInstance as TestNavHost;
+    host.items.set(VENDOR_NAV_ITEMS.slice(0, 3));
+    harness.detectChanges();
+    await harness.fixture.whenStable();
+    harness.detectChanges();
+
+    expect(list.querySelectorAll('li')).toHaveLength(3);
     expect(list.classList.contains('aec-fade-end')).toBe(false);
   });
 

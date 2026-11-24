@@ -50,11 +50,10 @@ export const previewRoutes: Routes = [
     loadComponent: () =>
       import('./integration-pair/integration-pair-preview').then((m) => m.IntegrationPairPreview),
   },
-  // AECI-522 — the Stage 2 vendor dashboard, rendered as two live-toggleable
-  // information-architecture concepts (tabbed vs single-page) so the PO chooses
-  // one before it's wired into the real gated `/vendor` route. The real dashboard
-  // components are used verbatim, fed synthetic fixtures with the `VendorApi`
-  // shadowed by a fixture-backed fake.
+  // AECI-522 — the Stage 2 vendor dashboard. It first rendered two IA concepts; the
+  // PO chose the tabbed shell and AECI-1809 deleted the single-page one. The real
+  // dashboard components are used verbatim, fed synthetic fixtures with the
+  // `VendorApi` shadowed by a fixture-backed fake.
   //
   // It carries the portal's own section routes as CHILDREN because the tabbed
   // concept is a router shell now (`vendor/vendor.routes.ts`): its nav links are
@@ -66,6 +65,13 @@ export const previewRoutes: Routes = [
     loadComponent: () =>
       import('./vendor-dashboard/vendor-dashboard-preview').then((m) => m.VendorDashboardPreview),
     children: VENDOR_SECTION_ROUTES,
+  },
+  // AECI-1809 — the portal form layout (`vendor/shared/portal-form.ts`) on a demo form,
+  // so the sticky save bar can be checked against a focused field without a session.
+  {
+    path: 'portal-form',
+    loadComponent: () =>
+      import('./portal-form/portal-form-preview').then((m) => m.PortalFormPreview),
   },
   // AECI-1009 — the `/admin/contests` queue over a fixture-backed fake API, so the
   // Protests view and its decision form render without an admin session.

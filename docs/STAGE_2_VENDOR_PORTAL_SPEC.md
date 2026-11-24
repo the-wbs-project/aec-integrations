@@ -1480,8 +1480,8 @@ field and re-asserts `product.taxonomy.edit` when facet arrays ride along, so tw
 components would mean two dirty-diff implementations racing on one endpoint — two
 chances to send an empty PATCH and two places for the field-level gate to drift. A
 field with no control on screen is never edited, so it never enters `patch()`; that is
-what makes each tab's PATCH carry only its own section. `'all'` remains the default and
-is what `vendor-dashboard-single.ts` keeps using.
+what makes each tab's PATCH carry only its own section. `'all'` remains the default. Its
+one user, `vendor-dashboard-single.ts`, was deleted by AECI-1809 (§6.25).
 
 The Taxonomy tab is **not** route-gated on `product.taxonomy.edit`: a vendor without it
 sees its own facets read-only with the copy explaining what verification unlocks, per
@@ -1497,8 +1497,8 @@ the ownership-reads / capability-writes split. Routing it away would hide owned 
 - **`/vendor/:vendorSlug/integrations` no longer exists.** The portal is private,
   noindex and non-cacheable, used by a handful of accounts, so a stale bookmark landing
   on a 404 was accepted rather than adding a resolve-and-redirect hop.
-- **`vendor-dashboard-single.ts`** (the single-page concept, which has no product
-  selection) renders `aec-vendor-notifications-list` explicitly and leaves
+- *(Deleted by AECI-1809, §6.25.)* **`vendor-dashboard-single.ts`** (the single-page concept, which had no product
+  selection) rendered `aec-vendor-notifications-list` explicitly and leaves
   `contextProductId` unset, keeping the vendor-wide list. Without that it would have
   silently lost a surface the tabbed concept has — the thing AECI-606 added it to both
   concepts to prevent.
@@ -1777,7 +1777,8 @@ and it really does navigate, which is exactly the case the rule covers. A
 modified click (cmd/middle) is left to the browser by the directive, so it lands
 there too.
 
-**The drawer is mounted in BOTH shells** — `vendor-dashboard-tabbed.ts` and
+*(Since AECI-1809 the drawer is mounted in the one shell, `vendor-dashboard-tabbed.ts`: the
+single-page concept is deleted, §6.25.)* **The drawer is mounted in BOTH shells** — `vendor-dashboard-tabbed.ts` and
 `vendor-dashboard-single.ts`. Both concepts compose `vendor-product-form` and
 `vendor-claim-lane`, and a trigger with no drawer mounted `preventDefault()`s into
 nothing. §6.1's rule that the single-page concept never silently loses what the
@@ -2981,9 +2982,9 @@ Slice P1 of AECI-1729. The anchor is mock-up 13 (`docs/design/mockups/redesign-2
 
 - **One width.** The shell puts the header, the banner slot, the tab row and the routed section on the site's page wrap (`PORTAL_WRAP_CLASS` in `vendor/shared/portal-layout.ts`, which is `BAND_WRAP_CLASS` plus 96px under the page). A section never adds a width of its own.
 - **The header** is plain white: the shared `aec-breadcrumb` (§6.11's trail, unchanged), then a 48px initial tile or logo (`aec-logo-or-initial`, `md`), the `h1` at its global size, the open product's plan badge and "View public page". The required acceptance screen still drops the banner slot and the tab row.
-- **The tab row** (§6.4, §6.11) keeps one row, `aria-current` and `data-route-focus-keep`. The current tab is Forest at weight 600 with a 2px Forest underline drawn by the link's `::after` on the row's hairline. That replaces §6.4's `-mb-px` + `border-b-2` and the `.aec-nav-tab` class. Labels are 16px, and each reserves its weight-600 width. The row scrolls sideways with no visible scrollbar and a fade at an edge with more tabs past it. A tab reached by Tab scrolls clear of the fades. The focus ring is inside the tab.
+- **The tab row** (§6.4, §6.11) keeps one row, `aria-current` and `data-route-focus-keep`. The current tab is Forest at weight 600 with a 2px Forest underline drawn by the link's `::after` on the row's hairline. That replaces §6.4's `-mb-px` + `border-b-2` and the `.aec-nav-tab` class. Labels are 16px, and each reserves its weight-600 width. The row scrolls sideways with no visible scrollbar and a fade at an edge with more tabs past it. A tab reached by Tab scrolls clear of the fades. A pointer focus does not scroll the row, so one click on a half-faded tab navigates. The fades re-measure when the row swaps its tabs and when fonts load. The focus ring is inside the tab.
 - **Every banner is one calm notice** (`aecPortalNotice`, `vendor/shared/portal-notice.ts`): Bone fill, a 1px strong edge, the panel radius, 24px padding, a `--t-20` serif heading, 14px body capped near 32rem. No status colour, no alert role, no dismiss. Plan ended, product ended, listing hidden, the optional acceptance prompt and its confirmation use it. "Go to Billing" is the primary `aecButton`.
-- **A portal form layout** for the later slices (`vendor/shared/portal-form.ts`): two columns of fields from 768px, overline fieldset legends, a save bar that sticks to the foot of the form card with the status at the start and the primary button at the end, full width below 640px. The acceptance screen's two fields use its grid. The Profile form adopts the rest in its own slice.
+- **A portal form layout** for the later slices (`vendor/shared/portal-form.ts`): two columns of fields from 768px, overline fieldset legends, a save bar that sticks to the foot of the form card with the status at the start and the primary button at the end, full width below 640px. `PORTAL_FORM_CLASS` keeps a focused field clear of the bar (WCAG 2.4.11). The status line is not a live region: the result is announced through `VendorPortalAnnouncer`, the portal's one region (`STAGE_2_REALTIME_SPEC.md` §6.3). `/preview/portal-form` is the demo, and `e2e/preview-portal-form.spec.ts` holds the focus rule at 320 and 1440px. The acceptance screen's two fields use its grid. The Profile form adopts the rest in its own slice.
 - **The account-status screen** (`vendor-suspended-notice.ts`) and the invite page take the same pieces: the page wrap, the global `h1`, white cards and `aecButton`. The preview gains a `suspended` fixture for it.
 - **The single-page concept is deleted** (ruled 2026-11-24). `vendor-dashboard-single.ts` and the preview's concept toggle are gone. The paragraphs above that name it are history.
 
