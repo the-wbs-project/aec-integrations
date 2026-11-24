@@ -11,7 +11,6 @@ admin/legal/legal-versions.html 4
 admin/legal/litigation-holds.html 3
 admin/users/user-detail.html 7
 admin/users/user-list.html 1
-admin/vendors/billing-licenses-table.html 6
 vendor/components/vendor-billing-stripe-panel.ts 3
 vendor/components/vendor-billing-summary.ts 1
 vendor/components/vendor-license-actions.ts 1

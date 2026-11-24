@@ -167,4 +167,59 @@ describe('BillingEmailControl', () => {
     expect(el(fixture).querySelector('form')).toBeNull();
     expect(updateBillingEmail).not.toHaveBeenCalled();
   });
+  // ── AECI-2124: the console look and the inline form's keyboard rules ─────────
+
+  it('Change is a compact secondary button, Save a compact primary', () => {
+    const { fixture } = render('ops@acme.example');
+    const change = el(fixture).querySelector('button') as HTMLButtonElement;
+    expect(change.className).toContain('aec-btn-secondary');
+    openForm(fixture);
+    const save = Array.from(el(fixture).querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Save',
+    ) as HTMLButtonElement;
+    expect(save.className).toContain('bg-(--accent-primary)');
+  });
+
+  it('Escape closes the form and returns focus to Change', async () => {
+    const { fixture } = render('ops@acme.example');
+    const input = openForm(fixture);
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    fixture.detectChanges();
+    await flush();
+    expect(el(fixture).querySelector('form')).toBeNull();
+    expect(document.activeElement).toBe(el(fixture).querySelector('button'));
+    expect(updateBillingEmail).not.toHaveBeenCalled();
+  });
+
+  it('Escape does nothing while the save runs', async () => {
+    let resolve!: (r: { billing_account: { id: string; billing_email: string } }) => void;
+    updateBillingEmail.mockImplementationOnce(
+      () =>
+        new Promise<{ billing_account: { id: string; billing_email: string } }>(
+          (done) => (resolve = done),
+        ),
+    );
+    const { fixture } = render(null);
+    const input = openForm(fixture);
+    input.value = 'ops@acme.example';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    el(fixture).querySelector('form')!.dispatchEvent(new Event('submit'));
+    fixture.detectChanges();
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    fixture.detectChanges();
+    expect(el(fixture).querySelector('form')).not.toBeNull();
+    resolve({ billing_account: { id: 'acct-1', billing_email: 'ops@acme.example' } });
+    await flush();
+    fixture.detectChanges();
+    expect(el(fixture).querySelector('form')).toBeNull();
+  });
+
+  it('a refused save moves focus to its message', async () => {
+    updateBillingEmail.mockRejectedValueOnce(new HttpErrorResponse({ status: 500 }));
+    const { fixture } = render(null);
+    await submit(fixture, 'ops@acme.example');
+    await flush();
+    expect(document.activeElement?.getAttribute('role')).toBe('alert');
+  });
 });

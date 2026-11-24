@@ -1,47 +1,52 @@
-<div
-  class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4"
-  [attr.aria-labelledby]="labelledBy()"
->
-  <p class="text-sm text-(--text-primary)" i18n="@@admin.vendors.provision.intro">
-    Add a seat so someone at this vendor can sign in and maintain their own record. This is how a
-    connector vendor's parked claim is resolved — the partnership track, not the paid one.
-  </p>
+<!-- AECI-2124: the panel around this is the vendor page's ("Seats", mock-up 14). No box
+     of its own: the intro, the opener and the inline form sit straight in the panel. -->
+<div class="grid gap-4" [attr.aria-labelledby]="labelledBy()" data-testid="provision-seat">
+  <div class="grid max-w-[42rem] gap-2">
+    <p [class]="bodyClass" i18n="@@admin.vendors.provision.intro">
+      Add a seat so someone at this vendor can sign in and maintain their own record. This is how a
+      connector vendor's parked claim is resolved — the partnership track, not the paid one.
+    </p>
 
-  <!-- Not decoration, and not the same sentence as the revoke's. An operator
-       reaching this control from a parked claim needs to know the seat carries
-       none of what Grant would have handed over; nothing else on this page
-       says so, and the assumption runs the wrong way by default. -->
-  <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.provision.whatItIsNot">
-    A seat is portal access and nothing more. It opens no entitlement and carries no attestation
-    rights.
-  </p>
+    <!-- Not decoration, and not the same sentence as the revoke's. An operator
+         reaching this control from a parked claim needs to know the seat carries
+         none of what Grant would have handed over; nothing else on this page
+         says so, and the assumption runs the wrong way by default. -->
+    <p [class]="captionClass" i18n="@@admin.vendors.provision.whatItIsNot">
+      A seat is portal access and nothing more. It opens no entitlement and carries no attestation
+      rights.
+    </p>
+  </div>
 
   @if (!formOpen()) {
-  <button
-    #openButton
-    type="button"
-    class="mt-3 cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-    (click)="openForm()"
-    i18n="@@admin.vendors.provision.action.open"
-  >
-    Add a seat
-  </button>
+  <div>
+    <!-- The opener is a secondary button; the primary confirm sits inside the form. -->
+    <button
+      #openButton
+      aecButton
+      variant="secondary"
+      compact
+      type="button"
+      (click)="openForm()"
+      i18n="@@admin.vendors.provision.action.open"
+    >
+      Add a seat
+    </button>
+  </div>
   } @else {
   <form
     method="dialog"
     novalidate
-    class="mt-4 space-y-3 border-t border-(--border-default) pt-4"
+    [class]="formClass"
+    [attr.aria-busy]="pending() ? 'true' : null"
     (aecSubmit)="submit()"
+    (keydown.escape)="onEscape($event)"
   >
     <!-- The payer test (§8.8(1)), surfaced immediately above the button that
          would act on it. It WARNS and never disables: `product_role` is curated
          upstream, so a mis-roled record must not hard-block a legitimate
          operator (AECI-738 / §5.2 step 1). -->
     @if (!isPureConnectorVendor()) {
-    <p
-      class="rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-muted) p-3 text-sm text-(--text-primary)"
-      role="note"
-    >
+    <p [class]="noticeClass" role="note">
       @if (noProducts()) {
       <span i18n="@@admin.vendors.provision.warn.unknown">
         No products on record — this vendor's role is unknown, so the connector carve-out may not
@@ -64,10 +69,7 @@
          v1 caveat apply to a pure connector vendor only; an endpoint vendor has
          no connector catalogue to maintain. -->
     @if (ownsIntegrations()) {
-    <div
-      class="space-y-2 rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-muted) p-3 text-sm text-(--text-primary)"
-      role="note"
-    >
+    <div [class]="noticeClass" class="grid gap-2" role="note">
       <p i18n="@@admin.vendors.provision.warn.owner">
         This vendor owns integrations: {{ ownedLabel() }}. If it wants to manage them through the
         portal it is a paying owner: grant its claim, or open an entitlement on this page.
@@ -82,16 +84,16 @@
     </div>
     }
 
-    <div>
+    <div [class]="fieldClass">
       <label
-        class="block text-sm font-medium text-(--text-primary)"
+        [class]="labelClass"
         [attr.for]="idPrefix() + '-provision-email'"
         i18n="@@admin.vendors.provision.field.email"
       >
         Email address
       </label>
       <p
-        class="mt-1 text-xs text-(--text-secondary)"
+        [class]="hintClass"
         [attr.id]="idPrefix() + '-provision-email-hint'"
         i18n="@@admin.vendors.provision.field.emailHint"
       >
@@ -102,7 +104,7 @@
         #emailInput
         type="email"
         autocomplete="off"
-        class="mt-2 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)"
+        [class]="inputClass"
         [attr.id]="idPrefix() + '-provision-email'"
         [attr.aria-describedby]="idPrefix() + '-provision-email-hint'"
         [value]="email()"
@@ -110,16 +112,16 @@
       />
     </div>
 
-    <div>
+    <div [class]="fieldClass">
       <label
-        class="block text-sm font-medium text-(--text-primary)"
+        [class]="labelClass"
         [attr.for]="idPrefix() + '-provision-reason'"
         i18n="@@admin.vendors.provision.field.reason"
       >
         Reason (optional)
       </label>
       <p
-        class="mt-1 text-xs text-(--text-secondary)"
+        [class]="hintClass"
         [attr.id]="idPrefix() + '-provision-reason-hint'"
         i18n="@@admin.vendors.provision.field.reasonHint"
       >
@@ -128,7 +130,8 @@
       </p>
       <textarea
         rows="2"
-        class="mt-2 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)"
+        [class]="inputClass"
+        class="min-h-20 resize-y"
         [attr.id]="idPrefix() + '-provision-reason'"
         [attr.maxlength]="reasonMaxLength"
         [attr.aria-describedby]="idPrefix() + '-provision-reason-hint'"
@@ -138,17 +141,11 @@
     </div>
 
     @if (failedMessage()) {
-    <p #failedAlert tabindex="-1" class="text-sm font-medium text-(--text-primary)" role="alert">
-      {{ failedMessage() }}
-    </p>
+    <p #failedAlert tabindex="-1" [class]="failedClass" role="alert">{{ failedMessage() }}</p>
     }
 
-    <div class="flex gap-2">
-      <button
-        type="submit"
-        class="cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-        [disabled]="pending() || !canSubmit()"
-      >
+    <div [class]="actionsClass">
+      <button aecButton compact type="submit" [disabled]="pending() || !canSubmit()">
         @if (pending()) {
         <span i18n="@@admin.vendors.provision.action.pending">Adding…</span>
         } @else {
@@ -156,8 +153,9 @@
         }
       </button>
       <button
+        aecButton
+        variant="ghost"
         type="button"
-        class="cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
         (click)="closeForm()"
         [disabled]="pending()"
         i18n="@@admin.vendors.provision.action.cancel"

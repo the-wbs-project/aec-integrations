@@ -149,4 +149,56 @@ describe('LegalNameControl', () => {
     expect(el(fixture).querySelector('form')).toBeNull();
     expect(updateLegalName).not.toHaveBeenCalled();
   });
+  // ── AECI-2124: the console look and the inline form's keyboard rules ─────────
+
+  it('Change is a compact secondary button, Save a compact primary', () => {
+    const { fixture } = render('Acme, Inc.');
+    const change = el(fixture).querySelector('button') as HTMLButtonElement;
+    expect(change.className).toContain('aec-btn-secondary');
+    openForm(fixture);
+    const save = Array.from(el(fixture).querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Save',
+    ) as HTMLButtonElement;
+    expect(save.className).toContain('bg-(--accent-primary)');
+  });
+
+  it('Escape closes the form and returns focus to Change', async () => {
+    const { fixture } = render('Acme, Inc.');
+    const input = openForm(fixture);
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    fixture.detectChanges();
+    await flush();
+    expect(el(fixture).querySelector('form')).toBeNull();
+    expect(document.activeElement).toBe(el(fixture).querySelector('button'));
+    expect(updateLegalName).not.toHaveBeenCalled();
+  });
+
+  it('Escape does nothing while the save runs', async () => {
+    let resolve!: (r: { legal_name: string }) => void;
+    updateLegalName.mockImplementationOnce(
+      () => new Promise<{ legal_name: string }>((done) => (resolve = done)),
+    );
+    const { fixture } = render(null);
+    const input = openForm(fixture);
+    input.value = 'Acme, Inc.';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    el(fixture).querySelector('form')!.dispatchEvent(new Event('submit'));
+    fixture.detectChanges();
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    fixture.detectChanges();
+    expect(el(fixture).querySelector('form')).not.toBeNull();
+    resolve({ legal_name: 'Acme, Inc.' });
+    await flush();
+    fixture.detectChanges();
+    expect(el(fixture).querySelector('form')).toBeNull();
+  });
+
+  it('a refused save moves focus to its message', async () => {
+    updateLegalName.mockRejectedValueOnce(new HttpErrorResponse({ status: 500 }));
+    const { fixture } = render(null);
+    await submit(fixture, 'Acme, Inc.');
+    await flush();
+    expect(document.activeElement?.getAttribute('role')).toBe('alert');
+  });
 });
