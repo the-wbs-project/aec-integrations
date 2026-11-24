@@ -142,7 +142,7 @@ function uuid(i: number): string {
  * integration, the partner product and the partner's vendor, then the similar products.
  */
 function productPageEmbedded(n: number, similar = 6): CacheTagEntity[] {
-  const embedded: CacheTagEntity[] = [{ type: 'vendor', slug: 'procore-technologies' }];
+  const embedded: CacheTagEntity[] = [{ type: 'vendor', slug: 'procore-technologies', lead: true }];
   for (let i = 0; i < n; i++) {
     embedded.push({ type: 'integration', id: uuid(i) });
     embedded.push({
@@ -176,6 +176,74 @@ describe('composeCacheTags (AECI-2025)', () => {
     expect(composed.cacheable).toBe(true);
     expect(composed.droppedByType).toEqual({});
     expect(composed.kept).toBe(composed.total);
+  });
+
+  it('leaves an under-limit taxonomy page byte-identical, with `taxonomy` still last', () => {
+    const embedded = Array.from({ length: 30 }, (_, i) => ({ type: 'product', slug: `p-${i}` }));
+    const inputs = {
+      route: 'index' as const,
+      entity: { type: 'index', slug: 'home' },
+      embedded,
+      taxonomy: true,
+    };
+    const legacy = [
+      'route:index',
+      'index:home',
+      ...embedded.map((e) => `product:${e.slug}`),
+      'taxonomy',
+    ].join(',');
+    expect(buildCacheTags(inputs)).toBe(legacy);
+    expect(composeCacheTags(inputs).truncated).toBe(false);
+  });
+
+  it('a dropped lead vendor makes the page uncacheable; a dropped partner vendor does not', () => {
+    // The only tag that cannot be kept is the vendor, skipped for its character set.
+    const lead = composeCacheTags({
+      ...PRODUCT_PAGE,
+      embedded: [
+        { type: 'vendor', slug: 'acmé', lead: true },
+        { type: 'product', slug: 'partner' },
+      ],
+    });
+    expect(lead.droppedByType).toEqual({ vendor: 1 });
+    expect(lead.cacheable).toBe(false);
+
+    const partner = composeCacheTags({
+      ...PRODUCT_PAGE,
+      embedded: [
+        { type: 'vendor', slug: 'acmé' },
+        { type: 'product', slug: 'partner' },
+      ],
+    });
+    expect(partner.droppedByType).toEqual({ vendor: 1 });
+    expect(partner.cacheable).toBe(true);
+  });
+
+  it('a lead vendor dropped for room makes the page uncacheable', () => {
+    // 700 `pair:` tags pushed before the lead fill the shared rank, so the lead is cut.
+    const pairs = Array.from({ length: 700 }, (_, i) => ({
+      type: 'pair',
+      slug: `pair-${'z'.repeat(14)}-${String(i).padStart(3, '0')}`,
+    }));
+    const composed = composeCacheTags({
+      ...PRODUCT_PAGE,
+      embedded: [...pairs, { type: 'vendor', slug: 'procore-technologies', lead: true }],
+    });
+    expect(composed.value).not.toContain('vendor:procore-technologies');
+    expect(composed.droppedByType['vendor']).toBe(1);
+    expect(composed.cacheable).toBe(false);
+  });
+
+  it('a lead mark on a repeated vendor protects it at its first slot', () => {
+    const composed = composeCacheTags({
+      ...PRODUCT_PAGE,
+      embedded: [
+        { type: 'vendor', slug: 'acme' },
+        { type: 'product', slug: 'p' },
+        { type: 'vendor', slug: 'acme', lead: true },
+      ],
+    });
+    expect(composed.value).toBe('route:detail,product:procore,vendor:acme,product:p');
   });
 
   it('fits a 400-partner product page and keeps every partner product tag', () => {
@@ -241,7 +309,7 @@ describe('composeCacheTags (AECI-2025)', () => {
       embedded: [
         ...big('integration', 100),
         ...big('trade', 100),
-        ...big('vendor', 100),
+        ...big('vendor', 100).map((v, i) => (i === 0 ? { ...v, lead: true } : v)),
         ...big('product', 100),
         ...big('pair', 100),
       ],
@@ -251,7 +319,7 @@ describe('composeCacheTags (AECI-2025)', () => {
     expect(composed.droppedByType['trade']).toBe(100);
     expect(composed.droppedByType['pair']).toBeUndefined();
     expect(composed.droppedByType['product']).toBeUndefined();
-    // The first vendor is the lead and ranks with `pair:`; the rest are dropped next.
+    // The marked vendor is the lead and ranks with `pair:`; the rest are dropped next.
     expect(composed.value).toContain(`vendor:vendor-${'x'.repeat(40)}-0`);
     // Vendors are the rank the budget runs out in: some kept, some dropped.
     expect(composed.droppedByType['vendor']).toBeGreaterThan(0);

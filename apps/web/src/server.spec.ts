@@ -35,6 +35,8 @@ import {
   stripLocalePrefix,
   stripVisitorStateCookies,
   TAG_OVERFLOW_TTL,
+  TIER_B_LOG_INTERVAL_MS,
+  resetTierBLogSampling,
   tagOverflowTtl,
   type Bindings,
   type SsrRenderer,
@@ -3485,6 +3487,7 @@ describe('createApp Cache-Tag overflow tiers (AECI-2025)', () => {
   beforeEach(() => {
     fetchSpy = vi.fn().mockResolvedValue(new Response('{}', { status: 202 }));
     vi.stubGlobal('fetch', fetchSpy);
+    resetTierBLogSampling();
   });
 
   afterEach(() => {
@@ -3501,12 +3504,20 @@ describe('createApp Cache-Tag overflow tiers (AECI-2025)', () => {
     } as unknown as Bindings;
   }
 
+  function truncatedMetricPosts(): number {
+    return fetchSpy.mock.calls.filter(
+      (call) =>
+        String(call[0]).endsWith('/i/v1/metrics') &&
+        String(call[1]!.body).includes('aeci.cache.tags.truncated'),
+    ).length;
+  }
+
   const uuid = (i: number): string => `00000000-0000-4000-8000-${i.toString(16).padStart(12, '0')}`;
 
   /** A product page pushing `n` partner rows of four embedded entities each. */
   function partnerRenderer(n: number): SsrRenderer {
     return async (_req, ctx) => {
-      ctx.embedded.push({ type: 'vendor', slug: 'procore-technologies' });
+      ctx.embedded.push({ type: 'vendor', slug: 'procore-technologies', lead: true });
       for (let i = 0; i < n; i++) {
         const pad = String(i).padStart(4, '0');
         ctx.embedded.push({ type: 'integration', id: uuid(i) });
@@ -3579,6 +3590,28 @@ describe('createApp Cache-Tag overflow tiers (AECI-2025)', () => {
     expect(truncatedLogs()[0]).toContain('uncacheable_product_tags_dropped');
   });
 
+  it('Tier B: counts every render but logs a path once per interval', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 10, 24, 12));
+    for (let i = 0; i < 3; i++) await get(partnerRenderer(600));
+    expect(truncatedMetricPosts()).toBe(3);
+    expect(truncatedLogs()).toHaveLength(1);
+
+    now.mockReturnValue(Date.UTC(2026, 10, 24, 12) + TIER_B_LOG_INTERVAL_MS);
+    await get(partnerRenderer(600));
+    expect(truncatedMetricPosts()).toBe(4);
+    const logs = truncatedLogs();
+    expect(logs).toHaveLength(2);
+    // The second line says how many renders the sample skipped.
+    expect(logs[1]).toContain('skipped_since_last_log');
+    expect(logs[1]).toMatch(/skipped_since_last_log[^0-9]*2/);
+  });
+
+  it('Tier A logs every render', async () => {
+    await get(partnerRenderer(400));
+    await get(partnerRenderer(400));
+    expect(truncatedLogs()).toHaveLength(2);
+  });
+
   it('a normal page keeps the 15-minute TTL and its full tag list, and logs nothing', async () => {
     const res = await get(partnerRenderer(20));
     expect(res.headers.get('Cache-Control')).toBe(
@@ -3600,5 +3633,60 @@ describe('tagOverflowTtl (AECI-2025)', () => {
 
   it('keeps a shorter TTL, and adds no stale-while-revalidate a route did not have', () => {
     expect(tagOverflowTtl({ edge: 30, browser: 0 })).toEqual({ edge: 30, browser: 0 });
+  });
+
+  // The runtime applies `tagOverflowTtl` to what `legalPageTtl` returns. Whichever is
+  // smaller wins, in both directions.
+  describe('composed after legalPageTtl', () => {
+    const DETAIL_TTL = { edge: 900, browser: 0, staleWhileRevalidate: 60, staleIfError: 86_400 };
+    const entry: LegalUpcomingEntry = {
+      slug: 'vendor-terms',
+      version: '1.4',
+      effectiveOn: '2027-03-31',
+    };
+    const moment = Date.UTC(2027, 2, 31, 12);
+
+    it('the legal cap wins when the moment is under 60 s away', () => {
+      const legal = legalPageTtl(
+        DETAIL_TTL,
+        '/products/procore',
+        moment - 30_000,
+        false,
+        [entry],
+        [],
+      );
+      expect(legal.edge).toBe(30);
+      expect(tagOverflowTtl(legal)).toEqual({ ...DETAIL_TTL, edge: 30, browser: 0 });
+    });
+
+    it('the overflow TTL wins when the moment is further away', () => {
+      const legal = legalPageTtl(
+        DETAIL_TTL,
+        '/products/procore',
+        moment - 600_000,
+        false,
+        [entry],
+        [],
+      );
+      expect(legal.edge).toBe(600);
+      expect(tagOverflowTtl(legal)).toEqual({ ...DETAIL_TTL, edge: 60, browser: 0 });
+    });
+
+    it('an uncertain legal page with a cut tag list leaves on a minute, through the app', async () => {
+      const { binding } = recordingApiBinding();
+      const renderer: SsrRenderer = async (_req, ctx) => {
+        ctx.legalStateUncertain = true;
+        for (let i = 0; i < 1_200; i++) ctx.embedded.push({ type: 'integration', id: `i-${i}` });
+        return htmlResponse('<html>legal</html>');
+      };
+      const res = await createApp({ ssrRenderer: renderer }).fetch(
+        new Request('https://www.aecintegrations.com/legal/vendor-terms'),
+        binding as unknown as Bindings,
+        fakeExecutionContext(),
+      );
+      // The static legal route has no stale-while-revalidate, and the cap adds none.
+      expect(res.headers.get('Cache-Control')).toBe('public, max-age=0, s-maxage=60');
+      expect(res.headers.get('Cache-Tag')!.split(',').length).toBeLessThanOrEqual(1_000);
+    });
   });
 });

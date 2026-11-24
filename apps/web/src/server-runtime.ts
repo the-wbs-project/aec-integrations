@@ -134,6 +134,7 @@ import {
   cacheTagInputsForPath,
   composeCacheTags,
   type CacheTagComposition,
+  type CacheTagEntity,
   type CacheTagInputs,
 } from './server/cache-tags';
 import { createRequestContext, type AeciRequestContext } from './server/request-context';
@@ -1424,7 +1425,7 @@ function firePageView(
  */
 function mergeEmbeddedTags(
   base: CacheTagInputs | null,
-  embedded: readonly { type: string; slug?: string; id?: string }[],
+  embedded: readonly CacheTagEntity[],
 ): CacheTagInputs | null {
   if (!base) return null;
   if (embedded.length === 0) return base;
@@ -1437,11 +1438,54 @@ function mergeEmbeddedTags(
 /** The metric a cut `Cache-Tag` list emits (AECI-2025, `docs/OBSERVABILITY.md`). */
 export const CACHE_TAGS_TRUNCATED_METRIC = 'aeci.cache.tags.truncated';
 
+/** A Tier B path logs at most once per isolate in this window (AECI-2025). */
+export const TIER_B_LOG_INTERVAL_MS = 10 * 60 * 1000;
+
+/** Paths an isolate holds a Tier B sample for. Past this, the oldest entry goes. */
+const TIER_B_LOG_MAX_PATHS = 500;
+
+/**
+ * Per-isolate Tier B log sample: path → when it last logged and how many it skipped
+ * since. Module state is deliberate: it is a rate limit on a log line, lost on isolate
+ * restart at the cost of one extra line, and never read by a response.
+ */
+const tierBLogState = new Map<string, { loggedAtMs: number; skipped: number }>();
+
+/**
+ * Whether a Tier B render of `path` logs now. Returns the count of renders skipped since
+ * the last line, or `null` to skip this one.
+ */
+function tierBLogSample(path: string, nowMs: number): number | null {
+  const entry = tierBLogState.get(path);
+  if (entry && nowMs - entry.loggedAtMs < TIER_B_LOG_INTERVAL_MS) {
+    entry.skipped += 1;
+    return null;
+  }
+  const skipped = entry?.skipped ?? 0;
+  tierBLogState.delete(path);
+  if (tierBLogState.size >= TIER_B_LOG_MAX_PATHS) {
+    const oldest = tierBLogState.keys().next().value;
+    if (oldest !== undefined) tierBLogState.delete(oldest);
+  }
+  tierBLogState.set(path, { loggedAtMs: nowMs, skipped: 0 });
+  return skipped;
+}
+
+/** Test seam: forget every Tier B log sample. */
+export function resetTierBLogSampling(): void {
+  tierBLogState.clear();
+}
+
 /**
  * Counts and logs a render whose `Cache-Tag` list did not fit (AECI-2025). `reason` is
  * `degraded_ttl` for Tier A (cached on {@link TAG_OVERFLOW_TTL}) and
  * `uncacheable_product_tags_dropped` for Tier B (not stored). The metric carries only
  * `route_class` and `reason`: 3 × 2 series. Path and counts go on the warn log.
+ *
+ * The metric counts every occurrence. The Tier B log is sampled: a Tier B page is never
+ * stored, so a busy one renders on every visit. It logs at most once per path per isolate
+ * per {@link TIER_B_LOG_INTERVAL_MS}, and the line carries how many it skipped. Tier A
+ * logs every time: its page is cached, so a MISS comes at most once a minute per key.
  */
 function reportTruncatedTags(
   execCtx: WaitUntilContext,
@@ -1450,6 +1494,7 @@ function reportTruncatedTags(
   routeClass: string | undefined,
   path: string,
   tags: CacheTagComposition,
+  nowMs: number = Date.now(),
 ): void {
   const reason = tags.cacheable ? 'degraded_ttl' : 'uncacheable_product_tags_dropped';
   const route = routeClass ?? 'unknown';
@@ -1457,6 +1502,12 @@ function reportTruncatedTags(
     `route_class:${route}`,
     `reason:${reason}`,
   ]);
+  let skipped = 0;
+  if (!tags.cacheable) {
+    const sample = tierBLogSample(path, nowMs);
+    if (sample === null) return;
+    skipped = sample;
+  }
   logToPosthog(execCtx, env, request, {
     level: 'warn',
     message: CACHE_TAGS_TRUNCATED_METRIC,
@@ -1464,6 +1515,7 @@ function reportTruncatedTags(
     path,
     route_class: route,
     reason,
+    ...(tags.cacheable ? {} : { skipped_since_last_log: skipped }),
     tags_total: tags.total,
     tags_kept: tags.kept,
     tags_bytes: tags.bytes,

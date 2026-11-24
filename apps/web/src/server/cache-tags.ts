@@ -39,6 +39,12 @@ export type CacheTagEntity = {
   slug?: string;
   /** ID for id-keyed entities (currently `integration:<id>`). */
   id?: string;
+  /**
+   * AECI-2025: set on a `vendor:` entity whose logo the page renders, which a logo
+   * upload or objection purges through `vendor:{slug}` alone. A cut tag list never drops
+   * it quietly: losing it makes the page uncacheable. Ignored on other types.
+   */
+  lead?: boolean;
 };
 
 export type CacheTagInputs = {
@@ -125,32 +131,35 @@ function tagType(tag: string): string {
  * it is exactly what it always was, in push order. When it does not, tags are kept by
  * rank, and by push order within a rank: the mandatory tags (`route:*`, the page's own
  * entity, `taxonomy`), then `pair:` and the lead vendor, then `product:`, then the other
- * `vendor:` tags, then the term and index tags, then `integration:`. The lead vendor is
- * the first `vendor:` tag pushed. On a product page that is the product's own vendor,
+ * `vendor:` tags, then the term and index tags, then `integration:`. A lead vendor is a
+ * `vendor:` entity pushed with `lead: true`: on a product page, the product's own vendor,
  * whose logo the facts card renders. A tag is added when it still fits, so a later short
  * tag can fill room a long one could not. The kept tags keep their push order.
  */
 export function composeCacheTags(opts: CacheTagInputs): CacheTagComposition {
   type Candidate = { tag: string; rank: number; order: number };
-  const seen = new Set<string>();
+  const byTag = new Map<string, Candidate>();
   const candidates: Candidate[] = [];
   const add = (tag: string | null, rank: number): void => {
-    if (!tag || seen.has(tag)) return;
-    seen.add(tag);
-    candidates.push({ tag, rank, order: candidates.length });
+    if (!tag) return;
+    const existing = byTag.get(tag);
+    // A repeat keeps its first slot but takes the higher rank, so a lead mark on a
+    // later push of the same vendor still protects it.
+    if (existing) {
+      existing.rank = Math.min(existing.rank, rank);
+      return;
+    }
+    const candidate = { tag, rank, order: candidates.length };
+    byTag.set(tag, candidate);
+    candidates.push(candidate);
   };
 
   add(`route:${opts.route}`, RANK_MANDATORY);
   if (opts.entity) add(entityTag(opts.entity), RANK_MANDATORY);
   // `taxonomy` is mandatory, but it has always been emitted last. Its rank is fixed
   // here and its slot after the embedded tags, so an under-limit header is unchanged.
-  let leadVendorSeen = false;
   for (const e of opts.embedded ?? []) {
-    const tag = entityTag(e);
-    if (!tag || seen.has(tag)) continue;
-    const isLead = e.type === 'vendor' && !leadVendorSeen;
-    if (e.type === 'vendor') leadVendorSeen = true;
-    add(tag, embeddedRank(e.type, isLead));
+    add(entityTag(e), embeddedRank(e.type, e.type === 'vendor' && e.lead === true));
   }
   if (opts.taxonomy) add('taxonomy', RANK_MANDATORY);
 
