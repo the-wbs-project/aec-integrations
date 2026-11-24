@@ -574,6 +574,9 @@ it, so `scrollWidth` can be the smaller one on a page that fits. Three specs fai
 way. The helper is for the page root only. A check that compares an element's width with its
 container, such as a header row or a scroll strip, stays as it is. Its `tolerance` option keeps
 an older 1px allowance at the same strength. Do not raise it to make a real overflow pass.
+The nightly magnification check applies the same rule, with AECI-1881's 1px allowance, through
+`scrollsSideways` in `e2e-a11y/support/magnify-geometry.ts`. It collects problems instead of
+asserting, so it cannot call the helper (§8.4.6).
 
 ### 7.5 Test data
 
@@ -1355,6 +1358,141 @@ pnpm --filter @aeci/web exec playwright test -c playwright.a11y-nightly.config.t
 Set `AECI_WEB_PORT` and `PLAYWRIGHT_BASE_URL` to the port `dev:agent` printed, as for §8.4. It took
 5.6 to 6.5 minutes on one local worker. The four listing pages take about 40 seconds each. The CI time
 is not measured yet. Read it off the first nightly against the `suite` job's 30-minute limit.
+
+#### 8.4.6 Magnification: reflow, zoom, text size, text spacing and orientation (AECI-1881)
+
+`e2e-a11y/magnification.spec.ts` stands in for screen magnification on every surface in the manifest,
+public pages included. It covers WCAG 1.4.4, 1.4.10, 1.4.12 and 1.3.4.
+
+**Two loads per surface.** A page load is the slow part, so checks that cannot disturb each other share
+one. Each surface gets two tests:
+
+| Test | Load | Then |
+|---|---|---|
+| `narrow` | 390 by 844 | Orientation. Turn to 844 by 390, as a phone turns, and check orientation again. Resize to 320 by 640, load everything that renders on scroll, and check reflow. Then switch to 400% zoom and check that |
+| `wide` | 1280 by 800, everything that renders on scroll loaded | Run the clip detector once as a baseline. Add 200% text and check. Take it away, add text spacing and check |
+
+**The six checks.**
+
+| Check | WCAG | Set-up | Fails when |
+|---|---|---|---|
+| Reflow | 1.4.10 | 320 by 640 | The page root's `scrollWidth` is more than `clientWidth + 1`, or an element inside the page scrolls sideways and `SCROLLER_ALLOW_LIST` does not cover it |
+| 400% zoom | 1.4.10, 1.4.4 | 320 by 256 at four device pixels per CSS pixel: 400% of a 1280 by 1024 window | The root scrolls sideways, or the clip detector finds anything |
+| 200% text | 1.4.4 | `html { font-size: 200% }` | The clip detector finds anything |
+| Text spacing | 1.4.12 | Line height 1.5, letter spacing 0.12em, word spacing 0.16em on every element, 2em after each `p` | The clip detector finds anything |
+| Clip detector | the three above | Shared by them, in `support/magnify-geometry.ts` | Text is cut off, or text is painted over other text. Below |
+| Orientation | 1.3.4 | 390 by 844, then 844 by 390 | `main` is not shown, `main` or any ancestor up to `html` is rotated or skewed (computed `transform` or `rotate`), or a script called `screen.orientation.lock` |
+
+Playwright has no zoom API, and it sets the device scale only when a context is made. `emulateZoom`
+sends the DevTools call Playwright itself uses, `Emulation.setDeviceMetricsOverride`, on the open
+page, and the test asserts the page then reports `devicePixelRatio` 4 at 320px. The override lives as
+long as its DevTools session, so it is the last step of the test. At 320 CSS px the layout is the one
+reflow measured. The scale changes rounding, `resolution` media queries and image choice. The two checks
+also look at different things: reflow at scrollers, 400% at clipped and overlapping text.
+
+The root rule is the one in `e2e/no-sideways-scroll.ts` (§7.4): never equality, because the Linux
+scrollbar gutter can make `scrollWidth` the smaller one (PR #1321). The issue allows 1px of rounding.
+When the root does scroll, the test notes up to five boxes past the right edge, to find the source.
+
+**The clip detector.** `readText` in `support/magnify-probe.ts` walks every text node with glyphs on
+screen. For each it reads the line boxes (`Range.getClientRects()`) and the ancestors whose overflow is
+not `visible`. It follows the containing-block rules, so an absolutely positioned or fixed box escapes
+the ancestors it really escapes. The pure half decides:
+
+- **Clipped.** A container with `overflow: hidden` or `clip` overflows on an axis
+  (`scrollHeight > clientHeight`, or the width pair), and a line box of the text reaches past its
+  padding box. Across, the line must reach more than 2px past. Down, more than a quarter of the line's
+  height, because a line box is the font's content area and pokes out of a tight `leading-none` box with
+  nothing cut. A container under 2px on either side is collapsed or `.sr-only` on purpose, so its text
+  counts as hidden, not clipped. Text past a scroll container on an axis can be scrolled to, so a box
+  further out does not count as clipping it on that axis. The finding names the kind: `line-clamp`,
+  `ellipsis` or `hidden`.
+- **Overlapping.** The visible parts of two text nodes' line boxes cross by more than 2px across and
+  more than 30% of the shorter line's height. Only text in the same layer is compared, so the fixed
+  consent banner over the page is not a finding. Scrolled-away text inside a scroller is not compared.
+
+A problem string quotes the text with its digits masked, its element and the clipping container, and the
+nearest `data-testid`, so the string is the same from run to run. In the `wide` test a problem that is
+also there before any override says `(also at 100%)`. It still counts. `magnify-geometry.unit.spec.ts`
+pins the decisions in the plain Vitest runner. jsdom has no layout, so the fixtures are the boxes
+Chromium gives for the HTML each case names. The in-page reader is proven by the deliberate breakage
+below, not by a unit test.
+
+**It can fail.** On 2026-11-24 the home page passed clean, then each check was broken on purpose in a
+throwaway run. `main h1 { max-height: 0.5em; overflow: hidden }` gave a `clipped (hidden)` finding at
+400%, 200% and spacing. `main h1 { margin-bottom: -2.5em }` gave an overlap of the title and the lede at
+all three. `main { min-width: 600px }` failed reflow and 400% with sideways scroll. `main { transform:
+rotate(90deg) }` failed both orientations. A `nowrap` `overflow-x: auto` paragraph failed reflow as a
+scroller. Letting the review form's side panel wrap turned its known barrier red. None of it was committed.
+
+**Stable results.** `settleLayout` waits for web fonts, for every finite animation and transition, and
+for the document's size and element count to hold over three samples 100ms apart, then for the app to
+be stable. It runs after every resize and every style change. The tests run with `reducedMotion:
+'reduce'`. Three one-worker runs gave the same findings. Every test stands alone, with no `beforeAll`
+and no order: the fixture probe runs once per worker on first use, so a shard may take any of them.
+
+**The allow-lists.** Both are in the spec, each entry with its reason. A real barrier never goes there.
+
+| List | Entry | Reason |
+|---|---|---|
+| `CLIP_ALLOW_LIST` | The product hero lede, `line-clamp-2` | Intentional. It is `aria-hidden` and repeats the start of the description, whose full text is in the About band of the same page |
+| `SCROLLER_ALLOW_LIST` | The vendor page's products table, `vendor-products-scroller` | A data table that scrolls inside its own box at 320px. 1.4.10 excepts data tables. The entry holds only while the scroller still holds a table |
+
+The browse table is not in the manifest: the listing surfaces load the card view. Checked by hand on
+2026-11-24, `/products?view=table` at 320px scrolls inside `aec-product-table` and the page does not. At
+700px, below `md`, it fits. If a table view joins the manifest, it needs an entry like the vendor table's.
+
+**Known barriers on landing (2026-11-24).** `KNOWN_PROBLEMS` uses `expectOnlyKnownProblems`
+(`support/known-barriers.ts`), narrowed by a pattern per issue. A new problem on a marked surface still
+fails, and a fixed one turns its mark red.
+
+| Issue | What the check finds | Where |
+|---|---|---|
+| AECI-1889 | Product cards cut product and vendor names with an ellipsis: about 35 at 200% text, three at 400% zoom, four already at 100% | Listings at 400%, listings and term pages at 200% and spacing |
+| AECI-2105 | At 200% text the mailing list card's text column shrinks to one word a line and the form paints over it | 13 public surfaces |
+| AECI-2106 | At 200% text every browse filter label is cut to a few letters | Listings and term pages |
+| AECI-2107 | The review form side panel cuts the vendor name | Review submission, at 400% and 200% |
+| AECI-2108 | Taxonomy index cards clamp each description to three lines. A ruling: does the term page count as the full text? (`ACCESSIBILITY_AUDIT.md` §11.4 P2) | The three index pages, at every enlargement |
+| AECI-2109 | Nav rows scroll sideways at 320px, by the house rule in `DESIGN.md`. A ruling: does that meet 1.4.10? | Product page section nav, both vendor portal tab rows |
+
+The two rulings move their findings to an allow-list or to a fix. Orientation found nothing.
+
+**The citation reflow checks stay in the PR suite.** `e2e/home.spec.ts` "printed citations" pins each
+citation inside the viewport at five widths on every PR. Moving it here would drop that PR guard, and the
+nightly's code must stay out of the PR job. Its page-root half already uses `expectNoSidewaysScroll`. A
+comment above the block says so.
+
+**What a real magnifier shows that these checks do not.** A screen magnifier enlarges pixels and shows a
+small part of the screen. It follows focus and the caret. So a reader at 400% sees what is near focus
+and nothing else. A toast or a status message far from its trigger is invisible to that reader. So is an
+error printed above a form while focus stays on the submit button, and a change in a sticky bar at the
+other edge. These checks enlarge the layout and look at the whole page. They never follow focus, so they
+cannot see any of that. They also miss text in images, pixelated icons, and text that grows in `px` that
+the 200% root size does not touch. Browser zoom scales `px`, so that last one is not a 1.4.4 failure, but
+the check does not test it. The detector reads only text nodes, so it misses cut-off form values,
+placeholders and SVG text. A cut made by `clip-path` or `contain: paint` instead of `overflow` is missed.
+It sees one state per page: no open menu, no error state and no expanded panel is enlarged. The
+overrides do not combine: text spacing runs at 1280px only, so `ACCESSIBILITY_AUDIT.md` §11.4 P3, 2px
+of sideways scroll on home at 320px with spacing on, is not covered. A person with
+a magnifier, ZoomText or macOS Zoom, still has to run the pass.
+
+**The code.**
+
+| File | What it holds |
+|---|---|
+| `magnification.spec.ts` | Two tests per surface, `CLIP_ALLOW_LIST`, `SCROLLER_ALLOW_LIST` and `KNOWN_PROBLEMS` |
+| `support/magnify-probe.ts` | The in-page reads, the two style overrides, `settleLayout`, `emulateZoom` and the orientation-lock watch |
+| `support/magnify-geometry.ts` | Pure: the clip and overlap rules, the root rule, the rotation rule, the problem strings. Pinned by `magnify-geometry.unit.spec.ts` |
+
+**Run it** alone with one worker:
+
+```bash
+pnpm --filter @aeci/web exec playwright test -c playwright.a11y-nightly.config.ts magnification --workers=1
+```
+
+Set `AECI_WEB_PORT` and `PLAYWRIGHT_BASE_URL` as for §8.4. Six local one-worker runs took 3.0 to 4.6
+minutes for the 44 tests, with no skips. The slowest are the `wide` tests of the listing pages and the
+review form, 5 to 18 seconds each, depending on machine load. The CI time is not measured yet.
 
 ---
 
