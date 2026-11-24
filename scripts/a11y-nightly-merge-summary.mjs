@@ -252,6 +252,9 @@ export function mergeSummaries(parts, now = new Date()) {
     },
     parts: parts.map((p) => ({ file: p.path, found: p.found, error: p.error ?? null })),
     tests: found.flatMap((s) => s.tests),
+    // AECI-1874: every known-failure ID once, with its test count, from every
+    // test's `knownFailures` list. Merged files only; a lane file has the rows.
+    knownFailures: knownFailureCounts(found.flatMap((s) => s.tests)),
     axe: mergeAxe(found.map((s) => s.axe)),
     voice: mergeVoice(found.map((s) => s.voice)),
     ibm: mergeIbm(found.map((s) => s.ibm)),
@@ -431,6 +434,42 @@ function ruleTable(rules) {
   return lines;
 }
 
+/** A test's known-failure IDs. A summary from before AECI-1874's list has only `knownFailure`. */
+export function knownFailuresOf(test) {
+  if (Array.isArray(test?.knownFailures)) return test.knownFailures.map(String);
+  return test?.knownFailure ? [String(test.knownFailure)] : [];
+}
+
+function issueNumber(id) {
+  return Number(String(id).match(/\d+$/)?.[0] ?? Number.MAX_SAFE_INTEGER);
+}
+
+/**
+ * Every known-failure ID in the run, once, with the number of tests that carry it.
+ * In issue number order. A test with three marks counts once for each of the three.
+ */
+export function knownFailureCounts(tests) {
+  const byIssue = new Map();
+  for (const t of tests) {
+    for (const id of new Set(knownFailuresOf(t))) byIssue.set(id, (byIssue.get(id) ?? 0) + 1);
+  }
+  return [...byIssue.entries()]
+    .map(([issue, n]) => ({ issue, tests: n }))
+    .sort((a, b) => issueNumber(a.issue) - issueNumber(b.issue) || (a.issue < b.issue ? -1 : 1));
+}
+
+function knownFailureMarkdown(counts) {
+  if (counts.length === 0) return [];
+  return [
+    '',
+    `### Known failures (${counts.length} issues)`,
+    '',
+    '| Issue | Tests |',
+    '|---|---|',
+    ...counts.map((k) => `| ${cell(k.issue)} | ${k.tests} |`),
+  ];
+}
+
 /** The job summary. */
 export function summaryMarkdown(merged) {
   const t = merged.totals;
@@ -443,6 +482,9 @@ export function summaryMarkdown(merged) {
   if (missing.length > 0) {
     lines.push('', `Missing summaries: ${missing.map((p) => `\`${p.file}\``).join(', ')}.`);
   }
+  lines.push(
+    ...knownFailureMarkdown(merged.knownFailures ?? knownFailureCounts(merged.tests ?? [])),
+  );
   const axe = merged.axe;
   const reached = axe.scans.scanned + axe.scans.optedOut + axe.scans.notScanned;
   if (reached === 0) {

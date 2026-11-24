@@ -10,6 +10,8 @@ import { join } from 'node:path';
 import { after, test } from 'node:test';
 
 import {
+  knownFailureCounts,
+  knownFailuresOf,
   main,
   mergeAxe,
   mergeIbm,
@@ -481,4 +483,59 @@ test('the CLI refuses a bad call', () => {
   assert.equal(main(['a.json'], quiet), 2);
   assert.equal(main(['--out=o.json'], quiet), 2);
   assert.equal(main(['--out=o.json', '--bogus', 'a.json'], quiet), 2);
+});
+
+test('every known-failure ID a test carries is counted, and the job summary lists each once (AECI-1874)', () => {
+  const row = (title, ids) => ({
+    title,
+    outcome: 'passed',
+    knownFailure: ids[0] ?? null,
+    knownFailures: ids,
+  });
+  const m = mergeSummaries([
+    part(
+      summary({
+        tests: [
+          // Three marks on one test: the case the old single field lost.
+          row('Product index wide', ['AECI-1889', 'AECI-2105', 'AECI-2106']),
+          row('Product index narrow', ['AECI-2105']),
+        ],
+      }),
+      'a.json',
+    ),
+    part(
+      summary({
+        tests: [
+          row('Home wide', ['AECI-2105', 'AECI-2106']),
+          row('Clean', []),
+          // A lane file from before the list: only the single field.
+          { title: 'Old row', outcome: 'passed', knownFailure: 'AECI-1889' },
+        ],
+      }),
+      'b.json',
+    ),
+  ]);
+  assert.deepEqual(m.knownFailures, [
+    { issue: 'AECI-1889', tests: 2 },
+    { issue: 'AECI-2105', tests: 3 },
+    { issue: 'AECI-2106', tests: 2 },
+  ]);
+  // The rows keep both fields as written.
+  assert.deepEqual(m.tests[0].knownFailures, ['AECI-1889', 'AECI-2105', 'AECI-2106']);
+  assert.equal(m.tests[0].knownFailure, 'AECI-1889');
+  const md = summaryMarkdown(m);
+  assert.match(md, /### Known failures \(3 issues\)/);
+  assert.match(md, /\| AECI-1889 \| 2 \|\n\| AECI-2105 \| 3 \|\n\| AECI-2106 \| 2 \|/);
+  assert.equal(md.match(/AECI-2106/g).length, 1, 'each ID once');
+});
+
+test('a test with a repeated mark counts once, and a clean run has no section', () => {
+  assert.deepEqual(knownFailuresOf({ knownFailures: ['AECI-7'] }), ['AECI-7']);
+  assert.deepEqual(knownFailuresOf({ knownFailure: null }), []);
+  assert.deepEqual(knownFailureCounts([{ knownFailures: ['AECI-7', 'AECI-7'] }]), [
+    { issue: 'AECI-7', tests: 1 },
+  ]);
+  const clean = mergeSummaries([part(summary())]);
+  assert.deepEqual(clean.knownFailures, []);
+  assert.doesNotMatch(summaryMarkdown(clean), /### Known failures/);
 });

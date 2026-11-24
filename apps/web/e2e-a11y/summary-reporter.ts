@@ -74,7 +74,13 @@ export interface A11yNightlySummary {
     /** The spec file, relative to `apps/web`. */
     readonly file: string;
     readonly outcome: TestOutcome;
+    /** The first known-failure ID the test carries, or `null`. Kept as it was. */
     readonly knownFailure: string | null;
+    /**
+     * AECI-1874: every known-failure ID the test carries, once each, in issue
+     * number order. A test that judges several problems marks each known one.
+     */
+    readonly knownFailures: readonly string[];
     /** The e2e axe sweep's verdict on this test, or `null` when it never reached the sweep. */
     readonly axe: AxeScanStatus | null;
   }>;
@@ -95,6 +101,20 @@ export interface A11yNightlySummary {
 function annotation(test: TestCase, result: TestResult | undefined, type: string): string | null {
   const found = [...(result?.annotations ?? []), ...test.annotations].find((a) => a.type === type);
   return found?.description ?? null;
+}
+
+/** Every distinct description of one annotation type on a test, in first-seen order. */
+function annotationsOf(test: TestCase, result: TestResult | undefined, type: string): string[] {
+  const all = [...(result?.annotations ?? []), ...test.annotations];
+  return [
+    ...new Set(all.filter((a) => a.type === type && a.description).map((a) => a.description!)),
+  ];
+}
+
+/** `AECI-<n>` IDs by issue number, so the order does not depend on which check ran first. */
+export function sortIssueIds(ids: readonly string[]): string[] {
+  const n = (id: string): number => Number(id.match(/\d+$/)?.[0] ?? Number.MAX_SAFE_INTEGER);
+  return [...ids].sort((a, b) => n(a) - n(b) || (a < b ? -1 : a > b ? 1 : 0));
 }
 
 function outcomeOf(test: TestCase): TestOutcome {
@@ -146,6 +166,7 @@ export function buildSummary(
       file: relative(rootDir, test.location.file).split(sep).join('/'),
       outcome: outcomeOf(test),
       knownFailure: annotation(test, last, KNOWN_FAILURE_ANNOTATION),
+      knownFailures: sortIssueIds(annotationsOf(test, last, KNOWN_FAILURE_ANNOTATION)),
       axe: scan?.status ?? null,
     };
   });
