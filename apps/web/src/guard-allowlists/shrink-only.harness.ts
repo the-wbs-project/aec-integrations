@@ -61,15 +61,17 @@ export function readSource(rel: string): string {
 }
 
 /**
- * The source with its comments blanked: HTML comments, block comments and whole-line
- * `//` comments. Newlines stay, so a line number still points at the right line. A
- * comment that describes a `<button>` or an `<svg>` is not one.
+ * The source with its comments blanked: HTML comments, block comments that open a line
+ * and whole-line `//` comments. Newlines stay, so a line number still points at the
+ * right line. A comment that describes a `<button>` or an `<svg>` is not one. A block
+ * comment must open its line so that a string such as `accept="image/*"` is not read
+ * as the start of one.
  */
 export function stripComments(src: string): string {
   const blank = (m: string) => m.replace(/[^\n]/g, ' ');
   return src
     .replace(/<!--[\s\S]*?-->/g, blank)
-    .replace(/\/\*[\s\S]*?\*\//g, blank)
+    .replace(/^[ \t]*\/\*[\s\S]*?\*\//gm, blank)
     .replace(/^[ \t]*\/\/.*$/gm, blank);
 }
 

@@ -66,6 +66,11 @@ describe('shrink-only allowlist rules (AECI-2083)', () => {
     expect(out.split('\n')[5]).toBe('b');
   });
 
+  it('does not read a glob in a string as a comment', () => {
+    const src = '<input accept="image/*" />\n<button type="button">A</button>\n/* x */';
+    expect(stripComments(src)).toContain('<button type="button">');
+  });
+
   it('reads both folders, and no spec files', () => {
     const files = portalAdminSources();
     expect(files.some((f) => f.startsWith('admin/'))).toBe(true);

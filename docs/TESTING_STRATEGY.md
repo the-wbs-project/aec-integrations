@@ -670,6 +670,13 @@ Run axe on:
   state) before analyzing. It is the most interactive vendor-facing surface, so
   this is the run that covers the combobox/listbox wiring end to end — the unit
   specs deliberately never open a CDK overlay (§4.3a), **with one carve-out, below.**
+- `/preview/admin-*` — **every admin preview route, at 1440 and 390**, in
+  `preview-admin-axe.spec.ts` (AECI-2083), with the WCAG 2.2 AA tags. The console is
+  behind the SSR admin gate, so the previews (the real admin components over a fake API,
+  no session) are where it is axe-scanned. Today's violations are recorded per route in
+  `e2e/preview-admin-axe.allowlist.txt`. The list only shrinks: a rule not listed fails,
+  and a listed rule that no longer fails on its route fails too, so the slice that fixed
+  it deletes the line. A new `/preview/admin-*` route fails until it is added to the spec.
 - `/preview/vendor-dashboard` — the **portal header, breadcrumb and tab row**, in
   `preview-vendor-portal-nav.spec.ts` (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.4, §6.11).
   One axe run in **vendor context** and one in **product context**, because §6.11

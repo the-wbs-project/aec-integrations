@@ -9,7 +9,7 @@ import {
 } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 
-import type { VendorMeResponse, VendorSeat } from '@aeci/shared';
+import type { VendorListingHidden, VendorMeResponse, VendorSeat } from '@aeci/shared';
 
 import { VendorDashboardSingle } from '../../vendor/vendor-dashboard-single';
 import { VendorDashboardTabbed } from '../../vendor/vendor-dashboard-tabbed';
@@ -62,6 +62,7 @@ type FixtureKey =
   | 'mixed'
   | 'product-ended'
   | 'removal-election'
+  | 'listing-hidden'
   | 'member'
   | 'legal-required'
   | 'legal-required-member'
@@ -82,6 +83,7 @@ const FIXTURE_KEYS: readonly FixtureKey[] = [
   'mixed',
   'product-ended',
   'removal-election',
+  'listing-hidden',
   'member',
   'legal-required',
   'legal-required-member',
@@ -98,6 +100,24 @@ function fixtureFrom(value: string | null): FixtureKey {
 
 /** AECI-1424: the far-term vendor from a member seat. */
 const MEMBER_SEAT_FIXTURE: VendorMeResponse = { ...VENDOR_ME_FIXTURE, seat_owner: false };
+
+/**
+ * AECI-2083: AECi hid the company from the public site, and with it every product (a
+ * company hide covers every product it joins, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6). The
+ * overview carries the company banner and every product tab the product banner. No
+ * other fixture sets `hidden`.
+ */
+const LISTING_HIDE: VendorListingHidden = {
+  at: '2026-11-02T14:30:00.000Z',
+  kind: 'complaint_under_review',
+  reason:
+    'A rights holder says the logo on this listing is theirs. We hide a listing while we check a complaint like this.',
+};
+const LISTING_HIDDEN_FIXTURE: VendorMeResponse = {
+  ...VENDOR_ME_FIXTURE,
+  vendor: { ...VENDOR_ME_FIXTURE.vendor, hidden: LISTING_HIDE },
+  products: VENDOR_ME_FIXTURE.products.map((p) => ({ ...p, hidden: LISTING_HIDE })),
+};
 
 /** A single-seat roster for the no-access/new-vendor fixture. */
 const SINGLE_SEAT_FIXTURE: readonly VendorSeat[] = [
@@ -274,6 +294,9 @@ export class VendorDashboardPreview {
     // AECI-1618: Managed ended 20 days ago, so an owner seat's removal election is open
     // on each product's overview.
     { key: 'removal-election', label: 'Free · removal election open' },
+    // AECI-2083: the listing-hidden banner (section 11d.6). AECi hid the company and its
+    // products, so the overview and every product tab carry the banner.
+    { key: 'listing-hidden', label: 'Active · hidden by AECi' },
     // AECI-1424: the far-term vendor seen from a member seat (seat_owner false), so
     // the owner-only surfaces (Add a product, proposal decisions) show their member state.
     { key: 'member', label: 'Active · member seat' },
@@ -334,6 +357,8 @@ export class VendorDashboardPreview {
         return VENDOR_ME_PRODUCT_ENDED_FIXTURE;
       case 'removal-election':
         return VENDOR_ME_REMOVAL_ELECTION_FIXTURE;
+      case 'listing-hidden':
+        return LISTING_HIDDEN_FIXTURE;
       case 'member':
       case 'legal-required-member':
         return MEMBER_SEAT_FIXTURE;
@@ -347,6 +372,7 @@ export class VendorDashboardPreview {
     switch (this.fixture()) {
       case 'verified':
       case 'member':
+      case 'listing-hidden':
       case 'expiring':
       case 'large-catalog':
       case 'product-ended':
