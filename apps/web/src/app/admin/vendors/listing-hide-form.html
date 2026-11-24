@@ -1,36 +1,38 @@
+<!-- AECI-2112: the queues' decision form look (mock-up 14): a hairline above, the Bone
+     warning box, Label-role labels, the shared field recipe and aecButton. Escape
+     cancels, as Cancel does. -->
 <form
   method="dialog"
   novalidate
   [attr.id]="fieldId('form')"
-  class="space-y-3 rounded-(--radius-md) border border-(--border-strong) bg-(--surface-sunken) p-4"
+  [class]="formClass"
   data-testid="listing-hide-form"
   (aecSubmit)="step() === 'edit' ? continue() : confirm()"
+  (keydown.escape)="onEscape()"
 >
   @if (step() === 'edit') {
   <!-- Step 1: the fields. Nothing is sent from this step. -->
   @if (mode() === 'hide') {
-  <p
-    class="rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-muted) p-3 text-sm text-(--text-primary)"
-    role="note"
-    i18n="@@admin.listingHide.hide.warning"
-  >
+  <p [class]="noticeClass" role="note" i18n="@@admin.listingHide.hide.warning">
     Hiding takes the listing off the public site and out of search. Nothing is deleted, and a
     restore puts it back as it was. The vendor is told in its portal messages, and its portal keeps
     working.
   </p>
-  <fieldset>
-    <legend class="text-sm font-medium text-(--text-primary)" i18n="@@admin.listingHide.field.kind">
+  <fieldset class="m-0 border-0 p-0">
+    <legend [class]="labelClass" i18n="@@admin.listingHide.field.kind">
       Why it is hidden (required)
     </legend>
-    <div class="mt-2 flex flex-wrap gap-4">
+    <div class="mt-2 flex flex-wrap gap-x-6 gap-y-2">
       @for (k of kinds; track k) {
-      <label class="flex items-center gap-2 text-sm text-(--text-primary)">
+      <label class="flex min-h-11 items-center gap-2 text-t-14 text-(--text-primary)">
         <input
           type="radio"
+          [class]="choiceClass"
           [attr.name]="fieldId('kind')"
           [attr.id]="fieldId('kind-' + k)"
           [value]="k"
           [checked]="kind() === k"
+          [attr.aria-invalid]="showErrors() && kindError() ? 'true' : null"
           [attr.aria-describedby]="describedBy('kind', kindError())"
           (change)="kind.set(k)"
         />
@@ -39,15 +41,13 @@
       }
     </div>
     @if (showErrors() && kindError(); as message) {
-    <p [attr.id]="fieldId('kind-error')" class="mt-1 text-sm font-medium text-(--text-primary)">
-      {{ message }}
-    </p>
+    <p [attr.id]="fieldId('kind-error')" [class]="errorClass" class="mt-2">{{ message }}</p>
     }
   </fieldset>
 
-  <div>
+  <div [class]="fieldClass">
     <label
-      class="block text-sm font-medium text-(--text-primary)"
+      [class]="labelClass"
       [attr.for]="fieldId('received')"
       i18n="@@admin.listingHide.field.received"
     >
@@ -55,7 +55,8 @@
     </label>
     <input
       type="date"
-      [class]="inputClass + ' max-w-48'"
+      [class]="inputClass"
+      class="max-w-48"
       [attr.id]="fieldId('received')"
       [attr.max]="today"
       aria-required="true"
@@ -65,22 +66,20 @@
       (input)="onInput('receivedAt', $event)"
     />
     @if (showErrors() && receivedError(); as message) {
-    <p [attr.id]="fieldId('received-error')" class="mt-1 text-sm font-medium text-(--text-primary)">
-      {{ message }}
-    </p>
+    <p [attr.id]="fieldId('received-error')" [class]="errorClass">{{ message }}</p>
     }
   </div>
 
-  <div>
+  <div [class]="fieldClass">
     <label
-      class="block text-sm font-medium text-(--text-primary)"
+      [class]="labelClass"
       [attr.for]="fieldId('source')"
       i18n="@@admin.listingHide.field.source"
     >
       Source link (required for a complaint)
     </label>
     <p
-      class="mt-1 text-xs text-(--text-secondary)"
+      [class]="hintClass"
       [attr.id]="fieldId('source-hint')"
       i18n="@@admin.listingHide.field.sourceHint"
     >
@@ -99,32 +98,26 @@
       (input)="onInput('sourceUrl', $event)"
     />
     @if (showErrors() && sourceError(); as message) {
-    <p [attr.id]="fieldId('source-error')" class="mt-1 text-sm font-medium text-(--text-primary)">
-      {{ message }}
-    </p>
+    <p [attr.id]="fieldId('source-error')" [class]="errorClass">{{ message }}</p>
     }
   </div>
   } @else {
-  <p
-    class="rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-muted) p-3 text-sm text-(--text-primary)"
-    role="note"
-    i18n="@@admin.listingHide.restore.warning"
-  >
+  <p [class]="noticeClass" role="note" i18n="@@admin.listingHide.restore.warning">
     Restoring puts the listing back on the public site and in search, as it was. The vendor is told
     in its portal messages.
   </p>
   }
 
-  <div>
+  <div [class]="fieldClass">
     <label
-      class="block text-sm font-medium text-(--text-primary)"
+      [class]="labelClass"
       [attr.for]="fieldId('reason')"
       i18n="@@admin.listingHide.field.reason"
     >
       Reason shown to the vendor (required)
     </label>
     <p
-      class="mt-1 text-xs text-(--text-secondary)"
+      [class]="hintClass"
       [attr.id]="fieldId('reason-hint')"
       i18n="@@admin.listingHide.field.reasonHint"
     >
@@ -134,6 +127,7 @@
     <textarea
       rows="3"
       [class]="inputClass"
+      class="min-h-24 resize-y"
       [attr.id]="fieldId('reason')"
       [attr.maxlength]="reasonMax"
       aria-required="true"
@@ -143,23 +137,18 @@
       (input)="onInput('reason', $event)"
     ></textarea>
     @if (showErrors() && reasonError(); as message) {
-    <p [attr.id]="fieldId('reason-error')" class="mt-1 text-sm font-medium text-(--text-primary)">
-      {{ message }}
-    </p>
+    <p [attr.id]="fieldId('reason-error')" [class]="errorClass">{{ message }}</p>
     }
   </div>
 
-  <div>
-    <label
-      class="block text-sm font-medium text-(--text-primary)"
-      [attr.for]="fieldId('note')"
-      i18n="@@admin.listingHide.field.note"
-    >
+  <div [class]="fieldClass">
+    <label [class]="labelClass" [attr.for]="fieldId('note')" i18n="@@admin.listingHide.field.note">
       Internal note (optional, never shown to the vendor)
     </label>
     <textarea
       rows="2"
       [class]="inputClass"
+      class="min-h-20 resize-y"
       [attr.id]="fieldId('note')"
       [attr.maxlength]="reasonMax"
       [value]="internalNote()"
@@ -167,13 +156,14 @@
     ></textarea>
   </div>
 
-  <div class="flex flex-wrap gap-2">
-    <button type="submit" [class]="buttonClass" i18n="@@admin.listingHide.action.continue">
+  <div [class]="actionsClass">
+    <button aecButton compact type="submit" i18n="@@admin.listingHide.action.continue">
       Continue
     </button>
     <button
+      aecButton
+      variant="ghost"
       type="button"
-      [class]="buttonClass"
       (click)="cancel()"
       i18n="@@admin.listingHide.action.cancel"
     >
@@ -186,7 +176,7 @@
   <p
     #confirmHeading
     tabindex="-1"
-    class="text-sm font-semibold text-(--text-primary)"
+    class="text-t-16 font-semibold text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3"
     data-testid="listing-hide-confirm-heading"
     i18n="@@admin.listingHide.confirm.hideTitle"
   >
@@ -196,7 +186,7 @@
   <p
     #confirmHeading
     tabindex="-1"
-    class="text-sm font-semibold text-(--text-primary)"
+    class="text-t-16 font-semibold text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3"
     data-testid="listing-hide-confirm-heading"
     i18n="@@admin.listingHide.confirm.restoreTitle"
   >
@@ -204,22 +194,22 @@
   </p>
   }
 
-  <dl class="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-[max-content_minmax(0,1fr)]">
+  <dl [class]="pairsClass">
     @if (mode() === 'hide') {
-    <dt class="text-(--text-secondary)" i18n="@@admin.listingHide.summary.kind">Why</dt>
+    <dt [class]="termClass" i18n="@@admin.listingHide.summary.kind">Why</dt>
     <dd class="text-(--text-primary)">{{ kindLabel(kind()!, entityType()) }}</dd>
-    <dt class="text-(--text-secondary)" i18n="@@admin.listingHide.summary.received">Received</dt>
+    <dt [class]="termClass" i18n="@@admin.listingHide.summary.received">Received</dt>
     <dd class="text-(--text-primary)">{{ receivedAt() | date: 'mediumDate' : 'UTC' }}</dd>
     @if (sourceUrl().trim()) {
-    <dt class="text-(--text-secondary)" i18n="@@admin.listingHide.summary.source">Source</dt>
+    <dt [class]="termClass" i18n="@@admin.listingHide.summary.source">Source</dt>
     <dd class="break-all text-(--text-primary)">{{ sourceUrl().trim() }}</dd>
     } }
-    <dt class="text-(--text-secondary)" i18n="@@admin.listingHide.summary.reason">
+    <dt [class]="termClass" i18n="@@admin.listingHide.summary.reason">
       Reason shown to the vendor
     </dt>
     <dd class="whitespace-pre-line text-(--text-primary)">{{ reason().trim() }}</dd>
     @if (internalNote().trim()) {
-    <dt class="text-(--text-secondary)" i18n="@@admin.listingHide.summary.note">Internal note</dt>
+    <dt [class]="termClass" i18n="@@admin.listingHide.summary.note">Internal note</dt>
     <dd class="whitespace-pre-line text-(--text-primary)">{{ internalNote().trim() }}</dd>
     }
   </dl>
@@ -228,11 +218,12 @@
   <ng-content />
 
   @if (failedMessage()) {
-  <p class="text-sm font-medium text-(--text-primary)" role="alert">{{ failedMessage() }}</p>
+  <p #failedEl tabindex="-1" [class]="failedClass" role="alert">{{ failedMessage() }}</p>
   }
 
-  <div class="flex flex-wrap gap-2">
-    <button type="submit" [class]="confirmClass" [disabled]="pending()">
+  <div [class]="actionsClass">
+    <!-- Primary, not danger: Restore undoes a hide (DESIGN.md §5 Buttons, ruled 2026-11-24). -->
+    <button aecButton compact type="submit" [disabled]="pending()">
       @if (mode() === 'hide') { @if (pending()) {
       <span i18n="@@admin.listingHide.action.hiding">Hiding…</span>
       } @else {
@@ -244,8 +235,10 @@
       } }
     </button>
     <button
+      aecButton
+      variant="secondary"
+      compact
       type="button"
-      [class]="buttonClass"
       [disabled]="pending()"
       (click)="back()"
       i18n="@@admin.listingHide.action.back"
@@ -253,8 +246,9 @@
       Back
     </button>
     <button
+      aecButton
+      variant="ghost"
       type="button"
-      [class]="buttonClass"
       [disabled]="pending()"
       (click)="cancel()"
       i18n="@@admin.listingHide.action.cancel2"

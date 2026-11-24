@@ -66,10 +66,10 @@ export type VendorProductTab = 'profile' | ProductFacetKind;
           No heading of its own: the form opens with its read-only identity
           block (name + slug + the rename-is-a-correction-request hint), so a
           card header would repeat the product name the page h1 already shows.
-          No panel either (AECI-1116). The form sits flat under the tab row,
-          the same depth as the vendor Profile form. A raised card here put the
-          identity block and the logo drop zone inside a second card, which
-          impeccable detect flags as nested-cards.
+          No panel here either (AECI-1116): each form is its own portal form
+          card (AECI-1810), with the identity block and its notes above it, the
+          same shape as the vendor Profile form. A wrapper card here would nest
+          that card inside a second one, which impeccable detect flags.
         -->
         <div class="space-y-10">
           @if (section() === 'profile') {
