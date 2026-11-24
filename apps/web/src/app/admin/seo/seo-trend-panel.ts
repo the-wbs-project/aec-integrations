@@ -1,12 +1,16 @@
 import { DatePipe, formatDate } from '@angular/common';
 import {
   Component,
+  ElementRef,
+  Injector,
   LOCALE_ID,
   afterNextRender,
   computed,
   inject,
   input,
+  output,
   signal,
+  viewChild,
 } from '@angular/core';
 
 import {
@@ -29,6 +33,9 @@ export interface TrendCell {
   text: string;
   /** A second line: "5 of 22", "4 of 15 so far". */
   sub?: string;
+  /** What a screen reader says instead of `text`, when `text` is an
+   *  abbreviation: "9.1 days" for "9.1 d". */
+  spoken?: string;
   /** The sub line belongs to a cohort still inside its window. */
   open?: boolean;
   delta?: TrendDelta;
@@ -83,10 +90,16 @@ type LaneKey = Exclude<keyof SeoTrendLanes, 'reindex_oldest_tier12_age_days'>;
 export class SeoTrendPanel {
   private readonly api = inject(AdminSeoApi);
   private readonly locale = inject(LOCALE_ID);
+  private readonly injector = inject(Injector);
 
   /** Prefix for every element id in the panel, so two instances on one page
    *  (the preview's state gallery) never share an id. */
   readonly idPrefix = input('admin-seo');
+
+  /** Text for the page's polite live region. */
+  readonly announce = output<string>();
+
+  private readonly heading = viewChild<ElementRef<HTMLElement>>('heading');
 
   protected readonly data = signal<SeoTrendResponse | null>(null);
   protected readonly loading = signal(true);
@@ -237,21 +250,32 @@ export class SeoTrendPanel {
     });
   }
 
-  private async load(): Promise<void> {
+  private async load(): Promise<boolean> {
     this.loadFailed.set(false);
     this.loading.set(true);
     try {
       this.data.set(await this.api.trend(SEO_TREND_WEEKS_DEFAULT));
+      return true;
     } catch {
       this.loadFailed.set(true);
       this.data.set(null);
+      return false;
     } finally {
       this.loading.set(false);
     }
   }
 
-  protected retry(): void {
-    void this.load();
+  /** The Try again button unmounts while the read is in flight, so focus would
+   *  drop to the page. Once it settles, focus goes to the panel heading and the
+   *  live region says how it went, including a second failure. */
+  protected async retry(): Promise<void> {
+    const ok = await this.load();
+    this.announce.emit(
+      ok
+        ? $localize`:@@admin.seo.trend.announce.loaded:Weekly trend loaded.`
+        : $localize`:@@admin.seo.trend.announce.failed:The weekly trend still could not load.`,
+    );
+    afterNextRender(() => this.heading()?.nativeElement.focus(), { injector: this.injector });
   }
 }
 
@@ -304,7 +328,11 @@ function oldestCell(age: number | 'none' | null): TrendCell {
     };
   }
   const days = age.toFixed(1);
-  return value($localize`:@@admin.seo.trend.days:${days}:DAYS: d`);
+  return {
+    kind: 'value',
+    text: $localize`:@@admin.seo.trend.days:${days}:DAYS: d`,
+    spoken: $localize`:@@admin.seo.trend.days.spoken:${days}:DAYS: days`,
+  };
 }
 
 function delta(diff: number): TrendDelta {

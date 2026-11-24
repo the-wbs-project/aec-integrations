@@ -1,7 +1,10 @@
 <section [attr.aria-labelledby]="idPrefix() + '-queue-heading'">
+  <!-- tabindex -1: a settled retry moves focus here, so it never drops to the page. -->
   <h3
+    #heading
+    tabindex="-1"
     [id]="idPrefix() + '-queue-heading'"
-    class="text-lg font-bold text-(--text-primary)"
+    class="text-lg font-bold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
     i18n="@@admin.seo.queue.heading"
   >
     Do this now
@@ -125,17 +128,17 @@
         >
         }
       </p>
-      <!-- A real toggle with a stable name: pressing the open lane closes its
-           list. aria-pressed and aria-expanded both follow isOpen, so neither
-           says "open" over a closed list. aria-describedby names the lane. -->
+      <!-- A disclosure with a stable name: pressing the open lane closes its
+           list. aria-expanded follows isOpen and aria-controls names the list.
+           No aria-pressed: one control is not both a toggle and a disclosure.
+           aria-describedby names the lane. -->
       <button
         type="button"
         (click)="selectEngine(lane.engine)"
-        [attr.aria-pressed]="isOpen(lane.engine)"
         [attr.aria-expanded]="isOpen(lane.engine)"
         [attr.aria-describedby]="idPrefix() + '-lane-title-' + lane.lane + '-' + lane.engine"
         [attr.aria-controls]="idPrefix() + '-list'"
-        class="mt-auto inline-flex w-fit cursor-pointer items-center self-start rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) aria-pressed:bg-(--accent-primary) aria-pressed:text-(--surface-base)"
+        class="mt-auto inline-flex w-fit cursor-pointer items-center self-start rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) aria-expanded:bg-(--accent-primary) aria-expanded:text-(--surface-base)"
         i18n="@@admin.seo.lane.show"
       >
         Show URLs
@@ -209,10 +212,17 @@
     </div>
     } @else {
     <!-- relative: the sr-only cells are absolutely positioned, and without a
-         positioned scroll box they escape its clip and widen the page. -->
-    <div class="relative mt-4 overflow-x-auto">
+         positioned scroll box they escape its clip and widen the page. The
+         admin scroll-region recipe (reindex-history.html) makes it focusable
+         and named, so a keyboard user can scroll it. -->
+    <div
+      class="relative mt-4 overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      tabindex="0"
+      role="region"
+      [attr.aria-labelledby]="idPrefix() + '-list-caption'"
+    >
       <table class="w-full min-w-[56rem] border-collapse text-sm" [attr.aria-busy]="paging()">
-        <caption class="sr-only">
+        <caption [id]="idPrefix() + '-list-caption'" class="sr-only">
           @if (engine() === 'google') {
           <span i18n="@@admin.seo.list.caption.google"
             >Pages Googlebot has not fetched, oldest first</span
@@ -231,6 +241,9 @@
               i18n="@@admin.seo.list.col.url"
             >
               URL
+            </th>
+            <th scope="col" class="w-0 py-2 pe-4 text-start font-bold text-(--text-secondary)">
+              <span class="sr-only" i18n="@@admin.seo.list.col.copy">Copy</span>
             </th>
             <th
               scope="col"
@@ -265,8 +278,12 @@
         <tbody>
           @for (row of items(); track row.url) {
           <tr class="border-b border-(--border-default)">
-            <th scope="row" class="py-3 pe-4 text-start font-medium">
-              <span class="block break-all font-normal text-(--text-primary)">{{ row.url }}</span>
+            <th scope="row" class="py-3 pe-4 text-start font-normal">
+              <span class="block break-all text-(--text-primary)">{{ row.url }}</span>
+            </th>
+            <!-- Its own cell, so the row header is the URL alone and no cell in
+                 the row hears "Copy" as part of its header. -->
+            <td class="py-3 pe-4 align-top">
               <button
                 type="button"
                 (click)="copyUrl(row.url)"
@@ -279,7 +296,7 @@
                 <span i18n="@@admin.seo.list.copy">Copy</span>
                 }
               </button>
-            </th>
+            </td>
             <td class="py-3 pe-4 text-(--text-secondary)">{{ pageTypeLabel(row.page_type) }}</td>
             <td class="py-3 pe-4 tabular-nums text-(--text-secondary)">
               @if (row.published_at) { {{ row.published_at | date: 'mediumDate' : 'UTC' }} } @else {
@@ -287,7 +304,11 @@
               }
             </td>
             <td class="py-3 pe-4 tabular-nums text-(--text-secondary)">
-              @if (row.age_days !== null) { {{ waiting(row.age_days) }} } @else {
+              @if (row.age_days !== null) {
+              <!-- "144 d" for the eye, "144 days" for a screen reader. -->
+              <span aria-hidden="true">{{ waiting(row.age_days) }}</span>
+              <span class="sr-only">{{ waitingSpoken(row.age_days) }}</span>
+              } @else {
               <span aria-hidden="true">–</span>
               <span class="sr-only" i18n="@@admin.seo.list.notDatedAge">Not dated</span>
               }

@@ -79,7 +79,9 @@ const BOX = { width: 720, height: 220, padding: { top: 12, right: 12, bottom: 8,
               <!-- AECI-822: a stretch where NO series has a value is hatched, so
                    the gap reads as "nothing was recorded", never as a quiet week.
                    Hand-drawn lines, not an SVG pattern: a url(#id) fill is a
-                   bare fragment, which the app's base href breaks. -->
+                   bare fragment, which the app's base href breaks. The hatch is
+                   --border-field, 3.55:1 on the chart surface, so the band
+                   passes WCAG 1.4.11 (AECI-823). The grid colour was 1.22:1. -->
               @for (span of gapSpans(); track span.key) {
                 <g aria-hidden="true">
                   @for (hatch of span.hatches; track $index) {
@@ -88,7 +90,7 @@ const BOX = { width: 720, height: 220, padding: { top: 12, right: 12, bottom: 8,
                       [attr.y1]="hatch.y1"
                       [attr.x2]="hatch.x2"
                       [attr.y2]="hatch.y2"
-                      stroke="var(--chart-grid)"
+                      stroke="var(--border-field)"
                       stroke-width="1"
                       vector-effect="non-scaling-stroke"
                     />
@@ -152,15 +154,17 @@ const BOX = { width: 720, height: 220, padding: { top: 12, right: 12, bottom: 8,
               }
             </svg>
 
-            <!-- The band's label. It hides when an @container ancestor is narrow,
-                 because a one-week band cannot hold the words there. The hatch
-                 stays, and the data table always carries the label. -->
+            <!-- The band's label. When an @container ancestor is narrow, a
+                 one-week band cannot hold the words across, so they run down the
+                 band instead. There is a text cue at every width, never the
+                 hatch alone (AECI-823, WCAG 1.4.11). -->
             @if (gapLabel()) {
               @for (span of gapSpans(); track span.key) {
                 <span
                   class="pointer-events-none absolute top-[40%] -translate-x-1/2 -translate-y-1/2
                     bg-(--chart-surface) px-1 text-center text-[0.6875rem] leading-tight
-                    text-(--text-secondary) @max-md:hidden"
+                    text-(--text-secondary) @max-md:rotate-180
+                    @max-md:whitespace-nowrap @max-md:[writing-mode:vertical-rl]"
                   [style.left.%]="span.centerPct"
                   [style.max-width.%]="span.widthPct"
                   aria-hidden="true"

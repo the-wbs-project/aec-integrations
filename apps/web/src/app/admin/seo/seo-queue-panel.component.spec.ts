@@ -130,6 +130,13 @@ function text(el: Element | null | undefined): string {
   return (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
 }
 
+/** Text a sighted reader sees: sr-only spans removed. */
+function visible(el: Element): string {
+  const clone = el.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll('.sr-only').forEach((n) => n.remove());
+  return text(clone);
+}
+
 function buttonByText(root: Element, label: string): HTMLButtonElement {
   const btn = [...root.querySelectorAll('button')].find((b) => text(b) === label);
   if (!btn) throw new Error(`No button "${label}"`);
@@ -192,12 +199,16 @@ describe('SeoQueuePanel', () => {
     expect(text(card(el, 'reindex', 'google'))).toContain('Oldest priority 1 or 2 row: None');
   });
 
-  it('opens the Google lane first, with a pressed toggle and its table', async () => {
+  it('opens the Google lane first, with an expanded disclosure and its table', async () => {
     const { el } = await setup(async () => response(lanes(1, 2, 1), [item('https://x.test/a')]));
     const google = buttonByText(card(el, 'uncrawled', 'google'), 'Show URLs');
     const bing = buttonByText(card(el, 'uncrawled', 'bing'), 'Show URLs');
-    expect(google.getAttribute('aria-pressed')).toBe('true');
-    expect(bing.getAttribute('aria-pressed')).toBe('false');
+    expect(google.getAttribute('aria-expanded')).toBe('true');
+    expect(bing.getAttribute('aria-expanded')).toBe('false');
+    // A disclosure, not also a toggle (AECI-823 audit A6).
+    expect(google.hasAttribute('aria-pressed')).toBe(false);
+    expect(bing.hasAttribute('aria-pressed')).toBe(false);
+    expect(google.getAttribute('aria-controls')).toBe('admin-seo-list');
     expect(text(el.querySelector('h4[tabindex="-1"]'))).toBe('Not crawled by Google');
     expect(el.querySelector('caption')?.textContent).toContain('Googlebot');
   });
@@ -220,7 +231,7 @@ describe('SeoQueuePanel', () => {
       page: 1,
       perPage: 25,
     });
-    expect(bing.getAttribute('aria-pressed')).toBe('true');
+    expect(bing.getAttribute('aria-expanded')).toBe('true');
     expect(document.activeElement).toBe(bing);
     expect(text(el.querySelector('h4[tabindex="-1"]'))).toBe('Not crawled by Bing');
     expect(text(el.querySelector('thead'))).toContain('Last Bingbot visit');
@@ -289,21 +300,26 @@ describe('SeoQueuePanel', () => {
         }),
       ]),
     );
+    // Visible text only, and the Copy cell (column 1) is its own column.
     const rows = [...el.querySelectorAll('tbody tr')].map((r) =>
-      [...r.querySelectorAll('td')].map((c) => text(c)),
+      [...r.querySelectorAll('td')].slice(1).map((c) => visible(c)),
     );
     expect(rows[0]).toEqual(['Vendor', 'Aug 21, 2026', '144 d', 'Oct 30, 2026 73 days ago']);
     expect(rows[1]).toEqual(['Integration pair', 'Aug 21, 2026', '144 d', 'Never recorded']);
     expect(rows[2]![0]).toBe('Category');
     expect(rows[2]![1]).toBe('Not dated');
     expect(rows[2]![3]).toBe('Never recorded');
+    // A screen reader hears "144 days", never "144 d".
+    const waiting = el.querySelectorAll('tbody tr')[0]!.querySelectorAll('td')[3]!;
+    expect(text(waiting.querySelector('[aria-hidden="true"]'))).toBe('144 d');
+    expect(text(waiting.querySelector('.sr-only'))).toBe('144 days');
   });
 
   it('humanizes a page type this build has never seen instead of blanking it', async () => {
     const { el } = await setup(async () =>
       response(lanes(1, 1, 1), [item('https://x.test/a', { page_type: 'data_object' })]),
     );
-    expect(text(el.querySelector('tbody td'))).toBe('Data object');
+    expect(text(el.querySelectorAll('tbody td')[1])).toBe('Data object');
   });
 
   it('copies a URL, shows Copied on that button and announces it', async () => {
@@ -400,7 +416,6 @@ describe('SeoQueuePanel', () => {
     google.click();
     await flush(fixture);
 
-    expect(google.getAttribute('aria-pressed')).toBe('false');
     expect(google.getAttribute('aria-expanded')).toBe('false');
     expect(el.querySelector('table')).toBeNull();
     expect(document.activeElement).toBe(google);
@@ -410,7 +425,6 @@ describe('SeoQueuePanel', () => {
 
     google.click();
     await flush(fixture);
-    expect(google.getAttribute('aria-pressed')).toBe('true');
     expect(google.getAttribute('aria-expanded')).toBe('true');
     expect(el.querySelector('table')).not.toBeNull();
     expect(api.queue).toHaveBeenCalledTimes(1);
@@ -501,6 +515,69 @@ describe('SeoQueuePanel', () => {
     expect(api.queue).toHaveBeenCalledTimes(2);
     expect(el.querySelector('[role="alert"]')).toBeNull();
     expect(el.querySelector('table')).not.toBeNull();
+  });
+
+  it('keeps the Copy button out of the row header, in its own column', async () => {
+    const { el } = await setup(async () =>
+      response(lanes(1, 1, 1), [item('https://x.test/products/a')]),
+    );
+    const row = el.querySelector('tbody tr')!;
+    const header = row.querySelector('th[scope="row"]')!;
+    expect(text(header)).toBe('https://x.test/products/a');
+    expect(header.querySelector('button')).toBeNull();
+    expect(row.querySelectorAll('td')[0]!.querySelector('button')).not.toBeNull();
+    const cols = [...el.querySelectorAll('thead th')].map((th) => text(th));
+    expect(cols.slice(0, 2)).toEqual(['URL', 'Copy']);
+  });
+
+  it('makes the URL table a focusable, named scroll region', async () => {
+    const { el } = await setup(async () => response(lanes(1, 1, 1), [item('https://x.test/a')]));
+    const region = el.querySelector('[role="region"]')!;
+    expect(region.getAttribute('tabindex')).toBe('0');
+    const caption = el.querySelector('caption')!;
+    expect(region.getAttribute('aria-labelledby')).toBe(caption.id);
+    expect(caption.id).toBe('admin-seo-list-caption');
+  });
+
+  it('a retry that fails again announces it and moves focus to the heading', async () => {
+    const { el, fixture, api, announced } = await setup(async () => {
+      throw new Error('500');
+    });
+    buttonByText(el, 'Try again').click();
+    await flush(fixture);
+    expect(api.queue).toHaveBeenCalledTimes(2);
+    expect(announced.at(-1)).toBe('The search queue still could not load.');
+    expect(document.activeElement).toBe(el.querySelector('h3'));
+  });
+
+  it('a retry that succeeds announces it and moves focus to the heading', async () => {
+    let fail = true;
+    const { el, fixture, announced } = await setup(async () => {
+      if (fail) throw new Error('500');
+      return response(lanes(1, 1, 1), [item('https://x.test/a')]);
+    });
+    fail = false;
+    buttonByText(el, 'Try again').click();
+    await flush(fixture);
+    expect(announced.at(-1)).toBe('Search queue loaded.');
+    expect(document.activeElement).toBe(el.querySelector('h3'));
+  });
+
+  it('a list retry that fails again announces it and focuses the list heading', async () => {
+    const { el, fixture, announced } = await setup(async (q) => {
+      if (q.page === 2) throw new Error('500');
+      return response(lanes(7, 60, 3), [item(`https://x.test/p${q.page}`)], {
+        page: q.page,
+        total: 60,
+      });
+    });
+    buttonByText(el, 'Next').click();
+    await flush(fixture);
+    const listError = el.querySelector('[data-testid="admin-seo-list-error"]')!;
+    buttonByText(listError, 'Try again').click();
+    await flush(fixture);
+    expect(announced.at(-1)).toBe('These URLs still could not load.');
+    expect(document.activeElement).toBe(el.querySelector('h4[tabindex="-1"]'));
   });
 
   it('shows a loading line, never a blank panel, before the first answer', async () => {

@@ -1955,8 +1955,10 @@ Rules that ride with it:
   mark.
 - **A missing value is a gap, never a zero** (AECI-822). A line chart breaks
   its line where a value was not recorded. Where every series is missing, it
-  draws a hatched band with a label such as "Not recorded". The hidden table
-  prints the same label. An open period, whose value can still change, is a
+  draws a hatched band with a label such as "Not recorded". The hatch is
+  `--border-field`, 3.55:1 on the surface, and on a narrow chart the label runs
+  down the band rather than hiding (AECI-823). The hidden table prints the same
+  label. An open period, whose value can still change, is a
   hollow point off the line.
 - **Never a dual axis**, never a truncated bar baseline, never a rainbow ramp.
 - **Legend for ≥2 series, none for one** (the title already names a lone series).

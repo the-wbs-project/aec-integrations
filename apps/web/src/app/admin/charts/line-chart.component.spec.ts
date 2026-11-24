@@ -101,6 +101,29 @@ describe('LineChart gaps (AECI-822)', () => {
     ]);
   });
 
+  it('draws the hatch at 3:1 and keeps the label as text at every width (AECI-823)', () => {
+    const el = render({
+      series: [series([null, null, 5, 6, 7, 8])],
+      gapLabel: 'Not recorded',
+    });
+    // --border-field is 3.55:1 on the chart surface. The grid colour was 1.22:1.
+    const hatch = [...el.querySelectorAll('svg line')].filter(
+      (l) => l.getAttribute('stroke') === 'var(--border-field)',
+    );
+    expect(hatch.length).toBeGreaterThan(0);
+    const label = [...el.querySelectorAll('span[aria-hidden="true"]')].find(
+      (s) => s.textContent?.trim() === 'Not recorded',
+    )!;
+    // Narrow: the words run down the band. Never hidden.
+    expect(label.className).toContain('@max-md:[writing-mode:vertical-rl]');
+    expect(label.className).not.toContain('hidden');
+  });
+
+  it('a chart with no gap draws no hatch line at all', () => {
+    const el = render({ series: [series([1, 2, 3, 4, 5, 6])], gapLabel: 'Not recorded' });
+    expect(el.querySelectorAll('svg line[stroke="var(--border-field)"]')).toHaveLength(0);
+  });
+
   it('draws no band and no label for number-only series', () => {
     const el = render({ series: [series([1, 2, 3, 4, 5, 6])], gapLabel: 'Not recorded' });
     expect(el.textContent).not.toContain('Not recorded');

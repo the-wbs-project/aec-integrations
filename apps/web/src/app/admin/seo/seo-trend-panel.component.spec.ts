@@ -108,12 +108,14 @@ async function setup(trend: () => Promise<SeoTrendResponse>) {
     providers: [provideZonelessChangeDetection(), { provide: AdminSeoApi, useValue: api }],
   });
   const fixture = TestBed.createComponent(SeoTrendPanel);
+  const announced: string[] = [];
+  fixture.componentInstance.announce.subscribe((m) => announced.push(m));
   fixture.detectChanges();
   await fixture.whenStable();
   await settle();
   fixture.detectChanges();
   await fixture.whenStable();
-  return { fixture, api, el: fixture.nativeElement as HTMLElement };
+  return { fixture, api, announced, el: fixture.nativeElement as HTMLElement };
 }
 
 function text(el: Element | null | undefined): string {
@@ -257,9 +259,68 @@ describe('SeoTrendPanel', () => {
     expect(text(el)).not.toContain('Not recorded');
   });
 
+  it('says "days" to a screen reader where the cell shows "d"', async () => {
+    const { el } = await setup(async () => respond());
+    const row = [...weekTable(el).querySelectorAll('tr')].find((r) =>
+      text(r.querySelector('th')).startsWith('Oldest re-index row'),
+    )!;
+    const cell = row.querySelectorAll('td')[1]!;
+    expect(text(cell.querySelector('[aria-hidden="true"]'))).toBe('2.3 d');
+    expect(text(cell.querySelector('.sr-only'))).toBe('2.3 days');
+  });
+
+  it('keeps each row header to its name and links the description', async () => {
+    const { el } = await setup(async () => respond());
+    const th = [...weekTable(el).querySelectorAll('th[scope="row"]')].find((h) =>
+      text(h).startsWith('Pair pages with no reviews'),
+    )!;
+    const desc = el.querySelector(`#${th.getAttribute('aria-describedby')}`)!;
+    expect(text(desc)).toContain('A count to watch, not a work list.');
+    expect(desc.getAttribute('aria-hidden')).toBe('true');
+    const requests = el.querySelector('[data-testid="admin-seo-self-reported"] th')!;
+    const reqDesc = el.querySelector(`#${requests.getAttribute('aria-describedby')}`)!;
+    expect(text(reqDesc)).toContain('Not a measurement.');
+    expect(reqDesc.getAttribute('aria-hidden')).toBe('true');
+    // A row with no description links nothing.
+    const plain = [...weekTable(el).querySelectorAll('th[scope="row"]')].find((h) =>
+      text(h).startsWith('Re-index queue'),
+    )!;
+    expect(plain.hasAttribute('aria-describedby')).toBe(false);
+  });
+
+  it('makes the week table a focusable scroll region named by its caption', async () => {
+    const { el } = await setup(async () => respond());
+    const region = weekTable(el).parentElement!;
+    expect(region.getAttribute('role')).toBe('region');
+    expect(region.getAttribute('tabindex')).toBe('0');
+    expect(region.getAttribute('aria-labelledby')).toBe('admin-seo-trend-caption');
+    expect(weekTable(el).querySelector('caption')?.id).toBe('admin-seo-trend-caption');
+  });
+
+  it('a retry that fails again announces it and moves focus to the heading', async () => {
+    const { el, fixture, api, announced } = await setup(async () => {
+      throw new Error('500');
+    });
+    document.body.appendChild(el);
+    try {
+      const retry = [...el.querySelectorAll('button')].find((b) => text(b) === 'Try again')!;
+      retry.click();
+      await settle();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      await settle();
+      fixture.detectChanges();
+      expect(api.trend).toHaveBeenCalledTimes(2);
+      expect(announced.at(-1)).toBe('The weekly trend still could not load.');
+      expect(document.activeElement).toBe(el.querySelector('h3'));
+    } finally {
+      el.remove();
+    }
+  });
+
   it('a failed load shows an alert and Try again, which reloads', async () => {
     let fail = true;
-    const { el, fixture, api } = await setup(async () => {
+    const { el, fixture, api, announced } = await setup(async () => {
       if (fail) throw new Error('500');
       return respond();
     });
@@ -275,5 +336,8 @@ describe('SeoTrendPanel', () => {
     expect(api.trend).toHaveBeenCalledTimes(2);
     expect(el.querySelector('[role="alert"]')).toBeNull();
     expect(weekTable(el)).toBeTruthy();
+    await settle();
+    fixture.detectChanges();
+    expect(announced.at(-1)).toBe('Weekly trend loaded.');
   });
 });

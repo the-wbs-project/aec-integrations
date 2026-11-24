@@ -110,6 +110,7 @@ export class SeoQueuePanel {
   protected readonly copiedUrl = signal<string | null>(null);
 
   private readonly listHeading = viewChild<ElementRef<HTMLElement>>('listHeading');
+  private readonly heading = viewChild<ElementRef<HTMLElement>>('heading');
 
   protected readonly lanes = computed<readonly SeoQueueLane[]>(() => this.data()?.lanes ?? []);
   protected readonly items = computed<readonly SeoQueueItem[]>(() => this.data()?.items.data ?? []);
@@ -186,15 +187,35 @@ export class SeoQueuePanel {
     }
   }
 
-  protected retry(): void {
+  /** The Try again button unmounts while the read is in flight, so focus would
+   *  drop to the page. Once it settles, focus goes to the panel heading and the
+   *  live region says how it went, including a second failure. */
+  protected async retry(): Promise<void> {
     this.loading.set(true);
-    void this.load();
+    const ok = await this.load();
+    this.announce.emit(
+      ok
+        ? $localize`:@@admin.seo.queue.announce.loaded:Search queue loaded.`
+        : $localize`:@@admin.seo.queue.announce.failed:The search queue still could not load.`,
+    );
+    this.focusAfterRender(() => this.heading());
   }
 
-  /** Retry a failed lane switch or page change, for the same lane and page. */
+  /** Retry a failed lane switch or page change, for the same lane and page.
+   *  Focus goes to the list heading either way, and the outcome is announced. */
   protected async retryList(): Promise<void> {
     this.switching.set(true);
-    if (await this.load()) this.announce.emit(this.listAnnouncement());
+    const ok = await this.load();
+    this.announce.emit(
+      ok
+        ? this.listAnnouncement()
+        : $localize`:@@admin.seo.queue.announce.listFailed:These URLs still could not load.`,
+    );
+    this.focusAfterRender(() => this.listHeading());
+  }
+
+  private focusAfterRender(target: () => ElementRef<HTMLElement> | undefined): void {
+    afterNextRender(() => target()?.nativeElement.focus(), { injector: this.injector });
   }
 
   /** A lane's toggle is pressed while its list is open. */
@@ -236,9 +257,7 @@ export class SeoQueuePanel {
     this.paging.set(true);
     if (await this.load()) {
       this.announce.emit(this.listAnnouncement());
-      afterNextRender(() => this.listHeading()?.nativeElement.focus(), {
-        injector: this.injector,
-      });
+      this.focusAfterRender(() => this.listHeading());
     }
   }
 
@@ -286,9 +305,16 @@ export class SeoQueuePanel {
     return PAGE_TYPE_LABELS[type] ?? humanize(type);
   }
 
-  /** "144 d", the reindex screen's age format. */
+  /** "144 d", the reindex screen's age format. Shown, not spoken. */
   protected waiting(days: number): string {
     return $localize`:@@admin.seo.queue.ageDays:${days}:COUNT: d`;
+  }
+
+  /** "144 days", what a screen reader says for {@link waiting}. */
+  protected waitingSpoken(days: number): string {
+    return days === 1
+      ? $localize`:@@admin.seo.queue.ageDays.spokenOne:1 day`
+      : $localize`:@@admin.seo.queue.ageDays.spoken:${days}:COUNT: days`;
   }
 
   /** Whole days between a fetch and the moment the API answered. Measured
