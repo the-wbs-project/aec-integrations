@@ -1164,8 +1164,11 @@ describe('connector lane (AECI-714)', () => {
     // leaves the integration page and no later close can find it (§15.10). Carry both
     // through a `__carry_*` table (`docs/migrations.md` §3.3a).
     const t = await makeTestDb();
+    // AECI-2039 (0130): the owner's answers on a Sync Service pair cascade too, so a
+    // recreate of `claims` would empty `claim_owner_answers` as well.
     expect(inboundOf(t, 'claims')).toEqual([
       ['attestations', 'claim_id', 'CASCADE'],
+      ['claim_owner_answers', 'claim_id', 'CASCADE'],
       ['claim_threads', 'claim_id', 'SET NULL'],
     ]);
     t.dispose();

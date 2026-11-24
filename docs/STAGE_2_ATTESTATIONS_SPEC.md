@@ -3055,6 +3055,9 @@ string, on the `ng test` lane).
 >
 > **This is a review-and-gate pass over a shipped epic, not a rebuild.** No migration, no new
 > endpoint, no new binding or cron, no change to `computeAgreement` or to any public render path.
+>
+> **Amended 2026-11-24 (AECI-2039, §14.10):** the owner of a Sync Service pair now confirms its
+> flows. §14.1 to §14.9 still govern every endpoint vendor.
 
 ### 14.1 The gap
 
@@ -3328,6 +3331,101 @@ skew-window defaults); `vendor-integrations-section.component.spec.ts` (+6 — r
 copy fallbacks, the neighbouring direct cards still writable, and the awaiting count). Suites green
 at merge: `apps/api` 123 files / 2,335 tests, `packages/shared` 34 / 639, `apps/web` 155 / 1,632
 under `ng test` plus 45 / 773 under plain Vitest.
+
+
+### 14.10 Amendment: a Sync Service owner confirms its own flows (AECI-2039 — 2026-11-24)
+
+> Amends §14 for ONE party. Ruling 4 on epic AECI-2035 (Chris, 2026-11-24, final; legal
+> impact `decision`, ruled, no counsel question): a Sync Service confirms its own data flows,
+> because it runs both sides. The public label names the Sync Service's vendor as the
+> confirmer. It never says "both companies". §14.1 to §14.9 stand as history and still
+> govern every endpoint vendor: AECI-705's gate is unchanged for them.
+
+**Who may write.** The OWNER of a row (`built_by_vendor_id` = the caller's vendor) whose
+connector product is a Sync Service (`isSyncService`, AECI-2036), once the row is claimed,
+on either delivered table. On `integrations` the row must be connector-powered and its
+`powered_by` product a Sync Service. On `connector_evidenced_pairs` the connector product
+must be one. A seat is the whole remaining gate, on any plan (AECI-2038). The gate,
+`resolveOwnerFlowTarget` in `apps/api/src/lib/owner-flows.ts`, asks in this order:
+
+| Step | Refusal |
+|---|---|
+| unknown row, or the caller neither owns it nor holds an endpoint | `404` (a claim id reads as the claim's 404) |
+| an endpoint vendor that is not the owner | `403 INTEGRATION_NOT_OWNER` (or `409 INTEGRATION_OWNER_UNKNOWN`) |
+| the connector is an Integration platform, its kind is blank, or no connector delivers the row | `403 FORBIDDEN` |
+| not claimed | `409 INTEGRATION_NOT_CLAIMED` |
+| retired | `409 INTEGRATION_RETIRED` |
+
+The kind step precedes the claim step, so an owner is never told to claim a row whose flows
+a claim would not open. Endpoint vendors still get §14.3's `403` on `POST /api/vendor/claims`
+and `PUT …/attestation`. Its message lost its second sentence ("AEC Integrations maintains
+what it moves"), which was false on a claimed row.
+
+**Storage: a table of its own, not a fourth `source`.** `attestations_source_check` is a
+CHECK. Changing it recreates the table on D1, and a recreate fires `ON DELETE CASCADE`
+(`docs/migrations.md` §0). The three options were weighed:
+
+| Option | Verdict |
+|---|---|
+| (a) a nullable marker column on `attestations` | Rejected. The answer still needs a `source` under the CHECK. In `vendor_a`/`vendor_b` it reads as an endpoint vendor's vote in every reader that ignores the marker. In `aeci` it collides with AECi's live seed on `attestations_slot_key`. |
+| (b) a new table, `claim_owner_answers` (migration 0130, plain `CREATE TABLE`) | **Chosen.** Every existing reader of `attestations` stays exactly as it was. A reader that does not know the table fails safe. |
+| (c) reuse a slot with a marker | Rejected for the same reasons as (a). An unmarked `aeci` row would say AECi said it. |
+
+`claim_owner_answers` holds one live row per claim (`claim_owner_answers_live_key`, partial on
+`retracted_at IS NULL`). Supersession is retract-then-insert, as on `attestations`. An answer
+**counts** only while the connector is a Sync Service, the row is claimed, the answer's
+`vendor_id` is the row's owner now, and it is live (`ownerAnswerCounts`). So an old owner's
+answer never speaks for a new one, and a handback stops every answer at once.
+
+**Agreement.** The read paths append the counting answer to the claim's attestation list as
+an in-memory entry with `source = 'owner'` (`OWNER_ANSWER_SOURCE`, never stored).
+`packages/shared/src/agreement.ts` then reads it:
+
+- `computeAgreement`: a Yes gives the new state `owner_confirmed`.
+- `tallyVoters` skips it, so it never votes as an endpoint vendor, never refutes a claim, and
+  never enters `conflictSince`.
+- `isClaimPubliclyBacked`: a Yes stands behind the claim (an owner-added claim is public). A No
+  removes the claim from every public read, AECi-seeded or not.
+- `integrationAgreement` ranks `owner_confirmed` between `single_source` and `confirmed`.
+
+**No public "disputed" state.** The owner maintains the listing, so its No is a correction: the
+flow leaves the page. The owner can clear the answer to bring it back, or change the direction.
+
+**Public wording.** Badge: "Confirmed by {vendor}, which offers this integration", the vendor
+being the mechanism's `built_by_vendor`. Its accessible name adds "and runs both sides of it".
+The provenance popover adds "{vendor} confirms this" and closes "{vendor} offers this
+integration and runs both sides of it, so it confirms what moves." An unanswered flow on a Sync
+Service pair keeps "Listed by AEC Integrations", and its accessible name and closing line say
+that the company offering the integration has not confirmed it yet, never "Neither company".
+The owner's answer is not on the wire as an attestation row (`PairClaimAttestationSchema.source`
+is unchanged).
+
+**Writes** (`apps/api/src/routes/vendor-owner-flows.ts`, `API_CONTRACTS.md` §6.15a): add a flow
+(adding confirms it), set Yes or No, clear the answer, change the direction (the old flow is
+answered No and the new one confirmed, in one batch; `claims.direction` is never rewritten).
+Each write is one `db.batch`: the guarded row `UPDATE` (`updated_at`, `vendor_edited_at`, the
+"Maintained by" stamp of `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8) and `ownerWriteSentinel`, the
+claim insert for an added flow, the answer rows, and the audit rows (`integration.updated`
+with `reason: 'owner-flow'`, `claim.created`, `claim_owner_answer.created` /
+`.retracted`). An added flow writes one `portal-claim-added` notification per endpoint vendor.
+After commit it purges the pair tag, both endpoint tags and the connector's tag.
+
+**Readers checked.**
+
+| Reader | Result |
+|---|---|
+| `attestations_slot_key` | Untouched: no owner row is in `attestations`. |
+| `isClaimPubliclyBacked`, `computeAgreement`, `isClaimRefuted`, `integrationAgreement` | Extended as above. Unchanged for any set without an `owner` entry. |
+| Pair page, product page rows (both arms) | Append the owner entry before `publicClaims`. The wire drops it. |
+| Endpoint vendor list (`GET /api/vendor/integrations`) | Agreement includes it. `owner_answer` and `flows_maintained_by_owner` say who keeps the rows. It is never `mine` or `counterparty`. |
+| §7 detectors and nudges | Do not load the table. Unchanged and correct: §14.4 already drops every vendor nudge on a powered edge. |
+| Data-quality suite | No check reads attestations by source for these rows. Unchanged. |
+| Version-diff paywall (§9) | Owner answers carry no version stamps, so no window and no selector changes. |
+| Pair timeline, pair alternatives | Do not load the table. They fail safe: an owner-added flow is withheld from the timeline, and a removed flow can still name its data type on an alternatives lane. Accepted for now. |
+| Retraction lanes | `retract-product` deletes the answers explicitly before the claims. `retract-vendor` nulls `vendor_id`. |
+
+**Not done here.** The ownership record (`REVIEW_APP_PROMOTE_API.md` §4d, ADR 0044) does not yet
+carry the owner's flows. Promote is untouched and still writes nothing to a claimed row.
 
 ---
 

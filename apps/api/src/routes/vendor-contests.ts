@@ -482,7 +482,9 @@ export function createSubmitContestHandler(
         400,
         'VALIDATION_FAILED',
         isPortalWithdrawnField(field)
-          ? `${field} can no longer be contested. AEC Integrations keeps it up to date.`
+          ? // AECI-2039: no longer says AEC Integrations keeps it up to date. Promote
+            // writes nothing to a claimed row, so that was false there.
+            `${field} can no longer be contested.`
           : `${field} cannot be contested on an integration delivered through a connector product`,
         { field: 'field' },
       );

@@ -331,6 +331,12 @@ import {
   createVendorClaimHandler,
 } from './routes/vendor-attestations';
 import {
+  createAddOwnerFlowHandler,
+  createChangeOwnerFlowHandler,
+  createClearOwnerFlowAnswerHandler,
+  createSetOwnerFlowAnswerHandler,
+} from './routes/vendor-owner-flows';
+import {
   createDeleteThreadMessageHandler,
   createGetVendorThreadHandler,
   createListIntegrationThreadsHandler,
@@ -1827,6 +1833,34 @@ authVendor.post(
   requireVendor(),
   rateLimit('write'),
   createRestoreIntegrationHandler(),
+);
+// AECI-2039: the owner of a claimed Sync Service pair maintains its data flows
+// (`routes/vendor-owner-flows.ts`). A SEAT IS THE WHOLE GATE, on any plan (AECI-2038).
+// Gate order: `requireVendor()` → `rateLimit('write')` → owner → Sync Service →
+// claimed → live, the last four inside the handler (`lib/owner-flows.ts`).
+authVendor.post(
+  '/api/vendor/owned-integrations/:id/flows',
+  requireVendor(),
+  rateLimit('write'),
+  createAddOwnerFlowHandler(),
+);
+authVendor.put(
+  '/api/vendor/owned-flows/:claimId/answer',
+  requireVendor(),
+  rateLimit('write'),
+  createSetOwnerFlowAnswerHandler(),
+);
+authVendor.delete(
+  '/api/vendor/owned-flows/:claimId/answer',
+  requireVendor(),
+  rateLimit('write'),
+  createClearOwnerFlowAnswerHandler(),
+);
+authVendor.patch(
+  '/api/vendor/owned-flows/:claimId',
+  requireVendor(),
+  rateLimit('write'),
+  createChangeOwnerFlowHandler(),
 );
 // AECI-1006 / ADR 0035: the claimed owner edits the integration's standard fields
 // (the eleven contestable content fields), on an `integrations` row or, since

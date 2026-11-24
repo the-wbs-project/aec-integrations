@@ -121,8 +121,9 @@ export async function evidencedOwnerWriteRefusal(
   return claimedAndLiveRefusal(pair);
 }
 
-/** Steps 1 and 2: the claim's ownership answers. */
-async function ownershipRefusal(
+/** Steps 1 and 2: the claim's ownership answers. Exported for the AECI-2039 owner
+ *  flow writes, which ask one more question between steps 2 and 3. */
+export async function ownershipRefusal(
   db: Db,
   vendorId: string,
   row: Pick<IntegrationRow, 'id' | 'builtByVendorId' | 'sourceProductId' | 'targetProductId'>,
@@ -148,8 +149,9 @@ async function ownershipRefusal(
 }
 
 /** Steps 3 and 4: claimed, then live. Both tables carry `claimed_at` and
- *  `retired_at` with the same meaning (migrations `0044` and `0049`). */
-function claimedAndLiveRefusal(row: {
+ *  `retired_at` with the same meaning (migrations `0044` and `0049`). Exported for
+ *  the AECI-2039 owner flow writes. */
+export function claimedAndLiveRefusal(row: {
   readonly claimedAt: string | null;
   readonly retiredAt: string | null;
 }): ApiError | null {

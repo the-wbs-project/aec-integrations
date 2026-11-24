@@ -29,13 +29,14 @@ We do not warrant that a listing is complete, current, or free of error. Public 
 
 Confirmation tells you who has confirmed a specific claim. It does not rate the quality of an integration.
 
-Every claim carries one of four states. The first column is the label the page shows. The first state has two labels.
+Every claim carries one of five states. The first column is the label the page shows. The first state has two labels.
 
 | What you see | What it means |
 | --- | --- |
 | Listed by AEC Integrations | AEC Integrations recorded this from public sources. Neither company has confirmed it yet. |
 | A company says no | The same state, but one of the companies has said it is not accurate. Nobody has confirmed it. The page does not name the company or give its reason. |
 | Confirmed by [company name] | One of the two companies has confirmed this claim. The other has not answered yet. |
+| Confirmed by [company name], which offers this integration | The integration runs through a Sync Service, and the company that offers it has confirmed this claim. It runs both sides of the integration, so it is the company that answers. |
 | Confirmed by both companies | Both companies have independently confirmed this claim. |
 | Companies disagree | The two companies disagree about this. We show both answers and do not take sides. |
 
@@ -46,6 +47,8 @@ Two rules govern that table.
 **Our own entry never counts as a confirmation.** We record the claim, and our own record is excluded from the count. We can be the only voice on a claim. We can never produce a disagreement on our own.
 
 **"Confirmed by both companies" means two different companies.** One company sometimes owns the products at both ends of an integration. The state is computed from distinct vendor identities, so a vendor cannot confirm both sides of its own integration and have it read as independent agreement.
+
+**A Sync Service answers for its own integrations.** A Sync Service is a product that sells, runs and supports a fixed list of finished integrations between two other companies' products. On those integrations the two companies at the ends do not answer, because neither of them built or runs it. Once the company that offers the integration has claimed it, that company confirms, corrects and removes its claims. Its confirmation reads "Confirmed by [company name], which offers this integration". It never reads "Confirmed by both companies". Until it answers, a claim reads "Listed by AEC Integrations", and the full label says that the company offering the integration has not confirmed it yet. When it says a claim is wrong, it removes the claim from the page rather than marking it disputed, because it maintains the listing.
 
 **Where this stands today.** Confirming a claim needs an approved vendor account, and so does owning an integration. Vendor accounts opened in September 2026, so most claims and integrations are still recorded by AEC Integrations, and you will see "Listed by AEC Integrations" nearly everywhere. We would rather label that plainly than imply an endorsement nobody has given.
 
@@ -77,7 +80,7 @@ A contest stays with whoever was deciding when it was sent. A contest is a reque
 
 **Integrations a vendor adds.** A vendor can also add an integration it offers for one of its own products. It belongs to that vendor and is claimed from the moment it is added, and it goes live without review by us. We did not research it, and its page says "Added by the vendor" beside the "Offered by" line. If we already list an integration that looks the same, the vendor is told, but it is not stopped. Our catalog updates will not add a second copy of an integration a vendor holds.
 
-**Integrations delivered through a connector.** Where a third-party connector product carries the data, the vendor that offers the integration can claim it, edit its details, retire and restore it, and decide contests on it. It cannot change how the integration is delivered. No vendor can add one of these integrations or put its own links on one. We record them, and the links stay as we recorded them. If a vendor added its own links before we recorded the integration as connector-delivered, those links are no longer shown. A vendor that thinks one is wrong can tell us through the correction route below.
+**Integrations delivered through a connector.** Where a third-party connector product carries the data, the vendor that offers the integration can claim it, edit its details, retire and restore it, and decide contests on it. It cannot change how the integration is delivered. When the connector is a Sync Service, the vendor that offers the integration also maintains its data rows once it has claimed it: it confirms, adds, changes and removes them. When the connector is an integration platform, nobody confirms its data rows, and we keep the rows we recorded. No vendor can add one of these integrations or put its own links on one. We record them, and the links stay as we recorded them. If a vendor added its own links before we recorded the integration as connector-delivered, those links are no longer shown. A vendor that thinks one is wrong can tell us through the correction route below.
 
 ## No pay-for-placement
 

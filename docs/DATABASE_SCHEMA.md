@@ -980,11 +980,35 @@ create index attestations_claim_idx on attestations(claim_id, updated_at);
 - **Ownership is not the whole gate: the EDGE must also be attestable** (AECI-705, `STAGE_2_ATTESTATIONS_SPEC.md` §14). A **connector-powered** integration — `integrations.powered_by_product_id IS NOT NULL` **or** `integrations.mechanism_kind = 'iPaaS'` — refuses `POST`/`PUT` with a **403**, because neither endpoint vendor built the plumbing and the connector holds no attestation seat. **No schema change**: the predicate reads two columns that have existed since `0000_init`, and nothing queries on it (every caller already has the row), so `integrations_powered_by_idx` and `integrations_mechanism_kind_idx` are untouched. `DELETE` is deliberately exempt, since promote can set `powered_by_product_id` *after* a vendor has attested. Note the two columns sit on different axes and nothing cross-validates them — `mechanism_kind` describes the edge, `products.product_role` the product — which is why the predicate is a union rather than either column alone.
 - **`attested_by_vendor_id` records which identity filled the slot**, because `confirmed` requires **two distinct** identities: one company owning both endpoints of an integration can affirm both slots and must still render as one-sided (`STAGE_2_ATTESTATIONS_SPEC.md` §4). Deleting the vendor nulls the column and keeps the historical assertion — and because that leaves a **live row with no identity**, `computeAgreement` folds every null-identity vote into a single voter bucket so orphans can never add up to `confirmed`.
 - **Who reads `retracted_at`.** Both claim-loading read configs — `integrationPairConfig` (the pair page) and `productDetailIntegrationConfig` (the product-detail direction readout) — filter `retracted_at is null` via the shared `liveAttestationsWhere` in `apps/api/src/lib/drizzle-helpers.ts` (AECI-605). `computeAgreement` re-checks the column itself, so the shared engine stays safe for callers that assemble attestations another way. Nothing reads `deprecated_at` as a gate.
-- **Agreement is computed, never stored** (§3.4, ADR 0018; `packages/shared/src/agreement.ts`) — four states, `unverified | single_source | confirmed | conflict`.
+- **Agreement is computed, never stored** (§3.4, ADR 0018; `packages/shared/src/agreement.ts`) — five states since AECI-2039 added `owner_confirmed` (§5a.2a), `unverified | single_source | confirmed | conflict`.
 - **When a disagreement was raised is computed too, and needs no column** (AECI-1153, specified 2026-09-28). The vendor read's `disagreement.raised_at` is the start of the claim's current unbroken run of `conflict` (`API_CONTRACTS.md` §6.14). Because supersession is retract-then-insert under one timestamp and nothing deletes a vendor row short of a cascade, `created_at` and `retracted_at` on this table replay every past agreement exactly. A stored `conflict_since` was rejected for three reasons: agreement is never stored (ADR 0018), so a stored start would be derived state that every attestation writer must keep in step; an `ON DELETE SET NULL` on `attested_by_vendor_id` can end a conflict with no application code to update it; and the replay costs one extra read, for conflict claims only.
 - **`note` is never public** (AECI-779, AECI-1139; `STAGE_1_5_SPEC.md` §3.3, `STAGE_2_ATTESTATIONS_SPEC.md` §4.3). An `aeci`-sourced note is **curation-internal**: the AECI-299 seed pass wrote machine-prefixed research annotations there. A **vendor**-authored note, affirm or deny, is seen only by the other company (the portal's `counterparty`), its author (`mine`) and AECi (the `attestation.*` audit row). The public pair and timeline read configs in `apps/api/src/lib/drizzle-helpers.ts` do not select the column, and both mappers return `note: null`. The column stores every note unchanged; the rule is a read rule, not a constraint, so it covers rows written before it.
 - **Ingest** replaces a claim's attestations to exactly match the promote payload, inside the same `db.batch([...])` as the rest of the transaction (§6.2, the §26.1 audit-in-tx invariant). AECI-604 scopes that replacement to `source = 'aeci'` so vendor rows survive a re-promote.
 - **The version FKs are the precise form of the date stamps, not a replacement** (migration 2, AECI-607 — §5a.3 below). `introduced_version_id` / `deprecated_version_id` point at a row on the **attesting side's own endpoint product** — a `vendor_a` attestation stamps versions of product A — which keeps versioning inside the same authority boundary as the slot rule. The FK cannot express that on its own; the write path enforces it through `resolveAttestationSlots`. `introduced_at` / `deprecated_at` stay as the **coarse fallback** for every claim carrying no version data, which today is all of them: promote does not ingest versions (`STAGE_2_ATTESTATIONS_SPEC.md` §8.3 / §11). `on delete set null` means removing a version degrades a stamp to "no version data" — it never deletes the vendor's assertion, and it is not a back door to erasing one.
+
+### 5a.2a `claim_owner_answers` (AECI-2039, migration 0130)
+
+The owner's answer on a data flow of a Sync Service pair (`STAGE_2_ATTESTATIONS_SPEC.md` §14.10). A plain `CREATE TABLE`: no existing table changed, so no recreate.
+
+```sql
+create table claim_owner_answers (
+  id           text primary key,
+  claim_id     text not null references claims(id) on delete cascade,
+  vendor_id    text references vendors(id) on delete set null,
+  asserted     integer not null,          -- 1 confirms; 0 removes the flow from public reads
+  retracted_at text,
+  created_at   text not null,
+  updated_at   text not null
+);
+create unique index claim_owner_answers_live_key on claim_owner_answers(claim_id) where retracted_at is null;
+create index claim_owner_answers_claim_idx on claim_owner_answers(claim_id, updated_at);
+```
+
+- **Why not a fourth `attestations.source`.** `attestations_source_check` is a CHECK; changing it recreates `attestations` (`docs/migrations.md` §0). An `aeci` row would say AEC Integrations said it, and `vendor_a` / `vendor_b` speak for endpoint vendors.
+- **One live row per claim**, retract-then-insert, the retract first in the batch, as on `attestations`.
+- **When it counts** (`apps/api/src/lib/owner-flows.ts`): the connector product is a Sync Service, the anchor row is claimed, `vendor_id` is the row's `built_by_vendor_id` now, and the row is live. Readers append it to the claim's attestation list as an in-memory `source = 'owner'` entry. It is never written to `attestations`.
+- **A child of `claims`.** A recreate of `claims` would empty it too (`docs/migrations.md` §3.3a). `retract-product` deletes it explicitly before the claims; `retract-vendor` nulls `vendor_id`.
+- **Writers.** `routes/vendor-owner-flows.ts` only. Promote never writes it.
 
 ### 5a.3 `product_versions`
 

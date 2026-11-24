@@ -1099,6 +1099,48 @@ export const attestations = sqliteTable(
   ],
 );
 
+// The OWNER's answer on a data flow of a Sync Service pair (AECI-2039, ruling 4 on
+// AECI-2035, `STAGE_2_ATTESTATIONS_SPEC.md` §14.10). A Sync Service runs both sides of
+// its pairs, so the pair's owner confirms or removes the flows on it.
+//
+// ── WHY A TABLE OF ITS OWN, NOT A FOURTH `attestations.source` ─────────────────
+// `attestations_source_check` is a CHECK, and changing a CHECK on D1 recreates the
+// table, which fires `ON DELETE CASCADE` from its children (`docs/migrations.md` §0).
+// Writing the owner's answer into the `aeci` slot would say AEC Integrations said it,
+// and `vendor_a` / `vendor_b` speak for an endpoint vendor. So the answer lives here.
+// Every reader that does not know this table keeps reading `attestations` exactly as
+// before, and fails safe: a flow the owner confirmed reads "Listed by AEC
+// Integrations", and a flow the owner added is withheld (`isClaimPubliclyBacked`).
+//
+// One LIVE row per claim (`claim_owner_answers_live_key`). Supersession is
+// retract-then-insert, never UPDATE, as on `attestations`. An answer counts only while
+// `vendor_id` is the anchor row's `built_by_vendor_id`, the row is claimed, and the
+// connector product is a Sync Service (`lib/owner-flows.ts`). An answer from an old
+// owner therefore never speaks for a new one.
+export const claimOwnerAnswers = sqliteTable(
+  'claim_owner_answers',
+  {
+    id: uuidPk(),
+    claimId: text('claim_id')
+      .notNull()
+      .references(() => claims.id, { onDelete: 'cascade' }),
+    // SET NULL, as on `attestations.attested_by_vendor_id`: losing the vendor row must
+    // not delete the history. A NULL vendor matches no owner, so the answer stops counting.
+    vendorId: text('vendor_id').references(() => vendors.id, { onDelete: 'set null' }),
+    /** `true` confirms the flow. `false` removes it from public reads. */
+    asserted: integer('asserted', { mode: 'boolean' }).notNull(),
+    retractedAt: text('retracted_at'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('claim_owner_answers_live_key')
+      .on(t.claimId)
+      .where(sql`"retracted_at" IS NULL`),
+    index('claim_owner_answers_claim_idx').on(t.claimId, t.updatedAt),
+  ],
+);
+
 // ===========================================================================
 // Join tables (§6) — composite PKs
 // ===========================================================================
@@ -6204,6 +6246,12 @@ export const claimsRelations = relations(claims, ({ one, many }) => ({
     relationName: 'ClaimCreatedByVendor',
   }),
   attestations: many(attestations),
+  // AECI-2039: the owner's answer on a Sync Service pair's flow.
+  ownerAnswers: many(claimOwnerAnswers),
+}));
+export const claimOwnerAnswersRelations = relations(claimOwnerAnswers, ({ one }) => ({
+  claim: one(claims, { fields: [claimOwnerAnswers.claimId], references: [claims.id] }),
+  vendor: one(vendors, { fields: [claimOwnerAnswers.vendorId], references: [vendors.id] }),
 }));
 export const attestationsRelations = relations(attestations, ({ one }) => ({
   claim: one(claims, { fields: [attestations.claimId], references: [claims.id] }),
@@ -6393,6 +6441,7 @@ export const schema = {
   productVersions,
   claims,
   attestations,
+  claimOwnerAnswers,
   productCategories,
   productAudiences,
   productPhases,
@@ -6461,6 +6510,7 @@ export const schema = {
   taxonomyDataObjectsRelations,
   claimsRelations,
   attestationsRelations,
+  claimOwnerAnswersRelations,
   productVersionsRelations,
   productCategoriesRelations,
   productAudiencesRelations,

@@ -224,6 +224,10 @@ describe('GET /api/vendor/integrations — owned rows (AECI-1089)', () => {
       }),
       // AECI-1154: the owner's pricing page link, not contestable.
       pricing_url: null,
+      // AECI-2039: the connector is not a Sync Service, so the owner keeps no flows.
+      sync_service: false,
+      flows_editable: false,
+      flows: [],
     });
     const row = body.owned.find((r: JsonBody) => r.id === I_T);
     expect(row).toMatchObject({

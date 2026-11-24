@@ -3,7 +3,7 @@ title: Owning an integration
 description: How the company that offers an integration claims it, edits it, adds its links, retires it, and adds new ones.
 section: vendors
 order: 8
-last_updated: November 19, 2026
+last_updated: November 24, 2026
 ---
 
 An integration belongs to the company that offers it: whoever a customer buys it from or gets it from. The public integration page names that company on its "Offered by" line. AEC Integrations recorded most integrations from public sources to start the catalog. This page is for the company that owns one.
@@ -22,7 +22,7 @@ Open the vendor portal, choose one of your products, and open its Integrations t
 | The page says AEC Integrations retired it, with no Restore button | AEC Integrations retired it. It is off the public site, and only AEC Integrations can bring it back. |
 | Owner: another company's name | Another company owns it. You can request a change, but not edit it. |
 | Owner: not set, with **Ask to be recorded as the owner** | Nobody is recorded as the owner. |
-| Owner: your company, with a note that it runs through a connector | A connector product carries the data. You can claim it on any plan. See [For connector vendors](/docs/vendors/connector-vendors). |
+| Owner: your company, with a note that it runs through a connector | A connector product carries the data. You can claim it on any plan. When the connector is a Sync Service, you also confirm and maintain its data rows after the claim. See [For connector vendors](/docs/vendors/connector-vendors). |
 
 ## Claim an integration
 

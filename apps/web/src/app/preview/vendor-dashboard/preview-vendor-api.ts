@@ -1390,6 +1390,7 @@ export class PreviewVendorApi extends VendorApi {
     const now = new Date('2026-08-18T12:00:00.000Z').toISOString();
     const claim: VendorClaim = {
       id: `preview-claim-${++this.nextClaimSeq}`,
+      owner_answer: null,
       integration_id: integration.id,
       data_object_slug: term.slug,
       data_object_name: term.name,
@@ -2555,6 +2556,7 @@ export class PreviewVendorApi extends VendorApi {
     }
     const entry: VendorIntegration = {
       id,
+      flows_maintained_by_owner: false,
       name: parsed.data.name ?? null,
       mechanism_kind: (parsed.data.mechanism_kind ?? null) as VendorIntegration['mechanism_kind'],
       mechanism_name: parsed.data.mechanism_name ?? null,

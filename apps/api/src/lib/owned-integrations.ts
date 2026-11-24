@@ -34,8 +34,21 @@ import { eq } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import { connectorEvidencedPairs, integrations } from '../db/schema';
 import { isConnectorPoweredEdge } from './connector-powered';
+import {
+  loadOwnedFlows,
+  ownerFlowContextOf,
+  ownerMaintainsFlows,
+  type OwnerFlowContext,
+} from './owner-flows';
 import { storedFieldValue, toWireValue } from './integration-contests';
 import { productLinkColumns, toMechanismKind, toOwnedProductLink } from './drizzle-helpers';
+
+/** A connector product link plus the role and kind `ownerFlowContextOf` reads. */
+const connectorLinkColumns = {
+  ...productLinkColumns,
+  productRole: true,
+  connectorKind: true,
+} as const;
 
 /** The owned-rows predicate on `integrations`. */
 export function ownedIntegrationsWhere(vendorId: string) {
@@ -93,7 +106,8 @@ export async function loadOwnedIntegrations(
       with: {
         sourceProduct: { columns: productLinkColumns },
         targetProduct: { columns: productLinkColumns },
-        poweredByProduct: { columns: productLinkColumns },
+        // AECI-2039: the role and kind decide whether the owner keeps the flows.
+        poweredByProduct: { columns: connectorLinkColumns },
       },
       where: ownedIntegrationsWhere(vendorId),
     }),
@@ -121,15 +135,22 @@ export async function loadOwnedIntegrations(
       with: {
         productA: { columns: productLinkColumns },
         productB: { columns: productLinkColumns },
-        connectorProduct: { columns: productLinkColumns },
+        connectorProduct: { columns: connectorLinkColumns },
       },
       where: ownedEvidencedPairsWhere(vendorId),
     }),
   ]);
 
   const owned: OwnedIntegration[] = [];
+  // AECI-2039: who maintains each row's flows, for `flows_editable` and the flow read.
+  const contexts = new Map<
+    string,
+    { anchor: 'integration' | 'evidenced_pair'; ctx: OwnerFlowContext }
+  >();
   for (const row of rows) {
     if (listedIntegrationIds.has(row.id)) continue;
+    const ctx = ownerFlowContextOf(row, isConnectorPoweredEdge(row) ? row.poweredByProduct : null);
+    contexts.set(row.id, { anchor: 'integration', ctx });
     owned.push({
       id: row.id,
       anchor: 'integration',
@@ -145,9 +166,14 @@ export async function loadOwnedIntegrations(
       retired_by: effectiveRetiredBy({ retired_at: row.retiredAt, retired_by: row.retiredBy }),
       contestable_fields: contestableFieldsOnA(row),
       pricing_url: row.pricingUrl ?? null,
+      sync_service: ctx.syncService,
+      flows_editable: ownerMaintainsFlows(ctx) && row.retiredAt === null,
+      flows: [],
     });
   }
   for (const pair of pairs) {
+    const ctx = ownerFlowContextOf(pair, pair.connectorProduct);
+    contexts.set(pair.id, { anchor: 'evidenced_pair', ctx });
     owned.push({
       id: pair.id,
       anchor: 'evidenced_pair',
@@ -165,7 +191,19 @@ export async function loadOwnedIntegrations(
       // `direction` against the canonical A, the same frame as `product_a` here.
       contestable_fields: contestableFieldsOnA({ ...pair, mechanismKind: null }),
       pricing_url: pair.pricingUrl ?? null,
+      sync_service: ctx.syncService,
+      flows_editable: ownerMaintainsFlows(ctx) && pair.retiredAt === null,
+      flows: [],
     });
+  }
+  // AECI-2039: the flows of the rows whose connector is a Sync Service. The owner of
+  // any other row maintains none, and its card shows none, so they are not read.
+  const flowRows = [...contexts]
+    .filter(([, entry]) => entry.ctx.syncService)
+    .map(([id, entry]) => ({ id, anchor: entry.anchor, ctx: entry.ctx }));
+  if (flowRows.length > 0) {
+    const flows = await loadOwnedFlows(db, flowRows);
+    for (const row of owned) row.flows = flows.get(row.id) ?? [];
   }
   // Case never decides the order (`API_CONTRACTS.md` §3.2). The id is the final,
   // BINARY tiebreaker, so two rows with the same names still sort the same way.

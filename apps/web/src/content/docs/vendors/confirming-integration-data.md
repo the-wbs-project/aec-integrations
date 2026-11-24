@@ -54,7 +54,7 @@ Once the other company or AEC Integrations has a Yes or No on the row, you can't
 
 Several people at your company can hold seats, but your company has one position on each flow. The latest answer from anyone at your company is your company's answer.
 
-You can answer on any integration where one of your products is at an end. An integration that runs through a connector product shows its rows as **Not needed**, because neither company answers for them. AEC Integrations keeps those rows up to date until the integration's owner claims it. After a claim, we no longer update them.
+You can answer on any integration where one of your products is at an end. An integration that runs through a connector product shows its rows as **Not needed**, because neither product's vendor answers for them. AEC Integrations keeps those rows up to date until the integration's owner claims it. After a claim, we no longer update them. When the connector is a Sync Service, the company that offers the integration maintains its rows after the claim, and the rows show its answer. See [The data rows on a Sync Service integration](/docs/vendors/connector-vendors#the-data-rows-on-a-sync-service-integration).
 
 ## Add a data flow
 

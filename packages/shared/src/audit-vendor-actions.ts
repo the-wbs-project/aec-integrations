@@ -62,6 +62,9 @@ export const AUDIT_VENDOR_ACTIONS = {
   'claim.created': { kind: 'vendor-edit', receipt: true },
   'attestation.created': { kind: 'vendor-edit', receipt: true },
   'attestation.retracted': { kind: 'vendor-edit', receipt: true },
+  // AECI-2039: the owner of a Sync Service pair answers a flow on it.
+  'claim_owner_answer.created': { kind: 'vendor-edit', receipt: true },
+  'claim_owner_answer.retracted': { kind: 'vendor-edit', receipt: true },
   'integration.created': { kind: 'vendor-edit', receipt: true },
   'integration.claimed': { kind: 'vendor-edit', receipt: true },
   'integration.updated': { kind: 'vendor-edit', receipt: true },

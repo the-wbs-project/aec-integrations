@@ -708,6 +708,13 @@ export class IntegrationSharedData {
     if (i.attestable) {
       return $localize`:@@vendor.im.data.tip:The types of data that move between ${a}:a: and ${b}:b:. Say whether each row is right. Only the badge your answer produces is public.`;
     }
+    // AECI-2039: on a claimed Sync Service row the owner keeps the list.
+    if (i.flows_maintained_by_owner) {
+      const owner = i.owner?.name;
+      return owner
+        ? $localize`:@@vendor.im.data.tipSyncService:The types of data that move between ${a}:a: and ${b}:b:. ${owner}:owner: offers this integration and keeps this list up to date.`
+        : $localize`:@@vendor.im.data.tipSyncService.unnamed:The types of data that move between ${a}:a: and ${b}:b:. The company that offers this integration keeps this list up to date.`;
+    }
     // A claim ends promote's upkeep of the rows (§4.5.3), so the sentence changes.
     return isClaimed(i)
       ? $localize`:@@vendor.im.data.tipConnectorClaimed:The types of data that move between ${a}:a: and ${b}:b:. AEC Integrations stopped updating this list when the integration was claimed.`
@@ -729,6 +736,16 @@ export class IntegrationSharedData {
       $localize`:@@vendor.im.connector.fallback.v2:a connector product`;
     if (!isClaimed(i)) {
       return $localize`:@@vendor.im.data.connectorNote:AEC Integrations keeps these up to date. They run through ${connector}:connector:, so neither company answers for them.`;
+    }
+    // AECI-2039: a claimed Sync Service row. Its owner maintains the data rows.
+    if (i.flows_maintained_by_owner) {
+      if (i.is_owner) {
+        return $localize`:@@vendor.im.data.connectorNoteSyncService.mine:Your company maintains these, because it offers this integration through ${connector}:connector:. Neither product vendor can confirm them.`;
+      }
+      const owner = i.owner?.name;
+      return owner
+        ? $localize`:@@vendor.im.data.connectorNoteSyncService.other:${owner}:owner: maintains these, because it offers this integration through ${connector}:connector:. Neither product vendor can confirm them.`
+        : $localize`:@@vendor.im.data.connectorNoteSyncService.unnamed:The company that offers this integration through ${connector}:connector: maintains these. Neither product vendor can confirm them.`;
     }
     // Claimed: promote writes nothing to the row, its data rows included (§4.5.3).
     if (i.is_owner) {
@@ -941,9 +958,11 @@ export class IntegrationSharedData {
       lines.push(claimOutcomeLine(claim, this.integration().other_product.name));
     } else {
       lines.push(
-        isClaimed(this.integration())
-          ? $localize`:@@vendor.im.data.status.connectorClaimed:AEC Integrations no longer updates it. Neither product vendor can confirm it.`
-          : $localize`:@@vendor.im.data.status.connector:AEC Integrations checks it. Neither company answers for it.`,
+        this.integration().flows_maintained_by_owner
+          ? $localize`:@@vendor.im.data.status.syncService:The company that offers this integration maintains it. Neither product vendor can confirm it.`
+          : isClaimed(this.integration())
+            ? $localize`:@@vendor.im.data.status.connectorClaimed:AEC Integrations no longer updates it. Neither product vendor can confirm it.`
+            : $localize`:@@vendor.im.data.status.connector:AEC Integrations checks it. Neither company answers for it.`,
       );
     }
     return lines;

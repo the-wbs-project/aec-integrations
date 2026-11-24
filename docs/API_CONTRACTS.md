@@ -10723,6 +10723,25 @@ export const VendorClaimAddedNotificationSchema = z.object({
 
 ---
 
+#### 6.15a Owner flows on a Sync Service pair — `/api/vendor/owned-*` (AECI-2039)
+
+The owner (`built_by_vendor_id`) of a claimed row whose connector product is a Sync Service maintains its data flows, on either delivered table (`STAGE_2_ATTESTATIONS_SPEC.md` §14.10). Mounted `requireVendor()` → `rateLimit('write')`; a seat is the whole remaining gate, on any plan. Handlers: `routes/vendor-owner-flows.ts`. Shapes: `packages/shared/src/api/vendor-attestations.ts`.
+
+| Method and path | Body | Answer |
+|---|---|---|
+| `POST /api/vendor/owned-integrations/:id/flows` | `AddOwnerFlowSchema`: `{ data_object, direction }`, strict. `direction` is framed against the row's `product_a` | `201` with a new claim (`origin = 'vendor'`, `created_by_vendor_id` = the owner) and its Yes. `200` when the flow already exists: it is confirmed instead |
+| `PUT /api/vendor/owned-flows/:claimId/answer` | `SetOwnerFlowAnswerSchema`: `{ asserted }` | `200`. `true` confirms, `false` removes the flow from public reads |
+| `DELETE /api/vendor/owned-flows/:claimId/answer` | none | `204`, also when there was no answer (then nothing is written) |
+| `PATCH /api/vendor/owned-flows/:claimId` | `ChangeOwnerFlowSchema`: `{ direction }` | `200`. The old flow is answered No and the flow in the new direction confirmed, in one batch. The same direction is a no-op `200` |
+
+Every `200`/`201` is `OwnerFlowsResponseSchema`: `{ integration_id, flows: OwnedFlow[] }`, the row's flows after the write.
+
+Refusals, in order: `404 NOT_FOUND` (unknown row, or one the caller neither owns nor has an endpoint on; on a `:claimId` route every 404 reads as the claim's, and a reach-anchored claim is a 404), `403 INTEGRATION_NOT_OWNER` or `409 INTEGRATION_OWNER_UNKNOWN` (an endpoint vendor that is not the owner), `403 FORBIDDEN` (the connector is not a Sync Service, or no connector delivers an `integrations` row), `409 INTEGRATION_NOT_CLAIMED`, `409 INTEGRATION_RETIRED`, then `400 VALIDATION_FAILED` (an unknown `data_object`, a bad body), `409 INTEGRATION_CHANGED_WHILE_SAVING` (the guarded row `UPDATE` matched nothing, re-asked through the gate first), `429 RATE_LIMITED`.
+
+**Read side.** `GET /api/vendor/integrations` adds `owned[].sync_service`, `owned[].flows_editable` and `owned[].flows` (`OwnedFlowSchema`: `id`, `data_object_slug`, `data_object_name`, `direction` framed against `product_a`, `agreement`, `origin`, `answer`: `'yes' | 'no' | null`). The endpoint vendor's entries add `flows_maintained_by_owner`, and each claim `owner_answer`. All are defaulted for deploy skew. `AgreementState` gains `owner_confirmed` on every wire that carries it (`VendorClaim`, `OwnedFlow`, `ProductPairClaim`, `ProductIntegrationItem.agreement`). The pair read's `attestations[]` never carries the owner's answer: `PairClaimAttestationSchema.source` is unchanged, and the badge names the mechanism's `built_by_vendor`.
+
+**Changed message (AECI-2039).** The AECI-705 `403 FORBIDDEN` on `POST /api/vendor/claims` and `PUT …/attestation` now reads "This integration is delivered through a connector, so neither product vendor can attest to it." Its second sentence was false on a claimed row. The contest route's "`{field}` can no longer be contested." lost "AEC Integrations keeps it up to date." for the same reason.
+
 #### Private row threads — `/api/vendor/claims/:claimId/thread` (AECI-1535)
 
 Specified in `STAGE_2_ATTESTATIONS_SPEC.md` §15. One private thread per data row (`claims.id`), between the two endpoint companies, created on the first message. Zod in `packages/shared/src/api/vendor-threads.ts`. Handlers in `apps/api/src/routes/vendor-threads.ts`. Tables in `DATABASE_SCHEMA.md` §8.10.

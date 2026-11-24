@@ -169,6 +169,9 @@ export const VENDOR_FK_HANDLING: Readonly<Record<string, VendorFkOutcome>> = {
   'integration_field_challenges.owner_vendor_id': 'detach',
   'claims.created_by_vendor_id': 'detach',
   'attestations.attested_by_vendor_id': 'detach',
+  // AECI-2039 (0130): an owner's answer on a Sync Service pair's flow. A NULL vendor
+  // matches no owner, so the answer stops counting and its history stays.
+  'claim_owner_answers.vendor_id': 'detach',
   'page_views.vendor_id': 'detach',
   'integration_vendor_links.vendor_id': 'fk-action',
 };
@@ -554,6 +557,7 @@ export function buildVendorDeleteStatements(args: VendorAuditInsertArgs): string
     `UPDATE "page_views" SET "vendor_id" = NULL WHERE "vendor_id" = ${v};`,
     `UPDATE "claims" SET "created_by_vendor_id" = NULL WHERE "created_by_vendor_id" = ${v};`,
     `UPDATE "attestations" SET "attested_by_vendor_id" = NULL WHERE "attested_by_vendor_id" = ${v};`,
+    `UPDATE "claim_owner_answers" SET "vendor_id" = NULL WHERE "vendor_id" = ${v};`,
     // The vendor itself. Everything else that references it was a refusal.
     `DELETE FROM "vendors" WHERE "id" = ${v};`,
     // §26.1 — same batch as the mutation.

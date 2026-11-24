@@ -23,6 +23,7 @@ import { VendorDocsLink } from './vendor-docs-link';
 import { claimErrorMessage } from './vendor-integration-ownership-labels';
 import { VendorNotOurs, selfDisclaimOn, selfDisclaimStands } from './vendor-not-ours';
 import { VendorOwnedRetire } from './vendor-owned-retire';
+import { VendorOwnedFlows } from './vendor-owned-flows';
 
 /** Where the owner stands on one owned row. A connector-delivered row takes the
  *  same states as any other: the seat is the whole gate (ruling 14, AECI-1663). */
@@ -80,7 +81,13 @@ export function ownedRowsForProduct(
  */
 @Component({
   selector: 'aec-vendor-owned-integrations',
-  imports: [VendorDocsLink, VendorIntegrationEditForm, VendorOwnedRetire, VendorNotOurs],
+  imports: [
+    VendorDocsLink,
+    VendorIntegrationEditForm,
+    VendorOwnedRetire,
+    VendorNotOurs,
+    VendorOwnedFlows,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
@@ -222,6 +229,10 @@ export function ownedRowsForProduct(
                       [productB]="row.product_b.name"
                     />
                   }
+                }
+                <!-- AECI-2039: a Sync Service pair's data flows, which its owner maintains. -->
+                @if (row.sync_service) {
+                  <aec-vendor-owned-flows [row]="row" />
                 }
                 <!-- AECI-1091: retire and restore. Renders nothing on an unclaimed row. -->
                 <aec-vendor-owned-retire [row]="row" [statusLine]="status" />

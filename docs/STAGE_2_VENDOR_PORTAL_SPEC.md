@@ -407,6 +407,7 @@ Wire shape and error table: `API_CONTRACTS.md` §6.14. Handler: `apps/api/src/ro
 #### 4.5.3 What a claim changes
 
 - **Promote writes nothing to the row** from then on: no content, no owner, no endpoint re-point, no cross-table move, no claims or attestations. `REVIEW_APP_PROMOTE_API.md` §4b is the review-app contract.
+- **On a Sync Service row the owner keeps the data flows (AECI-2039, 2026-11-24).** When the connector product is a Sync Service, the owner confirms, removes, adds and changes the row's flows from its card (§6.15.3). The endpoint vendors still cannot answer them. On an Integration platform's row, or one whose connector kind is blank, the flows stay as they were on the claim date. `STAGE_2_ATTESTATIONS_SPEC.md` §14.10 is the contract.
 - **Content contests route to the owner** (§11b.4). `isIntegrationClaimed` is now the real `claimed_at` test.
 - **The `integrations` freshness cursor moves** (`STAGE_2_REALTIME_SPEC.md` §2.2). The row-level read AECI-992 added covers the rows themselves, not only their claims and attestations, so a claim needs no cursor change of its own.
 - **The ops lanes treat the row as vendor-held** (§4.5.5).
@@ -2204,6 +2205,17 @@ A third-party owner makes neither product of its integrations, so the product-sc
 - **Design anchor.** The sibling Connectors section on the same tab (§6.13): its section heading, card border and spacing. The action reuses the claim button of §6.14. No new Mobbin reference.
 - **Preview.** `/preview/vendor-dashboard/products/summit-model-coordination/integrations` shows two owned evidenced pairs (one unclaimed, one claimed) and an owned connector-delivered card on the list. The "No access" preset shows the same Claim button since AECI-1663.
 
+#### 6.15.3 The data flows on a Sync Service row (AECI-2039 — 2026-11-24)
+
+The owner of a Sync Service pair maintains its flows (ruling 4 on AECI-2035, `STAGE_2_ATTESTATIONS_SPEC.md` §14.10). Owned rows have no detail page yet (AECI-2045 builds one), so the flows render on the card.
+
+- **Component:** `components/vendor-owned-flows.ts`, inside each owned card whose `sync_service` is true. It follows §6.17.4's "Data that's shared": the same heading, the same `<table>` in a focusable scrolling region, and the same Yes and No toggles, where pressing the pressed answer clears it (the Same-Behavior Rule). It does not reuse `integration-shared-data.ts`, which is bound to the endpoint vendor's detail-page state (`IntegrationDetailState`).
+- **What an answer means here.** Yes shows publicly as "Confirmed by {company}, which offers this integration". No removes the row from the public page; there is no public "disputed" state. Each row says which of the two the public page shows. **Change** moves a row to another direction (the old one is answered No, the new one confirmed). **Add a row** adds a type of data and confirms it, and tells both endpoint vendors (`portal-claim-added`).
+- **When it is editable:** `flows_editable` (claimed, not retired). An unclaimed row lists its flows read-only and says to claim first. A retired row says to restore first.
+- **Directions** are framed against `product_a`, as `OwnedFlow.direction` is: "From {A} to {B}", "From {B} to {A}", "Both ways".
+- **Writes** are pessimistic: each waits for the `200`, revalidates `integrations` and announces through `VendorPortalAnnouncer`. `API_CONTRACTS.md` §6.15a has the routes.
+- **Not covered:** an owner that also makes one of the two products sees the row on its attestable surface, not here, so it has no flow controls in the portal yet. The API accepts its writes.
+
 **Tests.** `vendor-owned-integrations.spec.ts` (the list's `owned` rows from both tables, the exclusion of rows the list already carries, cross-vendor isolation, and the cursor statement against the list for four vendors), `vendor-integration-claims.spec.ts` (the claim on both tables, the refusal order, a Free-plan owner on a connector-delivered row, the race, the owner re-point, notifications and tags), `vendor-owned-integrations.component.spec.ts` and `vendor-integration-ownership.component.spec.ts` (every state, the claim, each refusal, focus, and since AECI-1090 the edit on both surfaces). Since AECI-1091, `vendor-owned-retire.component.spec.ts` (each retire state, the confirmation, the Free-plan connector-delivered case, focus) and `vendor-integration-retire.component.spec.ts` (the card on a connector-delivered row).
 
 ### 6.16 As built — the connector catalogue seat's Catalogue tab (AECI-1083 — 2026-09-24)
@@ -2337,7 +2349,7 @@ The anchor supplies structure only. Tokens, type and colour stay AECi's: light o
 | `ready_to_claim` | Ready to claim | `is_owner` and `claimed_at` is null |
 | `no_owner` | No owner yet | no owner is recorded and the caller has no open `owner` request |
 | `waiting` | Waiting on {owner} / Waiting on AEC Integrations | the caller has an open submitted change request |
-| `connector` | AEC Integrations maintained | `attestable` is false |
+| `connector` | Delivered through a connector *(was "AEC Integrations maintained" until AECI-2039: false on a claimed row of either kind. The list's filter chip reads the same.)* | `attestable` is false |
 | `up_to_date` | All up to date | none of the above |
 
 **Answer prompts need `attestation.author`** (ruled 2026-09-29, review of AECI-1149). Without it every Yes and No is disabled, so neither the status nor the callout asks for an answer. This matches the overview's `canAttest` gate.
@@ -2596,7 +2608,7 @@ The page never says attestation, claim, provenance, data object, contest, counte
 | No, none, and the row has a submitted change (§6.17.4) | Change submitted |
 | No, No | Both companies said this is wrong |
 | Yes (caller holds both endpoints) | Confirmed by you |
-| any, on a connector-powered row | Checked by AEC Integrations |
+| any, on a connector-powered row | Listed by AEC Integrations *(was "Checked by AEC Integrations" until AECI-2039)*. On a claimed Sync Service row: "Confirmed by {owner}" or "Removed by {owner}" once the owner answered (`VendorClaim.owner_answer`) |
 
 **Public labels quoted in portal copy** use the AECI-1142 wording: "Confirmed by both companies", "Confirmed by {Company}", "Companies disagree", "Listed by AEC Integrations", "A company says no" (AECI-1140), "AEC Integrations maintained", "Vendor maintained". The preview's older quotes ("Both vendors confirmed", "Unverified", "Vendors disagree") are not used.
 

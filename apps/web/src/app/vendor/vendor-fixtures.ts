@@ -74,6 +74,8 @@ const DETAIL_DEFAULTS = {
   maintained_by: 'aeci',
   last_reviewed_at: null,
   pricing_url: null,
+  // AECI-2039: no fixture row is a claimed Sync Service row.
+  flows_maintained_by_owner: false,
 } as const satisfies Partial<VendorIntegration>;
 
 /** The same for each claim (AECI-1153): who added it, when, and any disagreement. */
@@ -82,6 +84,7 @@ const CLAIM_DETAIL_DEFAULTS = {
   can_delete: false,
   created_at: null,
   disagreement: null,
+  owner_answer: null,
 } as const satisfies Partial<VendorClaim>;
 
 const NOT_OWNER: Pick<
@@ -1557,6 +1560,9 @@ export const INTEGRATION_OWNED_VIA_CONNECTOR: VendorIntegration = {
 export const VENDOR_OWNED_INTEGRATIONS_FIXTURE: readonly OwnedIntegration[] = [
   {
     id: '00000000-0000-4000-8000-000000005319',
+    sync_service: false,
+    flows_editable: false,
+    flows: [],
     anchor: 'evidenced_pair',
     pricing_url: null,
     name: 'Summit Model Coordination and Procore via Agave',
@@ -1582,6 +1588,9 @@ export const VENDOR_OWNED_INTEGRATIONS_FIXTURE: readonly OwnedIntegration[] = [
   },
   {
     id: '00000000-0000-4000-8000-00000000531a',
+    sync_service: false,
+    flows_editable: false,
+    flows: [],
     anchor: 'evidenced_pair',
     pricing_url: null,
     name: null,
@@ -2193,6 +2202,7 @@ export const INTEGRATION_PROCORE_DETAIL: VendorIntegration = {
     }),
     {
       id: '00000000-0000-4000-8000-000000005325',
+      owner_answer: null,
       integration_id: INTEGRATION_PROCORE.id,
       data_object_slug: 'documents',
       data_object_name: 'Documents',
@@ -2264,6 +2274,7 @@ export const INTEGRATION_OWNED_CLAIMED: VendorIntegration = {
   claims: [
     {
       id: '00000000-0000-4000-8000-000000005371',
+      owner_answer: null,
       integration_id: '00000000-0000-4000-8000-00000000531c',
       data_object_slug: 'models',
       data_object_name: 'Models',
@@ -2288,6 +2299,7 @@ export const INTEGRATION_OWNED_CLAIMED: VendorIntegration = {
     },
     {
       id: '00000000-0000-4000-8000-000000005372',
+      owner_answer: null,
       integration_id: '00000000-0000-4000-8000-00000000531c',
       data_object_slug: 'rfis',
       data_object_name: 'RFIs',

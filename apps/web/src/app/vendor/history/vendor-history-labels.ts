@@ -52,6 +52,9 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'claim.created': $localize`:@@vendor.history.action.claimCreated:Integration claim made`,
   'attestation.created': $localize`:@@vendor.history.action.attestationCreated:Integration confirmed`,
   'attestation.retracted': $localize`:@@vendor.history.action.attestationRetracted:Integration confirmation withdrawn`,
+  // AECI-2039: the owner of a Sync Service pair answers one of its data flows.
+  'claim_owner_answer.created': $localize`:@@vendor.history.action.ownerFlowAnswered:Data flow answered`,
+  'claim_owner_answer.retracted': $localize`:@@vendor.history.action.ownerFlowAnswerCleared:Data flow answer cleared`,
   'integration.created': $localize`:@@vendor.history.action.integrationCreated:Integration added`,
   'integration.claimed': $localize`:@@vendor.history.action.integrationClaimed:Integration taken over`,
   'integration.updated': $localize`:@@vendor.history.action.integrationUpdated:Integration updated`,

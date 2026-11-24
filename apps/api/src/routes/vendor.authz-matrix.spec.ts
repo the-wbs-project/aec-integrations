@@ -176,6 +176,12 @@ import { createCreateVendorIntegrationHandler } from './vendor-integration-creat
 import { createPossibleDuplicatesHandler } from './vendor-integration-duplicates';
 import { createUpdateVendorIntegrationHandler } from './vendor-integration-edits';
 import {
+  createAddOwnerFlowHandler,
+  createChangeOwnerFlowHandler,
+  createClearOwnerFlowAnswerHandler,
+  createSetOwnerFlowAnswerHandler,
+} from './vendor-owner-flows';
+import {
   createListVendorProductRequestsHandler,
   createVendorProductRequestHandler,
 } from './vendor-product-requests';
@@ -557,6 +563,27 @@ function makeApp() {
   );
   // AECI-627 — guard only; no authority resolution, no verified gate.
   app.get('/api/vendor/updates', requireVendor(guard), createVendorUpdatesHandler(t.factory));
+  // AECI-2039 — seat only; the owner flow gate is inside the handlers.
+  app.post(
+    '/api/vendor/owned-integrations/:id/flows',
+    requireVendor(guard),
+    createAddOwnerFlowHandler(t.factory),
+  );
+  app.put(
+    '/api/vendor/owned-flows/:claimId/answer',
+    requireVendor(guard),
+    createSetOwnerFlowAnswerHandler(t.factory),
+  );
+  app.delete(
+    '/api/vendor/owned-flows/:claimId/answer',
+    requireVendor(guard),
+    createClearOwnerFlowAnswerHandler(t.factory),
+  );
+  app.patch(
+    '/api/vendor/owned-flows/:claimId',
+    requireVendor(guard),
+    createChangeOwnerFlowHandler(t.factory),
+  );
   // AECI-1006 — seat only; the owner rule is inside the handler.
   app.patch(
     '/api/vendor/integrations/:id',
@@ -738,6 +765,27 @@ const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?:
   { path: '/api/vendor/proposals', method: 'GET' },
   { path: `/api/vendor/proposals/${uuid(990)}/accept`, method: 'POST', ok: 404 },
   { path: `/api/vendor/proposals/${uuid(990)}/decline`, method: 'POST', ok: 404 },
+  // AECI-2039 — seat only; owner, Sync Service and claimed are inside the handlers.
+  // An unknown row or claim is their 404.
+  {
+    path: `/api/vendor/owned-integrations/${uuid(991)}/flows`,
+    method: 'POST',
+    body: { data_object: 'rfis', direction: 'both' },
+    ok: 404,
+  },
+  {
+    path: `/api/vendor/owned-flows/${uuid(992)}/answer`,
+    method: 'PUT',
+    body: { asserted: true },
+    ok: 404,
+  },
+  { path: `/api/vendor/owned-flows/${uuid(992)}/answer`, method: 'DELETE', ok: 404 },
+  {
+    path: `/api/vendor/owned-flows/${uuid(992)}`,
+    method: 'PATCH',
+    body: { direction: 'both' },
+    ok: 404,
+  },
   // AECI-1424 — owner seats only. VENDOR_A does not own its record: the 409.
   { path: '/api/vendor/products', method: 'POST', body: { name: 'New product' }, ok: 409 },
   // AECI-1389 — owner seats only; VENDOR_A has a billing account (LICENSE_A's).

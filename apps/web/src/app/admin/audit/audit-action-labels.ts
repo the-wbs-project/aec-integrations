@@ -103,6 +103,8 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'claim.converted': $localize`:@@admin.audit.action.claimConverted:Claim reassigned to the vendor`,
   'attestation.created': $localize`:@@admin.audit.action.attestationCreated:Vendor position added`,
   'attestation.retracted': $localize`:@@admin.audit.action.attestationRetracted:Vendor position withdrawn`,
+  'claim_owner_answer.created': $localize`:@@admin.audit.action.ownerFlowAnswered:Owner answered a data flow`,
+  'claim_owner_answer.retracted': $localize`:@@admin.audit.action.ownerFlowAnswerCleared:Owner answer on a data flow withdrawn`,
 
   // ── Product versions, written from the vendor portal ──────────────────────
   'product_version.created': $localize`:@@admin.audit.action.versionCreated:Product version added`,

@@ -139,6 +139,12 @@ import { hiddenFieldsByEntity } from '../lib/field-hides';
 import { lockedFieldsByEntity } from '../lib/field-overrides';
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { loadOwnedIntegrations } from '../lib/owned-integrations';
+import {
+  ownerAnswersRelationConfig,
+  ownerFlowContextOf,
+  ownerMaintainsFlows,
+  ownerVote,
+} from '../lib/owner-flows';
 import { assertIntegrationLive } from '../lib/live-integration';
 import { toSideLinks } from '../lib/integration-vendor-links';
 import { claimAddedNotificationAudit } from '../lib/claim-added-notification';
@@ -432,9 +438,14 @@ function toVendorClaim(
   /** AECI-1153. When the claim's agreement last became `conflict`, from
    *  {@link conflictStarts}. Read only when the agreement is `conflict`. */
   raisedAt: string | null = null,
+  /** AECI-2039. The counting owner answer on a Sync Service pair, from
+   *  `ownerVote`. It decides `agreement` only: it is nobody's `mine` or
+   *  `counterparty`, because an endpoint vendor never answers there. */
+  ownerAnswer: AgreementAttestation | null = null,
 ): VendorClaim {
   const slots = authority.slots;
-  const agreement = computeAgreement(live.map(toAgreementVote));
+  const votes = live.map(toAgreementVote);
+  const agreement = computeAgreement(ownerAnswer ? [...votes, ownerAnswer] : votes);
   return {
     id: claim.id,
     integration_id: integrationId,
@@ -459,6 +470,7 @@ function toVendorClaim(
       agreement === 'conflict'
         ? { id: claim.id, raised_at: raisedAt ?? new Date().toISOString() }
         : null,
+    owner_answer: ownerAnswer === null ? null : ownerAnswer.asserted ? 'yes' : 'no',
   };
 }
 
@@ -638,7 +650,9 @@ function assertAttestableEdge(authority: AttestationAuthority): void {
   throw new ApiError(
     403,
     'FORBIDDEN',
-    'This integration is delivered through a connector, so neither product vendor can attest to it. AEC Integrations maintains what it moves.',
+    // AECI-2039: the second sentence ("AEC Integrations maintains what it moves") was
+    // false on a claimed row, and on a Sync Service row the owner maintains the flows.
+    'This integration is delivered through a connector, so neither product vendor can attest to it.',
   );
 }
 
@@ -1076,14 +1090,19 @@ const vendorIntegrationConfig = {
       with: {
         dataObject: { columns: { slug: true, name: true, displayOrder: true } },
         attestations: { columns: attestationColumns, where: liveAttestationsWhere },
+        // AECI-2039: the owner's answer on a Sync Service pair.
+        ownerAnswers: ownerAnswersRelationConfig,
       },
     },
     // AECI-705: the connector delivering this edge, for the read-only
     // explanation. `poweredByProductId` rides in the column list too — the
     // predicate is the union, so the relation being null does NOT mean the edge
     // is attestable (53 of 132 powered edges in production have no promoted
-    // connector product to link to).
-    poweredByProduct: { columns: productLinkColumns },
+    // connector product to link to). AECI-2039: its role and kind say whether the
+    // row's owner maintains the flows.
+    poweredByProduct: {
+      columns: { ...productLinkColumns, productRole: true, connectorKind: true },
+    },
     // AECI-1007: per-side links. The mapper keeps only the entry's own side.
     vendorLinks: { columns: { productId: true, kind: true, url: true } },
   },
@@ -1150,6 +1169,8 @@ export function createListVendorIntegrationsHandler(
       const authority = authorities.get(row.id);
       if (!authority) continue;
       const attestable = !isConnectorPoweredEdge(row);
+      // AECI-2039: on a claimed Sync Service row the owner maintains the flows.
+      const ownerCtx = ownerFlowContextOf(row, attestable ? null : row.poweredByProduct);
 
       // ── ONE ENTRY PER OWNED ENDPOINT, NOT PER INTEGRATION (AECI-666) ───────
       // The portal files integrations under the product they touch, so an
@@ -1261,8 +1282,10 @@ export function createListVendorIntegrationsHandler(
                 authority,
                 contextIsSource,
                 raisedAt.get(claim.id) ?? null,
+                ownerVote(ownerCtx, claim.ownerAnswers),
               ),
             ),
+          flows_maintained_by_owner: ownerMaintainsFlows(ownerCtx),
         });
       }
     }

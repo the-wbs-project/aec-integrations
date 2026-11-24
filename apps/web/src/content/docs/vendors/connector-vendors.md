@@ -39,6 +39,18 @@ The Catalog tab is for a connector product with a published catalog, which is us
 
 Where a connector product carries the data and your company holds neither product, the company recorded as the owner can claim the integration, on any plan. That includes a company that sells the connector and makes neither product. Those integrations appear on your Integrations tab under **Integrations your company offers**, as a list of cards rather than a page each, because they have no product of yours at either end. Once you claim one, AEC Integrations stops updating it. You can then edit its details and retire or restore it, from the same card, on any plan. Its type is set by AEC Integrations and cannot be edited. Retiring it also stops it counting on the connector product. No company can add links to one, or add a new one. Other companies can still request a change on one that appears on their Integrations tab.
 
+### The data rows on a Sync Service integration
+
+When the connector is a Sync Service, your company runs both sides of the integration, so it confirms the types of data it moves. Once you have claimed the integration, its card shows its rows under **Data that's shared**, on any plan:
+
+- **Yes** confirms a row. The public page then reads "Confirmed by (your company), which offers this integration".
+- **No** removes a row from the public page. It does not mark the row as disputed, because you maintain the listing.
+- Pressing the answer you already gave clears it. The row then reads "Listed by AEC Integrations" again.
+- **Change** moves a row to another direction. The old direction is removed and the new one confirmed.
+- **Add a row** adds a type of data and confirms it. The vendors of both products are told in Messages.
+
+The two products' vendors cannot answer these rows. Their Integrations tab names your company as the one that maintains them. Until you claim the integration, AEC Integrations keeps its rows and you cannot change them. On an integration platform's integrations, nobody confirms the rows.
+
 Where your company does hold a product at one end and the connection later becomes connector-delivered, the integration keeps its own page. Its Integration links section stops offering your product's group, and your existing links no longer show on the public page. They still appear in your product's group there, and you can remove them.
 
 ## Related

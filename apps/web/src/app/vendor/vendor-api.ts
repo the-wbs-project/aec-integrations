@@ -21,6 +21,9 @@ import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
 import type {
+  AddOwnerFlowInput,
+  ChangeOwnerFlowInput,
+  OwnerFlowsResponse,
   AcceptLegalVersionRequest,
   AcceptLegalVersionResponse,
   VendorLegalAcceptanceResponse,
@@ -905,6 +908,46 @@ export class VendorApi {
 
   /** `POST /api/vendor/integrations/:id/claim` — the recorded owner takes the row
    *  (200). No body. From then on promote writes nothing to it. */
+  // ── AECI-2039: the owner maintains a Sync Service pair's flows ────────────
+  // `direction` is framed against the row's `product_a`, as `OwnedFlow` is.
+
+  /** `POST /api/vendor/owned-integrations/:id/flows` — add a flow, which confirms it. */
+  addOwnerFlow(integrationId: string, body: AddOwnerFlowInput): Promise<OwnerFlowsResponse> {
+    return firstValueFrom(
+      this.http.post<OwnerFlowsResponse>(
+        `/api/vendor/owned-integrations/${encodeURIComponent(integrationId)}/flows`,
+        body,
+      ),
+    );
+  }
+
+  /** `PUT /api/vendor/owned-flows/:claimId/answer` — Yes confirms, No removes it. */
+  setOwnerFlowAnswer(claimId: string, asserted: boolean): Promise<OwnerFlowsResponse> {
+    return firstValueFrom(
+      this.http.put<OwnerFlowsResponse>(
+        `/api/vendor/owned-flows/${encodeURIComponent(claimId)}/answer`,
+        { asserted },
+      ),
+    );
+  }
+
+  /** `DELETE /api/vendor/owned-flows/:claimId/answer` — clear the owner's answer. */
+  clearOwnerFlowAnswer(claimId: string): Promise<void> {
+    return firstValueFrom(
+      this.http.delete<void>(`/api/vendor/owned-flows/${encodeURIComponent(claimId)}/answer`),
+    );
+  }
+
+  /** `PATCH /api/vendor/owned-flows/:claimId` — change a flow's direction. */
+  changeOwnerFlow(claimId: string, body: ChangeOwnerFlowInput): Promise<OwnerFlowsResponse> {
+    return firstValueFrom(
+      this.http.patch<OwnerFlowsResponse>(
+        `/api/vendor/owned-flows/${encodeURIComponent(claimId)}`,
+        body,
+      ),
+    );
+  }
+
   claimIntegration(integrationId: string): Promise<ClaimIntegrationResponse> {
     return firstValueFrom(
       this.http.post<ClaimIntegrationResponse>(

@@ -71,9 +71,12 @@ interface PairVendorNames {
  *  reach back into the response. */
 interface ClaimRow {
   readonly claim: ProductPairClaim;
-  /** The vendor named on a `single_source` badge; `null` for every other state
-   *  (and when the affirming side has no vendor record). */
+  /** The vendor named on a `single_source` badge, or on an `owner_confirmed` or
+   *  Sync Service `unverified` one (AECI-2039, the company that offers it); `null`
+   *  otherwise (and when the side has no vendor record). */
   readonly attributedTo: string | null;
+  /** AECI-2039. The mechanism is a Sync Service pair. */
+  readonly syncService: boolean;
   /**
    * AECI-303 (§9.1) diff presentation, all resolved here so the template holds no
    * conditionals. `diffLabel` is `null` for `unchanged` — the overwhelming majority
@@ -131,12 +134,28 @@ interface ClaimGroup {
  * (§4.3). Only meaningful for `single_source` — `confirmed` needs no name (both
  * vendors agree) and `conflict` names both in the provenance popover instead.
  */
-function attributedVendorName(claim: ProductPairClaim, vendors: PairVendorNames): string | null {
+function attributedVendorName(
+  claim: ProductPairClaim,
+  vendors: PairVendorNames,
+  offer: SyncServiceOffer,
+): string | null {
+  // AECI-2039: on a Sync Service pair the company that offers it answers.
+  if (claim.agreement === 'owner_confirmed') return offer.offeredBy;
+  if (offer.syncService && claim.agreement === 'unverified') return offer.offeredBy;
   if (claim.agreement !== 'single_source') return null;
   const affirming = claim.attestations.find((a) => a.attestor !== 'aeci' && a.asserted);
   if (!affirming) return null;
   return affirming.attestor === 'context' ? vendors.context : vendors.other;
 }
+
+/** AECI-2039. Whether a mechanism is a Sync Service pair, and who offers it. */
+interface SyncServiceOffer {
+  readonly syncService: boolean;
+  /** The mechanism's `built_by_vendor` name: the owner, which answers for the flows. */
+  readonly offeredBy: string | null;
+}
+
+const NO_OFFER: SyncServiceOffer = { syncService: false, offeredBy: null };
 
 /** Group a mechanism's claims by context-relative direction, in canonical order,
  *  dropping empty lanes. Reuses the file's direction copy helpers so the Layer-A
@@ -146,6 +165,7 @@ function buildClaimGroups(
   otherName: string,
   vendors: PairVendorNames,
   selectedVersions: { context: string | null; other: string | null } | null,
+  offer: SyncServiceOffer = NO_OFFER,
 ): ClaimGroup[] {
   return DIRECTION_ORDER.map((direction) => ({
     direction,
@@ -153,7 +173,7 @@ function buildClaimGroups(
     glyph: directionGlyph(direction),
     rows: claims
       .filter((c) => c.direction === direction)
-      .map((claim) => buildClaimRow(claim, vendors, selectedVersions)),
+      .map((claim) => buildClaimRow(claim, vendors, selectedVersions, offer)),
   })).filter((g) => g.rows.length > 0);
 }
 
@@ -162,8 +182,13 @@ function buildClaimRow(
   claim: ProductPairClaim,
   vendors: PairVendorNames,
   selectedVersions: { context: string | null; other: string | null } | null,
+  offer: SyncServiceOffer = NO_OFFER,
 ): ClaimRow {
-  const base = { claim, attributedTo: attributedVendorName(claim, vendors) };
+  const base = {
+    claim,
+    attributedTo: attributedVendorName(claim, vendors, offer),
+    syncService: offer.syncService,
+  };
   // The version the marker names: whichever side's release the reader is looking at.
   // Both selectors move independently, so name the pair rather than guessing a side.
   const at = selectedVersions
@@ -1333,11 +1358,14 @@ function writePairViewCookie(mode: PairViewMode): void {
                                     [agreement]="r.claim.agreement"
                                     [attributedTo]="r.attributedTo"
                                     [refuted]="r.claim.refuted ?? false"
+                                    [syncService]="r.syncService"
                                   />
                                   <aec-claim-provenance
                                     [claim]="r.claim"
                                     [contextVendorName]="v.vendorNames.context"
                                     [otherVendorName]="v.vendorNames.other"
+                                    [syncService]="r.syncService"
+                                    [offeredByName]="r.syncService ? r.attributedTo : null"
                                   />
                                 </span>
                               </li>
@@ -1702,6 +1730,11 @@ export class ProductsPairPage {
         otherName,
         vendorNames,
         this.pair()?.version_diff?.selected ?? null,
+        // AECI-2039: on a Sync Service pair its owner answers for the flows.
+        {
+          syncService: m.connector_kind === 'sync_service',
+          offeredBy: m.built_by_vendor?.name ?? null,
+        },
       ),
       hasClaims: m.claims.length > 0,
       glance: this.glanceFacts(m, owners),

@@ -1374,7 +1374,7 @@ export const NOTIFICATIONS = {
     audience: 'external',
     trigger: {
       kind: 'route',
-      ref: 'PUT /api/vendor/claims/:claimId/attestation (routes/vendor-attestations.ts)',
+      ref: 'POST /api/vendor/claims (routes/vendor-attestations.ts); the Sync Service owner adding a flow, POST /api/vendor/owned-integrations/:id/flows and PATCH /api/vendor/owned-flows/:claimId (routes/vendor-owner-flows.ts)',
     },
     envRule: 'any-tier',
     dedupe: 'One row per recipient, in the attestation batch.',

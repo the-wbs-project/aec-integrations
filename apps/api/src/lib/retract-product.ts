@@ -227,6 +227,9 @@ export const CASCADE_CHILD_HANDLING: Readonly<Record<string, FkOutcome>> = {
   'claims.integration_id': 'cascade-child',
   'claims.connector_evidenced_pair_id': 'cascade-child',
   'attestations.claim_id': 'cascade-child',
+  // AECI-2039 (0130): the owner's answers on a Sync Service pair's flows. Deleted
+  // explicitly with the attestations, before the claims.
+  'claim_owner_answers.claim_id': 'cascade-child',
   'integration_field_challenges.integration_id': 'cascade-child',
   // AECI-1092 (0050): a contest can sit on an evidenced pair. Deleted explicitly
   // before the pairs, and counted on the pair's tombstone, like the integrations arm.
@@ -853,6 +856,11 @@ export interface ProductDeleteArgs {
    *  {@link CLAIM_THREADS_TABLE_SQL} probe so a tier without it gets a plan that never
    *  names the table. */
   claimThreadsTable?: boolean;
+  /** AECI-2039: whether `claim_owner_answers` exists on the target tier (migration
+   *  0130). Defaults to true, the schema at HEAD. A tier without it gets a plan that
+   *  never names the table. The CLI does not probe it yet: every tier that runs this
+   *  code has applied 0130, because migrations deploy first (`docs/CICD_PLAN.md`). */
+  claimOwnerAnswersTable?: boolean;
 }
 
 /** The token the plan's first statement raises when a vendor-held row appeared in
@@ -1233,6 +1241,7 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
   const reviewUpdatesTable = args.reviewUpdatesTable ?? true;
   const licensesTable = args.licensesTable ?? true;
   const claimThreadsTable = args.claimThreadsTable ?? true;
+  const claimOwnerAnswersTable = args.claimOwnerAnswersTable ?? true;
   const pageViewPairColumns = args.pageViewPairColumns ?? true;
   // AECI-1088 review: the vendor-held refusal, re-checked at write time. The CLI
   // refused on the footprint, but a claim can land between that read and `--apply`.
@@ -1387,6 +1396,10 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
     // 2. Children before parents, explicitly: attestations → claims → edges. Never
     //    left to the FK cascade, which is two levels deep here (ADR 0018).
     `DELETE FROM "attestations" WHERE "claim_id" IN (${s.claims});`,
+    // AECI-2039: the owner's answers, the other child of `claims`.
+    ...(claimOwnerAnswersTable
+      ? [`DELETE FROM "claim_owner_answers" WHERE "claim_id" IN (${s.claims});`]
+      : []),
     // AECI-1536: the thread survives its claim, detached and closed (§15.10).
     ...(claimThreadsTable ? [threadDetachUpdate(args, s.claims)] : []),
     `DELETE FROM "claims" WHERE "id" IN (${s.claims});`,

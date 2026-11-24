@@ -433,7 +433,10 @@ export function statusLabel(
         : $localize`:@@vendor.im.status.waitingAeci:Waiting on AEC Integrations`;
     }
     case 'connector':
-      return $localize`:@@vendor.im.status.connector:AEC Integrations maintained`;
+      // AECI-2039: "AEC Integrations maintained" was false on a claimed row of either
+      // connector kind. This label is also the list's filter chip, so the two change
+      // together (the Same-Behavior Rule). The tooltip says who keeps it.
+      return $localize`:@@vendor.im.status.connector.v2:Delivered through a connector`;
     case 'up_to_date':
       return $localize`:@@vendor.im.status.upToDate:All up to date`;
   }
@@ -480,6 +483,16 @@ export function statusExplain(key: IntegrationStatusKey, integration: VendorInte
 function connectorExplain(integration: VendorIntegration): string {
   if (!isClaimed(integration)) {
     return $localize`:@@vendor.im.status.explain.connector.v2:It runs through a connector product, so AEC Integrations keeps its data up to date.`;
+  }
+  // AECI-2039: on a claimed Sync Service row the owner keeps its data flows too.
+  if (integration.flows_maintained_by_owner) {
+    if (integration.is_owner) {
+      return $localize`:@@vendor.im.status.explain.syncService.mine:It runs through your company's Sync Service. Your company keeps its details and its data flows up to date.`;
+    }
+    const owner = integration.owner?.name;
+    return owner
+      ? $localize`:@@vendor.im.status.explain.syncService.other:It runs through a Sync Service that ${owner}:owner: offers. ${owner}:owner: keeps its details and its data flows up to date.`
+      : $localize`:@@vendor.im.status.explain.syncService.unnamed:It runs through a Sync Service. The company that offers it keeps its details and its data flows up to date.`;
   }
   if (integration.is_owner) {
     return $localize`:@@vendor.im.status.explain.connectorClaimed.mine.v2:It runs through a connector product. Your company keeps its details up to date, and AEC Integrations no longer updates it.`;
@@ -663,8 +676,24 @@ export function rowPill(
   company: string | null,
 ): RowPill {
   if (!integration.attestable) {
+    // AECI-2039: "Checked by AEC Integrations" was not true on a claimed row. On a
+    // claimed Sync Service row the owner answers; elsewhere AECi listed the row.
+    if (integration.flows_maintained_by_owner && claim.owner_answer !== null) {
+      const owner =
+        integration.owner?.name ??
+        $localize`:@@vendor.im.row.ownerFallback:the company that offers it`;
+      return claim.owner_answer === 'yes'
+        ? {
+            label: $localize`:@@vendor.im.row.confirmedByOwner:Confirmed by ${owner}:company:`,
+            tone: 'neutral',
+          }
+        : {
+            label: $localize`:@@vendor.im.row.removedByOwner:Removed by ${owner}:company:`,
+            tone: 'neutral',
+          };
+    }
     return {
-      label: $localize`:@@vendor.im.row.checkedByAeci:Checked by AEC Integrations`,
+      label: $localize`:@@vendor.im.row.listedByAeci:Listed by AEC Integrations`,
       tone: 'neutral',
     };
   }
