@@ -5,7 +5,8 @@
  *
  * Three callers share it, so the three can never count one lane two ways:
  * `GET /api/admin/seo/queue` and `/trend` (`routes/admin-seo.ts`) and the 00:15
- * snapshot (`./metrics-snapshot`). The weekly SEO email (AECI-819) is the fourth.
+ * snapshot (`./metrics-snapshot`). The funnel (`./seo-funnel`) reuses the lane
+ * computation when the snapshot has not yet filed a day.
  *
  * Everything here is a read. No `audit_log` row (ADR 0022). The snapshot rows the
  * stocks feed are derived, log-class writes, exempt for the same reason.
@@ -73,16 +74,11 @@ export const CONCRETE_PATH_SINCE = '2026-08-18T03:49:00.000Z';
  * migration `0072`). Rows before it carry no edge verdict, so they count on the
  * user-agent label alone and the response carries `crawler_label_unverified`.
  *
- * **UNVERIFIED. Inferred, not read from production.** §5.24.14 item 4 asks
- * AECI-818 to read this date from production, and this build was not allowed to
- * query a deployed database. `VENDOR_PERFORMANCE_SPEC.md` dates migration `0072`
- * to 2026-10-13. The value is the day after, deliberately: a date later than the
- * real one only lets a few unverified rows count, while an earlier one would make
- * real crawls read as missing. The operator follow-up is to run
- * `SELECT min(created_at) FROM page_views WHERE cf_verified_bot_category IS NOT NULL`
- * on production and replace this constant.
+ * A fact, not a tunable. Read from production on 2026-11-24 by the operator, with
+ * `SELECT min(created_at) FROM page_views WHERE cf_verified_bot_category IS NOT NULL`.
+ * It is the first production row with an edge verdict. Never move it.
  */
-export const EDGE_VERIFIED_SINCE = '2026-10-14T00:00:00.000Z';
+export const EDGE_VERIFIED_SINCE = '2026-10-13T08:02:33.500Z';
 
 /** The ingest-time `NAMED_BOTS` label per engine (`lib/bot-classification.ts`). No
  *  other crawler counts, including the `Datacenter (Google)` ASN verdict. */

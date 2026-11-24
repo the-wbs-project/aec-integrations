@@ -177,6 +177,24 @@ describe('computeSeoLanes', () => {
     expect(lanes.crawled.google).toBe(1);
   });
 
+  it('pins EDGE_VERIFIED_SINCE to the production reading, to the millisecond', async () => {
+    // Read from production on 2026-11-24: the first `page_views` row with a
+    // `cf_verified_bot_category`. An unverified row counts only before it.
+    expect(EDGE_VERIFIED_SINCE).toBe('2026-10-13T08:02:33.500Z');
+    const to = new Date('2026-10-20T00:00:00.000Z');
+    await t.db.insert(products).values([
+      { id: 'p1', slug: 'before', name: 'Before', createdAt: '2026-08-01T00:00:00.000Z' },
+      { id: 'p2', slug: 'at', name: 'At', createdAt: '2026-08-01T00:00:00.000Z' },
+    ]);
+    await fetches([
+      { concretePath: '/products/before', verified: false, createdAt: '2026-10-13T08:02:33.499Z' },
+      { concretePath: '/products/at', verified: false, createdAt: EDGE_VERIFIED_SINCE },
+    ]);
+    const lanes = await computeSeoLanes(t.db, to);
+    expect(lanes.crawled.google).toBe(1);
+    expect(lanes.uncrawled.google.map((e) => e.path)).toEqual(['/products/at']);
+  });
+
   it('never reads a pre-AECI-585 row as a miss: the window is clamped instead', async () => {
     const to = new Date('2026-09-01T00:00:00.000Z');
     await t.db.insert(products).values({
