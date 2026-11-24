@@ -83,19 +83,22 @@ export type ProductListItem = z.infer<typeof ProductListItemSchema>;
 
 /**
  * One product's mark on the product page's integrations wheel (AECI-2018, ruling 64,
- * 2026-11-24). One entry per product the page product has an integration with, in no
- * order: the wheel joins it to the rows by `product_id`.
+ * 2026-11-24). One entry per product the page product has an integration with, and one
+ * for the page product itself, which the wheel's centre shows. In no order: the wheel
+ * joins it to the rows by `product_id`.
  *
  * **The wheel only.** Ruling 64 lets a wheel tile show a product's logo whenever we hold
  * one, claimed or not. Every other surface keeps the AECI-1769 rule, so the rows in
  * `integrations_as_source` / `integrations_as_target` still carry `logo_url: null` for
  * an unclaimed partner, and no list, card, row or search record carries this shape.
  *
- * `logo_url` is the partner's stored `products.logo_url`, the value its own page shows.
- * So a logo removed on an objection is `null` here at once, and the purge of
- * `product:{partner}` that removal sends repaints this page, which carries that tag.
- * `claim_status` decides the "Unclaimed" label in the wheel's card, and nothing else:
- * no tile is marked, and nothing orders, includes or sizes by it.
+ * `logo_url` is a logo we may show (`wheelLogoOf` in the API): a claimed product's stored
+ * logo, the vendor's upload included; for an unclaimed product, the logo we sourced
+ * ourselves, never a vendor upload left over from an ended claim (Vendor Terms 1.3,
+ * ADR 0051). A removal on objection clears both, and the purge of `product:{partner}` it
+ * sends repaints this page, which carries that tag. `claim_status` decides the
+ * "Unclaimed" label in the wheel's card, and nothing else: no tile is marked, and nothing
+ * orders, includes or sizes by it.
  */
 export const WheelMarkSchema = z.object({
   product_id: z.string().uuid(),
@@ -161,7 +164,7 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   integrations_as_target: z.array(ProductIntegrationItemSchema),
   /**
    * The integrations wheel's marks (AECI-2018, ruling 64): one per partner in the two
-   * arrays above. See `WheelMarkSchema`. Optional so an older payload, and a fixture
+   * arrays above, and one for this product, for the wheel's centre. See `WheelMarkSchema`. Optional so an older payload, and a fixture
    * that predates the wheel, still parse. A missing entry shows the initial tile.
    */
   wheel_marks: z.array(WheelMarkSchema).optional(),

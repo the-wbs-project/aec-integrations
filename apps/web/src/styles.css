@@ -1621,16 +1621,14 @@ textarea:-webkit-autofill:focus {
    server's markup carries one set of positions per stage width.
 
    HOW THE SERVER HTML PICKS A LAYOUT. The server cannot know the width, so it lays the
-   first slide out at each of the five stage widths in WHEEL_BANDS (224, 279, 294, 336
-   and 476px) and writes them as custom properties: `--x{k}` / `--y{k}` on each tile,
+   first slide out at each of the eight stage widths in WHEEL_BANDS and writes them as custom properties: `--x{k}` / `--y{k}` on each tile,
    `--t{k}` (tile size) and `--i{k}` (initial size) on the stage, and the slide's mode
    per band as `data-m{k}` (`one`, `two`, `dots`) on the wheel, with `data-n{k}` when
    names show under the tiles. One container query per band copies its values into
    `--x`, `--y` and `--t`, and shows what that mode shows. Positions are percentages of
    the stage, and each band applies from its own width up, so a tile is never smaller
-   than the size it was laid out at. After hydration the component lays the slide out at
-   the measured width under the key `l`, sets `data-live`, and the `[data-live]` rules
-   win. Every mode rule only shows, so the band and live rules never fight. */
+   than the size it was laid out at. The browser uses the same bands, so nothing changes
+   at hydration. Every mode rule only shows what its mode shows. */
 .aec-wheel {
   container: aec-wheel / inline-size;
   position: relative;
@@ -1988,7 +1986,9 @@ textarea:-webkit-autofill:focus {
   }
 }
 
-@container aec-wheel (width < 279px) {
+/* One container query per band of WHEEL_BANDS (`integration-wheel.ts`). The first
+   applies below 260px, each other from its own width to the next. */
+@container aec-wheel (width < 260px) {
   .aec-wheel-stage {
     --t: var(--t0);
     --aec-wheel-initial: var(--i0);
@@ -2033,7 +2033,7 @@ textarea:-webkit-autofill:focus {
     margin-bottom: 2.5rem;
   }
 }
-@container aec-wheel (279px <= width < 294px) {
+@container aec-wheel (260px <= width < 279px) {
   .aec-wheel-stage {
     --t: var(--t1);
     --aec-wheel-initial: var(--i1);
@@ -2078,7 +2078,7 @@ textarea:-webkit-autofill:focus {
     margin-bottom: 2.5rem;
   }
 }
-@container aec-wheel (294px <= width < 336px) {
+@container aec-wheel (279px <= width < 294px) {
   .aec-wheel-stage {
     --t: var(--t2);
     --aec-wheel-initial: var(--i2);
@@ -2123,7 +2123,7 @@ textarea:-webkit-autofill:focus {
     margin-bottom: 2.5rem;
   }
 }
-@container aec-wheel (336px <= width < 476px) {
+@container aec-wheel (294px <= width < 320px) {
   .aec-wheel-stage {
     --t: var(--t3);
     --aec-wheel-initial: var(--i3);
@@ -2168,7 +2168,7 @@ textarea:-webkit-autofill:focus {
     margin-bottom: 2.5rem;
   }
 }
-@container aec-wheel (width >= 476px) {
+@container aec-wheel (320px <= width < 336px) {
   .aec-wheel-stage {
     --t: var(--t4);
     --aec-wheel-initial: var(--i4);
@@ -2213,48 +2213,140 @@ textarea:-webkit-autofill:focus {
     margin-bottom: 2.5rem;
   }
 }
-/* After hydration: the one live layout, at the measured width. */
-.aec-wheel[data-live] .aec-wheel-stage {
-  --t: var(--tl);
-  --aec-wheel-initial: var(--il);
+@container aec-wheel (336px <= width < 400px) {
+  .aec-wheel-stage {
+    --t: var(--t5);
+    --aec-wheel-initial: var(--i5);
+  }
+  .aec-wheel-ring > li {
+    --x: var(--x5);
+    --y: var(--y5);
+  }
+  .aec-wheel-guides[data-band='5'],
+  .aec-wheel-dots[data-band='5'] {
+    display: block;
+  }
+  .aec-wheel[data-m5='one'] .aec-wheel-ring,
+  .aec-wheel[data-m5='two'] .aec-wheel-ring,
+  .aec-wheel[data-m5='one'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m5='two'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m5='one'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m5='two'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m5='dots'] .aec-wheel-hub-count,
+  .aec-wheel[data-m5='dots'] .aec-wheel-lines-dots,
+  .aec-wheel[data-m5='dots'] .aec-wheel-more {
+    display: block;
+  }
+  .aec-wheel[data-n5] .aec-wheel-label {
+    position: absolute;
+    top: calc(100% + 0.375rem);
+    left: 50%;
+    width: max-content;
+    max-width: 7.5rem;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+    translate: -50% 0;
+    font-size: var(--t-13);
+    line-height: 1.3;
+    text-align: center;
+    color: var(--text-on-brand-secondary);
+    pointer-events: none;
+  }
+  .aec-wheel[data-n5] .aec-wheel-stage {
+    margin-bottom: 2.5rem;
+  }
 }
-.aec-wheel[data-live] .aec-wheel-ring > li {
-  --x: var(--xl);
-  --y: var(--yl);
+@container aec-wheel (400px <= width < 476px) {
+  .aec-wheel-stage {
+    --t: var(--t6);
+    --aec-wheel-initial: var(--i6);
+  }
+  .aec-wheel-ring > li {
+    --x: var(--x6);
+    --y: var(--y6);
+  }
+  .aec-wheel-guides[data-band='6'],
+  .aec-wheel-dots[data-band='6'] {
+    display: block;
+  }
+  .aec-wheel[data-m6='one'] .aec-wheel-ring,
+  .aec-wheel[data-m6='two'] .aec-wheel-ring,
+  .aec-wheel[data-m6='one'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m6='two'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m6='one'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m6='two'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m6='dots'] .aec-wheel-hub-count,
+  .aec-wheel[data-m6='dots'] .aec-wheel-lines-dots,
+  .aec-wheel[data-m6='dots'] .aec-wheel-more {
+    display: block;
+  }
+  .aec-wheel[data-n6] .aec-wheel-label {
+    position: absolute;
+    top: calc(100% + 0.375rem);
+    left: 50%;
+    width: max-content;
+    max-width: 7.5rem;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+    translate: -50% 0;
+    font-size: var(--t-13);
+    line-height: 1.3;
+    text-align: center;
+    color: var(--text-on-brand-secondary);
+    pointer-events: none;
+  }
+  .aec-wheel[data-n6] .aec-wheel-stage {
+    margin-bottom: 2.5rem;
+  }
 }
-.aec-wheel-guides[data-band='l'],
-.aec-wheel-dots[data-band='l'] {
-  display: block;
-}
-.aec-wheel[data-ml='one'] .aec-wheel-ring,
-.aec-wheel[data-ml='two'] .aec-wheel-ring,
-.aec-wheel[data-ml='one'] .aec-wheel-hub-mark,
-.aec-wheel[data-ml='two'] .aec-wheel-hub-mark,
-.aec-wheel[data-ml='one'] .aec-wheel-lines-tiles,
-.aec-wheel[data-ml='two'] .aec-wheel-lines-tiles,
-.aec-wheel[data-ml='dots'] .aec-wheel-hub-count,
-.aec-wheel[data-ml='dots'] .aec-wheel-lines-dots {
-  display: block;
-}
-.aec-wheel[data-nl] .aec-wheel-label {
-  position: absolute;
-  top: calc(100% + 0.375rem);
-  left: 50%;
-  width: max-content;
-  max-width: 7.5rem;
-  height: auto;
-  overflow: visible;
-  clip-path: none;
-  white-space: normal;
-  translate: -50% 0;
-  font-size: var(--t-13);
-  line-height: 1.3;
-  text-align: center;
-  color: var(--text-on-brand-secondary);
-  pointer-events: none;
-}
-.aec-wheel[data-nl] .aec-wheel-stage {
-  margin-bottom: 2.5rem;
+@container aec-wheel (width >= 476px) {
+  .aec-wheel-stage {
+    --t: var(--t7);
+    --aec-wheel-initial: var(--i7);
+  }
+  .aec-wheel-ring > li {
+    --x: var(--x7);
+    --y: var(--y7);
+  }
+  .aec-wheel-guides[data-band='7'],
+  .aec-wheel-dots[data-band='7'] {
+    display: block;
+  }
+  .aec-wheel[data-m7='one'] .aec-wheel-ring,
+  .aec-wheel[data-m7='two'] .aec-wheel-ring,
+  .aec-wheel[data-m7='one'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m7='two'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m7='one'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m7='two'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m7='dots'] .aec-wheel-hub-count,
+  .aec-wheel[data-m7='dots'] .aec-wheel-lines-dots,
+  .aec-wheel[data-m7='dots'] .aec-wheel-more {
+    display: block;
+  }
+  .aec-wheel[data-n7] .aec-wheel-label {
+    position: absolute;
+    top: calc(100% + 0.375rem);
+    left: 50%;
+    width: max-content;
+    max-width: 7.5rem;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+    translate: -50% 0;
+    font-size: var(--t-13);
+    line-height: 1.3;
+    text-align: center;
+    color: var(--text-on-brand-secondary);
+    pointer-events: none;
+  }
+  .aec-wheel[data-n7] .aec-wheel-stage {
+    margin-bottom: 2.5rem;
+  }
 }
 
 /* The card a tile opens: a popover in the CDK overlay, so the hero never clips it. */

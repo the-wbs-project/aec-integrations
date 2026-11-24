@@ -17,6 +17,7 @@ import { RouterLink } from '@angular/router';
 import type { ProductDetail } from '@aeci/shared';
 
 import { AecIcon } from '../shared/icon/icon';
+import { injectInPageHref } from '../shared/in-page-href';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 
 import {
@@ -62,9 +63,9 @@ const LONG_PRESS = 450;
  * and reads as a list of links with no script. The server cannot know the width, so it
  * lays the slide out at each of `WHEEL_BANDS` and CSS picks one by container query
  * (`.aec-wheel` in `styles.css`): no layout shift, and a phone with no script never gets
- * a tile under 24px. After hydration the slide is laid out at the measured stage width,
- * which is the same layout at the band widths. With no script the arrows and the list are
- * hidden and a static title shows (`@media (scripting: none)`).
+ * a tile under 24px. The browser uses the same bands, so hydration changes nothing on
+ * screen, and stepping lays the new slide out at every band too. With no script the
+ * arrows and the list are hidden and a static title shows (`@media (scripting: none)`).
  *
  * Keyboard. The ring is one tab stop after hydration (before it every link is a stop, so
  * a reader with no script can reach them all). Left and Up go back, Right and Down go
@@ -80,8 +81,9 @@ const LONG_PRESS = 450;
  *
  * Logos (ruling 64). A tile shows the product's logo whenever we hold one, claimed or
  * not, from `ProductDetail.wheel_marks`, and its initial when we hold none. No tile is
- * marked, badged, dimmed or outlined. The centre is the page's own product by the old
- * rule (`claim_status`). The two lines under a tile slide are always there.
+ * marked, badged, dimmed or outlined. The centre is the page's own product by the same
+ * rule (its own mark), at any claim state. The two lines under a tile slide are always
+ * there.
  */
 @Component({
   selector: 'aec-product-integration-wheel',
@@ -91,6 +93,8 @@ const LONG_PRESS = 450;
     class: 'block',
     '(document:keydown.escape)': 'onEscape()',
     '(document:click)': 'onDocumentClick($event)',
+    '(document:pointerdown)': 'onDocumentPointerDown($event)',
+    '(window:scroll)': 'onScroll()',
   },
   template: `
     @let s = slide();
@@ -108,13 +112,17 @@ const LONG_PRESS = 450;
       [attr.data-m2]="modeOf('2')"
       [attr.data-m3]="modeOf('3')"
       [attr.data-m4]="modeOf('4')"
-      [attr.data-ml]="modeOf('l')"
+      [attr.data-m5]="modeOf('5')"
+      [attr.data-m6]="modeOf('6')"
+      [attr.data-m7]="modeOf('7')"
       [attr.data-n0]="namesOf('0')"
       [attr.data-n1]="namesOf('1')"
       [attr.data-n2]="namesOf('2')"
       [attr.data-n3]="namesOf('3')"
       [attr.data-n4]="namesOf('4')"
-      [attr.data-nl]="namesOf('l')"
+      [attr.data-n5]="namesOf('5')"
+      [attr.data-n6]="namesOf('6')"
+      [attr.data-n7]="namesOf('7')"
     >
       <div class="aec-wheel-head" [class.aec-wheel-head-single]="single()">
         @if (!single()) {
@@ -286,11 +294,13 @@ const LONG_PRESS = 450;
         </div>
         <div class="aec-wheel-hub">
           <div class="aec-wheel-hub-mark" data-testid="product-hero-wheel-centre">
+            <!-- The page's own product, by ruling 64's rule: the logo we may show,
+                 claimed or not (its mark in wheel_marks), else the initial. -->
             <aec-logo-or-initial
               class="size-full"
-              [src]="p.logo_url"
+              [src]="centreLogo()"
               [name]="p.name"
-              [claimStatus]="p.claim_status"
+              [claimStatus]="'wheel'"
               size="hero"
             />
           </div>
@@ -326,7 +336,9 @@ const LONG_PRESS = 450;
         Too many to show as tiles. Each dot is one integration.
       </p>
       <p class="aec-wheel-more">
-        <a href="#integrations">{{ seeAllLabel(s) }}</a>
+        <a [href]="integrationsHref()" data-testid="product-hero-wheel-see-all">{{
+          seeAllLabel(s)
+        }}</a>
       </p>
       <p id="aec-wheel-hint" class="sr-only" i18n="@@products.detail.hero.wheel.hint">
         Arrow keys move between products.
@@ -402,25 +414,36 @@ export class ProductIntegrationWheel {
     return wheelModel(p.integrations_as_source, p.integrations_as_target, p.wheel_marks);
   });
 
+  /** The centre's logo: the page product's own mark (ruling 64), or none. */
+  protected readonly centreLogo = computed(() => {
+    const p = this.product();
+    return p.wheel_marks?.find((m) => m.product_id === p.id)?.logo_url ?? null;
+  });
+
   /** The slide shown. The server always renders the first. */
   protected readonly index = signal(0);
   protected readonly slide = computed(() => this.model().slides[this.index()]!);
   protected readonly single = computed(() => this.model().slides.length === 1);
 
-  /** The stage width after hydration, or `null` on the server and before measuring. */
-  private readonly measured = signal<number | null>(null);
-  /** After hydration: the ring is one tab stop and the slide is laid out live. */
-  protected readonly live = computed(() => this.measured() !== null);
+  /**
+   * Set once the browser has hydrated the wheel. Then the ring is one tab stop. The layout
+   * never changes at hydration: the browser picks the same band the server wrote, by
+   * container query, so names, ring count and tiles or dots stay as painted.
+   */
+  private readonly hydrated = signal(false);
+  protected readonly live = this.hydrated.asReadonly();
   /** The entrance has run, or the reader stepped: it never plays again. */
   protected readonly settled = signal(false);
 
+  /** The slide laid out at every band (`WHEEL_BANDS`), keyed by the band's index. */
   protected readonly layouts = computed<readonly KeyedLayout[]>(() => {
     const model = this.model();
     const i = this.index();
-    const d = this.measured();
-    if (d !== null) return [{ key: 'l', layout: layoutSlide(model, i, d) }];
     return WHEEL_BANDS.map((band, k) => ({ key: String(k), layout: layoutSlide(model, i, band) }));
   });
+
+  /** `{path}#integrations`: a bare fragment resolves against `<base href="/">` (AECI-1839). */
+  protected readonly integrationsHref = injectInPageHref('integrations');
 
   /** Whether any layout shows tiles. When none does, the ring holds no product. */
   protected readonly tiled = computed(() => this.layouts().some((k) => k.layout.mode !== 'dots'));
@@ -444,23 +467,11 @@ export class ProductIntegrationWheel {
   private holdTimer: ReturnType<typeof setTimeout> | null = null;
   /** A touch hold opened the card, so its release must not follow the link. */
   private held = false;
+  /** The open card came from a touch hold: a tap elsewhere or a scroll closes it. */
+  private byTouch = false;
 
   constructor() {
-    afterNextRender(() => {
-      const el = this.stage().nativeElement;
-      const measure = () => {
-        const width = Math.round(el.getBoundingClientRect().width);
-        if (width > 0 && width !== this.measured()) {
-          if (this.measured() !== null) this.hideCard();
-          this.measured.set(width);
-        }
-      };
-      measure();
-      if (typeof ResizeObserver === 'undefined') return;
-      const observer = new ResizeObserver(measure);
-      observer.observe(el);
-      this.destroyRef.onDestroy(() => observer.disconnect());
-    });
+    afterNextRender(() => this.hydrated.set(true));
     this.destroyRef.onDestroy(() => {
       this.clearHide();
       this.cancelHold();
@@ -510,6 +521,11 @@ export class ProductIntegrationWheel {
         : $localize`:@@products.detail.hero.wheel.hub.category.other:integrations in ${name}:NAME:`;
     }
     const n = this.model().categoryCount;
+    if (n === 0) {
+      return one
+        ? $localize`:@@products.detail.hero.wheel.hub.all.one.noCategory:integration`
+        : $localize`:@@products.detail.hero.wheel.hub.all.other.noCategory:integrations`;
+    }
     if (n === 1) {
       return one
         ? $localize`:@@products.detail.hero.wheel.hub.all.one.oneCategory:integration in 1 category`
@@ -703,13 +719,15 @@ export class ProductIntegrationWheel {
   }
 
   protected onTileDown(i: number, event: PointerEvent): void {
-    if (event.pointerType !== 'touch') return;
+    // Every press starts fresh, so a mouse click after a touch hold is not swallowed.
     this.held = false;
     this.cancelHold();
+    if (event.pointerType !== 'touch') return;
     const tile = event.currentTarget as HTMLElement;
     this.holdTimer = setTimeout(() => {
       this.held = true;
       this.openCard(i, tile);
+      this.byTouch = true;
     }, LONG_PRESS);
   }
 
@@ -734,6 +752,7 @@ export class ProductIntegrationWheel {
 
   private openCard(i: number, tile: HTMLElement): void {
     this.clearHide();
+    this.byTouch = false;
     const product = this.slide().products[i];
     if (!product) return;
     this.cardPositions.set([this.positionFor(tile, CARD_WIDTH, CARD_HEIGHT)]);
@@ -752,7 +771,28 @@ export class ProductIntegrationWheel {
 
   private hideCard(): void {
     this.clearHide();
+    this.byTouch = false;
     this.card.set(null);
+  }
+
+  /**
+   * WCAG 1.4.13: a card opened by a touch hold has no pointer to leave, so a press
+   * anywhere outside the card and its tile closes it. So does any press outside both for
+   * a card opened by hover or focus.
+   */
+  protected onDocumentPointerDown(event: PointerEvent): void {
+    const card = this.card();
+    if (!card) return;
+    const target = event.target as Node | null;
+    if (target && (card.tile.contains(target) || this.cardEl()?.nativeElement.contains(target))) {
+      return;
+    }
+    this.hideCard();
+  }
+
+  /** A scroll closes a card a touch hold opened: the finger has moved on. */
+  protected onScroll(): void {
+    if (this.byTouch) this.hideCard();
   }
 
   private clearHide(): void {

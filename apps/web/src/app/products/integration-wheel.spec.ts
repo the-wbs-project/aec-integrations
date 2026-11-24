@@ -12,11 +12,13 @@ import {
   TILE_MIN_DESKTOP,
   TILE_MIN_PHONE,
   WHEEL_BANDS,
+  dotsMax,
   isPhoneStage,
   layoutSlide,
   wheelLayout,
   wheelModel,
   wheelModeAt,
+  wheelBandFor,
   wheelTileSize,
   type WheelSlide,
 } from './integration-wheel';
@@ -182,5 +184,101 @@ describe('the wheel layout per slide', () => {
     expect(layoutSlide(wheelModel(rows(8), [], []), 0, 476).names).toBe(true);
     expect(layoutSlide(wheelModel(rows(9), [], []), 0, 476).names).toBe(false);
     expect(layoutSlide(wheelModel(rows(8), [], []), 0, 224).names).toBe(false);
+  });
+});
+
+describe('the two-ring order (ranking page 1.2 wording)', () => {
+  it('A to Z starts at 12 o’clock on the inner ring, runs clockwise, then continues from 12 o’clock on the outer ring', () => {
+    const model = wheelModel(rows(40), [], []);
+    const layout = layoutSlide(model, 0, 476);
+    expect(layout.mode).toBe('two');
+    const radius = (p: { x: number; y: number }) => Math.hypot(p.x, p.y);
+    const onInner = layout.points.map((p) => Math.abs(radius(p) - layout.inner!) < 0.1);
+    const k = onInner.lastIndexOf(true) + 1;
+    // The inner ring holds products 0..k-1 and the outer ring k..n-1: contiguous A to Z,
+    // none skipped or repeated.
+    expect(onInner.slice(0, k).every(Boolean)).toBe(true);
+    expect(onInner.slice(k).some(Boolean)).toBe(false);
+    expect(layout.points).toHaveLength(model.slides[0]!.products.length);
+    // Both rings start at 12 o'clock.
+    expect(layout.points[0]).toEqual({ x: 0, y: -layout.inner! });
+    expect(layout.points[k]).toEqual({ x: 0, y: -layout.outer });
+    // Clockwise: the angle from 12 o'clock rises along each ring.
+    const angle = (p: { x: number; y: number }) =>
+      (Math.atan2(p.x, -p.y) + 2 * Math.PI) % (2 * Math.PI);
+    for (const ring of [layout.points.slice(0, k), layout.points.slice(k)]) {
+      const angles = ring.map(angle);
+      expect(angles).toEqual([...angles].sort((a, b) => a - b));
+    }
+  });
+});
+
+describe("a connector's own page", () => {
+  it('a pure connector, with only the pairs it powers, has no wheel', () => {
+    // The page holds those pairs in integrations_as_connector. The wheel reads only the
+    // two endpoint arrays, which are empty for a pure connector.
+    expect(wheelModel([], [], []).slides).toEqual([]);
+  });
+
+  it('a hybrid shows its own integrations, direct and via a connector, and counts only those', () => {
+    const direct = [row('alpha', ['AI']), row('beta', ['AI'])];
+    const via = {
+      ...row('gamma', ['BIM']),
+      via: link('kroo', 'kroo'),
+      mechanism_kind: null,
+    } as ProductIntegrationItem;
+    const model = wheelModel([...direct, via], [], []);
+    const all = model.slides[0]!;
+    expect(all.products.map((p) => p.slug)).toEqual(['alpha', 'beta', 'gamma']);
+    // The title's "3 products" and a dots centre's "3 integrations" count what it shows.
+    expect(all.integrations).toBe(3);
+    expect(model.categoryCount).toBe(2);
+  });
+});
+
+describe('the dots always equal the integrations', () => {
+  const slideOf = (integrations: number): WheelSlide => ({
+    key: 'all',
+    name: null,
+    products: [],
+    integrations,
+  });
+  it.each([
+    [224, 400],
+    [224, 1_400],
+    [224, 5_000],
+    [476, 2_000],
+    [476, 12_000],
+  ])('at a %ipx stage, %i integrations draw that many dots', (d, m) => {
+    const layout = wheelLayout(slideOf(m), d, null);
+    expect(layout.dotRings.reduce((n, r) => n + r.dots, 0)).toBe(m);
+  });
+
+  it('the only cap is the whole disc at the tightest pitch, far above the catalog', () => {
+    expect(dotsMax(224)).toBeGreaterThan(8_000);
+    const layout = wheelLayout(slideOf(dotsMax(224)), 224, null);
+    expect(layout.dotRings.reduce((n, r) => n + r.dots, 0)).toBe(dotsMax(224));
+  });
+});
+
+describe('the bands', () => {
+  it('a stage takes the band at or below its width, so the server and the browser agree', () => {
+    expect(wheelBandFor(200)).toBe(224);
+    expect(wheelBandFor(259)).toBe(224);
+    expect(wheelBandFor(264)).toBe(260);
+    expect(wheelBandFor(279)).toBe(279);
+    expect(wheelBandFor(294)).toBe(294);
+    expect(wheelBandFor(319)).toBe(294);
+    expect(wheelBandFor(320)).toBe(320);
+    expect(wheelBandFor(334)).toBe(320);
+    expect(wheelBandFor(336)).toBe(336);
+    expect(wheelBandFor(476)).toBe(476);
+  });
+
+  it('every rule boundary is a band edge: names at 260, the phone rule at 320', () => {
+    expect(WHEEL_BANDS).toContain(260);
+    expect(WHEEL_BANDS).toContain(320);
+    expect(isPhoneStage(319)).toBe(true);
+    expect(isPhoneStage(320)).toBe(false);
   });
 });

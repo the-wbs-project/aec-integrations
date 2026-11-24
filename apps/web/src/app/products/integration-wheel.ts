@@ -257,15 +257,20 @@ function ringPoints(count: number, r: number, d: number): WheelPoint[] {
 
 /**
  * One dot per integration, on rings from the outer edge inward, spread over the rings by
- * circumference. The dots identify no product. If the rings would reach the hub's text,
- * the pitch tightens rather than covering it.
+ * circumference. The dots identify no product. The rings first keep clear of the centre's
+ * count; a slide with more integrations than that room holds tightens the pitch, then
+ * lets the rings reach in toward the centre. The count always equals `m` up to
+ * `DOTS_MAX`: on a 224px stage, about 1,400 integrations fit before the rings reach the
+ * centre's text.
  */
 function dotRings(m: number, d: number): { rings: WheelDotRing[]; dot: number } {
   const desk = d >= 400;
   let size = desk ? 6 : 5;
   let pitch = desk ? 10 : 8;
-  const floor = (d / 2 - EDGE) * 0.6;
+  const clear = (d / 2 - EDGE) * 0.6;
   for (;;) {
+    // Keep clear of the centre while the pitch is 4px or more, then use the whole disc.
+    const floor = pitch >= 4 ? clear : pitch;
     const top = d / 2 - EDGE - size / 2;
     const caps: { r: number; cap: number }[] = [];
     let total = 0;
@@ -274,8 +279,8 @@ function dotRings(m: number, d: number): { rings: WheelDotRing[]; dot: number } 
       caps.push({ r, cap });
       total += cap;
     }
-    if (total >= m || pitch <= 4) {
-      const sumR = caps.reduce((s, c) => s + c.r, 0);
+    if (total >= m || pitch <= DOT_PITCH_MIN) {
+      const sumR = caps.reduce((sum, c) => sum + c.r, 0);
       let left = m;
       const counts = caps.map((c) => {
         const n = Math.min(c.cap, Math.round((m * c.r) / sumR), left);
@@ -296,8 +301,25 @@ function dotRings(m: number, d: number): { rings: WheelDotRing[]; dot: number } 
       };
     }
     pitch -= 1;
-    size = Math.max(3, size - 0.5);
+    size = Math.max(1.5, Math.min(size, pitch * 0.6));
   }
+}
+
+/** The tightest dot pitch, px. */
+const DOT_PITCH_MIN = 2;
+
+/**
+ * The most dots a stage of diameter `d` can draw, one per integration: the capacity of
+ * the whole disc at the tightest pitch. About 8,800 on a 224px stage, far above any
+ * product in the catalog (387 today). Past it the wheel would undercount, so the spec
+ * pins it.
+ */
+export function dotsMax(d: number): number {
+  let total = 0;
+  for (let r = d / 2 - EDGE - 0.75; r >= DOT_PITCH_MIN; r -= DOT_PITCH_MIN) {
+    total += Math.floor((2 * Math.PI * r) / DOT_PITCH_MIN);
+  }
+  return total;
 }
 
 /** One slide laid out at stage diameter `d`, with the product's tile size `tile`. */
@@ -361,13 +383,24 @@ export function layoutSlide(model: WheelModel, index: number, d: number): WheelL
 }
 
 /**
- * The server's layouts. The server cannot know the stage width, so it lays the first
- * slide out at each of these diameters and CSS picks one by container query
- * (`styles.css`, `.aec-wheel`). Each applies from its own width up to the next, and
- * percentages scale it, so a tile is never smaller than the size it was laid out at:
- * a phone with no script never gets a tile under 24px. 224, 279 and 294 are the stage at
- * 320, 375 and 390; 336 is 1024; 476 is 1280 and up, and every width from 768. After
- * hydration the component lays the slide out at the measured width instead, which is the
- * same layout at those widths.
+ * The stage widths the wheel lays a slide out at, and the one place the width is
+ * quantised. A stage takes the band at or below its width (the first below 260), and
+ * percentages scale the layout up to the stage, so a tile is never smaller than the size
+ * it was laid out at: a phone with no script never gets a tile under 24px.
+ *
+ * The server cannot know the width, so it writes every band and CSS picks one by
+ * container query (`styles.css`, `.aec-wheel`). Hydration lays nothing out again: the
+ * browser uses the same bands, so names, ring count and tiles or dots never change at
+ * hydration. Each boundary is a rule: 260 (names under tiles), 320 (a phone below it, one
+ * ring only). The rest are the stages the mock-up measured: 224, 279 and 294 at 320, 375
+ * and 390, 336 at 1024, 476 from 1280 and every width from 768. 400 splits the wide
+ * tablet range and is where the dots grow to 6px.
  */
-export const WHEEL_BANDS = [224, 279, 294, 336, 476] as const;
+export const WHEEL_BANDS = [224, 260, 279, 294, 320, 336, 400, 476] as const;
+
+/** The band a stage of `width` px uses: the largest at or below it, the first below that. */
+export function wheelBandFor(width: number): number {
+  let band: number = WHEEL_BANDS[0];
+  for (const d of WHEEL_BANDS) if (width >= d) band = d;
+  return band;
+}

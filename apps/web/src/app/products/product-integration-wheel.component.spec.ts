@@ -125,8 +125,9 @@ const tiles = (el: HTMLElement) => [
 ];
 const labels = (el: HTMLElement) =>
   tiles(el).map((a) => a.querySelector('.aec-wheel-label')!.textContent!.trim());
+/** The slide's mode at each band of WHEEL_BANDS: 224, 260, 279, 294, 320, 336, 400, 476. */
 const modes = (root: HTMLElement) =>
-  ['0', '1', '2', '3', '4'].map((k) => root.getAttribute(`data-m${k}`));
+  ['0', '1', '2', '3', '4', '5', '6', '7'].map((k) => root.getAttribute(`data-m${k}`));
 
 describe('ProductIntegrationWheel: the server render', () => {
   beforeEach(() => {
@@ -135,29 +136,32 @@ describe('ProductIntegrationWheel: the server render', () => {
   });
 
   it('lays the first slide out for every width: tiles by fit, dots past it', () => {
-    // 40 products: dots on the three phone bands, two rings beside the text.
+    // 40 products: dots on the four phone bands, two rings from 320.
     expect(modes(setup(buildProduct({ integrations_as_source: partners(40) })).root)).toEqual([
       'dots',
       'dots',
       'dots',
+      'dots',
+      'two',
+      'two',
       'two',
       'two',
     ]);
     TestBed.resetTestingModule();
     // 6 products: one ring everywhere.
-    expect(modes(setup(buildProduct({ integrations_as_source: partners(6) })).root)).toEqual([
-      'one',
-      'one',
-      'one',
-      'one',
-      'one',
-    ]);
+    expect(modes(setup(buildProduct({ integrations_as_source: partners(6) })).root)).toEqual(
+      Array(8).fill('one'),
+    );
     TestBed.resetTestingModule();
-    // 24 products: one ring on the 294px phone, dots on the two narrower, two rings wide.
+    // 24 products: one ring on the 294px phone, dots on the narrower ones, two rings from
+    // 320, where the phone rule ends.
     expect(modes(setup(buildProduct({ integrations_as_source: partners(24) })).root)).toEqual([
       'dots',
       'dots',
+      'dots',
       'one',
+      'two',
+      'two',
       'two',
       'two',
     ]);
@@ -176,8 +180,8 @@ describe('ProductIntegrationWheel: the server render', () => {
       '/products/revu/integrations/beta',
       '/products/revu/integrations/zeta',
     ]);
-    // Before hydration there is no roving tab stop, so a reader with no script reaches all.
-    expect(tiles(el).every((a) => !a.hasAttribute('tabindex'))).toBe(true);
+    // That the server HTML carries no roving tab stop is pinned in the e2e spec: a test
+    // bed renders in the browser, where the wheel hydrates at once.
     const ring = el.querySelector('ul[data-testid="product-hero-wheel-ring"]')!;
     expect(ring.getAttribute('aria-label')).toBe('All integrations, 3 products, A to Z');
     expect(ring.getAttribute('aria-describedby')).toBe('aec-wheel-hint aec-wheel-lines');
@@ -186,9 +190,11 @@ describe('ProductIntegrationWheel: the server render', () => {
   it('every tile carries a position per width, as percentages', () => {
     const { el } = setup(buildProduct({ integrations_as_source: partners(6) }));
     const style = tiles(el)[0]!.parentElement!.getAttribute('style')!;
-    for (const k of ['0', '1', '2', '3', '4']) expect(style).toContain(`--x${k}:0;`);
+    for (const k of ['0', '1', '2', '3', '4', '5', '6', '7']) {
+      expect(style).toContain(`--x${k}:0;`);
+    }
     // The first tile is at 12 o'clock.
-    expect(style).toMatch(/--y4:-\d+(\.\d+)?/);
+    expect(style).toMatch(/--y7:-\d+(\.\d+)?/);
   });
 
   it('titles the slide with a count line, and names the arrows by their destination', () => {
@@ -211,27 +217,50 @@ describe('ProductIntegrationWheel: the server render', () => {
     ).toContain('1 product');
   });
 
-  it('shows both lines under a tile slide, whatever the mix, and the dots line apart', () => {
-    const { el } = setup(buildProduct({ integrations_as_source: partners(4) }));
+  it.each(['claimed', 'unclaimed', 'mixed'] as const)(
+    'shows both lines under a tile slide when the listings are %s, and the dots line apart',
+    (mix) => {
+      const rows = partners(4);
+      const marks: WheelMark[] = rows.map((r, i) => ({
+        product_id: r.target.id,
+        logo_url: i % 2 ? 'https://cdn.example/l.png' : null,
+        claim_status:
+          mix === 'claimed' || (mix === 'mixed' && i % 2 === 0) ? 'claimed' : 'unclaimed',
+      }));
+      const { el } = setup(buildProduct({ integrations_as_source: rows, wheel_marks: marks }));
+      expect(
+        el
+          .querySelector('[data-testid="product-hero-wheel-lines"]')!
+          .textContent!.replace(/\s+/g, ' ')
+          .trim(),
+      ).toBe(
+        'Shown A to Z. Position is not a ranking. Logos identify products only and imply no endorsement or affiliation. Listings may be unclaimed.',
+      );
+      expect(
+        el.querySelector('[data-testid="product-hero-wheel-dots-line"]')!.textContent!.trim(),
+      ).toBe('Too many to show as tiles. Each dot is one integration.');
+    },
+  );
+
+  it('a dots slide with no category says only how many integrations', () => {
+    const rows = Array.from({ length: 90 }, (_, i) =>
+      edge(link(`q${String(i).padStart(2, '0')}`, `Q${String(i).padStart(2, '0')}`), []),
+    );
+    const { el } = setup(buildProduct({ integrations_as_source: rows }));
     expect(
       el
-        .querySelector('[data-testid="product-hero-wheel-lines"]')!
+        .querySelector('[data-testid="product-hero-wheel-hub-count"]')!
         .textContent!.replace(/\s+/g, ' ')
         .trim(),
-    ).toBe(
-      'Shown A to Z. Position is not a ranking. Logos identify products only and imply no endorsement or affiliation. Listings may be unclaimed.',
-    );
-    expect(
-      el.querySelector('[data-testid="product-hero-wheel-dots-line"]')!.textContent!.trim(),
-    ).toBe('Too many to show as tiles. Each dot is one integration.');
+    ).toBe('90 integrations');
   });
 
   it('a slide too big for tiles at every width shows no product, one dot per integration', () => {
     const { el, root } = setup(buildProduct({ integrations_as_source: partners(90) }));
-    expect(modes(root)).toEqual(['dots', 'dots', 'dots', 'dots', 'dots']);
+    expect(modes(root)).toEqual(Array(8).fill('dots'));
     expect(tiles(el)).toHaveLength(0);
     const dotSvgs = el.querySelectorAll('[data-testid="product-hero-wheel-dots"]');
-    expect(dotSvgs).toHaveLength(5);
+    expect(dotSvgs).toHaveLength(8);
     for (const svg of dotSvgs) {
       const total = [...svg.querySelectorAll('circle')].reduce(
         (n, c) => n + Number(c.getAttribute('pathLength')),
@@ -251,20 +280,42 @@ describe('ProductIntegrationWheel: the server render', () => {
     ).toBe('90 integrations in 1 category');
   });
 
-  it("centres the page's own product by the old rule: a claimed logo, an unclaimed initial", () => {
-    const claimed = setup(buildProduct({ integrations_as_source: partners(3) }));
-    expect(
-      claimed.el
-        .querySelector('[data-testid="product-hero-wheel-centre"] img')!
-        .getAttribute('src'),
-    ).toContain('revu.png');
-    TestBed.resetTestingModule();
-    const unclaimed = setup(
-      buildProduct({ claim_status: 'unclaimed', integrations_as_source: partners(3) }),
+  it("centres the page's own product with the logo we may show, claimed or not", () => {
+    const own = (claim: 'claimed' | 'unclaimed', logo: string | null): WheelMark => ({
+      product_id: page.id,
+      logo_url: logo,
+      claim_status: claim,
+    });
+    const centre = (product: ProductDetail) => {
+      TestBed.resetTestingModule();
+      return setup(product).el.querySelector('[data-testid="product-hero-wheel-centre"]')!;
+    };
+    const claimed = centre(
+      buildProduct({
+        integrations_as_source: partners(3),
+        wheel_marks: [own('claimed', 'https://cdn.example/revu.png')],
+      }),
     );
-    const centre = unclaimed.el.querySelector('[data-testid="product-hero-wheel-centre"]')!;
-    expect(centre.querySelector('img')).toBeNull();
-    expect(centre.textContent!.trim()).toBe('R');
+    expect(claimed.querySelector('img')!.getAttribute('src')).toContain('revu.png');
+    // Unclaimed, with a sourced logo: the logo, at the centre's size (ruling 64).
+    const unclaimed = centre(
+      buildProduct({
+        claim_status: 'unclaimed',
+        integrations_as_source: partners(3),
+        wheel_marks: [own('unclaimed', 'https://cdn.example/sourced.png')],
+      }),
+    );
+    expect(unclaimed.querySelector('img')!.getAttribute('src')).toContain('sourced.png');
+    // No logo we may show: the initial tile.
+    const none = centre(
+      buildProduct({
+        claim_status: 'unclaimed',
+        integrations_as_source: partners(3),
+        wheel_marks: [own('unclaimed', null)],
+      }),
+    );
+    expect(none.querySelector('img')).toBeNull();
+    expect(none.textContent!.trim()).toBe('R');
   });
 
   it('ruling 64: a tile shows the logo we hold, claimed or not, and an initial when none', () => {
@@ -337,11 +388,11 @@ describe('ProductIntegrationWheel: after hydration', () => {
     return ctx;
   }
 
-  it('lays the slide out at the measured width and makes the ring one tab stop', async () => {
+  it('keeps the server layouts and makes the ring one tab stop', async () => {
     const { el, root } = await live(buildProduct({ integrations_as_source: partners(6) }));
     expect(root.hasAttribute('data-live')).toBe(true);
-    expect(root.getAttribute('data-ml')).toBe('one');
-    expect(root.getAttribute('data-m4')).toBeNull();
+    // Hydration lays nothing out again: every band is still there, as the server wrote it.
+    expect(modes(root)).toEqual(Array(8).fill('one'));
     expect(tiles(el).map((a) => a.getAttribute('tabindex'))).toEqual([
       '0',
       '-1',
@@ -356,15 +407,15 @@ describe('ProductIntegrationWheel: after hydration', () => {
     const { fixture, el, root } = await live(
       buildProduct({ integrations_as_source: partners(40, 5) }),
     );
-    expect(root.getAttribute('data-ml')).toBe('two');
+    expect(root.getAttribute('data-m7')).toBe('two');
     el.querySelector<HTMLButtonElement>('[data-testid="product-hero-wheel-next"]')!.click();
     fixture.detectChanges();
     // "All Of Them" has all 40.
-    expect(root.getAttribute('data-ml')).toBe('two');
+    expect(root.getAttribute('data-m7')).toBe('two');
     el.querySelector<HTMLButtonElement>('[data-testid="product-hero-wheel-next"]')!.click();
     fixture.detectChanges();
     // "Field" has 5: one ring, at the same tile size.
-    expect(root.getAttribute('data-ml')).toBe('one');
+    expect(root.getAttribute('data-m7')).toBe('one');
     expect(labels(el)).toEqual(['P00', 'P01', 'P02', 'P03', 'P04']);
     expect(el.querySelector('[data-testid="product-hero-wheel-live"]')!.textContent!.trim()).toBe(
       'Field, 5 products. 3 of 3.',

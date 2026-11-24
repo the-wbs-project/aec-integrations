@@ -79,9 +79,8 @@ const CALLERS: Record<string, Partial<Record<Kind, number>>> = {
   'products/product-card.ts': { link: 1 },
   'products/product-facts-card.ts': { link: 1 },
   'products/product-hero.ts': { subject: 2 },
-  // AECI-2018: each tile and the card (ruling 64), and the centre, which is the page's
-  // own product by its claim_status.
-  'products/product-integration-wheel.ts': { wheel: 2, subject: 1 },
+  // AECI-2018: each tile, the card and the centre (ruling 64).
+  'products/product-integration-wheel.ts': { wheel: 3 },
   'products/product-extensions.ts': { link: 2 },
   'products/product-integration-row.ts': { link: 1 },
   // AECI-1782: the card view of the same row, the same server-filtered ProductLink.
@@ -179,7 +178,7 @@ describe('aec-logo-or-initial callers (AECI-1769)', () => {
         expect(file).toBe(WHEEL_FILE);
       }
     }
-    expect(seen).toBe(2);
+    expect(seen).toBe(3);
   });
 
   it("integration-group-card's parents pass 'server-filtered' in the logo they hand over", () => {

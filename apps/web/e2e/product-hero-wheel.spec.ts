@@ -211,8 +211,9 @@ test.describe('product hero integrations wheel (AECI-2018)', () => {
         await expect(dotsLine).toBeVisible();
         await expect(dotsLine).toHaveText(DOTS_LINE);
         await expect(tilesLines).toBeHidden();
-        await expect(page.getByTestId('product-hero-wheel-hub-count')).toContainText(
-          '25 integrations',
+        // No category on record, so the centre says only how many integrations.
+        await expect(page.getByTestId('product-hero-wheel-hub-count')).toHaveText(
+          /^\s*25\s+integrations\s*$/,
         );
         // One slide (no category), so the static title names it.
         await expect(page.getByTestId('product-hero-wheel-static-title')).toContainText(
@@ -250,8 +251,19 @@ test.describe('product hero integrations wheel (AECI-2018)', () => {
       const page = await ctx.newPage();
       await page.goto(`/products/${MANY}`);
       await live(page);
-      await expect(wheel(page)).toHaveAttribute('data-ml', mode);
       await expect(tiles(page)).toHaveCount(25);
+      // Rings, read off the painted tiles: how many distinct radii their centres sit on.
+      const rings = await page.locator('.aec-wheel-stage').evaluate((stage) => {
+        const s = stage.getBoundingClientRect();
+        const cx = s.left + s.width / 2;
+        const cy = s.top + s.height / 2;
+        const radii = [...stage.querySelectorAll('.aec-wheel-tile')].map((a) => {
+          const r = a.getBoundingClientRect();
+          return Math.round(Math.hypot(r.left + r.width / 2 - cx, r.top + r.height / 2 - cy));
+        });
+        return new Set(radii.map((r) => Math.round(r / 4))).size;
+      });
+      expect(rings, mode).toBe(mode === 'two' ? 2 : 1);
       await ctx.close();
     }
   });
@@ -289,6 +301,24 @@ test.describe('product hero integrations wheel (AECI-2018)', () => {
     await ctx.close();
   });
 
+  // The AECI-1839 trap: under `<base href="/">` a bare `#integrations` resolves to
+  // `/#integrations`, the home page.
+  test("with no script a dots slide's link stays on the product page", async ({ browser }) => {
+    const ctx = await browser.newContext({
+      viewport: { width: 320, height: 1200 },
+      javaScriptEnabled: false,
+    });
+    await offline(ctx);
+    const page = await ctx.newPage();
+    await page.goto(`/products/${MANY}`);
+    const link = page.getByTestId('product-hero-wheel-see-all');
+    await expect(link).toBeVisible();
+    const resolved = await link.evaluate((a) => (a as HTMLAnchorElement).href);
+    expect(new URL(resolved).pathname).toBe(`/products/${MANY}`);
+    expect(new URL(resolved).hash).toBe('#integrations');
+    await ctx.close();
+  });
+
   test('with no integrations there is no wheel and no panel', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/products/${ZERO}`);
@@ -318,36 +348,114 @@ test.describe('product hero integrations wheel (AECI-2018)', () => {
     }
   });
 
-  for (const width of [1280, 1024, 390, 320]) {
-    test(`no layout shift from the wheel at ${width}px`, async ({ page }) => {
+  // Every layout-shift source on the page counts after the wheel hydrates, not only the
+  // wheel's. The seed's
+  // products cover the boundaries: 7 products (one ring, names under the tiles), 14 (one
+  // ring), 21 and 24 (one ring on a wide phone, two from 320) and 25 (dots on a narrow
+  // phone, one ring at 294, two from 320). 360 and 430 are the widths where a server band
+  // and a measured layout used to disagree.
+  const SHIFT_SLUGS = [
+    'fx-procore',
+    LONG,
+    'fixture-connector-lists-hub-two',
+    'fixture-connector-lists-hub-one',
+    MANY,
+  ];
+  for (const width of [1280, 1024, 430, 390, 375, 360, 320]) {
+    test(`no layout shift anywhere on the page at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await page.addInitScript(() => {
-        (window as unknown as { __wheelShift: number }).__wheelShift = 0;
+        type Entry = { t: number; value: number; sources: string[]; inStage: boolean };
+        const w = window as unknown as { __entries: Entry[]; __hydratedAt: number | null };
+        w.__entries = [];
+        w.__hydratedAt = null;
+        // When the wheel hydrates (`data-live` appears).
+        new MutationObserver(() => {
+          if (w.__hydratedAt === null && document.querySelector('.aec-wheel[data-live]')) {
+            w.__hydratedAt = performance.now();
+          }
+        }).observe(document, { subtree: true, attributes: true, attributeFilter: ['data-live'] });
         new PerformanceObserver((list) => {
           for (const e of list.getEntries() as unknown as {
+            startTime: number;
             value: number;
             hadRecentInput: boolean;
             sources?: { node?: Node | null }[];
           }[]) {
             if (e.hadRecentInput) continue;
-            const inWheel = (e.sources ?? []).some((s) =>
-              s.node instanceof Element ? !!s.node.closest('.aec-hero-panel') : false,
-            );
-            if (inWheel) (window as unknown as { __wheelShift: number }).__wheelShift += e.value;
+            const nodes = (e.sources ?? []).map((s) => s.node ?? null);
+            w.__entries.push({
+              t: e.startTime,
+              value: e.value,
+              sources: nodes.map((n) =>
+                n instanceof Element
+                  ? `${n.tagName}.${String(n.className).slice(0, 40)}`
+                  : String(n?.textContent ?? n).slice(0, 40),
+              ),
+              inStage: nodes.some((n) => {
+                const el = n instanceof Element ? n : (n?.parentElement ?? null);
+                return !!el?.closest('.aec-wheel-stage');
+              }),
+            });
           }
         }).observe({ type: 'layout-shift', buffered: true });
       });
-      await page.goto(`/products/${LONG}`, { waitUntil: 'networkidle' });
-      await live(page);
-      // A fixed wait on purpose: the observer needs a window to watch.
-      await page.waitForTimeout(600);
-      const shift = await page.evaluate(
-        () => (window as unknown as { __wheelShift: number }).__wheelShift,
-      );
-      expect(shift).toBeLessThan(0.001);
-      await expectNoSidewaysScroll(page);
+      for (const slug of SHIFT_SLUGS) {
+        await page.goto(`/products/${slug}`, { waitUntil: 'networkidle' });
+        await live(page);
+        // A fixed wait on purpose: the observer needs a window to watch.
+        await page.waitForTimeout(600);
+        const { entries, hydratedAt } = await page.evaluate(() => {
+          const w = window as unknown as {
+            __entries: { t: number; value: number; sources: string[]; inStage: boolean }[];
+            __hydratedAt: number | null;
+          };
+          return { entries: w.__entries, hydratedAt: w.__hydratedAt };
+        });
+        const describe = (list: typeof entries) =>
+          list.map((e) => `${Math.round(e.t)}ms ${e.value.toFixed(4)} ${e.sources.join(' | ')}`);
+        // From hydration on, nothing on the page may move: every source counts.
+        const after = entries.filter((e) => hydratedAt !== null && e.t >= hydratedAt);
+        expect(
+          after.reduce((sum, e) => sum + e.value, 0),
+          `${slug} after hydration: ${describe(after).join('; ')}`,
+        ).toBeLessThan(0.001);
+        // Before it, the wheel's own nodes never move inside the panel. The page's
+        // existing first-paint shift of the hero text on narrow phones (seen on pages with
+        // no wheel too) is reported, not failed here.
+        expect(
+          entries.filter((e) => e.inStage),
+          `${slug}: ${describe(entries).join('; ')}`,
+        ).toEqual([]);
+        test.info().annotations.push({
+          type: 'layout-shift',
+          description: `${width}px ${slug}: ${describe(entries).join('; ') || 'none'}`,
+        });
+        await expectNoSidewaysScroll(page);
+      }
     });
   }
+
+  test('no axe violations with the title list open and with a card open (WCAG 2.2 AA)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto(`/products/${LONG}`);
+    await live(page);
+    const axe = () =>
+      new AxeBuilder({ page })
+        .include('aec-hero-band')
+        .include('.cdk-overlay-container')
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+        .analyze();
+    await page.getByTestId('product-hero-wheel-title').click();
+    await expect(page.getByRole('list', { name: 'Jump to a category' })).toBeVisible();
+    expect((await axe()).violations, 'list open').toEqual([]);
+    await page.keyboard.press('Escape');
+    await tiles(page).first().focus();
+    await expect(page.getByTestId('product-hero-wheel-card')).toBeVisible();
+    expect((await axe()).violations, 'card open').toEqual([]);
+  });
 
   for (const width of [1440, 390, 375, 320]) {
     test(`the hero has no axe violations at ${width}px (WCAG 2.2 AA)`, async ({ page }) => {
