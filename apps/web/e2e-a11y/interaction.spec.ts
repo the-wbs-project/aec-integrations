@@ -86,9 +86,20 @@ interface InteractionBarrier extends KnownProblem {
   readonly applies: (surface: A11ySurface, sharedChrome: boolean) => boolean;
 }
 
-/** The vendor portal's section nav links, the portal level and the product level. */
-const PORTAL_NAV =
-  /^contrast: nav link "(Vendor Overview|Profile|Products|Messages|Conversations|Changes|Product Overview|Categories|Trades|Audiences|Phases|Integrations|Reviews)"/;
+/**
+ * AECI-2097's finding and nothing else: a contrast finding on a vendor portal
+ * section nav link (the portal level and the product level) whose ring is
+ * strong (its best pixel reaches 3:1) but too short, because the nav clips its
+ * top and bottom. A ring on those links that is faint, or drawn another way,
+ * is a new finding and still fails.
+ */
+const CLIPPED_PORTAL_RING =
+  /^contrast: nav link "(Vendor Overview|Profile|Products|Messages|Conversations|Changes|Product Overview|Categories|Trades|Audiences|Phases|Integrations|Reviews)" \(stop \d+\): \d+ of \d+ changed pixels reach 3:1, \d+ needed\. Best (\d+(?:\.\d+)?):1 \(outline 2px solid [^)]*\), offset 2px\)$/;
+
+function isClippedPortalRing(problem: string): boolean {
+  const m = problem.match(CLIPPED_PORTAL_RING);
+  return !!m && Number(m[2]) >= 3;
+}
 
 export const KNOWN_INTERACTION_BARRIERS: readonly InteractionBarrier[] = [
   {
@@ -121,7 +132,7 @@ export const KNOWN_INTERACTION_BARRIERS: readonly InteractionBarrier[] = [
     issue: 'AECI-2097',
     check: 'forced colours focus',
     applies: (surface) => surface.id === 'vendor-products' || surface.id === 'vendor-integrations',
-    matches: (p) => PORTAL_NAV.test(p),
+    matches: isClippedPortalRing,
     mark: () =>
       knownFailure(
         'AECI-2097',
@@ -227,7 +238,11 @@ for (const surface of SURFACES) {
     test.describe('default media', () => {
       // One shard, in order. A failed test restarts the worker, and the hook
       // runs again for the tests left, so no test reads another's state.
-      test.describe.configure({ mode: 'default' });
+      // No retries: the findings are deterministic, and a retry would run the
+      // whole surface load again. A regression in a shared component could
+      // fail many loads at once and push a CI shard (retries: 1) toward its
+      // 30-minute limit.
+      test.describe.configure({ mode: 'default', retries: 0 });
       let recorded: Recorded | null = null;
       let onInputNotes: string[] = [];
 
@@ -284,7 +299,8 @@ for (const surface of SURFACES) {
     });
 
     test.describe('reduced motion and forced colours', () => {
-      test.describe.configure({ mode: 'default' });
+      // As above: one shard, in order, and no retries.
+      test.describe.configure({ mode: 'default', retries: 0 });
       let recorded: Recorded | null = null;
 
       test.beforeAll(async ({ browser }) => {

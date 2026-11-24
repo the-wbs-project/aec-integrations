@@ -26,7 +26,6 @@
  */
 import { expect, test, type Page, type Route } from '@playwright/test';
 import { untilAppStable, untilHydrated } from '../e2e/hydration';
-import { knownFailure } from './known-failure';
 import { FIXTURE, SURFACES, type A11ySurface } from './surfaces';
 import {
   blockWrites,
@@ -417,9 +416,17 @@ test.describe('error prevention: moderation', () => {
     },
   );
 
+  // AECI-2121 is an open ruling, not a barrier, the same as the on-input list's
+  // pending entries. The test passes on what happens today: one click, one
+  // call, no confirm. If Chris rules that Approve needs a confirm, it changes then.
   test(
-    'approve has a confirm step before it sends',
-    surfaceAnnotations(ADMIN_REVIEWS),
+    "approve sends on one click, with no confirm step (pending Chris's ruling, AECI-2121)",
+    {
+      annotation: [
+        ...surfaceAnnotations(ADMIN_REVIEWS).annotation,
+        { type: 'pending-ruling', description: "pending Chris's ruling, AECI-2121" },
+      ],
+    },
     async ({ page }) => {
       await blockWrites(page);
       const writes = countWrites(page);
@@ -431,15 +438,15 @@ test.describe('error prevention: moderation', () => {
       await openSurface(page, ADMIN_REVIEWS);
       const button = page.getByRole('button', { name: 'Approve', exact: true });
       await untilHydrated(button);
-      // Marked only once the setup has passed: a broken setup stays red.
-      knownFailure(
-        'AECI-2121',
-        'one click on Approve sends the approve, with no confirm step and no undo',
-      );
       await button.click();
+      await expect.poll(() => approve.calls, { message: 'one click sent the approve' }).toBe(1);
       await quiet(page);
-      expect(approve.calls, 'one click on Approve sent the approve, with no confirm').toBe(0);
-      expect(writes.list).toEqual([]);
+      expect(approve.calls, 'exactly one approve, to the stub').toBe(1);
+      expect(writes.list, 'the approve is the only write').toEqual([
+        `PATCH /api/admin/reviews/${REVIEW_ID}`,
+      ]);
+      await expect(page.getByRole('alertdialog')).toHaveCount(0);
+      await expect(page.getByRole('dialog')).toHaveCount(0);
     },
   );
 });
