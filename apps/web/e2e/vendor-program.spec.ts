@@ -13,7 +13,7 @@
  * `vendor-program-claim-dialog.spec.ts` covers that step against a mocked index.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 import { waitForHydrationSettle } from './console-capture';
 import { expectNoSidewaysScroll } from './no-sideways-scroll';

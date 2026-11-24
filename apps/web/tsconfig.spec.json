@@ -15,6 +15,7 @@
     "e2e/**/*.ts",
     "e2e-a11y/**/*.ts",
     "playwright.a11y-nightly.config.ts",
+    "playwright.e2e-axe.config.ts",
     "worker-configuration.d.ts",
     "src/markdown.d.ts"
   ]

@@ -8,7 +8,7 @@
  * browser shows: the server HTML, the breakpoints, the motion and the layout shift.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 import { untilHydrated } from './hydration';
 import { expectNoSidewaysScroll } from './no-sideways-scroll';

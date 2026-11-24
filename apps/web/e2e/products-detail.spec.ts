@@ -25,7 +25,7 @@
  * green on `pnpm dev:bound` against an empty local DB.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { expect, request as playwrightRequest, test } from '@playwright/test';
+import { axeOptOut, expect, request as playwrightRequest, test } from './fixtures';
 import { E2E_BASE_URL as BASE_URL } from './base-url';
 import { untilHydrated } from './hydration';
 import { expectNoSidewaysScroll } from './no-sideways-scroll';
@@ -539,6 +539,11 @@ test.describe('product About band (AECI-1780)', () => {
 // every width from 320px. The e2e seed has no long name, so the test sets one in place
 // on the rendered page and reads where each word's letters land.
 test.describe('product hero name wraps at word boundaries (AECI-1720)', () => {
+  test.beforeEach(() => {
+    axeOptOut(
+      'The test rewrites the h1 text in place, so hydration can see a DOM it did not render.',
+    );
+  });
   for (const width of [320, 360, 390, 768, 1024, 1440]) {
     test(`no word of a long name breaks mid-word at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });

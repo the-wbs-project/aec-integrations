@@ -12,7 +12,7 @@
  * tests; the pair page's own success path by the AECI-64 crawler + axe harness.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 const BOGUS_ID = '00000000-0000-4000-8000-000000000404';
 

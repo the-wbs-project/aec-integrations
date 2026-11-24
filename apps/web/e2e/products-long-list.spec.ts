@@ -22,7 +22,7 @@
  *  - "Show more" moves focus to the first card it revealed;
  *  - a text-fragment link to a hidden card opens its group, and it stays open.
  */
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './fixtures';
 
 import { untilHydrated } from './hydration';
 import { expectNoSidewaysScroll } from './no-sideways-scroll';

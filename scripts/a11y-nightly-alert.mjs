@@ -136,6 +136,8 @@ export function loadSummary(path) {
         title: String(t.title ?? ''),
         surfaceId: t.surfaceId ? String(t.surfaceId) : null,
         route: t.route ? String(t.route) : null,
+        // AECI-1876: an e2e sweep test has no surface. Its spec file names it instead.
+        file: t.file ? String(t.file) : null,
       }));
   } catch (err) {
     out.error = `${path} is unreadable: ${err?.message ?? err}`;
@@ -147,13 +149,17 @@ function cell(text) {
   return String(text).replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
 }
 
+function where(f) {
+  const name = f.surfaceId ?? f.file;
+  return name ? `\`${cell(name)}\`` : '-';
+}
+
 export function failingTable(failing) {
   const shown = failing.slice(0, TABLE_MAX);
   const rows = shown.map(
-    (f) =>
-      `| ${f.surfaceId ? `\`${cell(f.surfaceId)}\`` : '-'} | ${f.route ? `\`${cell(f.route)}\`` : '-'} | ${cell(f.title)} |`,
+    (f) => `| ${where(f)} | ${f.route ? `\`${cell(f.route)}\`` : '-'} | ${cell(f.title)} |`,
   );
-  const lines = ['| Surface | Route | Test |', '|---|---|---|', ...rows];
+  const lines = ['| Surface or spec | Route | Test |', '|---|---|---|', ...rows];
   if (failing.length > shown.length) {
     lines.push('', `${failing.length - shown.length} more. The run's HTML report lists them.`);
   }
@@ -173,7 +179,7 @@ function commitLink(meta) {
 /** Short summary for the title. */
 export function failureSummary(summary) {
   if (!summary.found) return 'no test summary';
-  const surfaces = [...new Set(summary.failing.map((f) => f.surfaceId ?? f.title))];
+  const surfaces = [...new Set(summary.failing.map((f) => f.surfaceId ?? f.file ?? f.title))];
   if (surfaces.length === 0) return 'run failed outside the tests';
   return surfaces.join(', ');
 }

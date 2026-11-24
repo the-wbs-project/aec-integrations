@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 /**
  * AECI-1368 — "Wants to join" on the vendor Seats page, driven on the ungated dev

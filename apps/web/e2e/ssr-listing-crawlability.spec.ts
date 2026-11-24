@@ -15,7 +15,7 @@
  * passed throughout the entire period the bug was live. If someone later
  * "modernizes" this file onto the `page` fixture, it stops testing anything.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 /** The literal copy of the error branch these pages used to render. */
 const ERROR_COPY = "Couldn't load products";

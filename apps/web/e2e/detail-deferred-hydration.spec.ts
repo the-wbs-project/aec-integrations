@@ -24,7 +24,7 @@
  * > 20-child entity and skips (loudly) otherwise, so it stays green on a sparse
  * DB and becomes a live guard the moment rich data lands.
  */
-import { expect, test, type APIRequestContext } from '@playwright/test';
+import { expect, test, type APIRequestContext } from './fixtures';
 
 const PER_PAGE = 100;
 const MAX_PAGES = 5; // cap: scan up to MAX_PAGES * PER_PAGE entities, then skip.

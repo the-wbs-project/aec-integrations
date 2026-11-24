@@ -5,7 +5,7 @@
  * mocked `/api/notifications/nudges/mute`.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 const TOKEN_PATH = '/notifications/mute?token=e2e-token';
 

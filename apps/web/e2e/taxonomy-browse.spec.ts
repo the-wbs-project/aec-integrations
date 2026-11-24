@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type APIRequestContext } from '@playwright/test';
+import { expect, test, type APIRequestContext } from './fixtures';
 
 import { chooseSort, chooseView } from './listing-toolbar';
 import { untilHydrated } from './hydration';

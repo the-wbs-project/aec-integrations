@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './fixtures';
 
 /**
  * The Free plan portal (AECI-1218, `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18),

@@ -17,7 +17,7 @@
  * `?entity_type=…&entity_id=…` returns to the bare page after sign-in. That is
  * the shared gate's rule, not this screen's, and is not asserted here.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 const PAGE_PATH = '/admin/audit';
 

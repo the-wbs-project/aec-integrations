@@ -11,7 +11,7 @@
  * order, so it holds on any seeded catalogue. A case self-skips when the
  * catalogue has too few pages.
  */
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './fixtures';
 
 import { untilHydrated } from './hydration';
 

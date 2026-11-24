@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 // AECI-132. Pilot of Angular Aria (`@angular/aria`) tabs on the demo/preview
 // vendor-detail surface (preview routes are 404'd in production — zero

@@ -11,7 +11,7 @@
  * surface. Reachable without a session, it would let anyone decide a vendor's
  * contest and file a review issue in AECi's name.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 const LIST_PATH = '/admin/contests';
 

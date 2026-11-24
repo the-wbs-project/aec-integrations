@@ -80,7 +80,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { TRADE_PUBLISH_MIN_PRODUCTS } from '@aeci/shared';
-import { chromium, expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { chromium, expect, test, type APIRequestContext, type Page } from './fixtures';
 
 import { isIgnorableConsole, waitForHydrationSettle } from './console-capture';
 import { E2E_BASE_URL as BASE_URL } from './base-url';

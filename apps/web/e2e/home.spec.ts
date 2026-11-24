@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, type Locator, type Page, test } from '@playwright/test';
+import { expect, type Locator, type Page, test } from './fixtures';
 import { untilHydrated } from './hydration';
 import { expectNoSidewaysScroll } from './no-sideways-scroll';
 

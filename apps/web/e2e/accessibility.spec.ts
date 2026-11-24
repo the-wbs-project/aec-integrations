@@ -15,7 +15,7 @@
  * which the issue asked to land here.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Page, test } from './fixtures';
 
 import {
   attachConsoleCapture,

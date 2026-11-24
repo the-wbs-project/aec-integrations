@@ -1,5 +1,5 @@
 import { TRADE_PUBLISH_MIN_PRODUCTS } from '@aeci/shared';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 // AECI-51 / Phase 2.5 — verifies MetaService writes title, canonical, OG, and
 // JSON-LD into the initial SSR HTML (before hydration). The preview route

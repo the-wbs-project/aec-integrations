@@ -31,7 +31,7 @@ import {
   test,
   type BrowserContext,
   type Page,
-} from '@playwright/test';
+} from './fixtures';
 import { E2E_BASE_URL as BASE_URL } from './base-url';
 
 const WCAG_AA_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];

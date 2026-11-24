@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { untilHydrated } from './hydration';
 
 // AECI-151 — an in-app (client-side) navigation to a detail page must render

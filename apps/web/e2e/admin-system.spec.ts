@@ -12,7 +12,7 @@
  * 403) lives in `apps/api/src/routes/admin-panel.authz-matrix.spec.ts`, against
  * the real `requireAdmin()` guard.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 const ADMIN_SYSTEM_PATH = '/admin/system';
 

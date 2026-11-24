@@ -16,7 +16,7 @@
  * `apps/web/scripts/mint-dev-session.mjs` and replay the printed `Cookie:`
  * header (see docs/environments.md → "Local dev: Supabase auth (Phase 5)").
  */
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 test.describe('GET /auth/whoami', () => {
   test('401 without a session, non-cacheable (or skip when unconfigured)', async ({ request }) => {

@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { expectNoSidewaysScroll } from './no-sideways-scroll';
 
 // Phase 2.6 (AECI-52). Smoke for the reusable layout shells via their preview

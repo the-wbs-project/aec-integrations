@@ -19,7 +19,7 @@
  *
  * Paths are `baseURL`-relative: never hardcode a port.
  */
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './fixtures';
 
 /** The guarded directives: the attribute their selector leaves, and the recipe's first class. */
 const HOSTS = [

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './fixtures';
 
 // AECI-1493 — a tab left open across a deploy must not get stuck.
 //

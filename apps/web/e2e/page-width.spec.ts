@@ -23,13 +23,7 @@
  * `sb-…-auth-token` cookie and the seed-product probe from
  * `reviews-submission.spec.ts`. Paths are `baseURL`-relative: never hardcode a port.
  */
-import {
-  expect,
-  test,
-  type APIRequestContext,
-  type BrowserContext,
-  type Page,
-} from '@playwright/test';
+import { expect, test, type APIRequestContext, type BrowserContext, type Page } from './fixtures';
 import { expectNoSidewaysScroll } from './no-sideways-scroll';
 
 const PRODUCT_SLUG = 'fixture-procore';

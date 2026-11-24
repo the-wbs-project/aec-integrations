@@ -5,7 +5,7 @@
  * `/api/requests/confirm`.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 const TOKEN_PATH = '/claims/confirm?token=e2e-token';
 

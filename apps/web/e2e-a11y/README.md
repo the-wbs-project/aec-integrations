@@ -8,7 +8,12 @@ AECI-1875 built this harness. The sub-issues of AECI-1874 add the checks. The fu
 | `surfaces.ts` | The one list of surfaces, `SURFACES`, and `personaCredentials()`. Add a surface here, never in a spec. |
 | `surfaces.spec.ts` | The placeholder check: each surface answers its status and renders one visible `h1`. Copy its session and skip pattern. |
 | `known-failure.ts` | `knownFailure('AECI-<n>', reason)`, the only allowed way to mark a test as failing. |
-| `summary-reporter.ts` | Writes `apps/web/a11y-nightly-summary.json`, which the alert and AECI-1682 read. |
+| `summary-reporter.ts` | Writes `apps/web/a11y-nightly-summary.json`, which the alert and AECI-1682 read. The e2e axe sweep lane uses it too, with `outputFile: 'a11y-e2e-axe-summary.json'`. The nightly merges the two. |
+
+The nightly also runs the whole e2e suite with the axe sweep on (AECI-1876). That lane lives in
+`../e2e/`: the fixture is `e2e/fixtures.ts`, the sweep is `e2e/axe-sweep.ts`, and its known failures
+are `e2e/axe-known-failures.ts`. Run it with `pnpm test:e2e:axe`. `docs/TESTING_STRATEGY.md` §8.2
+describes it.
 
 The PR e2e job never runs these specs. They run from `playwright.a11y-nightly.config.ts`:
 

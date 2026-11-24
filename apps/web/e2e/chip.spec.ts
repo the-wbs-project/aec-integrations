@@ -7,7 +7,7 @@
  * at the chip's centre. A rendered check is the only way to prove it: the recipe
  * lives in the global stylesheet, which a component spec does not load.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 test.describe('aec-chip (AECI-1763)', () => {
   // AECI-2027: both /products reads share one load, one step each.

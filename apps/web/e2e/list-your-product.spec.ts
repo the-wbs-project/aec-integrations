@@ -10,7 +10,7 @@
  * inbound links, and axe on the whole page at 375 and 1280.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { type Page, expect, test } from '@playwright/test';
+import { type Page, expect, test } from './fixtures';
 
 import { waitForHydrationSettle } from './console-capture';
 

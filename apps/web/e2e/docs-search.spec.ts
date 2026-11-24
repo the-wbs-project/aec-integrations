@@ -14,7 +14,7 @@
  * `src/app/docs/docs-search.component.spec.ts`; this proves the real index
  * answers each guide with only that guide's pages.
  */
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './fixtures';
 
 /**
  * Why the live test cannot run here, or `null` when it can. Skips with no

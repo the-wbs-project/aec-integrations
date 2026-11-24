@@ -19,7 +19,7 @@
  * feedback inbox renders submitter email addresses, so a cached response here
  * would leak contact information a person gave to the operator, not to the web.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 const ADMIN_AUDIENCE_PATH = '/admin/audience';
 

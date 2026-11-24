@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Response } from '@playwright/test';
+import { expect, test, type Page, type Response } from './fixtures';
 
 import { waitForHydrationSettle } from './console-capture';
 import { FAKE_PRODUCTS, FAKE_VENDORS, routeFakeAlgolia } from './fake-algolia';

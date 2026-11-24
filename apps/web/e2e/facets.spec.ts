@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page, type Response } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Page, type Response } from './fixtures';
 import { untilHydrated } from './hydration';
 
 // AECI-145 / Phase 3.12 — the AECI-143 faceted filter sidebar on the API-backed
