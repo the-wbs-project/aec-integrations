@@ -1,5 +1,7 @@
 import { Component, computed, input } from '@angular/core';
 
+import { AecIcon } from '../../shared/icon/icon';
+
 /**
  * The "Email domain" verification signal. Shared by `/admin/claims` and
  * `/admin/claims/:id` so the two screens show one claim the same way.
@@ -10,41 +12,22 @@ import { Component, computed, input } from '@angular/core';
  */
 @Component({
   selector: 'aec-domain-match-signal',
+  imports: [AecIcon],
   template: `
     <span
-      class="inline-flex items-center gap-1.5 text-xs font-bold"
+      class="inline-flex items-center gap-2 text-t-14 font-semibold"
       [class.text-(--status-error)]="value() === 'no_match'"
       [class.text-(--text-primary)]="value() !== 'no_match'"
       data-testid="domain-match-signal"
     >
       @if (value() === 'no_match') {
-        <svg
-          class="size-4 shrink-0"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.25"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-          data-testid="domain-match-x"
-        >
-          <path d="M18 6 6 18M6 6l12 12" />
-        </svg>
+        <span class="inline-flex shrink-0" data-testid="domain-match-x"
+          ><aec-icon name="x" decorative [size]="4"
+        /></span>
       } @else if (value() === 'match') {
-        <svg
-          class="size-4 shrink-0 text-(--accent-primary)"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.25"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-          data-testid="domain-match-check"
-        >
-          <path d="M20 6 9 17l-5-5" />
-        </svg>
+        <span class="inline-flex shrink-0 text-(--accent-primary)" data-testid="domain-match-check"
+          ><aec-icon name="check" decorative [size]="4"
+        /></span>
       }
       {{ label() }}
     </span>
