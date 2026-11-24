@@ -76,9 +76,10 @@ Run each surface with **(a) keyboard only**, then **(b) VoiceOver**, then **(c) 
 
 > **Automated nightly in Chrome (AECI-1880, `TESTING_STRATEGY.md` §8.4.4).** For the announcements this
 > section and "Surface-specific" below name, the nightly now records the page while it acts: the login
-> sent and error states, review submission, the account save, the subscribe forms, the waitlist
-> welcome, claim confirm, search counts, the vendor portal's one channel, and the admin queues' empty,
-> loading and error states. Each must be heard exactly once at the promised politeness. Form errors
+> sent and error states, review submission, the account save, a failed account delete, the subscribe
+> forms, the waitlist welcome, claim confirm, search counts, the vendor portal's one channel and a write
+> in one section while another is open, the moderation outcome, and the admin queues' empty, loading
+> and error states. Each must be heard exactly once at the promised politeness. Form errors
 > must be tied to their field with focus on the first. It reads the DOM, not speech, so it cannot tell
 > whether VoiceOver or NVDA spoke the message. The manual pass above keeps its full scope and cadence.
 

@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expectHeardOnce, recordAnnouncements } from '../e2e-a11y/support/announcements';
 import { expect, test, type Locator, type Page } from './fixtures';
+import { untilHydrated } from './hydration';
 
 /**
  * The integration detail page (AECI-1149 to AECI-1153,
@@ -111,7 +112,10 @@ test.describe('integration detail page (preview)', () => {
 
   test('Yes saves at once and announces; No asks for a reason', async ({ page }) => {
     await openPage(page, PROCORE);
-    // AECI-1880: the shell's channel speaks the save once, politely.
+    // AECI-1880: the shell's channel speaks the save once, politely. Gate on
+    // hydration first: an earlier click is queued and replayed, so a retry could
+    // save, and speak, twice.
+    await untilHydrated(page.getByTestId('yes-models'));
     const rec = await recordAnnouncements(page);
     // An answered row reads as text with a Change link (AECI-1246), so the saved
     // Yes shows as the answer, not as a pressed toggle.

@@ -781,6 +781,17 @@ read-only tests of `vendor-dashboard.spec.ts` (one polite channel on every secti
 write tests keep their own checks. They save through the real vendor API, whose post-commit hooks
 are not stubbed, so they were not run locally to verify a change.
 
+Five more PR specs keep their own live-region checks. The PR job is the merge gate, so AECI-1880 did
+not change how they behave. Each checks text or an attribute, not how often a message is heard.
+
+| Spec | What it checks | Why it stays |
+|---|---|---|
+| `preview-vendor-catalogue.spec.ts:97` | The saved row's `role="status"` names the product | A local save confirmation. If it is inserted already filled (AECI-1858), a heard-once check would fail the gate |
+| `updates.spec.ts:120` | The "A follow-up question appeared" status text | The test is about the signup body. The announcement is a side check |
+| `admin-review-updates.spec.ts:116` | The queue's status says "Update approved" | It approves a seeded update through the real local API. The nightly's moderation flow checks hearing, against a stub |
+| `app-update.spec.ts:50` | The update banner's status is `aria-live="polite"` | The banner is on AECI-1858's list. A heard-once check would fail the gate until that lands |
+| `preview-search-relevance.spec.ts:40` | The result count is on the page after load | The count is there on arrival, so there is no change to record |
+
 **Phase 2 implementation (AECI-65).** `apps/web/e2e/phase2-a11y.spec.ts` runs axe against every live Phase 2 page type — product/vendor/integration index+detail, the **product-PAIR page** (added by AECI-303), category/audience/phase browse, the three flat taxonomy indexes (`/categories`, `/audiences`, `/phases`), and the 404 — in the **light theme** (14 URLs; the dark pass was removed in AECI-226), plus the open state of the header's Browse menu (AECI-1774; it replaced the AECI-155 taxonomy flyouts), for 15 axe assertions in total. Detail pages run against committed fixtures (`apps/api/seed/phase2-fixtures.sql`, seeded into the local D1 by `dev:bound`); they self-skip if the fixtures aren't seeded so the suite never wedges CI. Both the header (incl. the Browse menu) and the **footer** are in scope: the footer's former `.exclude('aec-site-footer')` carve-out covered dark-theme contrast debt only, and AECI-226 removed it after verifying the footer is WCAG-AA clean in the (now sole) light theme.
 
 **Phase 3.12 implementation (AECI-145).** `/search` axe coverage (zero WCAG-AA violations) ships in `apps/web/e2e/search.spec.ts` — against the graceful-degradation shell that renders in CI, where Algolia is absent. The `/products` listing + facet sidebar is covered by `products-index.spec.ts` (`tags wcag2a/2aa/21a/21aa`); the facet-interaction states add no new always-on surface beyond what those axe runs already scan.
@@ -1165,7 +1176,7 @@ specs use it too.
 | Export | What it does |
 |---|---|
 | `recordAnnouncements(page)` | Start recording on the current document. Call it after the hydration gate, right before the action |
-| `recordAnnouncementsFromLoad(page)` | Start recording on the next document, once its HTML is parsed. For a message that appears on arrival |
+| `recordAnnouncementsFromLoad(page)` | Start recording on every next document, from an init script, as soon as the HTML parser finishes and before any module script runs. For a message that appears on arrival. Each document has its own token, so a read after a reload throws |
 | `rec.settle({ quietMs?, timeoutMs? })`, `rec.read()`, `rec.clear()` | The ordered record. `settle` waits until nothing new has arrived for `quietMs` (1 s) |
 | `heard(record)`, `heardMatching(record, text)` | What a screen reader is expected to speak, by the model below |
 | `expectHeardOnce(record, text, via)` | Heard exactly once, through `via`: `'focus'`, `'polite'` or `'assertive'` |
@@ -1188,22 +1199,32 @@ description. **The record proves the DOM changed. It does not prove a screen rea
 **The flows.** `announcements-public.spec.ts` runs signed out. `announcements-signed-in.spec.ts` signs in
 per surface with `prepareSurface` and skips without a session.
 
+**A known barrier splits a flow in two.** `knownFailure` passes on any failure, so a broken error link
+would stay green under a hearing mark. A flow with a known barrier is two tests. The unmarked one
+checks what works today: the error wiring, the focus move, and that the stub was hit or not hit. The
+marked one holds only the hearing assertion.
+
 | Flow | Asserts |
 |---|---|
+| The on-load recorder, on `/auth/login` | An alert added before `DOMContentLoaded` is recorded. A read after a reload throws |
 | Login: link sent | "Check your email" heard once, by focus |
 | Login: send failed | The error heard once, assertive |
-| Login: bad email | Field wiring, focus on the field, its error heard once by focus |
+| Login: bad email | Field wiring, focus on the field, nothing posted. Its error heard once by focus |
 | `/updates`: joined, already on the list, failed | Heard once: by focus, then polite, then polite |
-| Mailing-list band on the product page: joined, bad email | Polite once. Field wiring and its error heard once by focus |
-| Home with `?ref=waitlist` | The welcome heard once, polite |
-| `/claims/confirm`: sent, failed | "Claim sent" by focus. The error once, by focus |
+| Mailing-list band on the product page: joined, bad email | Polite once. Field wiring, focus, nothing posted. Its error heard once by focus |
+| Home with `?ref=waitlist` | The banner shows. The welcome heard once, polite |
+| `/claims/confirm`: sent, failed | "Claim sent" by focus. The error takes focus and the stub is hit. The error heard once, by focus |
 | `/search`: a query, a query with no match | The count once, polite. "0 results" once, polite |
 | Vendor portal preview: a Yes on an integration | Heard once from the shell's one channel, polite, never assertive. Still one channel after |
-| Product claim form: empty submit | The name and email errors wired, focus on the name, only its error heard |
-| Review submission: sent, empty submit | "Review received" by focus. The rating and title errors wired, focus in the first rating, only its error heard |
-| Account: display name saved | Heard once, polite |
-| Account: delete dialog | Focus moves in on open and back to the trigger on Escape. Never confirmed |
-| `/admin/reviews` and `/admin/requests`: failed load, then Try again | The failure once, assertive. Loading and the empty queue once each, polite |
+| Vendor portal preview: a Yes in "Data that's shared" with a change request open in Overview | Heard once, polite, never assertive. The open request stays open. Still one channel |
+| Product claim form: empty submit | The name and email errors wired, focus on the name, nothing posted. Only its error heard |
+| Review submission: sent, empty submit | "Review received" by focus. The rating and title errors wired, focus in the first rating, nothing posted. Only its error heard |
+| Account: display name saved | The stub is hit and the message shows. Heard once, polite |
+| Account: delete dialog | Focus moves in on open and back to the trigger on Escape |
+| Account: delete confirmed against a stub that fails | The error heard once in the dialog, assertive. The dialog stays open |
+| Account: delete confirmed against a stub that accepts | The page leaves for home. The sign-out that follows is aborted |
+| `/admin/reviews`: approve, against a stubbed list and a stubbed approve | "Review approved." heard once, polite |
+| `/admin/reviews` and `/admin/requests`: failed load, then Try again | The failure once, assertive. Both reads hit the stub and the empty queue shows. Loading and the empty queue heard once each, polite |
 | Vendor portal: a section change | One polite channel, the same node after, nothing assertive |
 
 "Form errors" means `aria-invalid="true"` on each failing field, an `aria-describedby` that names a
@@ -1213,7 +1234,16 @@ here: `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.11 replaced the dropdown with a link (
 **No real sends.** `.dev.vars` holds live Supabase and Resend keys. Every test calls `blockWrites`
 (`support/announcement-flows.ts`) first, which aborts every request that is not a read, then stubs the
 one write it answers. No write reaches the network, the local API included. The account delete and any
-ban are never confirmed. The admin tests stub only the queue's list read.
+ban reach no real endpoint. The account delete is confirmed only against a stubbed
+`DELETE /api/account`. Its handler erases the account and emails the person, and it is never reached.
+The sign-out after a stubbed delete is aborted, so the shared test account stays signed in. The admin
+tests stub the queue's list read and the approve, so no review is moderated.
+
+**Not covered.** A deleted account leaves for the home page, a new document, and nothing there says the
+account is gone. That is a page load, not a status message, so the recorder has nothing to check. The
+manual pass still listens for it. A background revalidation in the vendor portal announces nothing by
+design (`STAGE_2_REALTIME_SPEC.md` §6.2), so "a write elsewhere" is scripted as a write in one section
+while another section's form is open.
 
 **Pages outside the manifest.** `/updates`, `/claims/confirm`, `/search`, the product claim form and
 `/preview/vendor-dashboard` are not in `surfaces.ts`. Adding them would widen the manual pass of
@@ -1224,14 +1254,15 @@ checklist §1 and put them under the keyboard suite. The flows that need them na
 
 | Issue | What the record shows | Tests |
 |---|---|---|
-| AECI-1859 | Field errors are `role="alert"`, and the submit focuses the field they describe. One error is heard twice. On a form with several, every error is spoken, not the focused field's | Login bad email, band bad email, claim form, review empty submit |
-| AECI-1858 | "Display name updated." is a `role="status"` inserted with its text already in it. Never heard | Account display name saved |
-| AECI-2079 | The claim-confirm error is `role="alert"` and takes focus. Heard twice | `/claims/confirm` failed |
-| AECI-2080 | The waitlist welcome is added after hydration with no live region. Never heard | Home with `?ref=waitlist` |
-| AECI-2082 | The admin queues' loading and empty text are plain paragraphs, and Try again is removed while focused. Never heard | Try again on both queues |
+| AECI-1859 | A submit reveals several field errors, each `role="alert"`. Every error is spoken, not the focused field's | Claim form and review empty submit, hearing only |
+| AECI-1858 | "Display name updated." is a `role="status"` inserted with its text already in it. Never heard | Account display name saved, hearing only |
+| AECI-2079 | One message is `role="alert"` and also reached by focus. The claim-confirm error takes focus itself. A single field error describes the field the submit focuses. Heard twice | `/claims/confirm` failed, login and band bad email, hearing only |
+| AECI-2080 | The waitlist welcome is added after hydration with no live region. Never heard | Home with `?ref=waitlist`, hearing only |
+| AECI-2082 | The admin queues' loading and empty text are plain paragraphs, and Try again is removed while focused. Never heard | Try again on both queues, hearing only |
 
 The signed-in flows ran with real test-user sessions, minted by `prepareSurface`. The failed-load
-alert on both queues, review sent, the delete dialog and the real vendor portal pass.
+alert on both queues, the approve, review sent, the delete dialog and both stubbed confirms, and the
+real vendor portal pass.
 
 **Run it** with the rest of the nightly, or alone:
 
