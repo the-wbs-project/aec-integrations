@@ -135,6 +135,7 @@
             @if (v.diff.length > 0) {
             <aec-admin-disclosure-button
               withLabel
+              [label]="null"
               [expanded]="isDiffOpen(v.row.id)"
               [controls]="'audit-diff-' + v.row.id"
               [describedBy]="'audit-row-' + v.row.id"

@@ -5,7 +5,7 @@
  */
 import { Component, provideZonelessChangeDetection, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CONSOLE_TABLE } from './console-table';
 import { AdminDangerAction } from './danger-action';
@@ -27,6 +27,7 @@ import { ADMIN_STATUS_TONES, adminStatusTone } from './status-tones';
     <aec-admin-disclosure-button
       id="labelled"
       withLabel
+      [label]="null"
       [expanded]="diffOpen()"
       controls="diff-y"
       describedBy="row-y-head"
@@ -87,6 +88,15 @@ class Host {
   }
 }
 
+/** An icon-only disclosure whose label is empty: no accessible name (AECI-1729). */
+@Component({
+  imports: [AdminDisclosureButton],
+  template: `<aec-admin-disclosure-button [expanded]="false" controls="row-z" [label]="label" />`,
+})
+class NamelessHost {
+  label = '';
+}
+
 async function setup() {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({ providers: [provideZonelessChangeDetection()] });
@@ -145,6 +155,31 @@ describe('console pieces (AECI-1813)', () => {
       expect(btn.querySelector('.sr-only')?.textContent).toBe('Review of Fieldline');
       expect(btn.hasAttribute('aria-describedby')).toBe(false);
       expect(btn.getAttribute('type')).toBe('button');
+    });
+
+    it('logs a dev-mode error for an icon-only disclosure with an empty label (AECI-1729)', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      try {
+        TestBed.resetTestingModule();
+        TestBed.configureTestingModule({ providers: [provideZonelessChangeDetection()] });
+        const fixture = TestBed.createComponent(NamelessHost);
+        await fixture.whenStable();
+        expect(error).toHaveBeenCalledWith(expect.stringContaining('needs a non-empty label'));
+      } finally {
+        error.mockRestore();
+      }
+    });
+
+    it('logs nothing for a named icon-only disclosure or a labelled one', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      try {
+        await setup();
+        expect(error).not.toHaveBeenCalledWith(
+          expect.stringContaining('aec-admin-disclosure-button'),
+        );
+      } finally {
+        error.mockRestore();
+      }
     });
 
     it('withLabel shows the projected words as the name, described by describedBy (AECI-1729)', async () => {
