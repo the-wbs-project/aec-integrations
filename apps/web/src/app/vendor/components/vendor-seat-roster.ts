@@ -231,7 +231,9 @@ import { VendorPortalStore } from '../vendor-portal-store';
                 <td [class]="cellClass + ' text-(--text-primary)'">
                   <span class="font-semibold">{{ seat.display_name || fallbackName }}</span>
                   @if (seat.is_self) {
-                    <span class="text-(--text-secondary)" i18n="@@vendor.seats.you">(you)</span>
+                    <span class="ms-1 text-(--text-secondary)" i18n="@@vendor.seats.you"
+                      >(you)</span
+                    >
                   }
                   @if (seat.owner) {
                     <aec-chip

@@ -28,7 +28,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
         <div class="flex flex-wrap items-center justify-between gap-4">
           <h2>
             <span i18n="@@vendor.section.seats">Seats</span>
-            <span class="text-(--text-secondary)">({{ m.seat_count }})</span>
+            <span class="ms-2 text-(--text-secondary)">({{ m.seat_count }})</span>
           </h2>
           <!-- Owner-only; renders nothing for a member seat. -->
           <aec-vendor-seat-invite-dialog />
