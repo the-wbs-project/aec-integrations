@@ -903,56 +903,6 @@ h1.aec-docs-title,
   border-color: var(--status-error);
 }
 
-/* Subscription status chips on the vendor Billing tab (AECI-1866,
-   `vendor-billing-licenses.ts`). Unlayered for the history the `.aec-nav-tab`
-   note records. Existing tokens only (DESIGN.md allows no new
-   status colour). Live is the Forest wash with its Forest boundary (the wash alone
-   is 1.14:1 on white, so the border carries the edge). Warning is Clay deep text,
-   the system's warning hue, text-only so the Clay-Restriction Rule holds. Ended is
-   neutral. The chip's words always name the state. */
-.aec-status-chip--live {
-  border-color: var(--accent-primary);
-  background-color: var(--accent-primary-soft);
-  color: var(--accent-primary);
-}
-
-.aec-status-chip--warning {
-  border-color: var(--border-strong);
-  background-color: var(--surface-raised);
-  color: var(--accent-secondary-deep);
-}
-
-.aec-status-chip--ended {
-  border-color: var(--border-strong);
-  background-color: var(--surface-raised);
-  color: var(--text-secondary);
-}
-
-/* The vendor overview's Views period toggle (AECI-983). The pressed state is an
-   attribute, and a utility toggled by state loses to the resting and hover
-   utilities, so the pressed colours live on an unlayered class. */
-.aec-period[aria-pressed='true'],
-.aec-period[aria-pressed='true']:hover {
-  background-color: var(--accent-primary);
-  color: var(--surface-base);
-}
-
-/* The focus ring would otherwise take the pressed segment's `surface-base` text
-   colour and vanish against the sunken track. */
-.aec-period[aria-pressed='true']:focus-visible {
-  outline-color: var(--accent-primary);
-}
-
-/* Coloured borders on the vendor overview's status pills (AECI-983). Unlayered
-   for the history the `.aec-nav-tab` note records. */
-.aec-pill-conflict {
-  border-color: var(--status-error);
-}
-
-.aec-pill-attention {
-  border-color: var(--border-strong);
-}
-
 /* The pair page's version-diff row edge (AECI-303, products-pair.ts). Unlayered
    for the history the `.aec-nav-tab` note records. Start edge only, so RTL keeps it. */
 .aec-diff-added {
