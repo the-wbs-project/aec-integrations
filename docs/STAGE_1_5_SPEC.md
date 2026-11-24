@@ -2762,6 +2762,11 @@ fails as a marker too: Agave has a catalogue and Workato has none.
 - **Promote never writes or clears it.** The promote payload has no field for it, and the review
   app does not carry it. A role change by promote leaves the stored value, and readers then show
   NULL (next bullet). `promote.spec.ts` pins this.
+- **Promote reads it for one decision (AECI-2041, ruling 7 on AECI-2035).** A pair whose
+  connector is a Sync Service may be written on an owned endpoint (`REVIEW_APP_PROMOTE_API.md`
+  §4a). So setting Sync Service on a connector opens that exception, and clearing it closes it
+  for the next promote. A promote in flight when the kind changes aborts with
+  `VENDOR_OWNED_DURING_PROMOTE`.
 - **Readers.** `ProductListItem` (so `ProductDetail` too), the admin roster row and the vendor
   portal's `VendorProduct` carry `connector_kind`. Each maps through `connectorKindFor`, which
   returns NULL on an `application` and on a value outside the vocabulary.

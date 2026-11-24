@@ -334,6 +334,9 @@ const MIRROR_EDGE_CHUNK = 20;
  *   (`integrations`), or to its `product_a` or `product_b`
  *   (`connector_evidenced_pairs`). The connector and `powered_by` products do not
  *   count, as in {@link buildOwnershipRecord}.
+ * - a `connector_evidenced_pairs` id also resolves to its `built_by_vendor_id` when
+ *   that vendor is owned (AECI-2047): the v2 record lists the pair under that
+ *   vendor's `deliveredPairs[]`.
  */
 export async function resolveMirrorVendorIds(db: Db, targets: MirrorTargets): Promise<string[]> {
   const ownedJoinedTo = (where: SQL | undefined) =>
@@ -382,6 +385,25 @@ export async function resolveMirrorVendorIds(db: Db, targets: MirrorTargets): Pr
           evidenced('productBId'),
         ),
       ),
+    );
+    // AECI-2047: a pair's builder lists it under `deliveredPairs[]`, so an edit to it
+    // re-sends the builder's record too, when the builder is owned.
+    reads.push(
+      db
+        .select({ vendorId: vendors.id })
+        .from(vendors)
+        .where(
+          and(
+            isNotNull(vendors.ownedAt),
+            inArray(
+              vendors.id,
+              db
+                .select({ id: connectorEvidencedPairs.builtByVendorId })
+                .from(connectorEvidencedPairs)
+                .where(inArray(connectorEvidencedPairs.id, ids)),
+            ),
+          ),
+        ),
     );
   }
   if (reads.length === 0) return [];
@@ -919,6 +941,42 @@ async function readEdgeContent(db: Db, edges: readonly Edge[]): Promise<Map<stri
   return out;
 }
 
+/** A pair this vendor delivers as its builder, with its per-row hold. */
+type DeliveredPair = Edge & { held: boolean };
+
+/**
+ * The pairs this vendor delivers as a connector's builder (AECI-2047, §4d
+ * `deliveredPairs[]`): every `connector_evidenced_pairs` row whose `built_by_vendor_id`
+ * is the vendor, live or retired, minus the ids `integrations[]` already lists (a pair
+ * with one of the vendor's own products as an endpoint). `held` is §4b's vendor-held
+ * test: claimed, or vendor-created.
+ */
+async function readDeliveredPairs(
+  db: Db,
+  vendorId: string,
+  listed: ReadonlySet<string>,
+): Promise<DeliveredPair[]> {
+  const rows = await db
+    .select({
+      id: connectorEvidencedPairs.id,
+      a: connectorEvidencedPairs.productAId,
+      b: connectorEvidencedPairs.productBId,
+      claimedAt: connectorEvidencedPairs.claimedAt,
+      origin: connectorEvidencedPairs.origin,
+    })
+    .from(connectorEvidencedPairs)
+    .where(eq(connectorEvidencedPairs.builtByVendorId, vendorId));
+  return rows
+    .filter((r) => !listed.has(r.id))
+    .map((r) => ({
+      id: r.id,
+      table: 'connector_evidenced_pairs' as const,
+      a: r.a,
+      b: r.b,
+      held: r.claimedAt !== null || r.origin === 'vendor',
+    }));
+}
+
 /**
  * Build the vendor's v2 ownership record (AECI-1413, ADR 0044, §4d): the v1 sets and
  * owners, plus the content of every vendor-owned record, read through the field map
@@ -930,6 +988,10 @@ async function readEdgeContent(db: Db, edges: readonly Edge[]): Promise<Map<stri
  *   accepted proposal that created it, else `null` (AECI-1489).
  * - `integrations[].content` and `claims`: on every vendor-owned edge. One claim per
  *   natural-key slot: the live attestation, or the latest retracted one.
+ * - `deliveredPairs`: the pairs the vendor delivers as a connector's builder
+ *   (AECI-2047), each `vendor`-owned with content and claims exactly when it is
+ *   claimed or vendor-created. Left out when there are none, so the hash of a record
+ *   without them is unchanged.
  * - `recordHash`: `computeOwnershipRecordHash` of the parsed record. It ignores
  *   `reason`, `version` and `asOf`, so the drift check may pass any reason and time.
  *
@@ -947,6 +1009,7 @@ export async function buildOwnershipRecordV2(
   if (!skel) return null;
   const vendorOwned = skel.ownedAt !== null;
   const edgeOwned = (e: Edge) => skel.ownedProducts.has(e.a) || skel.ownedProducts.has(e.b);
+  const delivered = await readDeliveredPairs(db, vendorId, new Set(skel.edges.map((e) => e.id)));
 
   const [vendorContent, productContent, edgeContent, proposalRefs] = await Promise.all([
     vendorOwned ? readVendorContent(db, vendorId) : Promise.resolve(null),
@@ -954,7 +1017,7 @@ export async function buildOwnershipRecordV2(
       db,
       skel.productIds.filter((id) => skel.ownedProducts.has(id)),
     ),
-    readEdgeContent(db, skel.edges.filter(edgeOwned)),
+    readEdgeContent(db, [...skel.edges.filter(edgeOwned), ...delivered.filter((d) => d.held)]),
     readFromProposalRefs(db, skel.productIds),
   ]);
 
@@ -985,6 +1048,19 @@ export async function buildOwnershipRecordV2(
       })
       .sort(byId),
     proposals: skel.proposals,
+    // AECI-2047: omitted when empty, so a record without delivered pairs is unchanged.
+    ...(delivered.length > 0
+      ? {
+          deliveredPairs: delivered
+            .map((d) => {
+              const held = d.held ? edgeContent.get(d.id) : undefined;
+              return held
+                ? { id: d.id, table: d.table, owner: ownerOf(true), ...held }
+                : { id: d.id, table: d.table, owner: ownerOf(false) };
+            })
+            .sort(byId),
+        }
+      : {}),
     recordHash: HASH_PLACEHOLDER,
   });
   return { ...parsed, recordHash: await computeOwnershipRecordHash(parsed) };

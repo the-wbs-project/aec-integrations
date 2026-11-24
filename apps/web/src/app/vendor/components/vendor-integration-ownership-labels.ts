@@ -73,6 +73,9 @@ export function claimErrorMessage(err: unknown): string {
       return $localize`:@@vendor.integrationClaim.error.notOwner:Another company is now recorded as the owner of this integration, so it was not claimed.`;
     case 'INTEGRATION_CONNECTOR_POWERED':
       return $localize`:@@vendor.integrationClaim.error.connector:Connector-delivered integrations cannot be claimed yet.`;
+    // AECI-2047: the row names a connector AECi has not recorded yet.
+    case 'INTEGRATION_CONNECTOR_UNRESOLVED':
+      return $localize`:@@vendor.integrationClaim.error.connectorUnresolved:AEC Integrations has not finished recording the connector that delivers this integration. You can claim it once we have, so it was not claimed.`;
     case 'INTEGRATION_CHANGED_WHILE_SAVING':
       return $localize`:@@vendor.integrationClaim.error.changed:This integration changed while you were claiming it, so it was not claimed. Reload and try again.`;
     case 'RATE_LIMITED':

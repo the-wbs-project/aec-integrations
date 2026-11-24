@@ -84,6 +84,11 @@ export const ApiErrorCode = {
   INTEGRATION_ALREADY_CLAIMED: 'INTEGRATION_ALREADY_CLAIMED',
   // AECI-1005 Q1 ruling (2026-09-22): decision 9 blocks the claim too in v1.
   INTEGRATION_CONNECTOR_POWERED: 'INTEGRATION_CONNECTOR_POWERED',
+  // AECI-2047 (409): the owner's claim of an `integrations` row still marked as
+  // delivered through a connector AECi has not recorded (`mechanism_kind = 'iPaaS'`
+  // with no `powered_by_product_id`). A claimed row never moves, and promote would
+  // move this one to `connector_evidenced_pairs` once the connector is recorded.
+  INTEGRATION_CONNECTOR_UNRESOLVED: 'INTEGRATION_CONNECTOR_UNRESOLVED',
   // `INTEGRATION_ENTITLEMENT_REQUIRED` (AECI-1089) is retired: AECI-1663 (ruling 14)
   // dropped the entitlement gate on owner writes to connector-powered rows, its only
   // raiser (`API_CONTRACTS.md` §4).

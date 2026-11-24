@@ -163,7 +163,7 @@ shape, which is the AECI-888 signature.
 > you take is a question about the UPSTREAM record. Do not hand-DELETE either way.** The
 > datatool prune cannot touch `connector_evidenced_pairs`. `ops:retract-product` deletes (and
 > tombstones) them only as a side effect of retracting an endpoint or connector product, and
-> only under `--delete-evidenced-pairs`, which `--force` does not imply (AECI-687, AECI-904), and never for a vendor-held pair, flag or not (AECI-1088). The plan re-checks that at write time and aborts before any write if a pair was claimed after the dry run. The CLI then says a vendor-held row entered scope and nothing was written, and exits `1`. It does not mean a credentials problem. So it is not a tool for one stranded pair. The retraction consumer is,
+> only under `--delete-evidenced-pairs`, which `--force` does not imply (AECI-687, AECI-904), and never for a vendor-held pair, flag or not (AECI-1088), except the pairs a connector's own vendor holds under `--withdraw-connector` (AECI-2047, "Withdrawing a connector" below). The plan re-checks that at write time and aborts before any write if a pair was claimed after the dry run. The CLI then says a vendor-held row entered scope and nothing was written, and exits `1`. It does not mean a credentials problem. So it is not a tool for one stranded pair. The retraction consumer is,
 > and it takes two cohorts:
 >
 > - **Route A, the upstream record still exists — prefer this.** Confirm the ruling, have the
@@ -408,6 +408,75 @@ For a production product it is:
 
 Demo has no reconciler steps, because neither reconciler targets demo. Only production runs have an
 upstream step.
+
+---
+
+## Promoting a connector and its pairs
+
+Use this for a new Sync Service or any connector that delivers its own pairs (AECI-2047). The
+order matters. A pair promoted before its connector lands in `integrations` with no connector.
+Once its owner claims it, it can never move to `connector_evidenced_pairs`, because promote never
+moves a claimed row (`REVIEW_APP_PROMOTE_API.md` §3.4a, §4b).
+
+1. **Promote the connector product first.** In the review app, `promote_product` on the connector.
+   This creates its vendor and product in the live app.
+2. **Set its kind.** An AECi admin sets Sync Service or Integration platform on the product's admin
+   page (`PATCH /api/admin/products/:id/connector-kind`). Promote never sets it. A pair on an
+   owned endpoint is written only once the kind is Sync Service (§4a).
+3. **Re-promote the endpoints of every pair.** A pair travels in its endpoints' bundles, not the
+   connector's. One endpoint per pair is enough. When both endpoints of a pair are owned, their
+   bundles skip it, so send it as an integration-only push (§3.5).
+4. **Read each job's `unresolvedLinks[]`.** A `field: "powered_by"` entry on one of these pairs
+   means its connector still did not resolve, and the pair is in the wrong table. Fix the
+   connector, then repeat step 3. Do not let the owner claim it first.
+5. **Only then tell the owner to claim its pairs.** The claim route refuses a row typed `iPaaS`
+   with no connector (`409 INTEGRATION_CONNECTOR_UNRESOLVED`). It cannot see a row typed
+   `marketplace-app` with no connector, so step 4 is the only check for that one.
+
+**A pair already stuck.** A claimed pair in `integrations` with no connector stays there until an
+admin un-claims it. Ask Chris before changing a claimed row. After the un-claim, repeat steps 3
+and 4, then the owner claims it again.
+
+---
+
+## Withdrawing a connector
+
+Use this when a connector product leaves the directory together with the pairs it delivers, for
+example a Sync Service that stops trading (AECI-2047). `ops:retract-product` refuses it by default,
+because its own vendor holds those pairs. `--withdraw-connector` is the supported path. It implies
+`--delete-evidenced-pairs`. It deletes the pairs the product delivers that its own vendor holds,
+with their claims and attestations, and writes an `integration.deleted` tombstone for each with
+the pair's hold and `metadata.withdraw_connector: true`. It still refuses a pair another vendor
+holds, a held pair where the product is an endpoint, any vendor-held integration, and a connector
+catalogue.
+
+1. **Retire the catalogue first, if there is one.** The connector-catalogue sync owns it. Send the
+   catalogue's `deleted` through the sync (`REVIEW_APP_PROMOTE_API.md` §3a), then check the dry
+   run no longer lists a catalogue.
+2. **Dry run.** It prints the footprint and one line per pair the run would delete, with each
+   pair's endpoints, hold, builder and claim count. Put the product's slug in place of `SLUG`.
+
+```bash
+pnpm --filter @aeci/api ops:retract-product -- --slug SLUG --env production --withdraw-connector
+```
+
+3. **Check every listed pair with Chris.** A claimed pair is the vendor's text. Withdrawing it is a
+   deletion, not a hide.
+4. **Apply.** Production needs Chris's go-ahead and `--allow-production`. Add `--force` only if the
+   dry run listed blockers (integrations, reviews, versions or a live license) you also mean to
+   delete.
+
+```bash
+pnpm --filter @aeci/api ops:retract-product -- --slug SLUG --env production --withdraw-connector --apply --allow-production --operator chrisw@thewbsproject.com
+```
+
+5. **Work down the printed follow-ups**, as in "Retracting a product or vendor by hand" above.
+6. **Re-send the connector vendor's ownership record.** The withdrawn pairs were in its
+   `deliveredPairs[]` (§4d). The steps are in "Ownership records not reaching the review app"
+   below, "Re-send one vendor".
+
+If the apply aborts saying a vendor-held row entered scope, another vendor claimed one of the
+pairs after the dry run. Nothing was written. Run the dry run again.
 
 ---
 

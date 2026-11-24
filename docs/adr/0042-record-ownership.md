@@ -24,7 +24,7 @@ Chris ruled on 2026-10-19 (AECI-1341) that every record has one owner, AECi or t
 2. **It flips to the vendor at claim approval and at the admin seat provision.** A guarded `owned_at IS NULL` update runs in the grant's own batch, with `updated_at` kept. The grant's audit row carries `metadata.ownership_stamped: true`. A seat without `owned_at` owns nothing.
 3. **Seat loss and subscription lapse never move it.** A revoke, a ban and an account erasure end the edit right only. *Excepted 2026-11-03 (AECI-1589), moved 2026-11-05 (AECI-1623): Terminate returns the records, and the ban of the last unbanned seat is refused. See the amendments below.* The records stay vendor-owned and frozen: `owned_at`, `maintained_by` and `claimed_at` all stay. *Amended 2026-11-05 (AECI-1618, ADR 0051): ownership stays, but the claim ends. `vendors.claim_ended_at` is set in the same batch and public pages read Unclaimed at once.* The last-seat revoke and the erasure run the seat lapse, as a last-seat ban always did. Open owner contests move to AECi stamped with `owner_seat_lapsed_at`, so a later seat grant gets them back. *Since AECI-1618 the claim end purges `vendor:{slug}`, each `product:{slug}` and `index:products`. Before it, nothing was purged.*
 4. **One audited admin action returns ownership.** "Return records to AECi" is `POST /api/admin/vendors/:id/return-to-aeci`, admin only. It exists for a mistaken approval and nothing else. It is refused with `VENDOR_HAS_SEATS` while the vendor holds any `vendor_admin` seat, banned or not, because an unban would otherwise re-seat an AECi record. It is refused with `VENDOR_NOT_OWNED` when `owned_at` is already NULL. One batch clears `owned_at`, revokes live seat invites, runs `planVendorHandback` (markers to `'aeci'`, live claimed integrations and evidenced pairs un-claimed, open owner contests to AECi unstamped) and writes a `vendor.records_returned` audit row.
-5. **Promote sends nothing about an owned record and refuses it.** It refuses the vendor, every product joined to an owned vendor (a co-owned product is owned if any joined vendor is owned), and every integration whose source or target product is owned, whichever product the payload is about. That includes the stored endpoints of an edge an update would move away from an owned product. An edge where the owned product is only the `poweredByProduct` connector still writes. A new product that would join an owned vendor is not created. Until AECI-1416 it was skipped. Since AECI-1416 it is stored as a proposal to the owner (amendment below). An unowned company is untouched. Each refusal is a `skipped[]` entry with its own reason constant and a `promote.blocked` audit row.
+5. **Promote sends nothing about an owned record and refuses it.** It refuses the vendor, every product joined to an owned vendor (a co-owned product is owned if any joined vendor is owned), and every integration whose source or target product is owned, whichever product the payload is about. That includes the stored endpoints of an edge an update would move away from an owned product. An edge where the owned product is only the `poweredByProduct` connector still writes. *Amended 2026-11-24 (AECI-2041): a pair a Sync Service delivers also writes, though an endpoint is owned. See the amendment below.* A new product that would join an owned vendor is not created. Until AECI-1416 it was skipped. Since AECI-1416 it is stored as a proposal to the owner (amendment below). An unowned company is untouched. Each refusal is a `skipped[]` entry with its own reason constant and a `promote.blocked` audit row.
 6. **A commit-time sentinel guards the race.** The promote batch carries statements, after the `promote_jobs` ledger row, that abort it if a vendor the plan treated as unowned and writes, or any written edge endpoint product, became owned before commit. The job ends `errored` with `VENDOR_OWNED_DURING_PROMOTE` (409) and nothing is written. A re-push under a new `jobId` skips those rows.
 7. **Edit rights stay seat-based.** `requireVendor()`, notification recipients and contest routing read `profiles`, not `owned_at`. Ownership says who may write the record. A seat says who may act for the vendor.
 8. **The AECi field override reads ownership.** The vendor-held test in `routes/admin-field-overrides.ts` now uses `owned_at`, so a frozen seatless owned record can still be corrected by AECi (ADR 0039).
@@ -205,6 +205,38 @@ vendor edits as part of its listing, and it is not a field AECi curates.
   The legal name is a company fact that the next checkout still needs.
 - **The ownership record does not carry it.** The mirror in §4d is for content the review app
   displays. This column is not public.
+
+## Amendment 2026-11-24: AECI-2041 landed (a Sync Service pair on an owned endpoint)
+
+Chris ruled on 2026-11-24 (ruling 7 on epic AECI-2035) that a Sync Service may add its own
+pairs even when the two products are owned, and that promote from the review app may add them
+too. A Sync Service is a connector product whose vendor sells, runs and supports a fixed list of
+finished pairs (`STAGE_1_5_SPEC.md` §13.13). Rule 5 treated such a pair as the endpoint vendor's,
+so once Procore owned its record no Rivets pair touching Procore could be added or updated.
+
+1. **The exception.** Promote writes an edge with an owned endpoint when all of these hold. It
+   routes to `connector_evidenced_pairs`: its connector resolves and is neither endpoint. It is
+   not a move of an `integrations` row into that table. Its connector is a Sync Service, which is
+   role `connector` or `hybrid` and `connector_kind = 'sync_service'`, read from D1. On an update
+   of a stored pair, the stored connector is a Sync Service too.
+2. **Everything else in rule 5 stands.** The owned product's own record is never written. A
+   direct edge, a Convention-A self-reference, an edge whose connector does not resolve, and a
+   pair an Integration platform or unclassified connector delivers stay refused. So do a move in
+   from `integrations`, a de-route back to it, and a re-point between a Sync Service and anything
+   else. An owned product's own bundle still cascade-skips its edges.
+3. **The per-row claim fence is unchanged** (ADR 0035, `REVIEW_APP_PROMOTE_API.md` §4b). A pair
+   the Sync Service has claimed, or created, is never written.
+4. **Who decides the kind.** Only an AECi admin sets `connector_kind`
+   (`PATCH /api/admin/products/:id/connector-kind`). Promote writes the role but never the kind,
+   so the review app alone cannot open the exception for a product AECi has not classified.
+5. **The race.** Rule 6's ownership sentinel does not guard an exception edge, because its
+   endpoints are owned by design. A statement at the end of the batch guards its connector
+   instead, after the product write, so a role change in the same batch counts. It raises the
+   same `VENDOR_OWNED_DURING_PROMOTE`, because the remedy is the same: re-push, and the owned
+   endpoint fences the edge. The ledger row stays first and a replay returns the recorded result.
+6. **What it does not do.** It writes no notice to the endpoint vendors (ruling 11, a separate
+   issue) and adds no veto (ruling 8, a separate issue). The Listing Accuracy Policy needed no
+   text change: its fence sentence is about a claimed integration, which still holds.
 
 ## Revisit
 
