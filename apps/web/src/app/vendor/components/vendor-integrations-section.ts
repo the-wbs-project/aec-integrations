@@ -351,25 +351,33 @@ const SEGMENT_RESTING = 'text-(--text-primary) hover:bg-(--surface-sunken)';
             size="sm"
           />
         }
-        <span class="min-w-0 flex-1">
-          <span class="flex flex-wrap items-baseline gap-x-2">
-            <span class="font-semibold text-(--text-primary)">{{
-              primaryName(integration, nested)
-            }}</span>
-            @if (byLine(integration); as by) {
-              <span class="text-sm text-(--text-secondary)">{{ by }}</span>
-            }
-          </span>
-          <span class="mt-1 block text-sm text-(--text-secondary)">{{ summary(integration) }}</span>
-        </span>
-        <aec-chip
-          class="shrink-0"
-          density="dense"
-          [tone]="chipTone(integration)"
-          [icon]="chipIcon(integration)"
-          [attr.data-status-tone]="tone(integration)"
-          >{{ statusText(integration) }}</aec-chip
+        <!-- Below 640px the status chip drops under the text, so a long name keeps
+             the row's width instead of breaking a word per line. -->
+        <span
+          class="flex min-w-0 flex-1 flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-4"
         >
+          <span class="min-w-0 flex-1 break-words">
+            <span class="flex flex-wrap items-baseline gap-x-2">
+              <span class="font-semibold text-(--text-primary)">{{
+                primaryName(integration, nested)
+              }}</span>
+              @if (byLine(integration); as by) {
+                <span class="text-sm text-(--text-secondary)">{{ by }}</span>
+              }
+            </span>
+            <span class="mt-1 block text-sm text-(--text-secondary)">{{
+              summary(integration)
+            }}</span>
+          </span>
+          <aec-chip
+            class="shrink-0"
+            density="dense"
+            [tone]="chipTone(integration)"
+            [icon]="chipIcon(integration)"
+            [attr.data-status-tone]="tone(integration)"
+            >{{ statusText(integration) }}</aec-chip
+          >
+        </span>
         <span class="flex shrink-0 text-(--text-secondary)">
           <aec-icon name="chevron-right" decorative [mirrorRtl]="true" />
         </span>
