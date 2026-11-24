@@ -39,6 +39,7 @@ import {
 
 import { directionHeading } from '../../products/pair-direction-labels';
 import { mechanismKindLabel } from '../../search/mechanism-labels';
+import { AecButton } from '../../shared/button/button';
 import { LogoOrInitial } from '../../shared/logo-or-initial/logo-or-initial';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import {
@@ -181,6 +182,7 @@ function emptyDraft(): Draft {
 @Component({
   selector: 'aec-vendor-integration-create',
   imports: [
+    AecButton,
     LogoOrInitial,
     NewTabIcon,
     NgTemplateOutlet,
@@ -192,17 +194,19 @@ function emptyDraft(): Draft {
   template: `
     <div class="space-y-4" data-testid="integration-create">
       <div class="flex flex-wrap items-center gap-3">
+        <!-- AECI-2045 QA: the shared button recipe, the same size as the Sync Service
+             create's trigger. On a hybrid Sync Service the label says what it adds. -->
         <button
           #trigger
+          aecButton
+          variant="secondary"
           type="button"
           [attr.aria-expanded]="open()"
           [attr.aria-controls]="formId"
           (click)="toggle()"
-          [class]="triggerClass"
           data-testid="add-integration"
-          i18n="@@vendor.integrationCreate.trigger"
         >
-          Add an integration
+          {{ triggerLabel() }}
         </button>
         @if (!open()) {
           <p class="text-xs text-(--text-secondary)" i18n="@@vendor.integrationCreate.teaser">
@@ -995,6 +999,20 @@ export class VendorIntegrationCreate implements OnInit {
 
   /** The product the tab is filed under, preselected as "your product". */
   readonly contextProductId = input<string | null>(null);
+
+  /**
+   * AECI-2045 QA. Set on a `hybrid` Sync Service's tab, which also offers the Sync
+   * Service create: the trigger then says what it adds, "Add an integration with
+   * {product}". Elsewhere it reads "Add an integration".
+   */
+  readonly withProductName = input<string | null>(null);
+
+  protected readonly triggerLabel = computed(() => {
+    const name = this.withProductName();
+    return name
+      ? $localize`:@@vendor.integrationCreate.trigger.with:Add an integration with ${name}:name:`
+      : $localize`:@@vendor.integrationCreate.trigger:Add an integration`;
+  });
   /**
    * Read `?create=open&counterpart={slug}` (AECI-1377). Only the routed
    * Integrations tab turns this on. The single-page concept has no route of its own.
@@ -1716,8 +1734,6 @@ export class VendorIntegrationCreate implements OnInit {
     return (event.target as HTMLInputElement | HTMLTextAreaElement).value;
   }
 
-  protected readonly triggerClass =
-    'inline-flex items-center rounded-(--radius-md) border border-(--border-strong) px-4 py-2 text-sm font-semibold text-(--text-primary) transition-colors hover:border-(--accent-primary) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
   protected readonly selectClass =
     'w-full cursor-pointer appearance-none rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) py-2 pe-9 ps-3 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
   protected readonly legendClass = 'mb-3 text-sm font-semibold text-(--text-primary)';

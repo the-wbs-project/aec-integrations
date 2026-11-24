@@ -23,7 +23,14 @@ import {
 
 import { isReplayedEvent } from '../../core/event-replay';
 import { AecButton } from '../../shared/button/button';
-import { FIELD_ERROR_CLASS, FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
+import { AecCard } from '../../shared/card/card';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+  FIELD_OPTIONAL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { AecIcon } from '../../shared/icon/icon';
 import { LogoOrInitial } from '../../shared/logo-or-initial/logo-or-initial';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import {
@@ -35,6 +42,17 @@ import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { readVendorApiError } from '../vendor-api-error';
 import { VendorPortalStore } from '../vendor-portal-store';
+import {
+  PORTAL_FIELDSET_CLASS,
+  PORTAL_FIELD_CLASS,
+  PORTAL_FORM_CLASS,
+  PORTAL_FORM_GRID_CLASS,
+  PORTAL_FORM_SPAN_CLASS,
+  PORTAL_LEGEND_CLASS,
+  PORTAL_SAVE_BAR_CLASS,
+  PORTAL_SAVE_BUTTON_CLASS,
+  PORTAL_SAVE_STATUS_CLASS,
+} from '../shared/portal-form';
 
 import { editFieldLabel } from './vendor-contest-labels';
 import { EDIT_GROUPS } from './vendor-integration-edit-form';
@@ -92,10 +110,10 @@ export function offersSyncServicePairCreate(product: SyncServiceTabProduct | nul
  */
 @Component({
   selector: 'aec-vendor-sync-service-pair-create',
-  imports: [AecButton, LogoOrInitial, NewTabIcon, ProductCombobox],
+  imports: [AecButton, AecCard, AecIcon, LogoOrInitial, NewTabIcon, ProductCombobox],
   host: { class: 'block' },
   template: `
-    <section class="space-y-3" aria-labelledby="vendor-sync-create-heading" data-sync-create>
+    <section class="space-y-4" aria-labelledby="vendor-sync-create-heading" data-sync-create>
       <h2 id="vendor-sync-create-heading" class="m-0">
         <span
           class="block font-display text-xl font-semibold text-(--text-primary)"
@@ -109,12 +127,15 @@ export function offersSyncServicePairCreate(product: SyncServiceTabProduct | nul
         it. Either vendor can remove it from its product page, and then you cannot add it again.
         They can also report that it is not offered, or that a data flow is wrong.
       </p>
+      <!-- AECI-2045 QA: the host's summary line (how many pairs, rows and answers). -->
+      <ng-content />
 
       @if (result(); as done) {
         <div
           #receipt
           tabindex="-1"
-          class="relative max-w-2xl rounded-panel border border-(--border-default) bg-(--surface-raised) p-4 pe-12 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          aecCard
+          class="relative max-w-3xl py-4 ps-6 pe-12 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
           data-testid="sync-create-receipt"
         >
           <p class="text-sm font-semibold text-(--text-primary)" i18n="@@vendor.syncCreate.done">
@@ -156,183 +177,219 @@ export function offersSyncServicePairCreate(product: SyncServiceTabProduct | nul
           [attr.aria-expanded]="false"
           (click)="openForm()"
           data-testid="sync-create-open"
-          i18n="@@vendor.syncCreate.open"
         >
-          Add an integration
+          {{ triggerLabel() }}
         </button>
       } @else {
-        <form
-          id="vendor-sync-create-form"
-          method="dialog"
-          class="max-w-2xl space-y-6 rounded-panel border border-(--border-default) bg-(--surface-raised) p-4"
-          novalidate
-          (submit)="onSubmit($event)"
-          data-testid="sync-create-form"
-        >
-          <fieldset class="space-y-4">
-            <legend class="mb-3" [class]="legendClass" i18n="@@vendor.syncCreate.products.legend">
-              The two products it connects
-            </legend>
-            @for (side of sides; track side) {
-              <div class="space-y-2">
-                @if (picked()[side]; as chosen) {
-                  <p [id]="'vendor-sync-' + side + '-label'" [class]="labelClass">
-                    {{ sideLabel(side) }}
-                  </p>
-                  <div
-                    role="group"
-                    [attr.aria-labelledby]="'vendor-sync-' + side + '-label'"
-                    class="flex max-w-sm items-center gap-3 rounded-control border border-(--border-default) bg-(--surface-sunken) px-3 py-2"
-                    [attr.data-testid]="'sync-create-chosen-' + side"
-                  >
-                    <aec-logo-or-initial
-                      [claimStatus]="'stored'"
-                      [src]="chosen.logo_url ?? null"
-                      [name]="chosen.name"
-                      size="sm"
-                    />
-                    <span
-                      class="min-w-0 flex-1 truncate text-sm font-medium text-(--text-primary)"
-                      >{{ chosen.name }}</span
-                    >
-                    <button
-                      aecButton
-                      variant="ghost"
-                      type="button"
-                      [disabled]="saving()"
-                      [attr.aria-label]="changeAria(side, chosen.name)"
-                      (click)="clearSide(side)"
-                      i18n="@@vendor.syncCreate.change"
-                    >
-                      Change
-                    </button>
+        <!-- AECI-2045 QA: the portal form card the ordinary create uses (portal-form.ts):
+             fieldsets under overline legends, two columns from 768px, the shared field
+             recipe, and the save bar with the primary action and Cancel. -->
+        <div aecCard phoneFlush class="max-w-4xl p-6 md:p-8">
+          <form
+            id="vendor-sync-create-form"
+            method="dialog"
+            [class]="formClass"
+            novalidate
+            (submit)="onSubmit($event)"
+            data-testid="sync-create-form"
+          >
+            <fieldset [class]="fieldsetClass">
+              <legend [class]="legendClass" i18n="@@vendor.syncCreate.products.legend">
+                The two products it connects
+              </legend>
+              <div [class]="gridClass">
+                @for (side of sides; track side) {
+                  <div [class]="fieldClass">
+                    @if (picked()[side]; as chosen) {
+                      <p [id]="'vendor-sync-' + side + '-label'" [class]="labelClass">
+                        {{ sideLabel(side) }}
+                      </p>
+                      <div
+                        role="group"
+                        [attr.aria-labelledby]="'vendor-sync-' + side + '-label'"
+                        [class]="productBoxClass"
+                        [attr.data-testid]="'sync-create-chosen-' + side"
+                      >
+                        <aec-logo-or-initial
+                          [claimStatus]="'stored'"
+                          [src]="chosen.logo_url ?? null"
+                          [name]="chosen.name"
+                          size="sm"
+                        />
+                        <span
+                          class="min-w-0 flex-1 truncate text-sm font-semibold text-(--text-primary)"
+                          >{{ chosen.name }}</span
+                        >
+                        <button
+                          aecButton
+                          variant="secondary"
+                          compact
+                          type="button"
+                          [disabled]="saving()"
+                          [attr.aria-label]="changeAria(side, chosen.name)"
+                          (click)="clearSide(side)"
+                          i18n="@@vendor.syncCreate.change"
+                        >
+                          Change
+                        </button>
+                      </div>
+                    } @else {
+                      <label [for]="'vendor-sync-' + side" [class]="labelClass">{{
+                        sideLabel(side)
+                      }}</label>
+                      <aec-product-combobox
+                        [inputId]="'vendor-sync-' + side"
+                        [search]="search"
+                        [exclude]="excludedFor(side)"
+                        [invalid]="showSideError(side)"
+                        [describedBy]="
+                          showSideError(side) ? 'vendor-sync-' + side + '-error' : null
+                        "
+                        (picked)="pick(side, $event)"
+                        (announce)="announcer.announce($event)"
+                      />
+                      @if (showSideError(side)) {
+                        <p
+                          [id]="'vendor-sync-' + side + '-error'"
+                          role="alert"
+                          [class]="errorClass"
+                        >
+                          {{ pickProductMessage }}
+                        </p>
+                      }
+                    }
                   </div>
-                } @else {
-                  <label [for]="'vendor-sync-' + side" [class]="labelClass">{{
-                    sideLabel(side)
-                  }}</label>
-                  <aec-product-combobox
-                    class="max-w-sm"
-                    [inputId]="'vendor-sync-' + side"
-                    [search]="search"
-                    [exclude]="excludedFor(side)"
-                    [invalid]="showSideError(side)"
-                    [describedBy]="showSideError(side) ? 'vendor-sync-' + side + '-error' : null"
-                    (picked)="pick(side, $event)"
-                    (announce)="announcer.announce($event)"
-                  />
-                  @if (showSideError(side)) {
-                    <p [id]="'vendor-sync-' + side + '-error'" role="alert" [class]="errorClass">
-                      {{ pickProductMessage }}
-                    </p>
-                  }
                 }
               </div>
-            }
-          </fieldset>
+            </fieldset>
 
-          @for (group of groups; track group.key) {
-            <fieldset class="space-y-4">
-              <legend class="mb-3" [class]="legendClass">{{ groupLabel(group.key) }}</legend>
-              @for (field of group.fields; track field) {
-                <div class="space-y-2">
-                  <label [for]="fieldId(field)" [class]="labelClass">
-                    {{ fieldLabel(field) }}
-                    @if (!required(field)) {
-                      <span class="font-normal tracking-normal normal-case">{{
-                        optionalLabel
-                      }}</span>
-                    }
-                  </label>
-                  @if (field === 'description') {
-                    <textarea
-                      [id]="fieldId(field)"
-                      rows="3"
-                      [attr.maxlength]="maxLength(field)"
-                      [value]="draft()[field]"
-                      (input)="onInput(field, inputValue($event))"
-                      [attr.aria-invalid]="showError(field) ? 'true' : null"
-                      [attr.aria-describedby]="showError(field) ? fieldId(field) + '-error' : null"
-                      [class]="inputClass"
-                    ></textarea>
-                  } @else if (field === 'direction') {
-                    <select
-                      [id]="fieldId(field)"
-                      (change)="onInput(field, inputValue($event))"
-                      [attr.aria-invalid]="showError(field) ? 'true' : null"
-                      [attr.aria-describedby]="showError(field) ? fieldId(field) + '-error' : null"
-                      [class]="inputClass"
+            @for (group of groups; track group.key) {
+              <fieldset [class]="fieldsetClass">
+                <legend [class]="legendClass">{{ groupLabel(group.key) }}</legend>
+                <div [class]="gridClass">
+                  @for (field of group.fields; track field) {
+                    <div
+                      [class]="field === 'description' ? fieldClass + ' ' + spanClass : fieldClass"
                     >
-                      @if (draft().direction === '') {
-                        <option value="" disabled selected>{{ choosePlaceholder }}</option>
+                      <label [for]="fieldId(field)" [class]="labelClass">
+                        {{ fieldLabel(field) }}
+                        @if (!required(field)) {
+                          <span [class]="optionalClass">{{ optionalLabel }}</span>
+                        }
+                      </label>
+                      @if (field === 'description') {
+                        <textarea
+                          [id]="fieldId(field)"
+                          rows="3"
+                          [attr.maxlength]="maxLength(field)"
+                          [value]="draft()[field]"
+                          (input)="onInput(field, inputValue($event))"
+                          [attr.aria-invalid]="showError(field) ? 'true' : null"
+                          [attr.aria-describedby]="
+                            showError(field) ? fieldId(field) + '-error' : null
+                          "
+                          [class]="inputClass"
+                        ></textarea>
+                      } @else if (field === 'direction') {
+                        <div class="relative">
+                          <select
+                            [id]="fieldId(field)"
+                            (change)="onInput(field, inputValue($event))"
+                            [attr.aria-invalid]="showError(field) ? 'true' : null"
+                            [attr.aria-describedby]="
+                              showError(field) ? fieldId(field) + '-error' : null
+                            "
+                            [class]="selectClass"
+                          >
+                            @if (draft().direction === '') {
+                              <option value="" disabled selected>{{ choosePlaceholder }}</option>
+                            }
+                            @for (option of directionOptions(); track option.value) {
+                              <option
+                                [value]="option.value"
+                                [selected]="option.value === draft().direction"
+                              >
+                                {{ option.label }}
+                              </option>
+                            }
+                          </select>
+                          <span [class]="selectChevronClass">
+                            <aec-icon name="chevron-down" decorative [size]="4" />
+                          </span>
+                        </div>
+                      } @else {
+                        <input
+                          [id]="fieldId(field)"
+                          [type]="isUrl(field) ? 'url' : 'text'"
+                          [attr.inputmode]="isUrl(field) ? 'url' : null"
+                          [attr.maxlength]="maxLength(field)"
+                          [value]="draft()[field]"
+                          (input)="onInput(field, inputValue($event))"
+                          [attr.aria-invalid]="showError(field) ? 'true' : null"
+                          [attr.aria-describedby]="
+                            showError(field) ? fieldId(field) + '-error' : null
+                          "
+                          [class]="inputClass"
+                        />
                       }
-                      @for (option of directionOptions(); track option.value) {
-                        <option
-                          [value]="option.value"
-                          [selected]="option.value === draft().direction"
-                        >
-                          {{ option.label }}
-                        </option>
+                      @if (showError(field)) {
+                        <p [id]="fieldId(field) + '-error'" role="alert" [class]="errorClass">
+                          {{ errorFor(field) }}
+                        </p>
                       }
-                    </select>
-                  } @else {
-                    <input
-                      [id]="fieldId(field)"
-                      [type]="isUrl(field) ? 'url' : 'text'"
-                      [attr.inputmode]="isUrl(field) ? 'url' : null"
-                      [attr.maxlength]="maxLength(field)"
-                      [value]="draft()[field]"
-                      (input)="onInput(field, inputValue($event))"
-                      [attr.aria-invalid]="showError(field) ? 'true' : null"
-                      [attr.aria-describedby]="showError(field) ? fieldId(field) + '-error' : null"
-                      [class]="inputClass"
-                    />
-                  }
-                  @if (showError(field)) {
-                    <p [id]="fieldId(field) + '-error'" role="alert" [class]="errorClass">
-                      {{ errorFor(field) }}
-                    </p>
+                    </div>
                   }
                 </div>
-              }
-            </fieldset>
-          }
+              </fieldset>
+            }
 
-          <p class="max-w-prose text-sm text-(--text-secondary)" i18n="@@vendor.syncCreate.told">
-            It goes live on the public site when you add it. The vendors of both products are told
-            that you added it.
-          </p>
-
-          <div class="flex flex-wrap items-center gap-3 border-t border-(--border-default) pt-4">
-            <button aecButton type="submit" [disabled]="saving()" data-testid="sync-create-submit">
-              @if (saving()) {
-                <span i18n="@@vendor.syncCreate.saving">Adding…</span>
-              } @else {
-                <span i18n="@@vendor.syncCreate.submit">Add integration</span>
-              }
-            </button>
-            <button
-              aecButton
-              variant="secondary"
-              type="button"
-              [disabled]="saving()"
-              (click)="close()"
-              i18n="@@vendor.syncCreate.cancel"
-            >
-              Cancel
-            </button>
-          </div>
-
-          @if (saveNotice(); as message) {
             <p
-              role="alert"
-              class="text-sm font-medium text-(--text-primary)"
-              data-testid="sync-create-notice"
+              class="mt-8 max-w-prose text-sm text-(--text-secondary)"
+              i18n="@@vendor.syncCreate.told"
             >
-              {{ message }}
+              It goes live on the public site when you add it. The vendors of both products are told
+              that you added it.
             </p>
-          }
-        </form>
+
+            <div [class]="saveBarClass">
+              <div [class]="saveStatusClass">
+                @if (saveNotice(); as message) {
+                  <p
+                    role="alert"
+                    class="font-semibold text-(--text-primary)"
+                    data-testid="sync-create-notice"
+                  >
+                    {{ message }}
+                  </p>
+                }
+              </div>
+              <button
+                aecButton
+                type="submit"
+                [class]="saveButtonClass"
+                [disabled]="saving()"
+                data-testid="sync-create-submit"
+              >
+                @if (saving()) {
+                  <span i18n="@@vendor.syncCreate.saving">Adding…</span>
+                } @else {
+                  <span i18n="@@vendor.syncCreate.submit">Add integration</span>
+                }
+              </button>
+              <button
+                aecButton
+                variant="secondary"
+                type="button"
+                [class]="saveButtonClass"
+                [disabled]="saving()"
+                (click)="close()"
+                i18n="@@vendor.syncCreate.cancel"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
       }
     </section>
   `,
@@ -345,6 +402,19 @@ export class VendorSyncServicePairCreate {
 
   /** The Sync Service product whose tab this is. */
   readonly product = input.required<{ readonly id: string; readonly name: string }>();
+
+  /**
+   * AECI-2045 QA. On a `hybrid` Sync Service the tab also offers the ordinary create, so
+   * each trigger says what it adds ("Add an integration {product} delivers"). A pure
+   * Sync Service offers this one action, labelled "Add an integration".
+   */
+  readonly hybrid = input(false);
+
+  protected readonly triggerLabel = computed(() => {
+    if (!this.hybrid()) return $localize`:@@vendor.syncCreate.open:Add an integration`;
+    const name = this.product().name;
+    return $localize`:@@vendor.syncCreate.open.hybrid:Add an integration ${name}:name: delivers`;
+  });
 
   private readonly trigger = viewChild<ElementRef<HTMLButtonElement>>('trigger');
   private readonly receipt = viewChild<ElementRef<HTMLDivElement>>('receipt');
@@ -562,12 +632,27 @@ export class VendorSyncServicePairCreate {
     }
   }
 
-  /** The Label role (AECI-2083 portal recipe), for the legends and the field labels. */
-  protected readonly legendClass = FIELD_LABEL_CLASS;
+  // AECI-2045 QA: the portal form layout (`vendor/shared/portal-form.ts`) and the shared
+  // field recipe, as the ordinary create uses them (the Same-Behavior Rule).
+  protected readonly formClass = PORTAL_FORM_CLASS;
+  protected readonly fieldsetClass = PORTAL_FIELDSET_CLASS;
+  protected readonly legendClass = PORTAL_LEGEND_CLASS;
+  protected readonly gridClass = PORTAL_FORM_GRID_CLASS;
+  protected readonly spanClass = PORTAL_FORM_SPAN_CLASS;
+  protected readonly fieldClass = PORTAL_FIELD_CLASS;
+  protected readonly saveBarClass = PORTAL_SAVE_BAR_CLASS;
+  protected readonly saveStatusClass = PORTAL_SAVE_STATUS_CLASS;
+  protected readonly saveButtonClass = PORTAL_SAVE_BUTTON_CLASS;
   protected readonly labelClass = FIELD_LABEL_CLASS;
-  protected readonly inputClass =
-    'w-full max-w-xl rounded-control border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  protected readonly optionalClass = FIELD_OPTIONAL_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly selectClass = `${FIELD_INPUT_CLASS} cursor-pointer appearance-none pe-12`;
+  protected readonly selectChevronClass =
+    'pointer-events-none absolute end-4 top-1/2 flex -translate-y-1/2 text-(--text-secondary)';
   protected readonly errorClass = `max-w-prose ${FIELD_ERROR_CLASS}`;
+  /** A chosen product in a box: 44px, the control radius. */
+  protected readonly productBoxClass =
+    'flex min-h-11 items-center gap-3 rounded-control bg-(--surface-sunken) px-4 py-2';
   protected readonly publicLinkClass =
     'inline-flex items-center gap-1.5 rounded-mark text-sm font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 }

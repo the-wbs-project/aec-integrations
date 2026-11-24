@@ -426,6 +426,7 @@ export class VendorOverviewSection {
     return buildNeedsItems({
       me,
       integrations: this.store.integrations(),
+      ownedIntegrations: this.store.ownedIntegrations(),
       integrationsReady: this.integrationsReady(),
       seatInviteCount: this.store.seatInvites().length,
       contestsToDecide: this.store.contests().received.filter((c) => c.status === 'open').length,

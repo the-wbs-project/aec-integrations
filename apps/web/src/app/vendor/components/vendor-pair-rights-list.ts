@@ -1,5 +1,5 @@
 import { DatePipe } from '@angular/common';
-import { Component, afterNextRender, inject, signal } from '@angular/core';
+import { Component, afterNextRender, computed, inject, input, output, signal } from '@angular/core';
 
 import type {
   PairContest,
@@ -29,6 +29,11 @@ import { VendorPortalAnnouncer } from '../vendor-announcer';
  *
  * Writes are pessimistic and re-read both lists. Outcomes go through the portal's live
  * region. The section hides itself when all four lists are empty.
+ *
+ * AECI-2045: the owned row's page (§6.17.12) renders it in its Change requests section
+ * with `integrationId`, which narrows the four lists to that pair, and `labelledBy`, which
+ * drops the section's own heading. `loaded` hands the page the two received lists, so
+ * the page's status counts the reports and removals without a second read.
  */
 @Component({
   selector: 'aec-vendor-pair-rights-list',
@@ -36,11 +41,13 @@ import { VendorPortalAnnouncer } from '../vendor-announcer';
   host: { class: 'block' },
   template: `
     @if (hasAny()) {
-      <section class="space-y-4" aria-labelledby="pair-rights-heading">
-        <!-- The global h3 rule sets its type, so it carries no type utility (AECI-2083). -->
-        <h3 id="pair-rights-heading" i18n="@@vendor.pairRights.heading">
-          Sync Service integrations on your products
-        </h3>
+      <section class="space-y-4" [attr.aria-labelledby]="labelledBy() ?? 'pair-rights-heading'">
+        @if (!labelledBy()) {
+          <!-- The global h3 rule sets its type, so it carries no type utility (AECI-2083). -->
+          <h3 id="pair-rights-heading" i18n="@@vendor.pairRights.heading">
+            Sync Service integrations on your products
+          </h3>
+        }
 
         @if (vetoes().filed.length > 0) {
           <div class="space-y-2" data-vetoes-filed>
@@ -226,8 +233,35 @@ export class VendorPairRightsList {
   private readonly api = inject(VendorApi);
   private readonly announcer = inject(VendorPortalAnnouncer);
 
-  protected readonly vetoes = signal<VendorVetoesResponse>({ filed: [], received: [] });
-  protected readonly reports = signal<VendorPairContestsResponse>({ submitted: [], received: [] });
+  /** Narrow every list to this pair (AECI-2045, the owned row's page). */
+  readonly integrationId = input<string | null>(null);
+  /** The id of a heading outside that names the block. Then it renders none of its own. */
+  readonly labelledBy = input<string | null>(null);
+  /** The received lists after every read, unnarrowed. */
+  readonly loaded = output<{
+    readonly reports: VendorPairContestsResponse['received'];
+    readonly vetoes: VendorVetoesResponse['received'];
+  }>();
+
+  private readonly allVetoes = signal<VendorVetoesResponse>({ filed: [], received: [] });
+  private readonly allReports = signal<VendorPairContestsResponse>({
+    submitted: [],
+    received: [],
+  });
+
+  private onPair<T extends { readonly pair: PairRightPair }>(rows: readonly T[]): T[] {
+    const id = this.integrationId();
+    return id === null ? [...rows] : rows.filter((row) => row.pair.integration_id === id);
+  }
+
+  protected readonly vetoes = computed<VendorVetoesResponse>(() => ({
+    filed: this.onPair(this.allVetoes().filed),
+    received: this.onPair(this.allVetoes().received),
+  }));
+  protected readonly reports = computed<VendorPairContestsResponse>(() => ({
+    submitted: this.onPair(this.allReports().submitted),
+    received: this.onPair(this.allReports().received),
+  }));
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
 
@@ -355,8 +389,9 @@ export class VendorPairRightsList {
         this.api.listVetoes(),
         this.api.listPairContests(),
       ]);
-      this.vetoes.set(vetoes);
-      this.reports.set(reports);
+      this.allVetoes.set(vetoes);
+      this.allReports.set(reports);
+      this.loaded.emit({ reports: reports.received, vetoes: vetoes.received });
     } catch {
       // A failed read leaves the section hidden. The rest of Messages still works.
     }

@@ -253,13 +253,121 @@ describe('an owned row (AECI-2045)', () => {
     );
     expect(nav).toEqual(['Overview', "Data that's shared", 'Change requests', 'Settings']);
     expect(root.querySelector('#links')).toBeNull();
+    // AECI-2045 QA: Invoices has no answer from the owner, so the pair is not up to date.
     expect(root.querySelector('[data-testid="integration-status"]')?.textContent).toContain(
-      'All up to date',
+      'Needs your answer',
     );
     const pub = [...root.querySelectorAll('a[target="_blank"]')].find((a) =>
       a.getAttribute('href')?.startsWith('/products/'),
     )!;
     expect(pub.getAttribute('href')).toBe('/products/procore/integrations/acumatica');
+  });
+
+  it('counts the owner flows that wait for an answer, by the checklist rule (AECI-2045 QA)', async () => {
+    const { root } = await open(`/products/${PRIMARY}/integrations/${SYNC_CLAIMED.id}`);
+    const needs = root.querySelector('[data-testid="integration-needs"]')!;
+    expect(needs.textContent).toContain('Things that need you');
+    expect(needs.textContent).toContain('1 row of data needs your answer');
+    expect(needs.textContent).not.toContain('Nothing needs you right now');
+  });
+
+  it('reads All up to date once every owner flow has an answer', async () => {
+    const answered = {
+      ...SYNC_CLAIMED,
+      flows: SYNC_CLAIMED.flows.map((f) => ({ ...f, answer: 'yes' as const })),
+    };
+    api.getIntegrations.mockResolvedValue({
+      integrations: [INTEGRATION_PROCORE_DETAIL],
+      owned: [answered],
+      counterpart_added_unanswered: 0,
+    });
+    const { root } = await open(`/products/${PRIMARY}/integrations/${SYNC_CLAIMED.id}`);
+    expect(root.querySelector('[data-testid="integration-status"]')?.textContent).toContain(
+      'All up to date',
+    );
+    expect(root.querySelector('[data-testid="integration-needs"]')?.textContent).toContain(
+      'Nothing needs you right now',
+    );
+  });
+
+  it('asks for a decision on a received data flow report, and names a removal', async () => {
+    const answered = {
+      ...SYNC_CLAIMED,
+      flows: SYNC_CLAIMED.flows.map((f) => ({ ...f, answer: 'yes' as const })),
+    };
+    api.getIntegrations.mockResolvedValue({
+      integrations: [INTEGRATION_PROCORE_DETAIL],
+      owned: [answered],
+      counterpart_added_unanswered: 0,
+    });
+    const pair = {
+      integration_id: SYNC_CLAIMED.id,
+      anchor: 'evidenced_pair' as const,
+      name: 'Procore and Acumatica',
+      connector: null,
+      product_a: null,
+      product_b: null,
+    };
+    api.listPairContests.mockResolvedValue({
+      submitted: [],
+      received: [
+        {
+          id: '00000000-0000-4000-8000-00000000a001',
+          kind: 'data_flow',
+          pair,
+          flow: {
+            claim_id: SYNC_CLAIMED.flows[1]!.id,
+            data_object_slug: 'invoices',
+            data_object_name: 'Invoices',
+            current_direction: 'b_to_a',
+            proposed_direction: null,
+          },
+          reason: 'Not offered',
+          submitter_vendor_id: '00000000-0000-4000-8000-00000000a002',
+          submitter_name: 'Acumatica',
+          routed_to: 'owner',
+          owner_vendor_id: null,
+          owner_name: null,
+          status: 'open',
+          decision_note: null,
+          decided_at: null,
+          accept_mode: null,
+          protest: null,
+          protest_closes_at: null,
+          created_at: '2026-11-22T00:00:00.000Z',
+          updated_at: '2026-11-22T00:00:00.000Z',
+        },
+      ],
+    });
+    api.listVetoes.mockResolvedValue({
+      filed: [],
+      received: [
+        {
+          id: '00000000-0000-4000-8000-00000000a003',
+          pair,
+          vendor_id: null,
+          vendor_name: 'Trimble',
+          reason: 'Not certified',
+          filed_at: '2026-11-21T00:00:00.000Z',
+          in_force: true,
+          ended_at: null,
+          ended_how: null,
+          end_note: null,
+          other_vetoes_in_force: 0,
+          updated_at: '2026-11-21T00:00:00.000Z',
+        },
+      ],
+    });
+    const { root, harness } = await open(`/products/${PRIMARY}/integrations/${SYNC_CLAIMED.id}`);
+    await flush();
+    harness.detectChanges();
+    expect(root.querySelector('[data-testid="integration-status"]')?.textContent).toContain(
+      'Needs your decision',
+    );
+    const needs = root.querySelector('[data-testid="integration-needs"]')!.textContent ?? '';
+    expect(needs).toContain('Acumatica reported a problem with the Invoices data flow');
+    expect(needs).toContain('Trimble removed this integration from its product: Not certified');
+    expect(root.querySelector('#change-requests aec-vendor-pair-rights-list')).not.toBeNull();
   });
 
   it('lists the nine fields with the direction in words, and offers Edit details once claimed', async () => {

@@ -90,6 +90,15 @@ import {
   styles: [ID_STYLES],
   template: `
     <div class="space-y-6" [attr.aria-busy]="loading() ? 'true' : null">
+      <!-- AECI-2045 QA: on a Sync Service's tab this list sits under its own heading,
+           below the pairs the product delivers, so each section has a true heading. -->
+      @if (heading(); as h) {
+        <h2 id="vendor-endpoint-integrations-heading" class="m-0">
+          <span class="block font-display text-xl font-semibold text-(--text-primary)">{{
+            h
+          }}</span>
+        </h2>
+      }
       <p class="max-w-prose text-sm text-(--text-secondary)" i18n="@@vendor.attest.intro">
         These are the integrations on record for your products. Open one to check what data is
         shared and to fix anything that is wrong. The other company sees the same integration from
@@ -103,15 +112,20 @@ import {
       }
 
       <!-- AECI-1011. A seat is the whole gate for listing an integration
-           (AECI-1003 decision 15), unlike answering. -->
-      <aec-vendor-integration-create
-        [contextProductId]="contextProductId()"
-        [deepLink]="urlState()"
-        [integrationLink]="createLink"
-        (requested)="requests.reload()"
-      />
-      <!-- AECI-1377: the vendor's product requests. Renders nothing when there are none. -->
-      <aec-vendor-product-requests-list #requests [routed]="urlState()" />
+           (AECI-1003 decision 15), unlike answering. AECI-2045 QA: a pure Sync Service's
+           tab offers its own create instead, so this one and the product requests it
+           feeds are left out there (offerCreate). -->
+      @if (offerCreate()) {
+        <aec-vendor-integration-create
+          [contextProductId]="contextProductId()"
+          [withProductName]="createWithName()"
+          [deepLink]="urlState()"
+          [integrationLink]="createLink"
+          (requested)="requests.reload()"
+        />
+        <!-- AECI-1377: the vendor's product requests. Renders nothing when there are none. -->
+        <aec-vendor-product-requests-list #requests [routed]="urlState()" />
+      }
 
       @if (!anyAuthorable()) {
         <div class="rounded-(--radius-md) border border-(--border-default) p-4">
@@ -143,6 +157,16 @@ import {
             Try again
           </button>
         </div>
+      } @else if (integrations().length === 0 && heading()) {
+        <!-- AECI-2045 QA: under its own heading on a Sync Service's tab, the empty list
+             speaks of this product only, never of "your products". -->
+        <p
+          class="max-w-prose text-sm text-(--text-secondary)"
+          i18n="@@vendor.attest.empty.endpoint"
+        >
+          No integrations that connect to this product are on record yet. AEC Integrations adds them
+          from public sources, and you can add one your company offers above.
+        </p>
       } @else if (integrations().length === 0) {
         <p class="max-w-prose text-sm text-(--text-secondary)" i18n="@@vendor.attest.empty">
           No integrations are on record for your products yet. AEC Integrations adds integrations
@@ -413,6 +437,16 @@ export class VendorIntegrationsSection implements OnInit {
 
   /** Mirror the filter into the URL (AECI-999). Only the routed page turns this on. */
   readonly urlState = input(false);
+
+  /**
+   * AECI-2045 QA (the Same-Behavior Rule). A pure Sync Service offers one "Add an
+   * integration", its own; the ordinary create is left out of its tab. Default on.
+   */
+  readonly offerCreate = input(true);
+  /** On a hybrid Sync Service, the ordinary create's trigger names what it adds. */
+  readonly createWithName = input<string | null>(null);
+  /** A heading over the list, on a Sync Service's tab, where it is the second section. */
+  readonly heading = input<string | null>(null);
 
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);

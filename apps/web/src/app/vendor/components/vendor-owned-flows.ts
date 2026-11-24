@@ -6,6 +6,7 @@ import { compareText } from '@aeci/shared/text-sort';
 import { isReplayedEvent } from '../../core/event-replay';
 import { AecButton } from '../../shared/button/button';
 import { FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
+import { ownedFlowRowId } from '../integration-detail/integration-detail-model';
 import { ALERT, HELP, ID_STYLES } from '../integration-detail/integration-detail-styles';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
@@ -229,7 +230,12 @@ export type OwnedFlowsRow = Pick<
                   class="border-b border-(--border-default)"
                   [attr.data-testid]="'owned-flow-' + flow.data_object_slug + '-' + flow.direction"
                 >
-                  <th scope="row" class="py-2 pe-4 text-start font-semibold text-(--text-primary)">
+                  <th
+                    scope="row"
+                    tabindex="-1"
+                    [id]="rowId(flow.id)"
+                    class="scroll-mt-24 py-2 pe-4 text-start font-semibold text-(--text-primary) focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                  >
                     {{ flow.data_object_name }}
                   </th>
                   <td class="py-2 pe-4 text-(--text-primary)">
@@ -386,6 +392,11 @@ export class VendorOwnedFlows {
   protected readonly dataOptions = computed(() =>
     [...this.dataObjects()].sort((a, b) => compareText(a.name, b.name)),
   );
+
+  /** The row's id, the target of "Things that need you" (AECI-2045). */
+  protected rowId(flowId: string): string {
+    return ownedFlowRowId(flowId);
+  }
 
   protected directionText(direction: ContextDirection): string {
     return ownedDirectionText(this.row(), direction);

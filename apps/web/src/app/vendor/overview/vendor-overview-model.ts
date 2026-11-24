@@ -18,7 +18,9 @@ import {
 } from '../integration-detail/integration-detail-model';
 import { integrationCanAuthor } from '../vendor-capabilities';
 import {
+  countOwnerFlowsAwaitingAnswer,
   isAwaitingCounterpartAnswer,
+  type OwnedIntegration,
   type VendorAccount,
   type VendorIntegration,
   type VendorMeResponse,
@@ -103,6 +105,28 @@ export function waitingByProduct(integrations: readonly VendorIntegration[]): Cl
     (integration) => integration.attestable,
     (claim) => claim.mine.length === 0,
   );
+}
+
+/**
+ * AECI-2045 QA. Per Sync Service product, the flows on the pairs it delivers that wait
+ * for the owner's answer (`countOwnerFlowsAwaitingAnswer`, the product checklist's rule).
+ * The same count the Integrations tab's summary line shows, so the overview's "waiting"
+ * row and the tab agree. In `me.products` order; products with none are left out.
+ */
+export function ownerFlowsWaitingByProduct(
+  products: readonly VendorProduct[],
+  owned: readonly OwnedIntegration[],
+): ProductClaimCount[] {
+  const out: ProductClaimCount[] = [];
+  for (const product of products) {
+    const count = owned
+      .filter((row) => row.connector?.id === product.id)
+      .reduce((n, row) => n + countOwnerFlowsAwaitingAnswer(row), 0);
+    if (count > 0) {
+      out.push({ product: { id: product.id, slug: product.slug, name: product.name }, count });
+    }
+  }
+  return out;
 }
 
 export interface OpenCorrections {
@@ -296,6 +320,9 @@ export type NeedsItem =
 export interface NeedsInput {
   readonly me: VendorMeResponse;
   readonly integrations: readonly VendorIntegration[];
+  /** AECI-2045 QA. The owner's own rows (`owned` on the same read), for the flows a
+   *  Sync Service's owner has not answered. Omitted reads as none. */
+  readonly ownedIntegrations?: readonly OwnedIntegration[];
   /** `false` while the integrations read is loading or has failed: no conflict
    *  or waiting row is claimed from a list we do not hold. */
   readonly integrationsReady: boolean;
@@ -411,22 +438,34 @@ export function buildNeedsItems(input: NeedsInput): NeedsList {
     // while this integration's own endpoints are Free. Count only the rows the
     // server's `requireAttestationCapability` would accept an answer on.
     const answerable = input.integrations.filter((i) => integrationCanAuthor(i, me.products));
-    const waiting = waitingByProduct(answerable)
-      .byProduct.slice()
-      .sort((a, b) => b.count - a.count);
+    // AECI-2045 QA: a Sync Service's unanswered owner flows are waiting rows too, under
+    // the Sync Service product, so the overview agrees with its Integrations tab.
+    const ownerWaiting = ownerFlowsWaitingByProduct(me.products, input.ownedIntegrations ?? []);
+    const ownerIds = new Set(ownerWaiting.map((row) => row.product.id));
+    const waiting = [
+      ...waitingByProduct(answerable).byProduct.filter((row) => !ownerIds.has(row.product.id)),
+      ...ownerWaiting.map((row) => {
+        const endpoint = waitingByProduct(answerable).byProduct.find(
+          (e) => e.product.id === row.product.id,
+        );
+        return endpoint ? { ...row, count: row.count + endpoint.count } : row;
+      }),
+    ].sort((a, b) => b.count - a.count);
     for (const row of waiting.slice(0, PRODUCT_ROW_CAP)) {
       worthDoing.push({
         type: 'waiting',
         key: `waiting:${row.product.id}`,
         product: row.product,
         count: row.count,
-        link: linkFor(
-          answerable.filter((i) => i.attestable),
-          row.product,
-          (claim) => claim.mine.length === 0,
-          'needs_answer',
-          'data-shared',
-        ),
+        link: ownerIds.has(row.product.id)
+          ? { kind: 'integrations', productSlug: row.product.slug }
+          : linkFor(
+              answerable.filter((i) => i.attestable),
+              row.product,
+              (claim) => claim.mine.length === 0,
+              'needs_answer',
+              'data-shared',
+            ),
       });
     }
     if (waiting.length > PRODUCT_ROW_CAP) {

@@ -57,6 +57,24 @@ export function ownedRowsForProduct(
   });
 }
 
+/** Which owned rows one list on a tab shows (AECI-2045 QA). */
+export type OwnedRowScope = 'all' | 'delivered' | 'others';
+
+/** The rows a product delivers as their connector. */
+export function isDeliveredBy(row: OwnedIntegration, productId: string): boolean {
+  return row.connector?.id === productId;
+}
+
+/** `ownedRowsForProduct`'s rows narrowed to one scope. */
+export function ownedRowsInScope(
+  rows: readonly OwnedIntegration[],
+  contextProductId: string,
+  scope: OwnedRowScope,
+): OwnedIntegration[] {
+  if (scope === 'all') return [...rows];
+  return rows.filter((row) => isDeliveredBy(row, contextProductId) === (scope === 'delivered'));
+}
+
 /**
  * The owner's own rows that the list above does not carry (AECI-1089 /
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5 and §6.15).
@@ -102,41 +120,43 @@ export function ownedRowsForProduct(
   template: `
     @if (rows().length > 0) {
       <section
-        class="mt-10 space-y-4"
-        aria-labelledby="vendor-owned-heading"
-        data-owned-integrations
+        [class]="labelledBy() ? 'mt-6 space-y-4' : 'mt-10 space-y-4'"
+        [attr.aria-labelledby]="labelledBy() ?? 'vendor-owned-heading'"
+        [attr.data-owned-integrations]="scope()"
       >
-        <div class="space-y-2">
-          <h2 id="vendor-owned-heading" class="m-0">
-            <!-- The size lives on the span: styles.css sizes h2 outside any cascade
+        @if (!labelledBy()) {
+          <div class="space-y-2">
+            <h2 id="vendor-owned-heading" class="m-0">
+              <!-- The size lives on the span: styles.css sizes h2 outside any cascade
                  layer, so a text utility on the h2 itself is dead. -->
-            <span
-              class="block font-display text-xl font-semibold text-(--text-primary)"
-              i18n="@@vendor.ownedIntegrations.heading"
-              >Integrations your company offers</span
-            >
-          </h2>
-          @if (onSyncService()) {
-            <p
-              class="max-w-prose text-sm text-(--text-secondary)"
-              i18n="@@vendor.ownedIntegrations.intro.syncService"
-            >
-              Your company is recorded as the owner of these integrations. They are listed here,
-              rather than with the integrations above, because your Sync Service delivers them or
-              they connect products your company does not make.
-            </p>
-          } @else {
-            <p
-              class="max-w-prose text-sm text-(--text-secondary)"
-              i18n="@@vendor.ownedIntegrations.intro"
-            >
-              Your company is recorded as the owner of these integrations. They are listed here,
-              rather than with the integrations above, because they are delivered through a
-              connector or connect products your company does not make.
-            </p>
-          }
-          <p class="m-0"><aec-vendor-docs-link page="owning-an-integration" /></p>
-        </div>
+              <span
+                class="block font-display text-xl font-semibold text-(--text-primary)"
+                i18n="@@vendor.ownedIntegrations.heading"
+                >Integrations your company offers</span
+              >
+            </h2>
+            @if (onSyncService()) {
+              <p
+                class="max-w-prose text-sm text-(--text-secondary)"
+                i18n="@@vendor.ownedIntegrations.intro.syncService"
+              >
+                Your company is recorded as the owner of these integrations. They are listed here,
+                rather than with the integrations above, because your Sync Service delivers them or
+                they connect products your company does not make.
+              </p>
+            } @else {
+              <p
+                class="max-w-prose text-sm text-(--text-secondary)"
+                i18n="@@vendor.ownedIntegrations.intro"
+              >
+                Your company is recorded as the owner of these integrations. They are listed here,
+                rather than with the integrations above, because they are delivered through a
+                connector or connect products your company does not make.
+              </p>
+            }
+            <p class="m-0"><aec-vendor-docs-link page="owning-an-integration" /></p>
+          </div>
+        }
 
         <ul class="m-0 list-none space-y-4 p-0">
           @for (row of rows(); track row.id) {
@@ -285,6 +305,18 @@ export class VendorOwnedIntegrations {
    *  resolves, which lists only the rows that touch none of the vendor's products. */
   readonly contextProductId = input.required<string>();
 
+  /**
+   * AECI-2045 QA. Which of the tab's owned rows this instance lists. A Sync Service
+   * tab leads with the pairs its product delivers (`delivered`: the rows whose
+   * connector is this product), under the "Integrations {product} delivers" heading, and
+   * lists the rest after (`others`). Every other tab lists them all (`all`).
+   */
+  readonly scope = input<OwnedRowScope>('all');
+
+  /** The id of a heading outside that names the list. Then the section renders no
+   *  heading or intro of its own (the `delivered` list sits under the Sync Service's). */
+  readonly labelledBy = input<string | null>(null);
+
   private readonly api = inject(VendorApi);
   private readonly store = inject(VendorPortalStore);
   private readonly announcer = inject(VendorPortalAnnouncer);
@@ -308,8 +340,10 @@ export class VendorOwnedIntegrations {
     () => new Set((this.store.me()?.products ?? []).map((p) => p.id)),
   );
 
-  /** AECI-2045: the tab is a Sync Service product's, so the intro names the kind. */
+  /** AECI-2045: the tab is a Sync Service product's, so the intro names the kind. On
+   *  the `others` list of such a tab the rows are not its pairs, so the plain intro. */
   protected readonly onSyncService = computed(() => {
+    if (this.scope() === 'others') return false;
     const product = this.store.me()?.products.find((p) => p.id === this.contextProductId());
     return product ? isSyncService(product.product_role, product.connector_kind) : false;
   });
@@ -320,10 +354,14 @@ export class VendorOwnedIntegrations {
   }
 
   protected readonly rows = computed(() =>
-    ownedRowsForProduct(
-      this.store.ownedIntegrations(),
+    ownedRowsInScope(
+      ownedRowsForProduct(
+        this.store.ownedIntegrations(),
+        this.contextProductId(),
+        this.vendorProducts(),
+      ),
       this.contextProductId(),
-      this.vendorProducts(),
+      this.scope(),
     ),
   );
 

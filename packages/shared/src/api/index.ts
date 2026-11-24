@@ -22,6 +22,7 @@ export * from './agreement-schemas';
 export * from './common';
 export * from './connector-kind';
 export * from './connector-kind-schema';
+export * from './owner-flow-rule';
 export * from './sync-service';
 export * from './connector-stub-mappings';
 export * from './integrations';

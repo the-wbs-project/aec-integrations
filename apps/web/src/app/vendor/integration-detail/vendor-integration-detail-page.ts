@@ -18,6 +18,8 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 
+import type { PairContest, SyncServicePairVeto } from '@aeci/shared';
+
 import { LogoOrInitial } from '../../shared/logo-or-initial/logo-or-initial';
 import { injectInPageHrefFor } from '../../shared/in-page-href';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
@@ -27,6 +29,7 @@ import { selfDisclaimOn, selfDisclaimStands } from '../components/vendor-not-our
 import { VendorOwnedFlows, ownedDirectionText } from '../components/vendor-owned-flows';
 import { ownedRowsForProduct } from '../components/vendor-owned-integrations';
 import { VendorOwnedRetire } from '../components/vendor-owned-retire';
+import { VendorPairRightsList } from '../components/vendor-pair-rights-list';
 import { vendorProductContext } from '../sections/vendor-product-context';
 import { VendorPortalStore } from '../vendor-portal-store';
 
@@ -40,9 +43,13 @@ import {
   statusLabel,
   statusTone,
   integrationStatus,
+  NO_OWNED_ROW_RIGHTS,
   ownedIntegrationStatus,
   ownedNeedsItems,
+  ownedRowRights,
   ownedStatusExplain,
+  ownedStatusLabel,
+  type OwnedStatusKey,
   type IntegrationStatusKey,
   type NeedItem,
   type SectionId,
@@ -102,6 +109,7 @@ const SPY_TOP_PX = 80;
     VendorOwnedFlows,
     VendorContestsList,
     VendorOwnedRetire,
+    VendorPairRightsList,
   ],
   providers: [IntegrationDetailState],
   styles: [ID_STYLES],
@@ -458,6 +466,16 @@ const SPY_TOP_PX = 80;
                 [integrationId]="o.id"
                 [labelledBy]="'change-requests-heading'"
               />
+              <!-- AECI-2045: on a Sync Service pair, the data flow reports the owner
+                   received and the endpoint vendors' removals, narrowed to this pair. -->
+              @if (o.sync_service) {
+                <aec-vendor-pair-rights-list
+                  class="mt-6"
+                  [integrationId]="o.id"
+                  [labelledBy]="'change-requests-heading'"
+                  (loaded)="pairRights.set($event)"
+                />
+              }
             </section>
 
             <section
@@ -607,7 +625,12 @@ export class VendorIntegrationDetailPage {
     const o = this.ownedRow();
     if (!i) {
       return o
-        ? ownedIntegrationStatus(o, this.pageContests(), new Date().toISOString())
+        ? ownedIntegrationStatus(
+            o,
+            this.pageContests(),
+            new Date().toISOString(),
+            this.ownedRights(),
+          )
         : 'up_to_date';
     }
     return integrationStatus(i, {
@@ -626,16 +649,34 @@ export class VendorIntegrationDetailPage {
     return o ? contestsFor(this.store.contests(), o.id) : { submitted: [], received: [] };
   });
 
-  protected readonly statusText = computed(() =>
-    statusLabel(this.statusKey(), this.pageContests()),
-  );
+  /**
+   * AECI-2045: the owner's received data flow reports and the endpoint vendors' removals
+   * on this pair, as the Change requests section's pair-rights block last read them.
+   * Empty until that read lands, and on any row that is not a Sync Service pair.
+   */
+  protected readonly pairRights = signal<{
+    readonly reports: readonly PairContest[];
+    readonly vetoes: readonly SyncServicePairVeto[];
+  }>({ reports: [], vetoes: [] });
+
+  private readonly ownedRights = computed(() => {
+    const o = this.ownedRow();
+    return o ? ownedRowRights(o.id, this.pairRights()) : NO_OWNED_ROW_RIGHTS;
+  });
+
+  protected readonly statusText = computed(() => {
+    const key = this.statusKey();
+    return this.ownedRow() && isOwnedKey(key)
+      ? ownedStatusLabel(key, this.pageContests(), this.ownedRights())
+      : statusLabel(key, this.pageContests());
+  });
   protected readonly tone = computed(() => statusTone(this.statusKey()));
   protected readonly statusHelp = computed(() => {
     const i = this.integration();
     if (i) return statusExplain(this.statusKey(), i);
     const o = this.ownedRow();
     const key = this.statusKey();
-    return o && isOwnedKey(key) ? ownedStatusExplain(key, o.retired_by) : '';
+    return o && isOwnedKey(key) ? ownedStatusExplain(key, o.retired_by, this.ownedRights()) : '';
   });
 
   protected readonly needs = computed(() => {
@@ -646,7 +687,13 @@ export class VendorIntegrationDetailPage {
       const notOurs = selfDisclaimStands(
         selfDisclaimOn(this.store.contests().submitted, o.id, o.anchor),
       );
-      return ownedNeedsItems(o, this.pageContests(), new Date().toISOString(), notOurs);
+      return ownedNeedsItems(
+        o,
+        this.pageContests(),
+        new Date().toISOString(),
+        notOurs,
+        this.ownedRights(),
+      );
     }
     return needsItems(i, {
       contests: this.pageContests(),
@@ -921,16 +968,16 @@ function sectionAtBar(sections: readonly HTMLElement[], lastInFullView: boolean)
   return keyOf(current);
 }
 
-const OWNED_KEYS: ReadonlySet<IntegrationStatusKey> = new Set([
+const OWNED_KEYS: ReadonlySet<IntegrationStatusKey> = new Set<OwnedStatusKey>([
   'retired',
+  'needs_answer',
   'needs_decision',
   'ready_to_claim',
+  'waiting',
   'up_to_date',
 ]);
 
-function isOwnedKey(
-  key: IntegrationStatusKey,
-): key is 'retired' | 'needs_decision' | 'ready_to_claim' | 'up_to_date' {
+function isOwnedKey(key: IntegrationStatusKey): key is OwnedStatusKey {
   return OWNED_KEYS.has(key);
 }
 

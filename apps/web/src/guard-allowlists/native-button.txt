@@ -68,7 +68,7 @@ vendor/components/vendor-contest-form.ts 3
 vendor/components/vendor-contest-protest.ts 9
 vendor/components/vendor-contests-list.ts 6
 vendor/components/vendor-glance-band.ts 1
-vendor/components/vendor-integration-create.ts 11
+vendor/components/vendor-integration-create.ts 10
 vendor/components/vendor-integration-edit-form.ts 2
 vendor/components/vendor-integrations-section.ts 3
 vendor/components/vendor-license-actions.ts 6

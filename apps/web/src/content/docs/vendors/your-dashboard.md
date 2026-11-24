@@ -22,7 +22,9 @@ Your company's tabs are:
 - **Billing**, your subscriptions, the billing email and the agreements your company accepted. Only owners see it. See [Billing](/docs/vendors/billing).
 - **Proposed products**, new products AEC Integrations found for your company, waiting for an owner to accept or decline them. Only owners see it. See [Products we propose](/docs/vendors/editing-profile-and-products#products-we-propose).
 
-Open a product from **Products** and the tabs change to that product's own: **Product Overview**, **Profile**, **Categories**, **Trades**, **Audiences**, **Phases**, **Integrations** and **Reviews**. A connector product we hold a catalog for also has **Catalog**. A Sync Service with no catalog does not. A connector product also has a **Catalog** tab. The **Back to** link above the product name returns you to your company's tabs.
+Open a product from **Products** and the tabs change to that product's own: **Product Overview**, **Profile**, **Categories**, **Trades**, **Audiences**, **Phases**, **Integrations** and **Reviews**. A connector product we hold a catalog for also has **Catalog**. A Sync Service with no catalog does not. The **Back to** link above the product name returns you to your company's tabs.
+
+On a Sync Service, the **Integrations** tab opens with the integrations it delivers. A line under the heading counts them, their rows of data, and the rows that still need your answer. One **Add an integration** button adds a new pair. If your Sync Service is also one of the two products in other integrations, those are listed below it under their own heading. Then each of the two buttons says what it adds.
 
 Every page has a **View public page** link, which opens the listing as buyers see it.
 
@@ -55,7 +57,7 @@ A list of what is outstanding, in two groups. When nothing is, it reads "Nothing
 
 **Worth doing** holds the items that would make your listings more complete:
 
-- data flows with no answer from you yet,
+- data flows with no answer from you yet, including the flows on the integrations your Sync Service delivers,
 - reviews with no reply from you yet,
 - products missing a description, website, logo or categories,
 - a company profile missing a description, website, logo or headquarters,
