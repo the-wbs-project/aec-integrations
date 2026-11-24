@@ -114,7 +114,7 @@ import type { ProductClaimCount } from '../overview/vendor-overview-model';
               <div [class]="labelRowClass">
                 <p [class]="labelClass" i18n="@@vendor.overview.conflict.label">In conflict</p>
               </div>
-              <div class="flex items-center gap-3">
+              <div class="flex flex-wrap items-center gap-3">
                 <span [class]="badgeClass" class="bg-(--accent-primary)" aria-hidden="true">
                   <aec-icon name="check" decorative [size]="4" />
                 </span>
@@ -162,7 +162,7 @@ import type { ProductClaimCount } from '../overview/vendor-overview-model';
                 Suggestions about your listing
               </p>
             </div>
-            <div class="flex items-center gap-3">
+            <div class="flex flex-wrap items-center gap-3">
               <span [class]="badgeClass" class="bg-(--accent-primary)" aria-hidden="true">
                 <aec-icon name="check" decorative [size]="4" />
               </span>
@@ -260,6 +260,6 @@ export class VendorGlanceBand {
   protected readonly badgeClass =
     'inline-flex size-8 shrink-0 items-center justify-center rounded-full text-(--surface-base)';
   protected readonly figureClass = 'font-display text-5xl font-semibold tabular-nums';
-  protected readonly zeroClass = 'font-display text-2xl font-semibold text-(--text-primary)';
+  protected readonly zeroClass = 'font-display text-t-20 font-semibold text-(--text-primary)';
   protected readonly lineClass = 'text-t-13 text-(--text-secondary)';
 }
