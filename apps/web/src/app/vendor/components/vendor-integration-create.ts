@@ -46,7 +46,6 @@ import {
   type ProductComboboxItem,
   type ProductComboboxSearch,
 } from '../../shared/product-combobox/product-combobox';
-import { ROW_ACTION } from '../integration-detail/integration-detail-styles';
 import {
   PORTAL_FIELDSET_CLASS,
   PORTAL_FIELD_CLASS,
@@ -1746,8 +1745,10 @@ export class VendorIntegrationCreate implements OnInit {
     'flex min-h-11 items-center gap-3 rounded-control bg-(--surface-sunken) px-4 py-2';
   /** The likely duplicates: a bordered panel across both columns, no card in a card. */
   protected readonly dupesClass = `rounded-panel border border-(--border-default) ${PORTAL_FORM_SPAN_CLASS}`;
-  /** The portal's row action ("Claim to edit", "Request a change"). */
-  protected readonly rowActionClass = `${ROW_ACTION} cursor-pointer`;
+  /** A row's link ("Open it", "Open your integration"): Forest, the role radius. It
+   *  was the detail page's `ROW_ACTION`, retired with its buttons (AECI-1811 part 2). */
+  protected readonly rowActionClass =
+    'inline-flex min-h-6 cursor-pointer items-center rounded-mark text-sm font-semibold text-(--accent-primary) underline-offset-4 hover:underline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
   /** A row's second, quieter link: the same shape as the row action, out of accent. */
   protected readonly quietActionClass =
     'inline-flex min-h-6 items-center rounded-mark text-sm font-semibold text-(--text-secondary) underline-offset-4 hover:text-(--text-primary) hover:underline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';

@@ -30,7 +30,23 @@ import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 import { productCan } from '../vendor-capabilities';
 import { isReplayedEvent } from '../../core/event-replay';
-import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
+import { AecButton } from '../../shared/button/button';
+import { AecCard } from '../../shared/card/card';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { AecIcon } from '../../shared/icon/icon';
+import {
+  PORTAL_FIELD_CLASS,
+  PORTAL_FORM_CLASS,
+  PORTAL_FORM_GRID_CLASS,
+  PORTAL_FORM_SPAN_CLASS,
+  PORTAL_SAVE_BAR_CLASS,
+  PORTAL_SAVE_BUTTON_CLASS,
+  PORTAL_SAVE_STATUS_CLASS,
+} from '../shared/portal-form';
 
 type ProductTextKey =
   | 'description'
@@ -84,12 +100,21 @@ interface FieldConfig {
  */
 @Component({
   selector: 'aec-vendor-product-form',
-  imports: [VendorLogoField, RequestTrigger, NewTabIcon, VendorHiddenNote, VendorLockedNote],
+  imports: [
+    AecButton,
+    AecCard,
+    AecIcon,
+    VendorLogoField,
+    RequestTrigger,
+    NewTabIcon,
+    VendorHiddenNote,
+    VendorLockedNote,
+  ],
   template: `
-    <div class="space-y-6">
+    <div class="space-y-4">
       <!-- Read-only identity: rename is a correction request, not a vendor edit. -->
-      <div class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4">
-        <p class="font-display text-lg text-(--text-primary)">{{ product().name }}</p>
+      <div [class]="noteClass">
+        <p class="font-display text-t-20 text-(--text-primary)">{{ product().name }}</p>
         <p class="mt-1 text-xs text-(--text-secondary)">
           <span class="font-mono">/{{ product().slug }}</span>
         </p>
@@ -106,7 +131,7 @@ interface FieldConfig {
           there is no context here the request does not already have.
         -->
         <p
-          class="mt-2 max-w-prose text-xs leading-relaxed text-(--text-secondary)"
+          class="mt-2 max-w-[52ch] text-xs leading-relaxed text-(--text-secondary)"
           i18n="@@vendor.product.renameHint"
         >
           To change the product name,
@@ -125,203 +150,200 @@ interface FieldConfig {
         </p>
       </div>
 
-      <form method="dialog" class="space-y-6" novalidate (submit)="onFormSubmit($event)">
-        @if (updatedElsewhere()) {
-          <div
-            class="flex flex-wrap items-center gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
+      @if (updatedElsewhere()) {
+        <div [class]="noteClass + ' flex flex-wrap items-center gap-3'">
+          <p class="text-sm text-(--text-primary)" i18n="@@vendor.product.updatedElsewhere">
+            This product changed somewhere else while you were editing. Your unsaved changes are
+            still here.
+          </p>
+          <button
+            aecButton
+            variant="secondary"
+            compact
+            type="button"
+            (click)="reloadSection()"
+            i18n="@@vendor.product.reloadSection"
           >
-            <p class="text-sm text-(--text-primary)" i18n="@@vendor.product.updatedElsewhere">
-              This product changed somewhere else while you were editing. Your unsaved changes are
-              still here.
+            Reload this section
+          </button>
+        </div>
+      }
+
+      @if (!canEdit()) {
+        <!--
+          AECI-1218. Every known plan edits the description, website and logo
+          (section 13.3), so this shows only for a plan block that holds none
+          of the product capabilities, which the server does not serve today.
+        -->
+        <div [class]="noteClass">
+          <p
+            class="max-w-[52ch] text-sm leading-relaxed text-(--text-secondary)"
+            i18n="@@vendor.product.readOnly"
+          >
+            This seat cannot edit this product right now. The product stays published exactly as it
+            is, and everything on record is here to read.
+          </p>
+        </div>
+      } @else if (lockedLabels().length > 0) {
+        <!--
+          AECI-1218 (STAGE_2_VENDOR_PORTAL_SPEC.md section 6.18): the Managed-only
+          fields stay visible and readonly, each with its own reason below it.
+          This line says once, up front, which ones and why.
+        -->
+        <div [class]="noteClass + ' flex items-start gap-3'" data-testid="product-locked-notice">
+          <span class="flex shrink-0 text-(--text-secondary)"
+            ><aec-icon name="lock" decorative [size]="4"
+          /></span>
+          <div class="max-w-[52ch] text-sm leading-relaxed">
+            <p class="font-semibold text-(--text-primary)">{{ lockedNotice() }}</p>
+            <p class="mt-1 text-(--text-secondary)" i18n="@@vendor.product.locked.correction">
+              Spot something wrong in one of them?
+              <a
+                aecRequestTrigger
+                [entity]="'product'"
+                [kind]="'correction'"
+                [slug]="product().slug"
+                [href]="'/products/' + product().slug + '/correction'"
+                target="_blank"
+                rel="noopener"
+                class="text-(--accent-primary) underline underline-offset-2"
+                >Request a correction
+                <span class="inline-flex align-middle"><aec-new-tab-icon /></span
+              ></a>
+              and we fix it.
             </p>
-            <button
-              type="button"
-              [class]="reloadButtonClass"
-              (click)="reloadSection()"
-              i18n="@@vendor.product.reloadSection"
-            >
-              Reload this section
-            </button>
           </div>
-        }
+        </div>
+      }
 
-        @if (!canEdit()) {
-          <!--
-            AECI-1218. Every known plan edits the description, website and logo
-            (section 13.3), so this shows only for a plan block that holds none
-            of the product capabilities, which the server does not serve today.
-          -->
-          <div
-            class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
-          >
-            <p
-              class="max-w-prose text-sm leading-relaxed text-(--text-secondary)"
-              i18n="@@vendor.product.readOnly"
-            >
-              This seat cannot edit this product right now. The product stays published exactly as
-              it is, and everything on record is here to read.
-            </p>
-          </div>
-        } @else if (lockedLabels().length > 0) {
-          <!--
-            AECI-1218 (STAGE_2_VENDOR_PORTAL_SPEC.md section 6.18): the Managed-only
-            fields stay visible and readonly, each with its own reason below it.
-            This line says once, up front, which ones and why.
-          -->
-          <div
-            class="flex items-start gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
-            data-testid="product-locked-notice"
-          >
-            <svg
-              aria-hidden="true"
-              class="mt-0.5 h-4 w-4 shrink-0 text-(--text-secondary)"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <rect x="5" y="11" width="14" height="10" rx="2" />
-              <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-            </svg>
-            <div class="max-w-prose text-sm leading-relaxed">
-              <p class="font-medium text-(--text-primary)">{{ lockedNotice() }}</p>
-              <p class="mt-1 text-(--text-secondary)" i18n="@@vendor.product.locked.correction">
-                Spot something wrong in one of them?
-                <a
-                  aecRequestTrigger
-                  [entity]="'product'"
-                  [kind]="'correction'"
-                  [slug]="product().slug"
-                  [href]="'/products/' + product().slug + '/correction'"
-                  target="_blank"
-                  rel="noopener"
-                  class="text-(--accent-primary) underline underline-offset-2"
-                  >Request a correction
-                  <span class="inline-flex align-middle"><aec-new-tab-icon /></span
-                ></a>
-                and we fix it.
-              </p>
-            </div>
-          </div>
-        }
+      <!--
+        AECI-1810: the portal form card (vendor/shared/portal-form.ts). Two columns
+        from 768px. The order is unchanged: logo, description, then website and the
+        integrations page URL side by side, then the API documentation URL.
+      -->
+      <form
+        aecCard
+        phoneFlush
+        method="dialog"
+        novalidate
+        [class]="formClass + ' p-6 md:p-8'"
+        (submit)="onFormSubmit($event)"
+      >
+        <div [class]="gridClass">
+          <!-- The logo saves from its own dialog, so it is not part of this form's diff. -->
+          <aec-vendor-logo-field
+            [class]="spanClass"
+            [fieldId]="fieldId('logo_url')"
+            [logoUrl]="product().logo_url"
+            [canEdit]="editable()['logo_url']"
+            [save]="saveLogo"
+            (announce)="announcer.announce($event)"
+          />
 
-        <!-- The logo saves from its own dialog, so it is not part of this form's diff. -->
-        <aec-vendor-logo-field
-          [fieldId]="fieldId('logo_url')"
-          [logoUrl]="product().logo_url"
-          [canEdit]="editable()['logo_url']"
-          [save]="saveLogo"
-          (announce)="announcer.announce($event)"
-        />
-
-        @for (cfg of formFields; track cfg.key) {
-          <div class="space-y-1.5">
-            <label [for]="fieldId(cfg.key)" [class]="labelClass">{{ cfg.label }}</label>
-            @if (!editable()[cfg.key]) {
-              <!--
-                AECI-1218: the locked field's reason, visible and tied to the
-                control with aria-describedby so a screen reader reads it too.
-              -->
-              <p
-                [id]="fieldId(cfg.key) + '-locked'"
-                class="flex items-center gap-1.5 text-xs text-(--text-secondary)"
-                data-testid="locked-reason"
-              >
-                <svg
-                  aria-hidden="true"
-                  class="h-3.5 w-3.5 shrink-0"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
+          @for (cfg of formFields; track cfg.key) {
+            <div [class]="cfg.control === 'textarea' ? wideFieldClass : fieldClass">
+              <label [for]="fieldId(cfg.key)" [class]="labelClass">{{ cfg.label }}</label>
+              @if (!editable()[cfg.key]) {
+                <!--
+                  AECI-1218: the locked field's reason, visible and tied to the
+                  control with aria-describedby so a screen reader reads it too.
+                -->
+                <p
+                  [id]="fieldId(cfg.key) + '-locked'"
+                  class="flex items-center gap-2 text-xs text-(--text-secondary)"
+                  data-testid="locked-reason"
                 >
-                  <rect x="5" y="11" width="14" height="10" rx="2" />
-                  <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-                </svg>
-                <span i18n="@@vendor.product.locked.reason"
-                  >Part of Managed for this product. The current value stays published.</span
-                >
-              </p>
-            }
-            @if (cfg.control === 'textarea') {
-              <textarea
-                [id]="fieldId(cfg.key)"
-                rows="4"
-                [value]="model()[cfg.key]"
-                [readOnly]="!editable()[cfg.key] || !!aeciLock(cfg.key)"
-                (input)="onInput(cfg.key, $event)"
-                [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
-                [attr.aria-describedby]="describedBy(cfg.key)"
-                [class]="controlClass(cfg.key)"
-              ></textarea>
-            } @else {
-              <input
-                [id]="fieldId(cfg.key)"
-                type="url"
-                [value]="model()[cfg.key]"
-                [readOnly]="!editable()[cfg.key] || !!aeciLock(cfg.key)"
-                (input)="onInput(cfg.key, $event)"
-                [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
-                [attr.aria-describedby]="describedBy(cfg.key)"
-                [class]="controlClass(cfg.key)"
-              />
-            }
-            @if (aeciLock(cfg.key); as lock) {
-              <aec-vendor-locked-note [lock]="lock" [noteId]="fieldId(cfg.key) + '-aeci'" />
-            }
-            @if (aeciHide(cfg.key); as hide) {
-              <aec-vendor-hidden-note [hide]="hide" [noteId]="fieldId(cfg.key) + '-hidden'" />
-            }
-            @if (fieldErrors()[cfg.key]; as err) {
-              <p [id]="fieldId(cfg.key) + '-error'" [class]="errorClass" role="alert">
-                {{ err }}
-              </p>
-            }
-          </div>
-        }
-
-        <div class="flex flex-wrap items-center gap-4">
-          @if (canEdit()) {
-            <button type="submit" [disabled]="saveDisabled()" [class]="saveButtonClass">
-              @if (saving()) {
-                <span i18n="@@vendor.product.saving">Saving…</span>
-              } @else {
-                <span i18n="@@vendor.product.save">Save changes</span>
+                  <aec-icon name="lock" decorative [size]="3.5" />
+                  <span i18n="@@vendor.product.locked.reason"
+                    >Part of Managed for this product. The current value stays published.</span
+                  >
+                </p>
               }
-            </button>
-          }
-          @if (saved()) {
-            <p
-              class="text-sm font-medium text-(--accent-primary)"
-              role="status"
-              i18n="@@vendor.product.saved"
-            >
-              Product updated. Your listing shows the change now. Search on AEC Integrations updates
-              within a day. Google and other search engines update on their own schedule.
-            </p>
-          } @else if (saveLocked()) {
-            <p
-              class="text-sm font-medium text-(--text-primary)"
-              role="alert"
-              i18n="@@vendor.product.saveLocked"
-            >
-              AEC Integrations has locked a field you changed, so nothing was saved. Reload this
-              section to see the locked value.
-            </p>
-          } @else if (saveError()) {
-            <p
-              class="text-sm font-medium text-(--text-primary)"
-              role="alert"
-              i18n="@@vendor.product.saveError"
-            >
-              Something went wrong saving your changes. Please try again.
-            </p>
+              @if (cfg.control === 'textarea') {
+                <textarea
+                  [id]="fieldId(cfg.key)"
+                  rows="4"
+                  [value]="model()[cfg.key]"
+                  [readOnly]="!editable()[cfg.key] || !!aeciLock(cfg.key)"
+                  (input)="onInput(cfg.key, $event)"
+                  [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
+                  [attr.aria-describedby]="describedBy(cfg.key)"
+                  [class]="inputClass"
+                ></textarea>
+              } @else {
+                <input
+                  [id]="fieldId(cfg.key)"
+                  type="url"
+                  [value]="model()[cfg.key]"
+                  [readOnly]="!editable()[cfg.key] || !!aeciLock(cfg.key)"
+                  (input)="onInput(cfg.key, $event)"
+                  [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
+                  [attr.aria-describedby]="describedBy(cfg.key)"
+                  [class]="inputClass"
+                />
+              }
+              @if (aeciLock(cfg.key); as lock) {
+                <div [class]="lockRowClass">
+                  <aec-icon name="lock" decorative [size]="4" />
+                  <aec-vendor-locked-note
+                    class="min-w-0 flex-1"
+                    [lock]="lock"
+                    [noteId]="fieldId(cfg.key) + '-aeci'"
+                  />
+                </div>
+              }
+              @if (aeciHide(cfg.key); as hide) {
+                <aec-vendor-hidden-note [hide]="hide" [noteId]="fieldId(cfg.key) + '-hidden'" />
+              }
+              @if (fieldErrors()[cfg.key]; as err) {
+                <p [id]="fieldId(cfg.key) + '-error'" [class]="errorClass" role="alert">
+                  {{ err }}
+                </p>
+              }
+            </div>
           }
         </div>
+
+        <!--
+          AECI-1810: the sticky save bar. The status line is plain text: the result
+          is announced through the portal's one live region (VendorPortalAnnouncer).
+          A refused save stays role="alert".
+        -->
+        @if (canEdit() || saved() || saveLocked() || saveError()) {
+          <div [class]="saveBarClass">
+            <div [class]="saveStatusClass">
+              @if (saved()) {
+                <p class="font-semibold text-(--accent-primary)">{{ savedMessage }}</p>
+              } @else if (saveLocked()) {
+                <p
+                  class="font-semibold text-(--text-primary)"
+                  role="alert"
+                  i18n="@@vendor.product.saveLocked"
+                >
+                  AEC Integrations has locked a field you changed, so nothing was saved. Reload this
+                  section to see the locked value.
+                </p>
+              } @else if (saveError()) {
+                <p
+                  class="font-semibold text-(--text-primary)"
+                  role="alert"
+                  i18n="@@vendor.product.saveError"
+                >
+                  Something went wrong saving your changes. Please try again.
+                </p>
+              }
+            </div>
+            @if (canEdit()) {
+              <button aecButton type="submit" [disabled]="saveDisabled()" [class]="saveButtonClass">
+                @if (saving()) {
+                  <span i18n="@@vendor.product.saving">Saving…</span>
+                } @else {
+                  <span i18n="@@vendor.product.save">Save changes</span>
+                }
+              </button>
+            }
+          </div>
+        }
       </form>
     </div>
   `,
@@ -423,21 +445,32 @@ export class VendorProductForm {
   /** AECI-1237: the save was refused with `409 FIELD_LOCKED_BY_AECI`. */
   protected readonly saveLocked = signal(false);
 
-  protected readonly labelClass =
-    'block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)';
-  /** Everything but the background, which is the read-only tell. Two `bg-*`
-   *  utilities on one element would race on stylesheet order. */
-  private readonly inputBase =
-    'w-full rounded-(--radius-md) border border-(--border-default) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected controlClass(key: ProductTextKey): string {
-    return this.editable()[key] && !this.aeciLock(key)
-      ? `${this.inputBase} bg-(--surface-base)`
-      : `${this.inputBase} bg-(--surface-sunken)`;
-  }
-  protected readonly saveButtonClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
-  protected readonly reloadButtonClass =
-    'rounded-(--radius-sm) border border-(--border-default) px-3 py-1.5 text-sm font-label text-(--text-primary) transition-colors hover:bg-(--surface-raised) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  /** The save result, shown in the bar as plain text and announced through the
+   *  portal's one live region (AECI-1810). Same message id and text as before. */
+  protected readonly savedMessage = $localize`:@@vendor.product.saved:Product updated. Your listing shows the change now. Search on AEC Integrations updates within a day. Google and other search engines update on their own schedule.`;
+
+  // AECI-1810: the portal form layout (vendor/shared/portal-form.ts) and the shared
+  // field recipe (shared/form-field/form-field-classes.ts).
+  protected readonly formClass = PORTAL_FORM_CLASS;
+  protected readonly gridClass = PORTAL_FORM_GRID_CLASS;
+  protected readonly spanClass = PORTAL_FORM_SPAN_CLASS;
+  protected readonly fieldClass = PORTAL_FIELD_CLASS;
+  protected readonly wideFieldClass = `${PORTAL_FIELD_CLASS} ${PORTAL_FORM_SPAN_CLASS}`;
+  protected readonly saveBarClass = PORTAL_SAVE_BAR_CLASS;
+  protected readonly saveStatusClass = PORTAL_SAVE_STATUS_CLASS;
+  protected readonly saveButtonClass = PORTAL_SAVE_BUTTON_CLASS;
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  /**
+   * The shared field recipe. A read-only field (a plan lock or an AECi lock) sits on
+   * the sunken surface. The `read-only:` variant sorts after the recipe's
+   * `bg-(--surface-base)`, so it wins whenever the control is read-only, and only then.
+   */
+  protected readonly inputClass = `${FIELD_INPUT_CLASS} read-only:bg-(--surface-sunken)`;
+  /** A note above the form card: the sunken surface, the panel radius. */
+  protected readonly noteClass =
+    'rounded-panel border border-(--border-default) bg-(--surface-sunken) p-4';
+  /** An AECi lock under its field: the lock glyph beside the reason. */
+  protected readonly lockRowClass = 'flex items-start gap-2 text-(--text-primary)';
 
   protected readonly fieldErrors = computed<Record<string, string | null>>(() => {
     const m = this.model();
@@ -608,6 +641,9 @@ export class VendorProductForm {
         )
         .commit();
       this.saved.set(true);
+      // AECI-1810: the bar's status line is plain text, so the result is announced
+      // through the portal's one live region. A refusal is a role="alert" line.
+      this.announcer.announce(this.savedMessage);
     } catch (err) {
       if (apiErrorCode(err) === 'FIELD_LOCKED_BY_AECI') this.saveLocked.set(true);
       else this.saveError.set(true);

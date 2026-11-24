@@ -24,15 +24,12 @@ vendor/components/vendor-billing-stripe-panel.ts 3
 vendor/components/vendor-billing-summary.ts 1
 vendor/components/vendor-contests-list.ts 1
 vendor/components/vendor-license-actions.ts 1
-vendor/components/vendor-logo-field.ts 3
 vendor/components/vendor-nudge-mute-toggle.ts 1
-vendor/components/vendor-product-facet-editor.ts 3
 vendor/components/vendor-proposal-card.ts 1
 vendor/components/vendor-reviews-list.ts 1
 vendor/components/vendor-seat-invite-dialog.ts 1
 vendor/components/vendor-seat-roster.ts 2
 vendor/sections/vendor-billing-section.ts 6
 vendor/sections/vendor-messages-page.ts 2
-vendor/sections/vendor-profile-section.ts 1
 vendor/sections/vendor-proposals-section.ts 2
 vendor/sections/vendor-seats-page.ts 1

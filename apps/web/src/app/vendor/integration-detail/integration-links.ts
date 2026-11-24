@@ -49,14 +49,9 @@ import {
   submittedOutcome,
 } from './integration-detail-model';
 import { IntegrationDetailState } from './integration-detail-state';
-import {
-  ALERT,
-  BTN_PRIMARY,
-  BTN_SECONDARY,
-  ICON_BUTTON,
-  ID_STYLES,
-  ROW_ACTION,
-} from './integration-detail-styles';
+import { AecButton } from '../../shared/button/button';
+import { AecIcon } from '../../shared/icon/icon';
+import { ALERT, ID_STYLES, INPUT } from './integration-detail-styles';
 import { VendorTip } from './vendor-tip';
 import { isReplayedEvent } from '../../core/event-replay';
 
@@ -67,9 +62,6 @@ interface SideGroup {
   readonly mine: boolean;
   readonly links: IntegrationSideLinks;
 }
-
-const PENCIL =
-  'M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z';
 
 /**
  * "Integration links" (AECI-1152, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.5): every
@@ -90,7 +82,7 @@ const PENCIL =
  */
 @Component({
   selector: 'aec-integration-links',
-  imports: [VendorTip, NewTabIcon, VendorHiddenNote, VendorLockedNote],
+  imports: [AecButton, AecIcon, VendorTip, NewTabIcon, VendorHiddenNote, VendorLockedNote],
   styles: [ID_STYLES],
   template: `
     @let i = integration();
@@ -98,7 +90,7 @@ const PENCIL =
       <h3
         id="links-heading"
         tabindex="-1"
-        class="id-h3 text-(--text-primary) focus:outline-none"
+        class="text-(--text-primary) focus:outline-none"
         i18n="@@vendor.im.section.links"
       >
         Integration links
@@ -106,36 +98,36 @@ const PENCIL =
       <aec-vendor-tip [label]="aboutSection" [lines]="[sectionTip]" />
     </div>
 
-    <div class="mt-3 space-y-6 text-sm">
+    <div class="mt-4 space-y-8 text-sm">
       <div>
         <div class="flex items-center gap-1">
-          <h4 class="id-h4" i18n="@@vendor.im.links.record">On the integration</h4>
+          <h4 [class]="overline" i18n="@@vendor.im.links.record">On the integration</h4>
           <aec-vendor-tip [label]="aboutRecord" [lines]="[recordTip()]" />
         </div>
         @if (connector()) {
           <p class="mt-1 text-(--text-secondary)">{{ fromConnectorLine() }}</p>
         }
-        <dl class="mt-1 divide-y divide-(--border-default)">
+        <dl class="mt-2 divide-y divide-(--border-default)">
           @for (field of recordFields; track field) {
             @let value = recordValue(field);
             <div
               [id]="rowId(field)"
               tabindex="-1"
-              class="grid scroll-mt-20 items-center gap-x-6 gap-y-1 py-2 focus:outline-2 focus:outline-offset-2 focus:outline-(--accent-primary) sm:grid-cols-[11rem_minmax(0,1fr)]"
+              class="grid scroll-mt-20 items-center gap-x-6 gap-y-1 py-1 focus:outline-2 focus:outline-offset-2 focus:outline-(--accent-primary) sm:grid-cols-[11rem_minmax(0,1fr)]"
               [attr.data-testid]="'links-row-' + field"
             >
-              <dt class="flex min-h-8 items-center gap-1 text-(--text-secondary)">
+              <dt class="flex min-h-11 items-center gap-1 text-(--text-secondary)">
                 {{ fieldLabel(field) }}
                 <aec-vendor-tip
                   [label]="about(fieldLabel(field))"
                   [lines]="recordFieldTip(field)"
                 />
               </dt>
-              <dd class="flex min-h-8 min-w-0 flex-wrap items-center gap-2">
+              <dd class="flex min-h-11 min-w-0 flex-wrap items-center gap-2">
                 @if (editing() === 'record:' + field) {
                   <form
                     method="dialog"
-                    class="flex min-w-0 flex-1 flex-wrap items-center gap-2"
+                    class="flex min-w-0 flex-1 flex-wrap items-center gap-2 py-1"
                     [attr.aria-label]="editLabel(fieldLabel(field))"
                     (submit)="saveRecord($event, field)"
                   >
@@ -144,18 +136,21 @@ const PENCIL =
                       type="url"
                       inputmode="url"
                       placeholder="https://"
-                      class="id-input min-w-[14rem] flex-1"
+                      [class]="input"
+                      class="min-w-[14rem] flex-1"
                       [attr.aria-label]="fieldLabel(field)"
                       [attr.aria-invalid]="error() ? 'true' : null"
                       [value]="draft()"
                       (input)="draft.set(inputValue($event))"
                     />
-                    <button type="submit" [class]="primary" [disabled]="busy()">
+                    <button aecButton compact type="submit" [disabled]="busy()">
                       <span i18n="@@vendor.im.edit.save">Save</span>
                     </button>
                     <button
+                      aecButton
+                      variant="secondary"
+                      compact
                       type="button"
-                      [class]="secondary"
                       [disabled]="busy()"
                       (click)="cancel()"
                       i18n="@@vendor.im.edit.cancel"
@@ -215,33 +210,24 @@ const PENCIL =
                         <!-- AECI-1237: AEC Integrations locked it; the note says why. -->
                       } @else if (recordEditable()) {
                         <button
+                          aecButton
+                          variant="ghost"
+                          iconOnly
                           #pencil
                           type="button"
-                          [class]="iconButton"
                           [attr.data-row]="'record:' + field"
                           [attr.aria-label]="editLabel(fieldLabel(field))"
                           [attr.data-testid]="'edit-' + field"
                           (click)="edit('record:' + field, value)"
                         >
-                          <svg
-                            aria-hidden="true"
-                            class="h-4 w-4"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                          >
-                            <path [attr.d]="pencilPath" />
-                            <path d="m15 5 4 4" />
-                          </svg>
+                          <aec-icon name="pen" decorative [size]="4" />
                         </button>
                       } @else if (i.is_owner && !i.claimed_at) {
                         @if (claimAllowed()) {
                           <button
+                            aecButton
+                            variant="ghost"
                             type="button"
-                            [class]="rowAction"
                             [attr.aria-label]="claimToEditLabel(fieldLabel(field))"
                             (click)="state.jumpTo(ownerRow)"
                             i18n="@@vendor.im.claimToEdit"
@@ -251,8 +237,9 @@ const PENCIL =
                         }
                       } @else if (!i.is_owner && !flagFor(field)) {
                         <button
+                          aecButton
+                          variant="ghost"
                           type="button"
-                          [class]="rowAction"
                           [attr.aria-label]="requestLabel(fieldLabel(field))"
                           [attr.data-testid]="'request-' + field"
                           (click)="state.openRequestForm(field)"
@@ -276,8 +263,10 @@ const PENCIL =
         </p>
         @if (stranded()) {
           <div data-testid="links-stranded">
-            <div class="flex flex-wrap items-center gap-1.5">
-              <h4 class="id-h4">{{ i.context_product.name }}</h4>
+            <div class="flex flex-wrap items-center gap-2">
+              <h4 class="text-t-14 font-semibold text-(--text-primary)">
+                {{ i.context_product.name }}
+              </h4>
               <span class="text-(--text-secondary)" i18n="@@vendor.im.links.yourProduct"
                 >Your product</span
               >
@@ -286,21 +275,24 @@ const PENCIL =
               This integration is now delivered through a connector product, so it no longer takes
               your own links and readers no longer see them. You can remove them.
             </p>
-            <dl class="mt-1 divide-y divide-(--border-default)">
+            <dl class="mt-2 divide-y divide-(--border-default)">
               @for (kind of sideKinds; track kind.key) {
                 @let value = sideValue(i.own_links, kind.key);
                 @if (value) {
                   <div
-                    class="grid items-center gap-x-6 gap-y-1 py-2 sm:grid-cols-[11rem_minmax(0,1fr)]"
+                    class="grid items-center gap-x-6 gap-y-1 py-1 sm:grid-cols-[11rem_minmax(0,1fr)]"
                   >
-                    <dt class="text-(--text-secondary)">{{ kind.label }}</dt>
+                    <dt class="flex min-h-11 items-center text-(--text-secondary)">
+                      {{ kind.label }}
+                    </dt>
                     <dd class="flex min-w-0 flex-wrap items-center gap-2">
                       <span class="min-w-0 flex-1 break-all text-(--text-primary)">{{
                         value
                       }}</span>
                       <button
+                        aecButton
+                        variant="ghost"
                         type="button"
-                        [class]="rowAction"
                         [disabled]="busy()"
                         [attr.aria-label]="removeLabel(kind.label, i.context_product.name)"
                         (click)="removeStranded(kind.key)"
@@ -321,8 +313,10 @@ const PENCIL =
       } @else {
         @for (group of sideGroups(); track group.product.id) {
           <div [attr.data-testid]="'links-side-' + group.product.slug">
-            <div class="flex flex-wrap items-center gap-1.5">
-              <h4 class="id-h4">{{ group.product.name }}</h4>
+            <div class="flex flex-wrap items-center gap-2">
+              <h4 class="text-t-14 font-semibold text-(--text-primary)">
+                {{ group.product.name }}
+              </h4>
               @if (group.mine) {
                 <span class="text-(--text-secondary)" i18n="@@vendor.im.links.yourProduct"
                   >Your product</span
@@ -332,19 +326,9 @@ const PENCIL =
                   [lines]="[mineTip(group.product.name)]"
                 />
               } @else {
-                <svg
-                  aria-hidden="true"
-                  class="h-3.5 w-3.5 text-(--text-secondary)"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
-                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                </svg>
+                <span class="flex text-(--text-secondary)">
+                  <aec-icon name="lock" decorative [size]="3.5" />
+                </span>
                 <span class="text-(--text-secondary)">{{ providedBy() }}</span>
                 <aec-vendor-tip
                   [label]="aboutLinksFor(group.product.name)"
@@ -352,25 +336,25 @@ const PENCIL =
                 />
               }
             </div>
-            <dl class="mt-1 divide-y divide-(--border-default)">
+            <dl class="mt-2 divide-y divide-(--border-default)">
               @for (kind of sideKinds; track kind.key) {
                 @let value = sideValue(group.links, kind.key);
                 @let target = 'side:' + group.product.id + ':' + kind.key;
                 <div
-                  class="grid items-center gap-x-6 gap-y-1 py-2 sm:grid-cols-[11rem_minmax(0,1fr)]"
+                  class="grid items-center gap-x-6 gap-y-1 py-1 sm:grid-cols-[11rem_minmax(0,1fr)]"
                 >
-                  <dt class="flex min-h-8 items-center gap-1 text-(--text-secondary)">
+                  <dt class="flex min-h-11 items-center gap-1 text-(--text-secondary)">
                     {{ kind.label }}
                     <aec-vendor-tip
                       [label]="about(kind.label)"
                       [lines]="sideKindTip(group, kind.key)"
                     />
                   </dt>
-                  <dd class="flex min-h-8 min-w-0 flex-wrap items-center gap-2">
+                  <dd class="flex min-h-11 min-w-0 flex-wrap items-center gap-2">
                     @if (editing() === target) {
                       <form
                         method="dialog"
-                        class="flex min-w-0 flex-1 flex-wrap items-center gap-2"
+                        class="flex min-w-0 flex-1 flex-wrap items-center gap-2 py-1"
                         [attr.aria-label]="editForLabel(kind.label, group.product.name)"
                         (submit)="saveSide($event, group, kind.key)"
                       >
@@ -379,18 +363,21 @@ const PENCIL =
                           type="url"
                           inputmode="url"
                           placeholder="https://"
-                          class="id-input min-w-[14rem] flex-1"
+                          [class]="input"
+                          class="min-w-[14rem] flex-1"
                           [attr.aria-label]="editForLabel(kind.label, group.product.name)"
                           [attr.aria-invalid]="error() ? 'true' : null"
                           [value]="draft()"
                           (input)="draft.set(inputValue($event))"
                         />
-                        <button type="submit" [class]="primary" [disabled]="busy()">
+                        <button aecButton compact type="submit" [disabled]="busy()">
                           <span i18n="@@vendor.im.edit.save">Save</span>
                         </button>
                         <button
+                          aecButton
+                          variant="secondary"
+                          compact
                           type="button"
-                          [class]="secondary"
                           [disabled]="busy()"
                           (click)="cancel()"
                           i18n="@@vendor.im.edit.cancel"
@@ -398,7 +385,7 @@ const PENCIL =
                           Cancel
                         </button>
                         <p
-                          class="basis-full text-sm text-(--text-secondary)"
+                          class="basis-full text-xs text-(--text-secondary)"
                           i18n="@@vendor.im.links.emptyRemoves"
                         >
                           Leave it empty to remove the link.
@@ -425,28 +412,18 @@ const PENCIL =
                       }
                       @if (group.mine && live()) {
                         <button
+                          aecButton
+                          variant="ghost"
+                          iconOnly
                           #pencil
                           type="button"
-                          class="ms-auto"
-                          [class]="iconButton"
+                          [class]="'ms-auto'"
                           [attr.data-row]="target"
                           [attr.aria-label]="editForLabel(kind.label, group.product.name)"
                           [attr.data-testid]="'edit-side-' + group.product.slug + '-' + kind.key"
                           (click)="edit(target, value)"
                         >
-                          <svg
-                            aria-hidden="true"
-                            class="h-4 w-4"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                          >
-                            <path [attr.d]="pencilPath" />
-                            <path d="m15 5 4 4" />
-                          </svg>
+                          <aec-icon name="pen" decorative [size]="4" />
                         </button>
                       }
                     }
@@ -673,14 +650,11 @@ export class IntegrationLinksSection {
     return (event.target as HTMLInputElement).value;
   }
 
-  protected readonly pencilPath = PENCIL;
-  protected readonly primary = BTN_PRIMARY;
-  protected readonly secondary = BTN_SECONDARY;
-  protected readonly iconButton = ICON_BUTTON;
-  protected readonly rowAction = ROW_ACTION;
+  protected readonly input = INPUT;
+  protected readonly overline = 'aec-overline text-(--text-secondary)';
   protected readonly alert = ALERT;
   protected readonly valueLinkClass =
-    'inline-flex min-w-0 items-center gap-1.5 rounded-(--radius-sm) text-(--text-primary) underline decoration-(--border-strong) underline-offset-4 hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+    'inline-flex min-w-0 items-center gap-2 rounded-mark text-(--text-primary) underline decoration-(--border-strong) underline-offset-4 hover:text-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
 
   // ── Edits ──────────────────────────────────────────────────────────────────
 

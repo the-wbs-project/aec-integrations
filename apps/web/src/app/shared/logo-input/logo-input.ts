@@ -101,8 +101,8 @@ import { pickLogoFile, uploadLogo, type LogoUploadEndpoint } from './logo-upload
             (dragover)="dragOver($event)"
             (dragleave)="dragging.set(false)"
             (drop)="drop($event)"
-            [class.border-(--accent-primary)]="dragging()"
-            class="rounded-(--radius-md) border border-dashed border-(--border-strong) bg-(--surface-sunken) p-4"
+            [attr.data-dragging]="dragging()"
+            class="rounded-(--radius-md) border border-dashed border-(--border-strong) bg-(--surface-sunken) p-4 data-[dragging=true]:border-(--accent-primary)"
           >
             <label
               [for]="inputId() + '-file'"
