@@ -62,7 +62,6 @@ vendor/components/vendor-billing-licenses.ts 3
 vendor/components/vendor-billing-stripe-panel.ts 2
 vendor/components/vendor-billing-summary.ts 1
 vendor/components/vendor-billing-unused-warning.ts 1
-vendor/components/vendor-bullet-list-editor.ts 3
 vendor/components/vendor-contest-form.ts 5
 vendor/components/vendor-contest-protest.ts 6
 vendor/components/vendor-contests-list.ts 5
@@ -70,13 +69,9 @@ vendor/components/vendor-hidden-note.ts 1
 vendor/components/vendor-license-actions.ts 6
 vendor/components/vendor-license-assign.ts 3
 vendor/components/vendor-locked-note.ts 1
-vendor/components/vendor-logo-field.ts 12
 vendor/components/vendor-not-ours.ts 6
 vendor/components/vendor-notifications-list.ts 2
 vendor/components/vendor-nudge-mute-toggle.ts 2
-vendor/components/vendor-product-facet-editor.ts 7
-vendor/components/vendor-product-form.ts 7
-vendor/components/vendor-profile-form.ts 7
 vendor/components/vendor-proposal-card.ts 6
 vendor/components/vendor-request-status.ts 2
 vendor/components/vendor-review-strip.ts 1

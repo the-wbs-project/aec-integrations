@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UpdateVendorProductResponse, VendorProduct } from '@aeci/shared';
 import { capabilitiesFor, type Capability } from '@aeci/shared/entitlements';
 
+import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { VENDOR_ME_FIXTURE } from '../vendor-fixtures';
 import { VendorPortalStore } from '../vendor-portal-store';
@@ -117,9 +118,11 @@ describe('VendorProductForm', () => {
     expect(updateProduct).toHaveBeenCalledWith(PRODUCT.id, {
       description: 'A revised product description.',
     });
-    expect(fixture.nativeElement.querySelector('[role="status"]')?.textContent).toContain(
-      'Product updated',
-    );
+    // AECI-1810: plain text in the save bar, announced through the portal's one region.
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('.aec-portal-save-bar')?.textContent).toContain('Product updated');
+    expect(host.querySelector('[role="status"], [aria-live]')).toBeNull();
+    expect(TestBed.inject(VendorPortalAnnouncer).message()).toContain('Product updated');
     expect(saveButton(fixture)?.disabled).toBe(true);
   });
 

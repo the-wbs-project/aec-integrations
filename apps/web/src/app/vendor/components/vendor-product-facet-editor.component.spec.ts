@@ -7,6 +7,7 @@ import type { TaxonomyResponse, UpdateVendorProductResponse, VendorProduct } fro
 import { capabilitiesFor, type Capability } from '@aeci/shared/entitlements';
 
 import { expectTitleFirstDialog } from '../../core/testing/title-first-dialog.harness';
+import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import {
   VENDOR_ME_CONNECTOR_SEAT_FIXTURE,
@@ -137,15 +138,39 @@ describe('VendorProductFacetEditor', () => {
   // ── Heading level (AECI-1122) ────────────────────────────────────────────
 
   it('renders the facet heading as h3 by default and h2 when asked', () => {
+    // AECI-1810: the heading and its hints sit above the form card, so the host is
+    // the scope. The removal dialog's h2 is not rendered until it opens.
     const nested = create('categories');
     expect(el(nested).querySelector('h3')?.textContent?.trim()).toBe('Categories');
-    expect(el(nested).querySelector('form h2')).toBeNull();
+    expect(el(nested).querySelector('h2')).toBeNull();
 
     const routed = create('audiences', { headingLevel: 2 });
-    const h2 = el(routed).querySelector('form h2');
+    const h2 = el(routed).querySelector('h2');
     expect(h2?.textContent?.trim()).toBe('Audiences');
     expect(h2?.id).toBe(`vendor-product-${PRODUCT.id}-audiences-heading`);
-    expect(el(routed).querySelector('form h3')).toBeNull();
+    // No size or weight utility on the heading: the global h2 rule sets it.
+    expect(h2?.getAttribute('class') ?? '').toBe('');
+    expect(el(routed).querySelector('h3')).toBeNull();
+  });
+
+  it('shows the ticked terms as dense chips under the count, on the portal form card (AECI-1810)', () => {
+    const f = create('categories');
+    const form = el(f).querySelector('form') as HTMLFormElement;
+    expect(form.getAttribute('method')).toBe('dialog');
+    expect(form.querySelector('.aec-portal-save-bar button[type="submit"]')).not.toBeNull();
+    const chips = el(f).querySelector('[data-testid="facet-chosen"]') as HTMLElement;
+    const names = [...chips.querySelectorAll('aec-chip')].map((c) => c.textContent?.trim());
+    const ticked = [...el(f).querySelectorAll<HTMLInputElement>('fieldset input[type="checkbox"]')]
+      .filter((box) => box.checked)
+      .map((box) => box.closest('label')!.querySelector('span span')!.textContent?.trim());
+    expect(names).toEqual(ticked);
+    // The chip list is named by the count line beside it.
+    const count = el(f).querySelector(`#${chips.getAttribute('aria-labelledby')}`);
+    expect(count?.textContent).toContain(`${ticked.length} of 10 selected`);
+
+    toggle(f, 'Project management');
+    const after = [...chips.querySelectorAll('aec-chip')].map((c) => c.textContent?.trim());
+    expect(after).toContain('Project management');
   });
 
   // ── Simple facets ────────────────────────────────────────────────────────
@@ -179,7 +204,10 @@ describe('VendorProductFacetEditor', () => {
     expect([...body.category_slugs].sort()).toEqual(
       [...PRODUCT.category_slugs, 'project-management'].sort(),
     );
-    expect(el(f).querySelector('[role="status"]')?.textContent).toContain('Product updated');
+    // AECI-1810: plain text in the save bar, announced through the portal's one region.
+    expect(el(f).querySelector('.aec-portal-save-bar')?.textContent).toContain('Product updated');
+    expect(el(f).querySelector('[role="status"], [aria-live]')).toBeNull();
+    expect(TestBed.inject(VendorPortalAnnouncer).message()).toContain('Product updated');
     expect(save(f)?.disabled).toBe(true);
   });
 
