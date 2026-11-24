@@ -10,8 +10,8 @@
  *
  * Users today: the claim dialog flow, `ClaimantFields`, `ProfileDetailsForm`,
  * `/welcome` and the `/account` "About you" section. The label constants also
- * reach the sign-in email label, the search box's visible label and both pair
- * finders (AECI-2003).
+ * reach the sign-in email label and the search box's visible label, which the
+ * home pair finder and the claim dialog use (AECI-2003).
  * Light only. The strings are byte-identical to what the claim dialog had
  * inline, so moving them here changed no rendered class. The two button
  * constants are the exception: since AECI-1758 they are the `aecButton` recipe.
@@ -22,19 +22,12 @@
 import { buttonClass } from '../button/button';
 
 /**
- * The Label role's type alone (`DESIGN.md` §3): 13px at weight 600 on a 1.4 line,
- * tracking +0.01em, with no ink. For a label on a non-default ground, where the
- * caller supplies the ink: the product page pair finder on Forest takes
- * `--text-on-brand-secondary` (AECI-2003). Everywhere else use the two below.
- */
-export const FIELD_LABEL_FONT_CLASS = 'text-t-13 font-semibold tracking-[0.01em]';
-
-/**
  * The Label role's type (`DESIGN.md` §3): 13px at weight 600 on a 1.4 line, tracking
  * +0.01em, in sentence case, secondary ink. No display, so an inline label (the
  * `aec-select` inline layout) can take it.
  */
-export const FIELD_LABEL_TYPE_CLASS = `${FIELD_LABEL_FONT_CLASS} text-(--text-secondary)`;
+export const FIELD_LABEL_TYPE_CLASS =
+  'text-t-13 font-semibold tracking-[0.01em] text-(--text-secondary)';
 
 /**
  * A field label, or a `legend` acting as one: the Label role on its own line. Since

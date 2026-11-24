@@ -181,7 +181,7 @@ registerDetailResolverSuite<ProductDetail>({
   // Powered edges (Addendum B) tag BOTH endpoints — this product is the
   // connector, so neither endpoint is "self".
   expectedEmbedded: [
-    { type: 'vendor', slug: 'procore' },
+    { type: 'vendor', slug: 'procore', lead: true }, // AECI-2025: its logo renders in the facts card
     { type: 'integration', id: 'int-a' },
     { type: 'product', slug: 'b' }, // target of integrations_as_source[0]
     { type: 'integration', id: 'int-v' },

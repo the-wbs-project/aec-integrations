@@ -996,6 +996,22 @@
       ],
       "display": "ActionsTable",
       "query": "-- AECI-1222. Spam-complaint rate from the Resend delivery webhook, production only.\n-- Same counting rules as alert-email-bounce-rate. Floor on COMPLAINTS (>= 1): a complaint\n-- is rare enough that one is worth reading, and the rate bar does the rest at volume.\n-- No GROUP BY at the top level: always exactly one row (0 / '') on an empty window.\nSELECT\n    if(sumIf(m.value, s.labels['event'] = 'complained') >= 1,\n       round(100.0 * sumIf(m.value, s.labels['event'] = 'complained')\n             / greatest(sumIf(m.value, s.labels['event'] = 'sent'), 1), 2),\n       0.0)                                                                AS complaint_rate_pct,\n    concat(toString(toInt(sumIf(m.value, s.labels['event'] = 'sent'))),\n           ' emails sent in 7 days; ',\n           toString(toInt(sumIf(m.value, s.labels['event'] = 'complained'))), ' marked as spam: ',\n           arrayStringConcat(arraySlice(arraySort(groupUniqArrayIf(toString(s.labels['template']),\n                                                  s.labels['event'] = 'complained')), 1, 5), ', ')) AS sample\nFROM posthog.metrics AS m\n-- Labels live on posthog.metric_series, not on the point (AECI-1115).\n-- One row per series_fingerprint, so a repeated series row cannot double-count.\nLEFT JOIN (\n    SELECT series_fingerprint, any(attributes) AS labels\n    FROM posthog.metric_series\n    WHERE metric_name = 'aeci.email.delivery'\n    GROUP BY series_fingerprint\n) AS s ON m.series_fingerprint = s.series_fingerprint\nWHERE m.timestamp >= now() - INTERVAL 7 DAY\n  AND m.metric_name = 'aeci.email.delivery'\n  AND s.labels['outcome'] = 'recorded'"
+    },
+    {
+      "key": "alert-cache-tags-truncated",
+      "name": "Alert: a page went uncached because its cache tags did not fit",
+      "dashboard": "AECi — What the alerts are watching",
+      "dashboardKey": "alert-sources",
+      "description": "Fires when any page in the last day could not carry its cache tags and so was not cached at all (Tier B). It still loaded, but every visit rendered it. Pages cached for a minute instead (Tier A) show in the second column as a watch and do not fire. The email names the page types.",
+      "notes": "NEW with AECI-2025, no Datadog predecessor. Watches aeci.cache.tags.truncated. The alert column counts reason:uncacheable_product_tags_dropped only (Tier B, not stored), threshold > 0. reason:degraded_ttl (Tier A, cached on TAG_OVERFLOW_TTL, 60 s) is the degraded_renders column, a watch that never fires. Production has never emitted the metric: the largest live product had 57 partners on 2026-11-23. Not verified against PostHog, because AECI-2025 made no production calls. Run the query read-only before apply.sh.",
+      "tags": [
+        "aeci",
+        "alert-source",
+        "managed-by:aeci-647",
+        "aeci-key:alert-cache-tags-truncated"
+      ],
+      "display": "ActionsTable",
+      "query": "-- AECI-2025. A render whose Cache-Tag list passed Cloudflare's 16 KB / 1,000-tag limit\n-- and was cut (apps/web/src/server/cache-tags.ts composeCacheTags), cache MISS only.\n-- The alert reads uncacheable_renders: Tier B, reason:uncacheable_product_tags_dropped,\n-- a page that was not stored. degraded_renders (Tier A, cached for 60 s) is a watch.\n-- Labels live on posthog.metric_series, not on the point (AECI-1115).\n-- 24 h window, daily evaluation, so each breach is read once.\n-- No GROUP BY at the top level: always exactly one row (0 / 0 / '') on an empty window.\nSELECT\n    sumIf(m.value, s.labels['reason'] = 'uncacheable_product_tags_dropped') AS uncacheable_renders,\n    sumIf(m.value, s.labels['reason'] = 'degraded_ttl')                     AS degraded_renders,\n    arrayStringConcat(arraySort(groupUniqArrayIf(toString(s.labels['route_class']),\n        s.labels['reason'] = 'uncacheable_product_tags_dropped')), ', ')   AS uncacheable_route_classes\nFROM posthog.metrics AS m\nLEFT JOIN (\n    SELECT series_fingerprint, any(attributes) AS labels\n    FROM posthog.metric_series\n    WHERE metric_name = 'aeci.cache.tags.truncated'\n    GROUP BY series_fingerprint\n) AS s ON m.series_fingerprint = s.series_fingerprint\nWHERE m.timestamp >= now() - INTERVAL 24 HOUR\n  AND m.metric_name = 'aeci.cache.tags.truncated'"
     }
   ]
 }

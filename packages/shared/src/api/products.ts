@@ -81,6 +81,33 @@ export const ProductListItemSchema = z.object({
 
 export type ProductListItem = z.infer<typeof ProductListItemSchema>;
 
+/**
+ * One product's mark on the product page's integrations wheel (AECI-2018, ruling 64,
+ * 2026-11-24). One entry per product the page product has an integration with, and one
+ * for the page product itself, which the wheel's centre shows. In no order: the wheel
+ * joins it to the rows by `product_id`.
+ *
+ * **The wheel only.** Ruling 64 lets a wheel tile show a product's logo whenever we hold
+ * one, claimed or not. Every other surface keeps the AECI-1769 rule, so the rows in
+ * `integrations_as_source` / `integrations_as_target` still carry `logo_url: null` for
+ * an unclaimed partner, and no list, card, row or search record carries this shape.
+ *
+ * `logo_url` is a logo we may show (`wheelLogoOf` in the API): a claimed product's stored
+ * logo, the vendor's upload included; for an unclaimed product, the logo we sourced
+ * ourselves, never a vendor upload left over from an ended claim (Vendor Terms 1.3,
+ * ADR 0051). A removal on objection clears both, and the purge of `product:{partner}` it
+ * sends repaints this page, which carries that tag. `claim_status` decides the
+ * "Unclaimed" label in the wheel's card, and nothing else: no tile is marked, and nothing
+ * orders, includes or sizes by it.
+ */
+export const WheelMarkSchema = z.object({
+  product_id: z.string().uuid(),
+  logo_url: LogoReadUrlSchema.nullable(),
+  claim_status: SubjectClaimStatusSchema,
+});
+
+export type WheelMark = z.infer<typeof WheelMarkSchema>;
+
 // `usefulness` moved to its own leaf module (AECI-963) so `./vendor` can reach it
 // without dragging this file's `./reviews` + `./logo-read` imports onto the lazy
 // `/vendor` chunk. Re-exported here because every existing import site names
@@ -135,6 +162,12 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   usefulness_source: z.enum(['vendor', 'admin']).nullable().default(null),
   integrations_as_source: z.array(ProductIntegrationItemSchema),
   integrations_as_target: z.array(ProductIntegrationItemSchema),
+  /**
+   * The integrations wheel's marks (AECI-2018, ruling 64): one per partner in the two
+   * arrays above, and one for this product, for the wheel's centre. See `WheelMarkSchema`. Optional so an older payload, and a fixture
+   * that predates the wheel, still parse. A missing entry shows the initial tile.
+   */
+  wheel_marks: z.array(WheelMarkSchema).optional(),
   // Integrations this product POWERS as the connector/mechanism
   // (`integrations.powered_by_product_id`), not as an endpoint — the edges a
   // connector-role product exists to provide (Stage 1.5 Addendum B). Row shape
