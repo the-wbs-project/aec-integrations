@@ -245,7 +245,8 @@ html.js .wheel-more { display: none; }
 .pcard[hidden] { display: none; }
 .pcard .mk { width: 48px; height: 48px; }
 .pcard .nm { font: 600 var(--t-20)/1.25 var(--font-display); overflow-wrap: anywhere; }
-.pcard .uc { margin-left: 8px; font: 600 var(--t-13)/1.4 var(--font-body); color: var(--text-secondary); white-space: nowrap; }
+.pcard .nm { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; }
+.pcard .uc { font: 600 var(--t-13)/1.4 var(--font-body); color: var(--text-secondary); white-space: nowrap; }
 .pcard .by { margin-top: 2px; font-size: var(--t-14); line-height: 1.4; color: var(--text-secondary); }
 .pcard .go { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; padding-top: 12px; border-top: 1px solid var(--border-default);
   font-size: var(--t-13); color: var(--text-secondary); }
