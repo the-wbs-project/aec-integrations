@@ -1,12 +1,4 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  ElementRef,
-  computed,
-  input,
-  signal,
-  viewChild,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 
 import { BAND_WRAP_CLASS } from '../band-wrap';
 
@@ -62,18 +54,6 @@ import { BAND_WRAP_CLASS } from '../band-wrap';
  *
  * The bottom padding is 128px at `md` and up and 96px below it. The facts card
  * that overlaps the band (AECI-1778) never overlaps past that padding.
- *
- * **Holding the columns (owner ruling 2026-11-17, item 82).** From `lg` the two
- * columns are centred against each other. When a caller grows the panel in
- * place, as the product hero's "Show all" does, centring would push the text
- * column down by half the growth (about 300px with 32 categories). The caller
- * calls `holdColumns()` just before the panel grows. The band measures where each
- * column sits now, then top-aligns both at those offsets, so neither moves.
- * `releaseColumns()` returns to centring. A plain top-align is not enough: when
- * the panel is the taller column, the text is centred some way down, and a
- * top-align would move it up instead. The hold applies only from `lg`, it is set
- * only by a click, and the server never renders it, so cached HTML is unchanged.
- * A caller that never calls it gets today's layout.
  */
 @Component({
   selector: 'aec-hero-band',
@@ -83,13 +63,8 @@ import { BAND_WRAP_CLASS } from '../band-wrap';
     <div class="aec-hero-band bg-(--accent-primary) text-(--text-on-brand)">
       <div [class]="wrap()">
         <ng-content select="[heroCrumbs]" />
-        <div #grid [class]="gridClass()" data-testid="hero-band-grid">
-          <div
-            [class]="textClass()"
-            [attr.data-held]="held() ? '' : null"
-            [style.--aec-hero-held]="held() ? held()!.text + 'px' : null"
-            data-testid="hero-band-text"
-          >
+        <div [class]="gridClass()" data-testid="hero-band-grid">
+          <div [class]="textClass()" data-testid="hero-band-text">
             <ng-content select="[heroKicker]" />
             <div
               class="mt-6 mb-3 flex items-start gap-4 md:mb-4 md:items-center md:gap-6"
@@ -117,11 +92,7 @@ import { BAND_WRAP_CLASS } from '../band-wrap';
               <ng-content select="[heroActions]" />
             </div>
           </div>
-          <div
-            [class]="panelClass()"
-            [attr.data-held]="held() ? '' : null"
-            [style.--aec-hero-held]="held() ? held()!.panel + 'px' : null"
-          >
+          <div [class]="panelClass()">
             <ng-content select="[heroPanel]" />
           </div>
         </div>
@@ -205,10 +176,7 @@ export class HeroBand {
   });
 
   protected readonly textClass = computed(
-    () =>
-      `min-w-0 lg:data-held:mt-(--aec-hero-held) lg:data-held:self-start${
-        this.align() === 'start' ? ' lg:self-start' : ''
-      }`,
+    () => `min-w-0${this.align() === 'start' ? ' lg:self-start' : ''}`,
   );
 
   protected readonly panelClass = computed(
@@ -217,30 +185,6 @@ export class HeroBand {
         this.panel() === 'bare'
           ? 'aec-hero-panel min-w-0 empty:hidden'
           : 'aec-hero-panel min-w-0 rounded-card bg-(--surface-hero-panel) p-6 empty:hidden md:p-8'
-      } lg:data-held:mt-(--aec-hero-held) lg:data-held:self-start`,
+      }`,
   );
-
-  private readonly grid = viewChild.required<ElementRef<HTMLElement>>('grid');
-
-  /** Each column's offset from the grid's top while held, or `null` (centred). */
-  protected readonly held = signal<{ readonly text: number; readonly panel: number } | null>(null);
-
-  /**
-   * Pin both columns where they sit now. Call it before the panel grows, while the
-   * layout is still the old one. Browser only: it is called from a click.
-   */
-  holdColumns(): void {
-    const grid = this.grid().nativeElement;
-    const [text, panel] = Array.from(grid.children) as HTMLElement[];
-    const top = grid.getBoundingClientRect().top;
-    this.held.set({
-      text: text.getBoundingClientRect().top - top,
-      panel: panel.getBoundingClientRect().top - top,
-    });
-  }
-
-  /** Return both columns to centring. */
-  releaseColumns(): void {
-    this.held.set(null);
-  }
 }
