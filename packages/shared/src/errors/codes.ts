@@ -58,6 +58,11 @@ export const ApiErrorCode = {
   CONTEST_NOT_OPEN: 'CONTEST_NOT_OPEN',
   CONTEST_ROUTED_TO_OWNER: 'CONTEST_ROUTED_TO_OWNER',
   CONTEST_NO_CHANGE: 'CONTEST_NO_CHANGE',
+  // AECI-2045 (§11b.2): the vendor that holds a Sync Service pair's connector product,
+  // and is not its owner, may file only an `owner` contest that names itself.
+  CONTEST_CONNECTOR_OWNER_ONLY: 'CONTEST_CONNECTOR_OWNER_ONLY',
+  // AECI-2045: the admin owner write takes only a connector-delivered row.
+  INTEGRATION_NOT_CONNECTOR_DELIVERED: 'INTEGRATION_NOT_CONNECTOR_DELIVERED',
   // AECI-1151: a deny (`asserted: false`) with no reason. `field: 'note'` (400).
   ATTESTATION_NOTE_REQUIRED: 'ATTESTATION_NOTE_REQUIRED',
   // AECI-1245: another company or AECi holds a live answer on the row.

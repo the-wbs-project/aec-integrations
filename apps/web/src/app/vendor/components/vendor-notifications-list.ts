@@ -728,7 +728,7 @@ function threadClosedNote(reason: ThreadClosedReason): string {
     case 'claim_removed':
       return $localize`:@@vendor.thread.closedNotify.note.removed:The row was removed from the directory. The conversation is read-only, and its messages are kept.`;
     case 'not_attestable':
-      return $localize`:@@vendor.thread.closedNotify.note.notAttestable.v2:The integration moved to a connector product, which neither company builds. The conversation is read-only, and its messages are kept.`;
+      return $localize`:@@vendor.thread.closedNotify.note.notAttestable.v3:The integration moved to a connector product, so neither product vendor can answer its data. The conversation is read-only, and its messages are kept.`;
   }
 }
 

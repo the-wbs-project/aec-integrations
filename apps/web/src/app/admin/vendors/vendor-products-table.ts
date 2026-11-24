@@ -19,6 +19,7 @@ import { roleTakesConnectorKind } from '@aeci/shared/api/connector-kind';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { AdminPaginator } from '../admin-paginator';
 import { ConnectorKindControl } from './connector-kind-control';
+import { DeliveredPairsPanel } from './delivered-pairs-panel';
 import { ListingHideForm, type ListingHideMode } from './listing-hide-form';
 
 /**
@@ -70,6 +71,7 @@ import { ListingHideForm, type ListingHideMode } from './listing-hide-form';
     AdminPaginator,
     ConnectorKindControl,
     DatePipe,
+    DeliveredPairsPanel,
     DecimalPipe,
     ListingHideForm,
     NewTabIcon,
@@ -150,6 +152,13 @@ export class VendorProductsTable {
   protected readonly isEmpty = computed(() => this.rows().length === 0);
 
   /** AECI-2036: only a connector or hybrid product carries a kind. */
+  /** AECI-2045: the connector row whose delivered pairs are open, or `null`. One at a time. */
+  protected readonly deliveredOpenId = signal<string | null>(null);
+
+  protected toggleDelivered(row: AdminVendorProductRow): void {
+    this.deliveredOpenId.update((open) => (open === row.id ? null : row.id));
+  }
+
   protected takesConnectorKind(row: AdminVendorProductRow): boolean {
     return roleTakesConnectorKind(row.product_role);
   }

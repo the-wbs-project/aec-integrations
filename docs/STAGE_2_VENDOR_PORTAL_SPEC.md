@@ -423,7 +423,7 @@ Wire shape and error table: `API_CONTRACTS.md` §6.14. Handler: `apps/api/src/ro
 
 The same accept shape covers a vendor that says "we own it, not them" on a row whose recorded owner is someone else: proposed = submitter, so it too writes the owner and `claimed_at`.
 
-**Only an endpoint vendor can assert.** Contests require an endpoint seat (§11b.2), so a third-party vendor cannot file one. That is fine in v1: a non-endpoint owner's rows are connector-powered, decision 9 keeps the claim off them anyway, and such a vendor reaches AECi through the partnership track (§5.2). *Since AECI-1089 a non-endpoint owner claims its connector-powered rows directly (§4.5.2), so it needs no owner-unknown assertion for a row it already owns.*
+**Only an endpoint vendor can assert, with one exception since AECI-2045.** The vendor that holds a Sync Service pair's connector product may file an `owner` contest that names itself (§11b.2). Its pairs are listed on that product's Integrations tab when another company, or none, is on file (§6.13a). The accept is the owner-approved row above. *Until AECI-2045:* contests required an endpoint seat (§11b.2), so a third-party vendor could not file one. That is fine in v1: a non-endpoint owner's rows are connector-powered, decision 9 keeps the claim off them anyway, and such a vendor reaches AECi through the partnership track (§5.2). *Since AECI-1089 a non-endpoint owner claims its connector-powered rows directly (§4.5.2), so it needs no owner-unknown assertion for a row it already owns.*
 
 What an AECi accept writes in every other case is §11b.6.
 
@@ -2182,6 +2182,22 @@ no links, product switch and retry.
 - Each card names its connector. It keeps Delivered and Reachable apart, and it dates every reach.
 - It sits outside the live-update cursor, and it does not open §13.7's publication gate.
 
+### 6.13a As built — a Sync Service's pairs under another owner (AECI-2045 — 2026-11-24)
+
+A Sync Service is the connector of its pairs, but curation names the owner. When curation misses, a pair delivered through the vendor's own product sits under another company, or under none, and the vendor could not see it. This section shows those pairs and lets the vendor ask AEC Integrations to record it as the owner.
+
+- **Component:** `components/vendor-delivered-pairs.ts`, rendered by `sections/vendor-integrations-page.ts` on a Sync Service product only (`isSyncService(product_role, connector_kind)`). It renders nothing, and takes no space, when the read is empty.
+- **Read:** `GET /api/vendor/products/:id/delivered-pairs` (`API_CONTRACTS.md` §6.14). Ownership of the product, else the flat `404`. A product that is not a Sync Service answers `{ pairs: [] }`. Otherwise every live pair whose connector is this product (`connector_evidenced_pairs.connector_product_id`, or `integrations.powered_by_product_id` when the connector is neither endpoint) and whose owner is not the caller, A to Z. No rate limit, no capability. A pair the caller owns is on its owned list (§6.15) instead.
+- **Fetch:** in the browser when the tab mounts and on every product switch, like the Connectors section (§6.13). Outside the live cursor. A failed read shows a retry.
+- **Heading** "Pairs recorded under another company". One read-only row per pair: its name, or "{A} and {B}", and "Recorded owner: {company}" or "No owner is recorded."
+- **One action:** "Ask AEC Integrations to record us as the company that offers this". It opens an inline form with a required reason (1 to 2,000 characters) and Send. Send files an `owner` contest naming the caller (`POST /api/vendor/integrations/:id/contests`, `{ field: 'owner', proposed_value: <caller vendor id>, reason }`, §11b.2). It always routes to AEC Integrations (§11b.4), which gets the `contest-submitted-alert` email (§11b.8). Pessimistic: it announces, revalidates `contests` and re-reads the list. Each refusal is a sentence in a `role="alert"`.
+- **One request per pair.** A pair with `open_request_id` says the request is with AEC Integrations and offers no button. The partial unique index answers a second one `409 CONTEST_DUPLICATE` regardless (§11b.3).
+- **An accept** is §11b.6's owner-approved case: the vendor becomes the owner, `claimed_at` is set, and the pair moves to the owned list (§6.15).
+- **Design anchor.** The Connectors section on the same tab (§6.13): its heading, card border and spacing. No new Mobbin reference.
+- **Preview.** `/preview/vendor-dashboard/products/summit-sync/integrations?fixture=sync-service` lists two such pairs.
+
+**Tests.** `sync-service-ownership.spec.ts` (the read: the 404, the non-Sync-Service empty answer, both tables, the caller's own and retired pairs left out, `open_request_id`; the contest authority; the admin owner write), `vendor.authz-matrix.spec.ts` (the read in every guard cell), `vendor-delivered-pairs.component.spec.ts`.
+
 ### 6.14 As built — ownership on the integration card: Claim, Edit, "Offered by" (AECI-1006 — 2026-09-22)
 
 > **Superseded by §6.17.3 (specified 2026-09-28, AECI-1150).** The card's ownership line and its
@@ -2211,6 +2227,8 @@ AECI-1005 shipped the claim with no UI. The card now says who offers each integr
 > **Not replaced by §6.17 (2026-09-28).** Owned-only rows have no endpoint on the caller's side, so
 > v1 of the integration page does not cover them and this section keeps its own components
 > (§6.17.10). Its edit form drops `website` and `mechanism_url` and gains `pricing_url` (§6.17.11).
+> **Since AECI-2045 (2026-11-24) each card also links to the row's own page (§6.17.12).** The
+> card list stays.
 
 A third-party owner makes neither product of its integrations, so the product-scoped list above never showed them. An endpoint vendor that owns an evidenced pair did not see that pair either, because the list read no `connector_evidenced_pairs` row. This section shows both, with the claim.
 
@@ -2228,7 +2246,7 @@ A third-party owner makes neither product of its integrations, so the product-sc
 
 #### 6.15.3 The data flows on a Sync Service row (AECI-2039 — 2026-11-24)
 
-The owner of a Sync Service pair maintains its flows (ruling 4 on AECI-2035, `STAGE_2_ATTESTATIONS_SPEC.md` §14.10). Owned rows have no detail page yet (AECI-2045 builds one), so the flows render on the card.
+The owner of a Sync Service pair maintains its flows (ruling 4 on AECI-2035, `STAGE_2_ATTESTATIONS_SPEC.md` §14.10). The flows render on the card, and on the row's own page since AECI-2045 (§6.17.12).
 
 - **Component:** `components/vendor-owned-flows.ts`, inside each owned card whose `sync_service` is true. It follows §6.17.4's "Data that's shared": the same heading, the same `<table>` in a focusable scrolling region, and the same Yes and No toggles, where pressing the pressed answer clears it (the Same-Behavior Rule). It does not reuse `integration-shared-data.ts`, which is bound to the endpoint vendor's detail-page state (`IntegrationDetailState`).
 - **What an answer means here.** Yes shows publicly as "Confirmed by {company}, which offers this integration". No removes the row from the public page; there is no public "disputed" state. Each row says which of the two the public page shows. **Change** moves a row to another direction (the old one is answered No, the new one confirmed). **Add a row** adds a type of data and confirms it, and tells both endpoint vendors (`portal-claim-added`).
@@ -2245,7 +2263,7 @@ The owner of a Sync Service pair maintains its flows (ruling 4 on AECI-2035, `ST
 
 The §8.9 seat maintains its own connector catalogue (`STAGE_2_SPEC.md` §8.9(1)). AECI-724 shipped the write, `PATCH /api/vendor/connector-stub-mappings/:id`, but no screen. This tab is the screen.
 
-- **Where it lives.** A **Catalogue** tab in the product row, after Integrations (after Reviews since AECI-1179, §11c.16), shown only on a `connector`-role product (`VENDOR_PRODUCT_NAV_ITEMS`' `roles`, read by `productNavItemsFor`). A catalogue belongs to one connector product (`connector_catalogs` is unique on `connector_product_id`), and a vendor can hold more than one, so it is a product tab rather than a vendor section. On every other product the tab does not exist, which is the empty-tab cost §6.13 declined. A typed `…/catalogue` URL on another product says it has no catalogue. Route: `…/products/:productSlug/catalogue`, `sections/vendor-product-catalogue-page.ts`.
+- **Where it lives.** A **Catalogue** tab in the product row, after Integrations (after Reviews since AECI-1179, §11c.16), shown only on a `connector`-role product (`VENDOR_PRODUCT_NAV_ITEMS`' `roles`, read by `productNavItemsFor`). **Since AECI-2045 (2026-11-24) the tab follows the catalogue, not the kind** (`showsCatalogTab` in `vendor-capabilities.ts`): it shows when AECi holds a catalogue for the product (`VendorProduct.has_connector_catalog`), whatever its kind, and is hidden on a Sync Service with none. An Integration platform or a connector with no kind keeps the tab with no catalogue, and its "We do not hold a catalog for this product yet" screen. A typed `…/catalogue` URL on a Sync Service with no catalogue says it is a Sync Service with no catalog and links to its Integrations tab, the not-a-connector pattern below. A catalogue belongs to one connector product (`connector_catalogs` is unique on `connector_product_id`), and a vendor can hold more than one, so it is a product tab rather than a vendor section. On every other product the tab does not exist, which is the empty-tab cost §6.13 declined. A typed `…/catalogue` URL on another product says it has no catalogue. Route: `…/products/:productSlug/catalogue`, `sections/vendor-product-catalogue-page.ts`.
 - **The way in.** On the overview, the plan panel's `catalogue` state now links to each connector product's tab ("Open the Agave catalogue"). *Since AECI-2044 the link and the state show only for a product that is not a Sync Service and has a catalogue (`isCatalogueProduct`, `VendorProduct.has_connector_catalog`).* A plain link, not a button: it is navigation to the seat's own work, not the call to action §8.9(5) keeps off this state.
 - **Read.** `GET /api/vendor/products/:id/connector-catalog` (`API_CONTRACTS.md` §6.14), new in this issue. Ownership, then `connector` role, each a 404. No capability and no entitlement read. It returns the catalogue's summary (`managed_by`, the "as of" stamp, listing, unmatched and publishable counts) and one page of listings with their mappings. The wire drops the mapping's `notes` and replaces the raw `decided_by` (a review-app reviewer's name, before AECI-724) with a kind: `vendor`, `aeci` or `automatic`.
 - **The list** (`components/vendor-connector-catalogue.ts`). One bordered `--surface-raised` card of rows, 25 a page, ordered by name. Each row: the listing name, **View listing** (new tab, said to screen readers), and each mapping as a phrase ("Matched to Procore", "Not Procore", "Outside our scope"), who stands behind it ("Confirmed by your company", "Decided by AEC Integrations", "Suggested by name, not confirmed"), the confidence, the evidence link, and a quiet **Counts toward reach** tag on a row that clears §9a.4's gate. A search box and a "Show" filter (`<aec-select>`: all, no match yet, or one status) sit above. The status words are the vendor's, not the console's (`components/vendor-catalogue-labels.ts`).
@@ -2329,7 +2347,7 @@ The anchor supplies structure only. Tokens, type and colour stay AECi's: light o
 
 **Scope of v1.** The page covers every entry of `integrations[]` on `GET /api/vendor/integrations` (§4.5, `STAGE_2_ATTESTATIONS_SPEC.md` §5.1): the rows where the caller holds an endpoint. Two surfaces stay as they are: the owned-rows section of §6.15, which lists rows the caller owns but holds no endpoint of, and the read-only Connectors section of §6.13. Neither is part of the inline panel, and both keep their own components.
 
-**What is not in v1.** A reply thread (AECI-1145, specified in `STAGE_2_ATTESTATIONS_SPEC.md` §15, not built). Version pickers (§6.17.4). A structured "what's wrong" field (§6.17.4). A "Keep my answer" control (§6.17.6). A detail page for §6.15's owned-only rows.
+**What is not in v1.** A reply thread (AECI-1145, specified in `STAGE_2_ATTESTATIONS_SPEC.md` §15, not built). Version pickers (§6.17.4). A structured "what's wrong" field (§6.17.4). A "Keep my answer" control (§6.17.6). *A detail page for §6.15's owned-only rows was listed here until AECI-2045 built it (§6.17.12).*
 
 #### 6.17.1 Route and list (AECI-1149)
 
@@ -2693,6 +2711,33 @@ Two field changes share one mechanism: the portal's field lists stop being the s
 **Vendor create follows the edit list.** `POST /api/vendor/integrations` (§4.7.1) takes the same fields as the edit: `pricing_url` in, `website` and `mechanism_url` out.
 
 **As built (AECI-1154, AECI-1155 server side).** Migration `0052_sticky_gamma_corps.sql` is the two plain `ADD COLUMN`s, and `src/test/migration-0052.spec.ts` is its tripwire. The lists are in `packages/shared/src/api/integration-contests.ts` (`INTEGRATION_OFFERED_CONTEST_FIELDS`, `EVIDENCED_PAIR_OFFERED_CONTEST_FIELDS`, `PORTAL_WITHDRAWN_FIELDS`) and `integration-edits.ts` (`INTEGRATION_EDIT_ONLY_FIELDS`, `INTEGRATION_EDIT_MAX_LENGTH`, `INTEGRATION_EDIT_URL_FIELDS`). The API maps edit fields to columns through `EDIT_FIELD_COLUMNS` (`apps/api/src/lib/integration-contests.ts`), not the contest map, so an old contest on `website` still decides through `CONTEST_FIELD_COLUMNS`. A promote cross-table move carries `pricing_url` across (`REVIEW_APP_PROMOTE_API.md` §4b). The pair read returns it as `mechanisms[].pricing_url`. **The "Price" fact links (AECI-1158, 2026-10-02).** `glanceFacts()` in `products-pair.ts` reads `pricing_url`, re-checks it with `isHttpUrl` behind the API's own check, and renders the price text as an external link (`target="_blank"`, `rel="noopener nofollow"`, the new-tab icon, `aecTrackExternalLink="pair_detail"`). Since AECI-933 the click records `link_purpose: 'pricing'`, with `built_by_vendor` as the owner, else `null` (`VENDOR_PERFORMANCE_SPEC.md` §3.2). With no price it reads "See pricing" (`@@pair.glance.seePricing`). A price with no URL stays plain text, and the fact is hidden when neither is set. The portal tooltip (`@@vendor.im.tip.pricingUrl.public`) now says the public page links the price. The §6.14 and §6.15 edit forms offer the new list and the pricing page, compile-level only; the page's own editors are the UI build's.
+
+#### 6.17.12 The owned row's page (AECI-2045 — 2026-11-24)
+
+A row the caller owns but holds no endpoint of (§6.15's `owned[]`, a Sync Service's pairs above all) gets a page too. It is this page in an owned mode, not a second page, so the two behave alike (`DESIGN.md` "The Same-Behavior Rule").
+
+| Rule | Contract |
+| -- | -- |
+| Route | The §6.17.1 route, unchanged: `…/products/:productSlug/integrations/:integrationId`. Lazy, `noindex`, seat-gated, `vendorMeResolver`, like every `/vendor` child. |
+| Which row | `integrations[]` first, as §6.17.1 says. When no entry matches, the row of `owned[]` with that id that `ownedRowsForProduct` lists on this product's tab. The two lists are disjoint (`owned[]` skips a row the list carries, §6.15.3). Anything else is §6.17.1's not-found state, decided once the read settles. No request carries the id. |
+| Shell | The same breadcrumb, title block, status pill, "View public page" (`/products/{A}/integrations/{B}`), "Things that need you", section nav, scroll-spy and sticky bar. The title is the row's name, or "{A} and {B}". |
+| Sections | Four, in this order: Overview, Data that's shared, Change requests, Settings. No Integration links section: an owned row takes no per-side links, and its listing and documentation links are among the nine fields Overview shows. |
+| Status | The first that applies of `retired`, `needs_decision` (an open received change request on the row), `ready_to_claim` (unclaimed) and `up_to_date`, with §6.17.2's labels and tones (`ownedIntegrationStatus` in `integration-detail-model.ts`). |
+| Things that need you | An open received request, which jumps to Change requests, and "You can claim this integration" on an unclaimed row whose "Not ours" does not stand (AECI-1225). Nothing on a retired row. |
+
+**Overview** (`owned-integration-overview.ts`). Two `<dl>` groups. "Details": the nine fields of `CONNECTOR_POWERED_EDIT_FIELDS` (§4.5.6), with direction framed against endpoint A ("From {A} to {B}", "From {B} to {A}", "Both ways"). "Ownership": Owner, "{Company} (you)", and "Delivered through {connector}". One action by state, the card's own: unclaimed, the claim hint, **Claim this integration** and "Not ours" (AECI-1225); claimed, **Edit details**, which opens the card's edit form (`vendor-integration-edit-form.ts`, §6.15) in place; retired, none. The wording is shared with the card through `components/vendor-owned-row-model.ts`, so the two cannot drift.
+
+**Data that's shared.** On a Sync Service row, `vendor-owned-flows.ts` (§6.15.3) with `labelledBy` set to the section heading, so the section keeps one heading. On any other owned row, the flows read-only with one sentence: AEC Integrations keeps them while the row is unclaimed, and they stay as they were on the claim date once it is claimed (§4.5.3).
+
+**Change requests.** The Messages block (`vendor-contests-list.ts`, §6.5) with two inputs: `integrationId`, which narrows Received and Submitted to this row, and `labelledBy`, which drops the block's own heading and intro. Accept, Decline, Withdraw and the protest steps are therefore the Messages ones, unchanged.
+
+**Settings.** `vendor-owned-retire.ts` (§6.15), as on the card.
+
+**The card links to it.** Each card in §6.15 gains **Open details**, a link whose accessible name names the row ("Open details: {title}"). The card list, its claim, edit, flows and retire stay.
+
+**Preview.** `?fixture=sync-service`: `/preview/vendor-dashboard/products/summit-sync/integrations/00000000-0000-4000-8000-000000005263` (claimed, with flows) and `…/00000000-0000-4000-8000-000000005266` (unclaimed).
+
+**Tests.** `vendor-integration-detail-page.component.spec.ts` (the owned mode, each section, the not-found for a foreign id), `vendor-owned-integrations.component.spec.ts` (the card link).
 
 ### 6.18 Free plan surfaces (AECI-1212)
 
@@ -3495,6 +3540,7 @@ A seated vendor says one field of an integration is wrong. It names the field, p
 - **Not the owner, with one exception.** The vendor named in `built_by_vendor_id` (the vendor that owns and offers the integration, per AECI-1003) gets `403 CONTEST_OWN_INTEGRATION`. It owns the row, claims it (AECI-1005) and then edits it directly through `PATCH /api/vendor/integrations/:id` (AECI-1006, §4.5.6).
 - **The exception: "not ours" (AECI-1225, ruled 2026-10-05).** The named owner may file an `owner` contest on its own row to say the integration is not its own. This is a self-disclaim. It is allowed only while the row has `origin = 'aeci'` and `claimed_at IS NULL`. Any other field, a claimed row and a vendor-created row still get `403 CONTEST_OWN_INTEGRATION`. The contest is an ordinary `owner` contest, so it routes to AECi (§11b.4). Its proposed value names an endpoint vendor that does offer the integration, or `null` for someone else or unknown.
 - **Builder authority (AECI-1225).** A named owner that holds neither endpoint, such as a connector vendor, passes the authority step for a self-disclaim. Before AECI-1225 it got the flat `404`. Everyone else who holds neither endpoint still gets that `404`. A named owner with no endpoint must send no `context_product_id`, or `null`, as before (`400` otherwise).
+- **Sync Service authority (AECI-2045, 2026-11-24).** The vendor that holds a pair's CONNECTOR product (`connector_evidenced_pairs.connector_product_id`, or `integrations.powered_by_product_id`) passes the authority step when that product is a Sync Service (`isSyncService`) and the vendor is not the row's owner. It may file only an `owner` contest that names itself: any other field is `403 CONTEST_CONNECTOR_OWNER_ONLY`, and any other proposed value is `422 CONTEST_INVALID_VALUE`. The owner value need not be an endpoint vendor in this one case. Everything else in §11b holds: it routes to AECi (§11b.4), one open contest per field (§11b.3), the protest refusals, the sentinels and the `contest-submitted-alert` email (§11b.8). An AECi accept is §11b.6's owner-approved case. The holder of an Integration platform or a blank-kind connector still gets the flat `404`, and so does every other vendor that holds neither endpoint. The portal surface is §6.13a. Code: `holdsSyncServiceConnector` in `routes/vendor-contests.ts`.
 - **A race is refused, not written.** The submit batch carries a sentinel (`contestIntegrationStateSentinel`) that expects the row unclaimed and the caller as its owner. If the row was claimed or re-pointed between the read and the batch, the submit answers `409 CONTEST_INTEGRATION_CHANGED` and writes nothing. The audit row `integration.contest.submitted` carries `metadata.selfDisclaim: true` for a self-disclaim.
 - **A seat is the whole gate.** The route carries `requireVendor()` and nothing else. There is no `requireCapability` and no Verified check.
 - **Not a locked field (AECI-1237).** A content contest on a field AECi corrected and locked is `409 FIELD_LOCKED_BY_AECI` (§11d.5). No owner could accept it, and the vendor disputes AECi's value with AECi (§11d.4).

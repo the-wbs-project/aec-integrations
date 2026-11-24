@@ -59,7 +59,11 @@ function makeRow(over: Partial<AdminVendorProductRow> = {}): AdminVendorProductR
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve));
 
-let api: { hideProduct: ReturnType<typeof vi.fn>; restoreProduct: ReturnType<typeof vi.fn> };
+let api: {
+  hideProduct: ReturnType<typeof vi.fn>;
+  restoreProduct: ReturnType<typeof vi.fn>;
+  getDeliveredPairs?: ReturnType<typeof vi.fn>;
+};
 
 beforeEach(() => {
   TestBed.resetTestingModule();
@@ -189,5 +193,35 @@ describe('VendorProductsTable connector kind (AECI-2036)', () => {
     const controls = el.querySelectorAll('aec-connector-kind-control');
     expect(controls).toHaveLength(2);
     expect(el.querySelector(`#connector-kind-${PRODUCT_ID}-trigger`)).toBeNull();
+  });
+});
+
+describe('VendorProductsTable delivered pairs (AECI-2045)', () => {
+  it('opens one connector row’s delivered pairs under it, as a disclosure', async () => {
+    api.getDeliveredPairs = vi.fn(async () => ({
+      connector: { id: PRODUCT_ID, name: 'Sync', slug: 'sync', connector_kind: 'sync_service' },
+      connector_vendors: [],
+      pairs: [],
+    }));
+    const { fixture, el } = await setup([
+      makeRow({ product_role: 'connector', connector_kind: 'sync_service', name: 'Sync' }),
+    ]);
+    const toggle = el.querySelector('[data-testid="delivered-pairs-toggle"]') as HTMLButtonElement;
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(toggle.getAttribute('aria-controls')).toBe(`delivered-pairs-${PRODUCT_ID}`);
+    toggle.click();
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(
+      el.querySelector(`#delivered-pairs-${PRODUCT_ID} aec-delivered-pairs-panel`),
+    ).not.toBeNull();
+    expect(api.getDeliveredPairs).toHaveBeenCalledWith(PRODUCT_ID);
+  });
+
+  it('offers no delivered pairs on an application row', async () => {
+    const { el } = await setup([makeRow()]);
+    expect(el.querySelector('[data-testid="delivered-pairs-toggle"]')).toBeNull();
   });
 });

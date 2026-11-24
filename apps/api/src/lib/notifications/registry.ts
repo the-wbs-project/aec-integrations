@@ -1511,7 +1511,7 @@ export const NOTIFICATIONS = {
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11d',
     summary:
       "Tells an integration's owner that AECi accepted a contest that changed a field it holds, and why. On an Owner accept it tells the old owner it no longer holds the integration.",
-    note: 'Sent only when the accept overwrites a value the owner holds, to an owner that is not the submitter. Every plan, no tier rule. Carries the reason, never the internal note. Not pausable: a portal row, not email.',
+    note: 'Sent only when the accept overwrites a value the owner holds, to an owner that is not the submitter. Since AECI-2045 also sent by PUT /api/admin/integrations/:id/owner (routes/admin-integration-owner.ts) to the owner of a claimed pair the admin re-owns, with the admin reason. Every plan, no tier rule. Carries the reason, never the internal note. Not pausable: a portal row, not email.',
   },
   'portal-logo-overridden-by-aeci': {
     channel: 'portal',

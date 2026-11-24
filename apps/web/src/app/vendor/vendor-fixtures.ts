@@ -31,6 +31,7 @@ import type {
   ListVendorContestsResponse,
   VendorProduct,
   VendorProductConnectorsResponse,
+  ListVendorDeliveredPairsResponse,
   VendorSeat,
   ManageableSeatInvite,
   PendingSeatClaim,
@@ -2631,4 +2632,153 @@ export const VENDOR_CHECKOUT_ACCEPTANCE_FIXTURE: VendorAgreementAcceptance = {
   review_guidelines_version: null,
   plans_page_version: PLANS_PAGE_CURRENT_VERSION,
   plans_page_sha256: plansPageSha256(PLANS_PAGE_CURRENT_VERSION),
+};
+
+// ─── AECI-2045: a Sync Service product and its pairs ────────────────────────
+
+/** The preview vendor's Sync Service product: no catalogue, so no Catalog tab. */
+export const SYNC_SERVICE_PRODUCT: VendorProduct = {
+  ...SECONDARY_PRODUCT,
+  id: '00000000-0000-4000-8000-000000005260',
+  slug: 'summit-sync',
+  name: 'Summit Sync',
+  is_primary: false,
+  description: 'A finished sync between field and accounting products, run by Summit BIM.',
+  category_slugs: [],
+  trade_slugs: [],
+  product_role: 'connector',
+  connector_kind: 'sync_service',
+  has_connector_catalog: false,
+  integration_count: 0,
+  review_count: 0,
+  plan: FREE_PLAN,
+};
+
+/** The Free Summit vendor with the Sync Service product added (AECI-2045). */
+export const VENDOR_ME_SYNC_SERVICE_FIXTURE: VendorMeResponse = withProductPlans({
+  ...VENDOR_ME_FIXTURE,
+  vendor: { ...VENDOR_ME_FIXTURE.vendor, verified: false },
+  entitlement: FREE_PLAN,
+  products: [...VENDOR_ME_FIXTURE.products, SYNC_SERVICE_PRODUCT],
+});
+
+const SYNC_LINK = {
+  id: SYNC_SERVICE_PRODUCT.id,
+  slug: SYNC_SERVICE_PRODUCT.slug,
+  name: SYNC_SERVICE_PRODUCT.name,
+  logo_url: null,
+};
+const OTHER_QUICKBOOKS = {
+  id: '00000000-0000-4000-8000-000000005262',
+  slug: 'quickbooks-online',
+  name: 'QuickBooks Online',
+  logo_url: null,
+};
+const OTHER_BUSINESS_CENTRAL = {
+  id: '00000000-0000-4000-8000-000000005269',
+  slug: 'business-central',
+  name: 'Business Central',
+  logo_url: null,
+};
+
+/** The two pairs Summit Sync delivers that Summit owns: one claimed, with flows the
+ *  owner keeps, and one still unclaimed. */
+export const VENDOR_SYNC_OWNED_FIXTURE: readonly OwnedIntegration[] = [
+  {
+    id: '00000000-0000-4000-8000-000000005263',
+    anchor: 'evidenced_pair',
+    name: 'Procore and Acumatica',
+    mechanism_kind: null,
+    mechanism_name: 'Summit Sync',
+    product_a: OTHER_PROCORE,
+    product_b: OTHER_ACUMATICA,
+    connector: SYNC_LINK,
+    connector_powered: true,
+    claimed_at: '2026-11-20T00:00:00.000Z',
+    retired_at: null,
+    retired_by: null,
+    contestable_fields: {
+      ...EMPTY_CONTESTABLE_FIELDS,
+      name: 'Procore and Acumatica',
+      mechanism_name: 'Summit Sync',
+      direction: 'both',
+      description: 'Keeps commitments, change orders and invoices in step between the two.',
+      listing_url: 'https://summitbim.example.com/sync/procore-acumatica',
+      docs_url: 'https://summitbim.example.com/docs/sync/procore-acumatica',
+      pricing_model: 'Per project, billed yearly',
+      maturity: 'Generally available',
+      owner: SUMMIT_VENDOR.id,
+    },
+    pricing_url: 'https://summitbim.example.com/sync/pricing',
+    sync_service: true,
+    flows_editable: true,
+    flows: [
+      {
+        id: '00000000-0000-4000-8000-000000005264',
+        data_object_slug: 'commitments',
+        data_object_name: 'Commitments',
+        direction: 'outbound',
+        agreement: 'owner_confirmed',
+        origin: 'aeci',
+        answer: 'yes',
+      },
+      {
+        id: '00000000-0000-4000-8000-000000005265',
+        data_object_slug: 'invoices',
+        data_object_name: 'Invoices',
+        direction: 'inbound',
+        agreement: 'unverified',
+        origin: 'aeci',
+        answer: null,
+      },
+    ],
+  },
+  {
+    id: '00000000-0000-4000-8000-000000005266',
+    anchor: 'evidenced_pair',
+    name: null,
+    mechanism_kind: null,
+    mechanism_name: null,
+    product_a: OTHER_PROCORE,
+    product_b: OTHER_QUICKBOOKS,
+    connector: SYNC_LINK,
+    connector_powered: true,
+    claimed_at: null,
+    retired_at: null,
+    retired_by: null,
+    contestable_fields: {
+      ...EMPTY_CONTESTABLE_FIELDS,
+      owner: SUMMIT_VENDOR.id,
+    },
+    pricing_url: null,
+    sync_service: true,
+    flows_editable: false,
+    flows: [],
+  },
+];
+
+/** The pairs Summit Sync delivers whose recorded owner is not Summit (AECI-2045). */
+export const VENDOR_DELIVERED_PAIRS_FIXTURE: ListVendorDeliveredPairsResponse = {
+  pairs: [
+    {
+      id: '00000000-0000-4000-8000-000000005267',
+      anchor: 'evidenced_pair',
+      name: null,
+      product_a: OTHER_AUTODESK_BUILD,
+      product_b: OTHER_ACUMATICA,
+      owner: null,
+      claimed: false,
+      open_request_id: null,
+    },
+    {
+      id: '00000000-0000-4000-8000-000000005268',
+      anchor: 'evidenced_pair',
+      name: 'Procore and Business Central',
+      product_a: OTHER_PROCORE,
+      product_b: OTHER_BUSINESS_CENTRAL,
+      owner: { id: '00000000-0000-4000-8000-00000000526a', name: 'Ledgerline' },
+      claimed: false,
+      open_request_id: null,
+    },
+  ],
 };

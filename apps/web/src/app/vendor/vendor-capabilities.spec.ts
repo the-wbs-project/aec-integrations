@@ -1,3 +1,5 @@
+// `productNavItemsFor` reads the nav labels, which call `$localize` at module load.
+import '@angular/localize/init';
 import { signal } from '@angular/core';
 import { describe, expect, it } from 'vitest';
 
@@ -9,8 +11,10 @@ import {
   isCatalogueProduct,
   isCatalogueSeat,
   productCan,
+  showsCatalogTab,
   vendorCan,
 } from './vendor-capabilities';
+import { productNavItemsFor } from './vendor-nav';
 import type { VendorPortalStore } from './vendor-portal-store';
 
 /** An Integration platform AECi holds a catalogue for: the §8.9 seat's product. */
@@ -162,5 +166,47 @@ describe('integrationCanAuthor', () => {
   it('is closed with no integration or an unknown product', () => {
     expect(integrationCanAuthor(null, products(managed, managed))).toBe(false);
     expect(integrationCanAuthor(row(['vendor_a']), [])).toBe(false);
+  });
+});
+
+/** AECI-2045: the Catalog tab follows a catalogue on a Sync Service, and today's rule elsewhere. */
+describe('showsCatalogTab', () => {
+  const tab = (connector_kind: string | null, has_connector_catalog: boolean) =>
+    showsCatalogTab({ product_role: 'connector', connector_kind, has_connector_catalog });
+
+  it('hides it on a Sync Service with no catalogue', () => {
+    expect(tab('sync_service', false)).toBe(false);
+  });
+
+  it('shows it on a Sync Service that has a catalogue (Agave)', () => {
+    expect(tab('sync_service', true)).toBe(true);
+  });
+
+  it('keeps it on an Integration platform or a blank kind, catalogue or not', () => {
+    expect(tab('integration_platform', false)).toBe(true);
+    expect(tab('integration_platform', true)).toBe(true);
+    expect(tab(null, false)).toBe(true);
+  });
+
+  it('never shows it off a connector product', () => {
+    expect(showsCatalogTab({ product_role: 'application' })).toBe(false);
+    expect(showsCatalogTab({ product_role: 'hybrid', connector_kind: 'sync_service' })).toBe(false);
+  });
+
+  it('drives the product row', () => {
+    const paths = (fields: Parameters<typeof productNavItemsFor>[0]) =>
+      productNavItemsFor(fields).map((item) => item.path);
+    expect(paths({ product_role: 'connector', connector_kind: 'sync_service' })).not.toContain(
+      'catalogue',
+    );
+    expect(
+      paths({
+        product_role: 'connector',
+        connector_kind: 'sync_service',
+        has_connector_catalog: true,
+      }),
+    ).toContain('catalogue');
+    expect(paths('connector')).toContain('catalogue');
+    expect(paths('application')).not.toContain('catalogue');
   });
 });

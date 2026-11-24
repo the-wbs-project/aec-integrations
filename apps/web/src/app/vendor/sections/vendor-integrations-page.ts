@@ -2,6 +2,7 @@ import { Component, PLATFORM_ID, computed, effect, inject, untracked } from '@an
 import { isPlatformBrowser } from '@angular/common';
 
 import { VendorIntegrationsSection } from '../components/vendor-integrations-section';
+import { VendorDeliveredPairs } from '../components/vendor-delivered-pairs';
 import { VendorOwnedIntegrations } from '../components/vendor-owned-integrations';
 import { VendorProductConnectors } from '../components/vendor-product-connectors';
 import {
@@ -57,6 +58,7 @@ import { vendorProductContext } from './vendor-product-context';
   imports: [
     VendorIntegrationsSection,
     VendorOwnedIntegrations,
+    VendorDeliveredPairs,
     VendorProductConnectors,
     VendorReviewStrip,
     VendorSyncServicePairCreate,
@@ -93,6 +95,10 @@ import { vendorProductContext } from './vendor-product-context';
         <!-- AECI-1089: the owner's rows the list above does not carry. It renders
              nothing, and so takes no space, when none touch this product. -->
         <aec-vendor-owned-integrations [contextProductId]="contextProductId()" />
+        <!-- AECI-2045: on a Sync Service, the pairs it delivers under another owner. -->
+        @if (isSyncServiceTab()) {
+          <aec-vendor-delivered-pairs class="mt-10" [productId]="contextProductId()" />
+        }
         <div class="mt-10">
           <aec-vendor-product-connectors [productId]="contextProductId()" />
         </div>
@@ -145,6 +151,12 @@ export class VendorIntegrationsPage {
   protected readonly contextProductId = computed(() => this.ctx.product()?.id ?? '');
 
   /** The tab's product when it is a Sync Service (AECI-2040), else `null`. */
+  /** AECI-2045: the product is a Sync Service, so its delivered pairs under another
+   *  owner are listed, read-only, with the ask for ownership. */
+  protected readonly isSyncServiceTab = computed(() =>
+    offersSyncServicePairCreate(this.ctx.product() ?? null),
+  );
+
   protected readonly syncServiceProduct = computed(() => {
     const product = this.ctx.product();
     return product && offersSyncServicePairCreate(product) ? product : null;

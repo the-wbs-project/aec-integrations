@@ -46,6 +46,7 @@ import type {
   ListDataObjectsResponse,
   ListProductVersionsResponse,
   ListVendorIntegrationsResponse,
+  ListVendorDeliveredPairsResponse,
   ListVendorNotificationsResponse,
   NotificationPreferencesResponse,
   ListVendorSeatsResponse,
@@ -157,6 +158,9 @@ import {
   INTEGRATION_RETIRED_BY_OTHER,
   VENDOR_INTEGRATIONS_FIXTURE,
   VENDOR_OWNED_INTEGRATIONS_FIXTURE,
+  VENDOR_DELIVERED_PAIRS_FIXTURE,
+  VENDOR_SYNC_OWNED_FIXTURE,
+  SYNC_SERVICE_PRODUCT,
   VENDOR_NOTIFICATIONS_FIXTURE,
   VENDOR_OVERRIDE_NOTIFICATIONS_FIXTURE,
   VENDOR_PRODUCT_CONNECTORS_FIXTURE,
@@ -587,6 +591,13 @@ const PREVIEW_INTEGRATIONS: ListVendorIntegrationsResponse = {
   owned: [...VENDOR_OWNED_INTEGRATIONS_FIXTURE],
   // AECI-1153: recomputed from the list on every read (`getIntegrations`).
   counterpart_added_unanswered: 0,
+};
+
+/** AECI-2045: the `sync-service` preset's surface: the same list, plus the two pairs
+ *  Summit Sync delivers that Summit owns. */
+export const PREVIEW_SYNC_INTEGRATIONS: ListVendorIntegrationsResponse = {
+  ...PREVIEW_INTEGRATIONS,
+  owned: [...VENDOR_OWNED_INTEGRATIONS_FIXTURE, ...VENDOR_SYNC_OWNED_FIXTURE],
 };
 
 /** The contests the preview starts from: the shared fixture plus the owned,
@@ -1357,6 +1368,21 @@ export class PreviewVendorApi extends VendorApi {
     );
   }
 
+  /** AECI-2045: the pairs Summit Sync delivers under another owner. A row with an open
+   *  `owner` request from the caller carries its id, as the server's read does. */
+  override async listDeliveredPairs(productId: string): Promise<ListVendorDeliveredPairsResponse> {
+    if (productId !== SYNC_SERVICE_PRODUCT.id) return { pairs: [] };
+    return clone({
+      pairs: VENDOR_DELIVERED_PAIRS_FIXTURE.pairs.map((pair) => ({
+        ...pair,
+        open_request_id:
+          this.contests.submitted.find(
+            (c) => c.integration_id === pair.id && c.field === 'owner' && c.status === 'open',
+          )?.id ?? null,
+      })),
+    });
+  }
+
   override async createClaim(input: CreateVendorClaimInput): Promise<VendorClaimResponse> {
     const integration = this.integrations.integrations.find((i) => i.id === input.integration_id);
     if (!integration) {
@@ -1758,6 +1784,9 @@ export class PreviewVendorApi extends VendorApi {
     // AECI-1225: the vendor named as owner says a row is not its own.
     const notOurs = this.notOurs(integrationId, body, anchor);
     if (notOurs) return notOurs;
+    // AECI-2045: the connector product's vendor asks to be recorded as the owner.
+    const delivered = this.askForDeliveredPair(integrationId, body);
+    if (delivered) return delivered;
     // AECI-1092: an evidenced pair is looked up among the connectors fixture's
     // contest targets, which carry the same fields an integration entry does.
     const pairTargets = Object.values(VENDOR_PRODUCT_CONNECTORS_FIXTURE).flatMap((r) =>
@@ -1824,6 +1853,56 @@ export class PreviewVendorApi extends VendorApi {
       status: 'open',
       submitter_vendor: { id: self?.id ?? '', name: self?.company_name ?? '' },
       owner_vendor: integration.owner,
+      decision_note: null,
+      decided_at: null,
+      created_at: now,
+      updated_at: now,
+      protest: null,
+      protest_opens_at: null,
+      protest_closes_at: null,
+      protest_basis: null,
+      cooldown_until: null,
+    };
+    this.contests.submitted.unshift(contest);
+    return { contest: clone(contest) };
+  }
+
+  /** AECI-2045 (§11b.2): an `owner` contest naming the caller on a pair its Sync Service
+   *  delivers. Any other field is `403 CONTEST_CONNECTOR_OWNER_ONLY`, as on the server. */
+  private askForDeliveredPair(
+    integrationId: string,
+    body: SubmitIntegrationContestInput,
+  ): VendorContestResponse | null {
+    const pair = VENDOR_DELIVERED_PAIRS_FIXTURE.pairs.find((p) => p.id === integrationId);
+    const self = this.me?.vendor;
+    if (!pair || !self) return null;
+    if (body.field !== 'owner' || body.proposed_value !== self.id) {
+      throw apiError(403, 'CONTEST_CONNECTOR_OWNER_ONLY', 'Only an owner request naming you');
+    }
+    const standing = this.contests.submitted.some(
+      (c) => c.integration_id === integrationId && c.field === 'owner' && c.status === 'open',
+    );
+    if (standing) {
+      throw apiError(409, 'CONTEST_DUPLICATE', 'You already have an open contest on this field');
+    }
+    const now = '2026-11-24T12:00:00.000Z';
+    const contest: VendorContest = {
+      id: `00000000-0000-4000-8000-${String(0xc100 + ++this.nextContestSeq).padStart(12, '0')}`,
+      integration_id: integrationId,
+      anchor: pair.anchor,
+      integration_name: pair.name,
+      context_product: pair.product_a,
+      other_product: pair.product_b,
+      field: 'owner',
+      current_value: pair.owner?.id ?? null,
+      proposed_value: self.id,
+      current_label: pair.owner?.name ?? null,
+      proposed_label: self.company_name,
+      reason: body.reason,
+      routed_to: 'aeci',
+      status: 'open',
+      submitter_vendor: { id: self.id, name: self.company_name },
+      owner_vendor: pair.owner,
       decision_note: null,
       decided_at: null,
       created_at: now,

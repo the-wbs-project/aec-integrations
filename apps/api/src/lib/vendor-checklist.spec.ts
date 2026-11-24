@@ -191,6 +191,58 @@ describe('productChecklistSteps', () => {
   });
 });
 
+describe('confirm data flows by product role (AECI-2045)', () => {
+  it('leaves the step out on an Integration platform, so it is neither done nor to do', () => {
+    const steps = productChecklistSteps(
+      { ...CHECKED, productRole: 'connector', connectorKind: 'integration_platform' },
+      NOTHING_OUTSTANDING,
+      FREE,
+    );
+    expect(steps.map((s) => s.key)).not.toContain('confirm_data_flows');
+    expect(checklistScore(steps)).toEqual({ done: 3, total: 3, complete: true });
+  });
+
+  it('leaves the step out on a connector with no kind', () => {
+    const steps = productChecklistSteps(
+      { ...CHECKED, productRole: 'connector', connectorKind: null },
+      { ...NOTHING_OUTSTANDING, unattestedClaims: 3 },
+      FREE,
+    );
+    expect(steps.map((s) => s.key)).not.toContain('confirm_data_flows');
+  });
+
+  it("counts a Sync Service owner's unanswered flows, not endpoint claims", () => {
+    const sync = { ...CHECKED, productRole: 'connector', connectorKind: 'sync_service' };
+    const todo = productChecklistSteps(
+      sync,
+      { unclaimedRows: 0, unattestedClaims: 0, unansweredOwnerFlows: 2 },
+      FREE,
+    );
+    expect(stepOf(todo, 'confirm_data_flows')).toEqual({
+      key: 'confirm_data_flows',
+      status: 'todo',
+      counts: true,
+    });
+    const done = productChecklistSteps(
+      sync,
+      { unclaimedRows: 0, unattestedClaims: 5, unansweredOwnerFlows: 0 },
+      FREE,
+    );
+    expect(stepOf(done, 'confirm_data_flows').status).toBe('done');
+  });
+
+  it('keeps the endpoint rule on a hybrid Sync Service and on an application', () => {
+    for (const role of ['hybrid', 'application']) {
+      const steps = productChecklistSteps(
+        { ...CHECKED, productRole: role, connectorKind: 'sync_service' },
+        { unclaimedRows: 0, unattestedClaims: 1, unansweredOwnerFlows: 0 },
+        FREE,
+      );
+      expect(stepOf(steps, 'confirm_data_flows').status).toBe('todo');
+    }
+  });
+});
+
 describe('checklistScore', () => {
   it('reads "3 of 4" on a Free product with data flows outstanding (AECI-2038)', () => {
     const steps = productChecklistSteps(CHECKED, { unclaimedRows: 0, unattestedClaims: 5 }, FREE);

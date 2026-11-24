@@ -767,7 +767,7 @@ export class IntegrationSharedData {
       i.mechanism_name ??
       $localize`:@@vendor.im.connector.fallback.v2:a connector product`;
     if (!isClaimed(i)) {
-      return $localize`:@@vendor.im.data.connectorNote:AEC Integrations keeps these up to date. They run through ${connector}:connector:, so neither company answers for them.`;
+      return $localize`:@@vendor.im.data.connectorNote.v2:AEC Integrations keeps these up to date. They run through ${connector}:connector:, so neither product vendor answers for them.`;
     }
     // AECI-2039: a claimed Sync Service row. Its owner maintains the data rows.
     if (i.flows_maintained_by_owner) {
@@ -994,7 +994,7 @@ export class IntegrationSharedData {
           ? $localize`:@@vendor.im.data.status.syncService:The company that offers this integration maintains it. Neither product vendor can confirm it.`
           : isClaimed(this.integration())
             ? $localize`:@@vendor.im.data.status.connectorClaimed:AEC Integrations no longer updates it. Neither product vendor can confirm it.`
-            : $localize`:@@vendor.im.data.status.connector:AEC Integrations checks it. Neither company answers for it.`,
+            : $localize`:@@vendor.im.data.status.connector.v2:AEC Integrations checks it. Neither product vendor answers for it.`,
       );
     }
     return lines;

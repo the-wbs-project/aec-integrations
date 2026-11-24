@@ -155,6 +155,7 @@ import {
   createVendorSeatsHandler,
 } from './vendor';
 import { createListVendorProductConnectorsHandler } from './vendor-connectors';
+import { createListVendorDeliveredPairsHandler } from './vendor-delivered-pairs';
 import { createListVendorNotificationsHandler } from './vendor-notifications';
 import {
   createListVendorHistoryHandler,
@@ -482,6 +483,12 @@ function makeApp() {
     '/api/vendor/products/:id/connectors',
     requireVendor(guard),
     createListVendorProductConnectorsHandler(t.factory),
+  );
+  // AECI-2045, registered where `index.ts` registers it.
+  app.get(
+    '/api/vendor/products/:id/delivered-pairs',
+    requireVendor(guard),
+    createListVendorDeliveredPairsHandler(t.factory),
   );
   // Version routes registered BEFORE `/products/:id`, matching `index.ts`.
   app.get(
@@ -852,6 +859,7 @@ const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?:
   },
   { path: `/api/vendor/products/${PRODUCT_A}/versions`, method: 'GET' },
   { path: `/api/vendor/products/${PRODUCT_A}/connectors`, method: 'GET' },
+  { path: `/api/vendor/products/${PRODUCT_A}/delivered-pairs`, method: 'GET' },
   {
     path: `/api/vendor/products/${PRODUCT_A}/versions`,
     method: 'POST',
@@ -1740,6 +1748,26 @@ describe('/api/vendor/* — cross-vendor isolation', () => {
     expect(unknown.status).toBe(404);
     expect(hidden.body.error.code).toBe(unknown.body.error.code);
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+
+  it('GET /delivered-pairs on another vendor’s product → 404 (AECI-2045)', async () => {
+    const { status, body } = await call(
+      `/api/vendor/products/${PRODUCT_B}/delivered-pairs`,
+      'GET',
+      SEAT_A,
+    );
+    expect(status).toBe(404);
+    expect(body.error.code).toBe(ApiErrorCode.NOT_FOUND);
+  });
+
+  it('lets an UNVERIFIED vendor READ its own delivered pairs (AECI-2045)', async () => {
+    const { status, body } = await call(
+      `/api/vendor/products/${PRODUCT_UNVERIFIED}/delivered-pairs`,
+      'GET',
+      SEAT_UNVERIFIED,
+    );
+    expect(status).toBe(200);
+    expect(body.pairs).toEqual([]);
   });
 
   it('GET /connectors on another vendor’s product → 404 (AECI-1013)', async () => {

@@ -82,6 +82,7 @@ import type {
   VendorClaimResponse,
   VendorMeResponse,
   VendorProductConnectorsResponse,
+  ListVendorDeliveredPairsResponse,
   VendorUpdatesResponse,
   VendorConnectorStubMappingEditResponse,
   UpdateConnectorStubMappingInput,
@@ -570,6 +571,17 @@ export class VendorApi {
     return firstValueFrom(
       this.http.get<VendorProductConnectorsResponse>(
         `/api/vendor/products/${encodeURIComponent(productId)}/connectors`,
+      ),
+    );
+  }
+
+  /** `GET /api/vendor/products/:id/delivered-pairs` (AECI-2045): on a Sync Service
+   *  product, the live pairs recorded as delivered through it whose owner is not the
+   *  caller. Read-only, outside the live cursor, fetched when the tab mounts. */
+  listDeliveredPairs(productId: string): Promise<ListVendorDeliveredPairsResponse> {
+    return firstValueFrom(
+      this.http.get<ListVendorDeliveredPairsResponse>(
+        `/api/vendor/products/${encodeURIComponent(productId)}/delivered-pairs`,
       ),
     );
   }

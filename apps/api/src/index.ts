@@ -62,6 +62,10 @@ import {
 } from './routes/admin-claims';
 import { createSetConnectorCatalogManagementHandler } from './routes/admin-connector-catalogs';
 import { createAdminSetConnectorKindHandler } from './routes/admin-connector-kind';
+import {
+  createAdminDeliveredPairsHandler,
+  createAdminSetIntegrationOwnerHandler,
+} from './routes/admin-integration-owner';
 import { createAdminUpdateConnectorStubMappingHandler } from './routes/admin-connector-stub-mappings';
 import { createVendorUpdateConnectorStubMappingHandler } from './routes/vendor-connector-stub-mappings';
 import {
@@ -350,6 +354,7 @@ import {
 } from './routes/vendor-thread-by-id';
 import { createListDataObjectsHandler } from './routes/vendor-data-objects';
 import { createListVendorProductConnectorsHandler } from './routes/vendor-connectors';
+import { createListVendorDeliveredPairsHandler } from './routes/vendor-delivered-pairs';
 import { createVendorConnectorCatalogHandler } from './routes/vendor-connector-catalog';
 import {
   createRemoveSeatHandler,
@@ -1037,6 +1042,21 @@ authAdmin.patch(
   rateLimit('write'),
   createAdminSetConnectorKindHandler(),
 );
+// AECI-2045: every pair a connector product delivers, in both tables, without a
+// catalogue row. A read: no `rateLimit()`.
+authAdmin.get(
+  '/api/admin/products/:id/delivered-pairs',
+  requireAdmin(),
+  createAdminDeliveredPairsHandler(),
+);
+// AECI-2045: set or change the owner of a connector-delivered pair (the fortieth §2
+// exception, a MODERATION write). The `owner` contest accept's writer.
+authAdmin.put(
+  '/api/admin/integrations/:id/owner',
+  requireAdmin(),
+  rateLimit('write'),
+  createAdminSetIntegrationOwnerHandler(),
+);
 // Stage 2 / AECI-652: the admin vendor surface (§5.6). The literal sub-paths are
 // unambiguous against the bare `/:id`: Hono's trie separates them by segment count.
 authAdmin.get('/api/admin/vendors', requireAdmin(), createAdminVendorsListHandler());
@@ -1539,6 +1559,13 @@ authVendor.get(
   '/api/vendor/products/:id/connectors',
   requireVendor(),
   createListVendorProductConnectorsHandler(),
+);
+// AECI-2045: on a Sync Service product, the pairs delivered through it that another
+// company owns or nobody owns, for the "record us as the owner" request. A read.
+authVendor.get(
+  '/api/vendor/products/:id/delivered-pairs',
+  requireVendor(),
+  createListVendorDeliveredPairsHandler(),
 );
 // AECI-1083 / `STAGE_2_SPEC.md` §8.9(1): the connector seat's own catalogue, the read
 // behind the portal's Catalogue tab. Ownership (404) then `connector` role (404) in

@@ -16,16 +16,16 @@ Your company's checklist has three steps:
 - Finish each product checklist.
 - Invite a colleague. This step is optional.
 
-Each product's checklist has four steps:
+Each product's checklist has up to four steps:
 
 - **Check product details.** Edit the product, or choose "Looks right". See [Editing your profile and products](/docs/vendors/editing-profile-and-products).
 - **Check the integration list.** Choose "Looks right" on the product's integrations. This step completes even when your company has claimed none of them yet.
 - **Claim or say "not ours".** Claim each integration your company is recorded as owning. If one is not yours, choose "Not ours?" on it and say who offers it, if you know. The step counts it as answered while AEC Integrations reviews it, and after it agrees. [Owning an integration](/docs/vendors/owning-an-integration) explains both.
-- **Confirm data flows.** Answer Yes or No on every data flow of the product's integrations.
+- **Confirm data flows.** Answer Yes or No on every data flow of the product's integrations. On a Sync Service, this step covers the data flows on the integrations your Sync Service delivers that your company has claimed. An integration platform, or a connector product with no kind set, has no flows of its own to confirm, so its checklist has no such step and reads "x of 3".
 
 How a product's score counts:
 
-- All four steps count on every plan. A product reads "x of 4", where x is the steps done.
+- Every step counts on every plan. A product reads "x of 4", where x is the steps done, or "x of 3" on a connector product with no data flows step.
 - A step with nothing to do counts as done.
 - A step stays done once it is done. It does not expire.
 

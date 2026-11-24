@@ -1063,6 +1063,43 @@ describe('VendorDashboardTabbed — the connector catalogue seat (AECI-1083)', (
     expect(root(harness).querySelector('aec-vendor-connector-catalogue')).toBeNull();
   });
 
+  it('drops the Catalog tab from a Sync Service with no catalogue, and explains a typed URL (AECI-2045)', async () => {
+    const harness = await RouterTestingHarness.create();
+    TestBed.inject(VendorPortalStore).seed({
+      ...SEAT,
+      products: SEAT.products.map((p) => ({
+        ...p,
+        connector_kind: 'sync_service' as const,
+        has_connector_catalog: false,
+      })),
+    });
+    await harness.navigateByUrl(`/vendor/${seatSlug}/products/agave/catalogue`);
+    harness.detectChanges();
+    await flush();
+    harness.detectChanges();
+
+    expect(navLabels(harness)).not.toContain('Catalog');
+    const notice = root(harness).querySelector('[data-catalogue-sync-service]');
+    expect(notice?.textContent).toContain('Agave is a Sync Service, so it has no catalog.');
+    expect(notice?.querySelector('a')?.getAttribute('href')).toBe(
+      `/vendor/${seatSlug}/products/agave/integrations`,
+    );
+    expect(root(harness).querySelector('aec-vendor-connector-catalogue')).toBeNull();
+  });
+
+  it('keeps the Catalog tab on a Sync Service that has a catalogue (AECI-2045)', async () => {
+    const harness = await RouterTestingHarness.create();
+    TestBed.inject(VendorPortalStore).seed({
+      ...SEAT,
+      products: SEAT.products.map((p) => ({ ...p, connector_kind: 'sync_service' as const })),
+    });
+    await harness.navigateByUrl(`/vendor/${seatSlug}/products/agave/profile`);
+    harness.detectChanges();
+    await flush();
+    harness.detectChanges();
+    expect(navLabels(harness)).toContain('Catalog');
+  });
+
   it('links the overview’s catalogue panel to the tab, as a plain link and not a call to action', async () => {
     const harness = await RouterTestingHarness.create();
     TestBed.inject(VendorPortalStore).seed(SEAT);

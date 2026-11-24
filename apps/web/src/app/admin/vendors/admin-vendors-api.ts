@@ -19,6 +19,9 @@ import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
 import type {
+  AdminDeliveredPairsResponse,
+  AdminSetIntegrationOwnerBody,
+  AdminSetIntegrationOwnerResponse,
   AdminSetConnectorKindInput,
   AdminSetConnectorKindResponse,
   ConnectorKind,
@@ -143,6 +146,35 @@ export class AdminVendorsApi {
     return firstValueFrom(
       this.http.get<AdminFieldOverridesResponse>(
         `/api/admin/vendors/${encodeURIComponent(vendorId)}/field-overrides`,
+      ),
+    );
+  }
+
+  /**
+   * `GET /api/admin/products/:id/delivered-pairs` (AECI-2045): every pair a connector
+   * product delivers, in both tables, live and retired, with owner and claim state. No
+   * catalogue row needed.
+   */
+  getDeliveredPairs(productId: string): Promise<AdminDeliveredPairsResponse> {
+    return firstValueFrom(
+      this.http.get<AdminDeliveredPairsResponse>(
+        `/api/admin/products/${encodeURIComponent(productId)}/delivered-pairs`,
+      ),
+    );
+  }
+
+  /**
+   * `PUT /api/admin/integrations/:id/owner` (AECI-2045): set or change the owner of a
+   * connector-delivered pair, in either table, with a required reason.
+   */
+  setIntegrationOwner(
+    integrationId: string,
+    body: AdminSetIntegrationOwnerBody,
+  ): Promise<AdminSetIntegrationOwnerResponse> {
+    return firstValueFrom(
+      this.http.put<AdminSetIntegrationOwnerResponse>(
+        `/api/admin/integrations/${encodeURIComponent(integrationId)}/owner`,
+        body,
       ),
     );
   }

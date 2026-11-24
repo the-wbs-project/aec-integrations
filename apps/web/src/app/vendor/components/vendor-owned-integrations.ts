@@ -11,7 +11,9 @@ import {
   viewChildren,
 } from '@angular/core';
 
-import type { OwnedIntegration } from '@aeci/shared';
+import { RouterLink } from '@angular/router';
+
+import { isSyncService, type OwnedIntegration } from '@aeci/shared';
 
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
@@ -24,10 +26,16 @@ import { claimErrorMessage } from './vendor-integration-ownership-labels';
 import { VendorNotOurs, selfDisclaimOn, selfDisclaimStands } from './vendor-not-ours';
 import { VendorOwnedRetire } from './vendor-owned-retire';
 import { VendorOwnedFlows } from './vendor-owned-flows';
+import {
+  ownedRowClaimedAnnouncement,
+  ownedRowRoute,
+  ownedRowState,
+  ownedRowStatusLine,
+  ownedRowTitle,
+  type OwnedRowState,
+} from './vendor-owned-row-model';
 
-/** Where the owner stands on one owned row. A connector-delivered row takes the
- *  same states as any other: the seat is the whole gate (ruling 14, AECI-1663). */
-export type OwnedRowState = 'retired' | 'claimed' | 'claimable';
+export type { OwnedRowState } from './vendor-owned-row-model';
 
 /**
  * Which owned rows a product's tab lists: the rows that touch this product as an
@@ -82,6 +90,7 @@ export function ownedRowsForProduct(
 @Component({
   selector: 'aec-vendor-owned-integrations',
   imports: [
+    RouterLink,
     VendorDocsLink,
     VendorIntegrationEditForm,
     VendorOwnedRetire,
@@ -107,14 +116,25 @@ export function ownedRowsForProduct(
               >Integrations your company offers</span
             >
           </h2>
-          <p
-            class="max-w-prose text-sm text-(--text-secondary)"
-            i18n="@@vendor.ownedIntegrations.intro"
-          >
-            Your company is recorded as the owner of these integrations. They are listed here,
-            rather than with the integrations above, because they are delivered through a connector
-            or connect products your company does not make.
-          </p>
+          @if (onSyncService()) {
+            <p
+              class="max-w-prose text-sm text-(--text-secondary)"
+              i18n="@@vendor.ownedIntegrations.intro.syncService"
+            >
+              Your company is recorded as the owner of these integrations. They are listed here,
+              rather than with the integrations above, because your Sync Service delivers them or
+              they connect products your company does not make.
+            </p>
+          } @else {
+            <p
+              class="max-w-prose text-sm text-(--text-secondary)"
+              i18n="@@vendor.ownedIntegrations.intro"
+            >
+              Your company is recorded as the owner of these integrations. They are listed here,
+              rather than with the integrations above, because they are delivered through a
+              connector or connect products your company does not make.
+            </p>
+          }
           <p class="m-0"><aec-vendor-docs-link page="owning-an-integration" /></p>
         </div>
 
@@ -132,6 +152,17 @@ export function ownedRowsForProduct(
                 </h3>
                 <p class="mt-1 text-sm text-(--text-secondary)" data-testid="owned-route">
                   {{ route(row) }}
+                </p>
+                <!-- AECI-2045: each owned row has its own page. -->
+                <p class="mt-2">
+                  <a
+                    [routerLink]="detailLink(row)"
+                    [attr.aria-label]="detailAria(row)"
+                    [class]="detailLinkClass"
+                    data-testid="owned-detail-link"
+                    i18n="@@vendor.ownedIntegrations.openDetails"
+                    >Open details</a
+                  >
                 </p>
               </div>
               <div class="border-t border-(--border-default) px-4 py-3">
@@ -277,6 +308,12 @@ export class VendorOwnedIntegrations {
     () => new Set((this.store.me()?.products ?? []).map((p) => p.id)),
   );
 
+  /** AECI-2045: the tab is a Sync Service product's, so the intro names the kind. */
+  protected readonly onSyncService = computed(() => {
+    const product = this.store.me()?.products.find((p) => p.id === this.contextProductId());
+    return product ? isSyncService(product.product_role, product.connector_kind) : false;
+  });
+
   /** The edit form's values on record, plus the edit-only `pricing_url` (AECI-1154). */
   protected editValues(row: OwnedIntegration): EditFormValues {
     return { ...row.contestable_fields, pricing_url: row.pricing_url };
@@ -303,38 +340,30 @@ export class VendorOwnedIntegrations {
   }
 
   protected stateOf(row: OwnedIntegration): OwnedRowState {
-    if (row.retired_at) return 'retired';
-    return row.claimed_at ? 'claimed' : 'claimable';
+    return ownedRowState(row);
   }
 
   protected title(row: OwnedIntegration): string {
-    return (
-      row.name ??
-      $localize`:@@vendor.ownedIntegrations.untitled:${row.product_a.name}:a: and ${row.product_b.name}:b:`
-    );
+    return ownedRowTitle(row);
   }
 
-  /** Which two products it joins, and through what. */
   protected route(row: OwnedIntegration): string {
-    const a = row.product_a.name;
-    const b = row.product_b.name;
-    const via = row.connector?.name ?? row.mechanism_name;
-    return via
-      ? $localize`:@@vendor.ownedIntegrations.routeVia:Connects ${a}:a: and ${b}:b: through ${via}:via:.`
-      : $localize`:@@vendor.ownedIntegrations.route:Connects ${a}:a: and ${b}:b:.`;
+    return ownedRowRoute(row);
   }
 
   protected statusLine(row: OwnedIntegration): string {
-    switch (this.stateOf(row)) {
-      case 'retired':
-        return row.retired_by === 'aeci'
-          ? $localize`:@@vendor.ownedIntegrations.retiredByAeci:AEC Integrations retired this integration. It is not shown on the public site.`
-          : $localize`:@@vendor.ownedIntegrations.retired:Your company retired this integration. It is not shown on the public site.`;
-      case 'claimed':
-        return $localize`:@@vendor.ownedIntegrations.claimed:Your company owns this integration. AEC Integrations no longer updates it.`;
-      case 'claimable':
-        return $localize`:@@vendor.ownedIntegrations.unclaimed:Your company is recorded as the owner. AEC Integrations still maintains its details until you claim it.`;
-    }
+    return ownedRowStatusLine(row);
+  }
+
+  /** AECI-2045: the row's detail page, a sibling of this tab's route. */
+  protected detailLink(row: OwnedIntegration): readonly string[] {
+    return ['..', 'integrations', row.id];
+  }
+
+  /** Built in TS: an interpolated `i18n-aria-label` emits no attribute here. */
+  protected detailAria(row: OwnedIntegration): string {
+    const name = ownedRowTitle(row);
+    return $localize`:@@vendor.ownedIntegrations.openDetails.aria:Open details: ${name}:name:`;
   }
 
   protected async onClaim(row: OwnedIntegration): Promise<void> {
@@ -343,9 +372,7 @@ export class VendorOwnedIntegrations {
     this.notice.set(null);
     try {
       await this.api.claimIntegration(row.id);
-      this.announcer.announce(
-        $localize`:@@vendor.ownedIntegrations.live.claimed:You claimed this integration. AEC Integrations no longer updates it.`,
-      );
+      this.announcer.announce(ownedRowClaimedAnnouncement());
       await this.store.revalidate(['integrations']);
       // The button is gone once the row reads as claimed. Move focus to the Edit
       // trigger that replaced it (AECI-1090), or to the row's status line when the
@@ -387,6 +414,9 @@ export class VendorOwnedIntegrations {
       { injector: this.injector },
     );
   }
+
+  protected readonly detailLinkClass =
+    'inline-flex min-h-6 items-center rounded-(--radius-sm) text-sm font-medium text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
   protected readonly triggerClass =
     'inline-flex items-center rounded-(--radius-md) border border-(--border-default) px-3 py-1.5 text-sm font-medium text-(--text-primary) transition-colors hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';

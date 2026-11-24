@@ -35,6 +35,7 @@ export * from './https-url';
 export * from './https-url-rule';
 export * from './indexnow-runner';
 export * from './landing';
+export * from './delivered-pairs';
 export * from './dmca-notices';
 export * from './legal-acceptance';
 export * from './legal-in-force';

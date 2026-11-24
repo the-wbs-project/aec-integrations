@@ -3,14 +3,14 @@ title: Requesting changes and appeals
 description: How to ask for a change to a detail on an integration your company does not own, what to do when one of yours is asked about, how to ask AEC Integrations to review an owner's decision, and what happens if we hide your listing or one of its details.
 section: vendors
 order: 9
-last_updated: November 17, 2026
+last_updated: November 24, 2026
 ---
 
 A change request is how a company asks to change one detail of an integration it does not own. An appeal is how it asks AEC Integrations to look again when the owner turns a request down. Both need a seat on your vendor account. Both work on the Free plan. So does an owner deciding a request, on any integration.
 
 ## Request a change
 
-You can ask to change a detail on any integration where one of your products is at an end and your company is not the owner. In the vendor portal, open the integration under your product to reach its own page. A field you can ask about shows **Request a change** beside its value, in the Overview or Integration links section. Choosing it opens the request form in **Change requests**, with that field already chosen. To start from a blank field instead, open Change requests and choose **Request a correction**.
+You can ask to change a detail on any integration where one of your products is at an end and your company is not the owner. One exception: a company whose Sync Service delivers an integration can ask us to record it as that integration's owner, and nothing else ([For connector vendors](/docs/vendors/connector-vendors)). In the vendor portal, open the integration under your product to reach its own page. A field you can ask about shows **Request a change** beside its value, in the Overview or Integration links section. Choosing it opens the request form in **Change requests**, with that field already chosen. To start from a blank field instead, open Change requests and choose **Request a correction**.
 
 The form asks for three things:
 

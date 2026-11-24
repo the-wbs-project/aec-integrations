@@ -428,7 +428,7 @@ describe('read-only rows', () => {
     await setup(api, connector);
     const fixture = await mount(IntegrationSharedData, connector);
     expect(text(fixture)).toContain('Not needed');
-    expect(text(fixture)).toContain('so neither company answers for them');
+    expect(text(fixture)).toContain('so neither product vendor answers for them');
     expect(el(fixture).querySelector(testid('add-row'))).toBeNull();
     expect(el(fixture).querySelector('[role="group"]')).toBeNull();
   });
@@ -449,11 +449,11 @@ describe('read-only rows', () => {
     it('unclaimed: AEC Integrations keeps the rows, in all three places', async () => {
       const fixture = await render({ ...connector, claimed_at: null });
       expect(el(fixture).querySelector(testid('connector-note'))!.textContent!.trim()).toBe(
-        'AEC Integrations keeps these up to date. They run through Agave ERP Sync, so neither company answers for them.',
+        'AEC Integrations keeps these up to date. They run through Agave ERP Sync, so neither product vendor answers for them.',
       );
       expect(text(fixture)).toContain('AEC Integrations keeps this list up to date.');
       expect(text(fixture)).toContain(
-        'AEC Integrations checks it. Neither company answers for it.',
+        'AEC Integrations checks it. Neither product vendor answers for it.',
       );
       expect(text(fixture)).not.toContain('stopped updating');
       expect(text(fixture)).not.toContain('no longer updates');

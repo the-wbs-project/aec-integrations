@@ -38,6 +38,8 @@ Once you claim it:
 
 A claim cannot be undone from the portal. The only way an integration leaves its owner is an AEC Integrations decision on a request about who owns it.
 
+**If your Sync Service delivers an integration that is recorded under another company or under none,** it is listed under **Pairs recorded under another company** on your Sync Service's Integrations tab. Choose **Ask AEC Integrations to record us as the company that offers this** there. [For connector vendors](/docs/vendors/connector-vendors) has the details.
+
 **If your company offers an integration but is not recorded as the owner,** open the Owner row and choose **Ask to be recorded as the owner**. If someone else already holds that row, choose **Request a correction** and pick Owner. AEC Integrations reviews it. If it is accepted, your company is recorded as the owner and the integration is claimed for you in the same step. This works the same way on an integration delivered through a connector.
 
 ## Say an integration is not yours

@@ -4,6 +4,7 @@ import type {
   IntegrationEditField,
   IntegrationMechanismKind,
   ListVendorContestsResponse,
+  OwnedIntegration,
   VendorClaim,
   VendorContest,
   VendorIntegration,
@@ -453,25 +454,20 @@ export function statusChipLabel(key: IntegrationStatusKey): string {
 export function statusExplain(key: IntegrationStatusKey, integration: VendorIntegration): string {
   switch (key) {
     case 'retired':
-      return integration.retired_by === 'aeci'
-        ? $localize`:@@vendor.im.status.explain.retiredAeci:AEC Integrations retired it. It is hidden from the public page and from search.`
-        : $localize`:@@vendor.im.status.explain.retired:It is hidden from the public page and from search. Only its owner can restore it, from Settings.`;
+    case 'needs_decision':
+    case 'ready_to_claim':
+    case 'up_to_date':
+      return ownedStatusExplain(key, integration.retired_by);
     case 'disagreement':
       return $localize`:@@vendor.im.status.explain.disagreement:You and the other company answer a row of data differently. It is open in Change requests.`;
     case 'needs_answer':
       return $localize`:@@vendor.im.status.explain.needsAnswer:At least one row of data needs a Yes or a No from you.`;
-    case 'needs_decision':
-      return $localize`:@@vendor.im.status.explain.needsDecision:Another company asked you to decide something. It is open in Change requests.`;
-    case 'ready_to_claim':
-      return $localize`:@@vendor.im.status.explain.readyToClaim:Your company is recorded as the owner. Claim it to edit its details yourself.`;
     case 'no_owner':
       return $localize`:@@vendor.im.status.explain.noOwner:No company is recorded as the owner. If your company offers it, ask to be recorded as the owner.`;
     case 'waiting':
       return $localize`:@@vendor.im.status.explain.waiting:You asked for a correction and it is being reviewed. Nothing else needs you.`;
     case 'connector':
       return connectorExplain(integration);
-    case 'up_to_date':
-      return $localize`:@@vendor.im.status.explain.upToDate:Nothing needs you right now.`;
   }
 }
 
@@ -800,6 +796,52 @@ function protestReplyDue(contest: VendorContest, now: string): boolean {
   );
 }
 
+/**
+ * The received-request items of "Things that need you": an open request to decide, and
+ * an appeal reply still due. Shared with the owned row's page (AECI-2045), which jumps
+ * to its Change requests list rather than to one item (`target`).
+ */
+export function receivedNeeds(
+  contests: ListVendorContestsResponse,
+  now: string,
+  target: (contestId: string) => string,
+): NeedItem[] {
+  const items: NeedItem[] = [];
+  for (const contest of contests.received) {
+    const who = contest.submitter_vendor.name;
+    if (contest.status === 'open') {
+      const field = pageFieldLabelMid(contest.field);
+      items.push({
+        key: `received-${contest.id}`,
+        text: $localize`:@@vendor.im.needs.received:${who}:company: asked to change ${field}:field:`,
+        target: target(contest.id),
+        inRequests: true,
+      });
+    }
+    const protest = contest.protest;
+    if (protest && protestReplyDue(contest, now)) {
+      const date = formatDay(protest.reply_due_at);
+      items.push({
+        key: `protest-${contest.id}`,
+        text: $localize`:@@vendor.im.needs.protest:${who}:company: asked AEC Integrations to review your decision. Reply by ${date}:date:`,
+        target: target(contest.id),
+        inRequests: true,
+      });
+    }
+  }
+  return items;
+}
+
+/** "You can claim this integration", jumping to `target`. */
+export function claimNeed(target: string): NeedItem {
+  return {
+    key: 'claim',
+    text: $localize`:@@vendor.im.needs.claim:You can claim this integration`,
+    target,
+    inRequests: false,
+  };
+}
+
 /** The two lists under the title block. A retired row lists nothing; a
  *  connector-powered row lists ownership and change request items only. */
 export function needsItems(integration: VendorIntegration, ctx: NeedsContext): NeedLists {
@@ -848,28 +890,7 @@ export function needsItems(integration: VendorIntegration, ctx: NeedsContext): N
     }
   }
 
-  for (const contest of ctx.contests.received) {
-    const who = contest.submitter_vendor.name;
-    if (contest.status === 'open') {
-      const field = pageFieldLabelMid(contest.field);
-      yours.push({
-        key: `received-${contest.id}`,
-        text: $localize`:@@vendor.im.needs.received:${who}:company: asked to change ${field}:field:`,
-        target: contestItemId(contest.id),
-        inRequests: true,
-      });
-    }
-    const protest = contest.protest;
-    if (protest && protestReplyDue(contest, ctx.now)) {
-      const date = formatDay(protest.reply_due_at);
-      yours.push({
-        key: `protest-${contest.id}`,
-        text: $localize`:@@vendor.im.needs.protest:${who}:company: asked AEC Integrations to review your decision. Reply by ${date}:date:`,
-        target: contestItemId(contest.id),
-        inRequests: true,
-      });
-    }
-  }
+  yours.push(...receivedNeeds(ctx.contests, ctx.now, contestItemId));
 
   if (integration.attestable && ctx.canAuthor) {
     const rows = rowsNeedingAnswer(integration);
@@ -887,14 +908,7 @@ export function needsItems(integration: VendorIntegration, ctx: NeedsContext): N
     }
   }
 
-  if (canClaim(integration)) {
-    yours.push({
-      key: 'claim',
-      text: $localize`:@@vendor.im.needs.claim:You can claim this integration`,
-      target: rowTargetId('owner'),
-      inRequests: false,
-    });
-  }
+  if (canClaim(integration)) yours.push(claimNeed(rowTargetId('owner')));
   if (integration.owner === null && openOwnerRequest(ctx.contests) === null) {
     yours.push({
       key: 'no-owner',
@@ -1265,4 +1279,58 @@ export function newestFirst(
 ): number {
   if (a.at !== b.at) return a.at < b.at ? 1 : -1;
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+// ─── An owned row's page (AECI-2045, §6.17.12) ───────────────────────────────
+
+/** The statuses an owned row can take. A subset of the endpoint page's, with the
+ *  same labels and tones, so the two pages never name one state two ways. */
+export type OwnedStatusKey = Extract<
+  IntegrationStatusKey,
+  'retired' | 'needs_decision' | 'ready_to_claim' | 'up_to_date'
+>;
+
+/** The first that applies: retired, an open request to decide, unclaimed, else up to date. */
+export function ownedIntegrationStatus(
+  row: Pick<OwnedIntegration, 'retired_at' | 'claimed_at'>,
+  contests: ListVendorContestsResponse,
+  now: string,
+): OwnedStatusKey {
+  if (row.retired_at) return 'retired';
+  if (receivedNeeds(contests, now, (id) => id).length > 0) return 'needs_decision';
+  if (!row.claimed_at) return 'ready_to_claim';
+  return 'up_to_date';
+}
+
+/** The status tooltip for the keys an owned row shares with the endpoint page. */
+export function ownedStatusExplain(
+  key: OwnedStatusKey,
+  retiredBy: VendorIntegration['retired_by'],
+): string {
+  switch (key) {
+    case 'retired':
+      return retiredBy === 'aeci'
+        ? $localize`:@@vendor.im.status.explain.retiredAeci:AEC Integrations retired it. It is hidden from the public page and from search.`
+        : $localize`:@@vendor.im.status.explain.retired:It is hidden from the public page and from search. Only its owner can restore it, from Settings.`;
+    case 'needs_decision':
+      return $localize`:@@vendor.im.status.explain.needsDecision:Another company asked you to decide something. It is open in Change requests.`;
+    case 'ready_to_claim':
+      return $localize`:@@vendor.im.status.explain.readyToClaim:Your company is recorded as the owner. Claim it to edit its details yourself.`;
+    case 'up_to_date':
+      return $localize`:@@vendor.im.status.explain.upToDate:Nothing needs you right now.`;
+  }
+}
+
+/** "Things that need you" on an owned row. A request jumps to the Change requests
+ *  section; a claim jumps to the Overview's Claim button. */
+export function ownedNeedsItems(
+  row: Pick<OwnedIntegration, 'retired_at' | 'claimed_at'>,
+  contests: ListVendorContestsResponse,
+  now: string,
+  notOursStands: boolean,
+): NeedLists {
+  if (row.retired_at) return { yours: [], waiting: [] };
+  const yours = receivedNeeds(contests, now, () => 'change-requests-heading');
+  if (!row.claimed_at && !notOursStands) yours.push(claimNeed('owned-overview-status'));
+  return { yours, waiting: [] };
 }

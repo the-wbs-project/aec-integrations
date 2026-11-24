@@ -25,6 +25,8 @@
  * history entry the URL now produces.
  */
 
+import { showsCatalogTab, type CatalogueProductFields } from './vendor-capabilities';
+
 /**
  * One nav entry. `path` is relative to the route that renders the row: the
  * portal's parent route for {@link VENDOR_NAV_ITEMS}, the product route for
@@ -127,12 +129,19 @@ export const VENDOR_PRODUCT_NAV_ITEMS: readonly VendorNavItem[] = [
 ];
 
 /** The product row for one product: {@link VENDOR_PRODUCT_NAV_ITEMS} minus any tab
- *  whose `roles` exclude the product's `product_role`. */
+ *  whose `roles` exclude the product's `product_role`, and minus the Catalog tab on a
+ *  Sync Service that has no catalogue (AECI-2045, {@link showsCatalogTab}). A bare role
+ *  string is read as a product with no kind and no catalogue. */
 export function productNavItemsFor(
-  productRole: string | null | undefined,
+  product: CatalogueProductFields | string | null | undefined,
 ): readonly VendorNavItem[] {
+  const fields: CatalogueProductFields =
+    typeof product === 'string' || product == null ? { product_role: product } : product;
+  const productRole = fields.product_role;
   return VENDOR_PRODUCT_NAV_ITEMS.filter(
-    (item) => !item.roles || (productRole != null && item.roles.includes(productRole)),
+    (item) =>
+      (!item.roles || (productRole != null && item.roles.includes(productRole))) &&
+      (item.path !== 'catalogue' || showsCatalogTab(fields)),
   );
 }
 

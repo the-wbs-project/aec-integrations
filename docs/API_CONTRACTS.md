@@ -281,6 +281,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `CATALOG_VENDOR_MANAGED` | 409 | The connector catalogue a promote page addresses is **vendor-managed** on AECi, so the review lane is frozen for it and the page was not written (AECI-720). Raised from `planConnectorCatalogPage` before any statement is built, so nothing at all is committed — no rows, no `promote_jobs` ledger row, no `audit_log` row — and it reaches the caller on the job poll, not the kick-off. Re-checked inside the page's batch by a sentinel (AECI-1084), so a catalogue flipped to `vendor` between plan and commit also answers this, with the whole batch rolled back. **Not re-sendable**, which is precisely why it is an error and not a `skipped[]` entry: every connector skip kind means "this could not be resolved *yet*". A catalogue returns to review authorship only through `PATCH /api/admin/connector-catalogs/:id` |
 | `INVALID_STATE_TRANSITION` | 422 | Attempted workflow transition is not allowed from current state. Also an expired link: a seat invite past `expires_at`, and since AECI-1435 a claim confirm link past its 7 days (`POST /api/requests/confirm`, `details.reason = 'expired'`). Also `PATCH /api/admin/license-grants/:id` on a grant that is not `pending_acceptance` (AECI-1615, `details.state`). A link that expired is a real request in the wrong state, not a missing resource, so this API answers 422 rather than minting a 410 |
 | `REVIEW_ALREADY_MODERATED` | 409 | `PATCH /api/admin/reviews/:id` lost a race with another moderator: both passed the pending check, the other batch committed first, and a `changes()` sentinel rolled this one back. Nothing was written, no audit row, and no email was sent (AECI-1203). Reload the queue |
+| `CONTEST_CONNECTOR_OWNER_ONLY` | 403 | AECI-2045 (§11b.2): the vendor holding a Sync Service pair's connector product, and not its owner, filed a contest on a field other than `owner`. It may only ask to be recorded as the owner. |
 | `CONTEST_OWN_INTEGRATION` | 403 | The caller's vendor owns this integration (`built_by_vendor_id`, the vendor that offers it per AECI-1003), so it cannot contest it (AECI-1008, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). **Exception (AECI-1225):** on a row with `origin = 'aeci'` and no `claimed_at`, the owner may file an `owner` contest ("not ours"). Any other field, a claimed row and a vendor-created row still get this code |
 | `CONTEST_DUPLICATE` | 409 | The caller's vendor already has an OPEN contest on this field of this integration. `details.contest_id` names it when known |
 | `CLAIM_ALREADY_DECIDED` | 409 | A claim decision lost a race: `PATCH /api/admin/claims/:id` (approve or reject), or an owner's `POST /api/vendor/seats/claims/:id/accept` or `/decline`. The claim was decided, or for an owner decision the 7-day fallback took it back to AECi, between the handler's read and its batch. The batch's first statement is a sentinel (`claimUndecidedSentinel`) that rolls the whole batch back: no seat, invite, workflow, transition, billing or audit row, and no email. `details.status` is the claim's status on a re-read. Reload (AECI-1333). **Also the answer to an owner's accept that the account guard turned into a system reject (AECI-1420, 2026-10-19):** the claimant's address already holds a seat on another vendor, or is a staff account, so the claim was rejected by the system and the reasoned `claim-rejected` was sent. `details.status` is `'rejected'`. No invite is written and the 409 names no other vendor |
@@ -319,6 +320,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `LICENSE_GRANT_PRODUCTS_CHANGED` | 409 | `POST /api/vendor/license-grants/:id/accept` (AECI-1615) when a ban-term product left the vendor (its `product_vendors` row went) between the read and the batch (`productsStillJoinedSentinel`). Nothing was written. A retry lands that subscription in the pool with a `product_not_owned` warning |
 | `VENDOR_STILL_BANNED` | 409 | `POST /api/admin/vendors/:id/licenses/ban-term` (AECI-1589). The vendor has no unbanned `vendor_admin` seat, so subscriptions for the ban term would land on a banned vendor. Unban a seat first. Nothing was written. Also `POST /api/admin/vendors/:id/licenses` (AECI-1589, ruled 2026-11-03) when the vendor has `vendor_admin` seats and every one is banned. A vendor that has never been claimed has no billing account, so the grant answers `404` and is not grantable (ruled 2026-11-20, AECI-1975). A replay of a grant made before the ban is still `200` |
 | `LICENSE_PRODUCT_ALREADY_LICENSED` | 409 | `POST /api/admin/vendors/:id/licenses/ban-term` (AECI-1589). A product the request names already holds a live subscription on any billing account, so a second would break `licenses_live_product_idx`. Nothing was written |
+| `INTEGRATION_NOT_CONNECTOR_DELIVERED` | 409 | AECI-2045: `PUT /api/admin/integrations/:id/owner` named an `integrations` row no connector delivers. Its owner changes through an `owner` contest instead. |
 | `INTEGRATION_CHANGED_WHILE_SAVING` | 409 | A retire, restore, owner edit or claim (AECI-1089) whose batch lost a race, when the re-read finds no other refusal to give: a contest was filed on the row between the read and the batch, say, or (for a claim) promote moved the row to the other table. Nothing was written. Reload and try again (AECI-1010) |
 | `INTEGRATION_RETIRED_BY_AECI` | 403 | `POST /api/vendor/integrations/:id/restore` on a row an AECi admin retired (`retired_by = 'aeci'`). Only an admin restores an admin retire (AECI-1046, ruled 2026-09-22). Nothing is written |
 | `INTEGRATION_RETIRED_BY_OWNER` | 409 | `POST /api/admin/integrations/:id/restore` on a row its owner retired (`retired_by = 'owner'`, or NULL on a retire from before migration 0046). The owner controls its own retire, so the admin restore never undoes it (AECI-1046) |
@@ -3627,6 +3629,56 @@ in the next 08:00 UTC sync. An unchanged value or a refused write syncs nothing.
 vendor notice and no review-app mirror message: the kind is AECi's classification and the
 review app does not carry it. Promote never writes or clears the column
 (`REVIEW_APP_PROMOTE_API.md`).
+
+#### `GET /api/admin/products/:id/delivered-pairs` (AECI-2045)
+
+Every pair one connector product delivers, both tables, live and retired, for the Delivered pairs section of the Products tab (`ADMIN_PANEL_SPEC.md` §5.7). No catalogue row is needed. Behind `requireAdmin()`. No rate limit, no audit row. Source: `packages/shared/src/api/delivered-pairs.ts`.
+
+```typescript
+export const AdminDeliveredPairSchema = z.object({
+  id: z.string().uuid(),
+  anchor: z.enum(['integration', 'evidenced_pair']),
+  name: z.string().nullable(),
+  product_a: ProductLinkSchema,
+  product_b: ProductLinkSchema,
+  owner: ContestVendorRefSchema.nullable(),
+  claimed_at: z.string().nullable(),
+  retired_at: z.string().nullable(),
+  retired_by: IntegrationRetiredBySchema.nullable(),
+  endpoint_vendors: z.array(ContestVendorRefSchema),   // owner choices the console offers
+});
+export const AdminDeliveredPairsResponseSchema = z.object({
+  connector: z.object({ id, name, slug, connector_kind: ConnectorKindSchema.nullable() }),
+  connector_vendors: z.array(ContestVendorRefSchema),
+  pairs: z.array(AdminDeliveredPairSchema),             // by name, then id; at most 500
+});
+```
+
+`404 NOT_FOUND` for an unknown product. `409 CONNECTOR_KIND_NOT_CONNECTOR` for an `application` product.
+
+#### `PUT /api/admin/integrations/:id/owner` (AECI-2045)
+
+Sets or changes the owner (`built_by_vendor_id`) of one connector-delivered pair, in `integrations` or `connector_evidenced_pairs`. Behind `requireAdmin()`, then `rateLimit('write')`. Handler: `apps/api/src/routes/admin-integration-owner.ts`.
+
+```typescript
+export const AdminSetIntegrationOwnerSchema = z
+  .object({ owner_vendor_id: z.string().uuid().nullable(), reason: AdminReasonSchema })
+  .strict();
+export const AdminSetIntegrationOwnerResponseSchema = z.object({
+  changed: z.boolean(),        // false: that owner was already on file; nothing written
+  pair: AdminDeliveredPairSchema,
+});
+```
+
+| Refusal | When |
+|---|---|
+| `400 VALIDATION_FAILED` | the body shape, a missing or empty `reason` |
+| `404 NOT_FOUND` | the id is in neither table |
+| `409 INTEGRATION_NOT_CONNECTOR_DELIVERED` | an `integrations` row that `isConnectorPoweredEdge` says is not connector-delivered, or whose connector is one of its own endpoints (a Convention-A self-reference) |
+| `422 VALIDATION_FAILED` (`field: owner_vendor_id`) | no such vendor |
+| `409 INTEGRATION_CHANGED_WHILE_SAVING` | the row was claimed or re-owned between the read and the batch |
+
+**One batch, the `owner` contest accept's writer (`planOwnerReassign` in `routes/admin-contests.ts`).** The state sentinel, then `built_by_vendor_id` = the new owner, `claimed_at = NULL` and `vendor_edited_at = NULL`, the `integration.updated` audit row (entity `integration` or `connector_evidenced_pair`, `reason: 'owner-reassigned'`, `metadata.source = 'admin-owner-write'`, `metadata.adminReason`) and the re-route of every open owner-routed contest on the row to AECi. On a claimed row the batch also carries the `portal-field-overridden-by-aeci` notice to the displaced owner, with the reason, as the `owner` accept that takes a claim sends it (AECI-1159). A reassignment un-claims the row, the §11b.6 rule. A retired row is accepted: no rule refuses it. After commit: the `pair:` and `product:` purge, the by-id Algolia sync, and the ownership record re-sent for the old and the new owner (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5, ADR 0044). On an unclaimed row the next promote can write the review app's owner back, so the operator records it upstream too.
 
 #### `GET /api/admin/vendors/:id/audit` (Stage 2 — AECI-652)
 
@@ -10305,6 +10357,32 @@ export const VendorProductConnectorsResponseSchema = z.object({
 
 Errors: `NOT_FOUND` (unknown product, or one owned by another vendor, deliberately indistinguishable), plus the §6.14 guard errors.
 
+#### `GET /api/vendor/products/:id/delivered-pairs`
+
+AECI-2045 (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.13a). On a Sync Service product, the live pairs recorded as delivered through it whose owner is not the caller, so the vendor can ask AEC Integrations to record it as the owner. Zod in `packages/shared/src/api/delivered-pairs.ts`, handler in `apps/api/src/routes/vendor-delivered-pairs.ts`, loader in `apps/api/src/lib/delivered-pairs.ts`.
+
+| Gate | Success |
+|---|---|
+| `requireVendor()` **+ ownership** of `:id` (`product_vendors`), else the flat `404`. No entitlement gate, no `vendors.verified` gate, no rate limit | `200 { pairs }`. `{ pairs: [] }` when the product is not a Sync Service (`isSyncService`) |
+
+```typescript
+export const VendorDeliveredPairSchema = z.object({
+  id: z.string().uuid(),
+  anchor: z.enum(['integration', 'evidenced_pair']),
+  name: z.string().nullable(),
+  product_a: ProductLinkSchema,      // source on integrations, product_a on a pair
+  product_b: ProductLinkSchema,
+  owner: ContestVendorRefSchema.nullable(),   // never the caller; null = nobody on file
+  claimed: z.boolean(),
+  open_request_id: z.string().uuid().nullable(), // the caller's open `owner` contest
+});
+export const ListVendorDeliveredPairsResponseSchema = z.object({
+  pairs: z.array(VendorDeliveredPairSchema),
+});
+```
+
+Rows: `connector_evidenced_pairs` with `connector_product_id = :id`, and `integrations` with `powered_by_product_id = :id` where the connector is neither endpoint (a Convention-A self-reference is a direct integration). Live only (`retired_at IS NULL`). `built_by_vendor_id` NULL or another vendor. Ordered by name case-insensitively (`compareText`), then id. The ask is the existing contest submit (`POST /api/vendor/integrations/:id/contests`) with `field: 'owner'` and `proposed_value` the caller's vendor id, under §11b.2's Sync Service authority.
+
 #### `GET /api/vendor/products/:id/connector-catalog`
 
 Stage 2.1 (AECI-1083, `STAGE_2_SPEC.md` §8.9(1), `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.16). The connector catalogue seat's own catalogue: the read behind the portal's Catalogue tab, whose edits go through the PATCH below. Zod in `packages/shared/src/api/vendor-connector-catalog.ts`, handler in `apps/api/src/routes/vendor-connector-catalog.ts`.
@@ -10899,7 +10977,7 @@ Stage 2 (AECI-1008, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). An endpoint vendor t
 
 **No capability gate.** This is the named exception to invariant 3 above.
 
-**Submit order: authority → owner → live → shape → owner field → value → duplicate.** Authority is an endpoint vendor, or (AECI-1225) the vendor named in `built_by_vendor_id`. Anyone else, or an unknown id, gets the same `404` before the body is read. The named owner of a claimed or vendor-created row gets `403 CONTEST_OWN_INTEGRATION`. Then the live check, then `400 VALIDATION_FAILED` for the body shape. A named owner sending any field other than `owner` gets `403 CONTEST_OWN_INTEGRATION`. Then `422 CONTEST_INVALID_VALUE` or `422 CONTEST_NO_CHANGE` for the value, and `409 CONTEST_DUPLICATE` for a second open contest on the same field.
+**Submit order: authority → owner → live → shape → owner field → value → duplicate.** Authority is an endpoint vendor, or (AECI-1225) the vendor named in `built_by_vendor_id`, or (AECI-2045) the vendor holding the row's connector product when that product is a Sync Service. That last one may send only `field: 'owner'` (else `403 CONTEST_CONNECTOR_OWNER_ONLY`) with its own vendor id as `proposed_value` (else `422 CONTEST_INVALID_VALUE`). Anyone else, or an unknown id, gets the same `404` before the body is read. The named owner of a claimed or vendor-created row gets `403 CONTEST_OWN_INTEGRATION`. Then the live check, then `400 VALIDATION_FAILED` for the body shape. A named owner sending any field other than `owner` gets `403 CONTEST_OWN_INTEGRATION`. Then `422 CONTEST_INVALID_VALUE` or `422 CONTEST_NO_CHANGE` for the value, and `409 CONTEST_DUPLICATE` for a second open contest on the same field.
 
 **The owner's "not ours" (AECI-1225, ruled 2026-10-05).** The vendor named in `built_by_vendor_id` may file an `owner` contest on its own row only when the row has `origin = 'aeci'` and `claimed_at IS NULL`. It routes to AECi like every `owner` contest. A named owner holding neither endpoint, such as a connector vendor, must send `context_product_id` absent or `null`, or the existing `400` applies. The submit batch carries `contestIntegrationStateSentinel`, which expects the row unclaimed and the caller as owner. If the row was claimed or re-pointed after the read, the answer is `409 CONTEST_INTEGRATION_CHANGED` and nothing is written. The audit row `integration.contest.submitted` carries `metadata.selfDisclaim: true`. There is no new route, error code or migration.
 

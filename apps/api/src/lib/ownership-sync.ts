@@ -426,6 +426,22 @@ export async function resolveMirrorVendorIds(db: Db, targets: MirrorTargets): Pr
 }
 
 /**
+ * Mirror targets for named vendors, to pass beside a write's audit rows (AECI-2045).
+ * An owner change moves a pair from one vendor's record to another's, and the edge
+ * targets resolve only the owner on file after commit, so the old owner is named
+ * here. These are not audit rows and are never inserted. `null` ids are dropped;
+ * `resolveMirrorVendorIds` keeps only owned vendors.
+ */
+export function mirrorVendorEntries(vendorIds: readonly (string | null)[]): AuditLogEntry[] {
+  return [...new Set(vendorIds.filter((id): id is string => typeof id === 'string'))].map((id) => ({
+    action: 'mirror.target',
+    entityType: 'vendor',
+    entityId: id,
+    actorType: 'system',
+  }));
+}
+
+/**
  * The content-edit hook (AECI-1413). After a write commits, re-send the record of
  * every OWNED vendor the write touched, so the review app's read-only copy follows
  * the live edit. Runs inside `waitUntil` and never throws: the write already

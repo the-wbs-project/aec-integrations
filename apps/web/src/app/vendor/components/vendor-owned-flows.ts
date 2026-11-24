@@ -21,6 +21,27 @@ import { VendorPortalStore } from '../vendor-portal-store';
 const DIRECTIONS: readonly ContextDirection[] = ['outbound', 'both', 'inbound'];
 
 /**
+ * One direction against the row's endpoint A: "From {A} to {B}", "From {B} to {A}" or
+ * "Both ways". Shared with the owned row's detail page (AECI-2045), so the flows and the
+ * Overview's Direction row read alike.
+ */
+export function ownedDirectionText(
+  row: Pick<OwnedIntegration, 'product_a' | 'product_b'>,
+  direction: ContextDirection,
+): string {
+  const a = row.product_a.name;
+  const b = row.product_b.name;
+  switch (direction) {
+    case 'outbound':
+      return $localize`:@@vendor.ownedFlows.direction.aToB:From ${a}:a: to ${b}:b:`;
+    case 'inbound':
+      return $localize`:@@vendor.ownedFlows.direction.bToA:From ${b}:b: to ${a}:a:`;
+    case 'both':
+      return $localize`:@@vendor.im.direction.both:Both ways`;
+  }
+}
+
+/**
  * What the flow controls read of a row. An owned card passes its `OwnedIntegration`.
  * The integration detail page builds one from `VendorIntegration.owner_flows` for a
  * row whose owner also makes an endpoint (AECI-2039). Directions are framed against
@@ -363,16 +384,7 @@ export class VendorOwnedFlows {
   );
 
   protected directionText(direction: ContextDirection): string {
-    const a = this.row().product_a.name;
-    const b = this.row().product_b.name;
-    switch (direction) {
-      case 'outbound':
-        return $localize`:@@vendor.ownedFlows.direction.aToB:From ${a}:a: to ${b}:b:`;
-      case 'inbound':
-        return $localize`:@@vendor.ownedFlows.direction.bToA:From ${b}:b: to ${a}:a:`;
-      case 'both':
-        return $localize`:@@vendor.im.direction.both:Both ways`;
-    }
+    return ownedDirectionText(this.row(), direction);
   }
 
   protected directionLabel(flow: OwnedFlow): string {

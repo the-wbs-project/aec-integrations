@@ -109,6 +109,18 @@ export function isCatalogueProduct(product: CatalogueProductFields): boolean {
 }
 
 /**
+ * Does the product row show the Catalog tab (AECI-2045, `STAGE_2_VENDOR_PORTAL_SPEC.md`
+ * §6.16)? On a `connector` product, yes, unless it is a Sync Service with no catalogue.
+ * A Sync Service sells finished pairs and usually has none, but one that AECi holds a
+ * catalogue for (Agave) keeps the tab. An Integration platform, or a connector with no
+ * kind, keeps today's behaviour: the tab shows even before a catalogue exists.
+ */
+export function showsCatalogTab(product: CatalogueProductFields): boolean {
+  if (product.product_role !== 'connector') return false;
+  return !(product.connector_kind === 'sync_service' && product.has_connector_catalog !== true);
+}
+
+/**
  * Is this the connector catalogue-maintenance seat (`STAGE_2_SPEC.md` §8.9, AECI-724)?
  *
  * The signal is data `GET /api/vendor/me` already carries: NO license (`status:

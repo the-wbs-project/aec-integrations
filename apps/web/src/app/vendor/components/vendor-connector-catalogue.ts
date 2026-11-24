@@ -374,9 +374,9 @@ function domId(value: string): string {
         <p
           class="mt-6 max-w-[52ch] rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4 text-sm leading-relaxed text-(--text-primary)"
           data-catalogue-none
-          i18n="@@vendor.catalogue.none"
+          i18n="@@vendor.catalogue.none.v2"
         >
-          We do not hold a catalog for this product yet. When it does, its listings appear here.
+          We do not hold a catalog for this product yet. When we do, its listings appear here.
         </p>
       }
     </section>

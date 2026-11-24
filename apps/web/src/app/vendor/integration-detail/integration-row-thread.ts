@@ -611,7 +611,7 @@ export class IntegrationRowThread {
       case 'claim_removed':
         return $localize`:@@vendor.im.thread.closed.removed:This conversation closed when this row was removed from the directory. It is read-only.`;
       case 'not_attestable':
-        return $localize`:@@vendor.im.thread.closed.notAttestable.v2:This conversation closed when the integration moved to a connector product, which neither company builds. It is read-only.`;
+        return $localize`:@@vendor.im.thread.closed.notAttestable.v3:This conversation closed when the integration moved to a connector product, so neither product vendor can answer its data. It is read-only.`;
     }
   }
 

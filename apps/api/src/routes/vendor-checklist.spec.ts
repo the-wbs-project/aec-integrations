@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   attestations,
+  claimOwnerAnswers,
   claims,
   connectorEvidencedPairs,
   integrationFieldChallenges,
@@ -707,12 +708,74 @@ describe('batching', () => {
 
   // AECI-1357 dropped the plan price lookup from both reads: the plan block is
   // built from the session.
-  it('runs seven statements for the vendor read', async () => {
+  // AECI-2045 added the two owner-flow reads (pairs and integrations), in the same wave.
+  it('runs nine statements for the vendor read', async () => {
     await addProducts(4, 3000);
-    expect(await statementsFor('/api/vendor/checklist')).toBe(7);
+    expect(await statementsFor('/api/vendor/checklist')).toBe(9);
   });
 
-  it('runs the ownership wave plus three fact reads for the product read', async () => {
-    expect(await statementsFor(`/api/vendor/products/${P_ONE}/checklist`)).toBe(6);
+  it('runs the ownership wave plus five fact reads for the product read', async () => {
+    expect(await statementsFor(`/api/vendor/products/${P_ONE}/checklist`)).toBe(8);
+  });
+});
+
+// ─── AECI-2045: a connector product's data-flows step ────────────────────────
+
+describe('confirm data flows on a connector product (AECI-2045)', () => {
+  const P_SYNC = uuid(15);
+  const PAIR = uuid(60);
+
+  beforeEach(async () => {
+    await t.db.insert(products).values({
+      id: P_SYNC,
+      slug: 'sync',
+      name: 'Sync',
+      productRole: 'connector',
+      connectorKind: 'sync_service',
+    });
+    await t.db
+      .insert(productVendors)
+      .values({ productId: P_SYNC, vendorId: VENDOR, isPrimary: false });
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: PAIR,
+      connectorProductId: P_SYNC,
+      productAId: P_PARTNER,
+      productBId: P_FOREIGN,
+      direction: 'a_to_b',
+      builtByVendorId: VENDOR,
+      claimedAt: SEEN,
+    });
+    await t.db.insert(claims).values({
+      id: uuid(61),
+      connectorEvidencedPairId: PAIR,
+      dataObjectId: DO_RFIS,
+      direction: 'a_to_b',
+    });
+  });
+
+  it('counts the owner’s unanswered flow on a Sync Service, then done once answered', async () => {
+    expect(stepStatus(await productChecklist(FREE, P_SYNC), 'confirm_data_flows')).toBe('todo');
+    await t.db
+      .insert(claimOwnerAnswers)
+      .values({ id: uuid(62), claimId: uuid(61), vendorId: VENDOR, asserted: true });
+    expect(stepStatus(await productChecklist(FREE, P_SYNC), 'confirm_data_flows')).toBe('done');
+  });
+
+  it('does not count a flow on a pair the vendor has not claimed', async () => {
+    await t.db
+      .update(connectorEvidencedPairs)
+      .set({ claimedAt: null })
+      .where(eq(connectorEvidencedPairs.id, PAIR));
+    expect(stepStatus(await productChecklist(FREE, P_SYNC), 'confirm_data_flows')).toBe('done');
+  });
+
+  it('leaves the step out on an Integration platform', async () => {
+    await t.db
+      .update(products)
+      .set({ connectorKind: 'integration_platform' })
+      .where(eq(products.id, P_SYNC));
+    const body = await productChecklist(FREE, P_SYNC);
+    expect((body.steps as JsonBody[]).map((s) => s.key)).not.toContain('confirm_data_flows');
+    expect(body.total).toBe(3);
   });
 });

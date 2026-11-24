@@ -65,6 +65,7 @@ import {
 import { getDb, type Db } from '../db/client';
 import {
   attestations,
+  claimOwnerAnswers,
   claims,
   connectorEvidencedPairs,
   integrationFieldChallenges,
@@ -109,6 +110,8 @@ interface TouchingRow {
 interface ChecklistFacts {
   unclaimed: TouchingRow[];
   unattested: TouchingRow[];
+  /** AECI-2045: unanswered owner flows, keyed to the delivering connector product. */
+  ownerFlows: TouchingRow[];
 }
 
 /**
@@ -168,7 +171,13 @@ function loadChecklistFacts(
   db: Db,
   vendorId: string,
   scope: ProductScope,
-): [Promise<TouchingRow[]>, Promise<TouchingRow[]>, Promise<TouchingRow[]>] {
+): [
+  Promise<TouchingRow[]>,
+  Promise<TouchingRow[]>,
+  Promise<TouchingRow[]>,
+  Promise<TouchingRow[]>,
+  Promise<TouchingRow[]>,
+] {
   const unclaimedIntegrations = db
     .select({
       sourceProductId: integrations.sourceProductId,
@@ -270,13 +279,81 @@ function loadChecklistFacts(
         })),
     );
 
-  return [unclaimedIntegrations, unclaimedPairs, unattestedClaims];
+  // AECI-2045: on a Sync Service, the flows its owner has not answered. One row per
+  // claim on a live, claimed pair the vendor owns, delivered through a product in
+  // scope, with no live `claim_owner_answers` row by the vendor (`lib/owner-flows.ts`).
+  // Keyed to the connector product only: the endpoint vendors answer nothing here.
+  const noLiveOwnerAnswer = notExists(
+    db
+      .select({ one: sql`1` })
+      .from(claimOwnerAnswers)
+      .where(
+        and(
+          eq(claimOwnerAnswers.claimId, claims.id),
+          isNull(claimOwnerAnswers.retractedAt),
+          eq(claimOwnerAnswers.vendorId, vendorId),
+        ),
+      ),
+  );
+  const ownerFlowsOnPairs = db
+    .select({ connectorProductId: connectorEvidencedPairs.connectorProductId })
+    .from(connectorEvidencedPairs)
+    .innerJoin(claims, eq(claims.connectorEvidencedPairId, connectorEvidencedPairs.id))
+    .where(
+      and(
+        eq(connectorEvidencedPairs.builtByVendorId, vendorId),
+        isNotNull(connectorEvidencedPairs.claimedAt),
+        liveEvidencedPairOn(connectorEvidencedPairs),
+        inArray(connectorEvidencedPairs.connectorProductId, scope),
+        noLiveOwnerAnswer,
+      ),
+    )
+    .then((rows) => rows.map((row) => ({ productIds: [row.connectorProductId] })));
+  const ownerFlowsOnIntegrations = db
+    .select({
+      sourceProductId: integrations.sourceProductId,
+      targetProductId: integrations.targetProductId,
+      poweredByProductId: integrations.poweredByProductId,
+    })
+    .from(integrations)
+    .innerJoin(claims, eq(claims.integrationId, integrations.id))
+    .where(
+      and(
+        eq(integrations.builtByVendorId, vendorId),
+        isNotNull(integrations.claimedAt),
+        liveIntegrationOn(integrations),
+        inArray(integrations.poweredByProductId, scope),
+        noLiveOwnerAnswer,
+      ),
+    )
+    .then((rows) =>
+      rows
+        // A Convention-A self-reference is the connector's own direct integration.
+        .filter(
+          (row) =>
+            row.poweredByProductId !== row.sourceProductId &&
+            row.poweredByProductId !== row.targetProductId,
+        )
+        .map((row) => ({ productIds: [row.poweredByProductId] })),
+    );
+
+  return [
+    unclaimedIntegrations,
+    unclaimedPairs,
+    unattestedClaims,
+    ownerFlowsOnPairs,
+    ownerFlowsOnIntegrations,
+  ];
 }
 
-/** Merge the two unclaimed reads with the unattested one. */
+/** Merge the two unclaimed reads, and the two owner-flow reads. */
 async function settleFacts(reads: ReturnType<typeof loadChecklistFacts>): Promise<ChecklistFacts> {
-  const [rows, pairs, unattested] = await Promise.all(reads);
-  return { unclaimed: [...rows, ...pairs], unattested };
+  const [rows, pairs, unattested, flowsOnPairs, flowsOnRows] = await Promise.all(reads);
+  return {
+    unclaimed: [...rows, ...pairs],
+    unattested,
+    ownerFlows: [...flowsOnPairs, ...flowsOnRows],
+  };
 }
 
 /** How many rows touch `productId`. A row touching it twice counts once. */
@@ -289,6 +366,7 @@ function countsFor(facts: ChecklistFacts, productId: string): ChecklistProductCo
   return {
     unclaimedRows: touching(facts.unclaimed, productId),
     unattestedClaims: touching(facts.unattested, productId),
+    unansweredOwnerFlows: touching(facts.ownerFlows, productId),
   };
 }
 
@@ -333,6 +411,8 @@ export function createVendorChecklistHandler(
           maintainedBy: products.maintainedBy,
           lastReviewedAt: products.lastReviewedAt,
           integrationsReviewedAt: products.integrationsReviewedAt,
+          productRole: products.productRole,
+          connectorKind: products.connectorKind,
         })
         .from(products)
         .innerJoin(productVendors, eq(productVendors.productId, products.id))

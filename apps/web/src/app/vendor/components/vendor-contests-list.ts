@@ -1,5 +1,13 @@
 import { DatePipe, DOCUMENT, NgTemplateOutlet } from '@angular/common';
-import { Component, Injector, afterNextRender, computed, inject, signal } from '@angular/core';
+import {
+  Component,
+  Injector,
+  afterNextRender,
+  computed,
+  inject,
+  input,
+  signal,
+} from '@angular/core';
 
 import type { ContestDecision, ContestStatus, VendorContest } from '@aeci/shared';
 
@@ -53,21 +61,24 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
   imports: [DatePipe, NgTemplateOutlet, VendorContestProtest, VendorDocsLink],
   styles: [':host { display: block; }'],
   template: `
-    <section aria-labelledby="vendor-contests-heading">
-      <h3
-        id="vendor-contests-heading"
-        class="font-display text-lg font-semibold text-(--text-primary)"
-        i18n="@@vendor.contests.heading"
-      >
-        Change requests
-      </h3>
-      <p
-        class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
-        i18n="@@vendor.contests.intro"
-      >
-        A change request says one detail of an integration is wrong and proposes the right value.
-        You can request a change from any integration under your products.
-      </p>
+    <section [attr.aria-labelledby]="labelledBy() ?? 'vendor-contests-heading'">
+      <!-- AECI-2045: on an owned row's page the section heading names this list. -->
+      @if (!labelledBy()) {
+        <h3
+          id="vendor-contests-heading"
+          class="font-display text-lg font-semibold text-(--text-primary)"
+          i18n="@@vendor.contests.heading"
+        >
+          Change requests
+        </h3>
+        <p
+          class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+          i18n="@@vendor.contests.intro"
+        >
+          A change request says one detail of an integration is wrong and proposes the right value.
+          You can request a change from any integration under your products.
+        </p>
+      }
       <p class="mt-1"><aec-vendor-docs-link page="requesting-changes-and-appeals" /></p>
 
       <div class="mt-4" [attr.aria-busy]="loading() ? 'true' : null">
@@ -98,7 +109,15 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
               >
                 Received
               </h4>
-              @if (received().length === 0) {
+              @if (received().length === 0 && integrationId()) {
+                <p
+                  class="mt-2 max-w-prose text-sm text-(--text-secondary)"
+                  i18n="@@vendor.contests.received.emptyOne"
+                >
+                  No change requests have come in about this integration. When another company sends
+                  one, it arrives here for you to accept or decline.
+                </p>
+              } @else if (received().length === 0) {
                 <p
                   class="mt-2 max-w-prose text-sm text-(--text-secondary)"
                   i18n="@@vendor.contests.received.emptyOwner"
@@ -200,7 +219,14 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
               >
                 Submitted
               </h4>
-              @if (submitted().length === 0) {
+              @if (submitted().length === 0 && integrationId()) {
+                <p
+                  class="mt-2 max-w-prose text-sm text-(--text-secondary)"
+                  i18n="@@vendor.contests.submitted.emptyOne"
+                >
+                  Your company has not sent a change request about this integration.
+                </p>
+              } @else if (submitted().length === 0) {
                 <p
                   class="mt-2 max-w-prose text-sm text-(--text-secondary)"
                   i18n="@@vendor.contests.submitted.empty"
@@ -329,8 +355,19 @@ export class VendorContestsList {
 
   protected readonly loading = this.store.contestsLoading;
   protected readonly failed = this.store.contestsFailed;
-  protected readonly received = computed(() => this.store.contests().received);
-  protected readonly submitted = computed(() => this.store.contests().submitted);
+  /** AECI-2045: narrow both lists to one row's id (the owned row's detail page). */
+  readonly integrationId = input<string | null>(null);
+  /** AECI-2045: a heading outside the list names it. The list then drops its own
+   *  heading and intro, so the page keeps one heading per section. */
+  readonly labelledBy = input<string | null>(null);
+
+  private scoped(list: readonly VendorContest[]): VendorContest[] {
+    const id = this.integrationId();
+    return id ? list.filter((c) => c.integration_id === id) : [...list];
+  }
+
+  protected readonly received = computed(() => this.scoped(this.store.contests().received));
+  protected readonly submitted = computed(() => this.scoped(this.store.contests().submitted));
 
   protected readonly busy = signal<Busy | null>(null);
   protected readonly rowError = signal<{ id: string; message: string } | null>(null);

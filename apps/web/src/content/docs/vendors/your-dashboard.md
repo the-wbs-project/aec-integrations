@@ -22,7 +22,7 @@ Your company's tabs are:
 - **Billing**, your subscriptions, the billing email and the agreements your company accepted. Only owners see it. See [Billing](/docs/vendors/billing).
 - **Proposed products**, new products AEC Integrations found for your company, waiting for an owner to accept or decline them. Only owners see it. See [Products we propose](/docs/vendors/editing-profile-and-products#products-we-propose).
 
-Open a product from **Products** and the tabs change to that product's own: **Product Overview**, **Profile**, **Categories**, **Trades**, **Audiences**, **Phases**, **Integrations** and **Reviews**. A connector product also has a **Catalog** tab. The **Back to** link above the product name returns you to your company's tabs.
+Open a product from **Products** and the tabs change to that product's own: **Product Overview**, **Profile**, **Categories**, **Trades**, **Audiences**, **Phases**, **Integrations** and **Reviews**. A connector product we hold a catalog for also has **Catalog**. A Sync Service with no catalog does not. A connector product also has a **Catalog** tab. The **Back to** link above the product name returns you to your company's tabs.
 
 Every page has a **View public page** link, which opens the listing as buyers see it.
 
