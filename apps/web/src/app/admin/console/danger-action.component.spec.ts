@@ -356,7 +356,8 @@ describe('AdminDangerAction extensions (AECI-2104)', () => {
       host.busy.set(true);
       await settle();
       expect(button('Removing…')!.disabled).toBe(true);
-      expect(button('Edit the reason')!.disabled).toBe(true);
+      // Busy keeps Edit focusable but inert (DESIGN.md: busy never sets aria-disabled).
+      expect(button('Edit the reason')!.disabled).toBe(false);
       host.busy.set(false);
       host.error.set('Something went wrong. Please try again.');
       await settle();
@@ -562,11 +563,187 @@ describe('AdminDangerAction extensions (AECI-2104)', () => {
         h.describedBy.set('remove-help');
       });
       const opener = button('Remove from the page')!;
-      expect(opener.disabled).toBe(true);
+      // Reachable by keyboard, so the reason it is blocked can be heard.
+      expect(opener.disabled).toBe(false);
+      expect(opener.getAttribute('aria-disabled')).toBe('true');
       expect(opener.getAttribute('aria-describedby')).toBe('remove-help');
+      opener.focus();
+      expect(document.activeElement).toBe(opener);
       opener.click();
       await settle();
       expect(host.open()).toBe(false);
+      host.openerDisabled.set(false);
+      await settle();
+      expect(opener.hasAttribute('aria-disabled')).toBe(false);
+      opener.click();
+      await settle();
+      expect(host.open()).toBe(true);
+    });
+  });
+
+  describe('a running request keeps its form (review must-fix)', () => {
+    const running = async () => {
+      const t = await setup((h) => {
+        h.step.set(STEP);
+        h.busyLabel.set('Removing…');
+      });
+      await t.openForm();
+      t.type('Breaks the guidelines');
+      t.button('Continue to removal')!.click();
+      await t.settle();
+      t.button('Remove permanently')!.click();
+      t.host.busy.set(true);
+      await t.settle();
+      return t;
+    };
+
+    it('marks the form busy without disabling Cancel or Edit', async () => {
+      const { a, button } = await running();
+      expect(a.querySelector('form')!.getAttribute('aria-busy')).toBe('true');
+      for (const name of ['Cancel', 'Edit the reason']) {
+        expect(button(name)!.disabled).toBe(false);
+        expect(button(name)!.hasAttribute('aria-disabled')).toBe(false);
+      }
+    });
+
+    it('ignores Cancel while busy, then shows the failure in the open form', async () => {
+      const { host, settle, button, alert, stepBox } = await running();
+      const cancel = button('Cancel')!;
+      cancel.focus();
+      cancel.click();
+      await settle();
+      expect(host.open()).toBe(true);
+      expect(host.cancels).toBe(0);
+      expect(document.activeElement).toBe(cancel);
+      host.busy.set(false);
+      host.error.set('Something went wrong. Please try again.');
+      await settle();
+      expect(stepBox()).not.toBeNull();
+      expect(document.activeElement).toBe(alert());
+    });
+
+    it('ignores Escape while busy and still keeps it from the page', async () => {
+      const { root, host, settle, stepBox, escape } = await running();
+      let reachedPage = false;
+      const listen = () => (reachedPage = true);
+      root.addEventListener('keydown', listen);
+      escape(stepBox()!);
+      await settle();
+      root.removeEventListener('keydown', listen);
+      expect(host.open()).toBe(true);
+      expect(host.cancels).toBe(0);
+      expect(reachedPage).toBe(false);
+    });
+
+    it('ignores the opener while busy', async () => {
+      const { host, settle, button } = await running();
+      button('Remove from the page')!.click();
+      await settle();
+      expect(host.open()).toBe(true);
+    });
+
+    it('ignores Edit while busy', async () => {
+      const { settle, button, area, stepBox } = await running();
+      button('Edit the reason')!.click();
+      await settle();
+      expect(stepBox()).not.toBeNull();
+      expect(area().readOnly).toBe(true);
+    });
+  });
+
+  describe('attempts, opens and stale errors', () => {
+    it('takes a retry after a parent refuses in its handler with the same error, never going busy', async () => {
+      const { host, settle, button, type, alert, openForm } = await setup();
+      await openForm();
+      type('Off topic');
+      const refuse = () => host.error.set('That review was already moderated.');
+      for (let i = 0; i < 3; i++) {
+        button('Remove permanently')!.click();
+        refuse();
+        await settle();
+        expect(document.activeElement).toBe(alert());
+      }
+      expect(host.reasons).toEqual(['Off topic', 'Off topic', 'Off topic']);
+    });
+
+    it('starts clean when the parent opens it, and keeps the draft after a close by the opener', async () => {
+      const { a, host, settle, button, area, type, alert, openForm } = await setup((h) =>
+        h.noteLabel.set('Internal note (optional)'),
+      );
+      await openForm();
+      type('Kept reason');
+      const note = a.querySelector<HTMLTextAreaElement>('textarea:not([required])')!;
+      note.value = 'Kept note';
+      note.dispatchEvent(new Event('input'));
+      // The opener closes and reopens: nothing typed is lost.
+      button('Remove from the page')!.click();
+      await settle();
+      expect(host.open()).toBe(false);
+      await openForm();
+      expect(area().value).toBe('Kept reason');
+      expect(host.note()).toBe('Kept note');
+      // Cancel discards, and a parent open starts clean.
+      button('Cancel')!.click();
+      await settle();
+      host.open.set(true);
+      await settle();
+      expect(area().value).toBe('');
+      expect(host.note()).toBe('');
+      // A refusal does not survive a close and a parent open.
+      button('Remove permanently')!.click();
+      await settle();
+      expect(alert()).not.toBeNull();
+      host.open.set(false);
+      await settle();
+      host.open.set(true);
+      await settle();
+      expect(alert()).toBeNull();
+    });
+
+    it('discards the draft after a close by the parent (success)', async () => {
+      const { host, settle, button, area, type, openForm } = await setup();
+      await openForm();
+      type('Off topic');
+      button('Remove permanently')!.click();
+      host.open.set(false);
+      await settle();
+      await openForm();
+      expect(area().value).toBe('');
+    });
+
+    it('does not show an error from before step two beside the new confirmation', async () => {
+      const { host, settle, button, type, alert, stepBox, openForm } = await setup((h) =>
+        h.step.set(STEP),
+      );
+      await openForm();
+      type('Off topic');
+      button('Continue to removal')!.click();
+      await settle();
+      button('Remove permanently')!.click();
+      host.error.set('Something went wrong. Please try again.');
+      await settle();
+      button('Edit the reason')!.click();
+      await settle();
+      expect(alert()).not.toBeNull();
+      button('Continue to removal')!.click();
+      await settle();
+      expect(stepBox()).not.toBeNull();
+      expect(alert()).toBeNull();
+      // A failure of this attempt shows again, even with the same words.
+      button('Remove permanently')!.click();
+      host.busy.set(true);
+      await settle();
+      host.busy.set(false);
+      await settle();
+      expect(document.activeElement).toBe(alert());
+    });
+
+    it('puts the help between the label and the field', async () => {
+      const { a, openForm } = await setup();
+      await openForm();
+      const group = a.querySelector('textarea')!.parentElement!;
+      expect([...group.children].map((el) => el.tagName)).toEqual(['LABEL', 'P', 'TEXTAREA']);
+      expect(text(group.children[1])).toBe('Shown to the reviewer.');
     });
   });
 

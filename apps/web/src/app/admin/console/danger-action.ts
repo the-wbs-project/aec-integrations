@@ -44,12 +44,14 @@ export interface AdminDangerConfirmStep {
 /**
  * USAGE NOTES (AECI-1813, extended by AECI-2104). Read these, not the code.
  *
- * `<aec-admin-danger-action>` is the console's one pattern for a destructive action.
- * The opener is a compact secondary button. It opens a form under it: an optional
- * Bone warning box, a required reason, the confirm, and a ghost Cancel. A danger
- * button appears only as the confirm that does the damage. The piece decides
- * nothing about who may act: render it only where the action was rendered before,
- * inside the same `@if`. Every string is an input, already localised.
+ * `<aec-admin-danger-action>` is the console's pattern for an inline destructive
+ * action. The opener is a compact secondary button. It opens a form under it, in
+ * this order: an optional Bone warning box, optional read-only facts, the reason's
+ * label, its help, the reason, its error, an optional internal note, the confirm,
+ * and a ghost Cancel. A danger button appears only as the confirm that does the
+ * damage. The piece decides nothing about who may act: render it only where the
+ * action was rendered before, inside the same `@if`. Every string is an input,
+ * already localised.
  *
  * Inputs
  * - `openerLabel`, `confirmLabel`, `reasonLabel`, `reasonRequired` (required inputs).
@@ -60,7 +62,7 @@ export interface AdminDangerConfirmStep {
  * - `warning`: what the action does, as a full sentence. Screen readers hear it
  *   first, because it leads the reason field's description. Leave it null only when
  *   today's form has no warning (the review queues' Reject).
- * - `reasonHelp`: a hint under the field.
+ * - `reasonHelp`: a hint between the label and the field.
  * - `busy` and `busyLabel`: while `busy`, the confirm is disabled and reads
  *   `busyLabel` ("Rejecting…"), and a polite status line inside the form says it
  *   once. With no `busyLabel` the confirm keeps its label, as before.
@@ -76,23 +78,38 @@ export interface AdminDangerConfirmStep {
  *   element, so write inline content only (text and `<a>`).
  * - `cancelLabel`: Cancel's words, when the form keeps its own message id.
  * - `openerDescribedBy`: the id of a sentence beside the opener that describes it.
- *   `openerDisabled`: the action is blocked; point `openerDescribedBy` at the reason.
+ *   `openerDisabled`: the action is blocked. The opener stays focusable with
+ *   `aria-disabled="true"` and does nothing, so a keyboard user still reaches it and
+ *   hears the reason. Point `openerDescribedBy` at that reason.
  * - `noteLabel`, `noteHelp`, `noteMaxLength` and `[(note)]`: an optional internal
- *   note under the reason, natively capped, never required. Read `note` in the
- *   `(confirmed)` handler, trimmed by you, blank meaning absent.
- * - Content marked `dangerFacts` is projected between the warning and the reason:
- *   read-only facts the operator should see before writing ("3 open product
- *   proposals will be discarded").
+ *   note between the reason and the confirm, natively capped, never required. Read
+ *   `note` in the `(confirmed)` handler, trimmed by you, blank meaning absent.
+ * - Content marked `dangerFacts` is projected between the warning and the reason.
+ *   Read-only text only ("3 open product proposals will be discarded"): a control
+ *   inside it would submit the form on Enter.
  * - `open`: two-way. Outputs: `confirmed` (the trimmed reason), `cancelled`.
+ *
+ * Opening and closing
+ * - Every open starts on step one with no refusal showing, however it opened.
+ * - Cancel and Escape close the form, fire `(cancelled)` and discard the draft and
+ *   the note. A close by the parent (success) discards them too.
+ * - The opener toggles (`aria-expanded`). A close by the opener KEEPS the draft and
+ *   the note, and reopening shows them: pressing it never throws typed text away.
+ * - Focus returns to the opener on every close.
+ * - While `busy` the form cannot close: the opener, Cancel, Escape and "Edit the
+ *   reason" do nothing (Escape is still contained), and the form carries
+ *   `aria-busy="true"`. They are not disabled, so focus is never dropped
+ *   (DESIGN.md: a busy state does not set `aria-disabled`).
  *
  * Parent contract
  * - In the `(confirmed)` handler: clear `error` (and `errorTemplate`) to null and
- *   set `busy`. `confirmed` fires once per attempt; a second press before the
- *   parent answers emits nothing.
+ *   set `busy`, both synchronously. Clear them as well whenever you change `open`.
+ * - `confirmed` fires once per attempt. A second press before the parent answers
+ *   emits nothing. An attempt ends when `busy` clears, when an error arrives, or,
+ *   for a parent that never went busy, once the press has rendered.
  * - On success set `open` to false. Focus returns to the opener.
  * - On failure clear `busy` and set `error` or `errorTemplate`. The form stays open
- *   and focus moves to the alert. A new value is needed to move focus again.
- * - Escape anywhere in the form, and Cancel, close it and return focus to the opener.
+ *   and focus moves to the alert, even when the message is the same as last time.
  *
  * Two steps (`confirmStep`)
  * - Step one's button is secondary and reads `continueLabel`. It checks the reason
@@ -103,6 +120,8 @@ export interface AdminDangerConfirmStep {
  *   that box, which is named by its title and described by its body, so the
  *   operator hears what the press does before any button. Focus does not go to the
  *   danger button: a held or repeated Enter must not fire it.
+ * - A parent error set before step two opened is not shown on step two, so an old
+ *   failure never sits beside a new confirmation.
  * - The edit action returns to step one with the reason kept and focused.
  * - `confirmed` fires only from step two. A press that lands before step two has
  *   rendered emits nothing.
@@ -132,7 +151,7 @@ export interface AdminDangerConfirmStep {
       [attr.aria-expanded]="open()"
       [attr.aria-controls]="ids.form"
       [attr.aria-describedby]="openerDescribedBy()"
-      [disabled]="openerDisabled()"
+      [attr.aria-disabled]="openerDisabled() ? 'true' : null"
       (click)="toggle()"
     >
       {{ openerLabel() }}
@@ -143,6 +162,7 @@ export interface AdminDangerConfirmStep {
       [hidden]="!open()"
       method="dialog"
       novalidate
+      [attr.aria-busy]="busy() ? 'true' : null"
       class="mt-4 grid max-w-[36rem] gap-4 border-t border-(--border-default) pt-4"
       (submit)="submit($event)"
       (keydown.escape)="onEscape($event)"
@@ -153,6 +173,9 @@ export interface AdminDangerConfirmStep {
       <ng-content select="[dangerFacts]" />
       <div class="grid gap-2">
         <label [for]="ids.reason" [class]="labelClass">{{ reasonLabel() }}</label>
+        @if (reasonHelp(); as text) {
+          <p [id]="ids.help" class="text-t-14 text-(--text-secondary)">{{ text }}</p>
+        }
         <textarea
           #reason
           [id]="ids.reason"
@@ -171,14 +194,11 @@ export interface AdminDangerConfirmStep {
           <p #errorEl [id]="ids.error" role="alert" tabindex="-1" [class]="errorClass">
             {{ message }}
           </p>
-        } @else if (errorTemplate(); as tpl) {
+        } @else if (parentTemplate(); as tpl) {
           <p #errorEl [id]="ids.error" role="alert" tabindex="-1" [class]="errorClass">
             <!-- One flex item: the error row is a flex line, so bare text and a link would split. -->
             <span><ng-container [ngTemplateOutlet]="tpl" /></span>
           </p>
-        }
-        @if (reasonHelp(); as text) {
-          <p [id]="ids.help" class="text-t-14 text-(--text-secondary)">{{ text }}</p>
         }
       </div>
       @if (noteLabel(); as label) {
@@ -224,7 +244,7 @@ export interface AdminDangerConfirmStep {
             <button aecButton variant="danger" compact type="submit" [disabled]="busy()">
               {{ confirmText() }}
             </button>
-            <button aecButton variant="secondary" compact [disabled]="busy()" (click)="edit()">
+            <button aecButton variant="secondary" compact (click)="edit()">
               {{ step.editLabel }}
             </button>
             <ng-container [ngTemplateOutlet]="cancelButton" />
@@ -286,14 +306,14 @@ export class AdminDangerAction {
   readonly cancelLabel = input<string | null>(null);
   /** The id of a sentence outside the piece that describes the opener. */
   readonly openerDescribedBy = input<string | null>(null);
-  /** The opener cannot be pressed (the action is blocked). Say why with `openerDescribedBy`. */
+  /** The action is blocked: the opener stays focusable but does nothing. Say why with `openerDescribedBy`. */
   readonly openerDisabled = input(false);
   /** An optional internal note under the reason. Null: no note field. */
   readonly noteLabel = input<string | null>(null);
   readonly noteHelp = input<string | null>(null);
   /** The note's native cap. */
   readonly noteMaxLength = input<number | null>(null);
-  /** The note as typed, two-way. Cleared on open. The caller trims it. */
+  /** The note as typed, two-way. Cleared on open after a Cancel or a close by the parent. The caller trims it. */
   readonly note = model('');
   readonly open = model(false);
   /** The confirm pressed with a valid reason: the trimmed reason. */
@@ -309,6 +329,12 @@ export class AdminDangerAction {
   private inFlight = false;
   /** Step two takes presses only once it has rendered and taken focus. */
   private armed = false;
+  /** Each emit is an attempt; a check after it renders ends it if the parent did not go busy. */
+  private attempts = 0;
+  /** The last close came from the opener, so the next open keeps the draft and the note. */
+  private keepDraft = false;
+  /** The parent's error predates step two, so step two does not show it. */
+  private readonly staleError = signal(false);
   protected readonly labelClass = FIELD_LABEL_CLASS;
   protected readonly inputClass = FIELD_INPUT_CLASS;
   protected readonly errorClass = FIELD_ERROR_CLASS;
@@ -354,22 +380,43 @@ export class AdminDangerAction {
       untracked(() => {
         if (wasOpen && !isOpen) this.restoreFocus(false);
         if (!isOpen) this.leaveStepTwo();
+        // Every open starts clean, however it opened. A close by the opener keeps the
+        // draft and the note, so pressing it never throws typed text away.
+        if (!wasOpen && isOpen) {
+          if (!this.keepDraft) {
+            this.draft.set('');
+            this.note.set('');
+          }
+          this.problem.set(null);
+          this.staleError.set(false);
+          this.keepDraft = false;
+        }
         wasOpen = isOpen;
         this.inFlight = false;
       });
     });
-    // The parent answered: a new error, or busy clearing. Either ends the attempt.
+    // The parent answered with a new error: it ends the attempt and is shown on either step.
     effect(() => {
       const error = this.error() || this.errorTemplate();
+      untracked(() => {
+        this.staleError.set(false);
+        if (error && this.open()) {
+          this.inFlight = false;
+          this.focusError();
+        }
+      });
+    });
+    // Busy clearing ends the attempt too. An error left from it is this attempt's answer.
+    let wasBusy = false;
+    effect(() => {
       const busy = this.busy();
       untracked(() => {
         if (!busy) this.inFlight = false;
-        if (error && this.open()) {
-          this.inFlight = false;
-          afterNextRender(() => this.errorEl()?.nativeElement.focus(), {
-            injector: this.injector,
-          });
+        if (wasBusy && !busy && this.open() && (this.error() || this.errorTemplate())) {
+          this.staleError.set(false);
+          this.focusError();
         }
+        wasBusy = busy;
       });
     });
   }
@@ -378,6 +425,16 @@ export class AdminDangerAction {
   protected onEscape(event: Event): void {
     event.stopPropagation();
     this.cancel();
+  }
+
+  /** The parent's string, unless it predates step two. */
+  protected parentError(): string | null {
+    return this.staleError() ? null : this.error();
+  }
+
+  /** The parent's template, when no string error is shown. */
+  protected parentTemplate(): TemplateRef<unknown> | null {
+    return this.staleError() || this.error() ? null : this.errorTemplate();
   }
 
   protected bodyTemplate(step: AdminDangerConfirmStep): TemplateRef<unknown> | null {
@@ -389,11 +446,11 @@ export class AdminDangerAction {
     const problem = this.problem();
     if (problem === 'missing') return this.reasonRequired();
     if (problem === 'long') return this.lengthMessage();
-    return this.error();
+    return this.parentError();
   }
 
   protected hasError(): boolean {
-    return this.problem() !== null || !!this.error() || !!this.errorTemplate();
+    return this.problem() !== null || !!this.parentError() || !!this.parentTemplate();
   }
 
   protected describedBy(): string | null {
@@ -415,14 +472,14 @@ export class AdminDangerAction {
   }
 
   protected toggle(): void {
+    if (this.openerDisabled()) return;
     if (this.open()) {
+      // A running request keeps its form, so its answer has somewhere to show.
+      if (this.busy()) return;
+      this.keepDraft = true;
       this.open.set(false);
       return;
     }
-    this.draft.set('');
-    this.note.set('');
-    this.problem.set(null);
-    this.leaveStepTwo();
     this.open.set(true);
     afterNextRender(() => this.reasonEl().nativeElement.focus(), { injector: this.injector });
   }
@@ -445,16 +502,35 @@ export class AdminDangerAction {
       if (!this.armed) return;
     }
     this.inFlight = true;
+    const attempt = ++this.attempts;
     this.confirmed.emit(reason);
+    // A parent that answers in its handler without going busy (a refusal that sets
+    // the same error again) changes no input, so no effect sees it. Settle here.
+    afterNextRender(
+      () => {
+        if (attempt !== this.attempts || this.busy()) return;
+        this.inFlight = false;
+        if (this.error() || this.errorTemplate()) {
+          this.staleError.set(false);
+          this.focusError();
+        }
+      },
+      { injector: this.injector },
+    );
   }
 
-  /** Step two's edit action: back to step one, the reason kept and focused. */
+  /** Step two's edit action: back to step one, the reason kept and focused. A no-op while busy. */
   protected edit(): void {
+    if (this.busy()) return;
+    this.inFlight = false;
     this.leaveStepTwo();
     afterNextRender(() => this.reasonEl().nativeElement.focus(), { injector: this.injector });
   }
 
+  /** Cancel and Escape discard the draft. A no-op while busy: the request is running. */
   protected cancel(): void {
+    if (this.busy()) return;
+    this.keepDraft = false;
     this.open.set(false);
     this.cancelled.emit();
     this.restoreFocus(true);
@@ -467,7 +543,13 @@ export class AdminDangerAction {
     return null;
   }
 
+  private focusError(): void {
+    afterNextRender(() => this.errorEl()?.nativeElement.focus(), { injector: this.injector });
+  }
+
   private enterStepTwo(): void {
+    // An old failure must not sit beside a new confirmation.
+    if (this.error() || this.errorTemplate()) this.staleError.set(true);
     this.locked.set(true);
     this.armed = false;
     afterNextRender(
