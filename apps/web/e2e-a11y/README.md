@@ -29,6 +29,10 @@ pnpm test:a11y:nightly
 ```
 
 Against `pnpm dev:agent`, set `AECI_WEB_PORT` and `PLAYWRIGHT_BASE_URL` to the web port it printed.
+CI runs the suite in eight shards (`--shard=N/8`). Playwright splits by test, so a test must never rely
+on another test having run. A group that shares a `beforeAll` record needs
+`test.describe.configure({ mode: 'serial' })` or `{ mode: 'default' }`, which keeps it on one shard.
+`docs/TESTING_STRATEGY.md` §8.4 "Shards".
 The signed-in surfaces need the `SUPABASE_*TEST_USER_*` pairs in `apps/web/.dev.vars`. Without them those
 surfaces skip, and a run that skipped them proved nothing about them.
 

@@ -10,7 +10,8 @@ import base from './playwright.config';
 // `.dev.vars` auth hydration, retries and the single chromium project. Importing
 // it runs that hydration once, as it does for the PR suite.
 //
-// Run with `pnpm test:a11y:nightly`. CI runs it from `.github/workflows/a11y-nightly.yml`.
+// Run with `pnpm test:a11y:nightly`. CI runs it from `.github/workflows/a11y-nightly.yml`,
+// in `SUITE_SHARDS` shards (`--shard=N/8`). With no `--shard` it runs the whole suite.
 // `docs/TESTING_STRATEGY.md` §8.4 explains the lane.
 const IS_CI = !!process.env['CI'];
 

@@ -3,9 +3,9 @@
 # WHAT. Two Playwright lanes against a local dev:bound, once a night. Both are
 #   separate from the PR e2e job in deploy.yml.
 #   1. `suite`: the suite in apps/web/e2e-a11y/ (config
-#      apps/web/playwright.a11y-nightly.config.ts). Every surface in
-#      apps/web/e2e-a11y/surfaces.ts is visited. The checks come from the
-#      AECI-1874 sub-issues. docs/TESTING_STRATEGY.md §8.4.
+#      apps/web/playwright.a11y-nightly.config.ts), in SUITE_SHARDS shards.
+#      Every surface in apps/web/e2e-a11y/surfaces.ts is visited. The checks
+#      come from the AECI-1874 sub-issues. docs/TESTING_STRATEGY.md §8.4.
 #   2. `e2e-axe` (AECI-1876): the whole e2e suite with the axe sweep on (config
 #      apps/web/playwright.e2e-axe.config.ts, flag AECI_E2E_AXE=1), in
 #      E2E_AXE_SHARDS shards. Every test that uses `page` ends with an axe scan.
@@ -26,8 +26,8 @@
 #      skips, never alerts.
 #
 # THE RESULT LIVES ON THE COMMIT. Each run posts a commit status, context
-#   `a11y-nightly`: `pending` first (from `suite`), then `success`, `failure`,
-#   or `error` when cancelled (from `report`, over both lanes). The description
+#   `a11y-nightly`: `pending` first (from `suite` shard 1), then `success`,
+#   `failure`, or `error` when cancelled (from `report`, over both lanes). The description
 #   ends `(nightly)` or `(manual)`. Same rule as lighthouse.yml. Only statuses
 #   posted by github-actions[bot] count.
 #
@@ -69,9 +69,12 @@ env:
   NODE_VERSION: '24'
   PNPM_VERSION: '10.33.0'
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
-  # The `e2e-axe` matrix must list exactly 1..E2E_AXE_SHARDS, and the job name
-  # must say /N. scripts/a11y-nightly-workflow.test.mjs checks both.
+  # Each matrix must list exactly 1..its shard count, and its job name must say
+  # /N. scripts/a11y-nightly-workflow.test.mjs checks both, for both lanes.
   E2E_AXE_SHARDS: '4'
+  # The e2e-a11y suite (AECI-1874). docs/CICD_PLAN.md §11a-quater has the
+  # measured per-shard times this count comes from.
+  SUITE_SHARDS: '8'
 
 jobs:
   # ===========================================================================
@@ -146,13 +149,23 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
   # ===========================================================================
-  # The e2e-a11y suite. It posts the `pending` status; `report` posts the result.
+  # The e2e-a11y suite, in shards. Shard 1 posts the `pending` status; `report`
+  # posts the result.
   # ===========================================================================
+  # Each shard builds, boots its own dev:bound and local D1, and runs its slice,
+  # as `e2e-axe` does. Playwright keeps a serial or `mode: 'default'` describe
+  # on one shard, so a group with a shared `beforeAll` is never split.
   suite:
-    name: Accessibility nightly suite
+    name: Accessibility nightly suite (shard ${{ matrix.shard }}/8)
     needs: resolve
     if: needs.resolve.outputs.measure == 'true'
     runs-on: ubuntu-26.04
+    strategy:
+      # Every shard's findings land, even when one is red.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    # docs/CICD_PLAN.md §11a-quater has the measured time per shard.
     timeout-minutes: 30
     permissions:
       contents: read
@@ -171,8 +184,10 @@ jobs:
           persist-credentials: false
       # `pending` first, so a run that dies before `report` posts leaves a
       # non-terminal status, which the nightly skip treats as "not run".
-      # GH_TOKEN reaches this step only, never the whole job.
+      # GH_TOKEN reaches this step only, never the whole job. One post per run:
+      # shard 1 only.
       - name: Mark the a11y-nightly status pending
+        if: matrix.shard == 1
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -232,6 +247,7 @@ jobs:
       - name: Accessibility nightly (Playwright)
         env:
           PLAYWRIGHT_BASE_URL: http://localhost:8788
+          SHARD: ${{ matrix.shard }}
           A11Y_COMMIT_SHA: ${{ needs.resolve.outputs.sha }}
           A11Y_TRIGGER: ${{ needs.resolve.outputs.trigger }}
           SUPABASE_URL: https://ktuhnlypztujpsseujzx.supabase.co
@@ -247,13 +263,13 @@ jobs:
           if [ -z "$SUPABASE_VENDOR_TEST_USER_EMAIL" ] || [ -z "$SUPABASE_VENDOR_TEST_USER_PASSWORD" ]; then
             echo "::warning::SUPABASE_VENDOR_TEST_USER_EMAIL/PASSWORD not set. The vendor surfaces will skip."
           fi
-          pnpm test:a11y:nightly
-      # `report` merges this with the e2e-axe shards' summaries.
+          pnpm --filter @aeci/web exec playwright test -c playwright.a11y-nightly.config.ts --shard="$SHARD/$SUITE_SHARDS"
+      # `report` merges this with the other shards' summaries.
       - name: Keep the test summary
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v6
         with:
-          name: a11y-nightly-summary-suite
+          name: a11y-nightly-summary-suite-${{ matrix.shard }}
           path: apps/web/a11y-nightly-summary.json
           if-no-files-found: warn
           retention-days: 30
@@ -261,7 +277,7 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v6
         with:
-          name: playwright-report-a11y
+          name: playwright-report-a11y-${{ matrix.shard }}
           path: apps/web/playwright-report-a11y
           if-no-files-found: ignore
           retention-days: 30
@@ -432,7 +448,10 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          parts=(a11y-parts/a11y-nightly-summary-suite/a11y-nightly-summary.json)
+          parts=()
+          for n in $(seq 1 "$SUITE_SHARDS"); do
+            parts+=("a11y-parts/a11y-nightly-summary-suite-$n/a11y-nightly-summary.json")
+          done
           for n in $(seq 1 "$E2E_AXE_SHARDS"); do
             parts+=("a11y-parts/a11y-nightly-summary-e2e-axe-$n/a11y-e2e-axe-summary.json")
           done

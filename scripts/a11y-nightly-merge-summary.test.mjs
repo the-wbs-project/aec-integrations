@@ -133,6 +133,41 @@ test('summaries merge: totals add, tests concatenate, the worst status wins', ()
   assert.equal(m.generatedAt, '2026-11-24T06:00:00.000Z');
 });
 
+test('sharded lanes merge: every shard of the suite and the sweep is one part (AECI-1874)', () => {
+  const shard = (n, axe) =>
+    part(
+      summary({
+        totals: { passed: n, failed: 0, skipped: 0, expectedFailures: 1 },
+        tests: Array.from({ length: n }, (_, i) => ({ title: `t${i}`, outcome: 'passed' })),
+        axe,
+      }),
+      `p${n}.json`,
+    );
+  const m = mergeSummaries([
+    shard(1, null),
+    shard(2, null),
+    shard(3, null),
+    shard(4, null),
+    shard(5, axeBlock()),
+    shard(6, axeBlock()),
+  ]);
+  assert.equal(m.status, 'passed');
+  assert.equal(m.parts.length, 6);
+  assert.deepEqual(m.totals, { passed: 21, failed: 0, skipped: 0, expectedFailures: 6 });
+  assert.equal(m.tests.length, 21);
+  assert.deepEqual(m.axe.scans, { scanned: 20, optedOut: 2, notScanned: 4 });
+  // One suite shard that wrote nothing turns the merge red and is named.
+  const gap = mergeSummaries([
+    shard(1, null),
+    { path: 'suite-2.json', found: false, error: 'missing' },
+  ]);
+  assert.equal(gap.status, 'failed');
+  assert.deepEqual(
+    gap.parts.filter((p) => !p.found).map((p) => p.file),
+    ['suite-2.json'],
+  );
+});
+
 test('a missing part makes the merged status failed, and is named', () => {
   const dir = tempDir();
   const good = join(dir, 'good.json');

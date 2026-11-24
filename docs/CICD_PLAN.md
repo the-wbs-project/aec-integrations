@@ -1453,11 +1453,11 @@ records its sha256 and size. The operator steps, in run order, are in
 
 ---
 
-## 11a-quater. The accessibility nightly (AECI-1875, AECI-1876)
+## 11a-quater. The accessibility nightly (AECI-1875, AECI-1876, AECI-1874)
 
 | Workflow | Trigger | What it does | Skips when | On red |
 |---|---|---|---|---|
-| [`a11y-nightly.yml`](../.github/workflows/a11y-nightly.yml) | `40 5 * * *` (05:40 UTC) + `workflow_dispatch` | Two Playwright lanes, each against its own `dev:bound`. `suite` runs `pnpm test:a11y:nightly`: the suite in `apps/web/e2e-a11y/`, over every surface in `apps/web/e2e-a11y/surfaces.ts`. `e2e-axe` runs the whole e2e suite with the axe sweep on (`playwright.e2e-axe.config.ts`), in `E2E_AXE_SHARDS` (4) shards. `report` merges the lanes' summaries into `a11y-nightly-summary.json`, writes the axe findings by rule to the job summary, and keeps the merged file for 30 days. Each lane keeps its own HTML report. `suite` posts commit status `a11y-nightly` as `pending`. `report` posts `success`, `failure` or `error` over both lanes, with `(nightly)` or `(manual)` at the end of the description. Concurrency group per SHA, no cancel-in-progress | A scheduled run skips when `main` HEAD already has a bot-posted `success`, or a `failure` whose description ends `(nightly)`. A nightly failure is first posted as `(nightly, alert pending)`. The `confirm-alert` job rewrites it to `(nightly)` only after the Linear alert succeeds, so a failed alert is retried the next night. The status lookup fails open. A dispatch never skips and runs the dispatched ref | A scheduled red files or comments on a Linear issue labelled `a11y-nightly-regression` (`scripts/a11y-nightly-alert.mjs`, `LINEAR_API_KEY`, §7.1). A green night comments "Recovered" on an open issue. No email. `docs/OBSERVABILITY.md` describes the alert |
+| [`a11y-nightly.yml`](../.github/workflows/a11y-nightly.yml) | `40 5 * * *` (05:40 UTC) + `workflow_dispatch` | Two Playwright lanes, each against its own `dev:bound`. `suite` runs the suite in `apps/web/e2e-a11y/` (`playwright.a11y-nightly.config.ts`), over every surface in `apps/web/e2e-a11y/surfaces.ts`, in `SUITE_SHARDS` (8) shards. `e2e-axe` runs the whole e2e suite with the axe sweep on (`playwright.e2e-axe.config.ts`), in `E2E_AXE_SHARDS` (4) shards. `report` merges the lanes' summaries into `a11y-nightly-summary.json`, writes the axe findings by rule to the job summary, and keeps the merged file for 30 days. Each shard keeps its own HTML report. `suite` shard 1 posts commit status `a11y-nightly` as `pending`. `report` posts `success`, `failure` or `error` over both lanes, with `(nightly)` or `(manual)` at the end of the description. Concurrency group per SHA, no cancel-in-progress | A scheduled run skips when `main` HEAD already has a bot-posted `success`, or a `failure` whose description ends `(nightly)`. A nightly failure is first posted as `(nightly, alert pending)`. The `confirm-alert` job rewrites it to `(nightly)` only after the Linear alert succeeds, so a failed alert is retried the next night. The status lookup fails open. A dispatch never skips and runs the dispatched ref | A scheduled red files or comments on a Linear issue labelled `a11y-nightly-regression` (`scripts/a11y-nightly-alert.mjs`, `LINEAR_API_KEY`, §7.1). A green night comments "Recovered" on an open issue. No email. `docs/OBSERVABILITY.md` describes the alert |
 
 **Separate from the PR suite.** The lane has its own config, `apps/web/playwright.a11y-nightly.config.ts`.
 The PR e2e job in `deploy.yml` runs the default config, whose `testDir` is `./e2e`, so it never sees
@@ -1466,7 +1466,8 @@ lane runs the PR job's own tests, from `apps/web/playwright.e2e-axe.config.ts`. 
 place the flag is set, so the PR job's tests and timing do not change (`docs/TESTING_STRATEGY.md` §8.2).
 
 **Token scope.** As in §11c: every checkout sets `persist-credentials: false`, and only the two status
-steps receive the `statuses: write` token, as `GH_TOKEN`. The pending step is in `suite`. The result step
+steps receive the `statuses: write` token, as `GH_TOKEN`. The pending step is in `suite`, and runs on shard 1
+only, so a run posts `pending` once. The result step
 is in `report`, which runs no `pnpm install`: the merge script has no dependencies. `e2e-axe` holds a
 read-only token. Every action in the `alert` job is pinned to a full commit SHA, the same ones
 `lighthouse.yml` uses. `report` pins its checkout, setup-node and download to the same SHAs, and `actions/upload-artifact` to v6.0.0 (`b7c566a7`).
@@ -1476,9 +1477,9 @@ read-only token. Every action in the `alert` job is pinned to a full commit SHA,
 | Job | Does |
 |---|---|
 | `resolve` | Picks the SHA and applies the nightly skip |
-| `suite` | Posts `pending`. Runs `e2e-a11y/`. Uploads `a11y-nightly-summary-suite` |
+| `suite` (×8) | Shard 1 posts `pending`. Each shard runs its eighth of `e2e-a11y/` (`--shard=N/8`). Uploads `a11y-nightly-summary-suite-N` and `playwright-report-a11y-N` |
 | `e2e-axe` (×4) | Runs its quarter of the e2e suite with `AECI_E2E_AXE=1` and no retries, so a violation cannot pass on a second try (`docs/TESTING_STRATEGY.md` §8.4.2). Uploads `a11y-nightly-summary-e2e-axe-N` and `playwright-report-e2e-axe-N` |
-| `report` | Always runs on a measured commit. Decides the outcome from both lanes first: `success` only when both passed, `failure` when either failed, else `error` (a lane cancelled or skipped). A failure wins over a cancel, so a red lane alerts even when the other was cancelled. Merges the five summaries, names any that are missing, and uploads `a11y-nightly-summary`. Posts the result status |
+| `report` | Always runs on a measured commit. Decides the outcome from both lanes first: `success` only when both passed, `failure` when either failed, else `error` (a lane cancelled or skipped). A failure wins over a cancel, so a red lane alerts even when the other was cancelled. Merges the twelve summaries (eight suite shards, four sweep shards), names any that are missing, and uploads `a11y-nightly-summary`. Posts the result status |
 | `alert`, `confirm-alert` | As before, but they read `report`'s outcome, not one lane's result |
 
 **Why shards.** The PR e2e job runs about 838 tests in four shards of 5 to 6 minutes each, on one worker
@@ -1487,9 +1488,31 @@ cannot hold that inside the old 30-minute `suite` limit, so the sweep has its ow
 four-way split as the PR job. A shard builds the SSR Worker itself, like `suite`, so no job waits on
 another. A shard's limit is 30 minutes. The full flag-on run took about 10 minutes locally on six
 workers (AECI-1876). The CI time per shard is not measured yet. Read it off the first nightly and
-adjust `E2E_AXE_SHARDS` and the matrix together if a shard runs long. `scripts/a11y-nightly-workflow.test.mjs` checks that the matrix matches
-`E2E_AXE_SHARDS`, that `report` merges every file a lane uploads, the outcome rule, and that the PR job
+adjust `E2E_AXE_SHARDS` and the matrix together if a shard runs long. `scripts/a11y-nightly-workflow.test.mjs` checks that each
+matrix matches its constant (`SUITE_SHARDS`, `E2E_AXE_SHARDS`) and the job name says `/N`, runs the
+merge step as written and checks it names every shard's file, the outcome rule, and that the PR job
 never sets the flag.
+
+**Why the suite has eight shards (AECI-1874).** The suite ran in one job on one worker with a 30-minute
+limit. A timed-out job posts `error`, which is neither green nor an alert. Measured locally on one
+worker, 2026-11-24, against a fresh local D1, 290 tests:
+
+| Run | Per shard: tests, wall clock |
+|---|---|
+| Unsharded (the sum of the four-shard run) | 290 tests, 23.2 min |
+| 4 shards | 83, 5.1 min · 63, 5.6 min · 82, 10.7 min · 62, 1.5 min |
+| 8 shards | 37, 2.3 · 39, 1.8 · 36, 2.3 · 34, 7.0 · 42, 6.9 · 30, 3.4 · 36, 2.3 · 36, 1.6 (min) |
+
+Playwright splits by test count, not by time. Two groups carry most of the time: the signed-out
+keyboard walks (80 tests, 7.0 min) and the focus ring (25 tests, 6.1 min). Their tests land next to each
+other, so one shard of four took 10.7 minutes while another took 1.5. Eight shards bring the slowest to
+about 7 minutes, under a quarter of the limit before about 4 minutes of setup. A GitHub runner is slower
+than the laptop these numbers come from, and four more suites are planned (magnification, interaction
+scripts, voice and switch stand-ins, a second rule engine). At their likely size the slowest shard
+should stay near half the limit. Two tests in the eight-shard run timed out on a 5-second ARIA read
+while the machine's load average was about 50. Both passed on a rerun. The run uses 12 runners at once
+with `e2e-axe`, under the 20 concurrent jobs a public repository gets. Raise `SUITE_SHARDS` and the
+matrix together when a shard passes about 15 minutes in Actions.
 
 ---
 
