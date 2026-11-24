@@ -20,4 +20,3 @@ admin/vendors/suspension-cost-log.html 6
 admin/vendors/suspension-terminate.html 1
 admin/vendors/vendor-suspension-section.html 6
 vendor/components/vendor-contest-form.ts 3
-vendor/components/vendor-license-assign.ts 1

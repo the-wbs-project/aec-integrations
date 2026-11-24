@@ -370,7 +370,7 @@ function parseQuantity(text: string): number | null {
           subscription puts one product on Managed.
         </p>
         <form method="dialog" novalidate class="mt-6 space-y-6" (submit)="checkout($event)">
-          <fieldset class="m-0 min-w-0 border-0 p-0">
+          <fieldset class="mx-0 min-w-0 border-0 p-0">
             <legend [class]="labelClass + ' p-0'" i18n="@@vendor.billing.stripe.interval.legend">
               Billing period
             </legend>

@@ -26,7 +26,8 @@ export const BILLING_TABLE_HEAD_CLASS =
   'border-t border-b border-t-(--border-default) border-b-(--border-strong) py-2 pe-4 text-start align-bottom text-t-13 font-semibold tracking-[0.01em] text-(--text-secondary) last:pe-0';
 
 /** A body cell, on a hairline. */
-export const BILLING_TABLE_CELL_CLASS = 'border-b border-(--border-default) py-3 pe-4 align-top';
+export const BILLING_TABLE_CELL_CLASS =
+  'border-b border-(--border-default) py-3 pe-4 align-top last:pe-0';
 
 /** The in-text link role (DESIGN.md, "The Link Treatment Rule"). */
 export const BILLING_LINK_CLASS =

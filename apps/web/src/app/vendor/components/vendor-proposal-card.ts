@@ -208,7 +208,7 @@ export function proposalDecisionIsStale(err: unknown): boolean {
                     class="max-w-full"
                     [attr.data-testid]="term.exists ? 'proposal-term' : 'proposal-term-dropped'"
                   >
-                    <aec-chip density="dense" [tone]="term.exists ? 'neutral' : 'sunken'">
+                    <aec-chip [tone]="term.exists ? 'neutral' : 'sunken'">
                       {{ term.name ?? term.value }}
                       @if (!term.exists) {
                         <span class="font-semibold" i18n="@@vendor.proposals.card.dropped"

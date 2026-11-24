@@ -240,12 +240,12 @@ export function toVendorBillingLicenseRow(
             class="inline-flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-mark text-t-14 font-semibold text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary) [&::-webkit-details-marker]:hidden"
             data-testid="licenses-ended-summary"
           >
-            <aec-icon
-              name="chevron-down"
-              decorative
-              [size]="4"
-              class="shrink-0 -rotate-90 text-(--text-secondary) transition-transform duration-200 group-open:rotate-0 motion-reduce:transition-none"
-            />
+            <span
+              class="inline-flex shrink-0 -rotate-90 text-(--text-secondary) transition-transform duration-200 group-open:rotate-0 motion-reduce:transition-none"
+              aria-hidden="true"
+            >
+              <aec-icon name="chevron-down" decorative [size]="4" />
+            </span>
             <span i18n="@@vendor.billing.ended.summary"
               >Ended subscriptions ({{ endedRows().length }})</span
             >
@@ -340,7 +340,6 @@ export function toVendorBillingLicenseRow(
                   density="dense"
                   [tone]="chipTone[row.tone]"
                   [icon]="chipIcon[row.tone]"
-                  [attr.data-tone]="row.tone"
                   data-testid="license-status"
                   >{{ row.statusLabel }}</aec-chip
                 >

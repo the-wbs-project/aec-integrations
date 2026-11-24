@@ -92,12 +92,12 @@ import { licenseActionErrorMessage, licenseActionIsStale } from './vendor-licens
                 </option>
               }
             </select>
-            <aec-icon
-              name="chevron-down"
-              decorative
-              [size]="4"
-              class="pointer-events-none absolute end-3 top-1/2 -translate-y-1/2 text-(--text-secondary)"
-            />
+            <span
+              class="pointer-events-none absolute end-3 top-1/2 inline-flex -translate-y-1/2 text-(--text-secondary)"
+              aria-hidden="true"
+            >
+              <aec-icon name="chevron-down" decorative [size]="4" />
+            </span>
           </div>
         </div>
         <button
@@ -276,7 +276,7 @@ export class VendorLicenseAssign {
     return `vendor-license-assign-${this.license().id}-${key}`;
   }
 
-  protected readonly selectClass = `${FIELD_INPUT_CLASS} cursor-pointer appearance-none pe-12`;
+  protected readonly selectClass = `${FIELD_INPUT_CLASS} cursor-pointer appearance-none pe-10`;
   protected readonly labelClass = FIELD_LABEL_CLASS;
   protected readonly errorClass = FIELD_ERROR_CLASS;
 }
