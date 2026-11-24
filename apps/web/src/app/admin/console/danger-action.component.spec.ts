@@ -426,6 +426,9 @@ describe('AdminDangerAction extensions (AECI-2104)', () => {
       const el = alert()!;
       expect(text(el)).toBe('This is the last seat. Use Suspend on its vendor page.');
       expect(el.getAttribute('tabindex')).toBe('-1');
+      // The error row is a flex line: the sentence and its link must be one item.
+      expect(el.children).toHaveLength(1);
+      expect(el.children[0].querySelector('a')).not.toBeNull();
       expect(el.querySelector('a')?.getAttribute('href')).toBe('/admin/vendors/v1');
       expect(document.activeElement).toBe(el);
       expect(area().getAttribute('aria-describedby')!.split(' ')).toContain(el.id);

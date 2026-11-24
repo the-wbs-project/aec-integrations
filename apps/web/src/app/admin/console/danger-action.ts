@@ -170,7 +170,8 @@ export interface AdminDangerConfirmStep {
           </p>
         } @else if (errorTemplate(); as tpl) {
           <p #errorEl [id]="ids.error" role="alert" tabindex="-1" [class]="errorClass">
-            <ng-container [ngTemplateOutlet]="tpl" />
+            <!-- One flex item: the error row is a flex line, so bare text and a link would split. -->
+            <span><ng-container [ngTemplateOutlet]="tpl" /></span>
           </p>
         }
         @if (reasonHelp(); as text) {
