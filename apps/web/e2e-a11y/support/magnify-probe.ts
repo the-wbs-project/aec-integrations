@@ -357,10 +357,14 @@ export interface OrientationFacts {
  * follows a system setting that picks overlay scrollbars, which take no space,
  * or classic ones, and by default that depends on whether a mouse is attached.
  * The same machine measured a page 305px wide one day and 320px the next, and
- * three product names fitted at 400% zoom or did not (AECI-1881 review round 2). A phone and macOS draw overlay scrollbars, and
- * browser zoom does not enlarge a classic one, so 0 is the nearest stand-in for a
- * magnifier user. `scrollbar-width: none` gives every box a scrollbar of 0 and a
- * gutter of 0. Scrolling still works. Install before the page loads.
+ * three product names fitted at 400% zoom or did not (AECI-1881 review round 2).
+ * `scrollbar-width: none` gives every box a scrollbar of 0 and a gutter of 0.
+ * Scrolling still works. Install before the page loads.
+ *
+ * Hiding them is not lenient where it matters. A phone and macOS draw overlay
+ * scrollbars, so 320px is right for reflow. A Windows reader at 400% zoom keeps
+ * a classic scrollbar of about 4 CSS px, so the 400% check narrows its viewport
+ * to 315px instead (`ZOOM_400` in `magnification.spec.ts`).
  */
 export async function hideScrollbars(page: Page): Promise<void> {
   await page.addInitScript(() => {

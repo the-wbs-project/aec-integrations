@@ -1439,7 +1439,7 @@ one. Each surface gets two tests:
 | Check | WCAG | Set-up | Fails when |
 |---|---|---|---|
 | Reflow | 1.4.10 | 320 by 640 | The page root's `scrollWidth` is more than `clientWidth + 1`, or an element inside the page scrolls sideways and `SCROLLER_ALLOW_LIST` does not cover it |
-| 400% zoom | 1.4.10, 1.4.4 | 320 by 256 at four device pixels per CSS pixel: 400% of a 1280 by 1024 window | The root scrolls sideways, or the clip detector finds anything |
+| 400% zoom | 1.4.10, 1.4.4 | 315 by 256 at four device pixels per CSS pixel: 400% of a 1280 by 1024 window, less a classic scrollbar (below) | The root scrolls sideways, or the clip detector finds anything |
 | 200% text | 1.4.4 | `html { font-size: 200% }` | The clip detector finds anything |
 | Text spacing | 1.4.12 | Line height 1.5, letter spacing 0.12em, word spacing 0.16em on every element, 2em after each `p` | The clip detector finds anything |
 | Clip detector | the three above | Shared by them, in `support/magnify-geometry.ts` | Text is cut off, or text is painted over other text. Below |
@@ -1447,10 +1447,10 @@ one. Each surface gets two tests:
 
 Playwright has no zoom API, and it sets the device scale only when a context is made. `emulateZoom`
 sends the DevTools call Playwright itself uses, `Emulation.setDeviceMetricsOverride`, on the open
-page, and the test asserts the page then reports `devicePixelRatio` 4 at 320px. The override lives as
-long as its DevTools session, so it is the last step of the test. At 320 CSS px the layout is the one
-reflow measured. The scale changes rounding, `resolution` media queries and image choice. The two checks
-also look at different things: reflow at scrollers, 400% at clipped and overlapping text.
+page, and the test asserts the page then reports `devicePixelRatio` 4 at 315px. The override lives as
+long as its DevTools session, so it is the last step of the test. The scale changes rounding,
+`resolution` media queries and image choice. The two checks also look at different things: reflow at
+scrollers, 400% at clipped and overlapping text.
 
 The root rule is the one in `e2e/no-sideways-scroll.ts` (§7.4): never equality, because the Linux
 scrollbar gutter can make `scrollWidth` the smaller one (PR #1321). The issue allows 1px of rounding.
@@ -1500,10 +1500,34 @@ and no order: the fixture probe runs once per worker on first use, so a shard ma
 a system setting picks overlay scrollbars, which take no space, or classic ones, and by default that
 depends on whether a mouse is attached. Review round 2 (2026-11-25) found the same page 305px wide on
 one day and 320px on the next, on the same machine, and three product names fitted at 400% zoom or did
-not. `hideScrollbars` sets `scrollbar-width: none` on every element
-before the page loads, so every run measures the full width. A phone and macOS draw overlay scrollbars,
-and browser zoom does not enlarge a classic one, so no scrollbar is the nearest stand-in for a magnifier
-user. Scrolling still works.
+not. `hideScrollbars` sets `scrollbar-width: none` on every element before the page loads, so every
+run measures the same width on every machine. Scrolling still works.
+
+**What that costs, and the 315px viewport (review round 3, 2026-11-25).** Hiding scrollbars would be
+lenient for one reader: a Windows user with classic scrollbars at 400% zoom. As far as we can tell,
+Chromium keeps a classic scrollbar at its own size when the page zooms, and it does not grow with the
+page. At 100% scale the Fluent scrollbars Chromium announced for Windows and Linux in January 2025 are
+15px wide, and the older ones 17px (the blink-dev thread
+`groups.google.com/a/chromium.org/g/blink-dev/c/vabF61VwINk`). At 400% zoom on a 1280px window that is
+3.75 to 4.25 CSS px, so the reader has 315.75 to 316.25 CSS px for content, not 320. So the 400% check uses a 315px viewport
+with no scrollbar: the whole number at or below both. It is never more lenient than that reader, and at
+most 1.25px stricter. Reflow stays at 320px: a phone and macOS draw overlay scrollbars that take no space,
+and 320 CSS px is the WCAG 1.4.10 reference width.
+
+What is tested and what is not:
+
+- The width a classic-scrollbar Windows reader has at 400% is tested, to the nearest pixel below.
+- Media queries see 315px where that reader's browser sees 320px. No rule in `apps/web/src` has a
+  breakpoint between 300 and 329px, so nothing changes today. A new one would.
+- Edge's own scrollbar width and Windows display scaling above 100% are not measured. The figures above
+  come from Chromium's notes, not from a Windows machine.
+- We have no Chrome document that says page zoom leaves a classic scrollbar's size alone. Mozilla's
+  bug 1657549 says Chrome's scrollbars "don't normally change thickness on zoom-out", and Firefox
+  behaves the same way. We relied on that.
+
+Measured once on 2026-11-25, every surface's `narrow` test: at 316px one product name is cut on the
+three listing pages, "Fixture Acme Connector". At 315px two are cut, "Bluebeam Revu (fixture)" as well.
+At 320px none is. Nothing else on any of the 22 surfaces fails between 315 and 320px.
 
 **The allow-lists.** Both are in the spec, each entry with its reason. A real barrier never goes there.
 
@@ -1534,7 +1558,7 @@ red.
 
 | Issue | What the check finds | Where |
 |---|---|---|
-| AECI-1889 | Product cards cut product and vendor names with an ellipsis: about 35 at 200% text, four already at 100%. At 400% zoom they fit once scrollbars take no space | Listings and term pages at 200% and spacing |
+| AECI-1889 | Product cards cut product and vendor names with an ellipsis: about 35 at 200% text, four already at 100%, two at 400% zoom | Listings at 400%, listings and term pages at 200% and spacing |
 | AECI-2105 | At 200% text the mailing list card's text column shrinks to one word a line and the form paints over it | 13 public surfaces |
 | AECI-2106 | At 200% text every browse filter label is cut to a few letters | Listings and term pages |
 | AECI-2107 | The review form side panel cuts the vendor name | Review submission, at 400% and 200% |
@@ -1557,7 +1581,7 @@ cannot see any of that. They also miss text in images, pixelated icons, and text
 the 200% root size does not touch. Browser zoom scales `px`, so that last one is not a 1.4.4 failure, but
 the check does not test it. The detector reads only text nodes, so it misses cut-off form values,
 placeholders and SVG text. A cut made by `clip-path` or `contain: paint` instead of `overflow` is missed.
-It sees one state per page: no open menu, no error state and no expanded panel is enlarged. At 320 by
+It sees one state per page: no open menu, no error state and no expanded panel is enlarged. At 315 by
 256 a sticky header and the fixed consent banner can cover most of the screen, and nothing here checks
 how much of the viewport is left for content. A reader can scroll the page but never past a bar that
 stays put. The
