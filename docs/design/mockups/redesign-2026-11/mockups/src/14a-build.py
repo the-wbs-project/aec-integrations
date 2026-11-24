@@ -104,7 +104,7 @@ def dash(sr):
 NAV = [
     ("ins", "Insights", None, [[(None, [("Overview", None), ("Activity", None), ("Traffic", None), ("Audience", None), ("Subscribers", None)])]]),
     ("cat", "Catalog", None, [[(None, [("Coverage", None), ("Connectors", None)])]]),
-    ("ops", "Operations", 17, [
+    ("ops", "Operations", 16, [
         [("Queues", [("Review queue", 7), ("Review updates", 1), ("Review replies", 2), ("Requests", 3), ("Vendor claims", 1), ("Change requests", 2), ("Row threads", None), ("Re-index queue", 4)])],
         [("Accounts and site", [("Vendors", None), ("Users", None), ("Email", None), ("Legal versions", None), ("Copyright notices", None), ("System status", None), ("Audit log", None)])],
     ]),
@@ -605,7 +605,7 @@ OVERVIEW = f"""<section class="pg pg-overview" aria-labelledby="o-h">
 # ------------------------------------------------------------------ the legend panel
 
 TONES = [
-    ("count", "Forest fill, white text (12.34:1)", "Queue counts on the section row, the menu and the account badge (error fill there)", "7, 17"),
+    ("count", "Forest fill, white text (12.34:1)", "Queue counts on the section row, the menu and the account badge (error fill there)", "7, 16. The Operations total leaves out the re-index queue, as the code does"),
     ("neutral", "Raised fill, default edge, primary ink (18.97:1)", "A fact about the row that is not a state", "Can manage seats, Work email verified, Practitioner (role), priority 1 to 4, Note, Matched by hand"),
     ("waiting", "White fill, strong edge, primary ink, hollow ring", "Waits on someone. Never the sunken fill: the row hover is the sunken fill", "Pending, Open, In review, Waiting for acceptance, Not yet reviewed, In flight, Requested, With the owner, Not decided yet, Waiting to be forwarded to the complainant, Restore window opens {date}, Help requested, Parked as ambiguous, Linear issue pending"),
     ("positive", "Forest-soft fill, Forest edge and ink (10.80:1)", "Live or done as intended", "Approved, Accepted, Resolved, Live, Active, Account active, Matched, Passing, Succeeded, Restored, Agreed with the submitter"),
