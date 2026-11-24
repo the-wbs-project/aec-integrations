@@ -207,6 +207,23 @@ export function readText(page: Page): Promise<TextFacts> {
       const host = el.closest('[data-testid]');
       return host ? `[data-testid="${host.getAttribute('data-testid')}"]` : '';
     };
+    /**
+     * The component a text belongs to: the nearest custom element, with the
+     * nearest `aec…` attribute directive host in front when one is closer. Angular
+     * keeps a template's static attributes, so `aecCard` stays as `aeccard`.
+     */
+    const hostOf = (el: Element) => {
+      let directive = '';
+      for (let a: Element | null = el; a; a = a.parentElement) {
+        const tag = a.tagName.toLowerCase();
+        if (tag.includes('-')) return directive ? `${tag} [${directive}]` : tag;
+        if (!directive) {
+          const attr = Array.from(a.attributes).find((x) => /^aec[a-z]/.test(x.name));
+          if (attr) directive = attr.name;
+        }
+      }
+      return directive ? `[${directive}]` : '';
+    };
     const box = (r: DOMRect): Rect => ({
       left: r.left,
       top: r.top,
@@ -304,7 +321,15 @@ export function readText(page: Page): Promise<TextFacts> {
         }
       }
       if (invisible) continue;
-      texts.push({ text, el: describe(el), near: nearest(el), rects, layer, chain });
+      texts.push({
+        text,
+        el: describe(el),
+        near: nearest(el),
+        host: hostOf(el),
+        rects,
+        layer,
+        chain,
+      });
     }
     range.detach();
     return { texts, containers };
@@ -323,6 +348,29 @@ export interface OrientationFacts {
   }[];
   /** Calls to `screen.orientation.lock` since the page loaded. */
   readonly lockCalls: number;
+}
+
+/**
+ * Take scrollbars out of the layout, so every run measures the same width.
+ *
+ * Chromium draws classic scrollbars, 15 CSS px wide, on Linux CI. On macOS it
+ * follows a system setting that picks overlay scrollbars, which take no space,
+ * or classic ones, and by default that depends on whether a mouse is attached.
+ * The same machine measured a page 305px wide one day and 320px the next, and
+ * three product names fitted at 400% zoom or did not (AECI-1881 review round 2). A phone and macOS draw overlay scrollbars, and
+ * browser zoom does not enlarge a classic one, so 0 is the nearest stand-in for a
+ * magnifier user. `scrollbar-width: none` gives every box a scrollbar of 0 and a
+ * gutter of 0. Scrolling still works. Install before the page loads.
+ */
+export async function hideScrollbars(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    document.addEventListener('DOMContentLoaded', () => {
+      const style = document.createElement('style');
+      style.id = 'aeci-1881-no-scrollbars';
+      style.textContent = '*, *::before, *::after { scrollbar-width: none !important; }';
+      document.head.appendChild(style);
+    });
+  });
 }
 
 /**

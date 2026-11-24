@@ -56,6 +56,7 @@ import {
   applyMagnification,
   clearMagnification,
   emulateZoom,
+  hideScrollbars,
   readOrientation,
   readRoot,
   readScrollers,
@@ -120,17 +121,30 @@ interface MagnifyKnownProblem extends KnownProblem {
   readonly applies: (surface: A11ySurface) => boolean;
 }
 
-/** A clip finding of one kind, at any of the three enlargements, with or without the 100% tag. */
-const clip = (kind: string, el: string, by: string, near = '') =>
-  new RegExp(
+/**
+ * A clip finding of one kind, at any of the three enlargements, with or without
+ * the 100% tag, tied to a place on the page. `host` is the component the probe
+ * reads from the page (`hostOf` in `support/magnify-probe.ts`): the nearest custom
+ * element, with the nearest `aec…` directive host in front when it is closer.
+ * `near` is the nearest `data-testid`, or none. Both must match exactly, so the
+ * same cut anywhere else on the page is still a new problem.
+ */
+const clip = (kind: string, el: string, by: string, host: string, near = '') => {
+  const escape = (s: string) => s.replace(/[[\]]/g, '\\$&');
+  return new RegExp(
     `^(zoom 400%|text 200%|text spacing): clipped \\(${kind}\\) "[^"]*" in ${el} by ${by}` +
-      `${near ? ` near \\[data-testid="${near}"\\]` : ''}( \\(also at 100%\\))?$`,
+      ` within ${escape(host)}${near ? ` near \\[data-testid="${near}"\\]` : ''}` +
+      `( \\(also at 100%\\))?$`,
   );
+};
 
-const CARD_NAME = clip('ellipsis', '<(a|p|span)>', '<p>');
-const FILTER_LABEL = clip('ellipsis', '<span>', '<span>');
-const RAIL_VENDOR = clip('ellipsis', '<p>', '<p>', 'context-rail');
-const TERM_DESCRIPTION = clip('line-clamp', '<p>', '<p>');
+/** The product card's name, vendor and "Independent" lines (`product-card-grid.ts`). */
+const CARD_NAME = clip('ellipsis', '<(a|p|span)>', '<p>', 'aec-product-card-grid [aeccard]');
+/** A filter row's term name (`FILTER_LABEL_CLASS`), inside the refinement list. */
+const FILTER_LABEL = clip('ellipsis', '<span>', '<span>', 'aec-search-refinement-list');
+const RAIL_VENDOR = clip('ellipsis', '<p>', '<p>', 'aec-review-form', 'context-rail');
+/** A term card's description on the index pages, projected into the browse layout. */
+const TERM_DESCRIPTION = clip('line-clamp', '<p>', '<p>', 'aec-browse-layout [aeccard]');
 const MAILING_OVERLAP =
   /^text 200%: "[^"]*" in <\w+> overlaps "[^"]*" in <\w+> near \[data-testid="mailing-list-card"\]$/;
 const NAV_ROW =
@@ -141,14 +155,6 @@ const TERM_PAGES = ['category-browse', 'audience-browse', 'phase-browse'];
 const TERM_INDEXES = ['categories-index', 'audiences-index', 'phases-index'];
 
 export const KNOWN_PROBLEMS: readonly MagnifyKnownProblem[] = [
-  {
-    load: 'narrow',
-    applies: on(...LISTINGS),
-    issue: 'AECI-1889',
-    matches: (p) => CARD_NAME.test(p),
-    mark: () =>
-      knownFailure('AECI-1889', 'product cards cut long names with an ellipsis at 400% zoom'),
-  },
   {
     load: 'wide',
     applies: on(...LISTINGS, ...TERM_PAGES),
@@ -321,6 +327,7 @@ test.describe('a11y nightly magnification', () => {
           test.setTimeout(180_000);
           await prepareSurface(context, surface, await fixturesPresent());
           await guardWrites(page);
+          await hideScrollbars(page);
           await watchOrientationLock(page);
           const problems: string[] = [];
 
@@ -356,6 +363,7 @@ test.describe('a11y nightly magnification', () => {
           test.setTimeout(180_000);
           await prepareSurface(context, surface, await fixturesPresent());
           await guardWrites(page);
+          await hideScrollbars(page);
           await page.setViewportSize({ width: 1280, height: 800 });
           await openSurface(page, surface, { settle: true });
           await settleLayout(page);

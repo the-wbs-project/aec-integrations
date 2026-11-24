@@ -43,7 +43,7 @@ function container(over: Partial<ContainerFact> & { box: Box }): ContainerFact {
 }
 
 function text(over: Partial<TextFact> & { rects: Box[] }): TextFact {
-  return { text: 'Some words', el: '<p>', near: '', layer: 0, chain: [], ...over };
+  return { text: 'Some words', el: '<p>', near: '', host: '', layer: 0, chain: [], ...over };
 }
 
 const facts = (texts: TextFact[], containers: ContainerFact[] = []): TextFacts => ({
@@ -60,7 +60,15 @@ describe('clipFindings', () => {
       chain: [0],
     });
     expect(clipFindings(facts([t], [c]))).toEqual([
-      { clip: 'hidden', axis: 'y', text: 'Some words', el: '<p>', near: '', container: '<div>' },
+      {
+        clip: 'hidden',
+        axis: 'y',
+        text: 'Some words',
+        el: '<p>',
+        near: '',
+        host: '',
+        container: '<div>',
+      },
     ]);
   });
 
@@ -250,9 +258,12 @@ describe('problem strings', () => {
         text: 'A description',
         el: '<p>',
         near: '[data-testid="term-card"]',
+        host: 'aec-taxonomy-index [aeccard]',
         container: '<p>',
       }),
-    ).toBe('clipped (line-clamp) "A description" in <p> by <p> near [data-testid="term-card"]');
+    ).toBe(
+      'clipped (line-clamp) "A description" in <p> by <p> within aec-taxonomy-index [aeccard] near [data-testid="term-card"]',
+    );
     expect(
       formatOverlap({ a: { text: 'A', el: '<p>' }, b: { text: 'B', el: '<h2>' }, near: '' }),
     ).toBe('"A" in <p> overlaps "B" in <h2>');

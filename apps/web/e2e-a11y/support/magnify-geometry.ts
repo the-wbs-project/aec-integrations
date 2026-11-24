@@ -56,6 +56,13 @@ export interface TextFact {
   readonly el: string;
   /** The nearest ancestor with a `data-testid`, for triage. Empty when none. */
   readonly near: string;
+  /**
+   * The component the text belongs to, from the page, not from a test id: the
+   * nearest custom element (`aec-product-card-grid`), and before it the nearest
+   * `aec…` attribute directive host when one is closer (`aec-taxonomy-index [aeccard]`).
+   * Empty when neither exists. Known barriers anchor on it.
+   */
+  readonly host: string;
   /** One box per line, from `Range.getClientRects()`. */
   readonly rects: readonly Box[];
   /** 0 for the page. Otherwise one number per `position: fixed` ancestor. */
@@ -91,6 +98,7 @@ export interface ClipFinding {
   readonly text: string;
   readonly el: string;
   readonly near: string;
+  readonly host: string;
   readonly container: string;
 }
 
@@ -184,6 +192,7 @@ export function clipFindings(facts: TextFacts): ClipFinding[] {
             text: t.text,
             el: t.el,
             near: t.near,
+            host: t.host,
             container: c.desc,
           };
           break;
@@ -302,9 +311,10 @@ export function isRotated(transform: string, rotate: string): boolean {
 }
 
 const where = (near: string) => (near ? ` near ${near}` : '');
+const within = (host: string) => (host ? ` within ${host}` : '');
 
 export function formatClip(f: ClipFinding): string {
-  return `clipped (${f.clip}) "${snippet(f.text)}" in ${f.el} by ${f.container}${where(f.near)}`;
+  return `clipped (${f.clip}) "${snippet(f.text)}" in ${f.el} by ${f.container}${within(f.host)}${where(f.near)}`;
 }
 
 export function formatOverlap(f: OverlapFinding): string {

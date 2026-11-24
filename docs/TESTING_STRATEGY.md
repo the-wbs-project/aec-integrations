@@ -1435,8 +1435,11 @@ the ancestors it really escapes. The pure half decides:
   more than 30% of the shorter line's height. Only text in the same layer is compared, so the fixed
   consent banner over the page is not a finding. Scrolled-away text inside a scroller is not compared.
 
-A problem string quotes the text with its digits masked, its element and the clipping container, and the
-nearest `data-testid`, so the string is the same from run to run. In the `wide` test a problem that is
+A problem string quotes the text with its digits masked, its element and the clipping container, the
+component it belongs to, and the nearest `data-testid`, so the string is the same from run to run. The
+component is read from the page, not from a test id: the nearest custom element, with the nearest `aec…`
+attribute directive host in front when that is closer (`within aec-product-card-grid [aeccard]`).
+Angular keeps a template's static attributes, so `aecCard` stays in the DOM as `aeccard`. In the `wide` test a problem that is
 also there before any override says `(also at 100%)`. It still counts. `magnify-geometry.unit.spec.ts`
 pins the decisions in the plain Vitest runner. jsdom has no layout, so the fixtures are the boxes
 Chromium gives for the HTML each case names. The in-page reader is proven by the deliberate breakage
@@ -1455,6 +1458,15 @@ be stable. It runs after every resize and every style change. The tests run with
 'reduce'`. Three one-worker runs gave the same findings. Every test stands alone, with no `beforeAll`
 and no order: the fixture probe runs once per worker on first use, so a shard may take any of them.
 
+**Scrollbars take no space.** Chromium draws classic scrollbars, 15 CSS px wide, on Linux CI. On macOS
+a system setting picks overlay scrollbars, which take no space, or classic ones, and by default that
+depends on whether a mouse is attached. Review round 2 (2026-11-25) found the same page 305px wide on
+one day and 320px on the next, on the same machine, and three product names fitted at 400% zoom or did
+not. `hideScrollbars` sets `scrollbar-width: none` on every element
+before the page loads, so every run measures the full width. A phone and macOS draw overlay scrollbars,
+and browser zoom does not enlarge a classic one, so no scrollbar is the nearest stand-in for a magnifier
+user. Scrolling still works.
+
 **The allow-lists.** Both are in the spec, each entry with its reason. A real barrier never goes there.
 
 | List | Entry | Reason |
@@ -1467,12 +1479,24 @@ The browse table is not in the manifest: the listing surfaces load the card view
 700px, below `md`, it fits. If a table view joins the manifest, it needs an entry like the vendor table's.
 
 **Known barriers on landing (2026-11-24).** `KNOWN_PROBLEMS` uses `expectOnlyKnownProblems`
-(`support/known-barriers.ts`), narrowed by a pattern per issue. A new problem on a marked surface still
-fails, and a fixed one turns its mark red.
+(`support/known-barriers.ts`), narrowed by a pattern per issue. Every clip pattern names the component
+it belongs to, and the rail pattern its `data-testid` too, so the same kind of cut anywhere else on a
+marked surface is still a new problem. A fixed barrier turns its mark red. Review round 2 (2026-11-25)
+proved both: a new ellipsis outside each anchored component failed, and fixing each one turned its mark
+red.
+
+| Pattern | Anchored on |
+|---|---|
+| `CARD_NAME` (AECI-1889) | `aec-product-card-grid [aeccard]`: a card in the product card grid |
+| `FILTER_LABEL` (AECI-2106) | `aec-search-refinement-list`: a row of the filter panel |
+| `TERM_DESCRIPTION` (AECI-2108) | `aec-browse-layout [aeccard]`: a term card, projected into the browse layout |
+| `RAIL_VENDOR` (AECI-2107) | `aec-review-form` and `[data-testid="context-rail"]` |
+| `MAILING_OVERLAP` (AECI-2105) | `[data-testid="mailing-list-card"]` |
+| `NAV_ROW` (AECI-2109) | The row's own link names |
 
 | Issue | What the check finds | Where |
 |---|---|---|
-| AECI-1889 | Product cards cut product and vendor names with an ellipsis: about 35 at 200% text, three at 400% zoom, four already at 100% | Listings at 400%, listings and term pages at 200% and spacing |
+| AECI-1889 | Product cards cut product and vendor names with an ellipsis: about 35 at 200% text, four already at 100%. At 400% zoom they fit once scrollbars take no space | Listings and term pages at 200% and spacing |
 | AECI-2105 | At 200% text the mailing list card's text column shrinks to one word a line and the form paints over it | 13 public surfaces |
 | AECI-2106 | At 200% text every browse filter label is cut to a few letters | Listings and term pages |
 | AECI-2107 | The review form side panel cuts the vendor name | Review submission, at 400% and 200% |
@@ -1495,7 +1519,10 @@ cannot see any of that. They also miss text in images, pixelated icons, and text
 the 200% root size does not touch. Browser zoom scales `px`, so that last one is not a 1.4.4 failure, but
 the check does not test it. The detector reads only text nodes, so it misses cut-off form values,
 placeholders and SVG text. A cut made by `clip-path` or `contain: paint` instead of `overflow` is missed.
-It sees one state per page: no open menu, no error state and no expanded panel is enlarged. The
+It sees one state per page: no open menu, no error state and no expanded panel is enlarged. At 320 by
+256 a sticky header and the fixed consent banner can cover most of the screen, and nothing here checks
+how much of the viewport is left for content. A reader can scroll the page but never past a bar that
+stays put. The
 overrides do not combine: text spacing runs at 1280px only, so `ACCESSIBILITY_AUDIT.md` §11.4 P3, 2px
 of sideways scroll on home at 320px with spacing on, is not covered. A person with
 a magnifier, ZoomText or macOS Zoom, still has to run the pass.
@@ -1505,7 +1532,7 @@ a magnifier, ZoomText or macOS Zoom, still has to run the pass.
 | File | What it holds |
 |---|---|
 | `magnification.spec.ts` | Two tests per surface, `CLIP_ALLOW_LIST`, `SCROLLER_ALLOW_LIST` and `KNOWN_PROBLEMS` |
-| `support/magnify-probe.ts` | The in-page reads, the two style overrides, `settleLayout`, `emulateZoom` and the orientation-lock watch |
+| `support/magnify-probe.ts` | The in-page reads, the two style overrides, `settleLayout`, `emulateZoom`, `hideScrollbars`, the component host (`hostOf`) and the orientation-lock watch |
 | `support/magnify-geometry.ts` | Pure: the clip and overlap rules, the root rule, the rotation rule, the problem strings. Pinned by `magnify-geometry.unit.spec.ts` |
 
 **Run it** alone with one worker:
