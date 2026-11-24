@@ -306,6 +306,10 @@ test.describe('/ — home assembly', () => {
   });
 });
 
+// AECI-1881 left these citation reflow checks here on purpose. They run on every PR and pin one
+// element at five widths, which the nightly cannot do. The nightly's clip detector
+// (`e2e-a11y/support/magnify-geometry.ts`) stays out of the PR job, and the page-root half already
+// uses the shared `expectNoSidewaysScroll`. TESTING_STRATEGY.md §8.4.6.
 test.describe('/ — printed citations (AECI-1846, AECI-1792)', () => {
   // Measure settled geometry: focus navigation otherwise starts the home's smooth scroll.
   test.use({ reducedMotion: 'reduce' });
