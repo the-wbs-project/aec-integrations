@@ -304,7 +304,7 @@ export function defineKeyboardSuite(
           async ({ context, page }) => {
             test.setTimeout(120_000);
             await prepareSurface(context, surface, fixturesPresent);
-            markKnownBarriers(surface, 'popovers');
+            markKnownBarriers(KNOWN_BARRIERS, surface, 'popovers');
             await load(page, surface);
             const first = await tabWalk(page);
             expect(first.end, 'the Tab cycle closes, so every trigger is known').toBe('closed');
