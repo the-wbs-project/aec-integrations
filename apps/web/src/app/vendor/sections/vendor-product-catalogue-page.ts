@@ -1,6 +1,7 @@
 import { Component, computed } from '@angular/core';
 
 import { VendorConnectorCatalogue } from '../components/vendor-connector-catalogue';
+import { PORTAL_NOTICE_CLASS } from '../shared/portal-notice';
 
 import { vendorProductContext } from './vendor-product-context';
 
@@ -26,7 +27,7 @@ import { vendorProductContext } from './vendor-product-context';
           <aec-vendor-connector-catalogue [productId]="p.id" [productName]="p.name" />
         } @else {
           <p
-            class="max-w-[52ch] rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4 text-sm leading-relaxed text-(--text-primary)"
+            [class]="noticeClass + ' max-w-[52ch] text-sm leading-relaxed'"
             data-catalogue-not-connector
             i18n="@@vendor.catalogue.notConnector"
           >
@@ -41,4 +42,6 @@ import { vendorProductContext } from './vendor-product-context';
 export class VendorProductCataloguePage {
   private readonly ctx = vendorProductContext();
   protected readonly product = computed(() => this.ctx.product());
+  /** AECI-1811: a state, not a card, so it is the portal notice. */
+  protected readonly noticeClass = PORTAL_NOTICE_CLASS;
 }
