@@ -67,7 +67,7 @@ import { isReplayedEvent } from '../../core/event-replay';
         </div>
       }
       <p
-        [class]="hintClass + ' max-w-[30rem]'"
+        [class]="hintClass + ' max-w-[30rem] text-pretty'"
         id="billing-legal-name-hint"
         i18n="@@vendor.billing.legalName.hint"
       >
