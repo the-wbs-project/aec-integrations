@@ -251,9 +251,7 @@ export type ProductCreateNotice = { kind: 'notOwned' } | { kind: 'text'; text: s
                 {{ categoriesHint() }}
               </p>
               @if (categories(); as list) {
-                <div
-                  class="max-h-72 max-w-2xl overflow-y-auto rounded-control border border-(--border-default)"
-                >
+                <div class="max-h-72 max-w-2xl overflow-y-auto border-y border-(--border-default)">
                   <ul data-testid="product-create-categories">
                     @for (term of list; track term.slug) {
                       <li class="border-b border-(--border-default) last:border-b-0">
@@ -531,7 +529,7 @@ export class VendorProductCreate implements OnInit {
   }
 
   protected rowLabelClass(slug: string): string {
-    const base = 'flex items-start gap-3 px-4 py-2.5 transition-colors';
+    const base = 'flex items-start gap-3 px-4 py-3 transition-colors';
     return this.togglable(slug) ? `${base} cursor-pointer hover:bg-(--surface-sunken)` : base;
   }
 
