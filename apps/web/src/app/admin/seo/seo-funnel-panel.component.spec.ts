@@ -156,6 +156,16 @@ function settle(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve));
 }
 
+const attached: HTMLElement[] = [];
+
+async function flush(fixture: { detectChanges(): void; whenStable(): Promise<unknown> }) {
+  await settle();
+  fixture.detectChanges();
+  await fixture.whenStable();
+  await settle();
+  fixture.detectChanges();
+}
+
 async function setup(funnel: () => Promise<SeoFunnelResponse>) {
   const api = { queue: vi.fn(), trend: vi.fn(), funnel: vi.fn(funnel) };
   TestBed.resetTestingModule();
@@ -163,12 +173,26 @@ async function setup(funnel: () => Promise<SeoFunnelResponse>) {
     providers: [provideZonelessChangeDetection(), { provide: AdminSeoApi, useValue: api }],
   });
   const fixture = TestBed.createComponent(SeoFunnelPanel);
+  const announced: string[] = [];
+  fixture.componentInstance.announce.subscribe((m) => announced.push(m));
   fixture.detectChanges();
   await fixture.whenStable();
   await settle();
   fixture.detectChanges();
   await fixture.whenStable();
-  return { fixture, api, el: fixture.nativeElement as HTMLElement };
+  const el = fixture.nativeElement as HTMLElement;
+  // Attached, so focus moves can be observed.
+  document.body.appendChild(el);
+  attached.push(el);
+  return { fixture, api, el, announced };
+}
+
+/** A Google engine whose `clicked` stage is replaced by `over`. */
+function googleWithClicked(over: Partial<SeoFunnelEngine['stages'][number]>): SeoFunnelEngine {
+  return {
+    ...GOOGLE_FULL,
+    stages: [...GOOGLE_FULL.stages.slice(0, 3), { ...GOOGLE_FULL.stages[3]!, ...over }],
+  };
 }
 
 function text(el: Element | null | undefined): string {
@@ -205,7 +229,10 @@ function baselineRow(c: HTMLElement, key: string): string[] {
 
 describe('SeoFunnelPanel', () => {
   beforeEach(() => TestBed.resetTestingModule());
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    while (attached.length > 0) attached.pop()!.remove();
+  });
 
   it('shows a loading line while the read is in flight', async () => {
     const { el } = await setup(() => new Promise(() => undefined));
@@ -313,7 +340,7 @@ describe('SeoFunnelPanel', () => {
     // The null `current` row reads "Not recorded". The baseline is still shown.
     expect(baselineRow(g, 'ctr')).toEqual(['Click-through', 'Not recorded', '0.26%']);
     expect(baselineRow(g, 'clicks')).toEqual(['Clicks', 'Not recorded', '41']);
-    expect(text(g)).toContain('The baseline row is always shown.');
+    expect(text(g)).toContain('The baseline is always shown.');
   });
 
   it('shows Bing with every stage it can have, captioned as reported by Bing', async () => {
@@ -358,7 +385,10 @@ describe('SeoFunnelPanel', () => {
     expect(text(b.querySelector('[data-testid="admin-seo-funnel-window-bing"]'))).toContain(
       'Days recorded: 17 of 28.',
     );
-    expect(text(b)).toContain('Only 17 of the 28 days from 2026-10-30 to 2026-11-26');
+    // The count appears once, on the window line. The note does not repeat it,
+    // and says Pacific like the window line does.
+    expect(text(b)).toContain('Some Pacific dates in this search window have no daily figures yet');
+    expect(text(b).match(/17 of 28/g)).toHaveLength(1);
   });
 
   it('never draws a Bing Impressed stage or a Bing position, even if the API sent them', async () => {
@@ -460,6 +490,156 @@ describe('SeoFunnelPanel', () => {
     // Localized prose, never the wire fallback.
     expect(all).not.toContain('fallback');
     expect(all).toContain('Read at Dec 1, 2026');
+  });
+
+  it('clamps a rate above 1 to a full bar, and still prints the true rate', async () => {
+    const over: SeoFunnelEngine = {
+      ...BING_FULL,
+      stages: BING_FULL.stages.map((st) =>
+        st.stage === 'indexed' ? { ...st, count: 1800, rate: 1.175 } : st,
+      ),
+    };
+    const { el } = await setup(async () => respond([GOOGLE_FULL, over]));
+    const b = card(el, 'bing');
+    expect(stageRow(b, 'indexed').cells).toEqual(['117.5%', '1,800']);
+    const bar = b.querySelector(
+      'tr[data-stage="indexed"] [aria-hidden="true"] span',
+    ) as HTMLElement;
+    expect(bar.style.width).toBe('100%');
+  });
+
+  it('reads "No rate" and draws no bar when the catalog is 0', async () => {
+    const empty: SeoFunnelEngine = {
+      ...GOOGLE_D1_ONLY,
+      stages: [
+        { ...CATALOG, count: 0 },
+        { stage: 'crawled', count: 0, rate: null, measure: 'measured', source: 'd1' },
+      ],
+    };
+    const { el } = await setup(async () => respond([empty, BING_D1_ONLY]));
+    const g = card(el, 'google');
+    expect(stageRow(g, 'crawled').cells).toEqual(['No rate', '0']);
+    expect(g.querySelector('tr[data-stage="crawled"] [aria-hidden="true"] span')).toBeNull();
+    expect(g.querySelector('tr[data-stage="catalog"] [aria-hidden="true"] span')).toBeNull();
+  });
+
+  it('reads "No impressions" when click-through is null', async () => {
+    const { el } = await setup(async () =>
+      respond([googleWithClicked({ count: 0, rate: null, impressions: 0 }), BING_D1_ONLY]),
+    );
+    expect(stageRow(card(el, 'google'), 'clicked').cells[0]).toBe(
+      'No impressions at average position 33.4 0 clicks from 0 impressions',
+    );
+  });
+
+  it('never prints "from 0 impressions" when the impressions figure is missing', async () => {
+    const { impressions: _omit, ...noImpressions } = GOOGLE_FULL.stages[3]!;
+    const g: SeoFunnelEngine = {
+      ...GOOGLE_FULL,
+      stages: [...GOOGLE_FULL.stages.slice(0, 3), noImpressions],
+    };
+    const { el } = await setup(async () => respond([g, BING_D1_ONLY]));
+    const cell = stageRow(card(el, 'google'), 'clicked').cells[0]!;
+    expect(cell).toContain('52 clicks, impressions not recorded');
+    expect(cell).not.toContain('0 impressions');
+  });
+
+  it('says "Days recorded" on a short Google window', async () => {
+    const short: SeoFunnelEngine = {
+      ...GOOGLE_FULL,
+      search_window: { ...WINDOW, days_recorded: 9 },
+    };
+    const { el } = await setup(async () => respond([short, BING_D1_ONLY]));
+    expect(
+      text(card(el, 'google').querySelector('[data-testid="admin-seo-funnel-window-google"]')),
+    ).toBe(
+      'Search Console figures cover the 28 Pacific dates Oct 30, 2026 to Nov 26, 2026. Days recorded: 9 of 28.',
+    );
+  });
+
+  it('says "Days recorded" on a short baseline window, in the header and the explanation', async () => {
+    const short: SeoFunnelEngine = {
+      ...GOOGLE_FULL,
+      baseline: {
+        ...GOOGLE_FULL.baseline!,
+        current: {
+          ...GOOGLE_FULL.baseline!.current!,
+          window: { ...WINDOW, days_recorded: 9 },
+        },
+      },
+    };
+    const { el } = await setup(async () => respond([short, BING_D1_ONLY]));
+    const base = card(el, 'google').querySelector('[data-testid="admin-seo-baseline"]')!;
+    expect(text(base.querySelector('[data-testid="admin-seo-baseline-recorded"]'))).toBe(
+      'Days recorded: 9 of 28',
+    );
+    expect(text(base)).toContain('This covers 28 Pacific dates, and days recorded: 9 of 28.');
+    expect(text(base)).not.toContain('this covers 28 days.');
+  });
+
+  it('shows no "Days recorded" on a full baseline window', async () => {
+    const { el } = await setup(async () => respond([GOOGLE_FULL, BING_D1_ONLY]));
+    expect(el.querySelector('[data-testid="admin-seo-baseline-recorded"]')).toBeNull();
+  });
+
+  it('takes the window length in the intro and the static note from the data', async () => {
+    const clamped = respond([GOOGLE_FULL, BING_D1_ONLY]);
+    clamped.crawl_window = { ...clamped.crawl_window, days: 20 };
+    const { el } = await setup(async () => clamped);
+    expect(text(el.querySelector('p'))).toContain('over the trailing 20 days');
+    expect(text(el.querySelector('[data-testid="admin-seo-funnel-reading"]'))).toContain(
+      'Crawled is our own record over 20 UTC days.',
+    );
+    expect(text(el)).not.toContain('28 UTC days');
+  });
+
+  it('makes every table wrapper a focusable scroll region named by its caption', async () => {
+    const { el } = await setup(async () => respond([GOOGLE_FULL, BING_FULL]));
+    const regions = [...el.querySelectorAll('[role="region"]')];
+    // Two funnels and the baseline table.
+    expect(regions).toHaveLength(3);
+    for (const region of regions) {
+      expect(region.getAttribute('tabindex')).toBe('0');
+      const caption = el.querySelector(`#${region.getAttribute('aria-labelledby')}`);
+      expect(caption?.tagName).toBe('CAPTION');
+    }
+  });
+
+  it('keeps the row header to the stage name and links the description', async () => {
+    const { el } = await setup(async () => respond([GOOGLE_FULL, BING_D1_ONLY]));
+    const th = card(el, 'google').querySelector('tr[data-stage="crawled"] th[scope="row"]')!;
+    const desc = el.querySelector(`#${th.getAttribute('aria-describedby')}`)!;
+    expect(text(desc)).toContain('Verified Googlebot visits');
+    expect(desc.getAttribute('aria-hidden')).toBe('true');
+    expect(th.contains(desc)).toBe(true);
+    const catalog = card(el, 'google').querySelector('tr[data-stage="catalog"] th')!;
+    expect(catalog.hasAttribute('aria-describedby')).toBe(false);
+  });
+
+  it('a retry that fails again announces it and moves focus to the heading', async () => {
+    const { el, fixture, api, announced } = await setup(async () => {
+      throw new Error('boom');
+    });
+    const retry = [...el.querySelectorAll('button')].find((b) => text(b) === 'Try again')!;
+    retry.click();
+    await flush(fixture);
+    expect(api.funnel).toHaveBeenCalledTimes(2);
+    expect(announced.at(-1)).toBe('The search funnel still could not load.');
+    expect(document.activeElement).toBe(el.querySelector('h3'));
+  });
+
+  it('a retry that succeeds announces it and moves focus to the heading', async () => {
+    let calls = 0;
+    const { el, fixture, announced } = await setup(async () => {
+      calls += 1;
+      if (calls === 1) throw new Error('boom');
+      return respond([GOOGLE_FULL, BING_D1_ONLY]);
+    });
+    const retry = [...el.querySelectorAll('button')].find((b) => text(b) === 'Try again')!;
+    retry.click();
+    await flush(fixture);
+    expect(announced.at(-1)).toBe('Search funnel loaded.');
+    expect(document.activeElement).toBe(el.querySelector('h3'));
   });
 
   it('fails on its own with a retry that reloads', async () => {

@@ -312,8 +312,10 @@ const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
     str(p, 'engine') === 'bing'
       ? $localize`:@@admin.notes.searchIngestAbsentBing:No Bing Webmaster Tools data has been pulled for this window, so only the stages measured on our side are shown.`
       : $localize`:@@admin.notes.searchIngestAbsentGoogle:No Search Console data has been pulled for this window, so only the stages measured on our side are shown.`,
-  search_window_incomplete: (p) =>
-    $localize`:@@admin.notes.searchWindowIncomplete:Only ${num(p, 'days_recorded')}:DAYS_RECORDED: of the ${num(p, 'days')}:DAYS: days from ${str(p, 'from')}:FROM: to ${str(p, 'to')}:TO: have daily search figures, so clicks and impressions cover fewer days than the window.`,
+  // The count and the Pacific dates are on the funnel card's own window line
+  // ("Days recorded: N of 28"), so this note does not repeat them (AECI-823).
+  search_window_incomplete: () =>
+    $localize`:@@admin.notes.searchWindowIncomplete:Some Pacific dates in this search window have no daily figures yet, so clicks and impressions cover fewer days than the window.`,
 };
 
 /**

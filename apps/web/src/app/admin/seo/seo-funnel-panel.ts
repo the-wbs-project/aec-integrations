@@ -1,12 +1,16 @@
 import { DatePipe, formatDate } from '@angular/common';
 import {
   Component,
+  ElementRef,
+  Injector,
   LOCALE_ID,
   afterNextRender,
   computed,
   inject,
   input,
+  output,
   signal,
+  viewChild,
 } from '@angular/core';
 
 import type {
@@ -83,6 +87,8 @@ export interface BaselineView {
   currentHeader: string;
   /** The current row's Pacific dates, or null when no day is recorded. */
   currentDates: string | null;
+  /** "Days recorded: 9 of 28" when the current window is short, else null. */
+  currentRecorded: string | null;
   referenceHeader: string;
   referenceDates: string;
   rows: BaselineRow[];
@@ -124,6 +130,9 @@ export interface FunnelEngineView {
  *
  * Fetches its own endpoint after render and fails on its own, with the
  * `/admin/system` error recipe, so a failed funnel never blanks Panels 1 and 2.
+ * After a retry settles, focus moves to the panel heading and the outcome goes
+ * to the page's live region through {@link announce}, so a retry that fails
+ * again is still heard.
  */
 @Component({
   selector: 'aec-seo-funnel-panel',
@@ -134,14 +143,24 @@ export interface FunnelEngineView {
 export class SeoFunnelPanel {
   private readonly api = inject(AdminSeoApi);
   private readonly locale = inject(LOCALE_ID);
+  private readonly injector = inject(Injector);
 
   /** Prefix for every element id in the panel, so two instances on one page
    *  (the preview's state gallery) never share an id. */
   readonly idPrefix = input('admin-seo');
 
+  /** Text for the page's polite live region. */
+  readonly announce = output<string>();
+
+  private readonly heading = viewChild<ElementRef<HTMLElement>>('heading');
+
   protected readonly data = signal<SeoFunnelResponse | null>(null);
   protected readonly loading = signal(true);
   protected readonly loadFailed = signal(false);
+
+  /** The crawl window's length in UTC days, from the data. It is shorter than
+   *  28 when the window is clamped to the first row with a real path. */
+  protected readonly crawlDays = computed(() => this.data()?.crawl_window.days ?? null);
 
   /** "Nov 30, 2026", the last complete UTC day the crawl stages run to. */
   protected readonly dayLabel = computed(() => {
@@ -169,21 +188,32 @@ export class SeoFunnelPanel {
     });
   }
 
-  private async load(): Promise<void> {
+  private async load(): Promise<boolean> {
     this.loadFailed.set(false);
     this.loading.set(true);
     try {
       this.data.set(await this.api.funnel());
+      return true;
     } catch {
       this.loadFailed.set(true);
       this.data.set(null);
+      return false;
     } finally {
       this.loading.set(false);
     }
   }
 
-  protected retry(): void {
-    void this.load();
+  /** The Try again button unmounts while the read is in flight, so focus would
+   *  drop to the page. Once it settles, focus goes to the heading and the live
+   *  region says how it went, including a second failure. */
+  protected async retry(): Promise<void> {
+    const ok = await this.load();
+    this.announce.emit(
+      ok
+        ? $localize`:@@admin.seo.funnel.announce.loaded:Search funnel loaded.`
+        : $localize`:@@admin.seo.funnel.announce.failed:The search funnel still could not load.`,
+    );
+    afterNextRender(() => this.heading()?.nativeElement.focus(), { injector: this.injector });
   }
 
   /** A bare Pacific or UTC date, `YYYY-MM-DD`, as "Nov 26, 2026". Formatted at
@@ -294,6 +324,8 @@ export class SeoFunnelPanel {
     const cur = b.current;
     const months = ref.window_months;
     const curDays = cur?.window.days ?? 28;
+    const curRecorded = cur?.window.days_recorded ?? curDays;
+    const curShort = cur !== null && curRecorded < curDays;
     const refEnd = this.dateLabel(ref.window_end);
     const notRecorded: BaselineCell = {
       text: $localize`:@@admin.seo.funnel.baseline.notRecorded:Not recorded`,
@@ -305,10 +337,15 @@ export class SeoFunnelPanel {
 
     return {
       monthLabel: formatDate(`${ref.taken_on}T00:00:00.000Z`, 'MMMM', this.locale, 'UTC'),
-      explain: $localize`:@@admin.seo.funnel.baseline.explain:The whole Search Console property, every host, which is how the baseline was taken. The baseline covers ${months}:MONTHS: months and this covers ${curDays}:DAYS: days. Read it as a reference point, not a like-for-like comparison.`,
+      explain: curShort
+        ? $localize`:@@admin.seo.funnel.baseline.explain.short:The whole Search Console property, every host, which is how the baseline was taken. The baseline covers ${months}:MONTHS: months. This covers ${curDays}:DAYS: Pacific dates, and days recorded: ${curRecorded}:RECORDED: of ${curDays}:DAYS:. Read it as a reference point, not a like-for-like comparison.`
+        : $localize`:@@admin.seo.funnel.baseline.explain:The whole Search Console property, every host, which is how the baseline was taken. The baseline covers ${months}:MONTHS: months and this covers ${curDays}:DAYS: days. Read it as a reference point, not a like-for-like comparison.`,
       currentHeader: $localize`:@@admin.seo.funnel.baseline.current:Last ${curDays}:DAYS: days`,
       currentDates: cur
         ? $localize`:@@admin.seo.funnel.baseline.currentDates:${this.dateLabel(cur.window.from)}:FROM: to ${this.dateLabel(cur.window.to)}:TO:`
+        : null,
+      currentRecorded: curShort
+        ? $localize`:@@admin.seo.funnel.baseline.currentRecorded:Days recorded: ${curRecorded}:RECORDED: of ${curDays}:DAYS:`
         : null,
       referenceHeader: $localize`:@@admin.seo.funnel.baseline.reference:Baseline`,
       referenceDates: $localize`:@@admin.seo.funnel.baseline.referenceDates:${months}:MONTHS: months to ${refEnd}:END:`,
@@ -378,7 +415,7 @@ function formatCtr(rate: number | null): string {
 
 function clickRow(engine: SeoEngine, s: SeoFunnelStage): FunnelClickRow {
   const clicks = formatThousands(s.count);
-  const impressions = formatThousands(s.impressions ?? 0);
+  const impressions = s.impressions === undefined ? null : formatThousands(s.impressions);
   const ctr = formatCtr(s.rate);
   let positionText: string | null = null;
   if (engine === 'google') {
@@ -391,6 +428,10 @@ function clickRow(engine: SeoEngine, s: SeoFunnelStage): FunnelClickRow {
     ctrText:
       s.rate === null ? ctr : $localize`:@@admin.seo.funnel.clicked.ctr:${ctr}:CTR: click-through`,
     positionText,
-    totalsText: $localize`:@@admin.seo.funnel.clicked.totals:${clicks}:CLICKS: clicks from ${impressions}:IMPRESSIONS: impressions`,
+    // A missing impressions figure is never printed as "from 0 impressions".
+    totalsText:
+      impressions === null
+        ? $localize`:@@admin.seo.funnel.clicked.clicksOnly:${clicks}:CLICKS: clicks, impressions not recorded`
+        : $localize`:@@admin.seo.funnel.clicked.totals:${clicks}:CLICKS: clicks from ${impressions}:IMPRESSIONS: impressions`,
   };
 }

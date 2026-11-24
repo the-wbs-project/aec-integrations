@@ -398,7 +398,7 @@ job stores items 2 and 3 in `metrics_daily`, so they gain a history:
 |---|---|---|
 | 1. Page indexing | A proxy only: `www.` pages with at least one impression in 28 days, all pages and catalog pages | The indexed count and "Why pages aren't indexed". No Google API returns them |
 | 2. Performance | Daily clicks, impressions and average position, for the `www_page` scope and the whole `property` | Nothing. Read it on `/admin/seo` Panel 3 |
-| 3. Sitemaps | The `www.` sitemap's last download, errors, warnings and URL count. The dates are in the run's `job_runs.detail` | Nothing, unless the run reports the sitemap missing |
+| 3. Sitemaps | The `www.` sitemap's last download, errors, warnings and URL count. The dates are in the run's `job_runs.detail` | The read itself. `/admin/seo` does not show sitemap state, so read it in Search Console or in the run's `job_runs.detail` |
 | 4. Tripwire | Nothing | All of it |
 
 So item 1 stays a manual read every week. The ingest's figure is a lower bound and never replaces

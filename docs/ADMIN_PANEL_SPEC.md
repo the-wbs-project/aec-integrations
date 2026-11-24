@@ -2544,7 +2544,17 @@ catalog URL list and the `seo.*` and `queue.*` snapshot keys. AECI-823 built
 AECI-823 built Panel 3 in `seo-funnel-panel.ts`. Each panel fails on its own with the
 `/admin/system` error recipe.
 In Panel 1, a failed lane switch or page change keeps the lane cards and fails in the list area
-alone. Pressing the open lane's "Show URLs" closes its list.
+alone. Pressing the open lane's "Show URLs" closes its list. That button is a disclosure: it
+carries `aria-expanded` and `aria-controls`, and no `aria-pressed`. Each URL row's Copy button
+sits in its own column, so the row header is the URL alone.
+
+**Accessibility, as built (AECI-823 audit, 2026-11-24).** Every table that can scroll sideways
+sits in a focusable, named region (`tabindex="0"`, `role="region"`, `aria-labelledby` on the
+caption). That is the `reindex-history.html` recipe. A row header holds the short name only, and
+its description is linked with `aria-describedby`, so no cell repeats it. An age shown as "9.1 d"
+is read as "9.1 days". When a panel's Try again settles, focus moves to the panel heading and the
+page's live region says whether it loaded or failed again. Panel 1's list retry does the same
+with the list heading.
 `/preview/admin-seo` renders the three panels and a gallery of states over a fake API, for review
 without a session. The gallery holds every lane empty, no site address, Google with no ingest data
 beside Bing with every stage, the funnel loading, and each panel's failed load. There is no weekly SEO email: Chris
@@ -2800,8 +2810,12 @@ crawled, indexed and clicked. A Bing impressed stage or a Bing position never re
 API sent one. Each engine's own notes (`search_ingest_absent`, `search_window_incomplete`) sit in
 its card. The notes that name no engine sit under both funnels, after the two static notes below.
 Each card states its host, the UTC day the crawl stages end on, and the Pacific dates of its search
-figures, with "Days recorded" when the click window is short. The baseline table sits in the Google
-card, with "Not recorded" in every cell of a null `current` row.
+figures, with "Days recorded" when the click window is short. The `search_window_incomplete`
+note in the card does not repeat that count. The baseline table sits in the Google card, with
+"Not recorded" in every cell of a null `current` row. When the current row's window is short, its
+header and the sentence above the table say "Days recorded" too. A missing impressions figure on
+the clicked stage reads "impressions not recorded", never "0 impressions". The window lengths in
+the intro, the cards and the static notes come from the response, never a fixed 28.
 
 The funnel, per engine, over trailing 28-day windows. Rates are plotted. Counts sit beside them,
 because the catalog grows and a rising count can hide a falling rate.
@@ -3948,6 +3962,10 @@ behaviour. A series with no `null` renders the same DOM as before AECI-822, chec
 the base-commit component beside the new one. The stacked charts keep plain numbers, because a
 stack has no honest way to draw a missing segment. The hatch is drawn as lines, not an SVG
 `pattern`, because a `url(#id)` fill is a bare fragment that the app's `base href` breaks.
+AECI-823 drew the hatch in `--border-field`, 3.55:1 on the chart surface, after an audit
+measured the grid colour at 1.22:1 (WCAG 1.4.11). Below the medium container width the band's
+label runs down the band instead of hiding, so there is a text cue at every width. Both changes
+are inside the band's own loop, so a chart with no band renders as before.
 
 **Also shipped:** a hover crosshair/tooltip on the time-series charts, per the
 skill's default. It is `aria-hidden` (the data table carries the values) and its

@@ -17,7 +17,8 @@ import { SeoTrendPanel } from './seo-trend-panel';
  * §5.24.4). The screen writes nothing.
  *
  * The page owns the one polite live region (§5.24.11). Panel 1 reports a lane
- * change, a page change and a copy through it.
+ * change, a page change and a copy through it. Every panel reports how a retry
+ * settled through it.
  *
  * `aec-charts` scopes the series palette to this screen (`DESIGN.md` §"Data
  * visualization").
@@ -56,8 +57,8 @@ import { SeoTrendPanel } from './seo-trend-panel';
       </p>
 
       <aec-seo-queue-panel (announce)="announce($event)" />
-      <aec-seo-trend-panel />
-      <aec-seo-funnel-panel />
+      <aec-seo-trend-panel (announce)="announce($event)" />
+      <aec-seo-funnel-panel (announce)="announce($event)" />
     </section>
   `,
 })
