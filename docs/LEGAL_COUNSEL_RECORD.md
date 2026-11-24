@@ -78,6 +78,7 @@ Governing docs: `docs/LEGAL_IMPACT_REVIEW.md` for the verdict rule, `apps/web/sr
 | Q68 | Vendor Terms | Does changing a policy that our Vendor Terms incorporate count as changing the Vendor Terms | Travis Russell | 2026-11-19 |
 | Q69 | Vendor Terms | Giving the first in-force Vendor Terms a new version number | Travis Russell | 2026-11-19 |
 | Q70 | Terms of Service | Three sentences changed since your colleagues' reviews: a wording check | Alexander Coffin | 2026-11-19 |
+| Q71 | Vendor Terms | Replacement wording for "No plan changes where you rank or appear" | Travis Russell | 2026-11-24 |
 | Q72 | Privacy Policy | Email consent in Canada and the United Kingdom for one unticked opt-in box | Alexander Coffin | 2026-11-24 |
 
 ## Questions and answers
@@ -1868,6 +1869,38 @@ Legal process. This one is close. The catch is that receiving legal process does
 **What we did:** All three sentences change. The legal-process sentence is applied in legal branch 7 on 2026-11-19 (item 14.14). The other two are not. Counsel gave wording for each. The ranking sentence is the weak one, and counsel's wording may be used only if it is true of every paid feature. Read with Q62, it is not true today: Managed-only trade and audience tags feed search matching and category pages. Ruling 52 settles the ranking sentence. The deletion-screen wording needs one check first: that a deleted account's display name and photo really come off its reviews.
 
 Q71 and Q72 are batch 7, asked on 2026-11-23. They restate the Q62 and Q56 follow-ups, which got no reply.
+
+### Q71. Replacement wording for "No plan changes where you rank or appear"
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory and review website for construction-industry software. Florida law governs. This is one question, with one decision at the end.
+
+Your colleague advised us on November 19, 2026 that this sentence in our Vendor Terms and our Managed plan agreement is false as written, and that a disclosure on a separate public page does not cure it:
+
+"No plan changes where you rank or appear, or whether a review is published."
+
+The reason is this. Products carry tags for the trades and audiences they serve. We set every tag when we list a product. A vendor can change the trades and audiences on its own product only while that product is on our paid Managed plan. A product is listed on a trade or audience page only if it carries that tag. So a paid plan can change where a product appears. No list of products reads the plan, and no plan moves a product up or down any list.
+
+We will replace the sentence, not qualify it. The same wording would be used in the Vendor Terms, the Managed plan agreement, our Terms of Service and our public page "How ranking works". The words about reviews stay as they are. The proposed wording is:
+
+"You cannot buy a position. Search order and list order never read a vendor's plan or what it pays us. A paid plan lets a vendor describe its product in more detail, such as the trades and audiences it serves. A product described in more detail can match more searches and appear on more category pages. That comes from what the listing says, not from the payment."
+
+Our view: this states what our ranking reads, not an outcome, so it stays true as we add paid features, and it tells a vendor and a reader plainly that a paid plan can put a product in more places.
+
+Question: does that wording fix the problem your colleague described, or is any part of it still likely to be read against us, and if so how should that part read?
+
+**Answer (Travis Russell, 2026-11-24):**
+
+The new wording is much better and mostly fixes the problem, because it now tells vendors and readers that a paid plan can put a product in more places. Two parts could still be read against you.
+
+The last sentence, "That comes from what the listing says, not from the payment," is the weak spot. Only paying vendors can change their tags, so the wider placement does come from paying, even if the ranking formula never looks at the plan. Under FDUTPA the question is whether a statement is likely to mislead a reasonable reader in context, and Florida courts may read a truly ambiguous contract term against the drafter as a last resort. A reader could take that sentence as denying a link that plainly exists. Drop it, or say it directly, such as "Only vendors on a paid plan can change these details."
+
+"You cannot buy a position" has a similar risk, since a vendor can pay its way onto more category pages, which some readers would call a position. Tie it to order instead, such as "Payment never changes the order in which products are listed or returned in search."
+
+A version that holds up better reads: "Payment never changes the order in which products are listed or returned in search. A paid plan lets a vendor edit the trades and audiences tagged on its product, which can help it match more searches and appear on more category pages." Then confirm your practice matches it, including any future featured or sponsored spots. New wording also will not undo any claim tied to the old sentence while it was in use.
+
+**What we did:** The approach of ruling 52 holds. Two parts of our draft do not: "You cannot buy a position" and "That comes from what the listing says, not from the payment". Counsel gave replacement wording that ties the promise to order. Not applied yet. Our question named only trades and audiences. A paid plan also lets a vendor set phases and add data to its integrations, and both can put a product in more places, so the second sentence must name them or say "such as". Chris's ruling on the final wording is open. It is text item 14.8 and gates the first effective date.
 
 ### Q72. Email consent in Canada and the United Kingdom for one unticked opt-in box
 
