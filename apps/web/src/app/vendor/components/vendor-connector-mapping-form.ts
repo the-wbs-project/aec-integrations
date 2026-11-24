@@ -435,7 +435,7 @@ export class VendorConnectorMappingForm {
    * and wrap, and the `aec-portal-save-bar` marker `PORTAL_FORM_CLASS` reads.
    */
   protected readonly saveBarClass =
-    'aec-portal-save-bar sticky bottom-0 z-10 mt-8 flex flex-wrap items-center justify-end gap-x-6 gap-y-3 border-t bg-(--surface-base) pt-4';
+    'aec-portal-save-bar sticky bottom-0 z-10 mt-8 flex flex-wrap items-center justify-end gap-x-6 gap-y-3 border-t bg-(--surface-base) py-4';
   protected readonly saveStatusClass = PORTAL_SAVE_STATUS_CLASS;
   protected readonly saveButtonClass = PORTAL_SAVE_BUTTON_CLASS;
   protected readonly labelClass = FIELD_LABEL_CLASS;
