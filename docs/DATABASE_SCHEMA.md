@@ -4232,10 +4232,13 @@ a table rebuild.
 
 **A second writer since AECI-820: the weekly search ingest.** The `0 22 * * 1` cron (Sundays,
 `apps/api/src/lib/search-ingest.ts`) upserts Google Search Console figures under a separate
-vocabulary, `SEARCH_INGEST_METRIC_KEYS` (`ADMIN_PANEL_SPEC.md` §5.24.8). Four rules set it apart:
+vocabulary, `SEARCH_INGEST_METRIC_KEYS` (`ADMIN_PANEL_SPEC.md` §5.24.8). Since AECI-821 its Bing
+lane (`apps/api/src/lib/search-ingest-bing.ts`) upserts Bing Webmaster Tools figures under the
+`search.bing.www.*` keys of the same list. Four rules set it apart:
 
-- **Its `day` is a Pacific date**, Google's reporting day, not a UTC date. Only its four
-  `www_sitemap` keys are filed under the run's UTC day, because they are a sample taken at the run.
+- **Its `day` is a Pacific date**, Google's and Bing's reporting day, not a UTC date. Only the four
+  Google `www_sitemap` keys and the two Bing `sitemap_*` keys are filed under the run's UTC day,
+  because they are a sample taken at the run.
 - **The snapshot never writes, zero-fills or backfills its keys**, because they are not in
   `ADMIN_SNAPSHOT_METRIC_KEYS`.
 - **The prune never counts its rows.** `findSnapshotGap` and the backfill's two coverage probes
@@ -4244,11 +4247,13 @@ vocabulary, `SEARCH_INGEST_METRIC_KEYS` (`ADMIN_PANEL_SPEC.md` §5.24.8). Four r
 - **It re-writes `measured` over `measured`.** Each run re-pulls 14 days and overwrites with
   Google's current figure. ADR 0027 allows that where the source still holds the data, and Google
   keeps 16 months. A day Google did not return is left as it was, never written as 0. An empty
-  28-day answer writes no row either.
+  28-day answer writes no row either. The Bing lane re-pulls the same 14 days, and Bing keeps six
+  months. `search.bing.www.in_index` is Bing's own undefined figure, never a true count.
 
 No `audit_log` row, under ADR 0022's 2026-11-24 amendment, a second exemption route for an
-operator-only reading of an external system. The four `www_sitemap` keys are run-time readings and
-not reproducible, and the amendment covers them by name. The run's record is its `job_runs` row.
+operator-only reading of an external system. The four Google `www_sitemap` keys and the two Bing
+`sitemap_*` keys are run-time readings and not reproducible, and the amendment covers them by
+name. The run's record is its `job_runs` row.
 
 ```sql
 create table metrics_daily (
@@ -4382,7 +4387,7 @@ for a stock: an uncaptured day would report zero subscribers rather than unknown
 
 ### 9.4 `job_runs`
 
-One row per execution of one of the thirty `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 subscription term-expiry sweep (the `entitlement-expiry` job), AECI-613, the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile, the fourteenth is the IndexNow drain, AECI-826, daily at `5 0` since AECI-1136 (`*/20` before), the fifteenth is the `25 */6` claim-staleness check, AECI-862, the sixteenth is the 12:00 protest reply reminder, AECI-1205, the seventeenth is the 00:30 vendor snapshot, AECI-1210, and the eighteenth is the daily 13:00 `gsc-inspect` Google URL Inspection run, AECI-1236, the nineteenth is the daily 14:00 `claim-owner-fallback`, AECI-1368, and the twentieth is the daily 14:30 `request-confirmation-expiry`, AECI-1435, the twenty-first is the 00:45 `traffic-classify`, AECI-1345, and the twenty-second is `sitemap-rebuild` on `7-59/15 * * * *`, AECI-1505, the twenty-fourth is the daily 15:00 `vendor-claim-nudge`, AECI-1305, and the twenty-fifth is the daily 16:00 `brand-asset-removal`, AECI-1618, and the thirtieth is the WEEKLY Sunday 22:00 `search-ingest`, AECI-820, whose `detail` is `{ job, google }`, the Google lane's windows, per-call and per-key outcomes and the `www.` sitemap's dates). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
+One row per execution of one of the thirty `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 subscription term-expiry sweep (the `entitlement-expiry` job), AECI-613, the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile, the fourteenth is the IndexNow drain, AECI-826, daily at `5 0` since AECI-1136 (`*/20` before), the fifteenth is the `25 */6` claim-staleness check, AECI-862, the sixteenth is the 12:00 protest reply reminder, AECI-1205, the seventeenth is the 00:30 vendor snapshot, AECI-1210, and the eighteenth is the daily 13:00 `gsc-inspect` Google URL Inspection run, AECI-1236, the nineteenth is the daily 14:00 `claim-owner-fallback`, AECI-1368, and the twentieth is the daily 14:30 `request-confirmation-expiry`, AECI-1435, the twenty-first is the 00:45 `traffic-classify`, AECI-1345, and the twenty-second is `sitemap-rebuild` on `7-59/15 * * * *`, AECI-1505, the twenty-fourth is the daily 15:00 `vendor-claim-nudge`, AECI-1305, and the twenty-fifth is the daily 16:00 `brand-asset-removal`, AECI-1618, and the thirtieth is the WEEKLY Sunday 22:00 `search-ingest`, AECI-820, whose `detail` is `{ job, reason?, google, bing }`: each lane's windows, per-call and per-key outcomes and its sitemap's dates, with AECI-821's Bing lane beside Google's and `reason` naming a failed lane). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
 
 ```sql
 create table job_runs (

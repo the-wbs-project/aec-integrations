@@ -2533,12 +2533,12 @@ console's `AecSelect`.
 
 The endpoints are in §6 and in `API_CONTRACTS.md` §6.10 "Copyright notices".
 
-### 5.24 Search console (`/admin/seo`): SPECIFIED (AECI-817), BACKEND PARTLY BUILT (AECI-818, AECI-820, 2026-11-24)
+### 5.24 Search console (`/admin/seo`): SPECIFIED (AECI-817), BACKEND PARTLY BUILT (AECI-818, AECI-820, AECI-821, 2026-11-24)
 
-**Status.** AECI-820 built the Google ingest (§5.24.10). AECI-818 built the backend half of
-Panels 1 and 2: the derivation in `apps/api/src/lib/seo-queue.ts`, the shared catalog URL list,
-the `seo.*` and `queue.*` snapshot keys, and `GET /api/admin/seo/queue` and
-`GET /api/admin/seo/trend`. The `/trend` read was listed under AECI-822 below. It shipped with
+**Status.** AECI-820 built the Google ingest and AECI-821 the Bing ingest (§5.24.10). AECI-818
+built the backend half of Panels 1 and 2: the derivation in `apps/api/src/lib/seo-queue.ts`, the
+shared catalog URL list, the `seo.*` and `queue.*` snapshot keys, and `GET /api/admin/seo/queue`
+and `GET /api/admin/seo/trend`. The `/trend` read was listed under AECI-822 below. It shipped with
 AECI-818, so AECI-822 is the screen only. Nothing else here is built. It is the contract for epic
 AECI-816. Every sub-issue below anchors here. The endpoint shapes are in `API_CONTRACTS.md` §6.10 "Search
 console". Open decisions are listed at the end of this section, and the ones that need Chris are
@@ -2778,9 +2778,9 @@ falling rate.
 |---|---|---|---|---|
 | 0 | In the catalog sitemap | `seo.catalog_urls` | same | the denominator |
 | 1 | Crawled | `seo.crawled_urls_google` | `seo.crawled_urls_bing` | crawled ÷ catalog URLs |
-| 2 | Indexed | **Not measurable.** Google has no bulk index API. Merged into stage 3 | Bing's own index figure, captioned "as reported by Bing" (ingest stub) | indexed ÷ catalog URLs |
-| 3 | Impressed | catalog pages with at least one impression in 28 days. Labelled "Indexed (lower bound)" because it is the only index signal | the same measure from BWT | impressed ÷ catalog URLs for Google, impressed ÷ indexed for Bing |
-| 4 | Clicked | clicks ÷ impressions over the 28 days, with impression-weighted average position beside it | same | CTR at position |
+| 2 | Indexed | **Not measurable.** Google has no bulk index API. Merged into stage 3 | `search.bing.www.in_index`, Bing's own index figure, captioned "as reported by Bing" | indexed ÷ catalog URLs |
+| 3 | Impressed | catalog pages with at least one impression in 28 days. Labelled "Indexed (lower bound)" because it is the only index signal | **Not stored** (AECI-821). BWT has no page count with a stated window, so this stage is absent for Bing (§5.24.10) | impressed ÷ catalog URLs for Google |
+| 4 | Clicked | clicks ÷ impressions over the 28 days, with impression-weighted average position beside it | clicks ÷ impressions over the 28 days. No position: BWT's daily series has none | CTR at position |
 
 **Never sum the two engines.** They are different indexes. The Google figure is a lower bound,
 and the Bing figure is Bing's own undefined count.
@@ -2847,13 +2847,26 @@ the number:
 | `search.google.www_sitemap.errors` | count | Stock, sampled at the run. Errors Google reported for that sitemap. Added by AECI-820 |
 | `search.google.www_sitemap.warnings` | count | Stock, sampled at the run. Warnings Google reported. Added by AECI-820 |
 | `search.google.www_sitemap.download_age_days` | days, REAL | Stock, sampled at the run. Days since Google last downloaded the sitemap. No row when Google reports no download. Added by AECI-820 for the "Sitemap not read recently" lane |
-| `search.bing.www.*` | | Named after the ingest research. Bing sites are registered per host. Bing's own index figure, if stored, is `search.bing.www.in_index`. It is captioned "as reported by Bing", because Microsoft does not define it, and it is never called a true count |
+| `search.bing.www.clicks` | count | Flow. Clicks on that day, every vertical including Chat (`GetRankAndTrafficStats`). Added by AECI-821 |
+| `search.bing.www.impressions` | count | Flow. Impressions on that day (`GetRankAndTrafficStats`). Added by AECI-821 |
+| `search.bing.www.in_index` | count | Bing's own index figure for that day, `InIndex` from `GetCrawlStats`. Captioned "as reported by Bing", because Microsoft does not define it. Never called a true count. Added by AECI-821 |
+| `search.bing.www.crawled_pages` | count | Flow. Pages Bing crawled that day (`GetCrawlStats`). Added by AECI-821 |
+| `search.bing.www.crawl_errors` | count | Flow. Crawl errors Bing recorded that day (`GetCrawlStats`). Added by AECI-821 |
+| `search.bing.www.sitemap_urls` | count | Stock, sampled at the run. URLs Bing counted in `https://www.aecintegrations.com/sitemap.xml` (`GetFeeds`). Added by AECI-821 |
+| `search.bing.www.sitemap_crawl_age_days` | days, REAL | Stock, sampled at the run. Days since Bing last crawled that sitemap. No row when Bing reports no crawl. Added by AECI-821 for the "Sitemap not read recently" lane |
+
+The Bing scope is `www`: Bing registers sites per host, and the lane runs only when the registered
+site is `https://www.aecintegrations.com/`. Bing reports no position in its daily series, so
+there is no Bing `position_avg` key, and no Bing count of pages with an impression.
+`GetPageStats` lists top pages, but Microsoft does not say what window its rows cover.
 
 **Ingested days are Pacific dates.** Google and Bing both report by Pacific Time day. The row is
 filed under that date in `day`, which is documented as UTC for every other key. The key's
 docblock says so. The ingest does not try to re-cut Google's day. The four `www_sitemap` keys are
 the exception: they are a sample taken at the run, so they are filed under the run's UTC day, like
-a snapshot stock.
+a snapshot stock. So are the two Bing `sitemap_*` keys. A Bing `Date` is a WCF string,
+`/Date(ms-0800)/`. The row is filed under the calendar date at the offset Bing states, which is the
+Pacific day.
 
 CTR is never stored. It is derived at read time as the sum of clicks over the sum of
 impressions, so a window's CTR is never an average of daily ratios.
@@ -2969,7 +2982,7 @@ bind both ingests:
    (`GSC_INSPECT_RUN_BUDGET`), and the rest is the operator's headroom in the Search Console UI.
 
 **Ingest details, Google (AECI-820, built).** Folded in from the AECI-816 ingest research. Bing's
-half stays open for AECI-821, listed at the end.
+half (AECI-821) follows it.
 
 | Question | Answer |
 |---|---|
@@ -2986,10 +2999,26 @@ half stays open for AECI-821, listed at the end.
 | Failure | Each call fails alone: its keys get no row and the other calls still run. The heartbeat `aeci.search_ingest.run` reads `partial`. The run is `failed` only when Google refuses the credential: a 4xx other than 429 from the token endpoint, a key that will not import, or 401 or 403 on every call. A token exchange that stays transient after two in-process retries, the same retry shape as every call and as `gsc-inspect`'s inspection calls, writes nothing, records `token_transient` and ends `ok` with `partial`. The next Sunday's 14-day re-pull covers the gap. A D1 error throws, so the queue retries, which is safe |
 | Catalog URL set | Read from `buildCatalogSitemap`'s `<loc>` output for now. AECI-818's extracted URL function replaces it when it lands |
 
-**Still open for AECI-821 (Bing).** The credential and its secret, whether the call runs from the
-Worker or a GitHub Actions runner, and which BWT figures feed the `search.bing.www.*` keys. The
-research recommends a Worker-first transport with a runner fallback, and `GetCrawlStats`'s
-`InIndex` for the Bing index figure. Bing joins this run as a second lane.
+**Ingest details, Bing (AECI-821, built).** The second lane of the same `search-ingest` run. The
+lanes are independent: neither reads the other's result, and each has its own outcome.
+
+| Question | Answer |
+|---|---|
+| Credential | `BWT_API_KEY`, a Bing Webmaster Tools API key, sent as `?apikey=`. Production only, pushed by `promote-to-prod.yml` from `BWT_API_KEY_PRODUCTION`. The key is user-wide and has no read-only scope, so it is never logged, and `lib/bing-webmaster-api.ts` scrubs it from any error text |
+| Site | `BWT_SITE_URL`, a plain per-env var, the site exactly as BWT registered it. Unset on every tier until the operator supplies it |
+| Gate | `skipped` without the key (`no_creds`), without the site URL (`no_site_url`), or when the site URL is not the `www.` site (`site_url_not_www`), because every key names `www` |
+| Endpoints | `GET https://ssl.bing.com/webmaster/api.svc/json/{Method}?siteUrl=…&apikey=…` for `GetRankAndTrafficStats`, `GetCrawlStats` and `GetFeeds` |
+| Where it runs | The Worker. `lib/bing-webmaster-api.ts` is a pure transport like `callIndexNow`, so it can move to a GitHub Actions runner if Bing refuses the shared Cloudflare egress. The runner variant is not built |
+| Calls per run | Three, sequential. Each retries a 5xx, a dropped connection or Bing's `InternalError` twice |
+| Window | The Google lane's: 14 Pacific days ending three days before the run. Bing returns up to six months. Days outside the window are not written |
+| Errors | Bing sends every API error as HTTP 400 with `{"ErrorCode":n,"Message":"…"}`. The body is read. `ThrottleUser` and `ThrottleHost` are `throttled`, routine and not retried. `InvalidApiKey`, `NotAuthorized`, `UserBlocked` and `UserNotFound` are `auth`. Every other non-200 body is discarded |
+| Overwriting `measured` | Allowed, as for Google. Bing keeps six months. A day Bing did not return, or a field it left out, writes no row and never a 0 |
+| Sitemap state | `LastCrawled`, `Submitted`, `Status` and `UrlCount` go to `job_runs.detail.bing.sitemap`. `UrlCount` and the crawl age also go to the two `sitemap_*` keys |
+| Failure | Each call fails alone. The heartbeat point `engine:bing` reads `throttled` when every failed call was a throttle, else `partial`. The lane is `failed` only when every call reports a refused credential. A D1 error in either lane is rethrown once both lanes have run, so the queue retries the whole run |
+| Not stored | Position and pages with an impression. The daily series has no position, and `GetPageStats` does not state its window. The AI-answer report in the BWT UI has no API |
+
+The run's `job_runs` outcome is `failed` when either lane failed, and `detail.reason` names the
+lane. It is `skipped` only when both lanes skipped.
 
 **`GET /api/admin/seo/funnel` is AECI-823's**, not this issue's. The ingest writes the keys the
 funnel reads.

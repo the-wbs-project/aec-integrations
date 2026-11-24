@@ -673,5 +673,15 @@ the raw dates and the outcome of every call. That row, not an audit row, is thei
 **What would end the exemption.** A public surface reading these keys, an operator editing a row
 through the app, or a delete path would fail a leg. Any of those audits in the same `db.batch`.
 
+**The Bing keys (AECI-821) pass the same four legs.** The Bing lane
+(`apps/api/src/lib/search-ingest-bing.ts`) upserts the `search.bing.www.*` keys from Bing Webmaster
+Tools. They are not domain state. Only the admin console and the operator email read them. Bing is
+the record, and `in_index` is stored as Bing reported it. There is no delete path, and a day or a
+field Bing did not return writes no row. Five of the seven keys are daily series that Bing keeps
+for six months, so a re-run within that time writes the same rows. **The two `sitemap_*` keys are
+run-time readings, like the Google `www_sitemap` keys.** They record the feed list's URL count and
+the days since Bing last crawled the sitemap, as of the run. A later run cannot rebuild them. The
+run's `job_runs.detail.bing.sitemap` is their record, as for Google.
+
 **Where it is recorded.** `STAGE_1_SPEC.md` §26.1, `ADMIN_PANEL_SPEC.md` §5.24.10 rule 1 and
 `DATABASE_SCHEMA.md` §9.3.

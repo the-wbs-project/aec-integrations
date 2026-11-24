@@ -2419,6 +2419,12 @@ provisioned. It is not a fault.
 the `cron-job-failed-alert` email. `/admin/system` shows the run's `job_runs.detail.google`: the
 Pacific-day windows, each call's outcome, each key's outcome, and the `www.` sitemap's dates.
 
+**Two lanes, two points.** Since AECI-821 the run has a Google lane and a Bing lane. Each emits
+its own point, tagged `engine:google` or `engine:bing`, and each has its own outcome in
+`detail.google` and `detail.bing`. One lane's failure changes nothing the other lane writes. The
+run's `job_runs` outcome is `failed` when either lane failed, and `detail.reason` names the lane.
+The Google half is below. The Bing half follows it.
+
 **What the job does.** It reads Search Console with the same service account as `gsc-inspect`. It
 makes five sequential read calls on one token: two daily Search Analytics series, a 28-day page
 count, a 28-day query count, and the Sitemaps list. It writes `metrics_daily` rows under the
@@ -2455,6 +2461,31 @@ indexed pages, not the indexed count. Google has no API for that count.
 
 **`outcome:skipped` is the correct state outside production**, and in production before the key is
 provisioned. It is not a fault.
+
+### The Bing lane (AECI-821)
+
+**What the lane does.** It makes three sequential read calls to Bing Webmaster Tools (BWT) with
+`BWT_API_KEY`: `GetRankAndTrafficStats` (`traffic`), `GetCrawlStats` (`crawl`) and `GetFeeds`
+(`feeds`). It writes the `search.bing.www.*` keys, filed under Bing's Pacific dates. It changes
+nothing in BWT. Read `detail.bing.calls` on `/admin/system`. Each call's `message` names Bing's
+error code, such as `bwt_ThrottleUser`.
+
+| `engine:bing` outcome | What it means | What to do |
+|---|---|---|
+| `skipped` | No `BWT_API_KEY`, no `BWT_SITE_URL`, or a site URL that is not the `www.` site. `detail.bing.reason` says which | Nothing, unless you meant the lane to run. Then follow "Bing Webmaster Tools ingest per tier" in `docs/environments.md` |
+| `throttled` | Every failed call was `ThrottleUser` or `ThrottleHost`. Bing sends these as HTTP 400, not 429 | Nothing for one week. If two Sundays running read `throttled`, Bing may be limiting the shared Cloudflare egress, as it did for IndexNow. File an issue to run the transport from a GitHub Actions runner. `lib/bing-webmaster-api.ts` is built to move |
+| `partial` | At least one call failed for another reason, and the rest wrote | Read the failed call's `outcome`. `transient` is a 5xx, a dropped connection or Bing's `InternalError`, three times: do nothing unless it repeats. `rejected` is another error code, such as `InvalidUrl` or `Deprecated`: file an issue with the `job_runs` row. `auth` on one call only: check the account's role on the site |
+| `failed` | Every call reported a refused credential: `InvalidApiKey`, `NotAuthorized`, `UserBlocked`, `UserNotFound`, or HTTP 401 or 403. Or a D1 write threw (`aeci.search_ingest.crashed`), which the queue retries | `InvalidApiKey`: the key was deleted or rotated in BWT. Generate a new one and follow the rotation steps in `docs/environments.md`. `NotAuthorized`: the key's account cannot see the site in `BWT_SITE_URL`. Check the URL against the BWT site picker, and check the account is a user on the site |
+
+**`sitemap_*` keys with `no_data`.** BWT's feed list has no entry for
+`https://www.aecintegrations.com/sitemap.xml`. Resubmit the sitemap in BWT.
+
+**What the figures are not.** `search.bing.www.in_index` is Bing's own figure, as reported by Bing.
+Microsoft does not define it. It is not a true count, and it is never compared with or added to
+the Google figures. The Bing clicks and impressions include every vertical, Chat included.
+
+**The key never appears in a log or a `job_runs` row.** If you ever see `apikey=` followed by
+anything but `REDACTED`, treat the key as leaked: delete it in BWT and rotate it.
 
 ## Backfill traffic classifications
 

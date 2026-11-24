@@ -461,7 +461,7 @@
         "activeFrom": "2026-12-14T00:00:00Z",
         "datadogMonitor": null,
         "datadogNoDataTimeframeMinutes": null,
-        "_note": "AECI-820. Never had a Datadog monitor: the cron did not exist. WEEKLY, Sundays 22:00 UTC (Cloudflare day-of-week 1 = Sunday), so 20520 (14.25 days), the asn-registry value. The heartbeat fires on every run, outcome ok, partial, skipped (no GSC_SA_KEY_JSON, or not a public env) or failed (Google refused the credential), so its absence means the job stopped running. trigger:cron, so an operator re-run cannot stand in for a missed week. activeFrom is a placeholder past the expected production promote of epic AECI-816; move it to the first Sunday run after the real promote plus one day, and delete it once the first production heartbeat is in."
+        "_note": "AECI-820. Never had a Datadog monitor: the cron did not exist. WEEKLY, Sundays 22:00 UTC (Cloudflare day-of-week 1 = Sunday), so 20520 (14.25 days), the asn-registry value. The heartbeat fires on every run, once per engine (engine:google, and engine:bing since AECI-821), outcome ok, partial, skipped (no GSC_SA_KEY_JSON or not a public env for Google; no BWT_API_KEY or BWT_SITE_URL for Bing), throttled (Bing only) or failed (the engine refused the credential), so its absence means the job stopped running. trigger:cron, so an operator re-run cannot stand in for a missed week. activeFrom is a placeholder past the expected production promote of epic AECI-816; move it to the first Sunday run after the real promote plus one day, and delete it once the first production heartbeat is in."
       },
       {
         "job": "stripe-reconcile",
