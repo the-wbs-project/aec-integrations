@@ -372,6 +372,21 @@ const ROWS: readonly DemoRow[] = [
             3 open product proposals will be discarded.
           </p>
         </aec-admin-danger-action>
+
+        <h3 class="mt-8" id="lg-danger-optional">An optional reason, and no warning box</h3>
+        <aec-admin-danger-action
+          id="lg-danger-optional-form"
+          class="mt-4"
+          openerLabel="Decline"
+          confirmLabel="Confirm decline"
+          busyLabel="Declining…"
+          reasonLabel="Why you are declining (recommended)"
+          [reasonRequired]="null"
+          reasonHelp="Shown to the vendor that filed the contest. A reason tells them what evidence would change the answer."
+          [maxLength]="2000"
+          [(open)]="optionalOpen"
+          (confirmed)="optionalOpen.set(false)"
+        />
       </section>
     </div>
   `,
@@ -407,6 +422,7 @@ export class AdminConsoleLegendPreview {
   protected readonly stepTwoOpen = signal(true);
   protected readonly richOpen = signal(true);
   protected readonly noteOpen = signal(true);
+  protected readonly optionalOpen = signal(true);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   constructor() {
