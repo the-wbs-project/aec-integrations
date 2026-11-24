@@ -107,8 +107,8 @@ let nextChartId = 0;
         }
         <!-- AECI-1346. One entry per distinct change. The swatch repeats the
              dashed vertical rule drawn before the column. Border colours are
-             inline because the unlayered global border-color rule in styles.css
-             beats every Tailwind border-colour utility. -->
+             inline because, until AECI-2088, the unlayered global border-color
+             rule in styles.css beat every Tailwind border-colour utility. -->
         @for (b of boundaryLegend(); track b) {
           <li class="flex items-center gap-1.5 text-xs text-(--text-secondary)">
             <span

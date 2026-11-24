@@ -228,6 +228,7 @@ Alongside them, per issue: the second-seat no-op matrix against the in-memory D1
 | `apps/web/src/design-tokens.guard.spec.ts` | unit | Every token the source names exists in `styles.css`. Its source half also stops `font-display` beside a small size (the serif floor) |
 | `apps/web/src/design-tokens.hex.guard.spec.ts` | unit | Every colour token renders the hex its comment documents (AECI-1747) |
 | `apps/web/src/chip.guard.spec.ts`, `field-recipe-css.guard.spec.ts`, `pair-diff-edge.guard.spec.ts` | unit | The one chip recipe, the shared field recipe and the pair page's diff edge, read from `styles.css` |
+| `apps/web/src/border-color-layer.guard.spec.ts`, with its rendered half in `e2e/border-color-utility.spec.ts` | unit, e2e | No border colour (or `border` shorthand) on a universal selector outside a cascade layer, so border-colour utilities apply. The default `--border-default` sits in `@layer base`. The e2e reads a utility's computed colour on `/preview/vendor-detail` (AECI-2088) |
 | `apps/web/src/prose.guard.spec.ts` | unit | The one prose style reads only type ramp tokens (AECI-1804) |
 | `apps/web/src/font-files.guard.spec.ts` | unit | Each self-hosted font file's bytes, because `/fonts/*` is cached for a year (AECI-1892) |
 | `apps/web/src/app/legal/legal-heading-ids.spec.ts` | unit | The heading ids on `/legal/*` and `/methodology` change no word of the page |

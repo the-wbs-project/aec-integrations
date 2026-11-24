@@ -106,9 +106,9 @@ interface ClaimRow {
  * `--surface-base` inside a `--surface-raised` lane, and the tertiary token's own
  * comment forbids it on sunken/muted surfaces. Logical `border-s-2` keeps the mark
  * on the correct edge under RTL. The edge colour is an unlayered class in styles.css
- * (`.aec-diff-added`, `.aec-diff-removed`): a `border-s-(--accent-primary)` utility is
- * layered and loses to the unlayered `* { border-color }` rule, so the Forest edge never
- * rendered (AECI-1798 review).
+ * (`.aec-diff-added`, `.aec-diff-removed`). It was written while a border-colour utility
+ * lost to the then-unlayered `* { border-color }` rule (AECI-1798 review; the rule moved
+ * to `@layer base` in AECI-2088).
  */
 const DIFF_ADDED_ROW = 'border-s-2 aec-diff-added';
 const DIFF_REMOVED_ROW = 'border-s-2 aec-diff-removed';

@@ -101,7 +101,7 @@ describe('form-field error recipe', () => {
 
   it('a choice card draws its border through the unlayered class', () => {
     expect(classes(CHOICE_CARD_CLASS)).toContain('aec-choice-card');
-    // A border-colour utility never applies: the unlayered `*` rule wins.
+    // A border-colour utility would lose to the unlayered class, so none is set.
     expect(CHOICE_CARD_CLASS).not.toMatch(/\bborder-\(--/);
   });
 

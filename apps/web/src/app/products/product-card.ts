@@ -64,7 +64,7 @@ export type ProductRow = Pick<
   imports: [RouterLink, LogoOrInitial, IntegrationStat, RatingSummary],
   host: {
     // `border-b`: the hairline under each row (AECI-1793). The colour is the
-    // unlayered `*` rule's `--border-default`.
+    // `@layer base` default, `--border-default`.
     class:
       'border-b text-(--text-primary) transition-colors hover:bg-(--surface-muted) focus-within:bg-(--surface-muted)',
   },

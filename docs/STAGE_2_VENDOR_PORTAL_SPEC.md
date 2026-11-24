@@ -1219,16 +1219,11 @@ panel it switches.
   **The active treatment is `-mb-px` + `border-b-2` on the item itself**, pulling
   its border over the row's hairline: the `/search` entity-tab treatment and
   DESIGN.md's "2px `accent-primary` bottom border on the element".
-  **The underline COLOUR is a class in `styles.css` (`.aec-nav-tab[aria-current]`),
-  not a Tailwind utility** — `styles.css` sets `border-color` on `*` **outside any
-  cascade layer**, and an unlayered rule beats every layered rule regardless of
-  specificity, so `border-transparent` and `border-(--accent-primary)` silently
-  never reach the tab and the underline comes out `--border-default` grey in both
-  states. This is not local: it defeats **every** border-color utility in
-  `apps/web` (~165 usages, the `/search` tabs included). Fixing it properly means
-  moving that `*` rule into `@layer base` — the same fix the file already applied
-  to anchor colours, with the reasoning written two lines below it — which is an
-  app-wide visual change and wants its own issue.
+  **The underline COLOUR is a class in `styles.css` (`.aec-nav-tab[aria-current]`).**
+  It was written while `styles.css` set `border-color` on `*` outside any cascade
+  layer, which beat every border-colour utility in `apps/web`. AECI-2088 moved that
+  rule into `@layer base` (2026-11-24), so a `border-(--accent-primary)` utility now
+  applies. The class still beats a utility beside it.
 - **Products is a `<button>`, not a link.** It opens the menu; there is no direct
   link to `…/products` in the nav. Two costs, both accepted: `routerLinkActive`
   cannot drive its state (a button has no `routerLink`), so the item computes

@@ -4,10 +4,10 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /**
- * Guard (AECI-1758): the shared button's edge only renders if its colour comes
- * from an UNLAYERED rule. The unlayered `* { border-color }` rule in `styles.css`
- * beats every layered utility, so a `border-(--border-strong)` utility on the
- * secondary button silently paints `--border-default` instead. This happened to
+ * Guard (AECI-1758): the shared button's edge colour comes from an UNLAYERED
+ * rule. Until AECI-2088 the `* { border-color }` rule in `styles.css` was unlayered
+ * and beat every layered utility, so a `border-(--border-strong)` utility on the
+ * secondary button silently painted `--border-default` instead. This happened to
  * the old `BUTTON_SECONDARY_CLASS`. jsdom cannot see cascade layers, so this
  * reads the stylesheet and the recipe as text.
  */
@@ -45,7 +45,6 @@ describe('shared button styles (AECI-1758)', () => {
     expect(depthAt(secondary.at)).toBe(0);
     expect(secondary.body).toMatch(/border-color:\s*var\(--border-strong\)/);
     expect(secondary.at).toBeGreaterThan(base.at);
-    expect(secondary.at).toBeGreaterThan(css.indexOf('* {'));
   });
 
   it('draws the on-brand secondary edge in the 3:1 Bone alpha, from an unlayered rule', () => {

@@ -45,9 +45,8 @@ export const FIELD_OPTIONAL_CLASS = 'font-normal text-(--text-tertiary)';
  * A text input, textarea or select. `aec-field-control` (unlayered,
  * `styles.css`) draws the edge: `--border-field` at rest (3:1, WCAG 1.4.11), a
  * 2px `--status-error` edge when `aria-invalid="true"`, Forest on focus. It also
- * pins the 44px height and the 12px radius. A border-colour utility here would
- * never apply, because the unlayered `* { border-color }` rule beats every
- * layered utility. The fill is always `surface-base` and a control takes no
+ * pins the 44px height and the 12px radius. Do not add a border-colour utility
+ * here: the unlayered class beats it, so it would do nothing. The fill is always `surface-base` and a control takes no
  * shadow (DESIGN.md "Inputs / Fields"). Disabled is the sunken tint, never opacity.
  */
 export const FIELD_INPUT_CLASS =
