@@ -308,3 +308,63 @@ describe('VendorListingVisibility', () => {
     expect(changed).not.toHaveBeenCalled();
   });
 });
+
+describe('VendorListingVisibility focus (AECI-2112)', () => {
+  const escape = (target: EventTarget) =>
+    target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+  async function toConfirm(fixture: ComponentFixture<unknown>, el: HTMLElement) {
+    button(el, 'Hide from the public site').click();
+    await render(fixture);
+    (el.querySelector('#detail-vendor-listing-kind-defunct') as HTMLInputElement).click();
+    type(el, 'detail-vendor-listing-reason', 'The company closed.');
+    await render(fixture);
+    button(el, 'Continue').click();
+    await render(fixture);
+  }
+
+  it('Escape closes the form and returns focus to its opener', async () => {
+    const { fixture, el } = await setup(makeVendor());
+    button(el, 'Hide from the public site').click();
+    await render(fixture);
+    escape(el.querySelector('#detail-vendor-listing-reason')!);
+    await render(fixture);
+    expect(el.querySelector('[data-testid="listing-hide-form"]')).toBeNull();
+    expect(document.activeElement?.id).toBe('detail-listing-visibility-action');
+  });
+
+  it('Escape does nothing while the hide is in flight', async () => {
+    let resolve!: (v: unknown) => void;
+    api.hideVendor.mockReturnValue(new Promise((r) => (resolve = r)));
+    const { fixture, el } = await setup(makeVendor());
+    await toConfirm(fixture, el);
+    button(el, 'Hide from the public site').click();
+    await render(fixture);
+    escape(el.querySelector('[data-testid="listing-hide-confirm-heading"]')!);
+    await render(fixture);
+    expect(el.querySelector('[data-testid="listing-hide-form"]')).not.toBeNull();
+    resolve({ entity_type: 'vendor', entity_id: VENDOR_ID, hide: makeHide(), product_ids: [] });
+    await render(fixture);
+  });
+
+  it('a refused hide moves focus to its message', async () => {
+    api.hideVendor.mockRejectedValue(
+      new HttpErrorResponse({ status: 500, error: { error: { code: 'INTERNAL' } } }),
+    );
+    const { fixture, el } = await setup(makeVendor());
+    await toConfirm(fixture, el);
+    button(el, 'Hide from the public site').click();
+    await render(fixture);
+    await render(fixture);
+    expect(document.activeElement?.getAttribute('role')).toBe('alert');
+    expect(squash(document.activeElement)).toBe(
+      'Could not save the change. Nothing was saved. Try again.',
+    );
+  });
+
+  it('the hide confirm is primary, not danger: Restore undoes it (DESIGN.md §5)', async () => {
+    const { fixture, el } = await setup(makeVendor());
+    await toConfirm(fixture, el);
+    expect(button(el, 'Hide from the public site').getAttribute('data-variant')).toBe('primary');
+  });
+});
