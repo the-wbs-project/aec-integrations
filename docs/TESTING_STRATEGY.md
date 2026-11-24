@@ -1374,6 +1374,134 @@ Set `AECI_WEB_PORT` and `PLAYWRIGHT_BASE_URL` to the port `dev:agent` printed, a
 5.6 to 6.5 minutes on one local worker. The four listing pages take about 40 seconds each. The CI time
 is not measured yet. Read it off the first nightly against the `suite` job's 30-minute limit.
 
+#### 8.4.7 Interaction scripts (AECI-1882)
+
+Some WCAG criteria describe behaviour, not markup, so no rule engine tests them. These scripts act on
+the page and watch what it does. `e2e-a11y/interaction.spec.ts` runs checks 1 to 6 on every surface in
+the manifest, public pages included. `e2e-a11y/interaction-flows.spec.ts` runs check 7 on four flows.
+
+| # | Check | WCAG | Fails when |
+|---|---|---|---|
+| 1 | Content on hover | 1.4.13 | Content that hover shows closes when the pointer moves onto it, or Escape does not close it while the pointer is on it, or Escape moves focus. At 768px wide it also fails when the content pushes the page sideways or leaves the viewport (AECI-1846) |
+| 2 | Pointer cancellation | 2.5.2 | A press on a control, a move off it and a release somewhere with nothing interactive changes the URL, loads a page, sends a write, opens a popup or flips a state |
+| 3 | On input | 3.2.2 | Changing a form control changes the address, loads a page, opens a window or moves focus off the control, and the control is not on the on-input list |
+| 4 | Character shortcuts | 2.1.4 | With focus on `body`, a key from a to z changes the URL, the title, the scroll, focus, the open popups or the page's text |
+| 5a | Motion | 2.2.2 | An animation longer than 5 seconds, or endless, is still running on a drawn element 5 seconds after it started |
+| 5b | Reduced motion | 2.3.3 (AAA), and 2.2.2 | With `reducedMotion: 'reduce'`, any animation or transition the page ran, from its first frame, lasted more than 100ms |
+| 6a | Forced colours, axe | WCAG 2 A and AA rules | With `forcedColors: 'active'`, axe with the sweep's tags and exclusions (`e2e/axe-sweep.ts`) finds a gate violation |
+| 6b | Forced colours, focus ring | 2.4.7, 1.4.11, 2.4.11 | With `forcedColors: 'active'`, the focus ring check of §8.4.5 fails on a Tab stop |
+| 7 | Error prevention | 3.3.4 | The claim, checkout, account delete or a moderation action writes with no confirm or review step first |
+
+**How each surface runs.** Each surface is loaded twice, each time in a `beforeAll` that runs the
+checks and records their problems. Each check is then its own test, which judges the record with
+`expectOnlyKnownProblems` (§8.4.3), so a known barrier marks only its own check. Load A has the default
+media and runs 5a, 4, 1, 2 and 3 in that order: the two that only read go first, and a check that
+changes the page reloads it before the next. Load B has reduced motion and forced colours together and
+runs 6a, 6b, then 5b, so 5b covers the load, the settle scroll and every focus move of the walk. Each
+describe is `mode: 'default'`, so it stays on one shard and a failed test re-runs the hook for the
+tests left (§8.4 "Shards"). The site header and footer are checked once per persona for checks 1 to 3
+(`headerOwnerFor`, §8.4.1).
+
+**How a control is found.** No list is kept by hand.
+
+- Check 1: an init script (`support/interaction-probe.ts`) marks every element that registers a
+  `mouseenter`, `mouseover`, `pointerenter` or `pointerover` listener. Angular binds a template's
+  `(mouseenter)` with `addEventListener`, so every hover panel in the app is found. Each one is pointed
+  at, and the new content is what was drawn after the hover and not before. The pointer then moves onto
+  the largest new element whose centre takes the pointer.
+- Check 2: one activatable control of each kind (component, landmark, role, and the name for anything
+  but a link), up to 60 a surface. A press that changed something is run again from a fresh load as
+  the same pointer path with no press, and only what the press added counts. A control that opens on
+  hover (the admin nav, the Browse menu) changes the page either way. Both runs dwell on the control
+  for 400ms first, so a hover timer fires in both.
+- Check 3: one form control of each kind in each component: one box of a filter group, one select,
+  one text field. A form with three text fields has its first one changed. Each is changed once by
+  keyboard: Space for a box, the next option for a
+  select, Enter, ArrowDown and Enter for a select-only combobox, one typed letter for a text field. The
+  check focuses the control with `focus()`, because it tests the change, not how focus got there.
+- Check 7: the flows are scripted by hand (below).
+
+**Check 3's on-input list** is `ON_INPUT_LIST` in `support/on-input-list.ts`. A listed control may
+change the page the way its entry says. An entry that stops matching turns the test red. On landing
+(2026-11-24) every entry is **pending Chris's ruling**:
+
+| Entry | Surfaces | What it does on change | Status |
+|---|---|---|---|
+| `facet-filters` | `/products` and the three browse pages | A facet box filters the results at once and writes the filter to the address (`?categories=…`). Focus stays on the box | Pending Chris's ruling |
+| `listing-sort` | The same | Choosing a sort reorders the results at once and writes it to the address (`?sort=…`) | Pending Chris's ruling |
+| `portal-integration-filters` | Vendor portal integrations | The Search box filters as you type, and "Integrates with" on change. Both write the filter to the address | Pending Chris's ruling |
+
+No control on any surface loads a new page, opens a window or moves focus on change. The sort on
+`/categories`, `/audiences` and `/phases` reorders in place and does not write to the address, while
+the sort on the listing pages does. That is a difference under `DESIGN.md` "The Same-Behavior Rule",
+reported to Chris, not decided here.
+
+**Check 7, the flows.** Each test proves the step is there and stops on it. `blockWrites` runs first,
+so no write reaches the network, the local API included. A count of every write the page tried is how
+"nothing was sent yet" is checked.
+
+| Flow | Where | What proves the step | What is never pressed |
+|---|---|---|---|
+| Claim, signed out | `/products/:slug/claim`, then `/claims/confirm` | The submit sends only `POST /api/requests/claim`, answered by a stub, and the receipt says the claim is not sent until the emailed link is clicked. The confirm page sends nothing on load and shows "Confirm and send" | "Confirm and send" |
+| Checkout: pay by card | `/vendor/:slug/billing` | The only submit is "Continue to Stripe", and the form says the plan is accepted on Stripe's page | "Continue to Stripe" |
+| Checkout: add subscriptions | The same | The button opens a dialog that states the charge, with its own submit and Cancel. Opening and closing it sends nothing | The dialog's submit |
+| Account delete | `/account` | The button opens "Delete your account?" with "Delete my account". Opening and closing it sends nothing | "Delete my account" |
+| Reject | `/admin/reviews` | Reject opens a reason and "Confirm rejection". Nothing is sent | "Confirm rejection" |
+| Remove | The same, Approved tab | A reason, then "Continue to removal", then "Remove permanently". Nothing is sent | "Remove permanently" |
+| Ban | The same | A stubbed reject raises "Ban reviewer", which opens a dialog with a reason and "Confirm ban". Only the stubbed reject was sent | "Confirm ban" |
+| Approve | The same | One click sends the approve, to a stub. It has no confirm step (AECI-2121) | Nothing else |
+
+The checkout tests reach no Stripe route and no route that creates a Checkout Session or charges a
+card. The vendor test account is a member seat and the local API has no Stripe key, so three reads are
+answered in the browser: the billing page's transfer state with `seat_owner` set, `GET
+/api/vendor/billing` with Stripe on, and the empty list of accepted agreements. The moderation tests
+run over a stubbed queue list, so no real review is touched.
+
+Not covered: a signed-in claim whose email matches the session goes straight in, with no confirm step
+(`createClaimSubmitHandler` in `apps/api/src/routes/requests.ts`). The server makes that choice, so a
+browser stub cannot test it without the real write.
+
+**Known barriers on landing (2026-11-24).** `KNOWN_INTERACTION_BARRIERS` in `interaction.spec.ts`:
+
+| Issue | Check | What the check finds | Surfaces |
+|---|---|---|---|
+| AECI-2119 | 1 | Escape does not close an admin nav dropdown opened by hover, at both widths | Both admin surfaces |
+| AECI-2120 | 2 | A press on "Browse" dragged off and released leaves the Browse panel open | The header owner of each persona |
+| AECI-2097 | 6b | The vendor portal section nav clips its links' focus ring, in forced colours too | Both vendor portal surfaces |
+| AECI-2121 | 7 | One click on Approve sends the approve. Marked in `interaction-flows.spec.ts` | Admin moderation queue |
+
+AECI-2099 (a click closes what hover opened) is why checks 1 and 2 never click a hover trigger.
+
+**Limits.**
+
+- **Forced colours is an emulation.** Chromium's `forcedColors: 'active'` applies its own fixed
+  palette, not a real Windows contrast theme, and does not follow the reader's chosen colours. A pass
+  here means the page survives forced colours in Chromium. The manual pass still checks a real theme.
+- The contrast rules (`color-contrast`, `color-contrast-enhanced`) are off in 6a. Under forced colours
+  the reader's palette replaces the author's colours, so those rules measure colours nobody sees. The
+  sweep checks contrast with forced colours off (§8.2).
+- Check 1 finds hover content shown by a script listener. A reveal done in CSS alone, with `:hover`
+  showing a hidden element, is not found. The app has none today. Content shown on focus alone is the
+  keyboard suite's (§8.4.1).
+- Check 2 skips text fields and native selects, which have no pointer function, and a control whose
+  centre is covered or that has no free point near it. The skips are in the test's annotations.
+- Check 5 sees CSS and Web Animations. A video, a GIF or a canvas drawn by script is not seen.
+- Checks 1 to 6 run in Chromium at 1280 by 720, and check 1 also at 768 by 1024.
+
+**Run it** alone with one worker:
+
+```bash
+pnpm --filter @aeci/web exec playwright test -c playwright.a11y-nightly.config.ts interaction --workers=1
+```
+
+Set `AECI_WEB_PORT` and `PLAYWRIGHT_BASE_URL` to the port `dev:agent` printed, as for §8.4. The two
+specs hold 185 tests and took 15.2 to 17.4 minutes on one local worker, on a busy machine. The 44
+loads average 23 seconds. The slowest is `/admin/reviews` with the default media, at about 75 seconds:
+its hover check opens five panels at two widths. Each judge test reads the time of its load in the
+`interaction-load-seconds` annotation. The CI time is not measured yet. Read it off the first nightly
+against the `suite` job's 30-minute limit, since this is one of the suites `docs/CICD_PLAN.md`
+§11a-quater sized the eight shards for.
+
 ---
 
 ## 9. Visual regression — Playwright + Chromatic
