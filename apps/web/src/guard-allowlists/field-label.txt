@@ -10,4 +10,3 @@ admin/legal/legal-versions.html 3
 admin/legal/litigation-holds.html 5
 admin/users/user-detail.html 1
 vendor/components/vendor-contest-form.ts 3
-vendor/components/vendor-license-assign.ts 1

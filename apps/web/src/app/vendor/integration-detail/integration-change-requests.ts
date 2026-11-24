@@ -71,14 +71,13 @@ import {
   ID_STYLES,
   INPUT,
   NOTE_PANEL,
-  SEGMENTED_CLASS,
   STATUS_CHIP_ICON,
   STATUS_CHIP_TONE,
-  segmentClass,
 } from './integration-detail-styles';
 import { IntegrationRequestForm } from './integration-request-form';
 import { IntegrationRowThread } from './integration-row-thread';
 import { VendorTip } from './vendor-tip';
+import { SEGMENTED_CLASS, segmentClass } from '../shared/portal-segmented';
 
 type OpenItem =
   | {

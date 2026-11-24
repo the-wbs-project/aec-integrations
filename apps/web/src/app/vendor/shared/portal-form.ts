@@ -89,6 +89,18 @@ export const PORTAL_FIELD_CLASS = 'min-w-0 space-y-2';
 export const PORTAL_SAVE_BAR_CLASS =
   'aec-portal-save-bar sticky bottom-0 z-10 -mx-6 -mb-6 mt-8 flex flex-wrap items-center justify-end gap-x-6 gap-y-3 border-t bg-(--surface-base) px-6 py-4 sm:rounded-b-card md:-mx-8 md:-mb-8 md:px-8';
 
+/**
+ * The save bar of a form nested inside a row, a section or another card (the
+ * integration detail page's forms, the integrations list's create and edit forms, the
+ * connector mapping form). The same sticky bar, but it does not pull out over a card's
+ * padding, because the form is not the card. It keeps the `aec-portal-save-bar` marker,
+ * so {@link PORTAL_FORM_CLASS} and `aecKeepClearOfSaveBar` (`keep-clear-of-save-bar.ts`)
+ * still leave the bar's own controls alone. One constant since AECI-1812: there were
+ * three byte-identical copies.
+ */
+export const PORTAL_NESTED_SAVE_BAR_CLASS =
+  'aec-portal-save-bar sticky bottom-0 z-10 mt-8 flex flex-wrap items-center justify-end gap-x-6 gap-y-3 border-t bg-(--surface-base) py-4';
+
 /** The save bar's status line, at the start. It takes the room the button leaves. */
 export const PORTAL_SAVE_STATUS_CLASS = 'me-auto min-w-0 flex-[1_1_20rem] text-t-14 leading-[1.5]';
 

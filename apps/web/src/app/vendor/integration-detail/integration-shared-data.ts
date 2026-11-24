@@ -57,19 +57,12 @@ import {
   PORTAL_FORM_SPAN_CLASS,
   PORTAL_SAVE_BUTTON_CLASS,
 } from '../shared/portal-form';
-import {
-  ALERT,
-  FORM_PANEL,
-  HELP,
-  ID_STYLES,
-  INPUT,
-  NESTED_SAVE_BAR,
-  SEGMENTED_CLASS,
-  segmentClass,
-} from './integration-detail-styles';
+import { ALERT, FORM_PANEL, HELP, ID_STYLES, INPUT } from './integration-detail-styles';
 import { VendorTip } from './vendor-tip';
 import { isReplayedEvent } from '../../core/event-replay';
-import { KeepClearOfSaveBar } from './keep-clear-of-save-bar';
+import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
+import { PORTAL_NESTED_SAVE_BAR_CLASS } from '../shared/portal-form';
+import { SEGMENTED_CLASS, segmentClass } from '../shared/portal-segmented';
 
 /**
  * "Data that's shared" (AECI-1151, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.4).
@@ -758,7 +751,7 @@ export class IntegrationSharedData {
   protected readonly panel = FORM_PANEL;
   protected readonly grid = PORTAL_FORM_GRID_CLASS;
   protected readonly span = PORTAL_FORM_SPAN_CLASS;
-  protected readonly saveBar = NESTED_SAVE_BAR;
+  protected readonly saveBar = PORTAL_NESTED_SAVE_BAR_CLASS;
   protected readonly saveButton = PORTAL_SAVE_BUTTON_CLASS;
   protected readonly segmented = SEGMENTED_CLASS;
   protected readonly segment = segmentClass;

@@ -13,16 +13,7 @@ admin/legal/litigation-holds.html 4
 admin/legal/litigation-holds.ts 2
 admin/users/user-detail.html 13
 admin/users/user-list.html 7
-vendor/components/vendor-billing-licenses.ts 3
-vendor/components/vendor-billing-stripe-panel.ts 2
-vendor/components/vendor-billing-summary.ts 1
-vendor/components/vendor-billing-unused-warning.ts 1
 vendor/components/vendor-contest-form.ts 5
 vendor/components/vendor-hidden-note.ts 1
-vendor/components/vendor-license-actions.ts 6
-vendor/components/vendor-license-assign.ts 3
 vendor/components/vendor-locked-note.ts 1
-vendor/components/vendor-proposal-card.ts 6
 vendor/components/vendor-review-strip.ts 1
-vendor/sections/vendor-billing-section.ts 5
-vendor/sections/vendor-proposals-section.ts 2

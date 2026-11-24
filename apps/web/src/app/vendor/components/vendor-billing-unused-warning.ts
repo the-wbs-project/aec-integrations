@@ -24,7 +24,7 @@ import { CHOICE_INPUT_CLASS, FIELD_ERROR_CLASS } from '../../shared/form-field/f
     <div role="status" [attr.id]="idPrefix() + '-unused-text'">
       @if (unused() > 0) {
         <div
-          class="aec-notice-neutral max-w-prose space-y-2 rounded-(--radius-md) border bg-(--accent-warm) p-4 text-sm leading-relaxed text-(--text-primary)"
+          class="aec-notice-neutral max-w-[32rem] space-y-2 rounded-panel border bg-(--accent-warm) p-4 text-t-14 leading-[1.6] text-(--text-primary)"
           data-testid="unused-warning"
         >
           <p>
@@ -91,7 +91,7 @@ import { CHOICE_INPUT_CLASS, FIELD_ERROR_CLASS } from '../../shared/form-field/f
       }
     </div>
     @if (unused() > 0) {
-      <div class="mt-3 space-y-1.5">
+      <div class="mt-4 space-y-2">
         <div class="flex items-start gap-3">
           <input
             #box
@@ -106,7 +106,7 @@ import { CHOICE_INPUT_CLASS, FIELD_ERROR_CLASS } from '../../shared/form-field/f
                 ? idPrefix() + '-unused-text ' + idPrefix() + '-unused-error'
                 : idPrefix() + '-unused-text'
             "
-            [class]="choiceInputClass + ' mt-0.5'"
+            [class]="choiceInputClass + ' mt-1'"
             data-testid="unused-box"
             (change)="accepted.set(box.checked)"
           />

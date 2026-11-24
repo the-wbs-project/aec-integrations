@@ -23,9 +23,17 @@ import type {
 
 import { RouterLink } from '@angular/router';
 
+import { AecButton } from '../../shared/button/button';
+import { AecCard } from '../../shared/card/card';
+import { Chip } from '../../shared/chip/chip';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_LABEL_TYPE_CLASS,
+} from '../../shared/form-field/form-field-classes';
 import { formatTermDate } from '../../shared/term-date/format-term-date';
 import { readVendorApiError } from '../vendor-api-error';
 import { VendorApi } from '../vendor-api';
+import { BILLING_LINK_CLASS } from './vendor-billing-styles';
 
 /** Which decision the inline confirmation is for. */
 type Decision = 'accept' | 'decline';
@@ -115,64 +123,72 @@ export function proposalDecisionIsStale(err: unknown): boolean {
  * The write is awaited. A success emits `accepted` or `declined` and the section
  * removes the card. A `409` or `404` emits `stale`: another owner or tab decided
  * first, and the section re-reads the list. Any other failure stays on the card.
+ *
+ * ── BUTTONS (AECI-1812, DESIGN.md §5 "Buttons") ─────────────────────────────
+ * Accept and Decline only open the confirmation, so both are secondary. "Accept and add
+ * product" is primary: it adds a product the owner then edits like any other. "Decline
+ * product" is danger: AEC Integrations will not send the product again, and nothing in
+ * the portal or the API reopens a declined proposal (`POST
+ * /api/vendor/proposals/:id/decline`).
  */
 @Component({
   selector: 'aec-vendor-proposal-card',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
-  imports: [RouterLink],
+  imports: [AecButton, AecCard, Chip, RouterLink],
   template: `
     <article
-      class="rounded-(--radius-md) border bg-(--surface-raised) p-5"
+      aecCard
+      [class]="'p-6'"
       [attr.aria-labelledby]="id('name')"
       data-testid="proposal-card"
     >
       <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <h3 [id]="id('name')" class="font-display text-lg font-semibold text-(--text-primary)">
+        <h3 [id]="id('name')" class="min-w-0 break-words">
           {{ proposal().product.name }}
         </h3>
-        <p class="text-xs text-(--text-secondary)">{{ proposedLabel() }}</p>
+        <p class="text-t-13 text-(--text-secondary)">{{ proposedLabel() }}</p>
       </div>
 
       @if (proposal().product.description_excerpt; as description) {
-        <p class="mt-2 max-w-[34rem] text-sm leading-relaxed text-(--text-primary)">
+        <p class="mt-2 max-w-[32rem] text-t-14 leading-[1.6] text-(--text-primary)">
           {{ description }}
         </p>
       } @else {
         <p
-          class="mt-2 text-sm text-(--text-secondary)"
+          class="mt-2 text-t-14 text-(--text-secondary)"
           i18n="@@vendor.proposals.card.noDescription"
         >
           No description was sent.
         </p>
       }
 
-      <dl class="mt-4 grid gap-x-8 gap-y-4 text-sm sm:grid-cols-2">
+      <dl class="mt-6 grid gap-x-8 gap-y-6 text-t-14 sm:grid-cols-2">
         @if (proposal().product.website; as website) {
           <div>
             <dt [class]="dtClass" i18n="@@vendor.proposals.card.website">Website</dt>
-            <dd class="mt-1 break-all text-(--text-primary)" data-testid="proposal-website">
+            <dd class="mt-2 break-all text-(--text-primary)" data-testid="proposal-website">
               {{ website }}
             </dd>
           </div>
         }
         <div>
           <dt [class]="dtClass" i18n="@@vendor.proposals.card.companies">Listed under</dt>
-          <dd class="mt-1">
+          <dd class="mt-2">
             <ul class="m-0 list-none space-y-1 p-0" data-testid="proposal-vendors">
               @for (vendor of proposal().vendors; track vendor.id) {
                 <li class="text-(--text-primary)">
                   {{ vendor.name }}
                   @if (vendor.is_primary) {
                     <span
-                      class="text-xs text-(--text-secondary)"
+                      class="text-t-13 text-(--text-secondary)"
                       i18n="@@vendor.proposals.card.primary"
                       >(primary)</span
                     >
                   }
                   @if (!vendor.exists) {
                     <span
-                      class="text-xs font-semibold text-(--text-primary)"
+                      class="text-t-13 font-semibold text-(--text-primary)"
                       i18n="@@vendor.proposals.card.vendorGone"
                       >(no longer exists)</span
                     >
@@ -185,19 +201,21 @@ export function proposalDecisionIsStale(err: unknown): boolean {
         @for (group of termGroups(); track group.facet) {
           <div>
             <dt [class]="dtClass">{{ group.label }}</dt>
-            <dd class="mt-1">
-              <ul class="m-0 flex list-none flex-wrap gap-1.5 p-0">
+            <dd class="mt-2">
+              <ul class="m-0 flex list-none flex-wrap gap-2 p-0">
                 @for (term of group.terms; track $index) {
                   <li
-                    [class]="term.exists ? keptClass : droppedClass"
+                    class="max-w-full"
                     [attr.data-testid]="term.exists ? 'proposal-term' : 'proposal-term-dropped'"
                   >
-                    {{ term.name ?? term.value }}
-                    @if (!term.exists) {
-                      <span class="font-semibold" i18n="@@vendor.proposals.card.dropped"
-                        >Not added</span
-                      >
-                    }
+                    <aec-chip [tone]="term.exists ? 'neutral' : 'sunken'">
+                      {{ term.name ?? term.value }}
+                      @if (!term.exists) {
+                        <span class="font-semibold" i18n="@@vendor.proposals.card.dropped"
+                          >Not added</span
+                        >
+                      }
+                    </aec-chip>
                   </li>
                 }
               </ul>
@@ -208,7 +226,7 @@ export function proposalDecisionIsStale(err: unknown): boolean {
 
       @if (droppedCount() > 0) {
         <p
-          class="mt-3 max-w-[34rem] text-xs text-(--text-secondary)"
+          class="mt-4 max-w-[32rem] text-t-13 text-(--text-secondary)"
           data-testid="proposal-dropped-note"
         >
           {{ droppedNote() }}
@@ -216,7 +234,7 @@ export function proposalDecisionIsStale(err: unknown): boolean {
       }
       @if (vendorMissing()) {
         <p
-          class="mt-3 max-w-[34rem] text-sm text-(--text-primary)"
+          class="mt-4 max-w-[32rem] text-t-14 leading-[1.6] text-(--text-primary)"
           data-testid="proposal-vendor-missing"
         >
           <span i18n="@@vendor.proposals.card.vendorMissing"
@@ -224,7 +242,7 @@ export function proposalDecisionIsStale(err: unknown): boolean {
             accepted. Decline it and add the product yourself, or
             <a
               routerLink="/contact"
-              class="font-medium text-(--accent-primary) underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              [class]="linkClass"
               data-testid="proposal-vendor-missing-contact"
               >contact us</a
             >.</span
@@ -237,14 +255,14 @@ export function proposalDecisionIsStale(err: unknown): boolean {
           role="group"
           [attr.aria-labelledby]="id('confirm-title')"
           [attr.aria-describedby]="id('confirm-body')"
-          class="mt-4 max-w-[34rem] rounded-(--radius-md) border bg-(--surface-sunken) p-4"
+          class="mt-6 max-w-[32rem] rounded-panel border border-(--border-strong) bg-(--surface-sunken) p-4"
           (keydown.escape)="onEscape($event)"
           data-testid="proposal-confirm"
         >
-          <p [id]="id('confirm-title')" class="text-sm font-semibold text-(--text-primary)">
+          <p [id]="id('confirm-title')" class="text-t-14 font-semibold text-(--text-primary)">
             {{ decision === 'accept' ? acceptTitle() : declineTitle() }}
           </p>
-          <p [id]="id('confirm-body')" class="mt-1 text-sm leading-relaxed text-(--text-secondary)">
+          <p [id]="id('confirm-body')" class="mt-1 text-t-14 leading-[1.6] text-(--text-secondary)">
             @if (decision === 'accept') {
               <span i18n="@@vendor.proposals.confirm.acceptBody"
                 >The product is added to your listing exactly as shown, and you can edit it
@@ -262,11 +280,13 @@ export function proposalDecisionIsStale(err: unknown): boolean {
               >
             }
           </p>
-          <div class="mt-3 flex flex-wrap gap-2">
+          <div class="mt-4 flex flex-wrap gap-2">
             <button
               #confirmEl
+              aecButton
+              compact
+              [variant]="decision === 'accept' ? 'primary' : 'danger'"
               type="button"
-              [class]="decision === 'accept' ? primaryClass : secondaryClass"
               [disabled]="busy()"
               [attr.aria-busy]="busy() ? 'true' : null"
               (click)="decide(decision)"
@@ -281,8 +301,10 @@ export function proposalDecisionIsStale(err: unknown): boolean {
               }
             </button>
             <button
+              aecButton
+              variant="secondary"
+              compact
               type="button"
-              [class]="secondaryClass"
               [disabled]="busy()"
               (click)="cancel()"
               data-testid="proposal-confirm-cancel"
@@ -293,11 +315,12 @@ export function proposalDecisionIsStale(err: unknown): boolean {
           </div>
         </div>
       } @else {
-        <div class="mt-5 flex flex-wrap gap-2">
+        <div class="mt-6 flex flex-wrap gap-2">
           <button
             #acceptEl
+            aecButton
+            variant="secondary"
             type="button"
-            [class]="primaryClass"
             [disabled]="vendorMissing()"
             (click)="open('accept')"
             data-testid="proposal-accept"
@@ -306,8 +329,9 @@ export function proposalDecisionIsStale(err: unknown): boolean {
           </button>
           <button
             #declineEl
+            aecButton
+            variant="secondary"
             type="button"
-            [class]="secondaryClass"
             (click)="open('decline')"
             data-testid="proposal-decline"
           >
@@ -317,11 +341,7 @@ export function proposalDecisionIsStale(err: unknown): boolean {
       }
 
       @if (notice(); as message) {
-        <p
-          role="alert"
-          class="mt-3 max-w-[34rem] text-sm font-medium text-(--text-primary)"
-          data-testid="proposal-error"
-        >
+        <p role="alert" [class]="errorClass + ' mt-4 max-w-[32rem]'" data-testid="proposal-error">
           {{ message }}
         </p>
       }
@@ -440,14 +460,8 @@ export class VendorProposalCard {
     return `vendor-proposal-${this.proposal().id}-${key}`;
   }
 
-  protected readonly dtClass =
-    'text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase';
-  protected readonly keptClass =
-    'inline-flex items-center gap-1 rounded-(--radius-sm) border bg-(--surface-base) px-2 py-0.5 text-xs font-medium text-(--text-primary)';
-  protected readonly droppedClass =
-    'inline-flex items-center gap-1 rounded-(--radius-sm) border border-dashed bg-(--surface-sunken) px-2 py-0.5 text-xs text-(--text-secondary)';
-  protected readonly primaryClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) bg-(--accent-primary) px-4 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
-  protected readonly secondaryClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border bg-(--surface-base) px-4 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
+  /** A fact's label: the Label role. */
+  protected readonly dtClass = FIELD_LABEL_TYPE_CLASS;
+  protected readonly errorClass = FIELD_ERROR_CLASS;
+  protected readonly linkClass = BILLING_LINK_CLASS;
 }

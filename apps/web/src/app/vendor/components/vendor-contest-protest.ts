@@ -30,13 +30,9 @@ import {
   FIELD_LABEL_CLASS,
 } from '../../shared/form-field/form-field-classes';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
-import {
-  FORM_PANEL,
-  IN_TEXT_LINK,
-  NESTED_SAVE_BAR,
-} from '../integration-detail/integration-detail-styles';
-import { PORTAL_SAVE_BUTTON_CLASS } from '../shared/portal-form';
-import { KeepClearOfSaveBar } from '../integration-detail/keep-clear-of-save-bar';
+import { FORM_PANEL, IN_TEXT_LINK } from '../integration-detail/integration-detail-styles';
+import { PORTAL_NESTED_SAVE_BAR_CLASS, PORTAL_SAVE_BUTTON_CLASS } from '../shared/portal-form';
+import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
 
 type Side = 'submitted' | 'received';
 type Busy = 'file' | 'reply' | 'withdraw' | null;
@@ -670,7 +666,7 @@ export class VendorContestProtest {
   protected readonly recordClass =
     'mt-2 max-w-prose space-y-2 rounded-panel bg-(--surface-sunken) p-4';
   protected readonly formPanelClass = FORM_PANEL;
-  protected readonly saveBarClass = NESTED_SAVE_BAR;
+  protected readonly saveBarClass = PORTAL_NESTED_SAVE_BAR_CLASS;
   protected readonly saveButtonClass = PORTAL_SAVE_BUTTON_CLASS;
   protected readonly linkClass = IN_TEXT_LINK;
   protected readonly labelClass = FIELD_LABEL_CLASS;

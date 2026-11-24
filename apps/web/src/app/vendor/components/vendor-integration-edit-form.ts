@@ -51,9 +51,11 @@ import {
   PORTAL_FORM_GRID_CLASS,
   PORTAL_FORM_SPAN_CLASS,
   PORTAL_LEGEND_CLASS,
+  PORTAL_NESTED_SAVE_BAR_CLASS,
   PORTAL_SAVE_BUTTON_CLASS,
   PORTAL_SAVE_STATUS_CLASS,
 } from '../shared/portal-form';
+import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
 
 /** How each field is edited. Same split as the contest form. */
 type ControlKind = 'url' | 'text' | 'textarea' | 'mechanism' | 'direction';
@@ -128,10 +130,11 @@ export type EditFormOutcome = 'saved' | 'cancelled';
  */
 @Component({
   selector: 'aec-vendor-integration-edit-form',
-  imports: [AecButton, AecIcon, VendorHiddenNote, VendorLockedNote],
+  imports: [AecButton, AecIcon, KeepClearOfSaveBar, VendorHiddenNote, VendorLockedNote],
   styles: [':host { display: block; margin-top: 1.5rem; }'],
   template: `
     <form
+      aecKeepClearOfSaveBar
       method="dialog"
       [id]="fieldId('form')"
       [class]="formClass"
@@ -552,8 +555,7 @@ export class VendorIntegrationEditForm implements OnInit {
    * wrap. It keeps the `aec-portal-save-bar` marker, so `PORTAL_FORM_CLASS` still
    * leaves its own buttons out of the scroll margin.
    */
-  protected readonly saveBarClass =
-    'aec-portal-save-bar sticky bottom-0 z-10 mt-8 flex flex-wrap items-center justify-end gap-x-6 gap-y-3 border-t bg-(--surface-base) py-4';
+  protected readonly saveBarClass = PORTAL_NESTED_SAVE_BAR_CLASS;
   protected readonly labelClass = FIELD_LABEL_CLASS;
   protected readonly optionalClass = FIELD_OPTIONAL_CLASS;
   protected readonly inputClass = FIELD_INPUT_CLASS;

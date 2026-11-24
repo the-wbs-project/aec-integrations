@@ -40,17 +40,14 @@ import {
 import { IntegrationDetailState } from './integration-detail-state';
 import { AecButton } from '../../shared/button/button';
 import { FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
-import { PORTAL_FORM_GRID_CLASS, PORTAL_SAVE_BUTTON_CLASS } from '../shared/portal-form';
 import {
-  ALERT,
-  FORM_PANEL,
-  HELP,
-  ID_STYLES,
-  INPUT,
-  NESTED_SAVE_BAR,
-} from './integration-detail-styles';
+  PORTAL_FORM_GRID_CLASS,
+  PORTAL_NESTED_SAVE_BAR_CLASS,
+  PORTAL_SAVE_BUTTON_CLASS,
+} from '../shared/portal-form';
+import { ALERT, FORM_PANEL, HELP, ID_STYLES, INPUT } from './integration-detail-styles';
 import { isReplayedEvent } from '../../core/event-replay';
-import { KeepClearOfSaveBar } from './keep-clear-of-save-bar';
+import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
 
 /** The owner picker's value for "neither company". Never a UUID. `null` on the wire. */
 const NO_OWNER = 'none';
@@ -535,7 +532,7 @@ export class IntegrationRequestForm {
   protected readonly input = INPUT;
   protected readonly panel = FORM_PANEL;
   protected readonly grid = PORTAL_FORM_GRID_CLASS;
-  protected readonly saveBar = NESTED_SAVE_BAR;
+  protected readonly saveBar = PORTAL_NESTED_SAVE_BAR_CLASS;
   protected readonly saveButton = PORTAL_SAVE_BUTTON_CLASS;
 }
 
