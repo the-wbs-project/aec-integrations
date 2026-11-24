@@ -2399,9 +2399,14 @@ textarea:-webkit-autofill:focus {
     transform: none;
   }
 }
+/* `backwards`, not `both`: once it ends the animation leaves nothing applied, so the
+   wheel is painted exactly as with no animation at all. A forwards fill kept the art on
+   its own compositor layer, which rasterised the half-pixel Clay mark at 12 o'clock
+   differently from the first paint (the AECI-1854 first-paint guard, CI run
+   45353741581). */
 @media (prefers-reduced-motion: no-preference) {
   .aec-wheel:not([data-settled]) .aec-wheel-art {
-    animation: aec-wheel-in calc(var(--duration-slow) * 2) var(--ease-standard) both;
+    animation: aec-wheel-in calc(var(--duration-slow) * 2) var(--ease-standard) backwards;
   }
 }
 
