@@ -20,12 +20,12 @@
 6. **Admin moderation queue** (`/admin/reviews`, and `/admin/requests`)
 7. **Vendor portal** (`/vendor/:vendorSlug/products` and
    `/vendor/:vendorSlug/products/:productSlug/integrations`) — added
-   after Stage 2; the list above predates it. Two things here are only evaluable by
+   after Stage 2; the list above predates it. One thing here is only evaluable by
    a human: the portal's **one polite live region** in the shell (a background poll
    lands announcements into it from sections the reader is not looking at,
-   `STAGE_2_REALTIME_SPEC.md` §6.3), and the **Products nav dropdown**, a disclosure
-   whose panel contains a combobox (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.4) — a nested
-   pattern no automated tool fully evaluates. Needs a session; on a deployed
+   `STAGE_2_REALTIME_SPEC.md` §6.3). Products is a plain link in the portal nav
+   (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.11), so the old Products dropdown step is
+   removed (AECI-2062). Needs a session; on a deployed
    environment, check the WAF note in `docs/waf-rate-limits.md` first. The ungated
    `/preview/vendor-dashboard` renders the same shell if a session is not available.
 
