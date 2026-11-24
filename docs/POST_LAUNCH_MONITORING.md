@@ -370,6 +370,11 @@ baseline.
    starts erroring, is silent — nothing else in our stack notices.
 4. The **tripwire** below.
 
+**A screen and a weekly email are specified, not built.** `ADMIN_PANEL_SPEC.md` §5.24 specifies
+`/admin/seo` and a weekly SEO email (epic AECI-816). Until they ship, this read stays manual. When
+they ship, item 2 moves to the screen, and item 3 does if the ingest can read the Sitemaps
+report. Item 1's indexed count stays manual, because Google has no bulk index API.
+
 **The one-indexable-host tripwire.** Exactly **one** host may be indexable:
 `www.aecintegrations.com`. Canonicals are self-referential (ADR 0011 / `core/canonical.ts`) and
 both `robots.txt` and `sitemap.xml` build against the serving origin, so a second indexable host

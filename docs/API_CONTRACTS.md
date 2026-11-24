@@ -5525,6 +5525,208 @@ stale click cannot land on a different row.
 
 ---
 
+#### Search console: `GET /api/admin/seo/queue`, `GET /api/admin/seo/trend`, `GET /api/admin/seo/funnel` (specified by AECI-817, not built)
+
+The three reads behind `/admin/seo` (`ADMIN_PANEL_SPEC.md` §5.24). Nothing here is built.
+Contract file `packages/shared/src/api/admin-seo.ts`, handlers `apps/api/src/routes/admin-seo.ts`.
+All three register on `authAdmin` behind `requireAdmin()`.
+
+**Conventions for all three.** Read-only: no `audit_log` row (ADR 0022) and no `rateLimit()`
+(ADR 0026, reads are never limited). `private, no-store`, no `Cache-Tag`. Responses are
+validated with `validateResponseInDev`. Every URL is absolute, built with `publicSiteBase(env)`.
+Every response carries `generated_at` and `notes`, the console envelope, because a crawl count
+can be wrong in the ways §5.24.4 lists. That is the opposite of `/api/admin/reindex`, whose
+queue depth cannot be qualified. Engines are `google` and `bing` in every shape, from the start.
+
+**Note codes this surface adds to `AdminNoteCodeSchema`.** The change is additive.
+
+| Code | Severity | When |
+|---|---|---|
+| `crawl_coverage_is_gateway_arrivals` | `info` | Every response that reports crawl coverage. The count is the gateway's arrival rows (§5.24.4) |
+| `crawler_label_unverified` | `warn` | The window includes rows from before edge verification started. `params.since` names the date |
+| `crawl_window_clamped` | `info` | The window was clamped to `CONCRETE_PATH_SINCE`. `params.from` names the clamped start |
+| `crawler_label_includes_inspection_tool` | `info` | Every Google crawl figure, until the `Googlebot` label is split at ingest |
+| `indexed_is_impression_lower_bound` | `info` | Google stage 3 in the funnel |
+| `search_ingest_absent` | `info` | An engine has no ingest data for the window. `params.engine` names it |
+| `public_site_url_unset` | `warn` | `PUBLIC_SITE_URL` is unset or unparseable, so no URL can be built |
+
+##### `GET /api/admin/seo/queue` (AECI-818)
+
+Panel 1. The lane summary, plus one page of one lane's URLs.
+
+```
+GET /api/admin/seo/queue?lane=uncrawled&engine=google&page=1&perPage=25
+→ 200 {
+    generated_at: "2026-12-01T09:00:00.000Z",
+    window: { from: "2026-11-03T09:00:00.000Z", to: "2026-12-01T09:00:00.000Z", timezone: "UTC", days: 28 },
+    lanes: [
+      { lane: "reindex",               engine: "google", count: 37,  oldest_tier12_age_days: 3.2, href: "/admin/reindex" },
+      { lane: "uncrawled",             engine: "google", count: 412, oldest_tier12_age_days: null, href: null },
+      { lane: "uncrawled",             engine: "bing",   count: 96,  oldest_tier12_age_days: null, href: null },
+      { lane: "pairs_without_reviews", engine: null,     count: 880, oldest_tier12_age_days: null, href: null }
+    ],
+    items: {
+      lane: "uncrawled",
+      engine: "google",
+      data: [
+        {
+          url: "https://www.aecintegrations.com/products/procore",
+          page_type: "product",
+          published_at: "2026-09-14T09:12:03.101Z",
+          age_days: 78,
+          last_fetch_at: null
+        }
+      ],
+      page: 1, perPage: 25, total: 412
+    },
+    notes: [ { code: "crawl_coverage_is_gateway_arrivals", severity: "info", message: "…" } ]
+  }
+```
+
+**Query.** `PageQuerySchema` plus two optional parameters.
+
+| Param | Shape | Meaning |
+|---|---|---|
+| `lane` | `uncrawled` \| `pairs_without_reviews` | The lane whose URLs fill `items`. Default `uncrawled`. `reindex` is not accepted, because its rows live on `/api/admin/reindex` |
+| `engine` | `google` \| `bing` | For `uncrawled` only. Default `google`. Sent with `pairs_without_reviews` it is `VALIDATION_FAILED` (400) |
+
+**`window`** is the crawl lookback, `SEO_CRAWL_LOOKBACK_DAYS` ending at the request time, so a
+page crawled an hour ago leaves the list now. The daily snapshot uses the same length ending at
+the end of the day it files under. The window is clamped to `CONCRETE_PATH_SINCE` when it would
+start earlier.
+
+**`lanes`** always lists every lane in this order: re-index, Google uncrawled, Bing uncrawled,
+pairs. A lane with no rows has `count: 0`. `oldest_tier12_age_days` is set on the re-index lane
+only, and is null there when no tier-1 or tier-2 row exists. `href` is the relative admin route
+for a lane whose rows live elsewhere.
+
+**`items.data` fields.** `page_type` is `product`, `vendor`, `pair`, `category`, `audience`,
+`phase` or `trade`, an open `string` like `reindex.reason`. `published_at` is the publish anchor
+from §5.24.5, an ISO datetime or null. `age_days` is whole days since `published_at`, or null.
+`last_fetch_at` is the newest verified fetch by the lane's engine since `CONCRETE_PATH_SINCE`, or
+null. It is always null for `pairs_without_reviews`.
+
+**Ordering is `published_at ASC` with nulls last, then `url ASC`.** No `sort` parameter. Every
+term is a timestamp or a URL, so all stay BINARY (§3.2). The set is built in memory from the
+catalog URL list and sliced into the page.
+
+**Envelope.** Not the bare `paginatedResponseSchema`. `items` is that schema plus `lane` and
+`engine`, nested inside the console envelope.
+
+Errors: `VALIDATION_FAILED` (400) on an unknown `lane` or `engine`, or `engine` with the pairs
+lane. When `PUBLIC_SITE_URL` cannot be parsed the response is a 200 with `lanes: []`, an empty
+`items` and the `public_site_url_unset` note, because the tier has no public URLs to list.
+
+##### `GET /api/admin/seo/trend` (AECI-822)
+
+Panel 2. Week over week.
+
+```
+GET /api/admin/seo/trend?weeks=12
+→ 200 {
+    generated_at: "2026-12-01T09:00:00.000Z",
+    weeks: [
+      {
+        week_start: "2026-11-23",
+        lanes: {
+          reindex_pending: 37,
+          reindex_oldest_tier12_age_days: 3.2,
+          uncrawled_google: 412,
+          uncrawled_bing: 96,
+          pairs_without_reviews: 880
+        },
+        cohort: {
+          published: 14,
+          crawled_within_days: 7,
+          open: false,
+          google: { crawled: 6, rate: 0.4286 },
+          bing: { crawled: 12, rate: 0.8571 }
+        },
+        requests_self_reported: 9
+      }
+    ],
+    notes: []
+  }
+```
+
+**Query.** `weeks`, integer 1 to 26, default `SEO_TREND_WEEKS_DEFAULT` (12). Anything else is
+`VALIDATION_FAILED` (400).
+
+**`weeks`** lists complete ISO weeks, Monday to Sunday UTC, newest first. The current week is
+never included. `week_start` is the Monday as `YYYY-MM-DD`.
+
+**`lanes`** reads `metrics_daily` on the week's Sunday. If Sunday has no row, it reads the latest
+day in that week that has one. A key with no row in the whole week is **null**, never 0, so a
+week before the keys began reads as not recorded. Each lane is reported on its own, so one
+missing key does not null the others.
+
+**`cohort`** is product and vendor pages whose publish anchor falls in the week, and how many
+had a verified fetch within `SEO_CRAWL_COHORT_DAYS` of it. A fetch is matched on
+`page_views.product_id` or `vendor_id`, not on path. `rate` is `crawled ÷ published`, or null
+when `published` is 0. A cohort whose fetch window has not closed yet carries the rate it has so
+far and `cohort.open: true`.
+
+**`requests_self_reported`** counts `recrawl_submissions` rows with `channel = 'gsc_manual'` and
+`outcome = 'requested'` whose `submitted_at` falls in the week. It is the operator's own answer
+in the Done dialog, not a measurement. The UI labels it so.
+
+##### `GET /api/admin/seo/funnel` (AECI-823)
+
+Panel 3. The trailing 28 days ending on the last complete UTC day.
+
+```
+GET /api/admin/seo/funnel
+→ 200 {
+    generated_at: "2026-12-01T09:00:00.000Z",
+    day: "2026-11-30",
+    engines: [
+      {
+        engine: "google",
+        scope: "www_page",
+        stages: [
+          { stage: "catalog",   count: 1532, rate: null,   measure: "measured",    source: "d1" },
+          { stage: "crawled",   count: 410,  rate: 0.2676, measure: "measured",    source: "d1" },
+          { stage: "impressed", count: 380,  rate: 0.2480, measure: "lower_bound", source: "search_console" },
+          { stage: "clicked",   count: 52,   rate: 0.0031, measure: "measured",    source: "search_console",
+            impressions: 16800, position_avg: 33.4 }
+        ],
+        baseline: null
+      },
+      {
+        engine: "bing",
+        scope: "www",
+        stages: [
+          { stage: "catalog", count: 1532, rate: null,   measure: "measured", source: "d1" },
+          { stage: "crawled", count: 1010, rate: 0.6593, measure: "measured", source: "d1" }
+        ],
+        baseline: null
+      }
+    ],
+    notes: [ { code: "search_ingest_absent", severity: "info", message: "…", params: { engine: "bing" } } ]
+  }
+```
+
+**Query.** `scope`, `www_page` or `property`, default `www_page` (§5.24.8). `property` returns
+the unfiltered Domain property figures and fills `baseline` with the AECI-799 figures
+(`ANALYTICS_BASELINE.md`), which were taken with no host filter over three months. `baseline` is
+null under `www_page`. D1 stages do not depend on scope and are the same under both. Bing has one
+scope, `www`, because Bing registers sites per host, so its `scope` reads `www` under either value.
+
+**`stages`** are `catalog`, `crawled`, `indexed`, `impressed`, `clicked`, in that order. A stage
+with no data is **omitted**, never zero. Google never has `indexed` (§5.24.7). Bing has `indexed`
+only if its ingest stores Bing's own index figure. `measure` is `measured`, `lower_bound` or
+`engine_reported`, the last meaning a figure the engine reports without defining it.
+`source` is `d1`, `search_console` or `bing_webmaster`.
+
+**Rates.** `crawled` and `indexed` are divided by `catalog`. `impressed` is divided by `catalog`
+for Google and by `indexed` for Bing when `indexed` is present. `clicked.rate` is CTR, the sum of
+clicks over the sum of impressions in the window. Rates are rounded to four places. The two
+engines are never summed.
+
+Errors: `VALIDATION_FAILED` (400) on an unknown `scope`.
+
+---
+
 #### Admin panel reads (AECI-574 / Phase 8.3 P1.1, extended by AECI-577 / P1.3, AECI-579 / P1.5, AECI-580 / P1.6, and AECI-586 / P5.1)
 
 Eight `GET`s serving the operator console (`docs/ADMIN_PANEL_SPEC.md` §5–§6).

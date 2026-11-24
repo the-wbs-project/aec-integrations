@@ -4284,6 +4284,12 @@ flows are readable through the timeseries endpoint today (the stocks await
 | `queue.reviews_pending` | stock | `reviews` where `status='pending'` | not backfilled |
 | `queue.requests_open` | stock | `vendor_requests` where `status='open'` | not backfilled |
 
+**Specified, not written yet (AECI-817).** `ADMIN_PANEL_SPEC.md` §5.24.8 names eight more snapshot
+stocks (`seo.*`, `queue.reindex_pending`, `queue.reindex_oldest_tier12_age_days`) and a second
+writer's keys (`search.google.*`, `search.bing.*`). None needs a migration. They join this table
+when AECI-818, AECI-820 and AECI-821 write them. The second writer must first narrow the
+`findSnapshotGap` probe, which today reads any row for a day as "captured" (§5.24.8).
+
 **`catalog.integrations_total` spans both delivered-tier tables, and that is what makes the
 AECI-721 migration invisible to this series.** `STAGE_1_5_SPEC.md` §13.5 flagged this producer as
 the one lockstep site whose damage "cannot be repaired after the fact": it is written once a day
