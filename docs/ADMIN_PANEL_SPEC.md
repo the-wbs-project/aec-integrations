@@ -2682,10 +2682,10 @@ lists its URLs, 25 a page, each with a copy control, oldest first. URLs are buil
 `publicSiteBase(env)` and the `lib/public-urls.ts` builders, so they paste straight into URL
 Inspection.
 
-**Provisional, pending Chris's ruling.** Panel 1 does not duplicate the `/admin/reindex`
+**Ruled by Chris, 2026-11-24.** Panel 1 does not duplicate the `/admin/reindex`
 worklist. It shows the re-index queue as one lane with a count, the age of its oldest tier-1 or
 tier-2 row, and a link to `/admin/reindex`. Panel 1 adds only the lanes the re-index queue does
-not cover. *The alternative:* Panel 1 replaces `/admin/reindex`, and its rows, Done dialog and
+not cover. *The alternative, declined:* Panel 1 replaces `/admin/reindex`, and its rows, Done dialog and
 submission history move to `/admin/seo`. That would give the operator one SEO screen, at the
 cost of rebuilding a shipped Operations screen and its nav badge.
 
@@ -3014,16 +3014,17 @@ personal data from it. Each build issue re-checks the verdict for its own diff.
 
 In priority order. "Chris" marks a ruling only he can make.
 
-1. **Panel 1 beside or instead of `/admin/reindex` (Chris).** Provisional: beside (§5.24.5).
+1. **Panel 1 beside or instead of `/admin/reindex`.** Ruled by Chris, 2026-11-24: beside
+   (§5.24.5).
 2. **Split `Googlebot` at ingest.** Recommended before AECI-824's data window opens, so an
    operator's live test stops reading as a crawl. It changes the 05:00 digest's crawler table,
    so it is a classifier change under `POST_LAUNCH_MONITORING.md` §3c.
-3. **No "console read" stamp (Chris).** Recommended: keep it out, because the one self-attested
-   item is spent (§5.24.1).
+3. **No "console read" stamp.** Ruled by Chris, 2026-11-24: it stays out, because the one
+   self-attested item is spent (§5.24.1).
 4. **Edge verification start date.** AECI-818 reads it from production and records it.
 5. **The pair lane's size.** AECI-818 measures it. If it is most pairs, show the count and list
    on request. If no operator action follows from it, drop the lane.
-6. **Email send hour (Chris).** Specified as Monday 01:00 UTC.
+6. **Email send hour.** Ruled by Chris, 2026-11-24: Monday 01:00 UTC.
 7. **Bing stage 1 before AECI-821.** Recommended: show it (§5.24.7).
 8. **`page_views.product_id` scope.** AECI-818 confirms it is set only on the product detail page,
    or narrows the cohort match by `path`.
