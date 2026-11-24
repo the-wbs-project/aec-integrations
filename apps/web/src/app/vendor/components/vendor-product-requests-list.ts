@@ -13,6 +13,8 @@ import { RouterLink } from '@angular/router';
 
 import type { VendorProductRequest } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
+import { AecCard } from '../../shared/card/card';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 
@@ -42,7 +44,7 @@ type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
  */
 @Component({
   selector: 'aec-vendor-product-requests-list',
-  imports: [DatePipe, RouterLink],
+  imports: [AecButton, AecCard, DatePipe, RouterLink],
   host: { class: 'block' },
   template: `
     @if (state() === 'failed') {
@@ -51,8 +53,10 @@ type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
           Could not load the products you asked us to add.
         </p>
         <button
+          aecButton
+          variant="secondary"
+          compact
           type="button"
-          [class]="retryClass"
           (click)="reload()"
           i18n="@@vendor.productRequests.retry"
         >
@@ -74,16 +78,15 @@ type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
             >Products you asked us to add</span
           >
         </h2>
-        <ul
-          class="m-0 list-none divide-y divide-(--border-default) rounded-(--radius-md) border border-(--border-default) p-0"
-        >
+        <!-- AECI-1811: one card, the requests divided by hairlines. -->
+        <ul aecCard class="m-0 list-none divide-y divide-(--border-default) p-0">
           @for (request of requests(); track request.id) {
             <li
-              class="flex flex-wrap items-start justify-between gap-3 px-4 py-3"
+              class="flex flex-wrap items-start justify-between gap-3 px-6 py-4"
               [attr.data-request-id]="request.id"
             >
-              <div class="min-w-0 space-y-0.5">
-                <p class="text-sm font-medium text-(--text-primary)">{{ request.name }}</p>
+              <div class="min-w-0 space-y-1">
+                <p class="text-sm font-semibold text-(--text-primary)">{{ request.name }}</p>
                 <p class="text-xs text-(--text-secondary)">
                   <span>{{ request.maker }}</span>
                   <span aria-hidden="true"> · </span>
@@ -98,7 +101,7 @@ type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
                   [routerLink]="link.path"
                   [queryParams]="link.queryParams"
                   [attr.aria-label]="addLabel(request)"
-                  class="shrink-0 text-sm font-medium text-(--accent-primary) underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                  class="inline-flex min-h-6 shrink-0 items-center rounded-mark text-sm font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
                   data-testid="request-add-integration"
                   i18n="@@vendor.productRequests.add"
                   >Add the integration</a
@@ -128,9 +131,6 @@ export class VendorProductRequestsList {
   private readonly productSlugs = computed(
     () => new Map((this.store.me()?.products ?? []).map((p) => [p.id, p.slug])),
   );
-
-  protected readonly retryClass =
-    'rounded-(--radius-sm) border border-(--border-default) px-3 py-1.5 text-sm font-medium text-(--text-primary) transition-colors hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
   constructor() {
     afterNextRender(() => void this.reload());
