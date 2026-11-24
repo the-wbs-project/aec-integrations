@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router';
 
+import { provideAdminChipTones } from '../admin/console/chip-tones';
 import { VENDOR_SECTION_ROUTES } from '../vendor/vendor.routes';
 
 /**
@@ -71,6 +72,7 @@ export const previewRoutes: Routes = [
   // Protests view and its decision form render without an admin session.
   {
     path: 'admin-contests',
+    providers: [provideAdminChipTones()],
     loadComponent: () =>
       import('./admin-contests/admin-contests-preview').then((m) => m.AdminContestsPreview),
   },
@@ -79,6 +81,7 @@ export const previewRoutes: Routes = [
   // admin session.
   {
     path: 'admin-product-requests',
+    providers: [provideAdminChipTones()],
     loadComponent: () =>
       import('./admin-product-requests/admin-product-requests-preview').then(
         (m) => m.AdminProductRequestsPreview,
@@ -88,6 +91,7 @@ export const previewRoutes: Routes = [
   // so every card state and the reason form render without an admin session.
   {
     path: 'admin-review-responses',
+    providers: [provideAdminChipTones()],
     loadComponent: () =>
       import('./admin-review-responses/admin-review-responses-preview').then(
         (m) => m.AdminReviewResponsesPreview,
@@ -97,6 +101,7 @@ export const previewRoutes: Routes = [
   // status tabs, the remove form and its confirm render without an admin session.
   {
     path: 'admin-reviews',
+    providers: [provideAdminChipTones()],
     loadComponent: () =>
       import('./admin-reviews/admin-reviews-preview').then((m) => m.AdminReviewsPreview),
   },
@@ -104,6 +109,7 @@ export const previewRoutes: Routes = [
   // place and release forms render without an admin session.
   {
     path: 'admin-litigation-holds',
+    providers: [provideAdminChipTones()],
     loadComponent: () =>
       import('./admin-litigation-holds/admin-litigation-holds-preview').then(
         (m) => m.AdminLitigationHoldsPreview,
@@ -113,6 +119,7 @@ export const previewRoutes: Routes = [
   // so every card state and the reason form render without an admin session.
   {
     path: 'admin-review-updates',
+    providers: [provideAdminChipTones()],
     loadComponent: () =>
       import('./admin-review-updates/admin-review-updates-preview').then(
         (m) => m.AdminReviewUpdatesPreview,
@@ -127,10 +134,22 @@ export const previewRoutes: Routes = [
         (m) => m.AccountReviewUpdatesPreview,
       ),
   },
+  // AECI-1813 — the console legend in the real app: the seven chip tones, the
+  // status-to-tone map, the table recipe, the paginator, the inline control form
+  // and the danger pattern, over fixtures.
+  {
+    path: 'admin-console-legend',
+    providers: [provideAdminChipTones()],
+    loadComponent: () =>
+      import('./admin-console-legend/admin-console-legend-preview').then(
+        (m) => m.AdminConsoleLegendPreview,
+      ),
+  },
   // AECI-1461 — `/admin/activity` over a fake API, so the Class column, the class
   // filter and the all-classes figure render without an admin session.
   {
     path: 'admin-activity',
+    providers: [provideAdminChipTones()],
     loadComponent: () =>
       import('./admin-activity/admin-activity-preview').then((m) => m.AdminActivityPreview),
   },
@@ -138,6 +157,7 @@ export const previewRoutes: Routes = [
   // the sends list render without an admin session.
   {
     path: 'admin-email',
+    providers: [provideAdminChipTones()],
     loadComponent: () =>
       import('./admin-email/admin-email-preview').then((m) => m.AdminEmailPreview),
   },
@@ -146,6 +166,7 @@ export const previewRoutes: Routes = [
   // `?retire=<row id>` opens that row's form.
   {
     path: 'admin-vendor-integrations',
+    providers: [provideAdminChipTones()],
     loadComponent: () =>
       import('./admin-vendor-integrations/admin-vendor-integrations-preview').then(
         (m) => m.AdminVendorIntegrationsPreview,
@@ -155,6 +176,7 @@ export const previewRoutes: Routes = [
   // section, the Withdraw action and the signed-deal form render without a session.
   {
     path: 'admin-vendor-billing',
+    providers: [provideAdminChipTones()],
     loadComponent: () =>
       import('./admin-vendor-billing/admin-vendor-billing-preview').then(
         (m) => m.AdminVendorBillingPreview,
@@ -164,6 +186,7 @@ export const previewRoutes: Routes = [
   // API, so the lock list and the correct and lift forms render without a session.
   {
     path: 'admin-field-corrections',
+    providers: [provideAdminChipTones()],
     loadComponent: () =>
       import('./admin-field-corrections/admin-field-corrections-preview').then(
         (m) => m.AdminFieldCorrectionsPreview,
@@ -173,6 +196,7 @@ export const previewRoutes: Routes = [
   // API, so the list and the hold forms render without a session.
   {
     path: 'admin-brand-asset-removals',
+    providers: [provideAdminChipTones()],
     loadComponent: () =>
       import('./admin-brand-asset-removals/admin-brand-asset-removals-preview').then(
         (m) => m.AdminBrandAssetRemovalsPreview,

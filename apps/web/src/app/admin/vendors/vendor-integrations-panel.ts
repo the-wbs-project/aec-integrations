@@ -49,7 +49,7 @@ type Mode = 'retire' | 'restore';
  * sends the request. No browser dialog. Writes are pessimistic: the row changes when
  * the server answers, and the outcome goes to the page's one live region through
  * `announce`. The write's audit row files under the integration, not the vendor, so
- * this page's Audit Trail tab does not show it.
+ * this page's Audit trail tab does not show it.
  *
  * Restore is offered only on an AECi retire. An owner retire is the owner's to undo
  * (ruled 2026-09-22), so that row says so and offers nothing.

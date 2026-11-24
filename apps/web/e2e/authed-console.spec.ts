@@ -203,7 +203,7 @@ test.describe('authed console health — Phase 5 gated pages (AECI-235)', () => 
   // Both reads still fire on the BARE url even though the trail's section now
   // lives behind `?tab=audit`: the page holds the trail regardless of which tab
   // is open, because every write on this screen refetches it. So this asserts the
-  // landing tab's own heading and then opens the Audit Trail tab, which is what
+  // landing tab's own heading and then opens the Audit trail tab, which is what
   // keeps the audit read inside the console-clean window rather than assuming it.
   test('/admin/vendors/:id hydrates with no console errors', async ({ page }) => {
     test.skip(!vendorFixturePresent, 'Catalog fixtures absent — no seeded vendor to open.');
@@ -217,7 +217,7 @@ test.describe('authed console health — Phase 5 gated pages (AECI-235)', () => 
     await expect(page.getByRole('heading', { name: 'Basics' })).toBeVisible();
 
     // The tab row is real links, so this is a router navigation, not a toggle.
-    await page.getByRole('link', { name: 'Audit Trail', exact: true }).click();
+    await page.getByRole('link', { name: 'Audit trail', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Audit trail' })).toBeVisible();
     await waitForHydrationSettle(page);
     expectConsoleClean(capture, 'GET /admin/vendors/:id');

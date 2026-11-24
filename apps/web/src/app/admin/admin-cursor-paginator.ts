@@ -1,5 +1,7 @@
 import { Component, input, output } from '@angular/core';
 
+import { AecButton } from '../shared/button/button';
+
 /**
  * Previous / next paging over a keyset cursor (ADR 0046), first used by the
  * global audit log at `/admin/audit` (`ADMIN_PANEL_SPEC.md` §5.18).
@@ -22,17 +24,20 @@ import { Component, input, output } from '@angular/core';
  */
 @Component({
   selector: 'aec-admin-cursor-paginator',
+  imports: [AecButton],
   template: `
     <nav class="flex flex-wrap items-center justify-end gap-3" [attr.aria-label]="label()">
-      <div class="flex flex-wrap items-center gap-2">
+      <div class="flex flex-wrap items-center gap-3">
         @if (pageSizes().length > 1) {
-          <label class="inline-flex items-center gap-2 text-xs text-(--text-secondary)">
+          <label
+            class="inline-flex items-center gap-2 text-t-13 font-semibold tracking-[0.01em] text-(--text-secondary)"
+          >
             <span i18n="@@admin.cursorPaginator.perPage">Rows per page</span>
             <select
               [value]="perPage()"
               [disabled]="busy()"
               (change)="onPerPage($event)"
-              class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-2 py-1.5 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+              class="aec-field-control rounded-control border bg-(--surface-base) px-3 py-2 text-t-14 text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 disabled:cursor-not-allowed"
             >
               @for (size of pageSizes(); track size) {
                 <option [value]="size" [selected]="size === perPage()">{{ size }}</option>
@@ -42,41 +47,32 @@ import { Component, input, output } from '@angular/core';
         }
         @if (canFirst()) {
           <button
-            type="button"
+            aecButton
+            variant="secondary"
+            compact
             [disabled]="busy()"
             (click)="first.emit()"
-            class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong)
-              bg-(--surface-raised) px-4 py-2 text-sm font-bold text-(--text-primary)
-              transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2
-              focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)
-              disabled:cursor-not-allowed disabled:opacity-50"
             i18n="@@admin.cursorPaginator.first"
           >
             First page
           </button>
         }
         <button
-          type="button"
+          aecButton
+          variant="secondary"
+          compact
           [disabled]="busy() || !hasPrev()"
           (click)="prev.emit()"
-          class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong)
-            bg-(--surface-raised) px-4 py-2 text-sm font-bold text-(--text-primary)
-            transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2
-            focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)
-            disabled:cursor-not-allowed disabled:opacity-50"
           i18n="@@admin.paginator.previous"
         >
           Previous
         </button>
         <button
-          type="button"
+          aecButton
+          variant="secondary"
+          compact
           [disabled]="busy() || !hasNext()"
           (click)="next.emit()"
-          class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong)
-            bg-(--surface-raised) px-4 py-2 text-sm font-bold text-(--text-primary)
-            transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2
-            focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)
-            disabled:cursor-not-allowed disabled:opacity-50"
           i18n="@@admin.paginator.next"
         >
           Next

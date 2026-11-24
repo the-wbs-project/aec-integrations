@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 
+import { AecButton } from '../shared/button/button';
+
 /**
  * Prev/next pagination for the admin panel (AECI-577).
  *
@@ -25,39 +27,36 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
  */
 @Component({
   selector: 'aec-admin-paginator',
+  imports: [AecButton],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (pageCount() > 1) {
+      <!-- AECI-1813, mock-up 14: the position on the start edge, Previous and Next
+           as compact secondary buttons on the end, 16px under the table. -->
       <nav
-        class="flex flex-wrap items-center justify-between gap-3 border-t border-(--border-default) pt-4"
+        class="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 pt-4"
         i18n-aria-label="@@admin.paginator.aria"
         aria-label="Pagination"
       >
-        <p class="text-xs text-(--text-secondary)">{{ positionLabel() }}</p>
+        <p class="text-t-14 tabular-nums text-(--text-secondary)">{{ positionLabel() }}</p>
 
-        <div class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center gap-3">
           <button
-            type="button"
+            aecButton
+            variant="secondary"
+            compact
             [disabled]="busy() || page() <= 1"
             (click)="go(page() - 1)"
-            class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong)
-              bg-(--surface-raised) px-4 py-2 text-sm font-bold text-(--text-primary)
-              transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2
-              focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)
-              disabled:cursor-not-allowed disabled:opacity-50"
             i18n="@@admin.paginator.previous"
           >
             Previous
           </button>
           <button
-            type="button"
+            aecButton
+            variant="secondary"
+            compact
             [disabled]="busy() || page() >= pageCount()"
             (click)="go(page() + 1)"
-            class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong)
-              bg-(--surface-raised) px-4 py-2 text-sm font-bold text-(--text-primary)
-              transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2
-              focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)
-              disabled:cursor-not-allowed disabled:opacity-50"
             i18n="@@admin.paginator.next"
           >
             Next

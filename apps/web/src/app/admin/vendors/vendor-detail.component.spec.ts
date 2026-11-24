@@ -259,7 +259,7 @@ async function setup(
   return { fixture, api, provisionApi, el: fixture.nativeElement as HTMLElement };
 }
 
-/** The page on its Audit Trail tab. The trail is no longer on the landing tab,
+/** The page on its Audit trail tab. The trail is no longer on the landing tab,
  *  so every spec that asserts on it has to open the one it lives on. */
 function setupAudit(api: ApiMock) {
   return setup(api, { provisionSeat: vi.fn() }, 'audit');
@@ -437,7 +437,7 @@ describe('VendorDetail', () => {
         'Billing',
         'Products',
         'Integrations',
-        'Audit Trail',
+        'Audit trail',
       ]);
       const current = links.filter((a) => a.getAttribute('aria-current') === 'page');
       expect(current).toHaveLength(1);
@@ -750,7 +750,7 @@ describe('VendorDetail', () => {
       // it is an href rather than a `routerLink`: an in-app navigation cannot
       // meaningfully open a second tab.
       const { el } = await setup(makeApiMock(makeVendor()));
-      const link = [...el.querySelectorAll('a')].find((a) => a.textContent?.includes('View Page'));
+      const link = [...el.querySelectorAll('a')].find((a) => a.textContent?.includes('View page'));
       expect(link?.getAttribute('href')).toBe('/vendors/autodesk');
       expect(link?.getAttribute('target')).toBe('_blank');
       // Without `noopener` the new browsing context gets a handle on this one.
