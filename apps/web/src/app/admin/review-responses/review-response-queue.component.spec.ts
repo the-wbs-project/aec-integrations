@@ -140,9 +140,29 @@ describe('ReviewResponseQueue', () => {
     const { el, api } = await setup(makeApiMock([makeReply({ id: 'r1' })]));
     expect(api.listReplies).toHaveBeenCalledWith({ status: 'pending', page: 1, perPage: 100 });
 
-    const card = el.querySelector('article') as HTMLElement;
+    // AECI-2102: a summary row and its detail row, tied by the disclosure.
+    const row = el.querySelector('[data-testid="reply-row"]') as HTMLElement;
+    const card = el.querySelector('[data-testid="reply-detail"]') as HTMLElement;
+    const disclosure = row.querySelector('button[aria-controls]') as HTMLButtonElement;
+    expect(disclosure.getAttribute('aria-controls')).toBe(card.id);
+    expect(disclosure.getAttribute('aria-expanded')).toBe('false');
+    expect(disclosure.textContent?.trim()).toBe(
+      'Reply from Autodesk on Dynamo for Revit, to the review Powerful but the sync drops rows',
+    );
+    expect(card.hidden).toBe(true);
+    expect([...el.querySelectorAll('thead th')].map((th) => th.textContent?.trim())).toEqual([
+      'Details',
+      'Product',
+      'Vendor',
+      'Written by',
+      'Last changed',
+      'Status',
+    ]);
+    expect(card.querySelector('td')?.getAttribute('colspan')).toBe('6');
+    expect(row.textContent).toContain('seat@autodesk.example');
+    expect(row.querySelector('.aec-chip')?.getAttribute('data-tone')).toBe('waiting');
+
     const heading = card.querySelector('h3')!;
-    expect(card.getAttribute('aria-labelledby')).toBe(heading.id);
     const link = heading.querySelector('a');
     expect(link?.textContent?.trim()).toBe('Dynamo for Revit');
     expect(link?.getAttribute('href')).toBe('/products/dynamo-for-revit');
@@ -156,7 +176,6 @@ describe('ReviewResponseQueue', () => {
     expect(card.querySelector('[data-testid="reply-body"]')?.textContent).toContain(
       'The sync bug was fixed in 2026.3.',
     );
-    expect(card.textContent).toContain('seat@autodesk.example');
     expect(card.querySelector('[data-testid="reply-warning"]')).toBeNull();
   });
 
@@ -185,7 +204,7 @@ describe('ReviewResponseQueue', () => {
         makeReply({ id: 'rm', status: 'removed', rejection_reason: 'A sales pitch.' }),
       ]),
     );
-    const cards = [...el.querySelectorAll('article')] as HTMLElement[];
+    const cards = [...el.querySelectorAll('[data-testid="reply-detail"]')] as HTMLElement[];
     const buttons = (card: HTMLElement) =>
       [...card.querySelectorAll('button')].map((b) => b.textContent?.trim());
     expect(buttons(cards[0]!)).toEqual(['Approve', 'Reject']);
@@ -206,7 +225,7 @@ describe('ReviewResponseQueue', () => {
         makeReply({ id: 'b', vendor_owns_product: false }),
       ]),
     );
-    const [a, b] = [...el.querySelectorAll('article')] as HTMLElement[];
+    const [a, b] = [...el.querySelectorAll('[data-testid="reply-detail"]')] as HTMLElement[];
     const warnA = a!.querySelector('[data-testid="reply-warning"]')!;
     expect(warnA.textContent).toContain('The review is no longer approved');
     expect(b!.querySelector('[data-testid="reply-warning"]')?.textContent).toContain(
@@ -222,7 +241,7 @@ describe('ReviewResponseQueue', () => {
     const { el } = await setup(
       makeApiMock([makeReply({ id: 'a', review: { ...base.review, status: 'removed' } })]),
     );
-    const card = el.querySelector('article') as HTMLElement;
+    const card = el.querySelector('[data-testid="reply-detail"]') as HTMLElement;
     expect(card.querySelector('[data-testid="reply-warning"]')?.textContent).toContain(
       'The review is no longer approved',
     );
@@ -230,7 +249,7 @@ describe('ReviewResponseQueue', () => {
 
   it('says when the author email is unavailable', async () => {
     const { el } = await setup(makeApiMock([makeReply({ id: 'r1', author_email: null })]));
-    expect(el.querySelector('article')?.textContent).toContain('Not available');
+    expect(el.querySelector('[data-testid="reply-row"]')?.textContent).toContain('Not available');
   });
 
   it('approves in one click, drops the row, decrements the badge and announces it', async () => {
@@ -241,7 +260,7 @@ describe('ReviewResponseQueue', () => {
       decision: 'approve',
       expected_updated_at: '2026-09-01T00:00:00.000Z',
     });
-    expect(el.querySelector('article')).toBeNull();
+    expect(el.querySelector('[data-testid="reply-detail"]')).toBeNull();
     expect(store.pendingReviewResponses()).toBe(2);
     expect(el.querySelector('[role="status"]')?.textContent).toContain('Reply approved');
   });
@@ -273,7 +292,7 @@ describe('ReviewResponseQueue', () => {
       reason: 'It names the reviewer.',
       expected_updated_at: '2026-09-01T00:00:00.000Z',
     });
-    expect(el.querySelector('article')).toBeNull();
+    expect(el.querySelector('[data-testid="reply-detail"]')).toBeNull();
     expect(store.pendingReviewResponses()).toBe(2);
   });
 
@@ -309,7 +328,7 @@ describe('ReviewResponseQueue', () => {
       reason: 'A sales pitch.',
       expected_updated_at: '2026-09-01T00:00:00.000Z',
     });
-    expect(el.querySelector('article')).toBeNull();
+    expect(el.querySelector('[data-testid="reply-detail"]')).toBeNull();
     expect(store.pendingReviewResponses()).toBe(3);
     expect(el.querySelector('[role="status"]')?.textContent).toContain('Reply removed');
   });
@@ -436,7 +455,7 @@ describe('ReviewResponseQueue', () => {
     );
     expect(api.listReplies).toHaveBeenCalledTimes(2);
     expect(el.querySelector('form')).toBeNull();
-    const card = el.querySelector('article')!;
+    const card = el.querySelector('[data-testid="reply-detail"]')!;
     expect(card.textContent).toContain('The vendor rewrote this reply.');
     expect(card.querySelector('[role="alert"]')).toBeNull();
     expect(store.pendingReviewResponses()).toBe(3);
@@ -456,7 +475,7 @@ describe('ReviewResponseQueue', () => {
     const { fixture, el, store } = await setup(api);
     buttonByText(el, 'Approve').click();
     await flush(fixture);
-    const card = el.querySelector('article')!;
+    const card = el.querySelector('[data-testid="reply-detail"]')!;
     expect(card.querySelector('[role="alert"]')?.textContent).toContain('Nothing was changed');
     expect(store.pendingReviewResponses()).toBe(3);
   });

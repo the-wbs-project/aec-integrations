@@ -143,8 +143,9 @@ describe('ReviewUpdateQueue', () => {
     const card = el.querySelector('[data-testid="review-update-card"]') as HTMLElement;
     const original = card.querySelector('[data-testid="update-original"]') as HTMLElement;
     const update = card.querySelector('[data-testid="update-new"]') as HTMLElement;
-    expect(original.querySelector('h4')!.textContent?.trim()).toBe('The original review');
-    expect(update.querySelector('h4')!.textContent?.trim()).toBe('The update');
+    // AECI-2102: the section names are the Label role, not headings.
+    expect(original.firstElementChild!.textContent?.trim()).toBe('The original review');
+    expect(update.firstElementChild!.textContent?.trim()).toBe('The update');
     expect(
       original.compareDocumentPosition(update) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
@@ -153,7 +154,32 @@ describe('ReviewUpdateQueue', () => {
     expect(update.textContent).toContain('5 of 5');
     expect(update.textContent).toContain('The sync bug was fixed');
     expect(card.querySelector('a[href="/products/dynamo-for-revit"]')).not.toBeNull();
-    expect(card.textContent).toContain('reviewer@firm.example');
+    // Reviewer and submitted date are columns of the summary row.
+    const row = el.querySelector('[data-testid="review-update-row"]') as HTMLElement;
+    expect(row.textContent).toContain('reviewer@firm.example');
+    expect(row.querySelector('a[href="/products/dynamo-for-revit"]')).not.toBeNull();
+  });
+
+  it('is one table row per update, its detail opened by a named disclosure (AECI-2102)', async () => {
+    const { el, fixture } = await setup(makeApiMock([makeUpdate({ id: 'u1' })]));
+    const headers = [...el.querySelectorAll('thead th')].map((th) => th.textContent?.trim());
+    expect(headers).toEqual(['Details', 'Product', 'Reviewer', 'Toxicity', 'Submitted', 'Status']);
+    const detail = el.querySelector('[data-testid="review-update-card"]') as HTMLElement;
+    expect(detail.querySelector('td')?.getAttribute('colspan')).toBe(String(headers.length));
+    const button = el.querySelector('button[aria-controls="update-u1-detail"]') as HTMLElement;
+    expect(detail.id).toBe('update-u1-detail');
+    expect(detail.hidden).toBe(true);
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    expect(button.textContent?.trim()).toMatch(
+      /^Update to a review of .+ by reviewer@firm\.example$/,
+    );
+    button.click();
+    fixture.detectChanges();
+    expect(detail.hidden).toBe(false);
+    expect(button.getAttribute('aria-expanded')).toBe('true');
+    // The status chip carries the console tone for Pending.
+    const chip = el.querySelector('[data-testid="review-update-row"] .aec-chip[data-tone]');
+    expect(chip?.getAttribute('data-tone')).toBe('waiting');
   });
 
   it('says the ratings are unchanged on a body-only update', async () => {

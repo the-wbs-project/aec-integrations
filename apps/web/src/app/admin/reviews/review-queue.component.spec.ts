@@ -141,17 +141,35 @@ async function setup(api: ApiMock = makeApiMock(), bansApi: BansApiMock = makeBa
   return { fixture, api, bansApi, store, el: fixture.nativeElement as HTMLElement };
 }
 
-/** Product names of the rendered cards, in DOM order (the sort outcome). */
+/** Product names of the rendered rows, in DOM order (the sort outcome). */
 function productOrder(el: HTMLElement): string[] {
-  return [...el.querySelectorAll('article h3 a')].map((a) => a.textContent?.trim() ?? '');
+  return [...el.querySelectorAll('tr[data-testid="review-row"] th a')].map(
+    (a) => a.textContent?.trim() ?? '',
+  );
 }
 
-function cardFor(el: HTMLElement, productName: string): HTMLElement {
-  const article = [...el.querySelectorAll('article')].find((a) =>
-    a.querySelector('h3')?.textContent?.includes(productName),
+/** A review's summary row (AECI-2102): product, reviewer, scores, dates, status. */
+function rowFor(el: HTMLElement, productName: string): HTMLElement {
+  const row = [...el.querySelectorAll('tr[data-testid="review-row"]')].find((r) =>
+    r.querySelector('th')?.textContent?.includes(productName),
   );
-  if (!article) throw new Error(`No card for "${productName}"`);
-  return article as HTMLElement;
+  if (!row) throw new Error(`No row for "${productName}"`);
+  return row as HTMLElement;
+}
+
+/** A review's detail row: its words, its facts and the decision. The disclosure's
+ *  `aria-controls` names it, so this also proves the wiring. */
+function cardFor(el: HTMLElement, productName: string): HTMLElement {
+  const controls = rowFor(el, productName)
+    .querySelector('[aria-controls]')
+    ?.getAttribute('aria-controls');
+  const detail = controls ? el.querySelector<HTMLElement>(`[id="${controls}"]`) : null;
+  if (!detail) throw new Error(`No detail row for "${productName}"`);
+  return detail;
+}
+
+function disclosureFor(el: HTMLElement, productName: string): HTMLButtonElement {
+  return rowFor(el, productName).querySelector('button[aria-controls]') as HTMLButtonElement;
 }
 
 function buttonByText(root: HTMLElement, text: string): HTMLButtonElement {
@@ -193,7 +211,91 @@ describe('ReviewQueue', () => {
     expect(el.textContent).toContain('stable since');
     expect(el.textContent).toContain('Overall 4/5');
     // The product links to its detail page.
-    expect(el.querySelector('article h3 a')?.getAttribute('href')).toContain('/products/');
+    expect(el.querySelector('tr[data-testid="review-row"] th a')?.getAttribute('href')).toContain(
+      '/products/',
+    );
+  });
+
+  it('is one table row per review, its detail opened by a named disclosure (AECI-2102)', async () => {
+    const { el, fixture } = await setup();
+    const table = el.querySelector('table') as HTMLTableElement;
+    const headers = [...table.querySelectorAll('thead th')].map((th) => th.textContent?.trim());
+    expect(headers).toEqual([
+      'Details',
+      'Product',
+      'Reviewer',
+      'Overall',
+      'Onboarding',
+      'Toxicity',
+      'Submitted',
+      'In queue',
+      'Status',
+    ]);
+    // The region is labelled by the caption, and the detail cell spans every column.
+    const region = el.querySelector('[role="region"]') as HTMLElement;
+    expect(region.getAttribute('tabindex')).toBe('0');
+    expect(el.querySelector(`#${region.getAttribute('aria-labelledby')}`)?.tagName).toBe('CAPTION');
+    const detail = cardFor(el, 'Alpha');
+    expect(detail.querySelector('td')?.getAttribute('colspan')).toBe(String(headers.length));
+
+    // Closed: hidden but present, so aria-controls always resolves.
+    const button = disclosureFor(el, 'Alpha');
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    expect(detail.hidden).toBe(true);
+    // The name is the same open or closed: aria-expanded carries the state.
+    expect(button.textContent?.trim()).toBe('Review of Alpha by amy@example.test');
+
+    button.click();
+    fixture.detectChanges();
+    expect(button.getAttribute('aria-expanded')).toBe('true');
+    expect(detail.hidden).toBe(false);
+    expect(button.textContent?.trim()).toBe('Review of Alpha by amy@example.test');
+    expect(detail.textContent).toContain('stable since');
+    expect(detail.textContent).toContain('Overall 4/5');
+
+    button.click();
+    fixture.detectChanges();
+    expect(detail.hidden).toBe(true);
+  });
+
+  it('pages the loaded set with Previous and Next, keeping the cap note (§5.7)', async () => {
+    const many = Array.from({ length: 30 }, (_, i) =>
+      makeReview({
+        id: `r${String(i).padStart(2, '0')}`,
+        product: { id: `p${i}`, name: `Product ${String(i).padStart(2, '0')}`, slug: `p${i}` },
+        created_at: `2026-06-01T00:${String(i).padStart(2, '0')}:00.000Z`,
+      }),
+    );
+    const { el, fixture } = await setup(makeApiMock(many, 140));
+    expect(productOrder(el)).toHaveLength(25);
+    // The capped-set note is unchanged: it counts the loaded set against the server total.
+    expect(el.textContent).toContain('Showing the first 30 of 140 pending reviews');
+    expect(el.querySelector('nav[aria-label="Pagination"]')?.textContent).toContain(
+      'Page 1 of 2 · 30 rows',
+    );
+    buttonByText(el, 'Next').click();
+    fixture.detectChanges();
+    expect(productOrder(el)).toHaveLength(5);
+    expect(el.querySelector('nav[aria-label="Pagination"]')?.textContent).toContain('Page 2 of 2');
+    buttonByText(el, 'Previous').click();
+    fixture.detectChanges();
+    expect(productOrder(el)).toHaveLength(25);
+  });
+
+  it('moves focus to the next row after a decision, and to the heading when none is left', async () => {
+    const { el, fixture } = await setup(makeApiMock([ALPHA, BRAVO]));
+    // Toxicity order: Bravo then Alpha. Approving Bravo hands focus to Alpha's disclosure.
+    buttonByText(cardFor(el, 'Bravo'), 'Approve').click();
+    await settle();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(document.activeElement).toBe(disclosureFor(el, 'Alpha'));
+
+    buttonByText(cardFor(el, 'Alpha'), 'Approve').click();
+    await settle();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(document.activeElement?.id).toBe('admin-reviews-heading');
   });
 
   it('defaults to toxicity high→low with null scores last', async () => {
@@ -204,27 +306,29 @@ describe('ReviewQueue', () => {
 
   it('flags a high-toxicity review and labels an unscored one', async () => {
     const { el } = await setup();
-    const bravo = cardFor(el, 'Bravo'); // toxicity 80 → High
+    const bravo = rowFor(el, 'Bravo'); // toxicity 80 → High
     expect(bravo.textContent).toContain('High');
     expect(bravo.textContent).toContain('80');
-    const charlie = cardFor(el, 'Charlie'); // toxicity null
+    // The high score is the console's attention chip, never colour alone ("High").
+    expect(bravo.querySelector('.aec-chip[data-tone="attention"]')?.textContent).toContain('High');
+    const charlie = rowFor(el, 'Charlie'); // toxicity null
     expect(charlie.textContent).toContain('Not scored');
   });
 
   it('exposes each toxicity badge as a button whose label gives the number meaning', async () => {
     const { el } = await setup();
-    const bravo = toxicityBadge(cardFor(el, 'Bravo')); // 80
+    const bravo = toxicityBadge(rowFor(el, 'Bravo')); // 80
     expect(bravo.tagName).toBe('BUTTON');
     expect(bravo.getAttribute('aria-label')).toContain('80');
     expect(bravo.getAttribute('aria-label')).toContain('of 100');
 
-    const charlie = toxicityBadge(cardFor(el, 'Charlie')); // null
+    const charlie = toxicityBadge(rowFor(el, 'Charlie')); // null
     expect(charlie.getAttribute('aria-label')?.toLowerCase()).toContain('not scored');
   });
 
   it('reveals the toxicity scale legend when a badge is opened', async () => {
     const { el, fixture } = await setup();
-    toxicityBadge(cardFor(el, 'Bravo')).click();
+    toxicityBadge(rowFor(el, 'Bravo')).click();
     await settle();
     fixture.detectChanges();
     // The popover content mounts in the CDK overlay container on document.body
@@ -406,7 +510,11 @@ describe('ReviewQueue', () => {
 
     expect(productOrder(el)).toContain('Bravo'); // still present
     const card = cardFor(el, 'Bravo');
-    expect(card.querySelector('[role="alert"]')?.textContent).toContain('Something went wrong');
+    const alert = card.querySelector('[role="alert"]') as HTMLElement;
+    expect(alert.textContent).toContain('Something went wrong');
+    // The disabled Approve dropped focus, so it moves to the alert.
+    await fixture.whenStable();
+    expect(document.activeElement).toBe(alert);
   });
 
   it('shows a retryable state when the initial load fails, then recovers', async () => {
@@ -424,7 +532,8 @@ describe('ReviewQueue', () => {
   it('renders the empty state when nothing is pending', async () => {
     const { el } = await setup(makeApiMock([], 0));
     expect(el.textContent).toContain('No reviews are waiting');
-    expect(el.querySelector('article')).toBeNull();
+    // One line, no table (the console recipe's empty state).
+    expect(el.querySelector('table')).toBeNull();
   });
 
   describe('AECI-218 repeat-offender prompt + ban', () => {
@@ -664,9 +773,10 @@ describe('ReviewQueue', () => {
       expect(buttonByText(card, 'Remove from the page')).toBeTruthy();
       expect(() => buttonByText(card, 'Approve')).toThrow();
       expect(() => buttonByText(card, 'Reject')).toThrow();
-      expect(card.querySelector('[data-testid="review-status"]')?.textContent?.trim()).toBe(
-        'Approved',
-      );
+      const status = rowFor(ctx.el, 'Published').querySelector('[data-testid="review-status"]');
+      expect(status?.textContent?.trim()).toBe('Approved');
+      // The console tone for Approved, with the word carrying the state.
+      expect(status?.querySelector('.aec-chip')?.getAttribute('data-tone')).toBe('positive');
     });
 
     it('remove needs a reason, then a deliberate confirm, before the PATCH', async () => {
@@ -744,18 +854,22 @@ describe('ReviewQueue', () => {
       );
       expect(card.textContent).toContain('Removed');
       expect(card.textContent).toContain('2026');
-      expect(card.querySelectorAll('button').length).toBe(1); // the toxicity badge only
+      expect(card.querySelectorAll('button').length).toBe(0); // no decision on a removed review
+      // On a decided tab the date column reads "Decided".
+      expect(
+        [...ctx.el.querySelectorAll('thead th')].map((th) => th.textContent?.trim()),
+      ).toContain('Decided');
     });
   });
 
   describe('accessibility (structural)', () => {
-    it('uses a single h2 then h3 cards (no skipped levels, shell owns the h1)', async () => {
+    it('uses a single h2 (the shell owns the h1); rows are table rows, not headings', async () => {
       const { el } = await setup();
       expect(el.querySelectorAll('h1')).toHaveLength(0);
       expect(el.querySelectorAll('h2')).toHaveLength(1);
-      expect(el.querySelectorAll('h3').length).toBe(ROWS.length);
-      // Card titles sit at h4 (under each h3) — no jump past h3.
-      expect(el.querySelector('h5, h6')).toBeNull();
+      expect(el.querySelector('h3, h4, h5, h6')).toBeNull();
+      // Each row's identity cell is a row header.
+      expect(el.querySelectorAll('tbody th[scope="row"]')).toHaveLength(ROWS.length);
     });
 
     it('gives the status tabs and the sort control accessible group names', async () => {
