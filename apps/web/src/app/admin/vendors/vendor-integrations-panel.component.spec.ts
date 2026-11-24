@@ -354,10 +354,10 @@ describe('focus and button severity (AECI-2112)', () => {
     expect(document.activeElement?.id).toBe(`admin-integration-${row.id}-error`);
   });
 
-  it('confirms a retire with a primary button: Restore undoes it (DESIGN.md §5)', async () => {
+  it('confirms a retire with a danger button: Restore reopens none of what it closes (DESIGN.md §5)', async () => {
     const { fixture, el } = await create([makeRow()]);
     button(el, 'Retire')!.click();
     await settle(fixture);
-    expect(button(el, 'Retire integration')!.getAttribute('data-variant')).toBe('primary');
+    expect(button(el, 'Retire integration')!.getAttribute('data-variant')).toBe('danger');
   });
 });

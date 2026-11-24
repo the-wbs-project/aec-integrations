@@ -36,6 +36,12 @@ import { claimsOnRecord, waitingByProduct } from '../overview/vendor-overview-mo
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { integrationCanAuthor } from '../vendor-capabilities';
 import { VendorPortalStore } from '../vendor-portal-store';
+import {
+  SEGMENTED_CLASS,
+  STATUS_CHIP_ICON,
+  STATUS_CHIP_TONE,
+  segmentClass,
+} from '../integration-detail/integration-detail-styles';
 import { PORTAL_NOTICE_BODY_CLASS, PORTAL_NOTICE_CLASS } from '../shared/portal-notice';
 
 import { VendorIntegrationCreate, type VendorIntegrationLink } from './vendor-integration-create';
@@ -53,42 +59,6 @@ import {
   statusOf,
   statusTallies,
 } from './vendor-integration-list-model';
-
-type StatusTone = ReturnType<typeof statusTone>;
-
-/**
- * The row status on `aec-chip` (AECI-1811). The tones are the ones the portal's
- * status pill already drew: Forest wash for up to date, the one red for a
- * disagreement, a strong edge for everything else. Attention keeps its own mark
- * (it was a Clay dot), so the two strong-edged states still differ by more than words.
- */
-const STATUS_CHIP_TONE: Record<StatusTone, ChipTone> = {
-  ok: 'wash',
-  conflict: 'error',
-  attention: 'strong',
-  neutral: 'strong',
-};
-
-const STATUS_CHIP_ICON: Record<StatusTone, AecIconName | null> = {
-  ok: 'check',
-  conflict: 'x',
-  attention: 'exclamation',
-  neutral: null,
-};
-
-/**
- * The status toggles on the site's segmented control (DESIGN.md §5 "Segmented
- * control"; the Cards/Table toggle's recipe): a 44px framed track with the field
- * edge, 36px segments, the pressed one solid Forest with white text and a tick.
- * The track wraps, because this set grows with the statuses on record.
- * `aec-view-toggle-btn` maps the pressed segment to `Highlight` in forced colours.
- */
-const SEGMENTED_CLASS =
-  'aec-field-control inline-flex max-w-full flex-wrap gap-1 border bg-(--surface-base) p-[3px]';
-const SEGMENT_BASE =
-  'aec-view-toggle-btn inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-mark px-4 text-t-14 font-semibold transition-colors duration-fast ease-standard focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
-const SEGMENT_PRESSED = 'bg-(--accent-primary) text-(--surface-base)';
-const SEGMENT_RESTING = 'text-(--text-primary) hover:bg-(--surface-sunken)';
 
 /**
  * The product's Integrations list (AECI-606, reshaped by AECI-1149 /
@@ -515,7 +485,7 @@ export class VendorIntegrationsSection implements OnInit {
 
   /** One status toggle: Forest when pressed, with a tick so the state is not colour alone. */
   protected segmentClass(pressed: boolean): string {
-    return pressed ? `${SEGMENT_BASE} ${SEGMENT_PRESSED}` : `${SEGMENT_BASE} ${SEGMENT_RESTING}`;
+    return segmentClass(pressed);
   }
 
   /** The row's status on the shared chip, in the portal's existing tones (no new ones). */
