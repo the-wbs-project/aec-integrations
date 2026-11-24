@@ -1077,9 +1077,9 @@ ticket again on its own, and the row drops out of the next run.
 2. If the claim needs evidence rather than a decision, open the **Administer** link
    (`/admin/claims/:id`) — that is where the claimant's LinkedIn profile, the `domain_match` signal
    and the operator note live.
-3. To park a claim deliberately (the §5.2 pure-connector case in
-   `STAGE_2_VENDOR_PORTAL_SPEC.md`), write the operator note AND move the Linear ticket out of
-   Backlog. Leaving it in Backlog is what keeps the warning firing.
+3. To park a claim deliberately, write the operator note AND move the Linear ticket out of
+   Backlog. Leaving it in Backlog is what keeps the warning firing. A connector-vendor claim is
+   not a reason to park: it is approved like any other (`STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2).
 
 ### If the numbers look wrong
 

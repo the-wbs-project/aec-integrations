@@ -70,6 +70,7 @@ function edge(
       [reachableCount]="reachableCount()"
       productName="Enscape"
       [hosts]="hosts()"
+      [poweredPairCount]="poweredPairCount()"
     ></section>
   `,
 })
@@ -78,6 +79,7 @@ class Host {
   asTarget = signal<readonly ProductIntegrationItem[]>([]);
   reachableCount = signal(0);
   hosts = signal<readonly ProductListItem[]>([]);
+  poweredPairCount = signal(0);
 }
 
 function setup(
@@ -1340,5 +1342,74 @@ describe('ProductIntegrationsSection empty state on an extension (§13.3b / AECI
     const { el } = setup([edge(link('navisworks', 'Navisworks'))], 0, [host('revit', 'Revit')]);
 
     expect(el.textContent).not.toContain('runs inside');
+  });
+});
+
+describe('ProductIntegrationsSection empty branch on a page that powers pairs (AECI-2050)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const host = (slug: string, name: string): ProductListItem => ({
+    ...link(slug, name),
+    product_role: 'application',
+    vendor: null,
+    integration_count: 0,
+    review_count: 0,
+    rating_overall_avg: null,
+    rating_onboarding_avg: null,
+    created_at: '2026-01-01T00:00:00.000Z',
+    updated_at: '2026-01-01T00:00:00.000Z',
+  });
+
+  const box = (el: HTMLElement) => el.querySelector('[data-testid=integrations-empty]');
+
+  function powering(
+    pairs: number,
+    opts: { reachable?: number; hosts?: readonly ProductListItem[] } = {},
+  ) {
+    const { fixture, el } = setup([], opts.reachable ?? 0, opts.hosts ?? []);
+    fixture.componentInstance.poweredPairCount.set(pairs);
+    fixture.detectChanges();
+    return el;
+  }
+
+  it('keeps the empty sentence and its correction link when the page powers nothing', () => {
+    const el = powering(0);
+
+    expect(box(el)!.textContent).toContain('No integrations recorded yet');
+    expect(box(el)!.querySelector('a[href="/products/procore/correction"]')).toBeTruthy();
+  });
+
+  it('drops the empty sentence, its link and the box when the page powers a pair', () => {
+    const el = powering(1);
+
+    expect(el.textContent).not.toContain('No integrations recorded yet');
+    expect(el.querySelector('a[href="/products/procore/correction"]')).toBeNull();
+    expect(box(el)).toBeNull();
+    // The section heading stays, so the section nav link still lands on it.
+    expect(el.querySelector('#integrations-title')!.textContent).toContain('Integrations');
+  });
+
+  it('keeps the Built within sentence alone in the box on an extension that powers pairs', () => {
+    const el = powering(2, { hosts: [host('revit', 'Revit')] });
+
+    expect(box(el)!.textContent).toContain('Enscape runs inside Revit; see Built within.');
+    expect(box(el)!.textContent).not.toContain('No integrations recorded yet');
+    expect(box(el)!.querySelectorAll('p').length).toBe(1);
+  });
+
+  it('keeps the reach line on a page that powers pairs', () => {
+    const el = powering(3, { reachable: 2 });
+
+    expect(el.textContent).not.toContain('No integrations recorded yet');
+    expect(el.textContent!.replace(/\s+/g, ' ')).toContain('2 pairs reachable via connectors');
+  });
+
+  it('ignores the powered pair count when the section has rows of its own', () => {
+    const { fixture, el } = setup([edge(link('navisworks', 'Navisworks'))]);
+    fixture.componentInstance.poweredPairCount.set(4);
+    fixture.detectChanges();
+
+    expect(rowCount(el)).toBe(1);
+    expect(box(el)).toBeNull();
   });
 });

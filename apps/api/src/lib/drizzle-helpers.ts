@@ -3493,20 +3493,21 @@ export function toProductDetail(
     // connector lane's delivered tier. The union is what makes the migration
     // invisible here — the rendered set is the same before and after.
     //
-    // SELF-EXCLUSION (§13.4(2)): `poweredIntegrations` is a bare `many(...)` with
-    // no `where`, so it selects on `powered_by_product_id` alone. Review-side
-    // Convention A stores "product X ships a connector on platform C" as ONE edge
-    // whose `powered_by` IS one of its own endpoints — 60 production rows
-    // (Aquifer 31, Kroo 29). On C's own page such an edge lands in
-    // `sourceIntegrations`/`targetIntegrations` AND here, rendering twice.
-    // AECI-706's backfill switched that on; the filter below is what turns it off.
-    // The evidenced-pair arm needs no equivalent — its
-    // `connector_evidenced_pairs_distinct_connector` CHECK makes the case
-    // unrepresentable.
+    // NO SELF-EXCLUSION HERE (§13.4(2), AECI-2051): the list is every powered
+    // edge. `poweredIntegrations` selects on `powered_by_product_id` alone, and
+    // review-side Convention A stores "product X ships a connector on platform C"
+    // as ONE edge whose `powered_by` IS one of its own endpoints (Aquifer, Kroo).
+    // On C's own page such an edge is therefore in `integrations_as_target` or
+    // `integrations_as_source` AND in this list, by design. The web layer keeps
+    // it from rendering twice: `groupPoweredIntegrations(edges, selfSlug)` drops
+    // it from the powered section. The hero line, the connector meta description
+    // and the powered section's hide rule (§12.3 branch 2) all read the raw
+    // list, so filtering here blanks all three on a Convention-A connector. A
+    // new reader that renders or counts PAIRS must drop these rows itself.
+    // The evidenced-pair arm cannot hold one: its
+    // `connector_evidenced_pairs_distinct_connector` CHECK forbids it.
     integrations_as_connector: [
-      ...raw.poweredIntegrations
-        .filter((r) => r.sourceProduct.id !== raw.id && r.targetProduct.id !== raw.id)
-        .map(toPoweredIntegrationItem),
+      ...raw.poweredIntegrations.map(toPoweredIntegrationItem),
       ...raw.evidencedPairsAsConnector.map(toPoweredIntegrationItemFromEvidencedPair),
     ],
     related_products: relatedProducts.map(toProductListItem),
