@@ -275,6 +275,9 @@ tbody tr:hover, tbody tr:focus-within { background: var(--surface-muted); }
      data-fstate error | saved       the Profile form's state
    ====================================================================== */
 
+/* Body copy pulls a lone last word down beside its neighbour (impeccable detect, straggler). */
+p, li, .row-d { text-wrap: pretty; }
+
 /* ---------- The signed-in header: the account menu trigger (layout/user-menu.ts) ---------- */
 .acct { display: inline-grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: none; cursor: pointer; }
 .acct span { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: var(--accent-warm); color: var(--accent-primary); font: 600 var(--t-14)/1 var(--font-body); }
@@ -384,6 +387,9 @@ tbody tr:hover, tbody tr:focus-within { background: var(--surface-muted); }
 .notice .foot-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; margin-top: 24px; font-size: var(--t-14); color: var(--text-secondary); }
 .notice p { font-size: var(--t-14); line-height: 1.6; }
 .notice .reason { margin-top: 4px; }
+/* 14px copy in a notice holds about 80 characters a line. */
+.notice p, .notice .lead, .notice ul.dots, .notice .lede-s, .notice .body-s, .pf-hint p, .consent label, .acc ul.dots { max-width: 32rem; }
+.notice .foot-row { max-width: none; }
 .notice .body-s { margin-top: 8px; max-width: 42rem; }
 .inlink.ink { color: var(--text-primary); text-decoration-color: var(--border-strong); text-underline-offset: 4px; overflow-wrap: anywhere; }
 .inlink.ink:hover { text-decoration-color: var(--text-primary); }
@@ -415,14 +421,14 @@ tbody tr:hover, tbody tr:focus-within { background: var(--surface-muted); }
 /* The glance pair: two figures side by side, one card each. */
 .glance2 { display: grid; gap: 16px; grid-template-columns: 1fr 1fr; }
 @media (max-width: 359px) { .glance2 { grid-template-columns: 1fr; } }
-.gl { display: flex; flex-direction: column; gap: 8px; padding: 20px 24px 24px; text-decoration: none; color: inherit; }
+.gl { display: flex; flex-direction: column; gap: 8px; padding: 24px; text-decoration: none; color: inherit; }
 a.gl:hover .gl-l { color: var(--accent-primary); text-decoration: underline; text-underline-offset: 3px; }
 [data-cards="flat"] a.gl:hover { background: var(--surface-sunken); }
 .gl-l { min-height: 40px; font-size: var(--t-14); font-weight: 600; line-height: 1.4; }
 .gl-fig { display: flex; align-items: center; gap: 12px; }
 .gl-fig b { font: 600 var(--t-fig)/1 var(--font-display); letter-spacing: -0.01em; color: var(--accent-primary); }
 .gl-fig b.bad { color: var(--status-error); }
-.badge { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; color: var(--surface-base); flex: none; }
+.badge { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; color: var(--surface-base); flex: none; }
 .badge.bad { background: var(--status-error); }
 .badge.attn { background: var(--accent-primary); font: 600 var(--t-14)/1 var(--font-body); }
 .gl-s { font-size: var(--t-13); line-height: 1.4; color: var(--text-secondary); }
@@ -446,7 +452,7 @@ a.gl:hover .gl-l { color: var(--accent-primary); text-decoration: underline; tex
 .st-t { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: var(--t-14); font-weight: 600; line-height: 28px; }
 .st-d { grid-column: 2; font-size: var(--t-14); line-height: 1.5; color: var(--text-secondary); }
 .st-a { grid-column: 2; margin-top: 8px; }
-.chip.tag { padding: 2px 10px; font-size: var(--t-12); font-weight: 600; line-height: 1.4; background: var(--surface-sunken); border-color: transparent; color: var(--text-secondary); }
+.chip.tag { padding: 2px 12px; font-size: var(--t-13); font-weight: 600; line-height: 1.4; background: var(--surface-sunken); border-color: transparent; color: var(--text-secondary); }
 
 /* What needs you: one card of whole-row links, grouped. */
 .nd-h { font: 600 var(--t-24)/1.25 var(--font-display); }
@@ -466,7 +472,7 @@ a.gl:hover .gl-l { color: var(--accent-primary); text-decoration: underline; tex
 .row-d { display: block; margin-top: 2px; font-size: var(--t-13); line-height: 1.5; color: var(--text-secondary); }
 .row .ico.chev { align-self: center; margin-top: 0; color: var(--text-tertiary); }
 textarea { font: inherit; color: inherit; }
-.chip.st { padding: 2px 10px; font-size: var(--t-12); font-weight: 600; line-height: 1.4; color: var(--text-secondary); }
+.chip.st { padding: 2px 12px; font-size: var(--t-13); font-weight: 600; line-height: 1.4; color: var(--text-secondary); }
 .chip.st.conflict { background: var(--surface-base); border-color: var(--status-error); color: var(--status-error); }
 @media (max-width: 639px) {
   .row { grid-template-columns: 20px minmax(0, 1fr) 20px; padding: 12px 16px; }
@@ -477,7 +483,7 @@ textarea { font: inherit; color: inherit; }
 
 /* ---------- The company Profile form ---------- */
 .pf-hint { margin-top: 16px; padding: 16px; border-radius: var(--radius-panel); background: var(--surface-sunken); }
-.pf-hint p { max-width: 42rem; font-size: var(--t-14); line-height: 1.6; color: var(--text-secondary); }
+.pf-hint p { max-width: 32rem; font-size: var(--t-14); line-height: 1.6; color: var(--text-secondary); }
 .pf-form { margin-top: 24px; }
 .fs + .fs { margin-top: 32px; padding-top: 32px; border-top: 1px solid var(--border-default); }
 .fs legend { float: left; width: 100%; margin-bottom: 16px; }
@@ -499,7 +505,7 @@ textarea { font: inherit; color: inherit; }
 .logo-box { display: grid; place-items: center; width: 64px; height: 64px; border: 1px dashed var(--border-strong); border-radius: var(--radius-mark); background: var(--surface-base); font-size: var(--t-12); color: var(--text-secondary); text-align: center; }
 /* The facts: single-select option chips (Angular Aria listbox), the one pill chip at 44px. */
 .opts { display: flex; flex-wrap: wrap; gap: 8px; }
-.opt { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 16px; border: 1px solid var(--border-field); border-radius: var(--radius-pill); background: var(--surface-base); font-size: var(--t-14); font-weight: 400; color: var(--text-primary); cursor: pointer; white-space: nowrap; }
+.opt { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 16px; border: 1px solid var(--border-field); border-radius: var(--radius-pill); background: var(--surface-base); font-size: var(--t-14); font-weight: 400; color: var(--text-primary); cursor: pointer; white-space: nowrap; }
 .opt:hover { background: var(--surface-sunken); }
 .opt[aria-selected="true"] { border-color: var(--accent-primary); background: var(--accent-primary); color: var(--surface-base); font-weight: 600; }
 .opt .tick { display: none; }
