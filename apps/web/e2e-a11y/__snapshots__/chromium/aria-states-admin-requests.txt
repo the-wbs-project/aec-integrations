@@ -3,17 +3,89 @@
 ## before
 - button "Insights"
 ## after
-# no state changed
+- button "Insights" [expanded]
+# controls #admin-nav-insights-panel
+- list "Insights":
+  - listitem:
+    - link "Overview":
+      - /url: /admin/overview
+  - listitem:
+    - link "Activity":
+      - /url: /admin/activity
+  - listitem:
+    - link "Traffic":
+      - /url: /admin/traffic
+  - listitem:
+    - link "Audience":
+      - /url: /admin/audience
+  - listitem:
+    - link "Subscribers":
+      - /url: /admin/subscribers
 # 2. disclosure: button "Catalog"
 ## before
 - button "Catalog"
 ## after
-# no state changed
+- button "Catalog" [expanded]
+# controls #admin-nav-catalog-panel
+- list "Catalog":
+  - listitem:
+    - link "Coverage":
+      - /url: /admin/catalog
+  - listitem:
+    - link "Connectors":
+      - /url: /admin/connectors
 # 3. disclosure: button "Operations <n> items awaiting action"
 ## before
 - button "Operations <n> items awaiting action"
 ## after
-# no state changed
+- button "Operations <n> items awaiting action" [expanded]
+# controls #admin-nav-operations-panel
+- list "Operations":
+  - listitem:
+    - link "Review queue <n> awaiting action":
+      - /url: /admin/reviews
+  - listitem:
+    - link "Review updates <n> awaiting action":
+      - /url: /admin/review-updates
+  - listitem:
+    - link "Review replies <n> awaiting action":
+      - /url: /admin/review-responses
+  - listitem:
+    - link "Requests":
+      - /url: /admin/requests
+  - listitem:
+    - link "Vendor claims":
+      - /url: /admin/claims
+  - listitem:
+    - link "Change requests":
+      - /url: /admin/contests
+  - listitem:
+    - link "Row threads":
+      - /url: /admin/threads
+  - listitem:
+    - link "Re-index queue":
+      - /url: /admin/reindex
+  - listitem:
+    - link "Vendors":
+      - /url: /admin/vendors
+  - listitem:
+    - link "Users":
+      - /url: /admin/users
+  - listitem:
+    - link "Email":
+      - /url: /admin/email
+  - listitem:
+    - link "Legal versions":
+      - /url: /admin/legal
+  - listitem:
+    - link "Copyright notices":
+      - /url: /admin/dmca
+  - listitem:
+    - link "System status":
+      - /url: /admin/system
+  - listitem:
+    - link "Audit log":
+      - /url: /admin/audit
 # 4. toggle: button "Resolved"
 ## before
 - group "Status":

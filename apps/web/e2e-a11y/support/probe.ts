@@ -369,6 +369,15 @@ export async function locatorForKey(page: Page, key: number): Promise<Locator | 
   return found ? page.locator(`[${MARK_ATTRIBUTE}]`) : null;
 }
 
+/**
+ * The probe key of the element a locator finds, so `tabTo` can reach it by real
+ * Tab presses (AECI-1879). Reads the page and moves no focus.
+ */
+export async function keyForLocator(page: Page, locator: Locator): Promise<number> {
+  await ensureProbe(page);
+  return locator.evaluate((el) => window.__aeciKeyboardProbe!.keyOf(el));
+}
+
 /** Facts about the focused element. Reinstalls the probe after a full load. */
 export async function focusFacts(page: Page): Promise<FocusFacts> {
   await ensureProbe(page);

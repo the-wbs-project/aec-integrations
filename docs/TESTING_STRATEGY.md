@@ -1055,7 +1055,7 @@ Each surface gets these tests:
 | `snapshot: main` | The ARIA snapshot of `main` matches `aria-<surface id>.yml`. |
 | `structure` | Exactly one `h1`. No heading skips a level, counting from `h1`. The `banner`, `navigation`, `main` and `contentinfo` landmarks are present, with one `main`. Every `navigation` and `search` landmark has a name, and no two of a kind share one. |
 | `link names` | No two links on the page share a name while pointing to different targets. Names are compared without case or extra spacing, and a trailing slash on a target is not a difference. AECI-830 is the precedent. |
-| `states: main` | Every disclosure, tab, combobox and toggle in `main`, snapshotted before and after it is flipped, in `aria-states-<surface id>.txt`. |
+| `states: main` | Each disclosure button, tab, combobox, toggle button and `<summary>` in `main`, snapshotted before and after it is flipped by keyboard, in `aria-states-<surface id>.txt`. A control Tab cannot reach, or whose state does not change, fails the test. |
 | `states: the site header` | The same for the header, on the first surface of each persona only, in `aria-states-header-<persona>.txt`. |
 
 **How the snapshot is taken.** The text comes from Playwright's `locator.ariaSnapshot()`, the serialiser
@@ -1081,12 +1081,23 @@ else. So a heading-level change or a moved link still shows. A seed change that 
 changes the snapshots, as it does the tab orders.
 
 **How a state is flipped.** `support/state-snapshots.ts` finds the controls on the page, so a new one is
-snapshotted the day it ships. A button with `aria-expanded` is clicked. A `role="combobox"` button is
-clicked. A combobox text box gets ArrowDown, then the query `fixture` if ArrowDown opens nothing. In a group
-of `aria-pressed` buttons, each one not pressed is clicked. An unselected `role="tab"` is clicked, and so
-is a `<summary>`. Each
-snapshot holds the control (or its group or tab list) and the element its `aria-controls` names. After
-each flip the control is put back, with Escape for a combobox, and the page is reloaded when it is not back.
+snapshotted the day it ships. Every flip is by keyboard, never by pointer. Real Tab presses bring focus to
+the control (`tabTo`, with the probe key from `keyForLocator` in `support/probe.ts`), then a key acts on it.
+A pointer would not do. The admin nav dropdowns and the review queue's toxicity legend open on
+`mouseenter`, so a Playwright click opens them and then toggles them shut (AECI-2099). A button with
+`aria-expanded` gets Enter. A `role="combobox"` button gets Enter. A combobox text box gets ArrowDown,
+then the query `fixture` if ArrowDown opens nothing. In a group of `aria-pressed` buttons, each one not
+pressed gets Enter. An unselected `role="tab"` and a `<summary>` get Enter. Each snapshot holds the control
+(or its group or tab list) and the element its `aria-controls` names. After each flip the control is put
+back by keyboard, with Escape for a combobox. When it is not back, the page is reloaded, and the test waits
+until the same controls show as on the first load. That wait fails with its own message. A control Tab
+cannot reach, or whose state does not change, is a problem, so the test cannot pass on a flip that never
+happened.
+
+The "after" snapshot is read until two reads 500 ms apart agree. There is no DOM signal to wait on
+instead: the search suggestions come from a debounced query and set no `aria-busy`, and app stability is
+only observable at hydration. A snapshot still changing after 10 seconds fails the test.
+
 Two kinds are left out: a link with `aria-expanded` navigates, and an `aria-haspopup="dialog"` trigger hides
 the page behind a modal. The keyboard suite's overlay check covers both (§8.4.1). Charts render
 `role="img"`, so their subtree is absent, and `chart-a11y.component.spec.ts` keeps covering them.
@@ -1099,7 +1110,7 @@ The hook signs in with `signInAs(context, persona)` from `support/surface-page.t
 |---|---|
 | `titles` | Every page has a non-empty title no other page has. Surfaces that redirect to the same page count once (`/vendors` and `/integrations` both answer 301 to `/products`). |
 | `header and footer` | The header and footer snapshots are the same on every page, and match `aria-header-<persona>.yml` and `aria-footer-<persona>.yml`. |
-| `link names` | A link target carries a consistent name on every page. Names are compared within one landmark, `main` with `main`, because a header link and a footer link to the same page are two components. Two names agree when, with counts masked and case folded, they share a word that names the page. Words like "view", "all" and "products" do not count. So "Fixture Procore" and "View Fixture Procore" agree, and "Subcontractors" and "Specialty Contracting" do not. |
+| `link names` | A link target carries a consistent name on every page. Names are compared within one landmark, `main` with `main`, because a header link and a footer link to the same page are two components. Two names agree when, with numbers masked and case folded, every word of one is a word of the other. That covers a name followed by a count ("Project Management 2 products") or a description. Three leading words are accepted, each listed in `ACCEPTED_LEADS` in `support/aria-tree.ts`: "View all", "View" and "Back to". So "View Fixture Procore" agrees with "Fixture Procore". "Vendor portal" and "Vendor Overview" do not agree, and neither do "General contractors" and "General Contracting". |
 | `on every page` | A `search` landmark, a `navigation` landmark with links, and a footer with links. |
 
 **Updating a snapshot.** A changed snapshot is a behaviour change, the same as a changed tab order. Update
@@ -1119,14 +1130,25 @@ every nightly spec does, and skip when a session cannot be minted. Their snapsho
 public ones. They hold the shared test accounts' display names, which are already public in the seed.
 The portal and admin redesign (AECI-1729) will change them, so review that diff when it lands.
 
-**Known barriers.** `KNOWN_BARRIERS` in `aria-suite.ts` works as the keyboard suite's does, through
-`support/known-barriers.ts`. The cross-page marks are in `aria-cross-page.spec.ts`. Today:
+**Known barriers.** A mark covers only the problems it names, not the whole rule. Each entry in
+`KNOWN_PROBLEMS` (`aria-suite.ts`, and the cross-page one in `aria-cross-page.spec.ts`) has an issue, a
+`matches` test for its problem strings, and the `knownFailure` call. `expectOnlyKnownProblems` in
+`support/known-barriers.ts` judges a check:
+
+1. A problem no entry matches fails the test unmarked. A new defect on a page with a known barrier is
+   still red.
+2. An entry that matches nothing fails the test unmarked. When an issue is fixed, the test turns red until
+   its entry is removed.
+3. Otherwise the test is marked with each entry's `knownFailure` and fails on the known problems alone,
+   which reads as an expected failure.
+
+The pure half, `classifyProblems`, is pinned by `support/known-barriers.unit.spec.ts`. Today:
 
 | Issue | Test | Barrier |
 |---|---|---|
 | AECI-2077 | `link names`, product page | Two links named "About": the section nav's to `#about`, the footer's to `/about` |
 | AECI-2086 | `link names`, both vendor portal surfaces | The portal nav and the footer both have "Products", and four taxonomy names, for different pages |
-| AECI-2078 | cross-page `link names`, anonymous | Home names three audience links by role ("Subcontractors"), `/audiences` by discipline ("Specialty Contracting") |
+| AECI-2078 | cross-page `link names`, anonymous | Home names the audience links by role ("Subcontractors"), `/audiences` by discipline ("Specialty Contracting") |
 | AECI-2087 | cross-page `link names`, vendor | The portal overview is linked as "Vendor portal", "Vendor Overview" and the vendor's name |
 | AECI-2084 | cross-page `titles`, admin | Both admin queues are titled "Admin · AEC Integrations" |
 | AECI-2085 | cross-page `titles`, vendor | Both portal screens are titled "Vendor portal · AEC Integrations" |
