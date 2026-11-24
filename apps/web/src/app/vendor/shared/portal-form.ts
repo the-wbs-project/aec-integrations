@@ -57,9 +57,17 @@ export const PORTAL_FORM_CLASS =
   '[&_:is(input,select,textarea,button,a,[tabindex]):not(.aec-portal-save-bar_*)]:scroll-mb-24 ' +
   'max-sm:[&_:is(input,select,textarea,button,a,[tabindex]):not(.aec-portal-save-bar_*)]:scroll-mb-48';
 
-/** A fieldset in a portal form. The next fieldset stands 32px clear, over a hairline. */
+/**
+ * A fieldset in a portal form. The next fieldset stands 32px clear, over a hairline.
+ *
+ * The legend floats (mock-up 13's `.fs legend`). A browser draws a fieldset's
+ * rendered legend INTO the fieldset's top border, so with the hairline on the
+ * fieldset a plain legend sat on the line, cutting it. A floated legend is not the
+ * rendered legend: it flows inside the padding, under the hairline, and the first
+ * thing after it clears the float.
+ */
 export const PORTAL_FIELDSET_CLASS =
-  'm-0 min-w-0 border-0 p-0 [&+&]:mt-8 [&+&]:border-t [&+&]:pt-8';
+  'm-0 min-w-0 border-0 p-0 [&+&]:mt-8 [&+&]:border-t [&+&]:pt-8 [&>legend]:float-start [&>legend]:w-full [&>legend+*]:clear-both';
 
 /** A fieldset's legend: the overline role, 16px above its fields. */
 export const PORTAL_LEGEND_CLASS = 'aec-overline mb-4 p-0 text-(--text-secondary)';

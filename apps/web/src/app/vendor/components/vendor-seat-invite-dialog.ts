@@ -7,6 +7,8 @@ import {
   BrnDialogTitle,
 } from '@spartan-ng/brain/dialog';
 
+import { AecButton } from '../../shared/button/button';
+import { AecIcon } from '../../shared/icon/icon';
 import { VendorPortalStore } from '../vendor-portal-store';
 import { VendorSeatInviteForm } from './vendor-seat-invite-form';
 
@@ -55,47 +57,39 @@ import { VendorSeatInviteForm } from './vendor-seat-invite-form';
     BrnDialogClose,
     BrnDialogTitle,
     BrnDialogDescription,
+    AecButton,
+    AecIcon,
     VendorSeatInviteForm,
   ],
   template: `
     @if (canManage()) {
-      <button type="button" (click)="open()" [class]="triggerClass">
+      <button aecButton type="button" (click)="open()">
         <span i18n="@@vendor.seats.invite.open">Invite</span>
       </button>
 
       <brn-dialog [role]="'alertdialog'" [autoFocus]="'first-heading'">
         <ng-template brnDialogContent>
-          <div
-            class="max-h-[85vh] w-[min(92vw,32rem)] overflow-y-auto rounded-(--radius-lg) border border-(--border-default) bg-(--surface-base) p-6 text-(--text-primary) md:p-8"
-          >
+          <div class="aec-dialog max-h-[85vh] w-[min(92vw,32rem)] overflow-y-auto p-6 md:p-8">
             <div class="flex items-start justify-between gap-4">
               <h2
                 brnDialogTitle
                 tabindex="-1"
-                class="font-display text-xl font-semibold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                class="rounded-mark focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
                 i18n="@@vendor.seats.invite.heading"
               >
                 Invite a colleague
               </h2>
               <button
+                aecButton
+                variant="ghost"
+                iconOnly
                 brnDialogClose
                 type="button"
-                class="-me-1 -mt-1 shrink-0 rounded-(--radius-sm) p-1 text-(--text-secondary) transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                [class]="'-me-1 -mt-1 shrink-0'"
                 i18n-aria-label="@@vendor.seats.invite.close"
                 aria-label="Close"
               >
-                <svg
-                  class="size-5"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M18 6 6 18M6 6l12 12" />
-                </svg>
+                <aec-icon name="x" decorative />
               </button>
             </div>
 
@@ -123,9 +117,6 @@ export class VendorSeatInviteDialog {
   private readonly dialog = viewChild(BrnDialog);
 
   protected readonly canManage = inject(VendorPortalStore).canManageSeats;
-
-  protected readonly triggerClass =
-    'rounded-(--radius-sm) border border-(--accent-primary) bg-(--accent-primary) px-3 py-1.5 text-sm font-label font-semibold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
   /** Open the modal. Called from the trigger's click handler only — see the
    *  NG0602 note in the class docblock. */

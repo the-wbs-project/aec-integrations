@@ -152,7 +152,8 @@ describe('AdminTraffic', () => {
     const el = fixture.nativeElement as HTMLElement;
     expect(el.textContent).toContain('Loading traffic data');
     expect(el.textContent).not.toContain('3,419');
-    expect(el.querySelector('svg')).toBeNull();
+    // The filters' tick icon is an svg too; a chart is a figure or a sparkline.
+    expect(el.querySelector('figure svg, aec-series-sparkline svg')).toBeNull();
   });
 
   it('fetches three metrics and six breakdowns for the default 30-day window', async () => {
@@ -389,7 +390,11 @@ describe('AdminTraffic', () => {
 
   it('gives every filter group an accessible name and every toggle a pressed state', async () => {
     const { el } = await setup();
-    const legends = [...el.querySelectorAll('fieldset legend')].map((l) => l.textContent?.trim());
+    // AECI-2125: each filter is the console's segmented group, named by its
+    // visible label through aria-labelledby.
+    const legends = [...el.querySelectorAll('[role="group"][aria-labelledby]')].map((g) =>
+      el.querySelector(`#${g.getAttribute('aria-labelledby')}`)?.textContent?.trim(),
+    );
     expect(legends).toContain('Date range');
     expect(legends).toContain('Traffic type');
     expect(legends).toContain('Timestamp display timezone');

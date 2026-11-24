@@ -368,6 +368,24 @@ describe('VendorReviewsList — writing', () => {
     expect(TestBed.inject(VendorPortalAnnouncer).message()).toContain('withdrawn');
   });
 
+  // AECI-1812 ruling: withdrawing a published reply takes it off the public page and a
+  // resubmit only returns it to pending (§11c), so that confirm is danger. A pending
+  // reply was never public, so its confirm is primary.
+  it.each([
+    ['published', 'bg-(--status-error)'],
+    ['pending', 'bg-(--accent-primary)'],
+  ])('a %s reply gets the right Withdraw confirm look', async (state, fill) => {
+    const item = byState(state);
+    const fixture = await create();
+    button(row(fixture, item), 'Withdraw')!.click();
+    await settle(fixture);
+    const confirm = row(fixture, item).querySelector<HTMLElement>('[data-withdraw-confirm]')!;
+    const yes = button(confirm, 'Withdraw')!;
+    expect(yes.className.split(/\s+/)).toContain(fill);
+    const other = state === 'published' ? 'bg-(--accent-primary)' : 'bg-(--status-error)';
+    expect(yes.className.split(/\s+/)).not.toContain(other);
+  });
+
   it('re-reads on a 409 and says why', async () => {
     const item = byState('none');
     api.submitReviewResponse.mockRejectedValue(httpError(409, 'REVIEW_RESPONSE_EXISTS'));
