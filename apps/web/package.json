@@ -90,6 +90,7 @@
     "@tailwindcss/postcss": "^4.3.0",
     "@types/node": "^24.0.0",
     "@vitest/coverage-v8": "^4.1.8",
+    "accessibility-checker-engine": "4.0.35",
     "jsdom": "^28.1.0",
     "miniflare": "^4.20260710.0",
     "postcss": "^8.5.14",

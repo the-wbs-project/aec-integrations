@@ -12,6 +12,7 @@ import { after, test } from 'node:test';
 import {
   main,
   mergeAxe,
+  mergeIbm,
   mergeRules,
   mergeSummaries,
   mergeVoice,
@@ -272,6 +273,119 @@ test('voice blocks merge across shards: rows concatenate by surface, and none is
   assert.match(md, /\| `login` \| 1 \| 1 \| `a\.x`, `b\.y` \|/);
   // A run with no voice-control test writes no voice section.
   assert.doesNotMatch(summaryMarkdown(mergeSummaries([part(summary())])), /Voice control/);
+});
+
+const ibmRow = (ruleId, nodes, alsoAxe, surfaces, over = {}) => ({
+  ruleId,
+  message: `${ruleId} message`,
+  wcag: ['1.3.1'],
+  nodes,
+  alsoAxe,
+  axeRules: alsoAxe > 0 ? ['region'] : [],
+  surfaces,
+  examples: surfaces.map((surfaceId) => ({ surfaceId, xpath: '/html[1]/body[1]' })),
+  ...over,
+});
+
+const ibmBlock = (bySurface, lists) => {
+  const total = (k) => bySurface.reduce((n, s) => n + s[k], 0);
+  return {
+    engine: { version: '4.0.35', ruleset: 'IBM_Accessibility' },
+    surfaces: bySurface.length,
+    counts: {
+      violation: total('violation'),
+      needsReview: total('needsReview'),
+      recommendation: total('recommendation'),
+    },
+    alsoAxe: {
+      violation: total('violation') - total('uniqueViolations'),
+      needsReview: 0,
+      recommendation: 0,
+    },
+    violations: lists.violations ?? [],
+    needsReview: lists.needsReview ?? [],
+    recommendations: lists.recommendations ?? [],
+    bySurface,
+  };
+};
+
+const ibmSurface = (surfaceId, violation, uniqueViolations, needsReview = 0) => ({
+  surfaceId,
+  route: `/${surfaceId}`,
+  violation,
+  needsReview,
+  recommendation: 0,
+  uniqueViolations,
+  scanMs: 100,
+  axeMs: 200,
+});
+
+test('ibm blocks merge across shards: rules merge by id, surfaces concatenate, none is an empty block (AECI-1884)', () => {
+  assert.deepEqual(mergeIbm([null, undefined]), {
+    engine: null,
+    surfaces: 0,
+    counts: { violation: 0, needsReview: 0, recommendation: 0 },
+    alsoAxe: { violation: 0, needsReview: 0, recommendation: 0 },
+    violations: [],
+    needsReview: [],
+    recommendations: [],
+    bySurface: [],
+  });
+  const m = mergeSummaries([
+    part(
+      summary({
+        ibm: ibmBlock([ibmSurface('login', 2, 1, 4)], {
+          violations: [ibmRow('aria_content_in_landmark', 2, 1, ['login'])],
+          needsReview: [ibmRow('text_contrast_sufficient', 4, 0, ['login'])],
+        }),
+      }),
+    ),
+    part(summary()),
+    part(
+      summary({
+        ibm: ibmBlock([ibmSurface('home', 3, 3), ibmSurface('account', 1, 1)], {
+          violations: [
+            ibmRow('aria_content_in_landmark', 1, 0, ['account'], { wcag: ['1.3.1', '2.4.1'] }),
+            ibmRow('input_label_visible', 3, 0, ['home']),
+          ],
+        }),
+      }),
+    ),
+  ]);
+  assert.equal(m.schemaVersion, 1);
+  assert.deepEqual(
+    m.ibm.bySurface.map((s) => s.surfaceId),
+    ['account', 'home', 'login'],
+  );
+  assert.equal(m.ibm.surfaces, 3);
+  assert.deepEqual(m.ibm.counts, { violation: 6, needsReview: 4, recommendation: 0 });
+  assert.deepEqual(m.ibm.alsoAxe, { violation: 1, needsReview: 0, recommendation: 0 });
+  // Most nodes first: 3 + 0 for input_label_visible, 2 + 1 for the landmark rule, then by id.
+  assert.deepEqual(
+    m.ibm.violations.map((r) => [r.ruleId, r.nodes, r.alsoAxe, r.surfaces, r.wcag]),
+    [
+      ['aria_content_in_landmark', 3, 1, ['account', 'login'], ['1.3.1', '2.4.1']],
+      ['input_label_visible', 3, 0, ['home'], ['1.3.1']],
+    ],
+  );
+  assert.equal(m.ibm.engine.version, '4.0.35');
+
+  const md = summaryMarkdown(m);
+  assert.match(md, /### IBM Equal Access, report only \(AECI-1884\)/);
+  assert.match(md, /Violations: 6 nodes, 5 not reported by axe on the same element\./);
+  assert.match(
+    md,
+    /\| `aria_content_in_landmark` \| 1\.3\.1, 2\.4\.1 \| 3 \| 1 \| `region` \| `account`, `login` \|/,
+  );
+  // The other two lists are collapsed, after the violations table.
+  assert.match(
+    md,
+    /<details>\n<summary>Needs review: 4 nodes \(0 also in axe\)\. Recommendations: 0 nodes \(0 also in axe\)\.<\/summary>/,
+  );
+  assert.ok(md.indexOf('`input_label_visible`') < md.indexOf('<details>'));
+  assert.ok(md.indexOf('`text_contrast_sufficient`') > md.indexOf('<details>'));
+  // A run with no IBM test writes no IBM section.
+  assert.doesNotMatch(summaryMarkdown(mergeSummaries([part(summary())])), /IBM Equal Access/);
 });
 
 test('the CLI writes a summary the alert can read', () => {
