@@ -13,7 +13,7 @@ import { By } from '@angular/platform-browser';
 import { provideRouter, RouterLink } from '@angular/router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { PoweredIntegrationItem, ProductLink } from '@aeci/shared';
+import type { ConnectorKind, PoweredIntegrationItem, ProductLink } from '@aeci/shared';
 
 import { groupPoweredIntegrations, type PoweredHubView } from './powered-hub-grouping';
 import {
@@ -55,17 +55,24 @@ function poweredEdge(source: ProductLink, target: ProductLink): PoweredIntegrati
   imports: [ProductPoweredHub],
   // Attribute selector on a real <section>, exactly as product-detail.ts
   // places it.
-  template: `<section aec-product-powered-hub [view]="view()" slug="agave-erp-sync"></section>`,
+  template: `<section
+    aec-product-powered-hub
+    [view]="view()"
+    slug="agave-erp-sync"
+    [kind]="kind()"
+  ></section>`,
 })
 class Host {
   view = signal<PoweredHubView>(groupPoweredIntegrations([], 'agave-erp-sync'));
+  kind = signal<ConnectorKind | null>(null);
 }
 
-function setup(partners: readonly string[]) {
+function setup(partners: readonly string[], kind: ConnectorKind | null = null) {
   TestBed.configureTestingModule({
     providers: [provideZonelessChangeDetection(), provideRouter([])],
   });
   const fixture = TestBed.createComponent(Host);
+  fixture.componentInstance.kind.set(kind);
   fixture.componentInstance.view.set(
     groupPoweredIntegrations(
       partners.map((name) =>
@@ -157,6 +164,32 @@ describe('ProductPoweredHub', () => {
     // <h2> count does not move under one.
     type(fixture, filterInput(el)!, 'sage');
     expect(el.querySelector('h2')!.textContent).toContain('Integrations it powers (10)');
+  });
+
+  // AECI-2037: the heading and the empty state name the kind.
+  it.each([
+    ['integration_platform', 'Integrations it powers (2)'],
+    ['sync_service', 'Integrations it delivers (2)'],
+    [null, 'Integrations it powers (2)'],
+  ] as const)('heads a %s section "%s"', (kind, heading) => {
+    const { el } = setup(['Acumatica', 'Bluebeam'], kind);
+    expect(el.querySelector('h2')!.textContent!.replace(/\s+/g, ' ').trim()).toBe(heading);
+  });
+
+  it.each([
+    [
+      'integration_platform',
+      'No integrations are recorded as running on this integration platform yet.',
+    ],
+    ['sync_service', 'No integrations are recorded for this Sync Service yet.'],
+    [null, 'No integrations are recorded as running on this connector yet.'],
+  ] as const)('the %s empty state reads "%s", then offers the correction', (kind, lead) => {
+    const { el } = setup([], kind);
+    const text = el.textContent!.replace(/\s+/g, ' ');
+    expect(text).toContain(
+      `${lead} Vendor data is curated; if you know of one, suggest a correction.`,
+    );
+    expect(el.querySelector('a[href="/products/agave-erp-sync/correction"]')).not.toBeNull();
   });
 
   it('narrows the card to matches and reports the count it kept', () => {

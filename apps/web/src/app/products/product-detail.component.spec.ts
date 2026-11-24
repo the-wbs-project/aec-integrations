@@ -416,6 +416,24 @@ describe('ProductDetailPage record line', () => {
 describe('ProductDetailPage powered-integrations hub', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
+  // AECI-2037: a Sync Service's section and its nav link both say "delivers".
+  it('heads a Sync Service section and its nav link "Integrations it delivers"', () => {
+    const { el } = setup(
+      connector({
+        connector_kind: 'sync_service',
+        integrations_as_connector: [
+          edge(procore, acumatica, 'a_to_b'),
+          edge(sage, procore, 'both'),
+        ],
+      }),
+    );
+    const section = el.querySelector('#powered-integrations')!;
+    expect(section.querySelector('h2')!.textContent).toContain('Integrations it delivers (2)');
+    const nav = el.querySelector('aec-section-nav')!.textContent!;
+    expect(nav).toContain('Integrations it delivers');
+    expect(nav).not.toContain('Integrations it powers');
+  });
+
   it('renders a hub card whose heading is the hub name, with pair-page partner rows', () => {
     const { el } = setup(
       connector({

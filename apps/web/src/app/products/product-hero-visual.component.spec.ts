@@ -467,3 +467,44 @@ describe('ProductHero visual: the pair finder (AECI-1787)', () => {
     el.remove();
   });
 });
+
+// AECI-2037: the hero's role chip and reach line read the connector kind.
+describe('ProductHero connector kind (AECI-2037)', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+    seq = 0;
+  });
+
+  // Two pairs the page product sits in the middle of: three distinct endpoints.
+  function connector(kind: ProductDetail['connector_kind']): ProductDetail {
+    const a = link('procore', 'Procore');
+    return buildProduct({
+      slug: 'fx-connector',
+      name: 'Fixture connector',
+      product_role: 'connector',
+      connector_kind: kind,
+      integrations_as_connector: [
+        edge(link('acumatica', 'Acumatica'), [], { source: a }),
+        edge(link('quickbooks', 'QuickBooks'), [], { source: a }),
+      ],
+    });
+  }
+
+  function chip(el: HTMLElement): string {
+    return el.querySelector('aec-role-badge')?.textContent?.trim() ?? '';
+  }
+
+  it.each([
+    [
+      'integration_platform',
+      'Integration platform',
+      'Connects 3 products in the AEC Integrations catalog',
+    ],
+    ['sync_service', 'Sync Service', 'Syncs 3 products in the AEC Integrations catalog'],
+    [null, 'Connector', 'Connects 3 products in the AEC Integrations catalog'],
+  ] as const)('kind %s: chip "%s" and line "%s"', (kind, label, line) => {
+    const { el } = setup(connector(kind));
+    expect(chip(el)).toBe(label);
+    expect(el.textContent).toContain(line);
+  });
+});

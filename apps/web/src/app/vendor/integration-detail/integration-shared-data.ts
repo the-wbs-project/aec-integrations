@@ -726,7 +726,7 @@ export class IntegrationSharedData {
     const connector =
       i.powered_by?.name ??
       i.mechanism_name ??
-      $localize`:@@vendor.im.connector.fallback:a connector service`;
+      $localize`:@@vendor.im.connector.fallback.v2:a connector product`;
     if (!isClaimed(i)) {
       return $localize`:@@vendor.im.data.connectorNote:AEC Integrations keeps these up to date. They run through ${connector}:connector:, so neither company answers for them.`;
     }

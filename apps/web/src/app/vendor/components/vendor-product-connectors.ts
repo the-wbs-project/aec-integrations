@@ -81,9 +81,14 @@ type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
               >Connectors</span
             >
           </h2>
-          <p class="max-w-prose text-sm text-(--text-secondary)" i18n="@@vendor.connectors.intro">
-            Integration platforms that list this product. AEC Integrations maintains this list from
-            each platform's published catalog, so it is read-only here.
+          <!-- AECI-2037: "connectors", not "integration platforms". A Sync Service with a
+               published catalog lists products here too. -->
+          <p
+            class="max-w-prose text-sm text-(--text-secondary)"
+            i18n="@@vendor.connectors.intro.v2"
+          >
+            Connectors that list this product. AEC Integrations maintains this list from each
+            connector's published catalog, so it is read-only here.
           </p>
         </div>
 

@@ -2722,8 +2722,8 @@ argument.
 
 ### 13.13 Connector kind: Integration platform and Sync Service (AECI-2036, 2026-11-24)
 
-**Status:** the field is built. No public label reads it yet: the label change is AECI-2037, and
-every other child of the epic AECI-2035 reads this field.
+**Status:** the field is built (AECI-2036), and the public labels read it (AECI-2037, below).
+Every other child of the epic AECI-2035 reads this field too.
 
 **Why it exists.** Nothing could tell a Sync Service from an Integration platform.
 `products.product_role` was the only marker, and both kinds are `connector`. Catalogue existence
@@ -2765,6 +2765,33 @@ fails as a marker too: Agave has a catalogue and Workato has none.
   `sync_service`. Public pages may import it without loading zod.
 - **Not yet on the Algolia record.** That field belongs with the filter work on AECI-1662, and the
   index quota is at its cap. A card built from a search hit carries NULL until then.
+
+**The public labels (AECI-2037, 2026-11-24).** One helper,
+`apps/web/src/app/products/connector-kind-labels.ts`, holds every word that varies by kind. Each
+variant is a whole message with its own id. Callers resolve the kind with `connectorKindFor`.
+
+| Surface | Integration platform | Sync Service | NULL |
+|---|---|---|---|
+| Role chip (hero, browse tile) | "Integration platform" | "Sync Service" | "Connector" |
+| Search card chip | "Connector" until AECI-1662 puts the kind on the record | same | "Connector" |
+| Powered section heading and nav (§12.3) | "Integrations it powers" | "Integrations it delivers" | "Integrations it powers" |
+| Powered section empty state | "…running on this integration platform yet." | "…recorded for this Sync Service yet." | "…running on this connector yet." |
+| Hero reach line (§13.6) | "Connects N products…" | "Syncs N products…" | "Connects N products…" |
+| Meta description variant (§13.6) | "{name} is an integration platform for N…" | "{name} is a Sync Service that syncs N…" | unchanged |
+
+- **`hybrid` keeps "Hybrid"** on the chip whatever its kind. Its powered section reads the kind.
+- **No anchor id changes.** `#powered-integrations` stays, so there is no link or sitemap churn.
+- **Not varied, on purpose.** These sentences use "connector" as the noun for every kind, and
+  stay true for both: the "Via {name}" and "Via a connector" lane headings (§13.3, order
+  unchanged), "N more pairs reachable via connectors" (§13.7, whose catalogues include a
+  Sync Service's and an unclassified one's), "delivered through a connector", and the Vendor
+  Terms term "connector vendor". The lane's connector carries no kind on `ProductLink`.
+- **JSON-LD is not varied.** `SoftwareApplication` names no role.
+- **Portal.** "a connector service" became "a connector product", so the generic noun cannot be
+  read as "Sync Service". The Connectors section intro says "Connectors that list this
+  product", because a Sync Service with a catalogue lists products there too.
+- **Admin.** The kind select reads the same two labels. The role column and the payer-test role
+  counts keep the data role.
 
 **Local data.** `apps/api/seed/connector-fixtures.sql` sets the MindCloud fixture to
 `integration_platform` and the Agave fixture to `sync_service`. Every other fixture connector

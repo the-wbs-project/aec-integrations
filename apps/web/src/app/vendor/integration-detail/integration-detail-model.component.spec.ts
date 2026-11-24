@@ -271,22 +271,22 @@ describe('integrationStatus — the first that applies (§6.17.2)', () => {
     const agave = { id: 'x', name: 'Agave' };
     const claimed_at = '2026-09-23T00:00:00.000Z';
     expect(statusExplain('connector', { ...CONNECTOR, owner: agave, claimed_at: null })).toBe(
-      'It runs through a connector service, so AEC Integrations keeps its data up to date.',
+      'It runs through a connector product, so AEC Integrations keeps its data up to date.',
     );
     expect(
       statusExplain('connector', { ...CONNECTOR, is_owner: false, owner: agave, claimed_at }),
     ).toBe(
-      'It runs through a connector service. Agave keeps its details up to date, and AEC Integrations no longer updates it.',
+      'It runs through a connector product. Agave keeps its details up to date, and AEC Integrations no longer updates it.',
     );
     expect(
       statusExplain('connector', { ...CONNECTOR, is_owner: true, owner: agave, claimed_at }),
     ).toBe(
-      'It runs through a connector service. Your company keeps its details up to date, and AEC Integrations no longer updates it.',
+      'It runs through a connector product. Your company keeps its details up to date, and AEC Integrations no longer updates it.',
     );
     expect(
       statusExplain('connector', { ...CONNECTOR, is_owner: false, owner: null, claimed_at }),
     ).toBe(
-      'It runs through a connector service. Its owner keeps its details up to date, and AEC Integrations no longer updates it.',
+      'It runs through a connector product. Its owner keeps its details up to date, and AEC Integrations no longer updates it.',
     );
     expect(isClaimed({ claimed_at: null })).toBe(false);
     expect(isClaimed({ claimed_at })).toBe(true);
@@ -425,7 +425,7 @@ describe('row pills and copy (§6.17.8)', () => {
   it('names how you get it in plain words', () => {
     expect(howYouGetIt('native', null)).toBe('Built into the product');
     expect(howYouGetIt('iPaaS', 'Zapier')).toBe('Through Zapier');
-    expect(howYouGetIt('iPaaS', null)).toBe('Through a connector service');
+    expect(howYouGetIt('iPaaS', null)).toBe('Through a connector product');
     expect(howYouGetIt('integrator', null)).toBe('Built by a consultancy');
   });
 });

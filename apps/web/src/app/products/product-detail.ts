@@ -5,6 +5,7 @@ import { ActivatedRoute } from '@angular/router';
 import { map } from 'rxjs';
 
 import type { ProductDetail } from '@aeci/shared';
+import { connectorKindFor } from '@aeci/shared/api/connector-kind';
 
 import { Analytics } from '../analytics/analytics';
 import { DetailLayout } from '../layouts/detail-layout';
@@ -25,6 +26,7 @@ import {
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import { SectionNav, type SectionNavItem } from '../shared/section-nav/section-nav';
 
+import { poweredNavLabel } from './connector-kind-labels';
 import { countLaneUnderReview, splitIntegrationLanes } from './connector-lane-grouping';
 import { groupPoweredIntegrations } from './powered-hub-grouping';
 import { ProductAbout } from './product-about';
@@ -220,6 +222,7 @@ const UNDER_REVIEW_MARKED_FIELDS = [
               class="scroll-mt-20 space-y-4"
               [view]="poweredView()"
               [slug]="p.slug"
+              [kind]="connectorKind()"
             ></section>
           </ng-template>
 
@@ -480,6 +483,15 @@ export class ProductDetailPage {
   });
 
   /**
+   * The page product's connector kind (AECI-2037), or `null`: the powered section's
+   * heading, empty state and nav label read it.
+   */
+  protected readonly connectorKind = computed(() => {
+    const p = this.product();
+    return p ? connectorKindFor(p.product_role, p.connector_kind) : null;
+  });
+
+  /**
    * Whether `#powered-integrations` renders BEFORE `#integrations` (§13.6).
    *
    * On a pure connector the endpoint table is legitimately sparse and the
@@ -560,7 +572,7 @@ export class ProductDetailPage {
     const powered: SectionNavItem | null = this.showPowered()
       ? {
           id: 'powered-integrations',
-          label: $localize`:@@products.detail.nav.powers:Integrations it powers`,
+          label: poweredNavLabel(this.connectorKind()),
         }
       : null;
     // §13.6: "section-nav follows render order", so the connector swap moves

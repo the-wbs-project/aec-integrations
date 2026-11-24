@@ -57,7 +57,8 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
       <!-- Role chip row, as the /products tile: connector / hybrid only. The row
            itself is gated so an application's card carries no empty flex gap.
            A record indexed before AECI-1086 has no role, so it is gated on the
-           field being present too. -->
+           field being present too. The record carries no connector kind until
+           AECI-1662, so the chip passes none and a connector reads "Connector". -->
       @if (record().product_role; as role) {
         @if (role !== 'application') {
           <div class="flex flex-wrap items-center gap-2">

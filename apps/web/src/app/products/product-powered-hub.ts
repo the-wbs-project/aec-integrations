@@ -1,7 +1,7 @@
 import { Component, ElementRef, computed, input, signal, viewChild } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import { defaultIntegrationContext } from '@aeci/shared';
+import { defaultIntegrationContext, type ConnectorKind } from '@aeci/shared';
 
 import { RequestTrigger } from '../requests/request-trigger';
 import type { ListingView } from '../shared/listing-toolbar/listing-toolbar';
@@ -33,6 +33,7 @@ import {
   MATCH_CHIP_ROW_CLASS,
 } from './match-card-recipe';
 import { IntegrationGroupCard } from './integration-group-card';
+import { poweredEmptyLead, poweredHeading } from './connector-kind-labels';
 import { directionGlyph } from './pair-direction-labels';
 import { ProductPoweredTable, type PoweredTableRow } from './product-powered-table';
 
@@ -217,19 +218,21 @@ import { AecIcon } from '../shared/icon/icon';
       <p
         class="rounded-panel border border-dashed border-(--border-default)
             bg-(--surface-sunken) p-6 text-sm text-(--text-secondary)"
-        i18n="@@products.detail.body.powers.empty"
       >
-        No integrations are recorded as running on this connector yet. Vendor data is curated; if
-        you know of one,
-        <a
-          aecRequestTrigger
-          [entity]="'product'"
-          [kind]="'correction'"
-          [slug]="slug()"
-          [href]="'/products/' + slug() + '/correction'"
-          class="text-(--accent-primary) underline underline-offset-2"
-          >suggest a correction</a
-        >.
+        <!-- AECI-2037: the first sentence names the kind (connector-kind-labels.ts). -->
+        {{ emptyLead() }}
+        <ng-container i18n="@@products.detail.body.powers.empty.correction"
+          >Vendor data is curated; if you know of one,
+          <a
+            aecRequestTrigger
+            [entity]="'product'"
+            [kind]="'correction'"
+            [slug]="slug()"
+            [href]="'/products/' + slug() + '/correction'"
+            class="text-(--accent-primary) underline underline-offset-2"
+            >suggest a correction</a
+          >.</ng-container
+        >
       </p>
     } @else {
       @for (group of filteredView().groups; track group.hub.slug) {
@@ -482,6 +485,12 @@ export class ProductPoweredHub {
 
   /** This page's product slug, for the two suggest-a-correction links. */
   readonly slug = input.required<string>();
+  /**
+   * The page product's connector kind, already resolved by `connectorKindFor`
+   * (AECI-2037). It varies the heading and the empty state. `null` keeps the
+   * "Connector" wording.
+   */
+  readonly kind = input<ConnectorKind | null>(null);
 
   /**
    * The reader's filter text (AECI-841). Deliberately component-local and
@@ -557,7 +566,8 @@ export class ProductPoweredHub {
   protected readonly filteredView = computed(() => filterPoweredHubView(this.view(), this.query()));
 
   /**
-   * "Integrations it powers (N)".
+   * "Integrations it powers (N)", or "Integrations it delivers (N)" on a Sync Service
+   * (AECI-2037, `connector-kind-labels.ts`).
    *
    * The copy is a noun phrase, parallel to the endpoint "Integrations (N)"
    * heading on the same page, because on a connector page **both sections can
@@ -579,10 +589,10 @@ export class ProductPoweredHub {
    * A filter never moves it — the heading is a fact about the product, and the
    * filter's own "Showing 3 of 12" line reports the view.
    */
-  protected readonly heading = computed(() => {
-    const count = this.view().pairCount;
-    return $localize`:@@products.detail.body.powers.heading:Integrations it powers (${count}:count:)`;
-  });
+  protected readonly heading = computed(() => poweredHeading(this.kind(), this.view().pairCount));
+
+  /** The empty state's first sentence, by kind (AECI-2037). */
+  protected readonly emptyLead = computed(() => poweredEmptyLead(this.kind()));
 
   /**
    * The filter renders whenever the section renders rows — there is no row

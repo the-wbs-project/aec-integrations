@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, input, viewChild } from '
 import { RouterLink } from '@angular/router';
 
 import type { ProductDetail } from '@aeci/shared';
+import { connectorKindFor } from '@aeci/shared/api/connector-kind';
 
 import type { ExternalLinkContext } from '../analytics/analytics';
 import { ExternalLinkTracker } from '../analytics/external-link-tracker';
@@ -20,6 +21,7 @@ import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 import { UnclaimedNote } from '../shared/unclaimed-note/unclaimed-note';
 
 import { categoryHub } from './category-hub';
+import { heroConnectsLabel } from './connector-kind-labels';
 import { descriptionParagraphs } from './product-about';
 import { connectedProductCount } from './powered-hub-grouping';
 import { ProductCategoryHub } from './product-category-hub';
@@ -90,7 +92,7 @@ import { RoleBadge } from './role-badge';
            listing". -->
       @if (p.product_role !== 'application') {
         <div heroKicker class="mt-4 flex flex-wrap items-center gap-2">
-          <aec-role-badge [role]="p.product_role" />
+          <aec-role-badge [role]="p.product_role" [kind]="p.connector_kind" />
         </div>
       }
 
@@ -381,14 +383,12 @@ export class ProductHero {
    * "Connects N products in the AEC Integrations catalog" (§13.6), or `null` at 0: a
    * connector with nothing to count says nothing rather than zero. Not gated on
    * `product_role`, the same data-driven reading the powered section takes.
+   * A Sync Service reads "Syncs N products" (AECI-2037, `connector-kind-labels.ts`).
    */
   protected readonly connectsLabel = computed<string | null>(() => {
     const p = this.product();
     const count = connectedProductCount(p.integrations_as_connector, p.slug);
     if (count === 0) return null;
-    if (count === 1) {
-      return $localize`:@@products.detail.hero.connects.one:Connects 1 product in the AEC Integrations catalog`;
-    }
-    return $localize`:@@products.detail.hero.connects.other:Connects ${count}:count: products in the AEC Integrations catalog`;
+    return heroConnectsLabel(connectorKindFor(p.product_role, p.connector_kind), count);
   });
 }

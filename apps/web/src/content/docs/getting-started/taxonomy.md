@@ -3,7 +3,7 @@ title: How listings are classified
 description: The four ways every product is classified, the kinds of integration, and the types of data an integration can carry.
 section: getting-started
 order: 4
-last_updated: November 18, 2026
+last_updated: November 24, 2026
 ---
 
 Every product on AEC Integrations is classified four ways. Each way uses a fixed list of terms that we maintain, not free-form tags. That keeps similar products comparable, whoever wrote their listing.
@@ -35,11 +35,21 @@ Every integration has a kind, which says how it is delivered. The page shows one
 - API
 - Webhook
 - Marketplace app
-- iPaaS, a third-party connector platform such as Zapier or Workato
+- iPaaS, an integration platform such as Zapier or Workato, run by a third company
 - Partner
 - Integrator, an integration built and maintained by a consultancy or systems integrator rather than by either product's company
 
 On an integration page, the kind is part of "How you get it". When an integration has no name, its kind is the card's heading. See [Reading an integration page](/docs/getting-started/reading-an-integration-page).
+
+## Kinds of connector
+
+Some products exist to carry data between other products. We call them connectors. A chip on a connector's product page names its kind:
+
+- Integration platform: the customer builds the connection from a catalog of apps, as with Zapier or Workato.
+- Sync Service: the vendor sells, runs and supports a fixed list of finished pairs.
+- Connector: a connector we have not classified yet.
+
+A product that is used on its own and also connects other products shows Hybrid.
 
 ## Types of data
 

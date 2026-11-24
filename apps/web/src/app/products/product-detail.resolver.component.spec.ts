@@ -517,6 +517,28 @@ describe('productDetailResolver — product-specific', () => {
     );
   });
 
+  // AECI-2037: the variant names the kind. NULL keeps the sentence above.
+  it.each([
+    [
+      'integration_platform',
+      'Procore is an integration platform for 3 construction and AEC products. See the integrations it powers and reviews from the teams using them.',
+    ],
+    [
+      'sync_service',
+      'Procore is a Sync Service that syncs 3 construction and AEC products. See the integrations it delivers and reviews from the teams using them.',
+    ],
+  ] as const)('names the %s kind in the connector meta description', async (kind, text) => {
+    expect(
+      await resolvedDescription(
+        buildProduct({
+          product_role: 'connector',
+          connector_kind: kind,
+          integrations_as_connector: [poweredEdge('d', 'e'), poweredEdge('d', 'f')],
+        }),
+      ),
+    ).toBe(text);
+  });
+
   it('counts reach from the RAW edge list, so a Convention-A connector is not zero', () => {
     // §13.4(2) excludes these edges from the rendered section, but the page
     // product IS reaching those three products; the snippet must say so.

@@ -498,7 +498,8 @@ export const ProductListItemSchema = z.object({
   // AECI-2036 (STAGE_1_5_SPEC.md §13.13): 'integration_platform' | 'sync_service' | null.
   // null = unclassified ("Connector"), and always null on an `application`. Admin-set,
   // never promoted. Not on the Algolia record yet (AECI-1662), so a card built from a
-  // search hit carries null. No public label reads it yet (AECI-2037).
+  // search hit carries null. The public role chip and the connector page copy read it
+  // (AECI-2037, STAGE_1_5_SPEC.md §13.13 "The public labels").
   connector_kind: ConnectorKindSchema.nullable().default(null),
   vendor: VendorLinkSchema.nullable(), // null when the product has no ProductVendor link (AECI-115)
   integration_count: z.number().int().min(0),

@@ -19,7 +19,7 @@ Our catalog data is compiled from publicly available sources: vendor documentati
 
 Curation happens in a separate review application, not on the live site. A curator reviews a record there and publishes it deliberately. Nothing we research reaches the public catalog on its own. Each publication is written in one step together with an audit record, so the catalog is never left half-updated and the change is logged.
 
-Integrations are recorded in a set shape rather than as prose. Each one names the two products, the mechanism that connects them, and the direction data moves. The mechanism is one of seven: native, API, webhook, marketplace app, iPaaS (a third-party connector platform such as Zapier or Workato), partner, or integrator.
+Integrations are recorded in a set shape rather than as prose. Each one names the two products, the mechanism that connects them, and the direction data moves. The mechanism is one of seven: native, API, webhook, marketplace app, iPaaS (an integration platform such as Zapier or Workato, run by a third company), partner, or integrator.
 
 Underneath sits the smallest unit we work in, a claim: one kind of data, moving one direction, through one integration. Recording integrations this way is what makes them comparable across vendors, and it is what lets a vendor confirm or dispute one specific detail instead of a whole page.
 
@@ -55,7 +55,7 @@ Two rules govern that table.
 
 ## Who owns an integration
 
-An integration belongs to the vendor that offers it: the company a customer buys it from or gets it from. The integration page names that vendor on its "Offered by" line. Usually it is the vendor of one of the two products. Sometimes it is a third company that sells a connector between them.
+An integration belongs to the vendor that offers it: the company a customer buys it from or gets it from. The integration page names that vendor on its "Offered by" line. Usually it is the vendor of one of the two products. Sometimes it is a third company that sells a connector between them. A connector is one of two kinds. On an integration platform, the customer builds the connection from a catalog of apps. A Sync Service sells, runs and supports a fixed list of finished pairs.
 
 We seeded the catalog. Most integrations here were first recorded by us from public sources, and until an owner claims one, we keep it up to date from our own research. Owning an integration and confirming its claims are separate things. The owner keeps the integration's details. The vendors at both ends still confirm or dispute its claims, as described above.
 

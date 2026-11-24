@@ -1,12 +1,21 @@
 ---
 title: For connector vendors
-description: The seat a company that makes connector products can have, how its Catalog tab works, and how integrations delivered through a connector are owned.
+description: The two kinds of connector product, the seat a company that makes one can have, how the Catalog tab works, and how integrations delivered through a connector are owned.
 section: vendors
 order: 15
 last_updated: November 24, 2026
 ---
 
-A connector product carries data between other products, the way an iPaaS platform such as Zapier or Workato does. This page is for the company that makes one. It also covers integrations delivered through a connector, which matter to the vendors at their ends too.
+A connector product carries data between other products. This page is for the company that makes one. It also covers integrations delivered through a connector, which matter to the vendors at their ends too.
+
+## The two kinds of connector
+
+A connector product is one of two kinds. Its product page names the kind on a chip at the top of the page.
+
+- **Integration platform.** The customer builds the connection from a catalog of apps. Zapier, Workato and MindCloud are integration platforms. The pairs we show from an integration platform's catalog are pairs it can reach, not integrations.
+- **Sync Service.** The vendor sells, runs and supports a fixed list of finished pairs. A Sync Service is listed by the pairs it delivers, not by a catalog of apps. Each pair it delivers is an integration that the Sync Service offers and owns, as [Integrations delivered through a connector](/docs/vendors/connector-vendors#integrations-delivered-through-a-connector) describes. Its product page lists those pairs under **Integrations it delivers**.
+
+The AEC Integrations team sets the kind. A connector we have not classified yet shows the chip **Connector**. The kind changes only the words on the site. Both kinds are connector products, and a company that makes one is a connector vendor.
 
 ## Your seat
 
@@ -18,7 +27,7 @@ We approve a connector-vendor claim like any other, and we also contact you dire
 
 ## The Catalog tab
 
-The seat's work is on the **Catalog** tab of your connector product: open **Products**, choose the connector, then **Catalog**. The overview links there too. The tab lists every listing in your published catalog and which product on AEC Integrations each one is. Once we hand the catalog to your company, each match has an **Edit** button: you can change the product, rule a product out, mark a listing as outside our scope, set how confident the match is, and add a link that shows the evidence. A match you save counts toward that product's reach on AEC Integrations. Until the handover, the tab is read-only and says we maintain the catalog. A listing with no match yet gets one from us. See [Current limits](/docs/vendors#current-limits).
+The Catalog tab is for a connector product with a published catalog, which is usually an integration platform. The seat's work is on the **Catalog** tab of your connector product: open **Products**, choose the connector, then **Catalog**. The overview links there too. The tab lists every listing in your published catalog and which product on AEC Integrations each one is. Once we hand the catalog to your company, each match has an **Edit** button: you can change the product, rule a product out, mark a listing as outside our scope, set how confident the match is, and add a link that shows the evidence. A match you save counts toward that product's reach on AEC Integrations. Until the handover, the tab is read-only and says we maintain the catalog. A listing with no match yet gets one from us. See [Current limits](/docs/vendors#current-limits).
 
 ## If your company owns integrations
 

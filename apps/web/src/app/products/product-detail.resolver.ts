@@ -19,6 +19,7 @@
  * data-derived dependencies.
  */
 import type { ProductDetail, ProductIntegrationItem } from '@aeci/shared';
+import { connectorKindFor } from '@aeci/shared/api/connector-kind';
 
 import { fetchProductBySlug } from '../core/api/products';
 import { createDetailResolver } from '../core/create-detail-resolver';
@@ -29,6 +30,7 @@ import {
   shareableLogo,
 } from '../core/meta.helpers';
 
+import { connectorMetaDescription } from './connector-kind-labels';
 import { routeIntegrationLane } from './connector-lane-grouping';
 import { connectedProductCount } from './powered-hub-grouping';
 
@@ -93,8 +95,9 @@ function productMetaDescription(product: ProductDetail): string | null {
   if (product.product_role === 'connector') {
     const reach = connectedProductCount(product.integrations_as_connector, product.slug);
     if (reach > 0) {
-      const name = product.name;
-      return $localize`:@@products.detail.meta.connector:${name}:name: connects ${reach}:count: construction and AEC products. See the integrations it powers and reviews from the teams using them.`;
+      // AECI-2037: the sentence names the kind. NULL keeps the original wording.
+      const kind = connectorKindFor(product.product_role, product.connector_kind);
+      return connectorMetaDescription(kind, product.name, reach);
     }
   }
 

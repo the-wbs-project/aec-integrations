@@ -479,15 +479,15 @@ export function statusExplain(key: IntegrationStatusKey, integration: VendorInte
  */
 function connectorExplain(integration: VendorIntegration): string {
   if (!isClaimed(integration)) {
-    return $localize`:@@vendor.im.status.explain.connector:It runs through a connector service, so AEC Integrations keeps its data up to date.`;
+    return $localize`:@@vendor.im.status.explain.connector.v2:It runs through a connector product, so AEC Integrations keeps its data up to date.`;
   }
   if (integration.is_owner) {
-    return $localize`:@@vendor.im.status.explain.connectorClaimed.mine:It runs through a connector service. Your company keeps its details up to date, and AEC Integrations no longer updates it.`;
+    return $localize`:@@vendor.im.status.explain.connectorClaimed.mine.v2:It runs through a connector product. Your company keeps its details up to date, and AEC Integrations no longer updates it.`;
   }
   const owner = integration.owner?.name;
   return owner
-    ? $localize`:@@vendor.im.status.explain.connectorClaimed.other:It runs through a connector service. ${owner}:owner: keeps its details up to date, and AEC Integrations no longer updates it.`
-    : $localize`:@@vendor.im.status.explain.connectorClaimed.unnamed:It runs through a connector service. Its owner keeps its details up to date, and AEC Integrations no longer updates it.`;
+    ? $localize`:@@vendor.im.status.explain.connectorClaimed.other.v2:It runs through a connector product. ${owner}:owner: keeps its details up to date, and AEC Integrations no longer updates it.`
+    : $localize`:@@vendor.im.status.explain.connectorClaimed.unnamed.v2:It runs through a connector product. Its owner keeps its details up to date, and AEC Integrations no longer updates it.`;
 }
 
 /**
@@ -563,7 +563,7 @@ export function howYouGetIt(
     case 'iPaaS':
       return connectorName
         ? $localize`:@@vendor.im.how.connector:Through ${connectorName}:connector:`
-        : $localize`:@@vendor.im.how.connectorUnnamed:Through a connector service`;
+        : $localize`:@@vendor.im.how.connectorUnnamed.v2:Through a connector product`;
     case 'webhook':
       return $localize`:@@vendor.im.how.webhook:Webhook`;
     case 'partner':

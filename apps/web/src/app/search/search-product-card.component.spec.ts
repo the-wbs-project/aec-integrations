@@ -92,6 +92,17 @@ describe('SearchProductCard', () => {
     expect(el.querySelector('aec-role-badge')?.textContent?.trim()).toBe('Connector');
   });
 
+  // AECI-2037: a search hit carries no connector kind until AECI-1662, so even a
+  // Sync Service reads "Connector" here. A stray field on the hit is not read.
+  it('keeps the Connector chip when the hit carries no kind', () => {
+    const el = setup({
+      ...baseRecord,
+      product_role: 'connector',
+      connector_kind: 'sync_service',
+    } as AlgoliaProductRecord);
+    expect(el.querySelector('aec-role-badge')?.textContent?.trim()).toBe('Connector');
+  });
+
   it('shows the Hybrid chip for a hybrid-role product', () => {
     const el = setup({ ...baseRecord, product_role: 'hybrid' });
     expect(el.querySelector('aec-role-badge')?.textContent?.trim()).toBe('Hybrid');

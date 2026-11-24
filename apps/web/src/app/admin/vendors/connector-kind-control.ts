@@ -3,19 +3,18 @@ import { Component, computed, inject, input, linkedSignal, output, signal } from
 
 import { CONNECTOR_KINDS, isConnectorKind, type ConnectorKind } from '@aeci/shared';
 
+import { connectorKindLabel as publicConnectorKindLabel } from '../../products/connector-kind-labels';
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
 import { AdminVendorsApi } from './admin-vendors-api';
 
-/** The operator's words for each stored kind. Admin copy, not the public label (AECI-2037). */
+/**
+ * The operator's words for each stored kind. A set kind reads the public label, from
+ * the one helper every surface uses (AECI-2037). Only the blank option is admin copy.
+ */
 export function connectorKindLabel(kind: ConnectorKind | null): string {
-  switch (kind) {
-    case 'integration_platform':
-      return $localize`:@@admin.vendors.products.connectorKind.integrationPlatform:Integration platform`;
-    case 'sync_service':
-      return $localize`:@@admin.vendors.products.connectorKind.syncService:Sync Service`;
-    default:
-      return $localize`:@@admin.vendors.products.connectorKind.unset:Not set (shows as Connector)`;
-  }
+  return kind === null
+    ? $localize`:@@admin.vendors.products.connectorKind.unset:Not set (shows as Connector)`
+    : publicConnectorKindLabel(kind);
 }
 
 /**

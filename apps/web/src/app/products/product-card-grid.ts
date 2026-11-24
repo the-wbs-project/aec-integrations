@@ -85,7 +85,7 @@ export type ProductCardGridColumns = 1 | 2 | 3;
                  take a flex gap, so the row itself is gated. -->
             @if (product.product_role !== 'application') {
               <div class="flex flex-wrap items-center gap-2">
-                <aec-role-badge [role]="product.product_role" />
+                <aec-role-badge [role]="product.product_role" [kind]="product.connector_kind" />
               </div>
             }
             <!-- Editorial rating: omitted entirely below the §5.5 ≥5-review gate
@@ -131,7 +131,7 @@ export type ProductCardGridColumns = 1 | 2 | 3;
             <!-- Role chip row: connector / hybrid only (see the featured card). -->
             @if (product.product_role !== 'application') {
               <div class="flex flex-wrap items-center gap-2">
-                <aec-role-badge [role]="product.product_role" />
+                <aec-role-badge [role]="product.product_role" [kind]="product.connector_kind" />
               </div>
             }
             <!-- Editorial rating: omitted entirely below the §5.5 ≥5-review gate. -->
