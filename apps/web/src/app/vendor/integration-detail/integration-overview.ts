@@ -226,7 +226,7 @@ type Seat = 'owner-claimed' | 'owner-unclaimed' | 'other';
                             aecButton
                             variant="ghost"
                             type="button"
-                            class="-ms-4"
+                            [class]="'-ms-4'"
                             [attr.aria-expanded]="expanded()"
                             [attr.aria-controls]="rowId(row.key) + '-value'"
                             (click)="expanded.set(!expanded())"

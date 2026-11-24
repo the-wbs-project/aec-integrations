@@ -115,7 +115,7 @@ import { isReplayedEvent } from '../../core/event-replay';
           variant="secondary"
           iconOnly
           type="button"
-          class="ms-auto"
+          [class]="'ms-auto'"
           [attr.aria-label]="addLabel"
           [attr.aria-expanded]="state.addingRow()"
           aria-controls="data-shared-add"

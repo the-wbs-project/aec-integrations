@@ -91,7 +91,7 @@ const PANEL = 'rounded-panel border border-(--border-default) p-4 text-sm';
               compact
               #trigger
               type="button"
-              class="mt-3"
+              [class]="'mt-3'"
               (click)="openConfirm()"
               data-testid="retire-open"
               i18n="@@vendor.im.settings.retireButton"
@@ -118,7 +118,7 @@ const PANEL = 'rounded-panel border border-(--border-default) p-4 text-sm';
             compact
             #trigger
             type="button"
-            class="mt-3"
+            [class]="'mt-3'"
             [disabled]="busy()"
             (click)="restore()"
             data-testid="restore"

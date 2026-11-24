@@ -140,7 +140,7 @@ export function selfDisclaimStands(contest: VendorContest | null): boolean {
           aecButton
           variant="ghost"
           type="button"
-          class="-ms-4"
+          [class]="'-ms-4'"
           [attr.aria-expanded]="open()"
           [attr.aria-controls]="fieldId('panel')"
           [attr.aria-label]="triggerLabel()"

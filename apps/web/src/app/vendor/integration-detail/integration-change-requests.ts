@@ -214,7 +214,7 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
           aecButton
           compact
           type="button"
-          class="ms-auto"
+          [class]="'ms-auto'"
           (click)="state.openRequestForm(null)"
           data-testid="request-correction"
           i18n="@@vendor.im.requests.requestCorrection"
@@ -627,7 +627,7 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                           variant="ghost"
                           type="button"
                           [id]="'withdraw-' + c.id"
-                          class="-ms-4 mt-2"
+                          [class]="'-ms-4 mt-2'"
                           [attr.aria-label]="withdrawLabel(c)"
                           (click)="startWithdraw(c)"
                           [attr.data-testid]="'withdraw-' + c.id"

@@ -417,7 +417,7 @@ interface SideGroup {
                           iconOnly
                           #pencil
                           type="button"
-                          class="ms-auto"
+                          [class]="'ms-auto'"
                           [attr.data-row]="target"
                           [attr.aria-label]="editForLabel(kind.label, group.product.name)"
                           [attr.data-testid]="'edit-side-' + group.product.slug + '-' + kind.key"

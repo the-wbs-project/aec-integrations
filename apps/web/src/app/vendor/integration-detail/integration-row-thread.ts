@@ -306,7 +306,7 @@ type ThreadView = Omit<VendorThread, 'claim_id'> & { claim_id: string | null };
                             variant="ghost"
                             type="button"
                             [id]="baseId() + '-delete-' + m.id"
-                            class="-ms-4"
+                            [class]="'-ms-4'"
                             [attr.aria-label]="deleteLabel(m)"
                             [disabled]="busy() !== null"
                             (click)="startDelete(m)"
