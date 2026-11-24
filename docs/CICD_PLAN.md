@@ -1501,7 +1501,22 @@ Lighthouse does not run on PRs or on merges to `main`. It measures a commit in t
 
 **Both promote workflows must be dispatched from `main`.** GitHub runs the copy of the workflow file at the dispatched ref. A run from another branch could carry an old or edited gate. The first step of `pre-promotion-checks` fails unless `github.ref` is `refs/heads/main`. `commit_sha` (or the upstream tier, when blank) still chooses the commit. This catches a wrong-branch dispatch. It cannot stop a branch that deletes the check. The `demo` and `production` environments carry a deployment-branch rule that allows `main` only, set 2026-10-07. That rule does stop it: the deploy job cannot start from any other ref. Check it with `gh api repos/the-wbs-project/aec-integrations/environments/demo/deployment-branch-policies`.
 
-**Token scope.** The `lighthouse` job holds a `statuses: write` token. Its checkout sets `persist-credentials: false`, so the token is not written to `.git/config` where `pnpm install` scripts could read it. Only the two status steps receive it, as `GH_TOKEN`.
+**Shards (AECI-2030).** The 15 URLs in `.lighthouserc.cjs` run as three parallel `lighthouse-shard` jobs, five URLs each. Each shard builds the SSR Worker, boots its own `dev:bound`, and runs `lhci autorun` with `AECI_LHCI_SHARD=N/3`. That variable keeps every third URL starting at the N-th. Unset, it keeps all 15, so a local `pnpm lighthouse` is unchanged. Every assertion is per URL, so the split changes no result. One runner took about 12.5 minutes, 10 of them collecting. Three shards take about 6.
+
+The workflow checks out the measured SHA, including its Lighthouse config. A promote can measure a commit from before AECI-2030, whose config ignores `AECI_LHCI_SHARD`. Each shard first asks the config whether a shard spec shrinks the URL list. If it does not, shard 1 measures all 15 URLs unsharded and shards 2 and 3 stand down. That run takes about 12.5 minutes, so the shard timeout is 20 minutes.
+
+| Job | Does |
+|---|---|
+| `resolve` | Picks the SHA, applies the nightly skip, posts `pending` |
+| `lighthouse-shard` (×3) | Measures and asserts its five URLs. Uploads `lighthouse-assertions-shard-N` |
+| `lighthouse` | Waits for every shard. Posts the one `lighthouse` status. Merges the shard files into the `lighthouse-assertions` artifact. Fails unless every shard passed |
+| `alert` | Nightly only. Reads the `lighthouse` job's `outcome` and `posted` outputs and the merged artifact. A red result alerts even if its status post failed. A green one comments "recovered" only when `posted` is `success` |
+
+The status is `success` only when all three shards pass. If the status post fails, the job fails and the earlier `pending` status remains when it was posted successfully. Downloading, merging, and uploading assertion files are best-effort and do not change the measurement outcome. A failed shard makes the status `failure`. A cancelled or skipped shard makes it `error`, and the alert does not fire. The promote gate reads the reusable workflow's result, which fails when the `lighthouse` job fails. The matrix and `LHCI_SHARD_TOTAL` in `lighthouse.yml` must agree.
+
+`scripts/lighthouse-shard.test.mjs` (`pnpm test:scripts`) guards the split. It checks that the shards cover every URL exactly once, that the matrix matches `LHCI_SHARD_TOTAL`, and that the workflow's fallback step runs only shard 1 against an unsharded config.
+
+**Token scope.** Only `resolve` and `lighthouse` hold a `statuses: write` token. Neither checks out code or runs `pnpm install`, so no package script can read it. The shards hold a read-only token, and their checkout sets `persist-credentials: false`.
 
 **The nightly alert.** On a red scheduled run, `scripts/lighthouse-alert.mjs` files or updates a Linear issue and may email support@. `docs/OBSERVABILITY.md` describes the alert. It reads `LINEAR_API_KEY` and `RESEND_API_KEY` (§7.1). The script's tests are `scripts/lighthouse-alert.test.mjs`, run by `pnpm test:scripts`.
 

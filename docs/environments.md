@@ -414,7 +414,7 @@ Lighthouse no longer runs on every merge to `main`. It runs nightly at 09:00 UTC
 | --- | --- |
 | `lighthouse: success`, verified | Passes at once. The `Lighthouse gate (look up)` job summary links the run that measured it. Verified means the status links to a `lighthouse.yml` or `promote-to-demo.yml` run on `main`, checked through the runs API. |
 | `lighthouse: success`, not verifiable | Measures the SHA now, as below. A missing link, a run from another workflow or branch, or an API error never passes the gate. |
-| No status, `pending`, or `error` | Measures the SHA now. This adds roughly 10 to 15 minutes. The measurement appears as `Lighthouse gate (measure)` jobs inside the promote run. |
+| No status, `pending`, or `error` | Measures the SHA now. This adds about 6 minutes, or about 12.5 minutes for a commit whose Lighthouse config predates sharding. The measurement appears as `Lighthouse gate (measure)` jobs inside the promote run: three shard jobs, then the job that posts the status (AECI-2030). |
 | `lighthouse: failure` | Measures again. An old failure may have been a flake. Only the fresh result decides. |
 | `override_lighthouse` set | Skips the measurement. The reason goes to the job summary and the log. |
 

@@ -1604,7 +1604,7 @@ The alert runs in the `alert` job of `.github/workflows/lighthouse.yml`, on sche
 | Red, no open `lighthouse-regression` issue | Files a Bug. Labels `Bug` and `lighthouse-regression`. Assigned to Chris. The title names the failing assertions. The body has the SHA, the run link, a table of failing assertions, and a note that main regressed. | Yes. Links the run and the new issue. |
 | Red, an open `lighthouse-regression` issue exists | Comments on it with the SHA, run link and failing assertions. | No. The open issue already told a human. |
 | Red, and the Linear step failed | Nothing filed. | Yes, without an issue link. The red is still heard. |
-| Green, an open issue exists | Comments "Recovered at `<sha>`, run `<url>`". Never closes the issue. | No |
+| Green, an open issue exists | Comments "Recovered at `<sha>`, run `<url>`". Never closes the issue. Only when the `success` status was posted on the commit (AECI-2030). | No |
 | Green, no open issue | Nothing | No |
 | Skipped: main HEAD already passed, or an earlier nightly already alerted on its failure | Nothing | No |
 

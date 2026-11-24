@@ -92,28 +92,49 @@ const INDEXABLE_URL_PATTERN = `^(?!.*${NOINDEX_URL_PATTERN}).*$`;
 // `(?:[/?]|$)` boundary keeps the match correct if `?q=` is ever collected.
 const SEARCH_URL_PATTERN = '/search(?:[/?]|$)';
 
+// Every URL Lighthouse measures. CI splits this list across shards (below).
+const ALL_URLS = [
+  `${baseUrl}/`, // home page (AECI-187) — indexable (class A): scores + CWV
+  `${baseUrl}/products`, // product index
+  `${baseUrl}/products/fixture-procore`, // product detail
+  `${baseUrl}/vendors`, // vendor index
+  `${baseUrl}/vendors/fixture-procore-technologies`, // vendor detail
+  `${baseUrl}/integrations`, // integration index
+  `${baseUrl}/integrations/00000000-0000-4000-8000-000000000065`, // integration detail
+  `${baseUrl}/categories/project-management`, // category browse
+  `${baseUrl}/audiences/general-contracting`, // audience browse
+  `${baseUrl}/phases/construction`, // phase browse
+  `${baseUrl}/categories`, // categories flat index
+  `${baseUrl}/audiences`, // audiences flat index (AECI-157)
+  `${baseUrl}/phases`, // phases flat index (AECI-157)
+  `${baseUrl}/search`, // Phase 3 search page (AECI-146) — noindex, SEO-exempt
+  `${baseUrl}/${NOT_FOUND_SLUG}`, // 404
+];
+
+// SHARDING (AECI-2030). lighthouse.yml runs the collection as parallel shards,
+// each on its own runner with its own dev:bound. `AECI_LHCI_SHARD=N/T` keeps
+// every T-th URL starting at the N-th (1-based), so the shards cover the list
+// exactly once. Unset means every URL, which is what local runs want. Every
+// assertion is per URL, so a split changes no result. Like AECI_LHCI_URL, the
+// name stays out of lhci's `LHCI_*` env namespace.
+function shardUrls(urls, spec) {
+  if (!spec) return urls;
+  const match = /^(\d+)\/(\d+)$/.exec(spec);
+  const index = match ? Number(match[1]) : 0;
+  const total = match ? Number(match[2]) : 0;
+  if (!match || total < 1 || index < 1 || index > total) {
+    throw new Error(`AECI_LHCI_SHARD must look like N/T with 1 <= N <= T (received: '${spec}')`);
+  }
+  return urls.filter((_, i) => i % total === index - 1);
+}
+
 module.exports = {
   ci: {
     collect: {
-      url: [
-        `${baseUrl}/`, // home page (AECI-187) — indexable (class A): scores + CWV
-        `${baseUrl}/products`, // product index
-        `${baseUrl}/products/fixture-procore`, // product detail
-        `${baseUrl}/vendors`, // vendor index
-        `${baseUrl}/vendors/fixture-procore-technologies`, // vendor detail
-        `${baseUrl}/integrations`, // integration index
-        `${baseUrl}/integrations/00000000-0000-4000-8000-000000000065`, // integration detail
-        `${baseUrl}/categories/project-management`, // category browse
-        `${baseUrl}/audiences/general-contracting`, // audience browse
-        `${baseUrl}/phases/construction`, // phase browse
-        `${baseUrl}/categories`, // categories flat index
-        `${baseUrl}/audiences`, // audiences flat index (AECI-157)
-        `${baseUrl}/phases`, // phases flat index (AECI-157)
-        `${baseUrl}/search`, // Phase 3 search page (AECI-146) — noindex, SEO-exempt
-        `${baseUrl}/${NOT_FOUND_SLUG}`, // 404
-      ],
-      // Collection dominates this job — 15 URLs × N runs × ~12s each. N=3 takes
-      // ~7m50s; a SINGLE run lands at ~2m40s. The DEFAULT stays 1 for quick
+      url: shardUrls(ALL_URLS, process.env.AECI_LHCI_SHARD),
+      // Collection dominates this job — 15 URLs × N runs × ~12s each. N=3 took
+      // ~10 min on one runner (2026-11), which is why CI shards it three ways
+      // (AECI-2030); a SINGLE run over all 15 lands at ~2m40s. The DEFAULT stays 1 for quick
       // local passes; CI (lighthouse.yml) sets LHCI_RUNS=3 because the AECI-188
       // error gate asserts the median run — one noisy run must not redden main.
       // `aggregationMethod: 'median-run'` degrades cleanly to "the only run" at N=1.

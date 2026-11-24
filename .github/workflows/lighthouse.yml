@@ -38,6 +38,13 @@
 #   N=3 runs (LHCI_RUNS below) give a median-run aggregation so the error gate
 #   doesn't flake on a single noisy run.
 #
+# SHARDS (AECI-2030). The 15 URLs run as three parallel `lighthouse-shard` jobs,
+#   five URLs each, every shard on its own runner with its own dev:bound. One
+#   runner took about 12.5 minutes (10 of them collecting); three take about 6.
+#   `resolve` posts `pending`. The `lighthouse` job waits for every shard, posts
+#   the one `lighthouse` status, and merges the shards' assertion files into the
+#   single `lighthouse-assertions` artifact the alert job reads.
+#
 # CONCURRENCY. One group per MEASURED SHA (`inputs.commit_sha || github.sha`),
 #   never cancelled. Under workflow_call `github.sha` is the CALLER's SHA, so the
 #   key must prefer the input. The group name `lighthouse-<sha>` never equals the
@@ -46,8 +53,8 @@
 #   per group, so a third arrival for the same SHA cancels the waiting one. A
 #   cancelled measurement fails the demo promote gate closed. Re-run the promote.
 #
-# SELF-CONTAINED. Unlike the old job it can't `needs:` build-web / download that
-#   workflow's `web-dist` artifact (artifacts don't cross workflow runs), so it
+# SELF-CONTAINED. A shard can't `needs:` build-web / download that workflow's
+#   `web-dist` artifact (artifacts don't cross workflow runs), so each shard
 #   builds the SSR Worker itself and boots `dev:bound` exactly like the old job.
 #   The Phase 2 detail/browse fixtures it measures come from the LOCAL D1
 #   (local-only name `aeci-app-preview`, AECI-1268), seeded by `dev:bound`'s `db:setup:local` →
@@ -121,9 +128,11 @@ jobs:
     name: Resolve the commit to measure
     runs-on: ubuntu-26.04
     timeout-minutes: 5
+    # `statuses: write` for the `pending` post below. This job checks out
+    # nothing and runs no package code, so the token has nothing to leak to.
     permissions:
       contents: read
-      statuses: read
+      statuses: write
     outputs:
       sha: ${{ steps.resolve.outputs.sha }}
       measure: ${{ steps.resolve.outputs.measure }}
@@ -196,61 +205,98 @@ jobs:
             echo "measure=$measure"
             echo "trigger=$trigger"
           } >> "$GITHUB_OUTPUT"
+      # `pending` first, so a run that dies before the `lighthouse` job posts a
+      # result (runner loss, a shard timeout that takes the run down) leaves a
+      # NON-terminal status. The nightly skip and the promote gate both treat
+      # `pending` as "not measured". Posted here, once, rather than from each
+      # shard, so the shards never hold a `statuses: write` token.
+      - name: Mark the lighthouse status pending
+        if: steps.resolve.outputs.measure == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ steps.resolve.outputs.sha }}
+          TRIGGER: ${{ steps.resolve.outputs.trigger }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api -X POST "repos/$REPO/statuses/$SHA" \
+            -f state=pending -f context=lighthouse -f target_url="$RUN_URL" \
+            -f description="Lighthouse is measuring this commit ($TRIGGER)" > /dev/null
 
   # ===========================================================================
-  # Measure, then record the result on the commit
+  # Measure: the URL list split across parallel shards (AECI-2030)
   # ===========================================================================
-  lighthouse:
-    name: Lighthouse CI (mobile, error gate)
+  # Each shard boots its own dev:bound and runs `lhci autorun` on every
+  # LHCI_SHARD_TOTAL-th URL (`AECI_LHCI_SHARD` in .lighthouserc.cjs). Every
+  # assertion is per URL, so a shard's pass or fail is exactly that URL subset's
+  # result. The shards hold NO `statuses: write` token: only `resolve` and the
+  # final `lighthouse` job post the commit status.
+  #
+  # KEEP THE MATRIX IN STEP WITH LHCI_SHARD_TOTAL. A shard number above the total
+  # makes .lighthouserc.cjs throw, and a missing one silently drops URLs.
+  lighthouse-shard:
+    name: Lighthouse (shard ${{ matrix.shard }}/3)
     needs: resolve
     if: needs.resolve.outputs.measure == 'true'
     runs-on: ubuntu-26.04
-    timeout-minutes: 25
+    strategy:
+      # A red shard must not cancel its siblings: every failing URL lands.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    # About 2.5 minutes of setup plus 3.5 minutes of collection. 20, not 15,
+    # because shard 1 of an UNSHARDED commit measures all 15 URLs (~12.5 min).
+    timeout-minutes: 20
     permissions:
       contents: read
-      statuses: write
     env:
-      MEASURED_SHA: ${{ needs.resolve.outputs.sha }}
-      TRIGGER: ${{ needs.resolve.outputs.trigger }}
-      REPO: ${{ github.repository }}
-      # Under workflow_call this is the caller's (promote-to-demo) run, which is
-      # where the measurement actually ran.
-      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      LHCI_SHARD_TOTAL: '3'
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ needs.resolve.outputs.sha }}
-          # This job's token can write commit statuses. Do not leave it in
-          # .git/config, where `pnpm install` scripts could read it. No later
-          # step needs git auth: the status steps call the API through GH_TOKEN,
-          # and LHCI only reads local git metadata.
+          # No step needs git auth: LHCI only reads local git metadata.
           persist-credentials: false
-      # `pending` first, so a run that dies without reaching the final step
-      # (runner loss, job timeout) leaves a NON-terminal status. The nightly
-      # skip and the promote gate both treat `pending` as "not measured".
-      # GH_TOKEN is set on the two status steps only, never job-wide. With
-      # `persist-credentials: false` above, the token is nowhere else on disk
-      # or in the environment, so `pnpm install` scripts and the dev servers
-      # cannot reach it.
-      - name: Mark the lighthouse status pending
-        continue-on-error: true
+      # The checkout is the MEASURED commit, config included. A promote can
+      # measure a commit from before AECI-2030, whose .lighthouserc.cjs ignores
+      # AECI_LHCI_SHARD and would have every shard measure all 15 URLs. Ask the
+      # config itself: if a shard spec does not shrink the URL list, shard 1
+      # measures everything unsharded and the other shards stand down.
+      - name: Check that this commit's config can shard
+        id: shard
         env:
-          GH_TOKEN: ${{ github.token }}
+          SHARD: ${{ matrix.shard }}
         run: |
-          gh api -X POST "repos/$REPO/statuses/$MEASURED_SHA" \
-            -f state=pending -f context=lighthouse -f target_url="$RUN_URL" \
-            -f description="Lighthouse is measuring this commit ($TRIGGER)" > /dev/null
+          set -euo pipefail
+          count() { AECI_LHCI_SHARD="$1" node -e 'process.stdout.write(String(require("./.lighthouserc.cjs").ci.collect.url.length))'; }
+          all="$(count '')"
+          mine="$(count "$SHARD/$LHCI_SHARD_TOTAL")"
+          if [ "$mine" -lt "$all" ]; then
+            echo "Sharded: $mine of $all URLs."
+            { echo "run=true"; echo "spec=$SHARD/$LHCI_SHARD_TOTAL"; } >> "$GITHUB_OUTPUT"
+          elif [ "$SHARD" = "1" ]; then
+            echo "::notice::This commit's .lighthouserc.cjs does not shard. Shard 1 measures all $all URLs."
+            { echo "run=true"; echo "spec="; } >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::This commit's .lighthouserc.cjs does not shard. Shard 1 measures every URL. Nothing to do here."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Install pnpm
+        if: steps.shard.outputs.run == 'true'
         run: npm install -g pnpm@${{ env.PNPM_VERSION }}
       - uses: actions/setup-node@v5
+        if: steps.shard.outputs.run == 'true'
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
-      - run: pnpm install --frozen-lockfile
+      - if: steps.shard.outputs.run == 'true'
+        run: pnpm install --frozen-lockfile
       # Build the SSR Worker here (no cross-workflow artifact to reuse).
       # `dev:preview` serves the prebuilt dist/ via `wrangler dev` — it does NOT
       # build — so the bundle must exist before dev:bound boots.
-      - run: pnpm --filter @aeci/web build
+      - if: steps.shard.outputs.run == 'true'
+        run: pnpm --filter @aeci/web build
       # No DATABASE_URL wiring: the app DB is local D1 (ADR 0016) — dev:bound runs
       # `db:setup:local` to migrate + seed it, and the Prisma Accelerate runtime
       # path is retired (AECI-253). The measured pages read D1 via the `DB` binding.
@@ -274,6 +320,7 @@ jobs:
       # keys preserves `ENV=development` (and with it the staging_* index names)
       # from apps/web/wrangler.jsonc's top-level block.
       - name: Write apps/web/.dev.vars (Algolia search key + indexing gate)
+        if: steps.shard.outputs.run == 'true'
         env:
           ALGOLIA_APP_ID_VALUE: ${{ secrets.ALGOLIA_APP_ID }}
           ALGOLIA_SEARCH_KEY_VALUE: ${{ secrets.ALGOLIA_SEARCH_KEY }}
@@ -288,6 +335,7 @@ jobs:
             printf 'ALLOW_INDEXING="true"\n'
           } > apps/web/.dev.vars
       - name: Boot dev:bound (API + SSR) and wait for /api/health
+        if: steps.shard.outputs.run == 'true'
         run: |
           nohup pnpm dev:bound > dev-bound.log 2>&1 &
           for i in $(seq 1 90); do
@@ -298,9 +346,11 @@ jobs:
           done
           echo "::error::dev:bound did not become healthy on :8788 within 90s"; tail -200 dev-bound.log; exit 1
       # Guard: /search must serve the real Algolia config, or every /search
-      # number below is measured against the degraded shell (see the .dev.vars
-      # step above — this catches a regression in the SSR injection itself).
+      # number is measured against the degraded shell (see the .dev.vars step
+      # above — this catches a regression in the SSR injection itself). Every
+      # shard runs it: it costs one request, and it fails before the slow part.
       - name: Assert /search serves the InstantSearch config
+        if: steps.shard.outputs.run == 'true'
         run: |
           # Capture the body first: `curl … | grep -q` is unsafe under the
           # default `bash -eo pipefail` — grep -q closes the pipe on first match
@@ -316,18 +366,21 @@ jobs:
       # LHCI_RUNS=3 restores the median-run aggregation the error gate needs
       # (the rc defaults to a single run for quick local passes).
       - name: Lighthouse CI (error gate, mobile)
+        if: steps.shard.outputs.run == 'true'
         env:
           LHCI_RUNS: '3'
+          AECI_LHCI_SHARD: ${{ steps.shard.outputs.spec }}
         run: pnpm lighthouse
       # `pnpm lighthouse` runs `lhci autorun` from apps/web, so LHCI writes
-      # apps/web/.lighthouseci/. assertion-results.json holds the non-passing
-      # assertions; links.json maps each URL to its uploaded report. The alert
-      # job reads both. Absent files (a failure before `lhci assert`) are fine.
-      - name: Keep assertion results for the alert job
-        if: ${{ !cancelled() }}
+      # apps/web/.lighthouseci/. assertion-results.json holds this shard's
+      # non-passing assertions; links.json maps each URL to its uploaded report.
+      # The `lighthouse` job merges every shard's pair into one artifact.
+      # Absent files (a failure before `lhci assert`) are fine.
+      - name: Keep this shard's assertion results
+        if: ${{ !cancelled() && steps.shard.outputs.run == 'true' }}
         uses: actions/upload-artifact@v6
         with:
-          name: lighthouse-assertions
+          name: lighthouse-assertions-shard-${{ matrix.shard }}
           path: |
             apps/web/.lighthouseci/assertion-results.json
             apps/web/.lighthouseci/links.json
@@ -336,47 +389,159 @@ jobs:
       - name: dev:bound logs on failure
         if: failure()
         run: tail -200 dev-bound.log || true
+
+  # ===========================================================================
+  # Merge the shards, then record the result on the commit
+  # ===========================================================================
+  # Keeps the job id `lighthouse`: the alert job reads its outputs, and the
+  # reusable-workflow result the promote gate checks fails when this job does.
+  # `always()` so a failed or cancelled shard still leaves a terminal status.
+  lighthouse:
+    name: Lighthouse CI (mobile, error gate)
+    needs: [resolve, lighthouse-shard]
+    if: ${{ always() && needs.resolve.outputs.measure == 'true' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      statuses: write
+    outputs:
+      # success | failure | error. The alert job reads this, not the job result:
+      # this job exits 1 on `error` too, and a cancelled run must not alert.
+      outcome: ${{ steps.decide.outputs.outcome }}
+      # The state the status step actually posted, set only after GitHub
+      # accepted it. Empty when the post failed. The alert's "recovered" path
+      # requires `success` here, so a pass nobody can look up never closes out
+      # an open regression.
+      posted: ${{ steps.record.outputs.posted }}
+    env:
+      MEASURED_SHA: ${{ needs.resolve.outputs.sha }}
+      TRIGGER: ${{ needs.resolve.outputs.trigger }}
+      REPO: ${{ github.repository }}
+      SHARDS_RESULT: ${{ needs.lighthouse-shard.result }}
+      # Under workflow_call this is the caller's (promote-to-demo) run, which is
+      # where the measurement actually ran.
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      # The matrix result is `success` only when every shard passed, and
+      # `failure` when any shard failed. Anything else (cancelled, or skipped
+      # because the run died first) is not a result.
+      - name: Decide the outcome
+        id: decide
+        run: |
+          case "$SHARDS_RESULT" in
+            success) outcome=success ;;
+            failure) outcome=failure ;;
+            *) outcome=error ;;
+          esac
+          echo "Shards: $SHARDS_RESULT. Outcome: $outcome"
+          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
+      # One `lighthouse-assertions` artifact, shaped as before: the alert job
+      # and scripts/lighthouse-alert.mjs read a single assertion-results.json
+      # (an array) and links.json (a url → report object). `jq -s add`
+      # concatenates the arrays and merges the objects. A shard that failed
+      # before `lhci assert` uploaded nothing, which merges to nothing.
+      - name: Fetch every shard's assertion results
+        if: steps.decide.outputs.outcome != 'error'
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          pattern: lighthouse-assertions-shard-*
+          path: shards
+      - name: Merge the shard results
+        id: merge
+        if: steps.decide.outputs.outcome != 'error'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p merged
+          # `**` so the merge holds whether the download puts each artifact in
+          # its own folder (several matched) or straight into `shards/`.
+          shopt -s nullglob globstar
+          results=(shards/**/assertion-results.json)
+          links=(shards/**/links.json)
+          if [ "${#results[@]}" -gt 0 ]; then
+            jq -s 'add' "${results[@]}" > merged/assertion-results.json
+          fi
+          if [ "${#links[@]}" -gt 0 ]; then
+            jq -s 'add' "${links[@]}" > merged/links.json
+          fi
+          echo "Merged ${#results[@]} assertion file(s) and ${#links[@]} link file(s)."
+      # continue-on-error: the artifact only feeds the alert's failure table.
+      # A failed upload must not fail this job after the shards passed.
+      - name: Keep the merged assertion results for the alert job
+        if: steps.merge.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@v6
+        with:
+          name: lighthouse-assertions
+          path: |
+            merged/assertion-results.json
+            merged/links.json
+          if-no-files-found: ignore
+          retention-days: 14
       # Runs on success, failure AND cancellation, so every finished measurement
       # leaves a terminal status. A cancelled run posts `error`, which neither the
       # nightly skip nor the promote gate treats as a result. A failure HERE turns
       # the job red: a measurement nobody can look up is not a pass.
       - name: Record the lighthouse status on the measured commit
+        id: record
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ steps.decide.outputs.outcome }}
           JOB_STATUS: ${{ job.status }}
         run: |
-          case "$JOB_STATUS" in
+          # Never post a reusable `success` from a job that already failed: the
+          # promote gate would block this run but trust the status next time.
+          if [ "$OUTCOME" = "success" ] && [ "$JOB_STATUS" != "success" ]; then
+            OUTCOME=unrecorded
+          fi
+          case "$OUTCOME" in
             success) state=success; description="Lighthouse error gate passed ($TRIGGER)" ;;
             failure) state=failure; description="Lighthouse error gate failed ($TRIGGER)" ;;
+            unrecorded) state=error; description="Lighthouse passed but the run failed after it ($TRIGGER)" ;;
             *) state=error; description="Lighthouse run was cancelled before a result ($TRIGGER)" ;;
           esac
           gh api -X POST "repos/$REPO/statuses/$MEASURED_SHA" \
             -f state="$state" -f context=lighthouse -f target_url="$RUN_URL" \
             -f description="$description" > /dev/null
+          echo "posted=$state" >> "$GITHUB_OUTPUT"
           echo "Posted lighthouse=$state on $MEASURED_SHA ($RUN_URL)"
           echo "\`lighthouse: $state\` posted on \`$MEASURED_SHA\`." >> "$GITHUB_STEP_SUMMARY"
+      # The job result carries the measurement: the promote gate reads the
+      # reusable workflow's result, which fails only if a job failed.
+      - name: Fail unless every shard passed
+        if: steps.decide.outputs.outcome != 'success'
+        run: |
+          echo "::error::Lighthouse did not pass ($SHARDS_RESULT). See the shard jobs."
+          exit 1
 
   # ===========================================================================
   # Alert a human (scheduled runs only)
   # ===========================================================================
   # Not on workflow_dispatch (someone is already watching) and not on
   # workflow_call (the promote gate is the signal there). Not on the skip path:
-  # `lighthouse` is skipped then, which matches neither result below.
+  # `lighthouse` is skipped then, and its `outcome` is empty. Not on a cancelled
+  # measurement either: its `outcome` is `error`, which matches neither below.
+  # A red measurement alerts even if its status post failed: the regression is
+  # real. A green one alerts ("recovered") only once `success` was POSTED, so a
+  # failed post or an `error` status never closes out an open regression.
   alert:
     name: Alert on the nightly result
     needs: [resolve, lighthouse]
     if: >-
       ${{ !cancelled() && github.event_name == 'schedule' &&
       needs.resolve.outputs.measure == 'true' &&
-      (needs.lighthouse.result == 'failure' || needs.lighthouse.result == 'success') }}
+      (needs.lighthouse.outputs.outcome == 'failure' ||
+      (needs.lighthouse.outputs.outcome == 'success' && needs.lighthouse.outputs.posted == 'success')) }}
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       contents: read
     env:
       MEASURED_SHA: ${{ needs.resolve.outputs.sha }}
-      OUTCOME: ${{ needs.lighthouse.result }}
+      OUTCOME: ${{ needs.lighthouse.outputs.outcome }}
     steps:
       # Pinned to full commit SHAs: this job holds write-capable Linear and
       # Resend keys, so a moved tag must not swap the code that runs next to them.
@@ -396,7 +561,7 @@ jobs:
       # Missing on a run that failed before `lhci assert`. The script then
       # files the alert with "no assertion results" instead of a table.
       - name: Fetch the assertion results
-        if: needs.lighthouse.result == 'failure'
+        if: needs.lighthouse.outputs.outcome == 'failure'
         continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -414,7 +579,7 @@ jobs:
       # human) or when Linear failed (so the red is still heard).
       - name: Email support@ (new issue, or Linear failed)
         if: >-
-          ${{ !cancelled() && needs.lighthouse.result == 'failure' &&
+          ${{ !cancelled() && needs.lighthouse.outputs.outcome == 'failure' &&
           (steps.linear.outputs.issue_created == 'true' || steps.linear.outcome == 'failure') }}
         env:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
