@@ -127,7 +127,7 @@ The four questions that motivated this document, answered against §3.
 
 ## 5. Information architecture
 
-Twenty-nine routes under the existing `AdminShell` (`app/admin/admin-shell.ts`): **twenty-two nav-able screens** (the exact length of `ADMIN_NAV_GROUPS`, and `admin-shell.component.spec.ts` asserts the ordered list), **five parameterised detail routes** that no nav entry can address, and **two redirects** (`/admin` → Overview, `/admin/reviewers` → the banned filter). *(Fifteen / eleven / two until AECI-722 added the §5.9 connector pair; seventeen with three detail routes until AECI-739 added `/admin/claims/:id`; eighteen / twelve until AECI-859 added `/admin/subscribers`; nineteen / thirteen until AECI-946 added `/admin/reindex`; twenty / fourteen until AECI-1008 added `/admin/contests`; twenty-one / fifteen until AECI-1177 added `/admin/review-responses` on 2026-10-02; twenty-two / sixteen until AECI-1223 added `/admin/email`; twenty-three / seventeen until AECI-653 added `/admin/audit`. Twenty-four / eighteen until AECI-1539 added `/admin/threads` and `/admin/threads/:id`. Twenty-six / nineteen until AECI-1613 added `/admin/review-updates` on 2026-11-06. Twenty-seven / twenty until AECI-1688 added `/admin/legal` on 2026-11-12. Twenty-eight / twenty-one until AECI-1665 added `/admin/dmca` on 2026-11-17. The nav-able count is unchanged by a parameterised route, by construction.)* The shell's `h1` changes from "Moderation" to "Admin" and its flat nav becomes three groups.
+Thirty routes under the existing `AdminShell` (`app/admin/admin-shell.ts`): **twenty-three nav-able screens** (the exact length of `ADMIN_NAV_GROUPS`, and `admin-shell.component.spec.ts` asserts the ordered list), **five parameterised detail routes** that no nav entry can address, and **two redirects** (`/admin` → Overview, `/admin/reviewers` → the banned filter). *(Fifteen / eleven / two until AECI-722 added the §5.9 connector pair; seventeen with three detail routes until AECI-739 added `/admin/claims/:id`; eighteen / twelve until AECI-859 added `/admin/subscribers`; nineteen / thirteen until AECI-946 added `/admin/reindex`; twenty / fourteen until AECI-1008 added `/admin/contests`; twenty-one / fifteen until AECI-1177 added `/admin/review-responses` on 2026-10-02; twenty-two / sixteen until AECI-1223 added `/admin/email`; twenty-three / seventeen until AECI-653 added `/admin/audit`. Twenty-four / eighteen until AECI-1539 added `/admin/threads` and `/admin/threads/:id`. Twenty-six / nineteen until AECI-1613 added `/admin/review-updates` on 2026-11-06. Twenty-seven / twenty until AECI-1688 added `/admin/legal` on 2026-11-12. Twenty-eight / twenty-one until AECI-1665 added `/admin/dmca` on 2026-11-17. Twenty-nine / twenty-two until AECI-822 added `/admin/seo` on 2026-11-24. The nav-able count is unchanged by a parameterised route, by construction.)* The shell's `h1` changes from "Moderation" to "Admin" and its flat nav becomes three groups.
 
 ```
 /admin                     → redirect to /admin/overview
@@ -135,6 +135,7 @@ Twenty-nine routes under the existing `AdminShell` (`app/admin/admin-shell.ts`):
     /admin/overview        §5.1
     /admin/activity        §5.2
     /admin/traffic         §5.3
+    /admin/seo             §5.24 (the search console, Panels 1 and 2, AECI-822)
     /admin/audience        §5.4  (aggregates)
     /admin/subscribers     §5.4  (the roster — AECI-859)
   Catalog
@@ -2533,13 +2534,17 @@ console's `AecSelect`.
 
 The endpoints are in §6 and in `API_CONTRACTS.md` §6.10 "Copyright notices".
 
-### 5.24 Search console (`/admin/seo`): SPECIFIED (AECI-817), BACKEND PARTLY BUILT (AECI-818, AECI-820, AECI-821, 2026-11-24)
+### 5.24 Search console (`/admin/seo`): SPECIFIED (AECI-817), PANELS 1 AND 2 SHIPPED (AECI-822), BACKEND PARTLY BUILT (AECI-818, AECI-820, AECI-821, 2026-11-24)
 
 **Status.** AECI-820 built the Google ingest and AECI-821 the Bing ingest (§5.24.10). AECI-818
 built the backend half of Panels 1 and 2: the derivation in `apps/api/src/lib/seo-queue.ts`, the
 shared catalog URL list, the `seo.*` and `queue.*` snapshot keys, and `GET /api/admin/seo/queue`
 and `GET /api/admin/seo/trend`. The `/trend` read was listed under AECI-822 below. It shipped with
-AECI-818, so AECI-822 is the screen only. Nothing else here is built. It is the contract for epic
+AECI-818, so AECI-822 is the screen only. AECI-822 built that screen with Panels 1 and 2
+(`apps/web/src/app/admin/seo/`). Panel 3 is absent until AECI-823. Each panel fails on its own
+with the `/admin/system` error recipe. `/preview/admin-seo` renders both panels and a gallery of
+the empty, no-site-address and failed states over a fake API, for review without a session.
+Nothing else here is built. It is the contract for epic
 AECI-816. Every sub-issue below anchors here. The endpoint shapes are in `API_CONTRACTS.md` §6.10 "Search
 console". Open decisions are listed at the end of this section, and the ones that need Chris are
 marked.
@@ -2767,6 +2772,15 @@ cohort built on it would mix real publications with moves.
 
 **History starts when the keys start.** The `seo.*` and `queue.*` keys begin at the first
 snapshot after AECI-818 ships. Weeks before that render as "Not recorded", never as zero.
+
+**As built (AECI-822, 2026-11-24).** The oldest week is on the left, in the two charts and the
+table alike (Chris, 2026-11-24). Two line charts sit above the table: the cohort crawl rate per
+engine, and the two "not crawled" lanes at the end of each week. A "Not recorded" week is a gap
+in the line with a hatched band, never a point at zero (§8.1 item 4). A week that published no
+pages reads "No pages" in the table and is a gap in the rate chart. The newest cohort, while
+`open`, is a hollow point off the line and reads "so far". A lane's change from the week before
+shows only when the week before was recorded too. The requests row carries a "Self-reported"
+label and the sentence "Not a measurement".
 
 #### 5.24.7 Panel 3: Is it working
 
@@ -3906,6 +3920,18 @@ form outright and names two anti-patterns this section would hit: a 2-slice pie
 comparing close values (countries and sources differ by a few percent). It is
 built and tested so the §8 vocabulary is complete and a later section with a
 genuine few-category split can adopt it.
+
+**4. `LineChart` leaves a gap for a missing value (AECI-822).** A series value may be `null`
+(`NullableChartSeries` in `chart-types.ts`). A `null` means nothing was recorded there, which is
+a different claim from zero. The line breaks at a `null` and has no vertex there. A stretch where
+every series is `null` gets a hatched band with the caller's `gapLabel`. The hidden data table
+prints that label, never `0`. Three more inputs ride with it: `gapLabel`, `openLast` with
+`openLabel` (the last point is still open, so it is drawn hollow and off the line), and
+`unit: 'percent'` (values are fractions, the axis runs to 100%). Every input defaults to the old
+behaviour. A series with no `null` renders the same DOM as before AECI-822, checked by rendering
+the base-commit component beside the new one. The stacked charts keep plain numbers, because a
+stack has no honest way to draw a missing segment. The hatch is drawn as lines, not an SVG
+`pattern`, because a `url(#id)` fill is a bare fragment that the app's `base href` breaks.
 
 **Also shipped:** a hover crosshair/tooltip on the time-series charts, per the
 skill's default. It is `aria-hidden` (the data table carries the values) and its
