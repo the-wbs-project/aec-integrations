@@ -1319,8 +1319,8 @@ from class names.
 
 | Check | WCAG | Fails when |
 |---|---|---|
-| Visible | 2.4.7 | The focused and unfocused pictures are identical, pixel for pixel |
-| Contrast | 1.4.11 | Too few changed pixels reach 3:1 against the same pixel unfocused. A changed pixel is the indicator, and the unfocused pixel is the ground it is drawn on. The 3:1 pixels must add up to a line 1 CSS px wide round the stop's on-screen sides |
+| Visible | 2.4.7 | No pixel changes between the focused and unfocused pictures, once the changes that are not focus are left out (below) |
+| Contrast | 1.4.11 | Too few changed pixels reach 3:1 against the same pixel unfocused. A changed pixel is the indicator, and the unfocused pixel is the ground it is drawn on. The 3:1 pixels must add up to a line 1 CSS px wide round the stop's on-screen sides. Changes that are not focus are left out here too |
 | Not obscured | 2.4.11 | `elementFromPoint` at the centre of each on-screen box of the stop finds neither the stop nor something inside it. A link that wraps has a box per line. A visually hidden input is judged on its labels |
 | Control boundary | 1.4.11 | A text field, select, combobox, checkbox or radio has no edge at 3:1 against the ground just outside it. The edge can be every border it has, its own fill, or, for a box the browser draws, its strongest pixel. The ground is the median pixel 2px outside the control, unfocused |
 
@@ -1329,9 +1329,48 @@ vanishes on its ground, or a faint background tint, gives far less. Buttons and 
 checked: their text names them.
 
 **The unfocused picture** of a stop is taken after focus has moved on to a stop whose ring is clear of
-it. The page is scrolled back to where the stop was focused, pictured, and scrolled forward again.
+it. The page is scrolled back exactly to where the stop was focused, pictured, and scrolled forward
+again. There is no scroll tolerance: a 1px shift turns every text edge in the clip into a strong pixel.
 Scrolling moves no focus, so the walk goes on from the focused stop. The last few are pictured after the
-walk with focus removed. A stop whose scroll position cannot be restored fails as `unmeasured`.
+walk with focus removed.
+
+**Telling a ring from other changes** (review round 2). Leaving a stop can change the picture for
+reasons that are not focus. A field renders its error text, turns its edge red, or content above it
+shifts. Counted as the indicator, any of these would pass a stop with `outline: none`. So the stop and
+every element whose box reaches into the clip are read twice, with each picture. Ancestors are left out:
+a ring a card draws for its link is a ring. Then:
+
+- **The stop must not move.** If its box, or the labels a hidden input is judged on, moved or resized by
+  a hundredth of a pixel, the stop is not compared. It is `unmeasured`. The one exception is a stop that
+  is visually hidden until focused, as the skip link is: its appearing is its indicator.
+- **Other elements that changed are left out.** An element that appeared, went, moved, resized, or
+  changed its attributes or its own text has its box left out of both pictures (`changedRegions` in
+  `support/focus-pixels.ts`). An error message rendered on blur is one.
+- **The stop's own box is left out when its own state changed.** If the stop's attributes or text, or
+  its descendants', changed between the reads (`aria-invalid`, a touched class), a change inside its
+  border box is not counted. A ring drawn outside the box still is. So a control that styles focus
+  through a class it sets on focus, such as the CDK focus monitor's, is judged on what it draws outside
+  its box. None does today.
+
+A field whose only change on blur is its error text and red edge therefore fails "visible". Changed
+pixels left out are named in the finding's detail.
+
+**Unmeasured stops.** Every stop that gets no verdict is counted in the `focus-stops-unmeasured`
+annotation and named, with its reason, in a `focus-unmeasured` annotation. Two reasons are expected: an
+iframe, which draws its own focus, and a stop with no box, which the keyboard suite already fails. Any
+other reason is an `unmeasured` finding and fails the test, so the check cannot quietly measure fewer
+stops (`EXPECTED_UNMEASURED` in `support/focus-check.ts`):
+
+| Reason | Means |
+|---|---|
+| `focus moved before it was read` | The walk's stop and the focused element differ |
+| `the stop moved or resized between its pictures` | Something shifted it, so its pictures cannot be compared |
+| `the stop left the page before its unfocused picture` | It was removed |
+| `the scroll position could not be restored` | The page or a scroll box cannot reach the focused position again |
+| `focus never moved clear of the stop` | Every later stop's ring overlapped its clip |
+| `no ground round the control` | The boundary check found no pixels outside the control |
+
+On landing no surface had an unmeasured stop, in three runs.
 
 **Stable results.** Before it reads a stop, the probe waits for finite animations on the stop and its
 ancestors, then for the stop's box to hold still for two frames. Leaving a field can render its error a
@@ -1340,17 +1379,16 @@ gave the same findings.
 
 **The site header and footer** are the same components on every page. They are measured in full once
 per persona, on the surface `headerOwnerFor` names (§8.4.1). Elsewhere their stops run only the obscured
-check, which needs no picture. An iframe and a stop with no box are not measured. The keyboard suite
-already fails a stop with no box.
+check, which needs no picture.
 
 **The code.**
 
 | File | What it holds |
 |---|---|
 | `focus-ring.spec.ts` | One test per surface, `ALLOW_LIST` and `KNOWN_FOCUS_BARRIERS` |
-| `support/focus-check.ts` | `measureWalk(page, checksSharedChrome)`: the walk, the two pictures, and the verdicts |
-| `support/focus-probe.ts` | The in-page reads: the stop's box, the clip, the hit test, computed colours, scroll save and restore |
-| `support/focus-pixels.ts` | Pure: the WCAG contrast ratio, a PNG decoder, the pixel rules. Pinned by `focus-pixels.unit.spec.ts` against known colour pairs, in the plain Vitest runner |
+| `support/focus-check.ts` | `measureWalk(page, checksSharedChrome)`: the walk, the two pictures, the verdicts, and the unmeasured reasons. The interaction suite reruns it under forced colours (§8.4.7) |
+| `support/focus-probe.ts` | The in-page reads: the stop's box, the clip, the hit test, computed colours, the stop and the elements round it, scroll save and restore |
+| `support/focus-pixels.ts` | Pure: the WCAG contrast ratio, a PNG decoder, the pixel rules, `changedRegions` and `sameRect`. Pinned by `focus-pixels.unit.spec.ts` against known colour pairs, in the plain Vitest runner |
 
 **The allow-list.** `ALLOW_LIST` holds findings where the check is wrong about the element, each with its
 reason. It is empty on landing. A real barrier never goes there.

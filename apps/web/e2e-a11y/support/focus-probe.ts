@@ -13,7 +13,7 @@
  * codebase (`styles.css`), so a class says nothing about the colour drawn.
  */
 import type { Page } from '@playwright/test';
-import type { Rect, Rgba } from './focus-pixels';
+import type { Rect, RegionElement, Rgba } from './focus-pixels';
 import { ensureProbe } from './probe';
 
 /** How far past the element the pictures reach: a 3px outline at a 3px offset, and some room. */
@@ -61,6 +61,24 @@ export interface FocusedRead {
   readonly control: ControlRead | null;
   /** In the site header or footer, the same component on every page. */
   readonly inSharedChrome: boolean;
+  /** What the unfocused picture is compared against, read with the focused one. */
+  readonly state: StopState;
+}
+
+/**
+ * The stop and what is round it, read once with the focused picture and once
+ * with the unfocused one. `../focus-check.ts` compares the two reads to tell a
+ * focus ring from anything else that changed.
+ */
+export interface StopState {
+  /** `box` again, in viewport coordinates. A stop that moved cannot be compared. */
+  readonly box: Rect;
+  /** The stop's own border box, in the picture's coordinates. */
+  readonly ownBox: Rect;
+  /** The stop's attributes and text, and its descendants'. A change means its own state changed. */
+  readonly sig: string;
+  /** Every other element in the picture, in the picture's coordinates. Ancestors are left out. */
+  readonly region: readonly RegionElement[];
 }
 
 export interface BaselineSetup {
@@ -70,11 +88,13 @@ export interface BaselineSetup {
   readonly moved: boolean;
   /** The focused element's ring would show in the picture. Try again from a later stop. */
   readonly blocked: boolean;
+  /** The stop read again at its focused scroll position. `null` when it has left the page. */
+  readonly state: StopState | null;
 }
 
 interface FocusProbeApi {
   read(): Promise<FocusedRead | null>;
-  prepareBaseline(scroll: ScrollState, clip: Rect): Promise<BaselineSetup>;
+  prepareBaseline(scroll: ScrollState, clip: Rect, key: number): Promise<BaselineSetup>;
   restore(scroll: ScrollState): Promise<void>;
 }
 
@@ -90,6 +110,9 @@ export async function ensureFocusProbe(page: Page): Promise<void> {
   await page.evaluate((MARGIN) => {
     if (window.__aeciFocusProbe) return;
     const keys = window.__aeciKeyboardProbe!;
+    // The keyboard probe's locator mark (`probe.ts`). It moves from stop to
+    // stop with the walk, so it is not a change of the element's own.
+    const MARK = 'data-aeci-probe';
 
     const canvas = document.createElement('canvas');
     canvas.width = 1;
@@ -293,11 +316,56 @@ export async function ensureFocusProbe(page: Page): Promise<void> {
       want: ScrollState,
       containers: { c: ScrollState['containers'][number]; el: Element }[],
     ) =>
-      Math.abs(window.scrollX - want.x) <= 1 &&
-      Math.abs(window.scrollY - want.y) <= 1 &&
-      containers.every(
-        ({ c, el }) => Math.abs(el.scrollLeft - c.left) <= 1 && Math.abs(el.scrollTop - c.top) <= 1,
-      );
+      window.scrollX === want.x &&
+      window.scrollY === want.y &&
+      containers.every(({ c, el }) => el.scrollLeft === c.left && el.scrollTop === c.top);
+
+    const ownText = (el: Element) =>
+      Array.from(el.childNodes)
+        .filter((n) => n.nodeType === Node.TEXT_NODE)
+        .map((n) => n.textContent ?? '')
+        .join('')
+        .replace(/\s+/g, ' ')
+        .trim();
+    const attrs = (el: Element) =>
+      Array.from(el.attributes)
+        .filter((a) => a.name !== MARK)
+        .map((a) => `${a.name}=${a.value}`)
+        .sort()
+        .join(' ');
+    const inClip = (r: Rect, clip: Rect): Rect => ({
+      x: r.x - clip.x,
+      y: r.y - clip.y,
+      width: r.width,
+      height: r.height,
+    });
+
+    /**
+     * The stop, its descendants, and every other element whose box reaches
+     * into the picture. Ancestors are left out: their box holds the whole
+     * picture, and a ring they draw for the stop (a card's) is a ring.
+     */
+    const stateOf = (el: Element, clip: Rect): StopState => {
+      const inside = [el, ...Array.from(el.querySelectorAll('*'))];
+      const sig = inside.map((e) => `${e.tagName}[${attrs(e)}]${ownText(e)}`).join('|');
+      const region: RegionElement[] = [];
+      for (const other of Array.from(document.body.getElementsByTagName('*'))) {
+        if (other === el || other.contains(el) || el.contains(other)) continue;
+        const r = other.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0 || !overlaps(rectOf(r), clip)) continue;
+        region.push({
+          key: keys.keyOf(other),
+          rect: inClip(rectOf(r), clip),
+          sig: `${other.tagName}[${attrs(other)}]${ownText(other)}`,
+        });
+      }
+      return {
+        box: targetBox(el).box,
+        ownBox: inClip(rectOf(el.getBoundingClientRect()), clip),
+        sig,
+        region,
+      };
+    };
 
     /**
      * Is the element on top at the centre of one of its boxes? A link that wraps
@@ -378,10 +446,12 @@ export async function ensureFocusProbe(page: Page): Promise<void> {
           outline,
           control,
           inSharedChrome: !!el.closest('aec-site-header, aec-site-footer'),
+          // Read in the same frame as the clip, so a stop with no clip has none.
+          state: stateOf(el, clip ?? { x: 0, y: 0, width: 0, height: 0 }),
         };
       },
 
-      async prepareBaseline(scroll, clip) {
+      async prepareBaseline(scroll, clip, key) {
         const containers = scroll.containers
           .map((c) => ({ c, el: keys.byKey(c.key) }))
           .filter((x): x is { c: (typeof scroll.containers)[number]; el: Element } => !!x.el);
@@ -416,7 +486,12 @@ export async function ensureFocusProbe(page: Page): Promise<void> {
           };
           blocked = overlaps(grown, clip);
         }
-        return { saved, moved, blocked };
+        let state: StopState | null = null;
+        if (!moved && !blocked) {
+          const stop = keys.byKey(key);
+          state = stop && stop.isConnected ? stateOf(stop, clip) : null;
+        }
+        return { saved, moved, blocked, state };
       },
 
       async restore(scroll) {
@@ -464,15 +539,12 @@ export function prepareBaseline(
   page: Page,
   scroll: ScrollState,
   clip: Rect,
+  key: number,
 ): Promise<BaselineSetup> {
   return withProbe(page, () =>
-    page.evaluate<unknown, { s: ScrollState; c: Rect; m: string }>(
-      ({ s, c, m }) => window.__aeciFocusProbe?.prepareBaseline(s, c) ?? m,
-      {
-        s: scroll,
-        c: clip,
-        m: MISSING,
-      },
+    page.evaluate<unknown, { s: ScrollState; c: Rect; k: number; m: string }>(
+      ({ s, c, k, m }) => window.__aeciFocusProbe?.prepareBaseline(s, c, k) ?? m,
+      { s: scroll, c: clip, k: key, m: MISSING },
     ),
   );
 }

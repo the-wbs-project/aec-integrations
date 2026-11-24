@@ -166,8 +166,18 @@ test.describe('a11y nightly focus ring', () => {
             type: 'focus-stops-obscured-only',
             description: String(measured.sharedChromeHitTestOnly),
           });
-          for (const note of measured.notMeasured) {
-            info.push({ type: 'focus-not-measured', description: note });
+          // Every stop with no verdict is counted and named. Only an iframe and a
+          // stop with no box are expected. Any other reason is an `unmeasured`
+          // finding below, so the test fails rather than measure fewer stops.
+          info.push({
+            type: 'focus-stops-unmeasured',
+            description: String(measured.unmeasured.length),
+          });
+          for (const u of measured.unmeasured) {
+            info.push({
+              type: 'focus-unmeasured',
+              description: `${u.stop.landmark} ${u.stop.role} "${u.stop.name}": ${u.reason}${u.detail ? ` (${u.detail})` : ''}`,
+            });
           }
 
           expect(measured.end, 'the Tab cycle closes, so every stop was measured').toBe('closed');
