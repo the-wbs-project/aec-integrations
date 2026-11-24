@@ -374,8 +374,9 @@ jobs:
   # Runs on success, failure and cancellation, so every measured run leaves a
   # terminal status. It holds a statuses:write token, so it runs no
   # `pnpm install`: the merge script has no dependencies. Only the status step
-  # gets the token, as GH_TOKEN. Checkout, setup-node and download are pinned to
-  # the same full SHAs as in `alert`.
+  # gets the token, as GH_TOKEN. Every action here is pinned to a full SHA:
+  # checkout, setup-node and download to the same ones as `alert`, and upload
+  # to v6.0.0.
   report:
     name: Merge the summaries and record the result
     needs: [resolve, suite, e2e-axe]
@@ -402,9 +403,10 @@ jobs:
           E2E_AXE_RESULT: ${{ needs.e2e-axe.result }}
         run: |
           set -euo pipefail
+          # A failure wins over a cancel: a red lane must alert even when the
+          # other lane was cancelled.
           case "$SUITE_RESULT/$E2E_AXE_RESULT" in
             success/success) outcome=success ;;
-            cancelled/* | */cancelled) outcome=cancelled ;;
             failure/* | */failure) outcome=failure ;;
             *) outcome=cancelled ;;
           esac
@@ -439,7 +441,7 @@ jobs:
       # The alert job reads this. AECI-1682 will read it for the dated record.
       - name: Keep the merged summary
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: a11y-nightly-summary
           path: a11y-nightly-summary.json

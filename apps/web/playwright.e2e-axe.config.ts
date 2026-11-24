@@ -5,8 +5,8 @@ import base from './playwright.config';
 // AECI-1876: the e2e suite with the axe sweep on, for the accessibility nightly.
 //
 // The same tests as the PR e2e job (`playwright.config.ts`, `testDir: './e2e'`).
-// The only differences are the flag and the reporters. The flag turns on the
-// `page` fixture's end-of-test axe scan (`e2e/fixtures.ts`). It is set here,
+// The only differences are the flag, the reporters and no retries. The flag
+// turns on the `page` fixture's end-of-test axe scan (`e2e/fixtures.ts`). It is set here,
 // before any worker starts, so every worker inherits it. A run of the default
 // config never sets it, so the PR job is unchanged.
 //
@@ -26,5 +26,10 @@ const reporter: ReporterDescription[] = [
 
 export default defineConfig({
   ...base,
+  // No retries, unlike the PR job's one in CI. A test that fails the sweep and
+  // passes on a retry would be green, and its violation would never reach the
+  // summary: the reporter reads the last attempt. A flaky test body is red here
+  // and shows as a failing test in the nightly alert.
+  retries: 0,
   reporter,
 });

@@ -109,6 +109,17 @@ describe('known failures', () => {
     const r = applyKnownFailures('/x', [], entries);
     expect(r.stale.map((e) => e.issue)).toEqual(['AECI-2']);
   });
+
+  it('reports an entry as stale when one of its listed targets passes', () => {
+    const two = [{ issue: 'AECI-3', rule: 'color-contrast', path: '/p', targets: ['#a', '#b'] }];
+    const both = [finding('color-contrast', { targets: ['#a', '#b'], nodes: 2 })];
+    expect(applyKnownFailures('/p', both, two).stale).toEqual([]);
+    const partial = [finding('color-contrast', { targets: ['#a'], nodes: 1 })];
+    const r = applyKnownFailures('/p', partial, two);
+    expect(r.stale.map((e) => e.issue)).toEqual(['AECI-3']);
+    // The remaining node is still known, not a new failure.
+    expect(r.known).toHaveLength(1);
+  });
 });
 
 describe('the summary block', () => {
@@ -120,8 +131,13 @@ describe('the summary block', () => {
     ...over,
   });
 
-  it('is null when no test reached the sweep', () => {
-    expect(summarizeAxe([{ title: 't', scan: null }])).toBeNull();
+  it('is an all-zero object when no test reached the sweep', () => {
+    const s = summarizeAxe([{ title: 't', scan: null }]);
+    expect(s.scans).toEqual({ scanned: 0, optedOut: 0, notScanned: 0 });
+    expect(s.violationsByImpact).toEqual({ critical: 0, serious: 0, moderate: 0, minor: 0 });
+    expect(s.gate.rules).toEqual([]);
+    expect(s.reportOnly.rules).toEqual([]);
+    expect(s.knownFailures).toEqual([]);
   });
 
   it('counts scans, lists opt-outs, and groups findings by rule', () => {

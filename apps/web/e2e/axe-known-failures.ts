@@ -12,11 +12,16 @@
  *     `issue:` here that does not.
  *   - A listed violation does not fail the test. The test carries the
  *     `known-failure` annotation, so the summary names the issue.
- *   - A test that ends on a listed page where the rule no longer fails turns red.
- *     That is the reminder to close the issue and delete the entry.
+ *   - A test that ends on a listed page turns red when the rule no longer fails
+ *     there, or when any one listed target no longer fails. A partial fix makes
+ *     the entry shrink. A full fix makes it go, and the issue close.
  *
  * Match: the rule id, the page path exactly, and, when `targets` is set, every
  * failing node's selector. A new node of the same rule on the same page still fails.
+ *
+ * `targets` are axe's own generated selectors, as the failure message prints them.
+ * axe picks the shortest selector that is unique on the page, so a short one such
+ * as `.text-xs` is still exactly one node there.
  */
 
 export interface AxeKnownFailure {

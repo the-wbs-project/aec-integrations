@@ -87,8 +87,10 @@ test('a rule keeps at most ten paths', () => {
   assert.equal(r.paths.length, 10);
 });
 
-test('axe blocks sum, and a run with none stays null', () => {
-  assert.equal(mergeAxe([null, undefined]), null);
+test('axe blocks sum, and a run with none is an all-zero object', () => {
+  const none = mergeAxe([null, undefined]);
+  assert.deepEqual(none.scans, { scanned: 0, optedOut: 0, notScanned: 0 });
+  assert.deepEqual(none.reportOnly.rules, []);
   const m = mergeAxe([axeBlock(), null, axeBlock()]);
   assert.deepEqual(m.violationsByImpact, { critical: 0, serious: 2, moderate: 0, minor: 0 });
   assert.deepEqual(m.scans, { scanned: 20, optedOut: 2, notScanned: 4 });

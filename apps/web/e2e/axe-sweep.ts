@@ -25,7 +25,7 @@
  * `docs/TESTING_STRATEGY.md` §8.2 and §8.3 describe the sweep.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { test, type Page, type TestInfo } from '@playwright/test';
+import { test, type Browser, type Page, type TestInfo } from '@playwright/test';
 
 import {
   AXE_OPT_OUT_ANNOTATION,
@@ -92,6 +92,52 @@ function record(testInfo: TestInfo, scan: AxeScanRecord): void {
 
 function notScanned(testInfo: TestInfo, reason: string, url?: string): void {
   record(testInfo, { status: 'not-scanned', reason, url, gate: [], report: [] });
+}
+
+/** Why a test that never reached the sweep was not scanned. */
+export const OWN_CONTEXT_REASON =
+  'the test opened its own browser context, and the sweep scans only the page fixture';
+export const NO_PAGE_REASON = 'the test never asks for the page fixture';
+
+/**
+ * Count the browser contexts a test opens itself (`browser.newContext()`,
+ * `browser.newPage()`) while it runs. Call `restore()` in teardown.
+ *
+ * Those pages are not scanned. Most such tests close the context in their own
+ * body, and many set up a state the sweep cannot judge: JavaScript off, forced
+ * colours, a held stylesheet. Counting them keeps them visible in the summary.
+ */
+export function trackOwnContexts(browser: Browser): { count: () => number; restore: () => void } {
+  let opened = 0;
+  const newContext = browser.newContext;
+  const newPage = browser.newPage;
+  // Playwright's own `context` fixture calls `browser.newContext()` too. Count
+  // only the calls made from test code, which runs from `apps/web/e2e/`.
+  const fromTestCode = (): boolean => /[\\/]e2e[\\/]/.test(new Error().stack ?? '');
+  browser.newContext = (...args) => {
+    if (fromTestCode()) opened += 1;
+    return newContext.apply(browser, args);
+  };
+  browser.newPage = (...args) => {
+    if (fromTestCode()) opened += 1;
+    return newPage.apply(browser, args);
+  };
+  return {
+    count: () => opened,
+    restore: () => {
+      browser.newContext = newContext;
+      browser.newPage = newPage;
+    },
+  };
+}
+
+/**
+ * For a test the sweep never reached: record it as not scanned, with the reason.
+ * Every test in the lane then carries an `axe-scan` record and is counted.
+ */
+export function recordUnreached(testInfo: TestInfo, ownContexts: number): void {
+  if (testInfo.annotations.some((a) => a.type === AXE_SCAN_ANNOTATION)) return;
+  notScanned(testInfo, ownContexts > 0 ? OWN_CONTEXT_REASON : NO_PAGE_REASON);
 }
 
 /** `target-size` on the product-detail integrations section is gated by its own spec (AECI-1079). */
@@ -283,8 +329,10 @@ export async function sweepAfterTest(
   }
   for (const e of stale) {
     problems.push(
-      `axe sweep: ${e.issue} no longer fails here: ${e.rule} on ${e.path} passed. ` +
-        'Close the issue and delete its entry in e2e/axe-known-failures.ts.',
+      `axe sweep: ${e.issue} no longer fails as listed: ${e.rule} on ${e.path}` +
+        (e.targets ? ` (targets ${e.targets.join(', ')})` : '') +
+        ' passed in part or in full. Drop the fixed targets from its entry in ' +
+        'e2e/axe-known-failures.ts, or delete the entry and close the issue.',
     );
   }
   if (problems.length > 0) throw new Error(problems.join('\n'));

@@ -65,7 +65,8 @@ export interface KnownFailureLike {
 
 /**
  * Split the gate list by the known-failure list, for a page at `path`.
- * `stale` holds the entries for this page whose rule no longer fails.
+ * `stale` holds the entries for this page whose rule, or any one of whose
+ * listed targets, no longer fails.
  */
 export function applyKnownFailures(
   path: string,
@@ -91,7 +92,15 @@ export function applyKnownFailures(
     if (entry) known.push({ issue: entry.issue, finding: f });
     else failing.push(f);
   }
-  const stale = here.filter((e) => !gate.some((f) => f.id === e.rule));
+  // Stale when the rule passes, or when any listed target passes. A partial
+  // fix turns the test red too, so the entry shrinks with the fix.
+  const stale = here.filter((e) => {
+    const failingTargets = new Set(
+      gate.filter((f) => f.id === e.rule).flatMap((f) => [...f.targets]),
+    );
+    if (failingTargets.size === 0) return true;
+    return (e.targets ?? []).some((t) => !failingTargets.has(t));
+  });
   return { failing, known, stale };
 }
 
@@ -269,17 +278,17 @@ function groupByRule(
 }
 
 /**
- * Fold every test's scan record into the summary's `axe` block. `null` when no
- * test reached the sweep, which is a run with the flag off.
+ * Fold every test's scan record into the summary's `axe` block. Always an
+ * object: a run with no sweep, such as `e2e-a11y/` alone, has zero counts and
+ * empty lists. So `axe` never changes type, and `schemaVersion` stays 1.
  */
 export function summarizeAxe(
   tests: ReadonlyArray<{ readonly title: string; readonly scan: AxeScanRecord | null }>,
-): AxeSummary | null {
+): AxeSummary {
   const scans = tests.filter((t) => t.scan !== null) as Array<{
     title: string;
     scan: AxeScanRecord;
   }>;
-  if (scans.length === 0) return null;
   const violationsByImpact: Record<Impact, number> = {
     critical: 0,
     serious: 0,

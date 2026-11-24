@@ -791,10 +791,11 @@ closes that gap. With the env flag `AECI_E2E_AXE=1`, every e2e test that uses th
 with one axe scan of the state it left the page in: after a submit, an open menu, a client navigation.
 
 - **The fixture.** Every spec in `apps/web/e2e/` imports `test` from `./fixtures`, not from
-  `@playwright/test`. `fixtures.ts` re-exports everything else unchanged and overrides `page`. With the
-  flag unset, the override hands the page through and does nothing else, so the PR e2e job is
-  unchanged. With it set, the override watches the console and runs `sweepAfterTest()` from
-  `e2e/axe-sweep.ts` after the test body. `scripts/e2e-axe-sweep.test.mjs` fails a spec that
+  `@playwright/test`. `fixtures.ts` re-exports everything else unchanged. With the flag unset, its
+  `test` is `@playwright/test`'s own `test`, so the PR e2e job is unchanged. With it set, `test`
+  overrides `page`: it watches the console and runs `sweepAfterTest()` from `e2e/axe-sweep.ts` after
+  the test body. The `page` fixture has its own 60-second budget, so a `test.setTimeout()` in a test
+  body cannot cut the sweep short. `scripts/e2e-axe-sweep.test.mjs` fails a spec that
   imports `test` from `@playwright/test`, so a new spec cannot skip the sweep by accident.
 - **The flag.** Only the exact value `1` turns it on. `playwright.e2e-axe.config.ts` sets it, and
   `pnpm test:e2e:axe` runs that config. The default `playwright.config.ts` and `deploy.yml` never
@@ -806,10 +807,21 @@ with one axe scan of the state it left the page in: after a submit, an open menu
   the contrast rule does not apply under forced colours. Every other emulated setting stays.
 - **Hydration voids a scan.** An `NG0500` or `NG0602` logged during the test fails it. A page that
   hydrated wrong is not the page a reader gets.
-- **Not scanned.** A test that failed or skipped already has its answer. A closed page, a page that
-  is not HTML (`/sitemap.xml`), and a test with JavaScript off are recorded as not scanned, with the
-  reason. axe runs as a script in the page, so it cannot run with JavaScript off. A test that never
-  asks for `page` (an API-only test using `request`) has nothing to scan.
+- **Not scanned.** Every test in the lane that starts gets a scan record, so each one is counted.
+  A test skipped at declaration never starts, and `totals.skipped` counts it. These are recorded as
+  not scanned, with the reason:
+  - A test that failed or skipped. It already has its answer.
+  - A closed page, or a page that is not HTML (`/sitemap.xml`).
+  - A test with JavaScript off. axe runs as a script in the page, so it cannot run there.
+  - A test that never asks for `page`, such as an API-only test using `request`.
+  - A test that opens its own browser context (`browser.newContext()` or `browser.newPage()`) and not
+    `page`. The sweep scans only the `page` fixture. Those pages are closed in the test body, and they
+    hold a state the sweep cannot judge: forced colours, JavaScript off, a held stylesheet, a cold
+    first paint. As of AECI-1876 that is 12 tests: `product-review-responses.spec.ts` (forced colours,
+    one), `product-hero-hub.spec.ts` (reduced motion, two), `first-paint.spec.ts` (four),
+    `font-loading.spec.ts` (four) and `products-pair.spec.ts` (JavaScript off, one).
+    `browser-evidence.spec.ts` opens one too when it runs. An auto fixture counts the contexts a
+    test opens and writes the record.
 - **Opting out.** A test whose end state is not a page a reader can reach calls
   `axeOptOut(reason)` in its body or a `beforeEach`. Examples: a stub page the test served itself, a
   chunk it held back so the app never becomes stable. The reason is a literal string, and
@@ -819,8 +831,9 @@ with one axe scan of the state it left the page in: after a submit, an open menu
 - **Known failures.** A violation we cannot fix yet goes in `e2e/axe-known-failures.ts`, by rule and
   page path, with its Linear issue. It is the sweep's form of `knownFailure()` (§8.4), keyed by page
   because one cause often ends many tests on one page. A listed violation does not fail the test, and
-  the test carries the `known-failure` annotation. A test that ends on a listed page where the rule now
-  passes fails, so the entry comes off. `scripts/a11y-known-failures.test.mjs` requires a literal
+  the test carries the `known-failure` annotation. A test that ends on a listed page fails when the rule
+  now passes there, or when any one listed target passes. A partial fix shrinks the entry, and a
+  full fix removes it. `scripts/a11y-known-failures.test.mjs` requires a literal
   `'AECI-<n>'` on every entry.
 - **What it found on landing (2026-11-24).** Two gate failures, both on dev-only pages, both filed
   under AECI-1069 and listed: AECI-2059 (`/_demo/spartan`, `aria-prohibited-attr` on the demo dialog
@@ -873,8 +886,9 @@ anywhere else in `e2e-a11y/`, or a call without a literal `'AECI-<n>'`, fails `p
 (`scripts/a11y-known-failures.test.mjs`).
 
 **The summary.** `e2e-a11y/summary-reporter.ts` writes `apps/web/a11y-nightly-summary.json` after every
-run. CI keeps it as an artifact for 30 days. The alert reads it to name the failing surfaces, and
-AECI-1682 will read it for the dated record.
+run. In CI the workflow merges it with the e2e axe sweep's summaries, and the alert reads the merged
+file to name the failing surfaces (§8.4.2). CI keeps that file as an artifact for 30 days. AECI-1682
+will read it for the dated record.
 
 | Field | Meaning |
 |---|---|
@@ -883,7 +897,7 @@ AECI-1682 will read it for the dated record.
 | `status` | Playwright's overall result |
 | `totals` | `passed`, `failed`, `skipped`, `expectedFailures` |
 | `tests[]` | `title`, `surfaceId`, `route`, `file`, `outcome`, `knownFailure` (the issue ID or `null`), and `axe` (the sweep's verdict or `null`) |
-| `axe` | The e2e axe sweep's results, or `null` for a run with no sweep. See §8.4.2 |
+| `axe` | The e2e axe sweep's results. Always an object: zero counts and empty lists for a run with no sweep. See §8.4.2 |
 
 **Adding a check.** Write a new spec in `e2e-a11y/` that loops over `SURFACES`. Add the
 `surface` and `route` annotations to each test, as `surfaces.spec.ts` does, so the summary can name the
@@ -982,8 +996,10 @@ check how Playwright's WebKit build behaves before trusting a WebKit walk.
 #### 8.4.2 The e2e axe sweep lane (AECI-1876)
 
 The nightly runs a second Playwright lane next to `e2e-a11y/`: the whole e2e suite with the axe sweep
-on (§8.2). It runs from `apps/web/playwright.e2e-axe.config.ts`, the default config plus the flag and
-the reporters. CI splits it into four shards. Run it locally against `pnpm dev:agent`:
+on (§8.2). It runs from `apps/web/playwright.e2e-axe.config.ts`, the default config plus the flag, the
+reporters and `retries: 0`. CI splits it into four shards. The PR job retries once in CI. Here a retry
+would hide a violation: a test that fails the sweep and passes on the second try is green, and the
+summary reads only the last try. So a flaky test is red in this lane and is named in the alert. Run it locally against `pnpm dev:agent`:
 
 ```bash
 AECI_WEB_PORT=8790 PLAYWRIGHT_BASE_URL=http://localhost:8790 pnpm test:e2e:axe

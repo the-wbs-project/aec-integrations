@@ -6,7 +6,7 @@
  * date, the commit, the surfaces and the counts.
  *
  * AECI-1876: the `axe` block folds the `axe-scan` annotations of the e2e axe
- * sweep (`e2e/axe-sweep.ts`) with `summarizeAxe()`. It is `null` for a run with
+ * sweep (`e2e/axe-sweep.ts`) with `summarizeAxe()`. It is all zeros for a run with
  * no sweep, such as the `e2e-a11y/` suite alone. Each test row also carries its
  * own `axe` status. `schemaVersion` changes only when a field changes meaning or
  * goes away.
@@ -67,8 +67,8 @@ export interface A11yNightlySummary {
     /** The e2e axe sweep's verdict on this test, or `null` when it never reached the sweep. */
     readonly axe: AxeScanStatus | null;
   }>;
-  /** `null` when no test reached the e2e axe sweep. */
-  readonly axe: AxeSummary | null;
+  /** Always an object. All zeros and empty lists when no test reached the sweep. */
+  readonly axe: AxeSummary;
 }
 
 function annotation(test: TestCase, result: TestResult | undefined, type: string): string | null {

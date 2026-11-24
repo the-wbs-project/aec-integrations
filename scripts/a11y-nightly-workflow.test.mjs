@@ -107,7 +107,7 @@ function outcomeFor(suite, e2eAxe) {
   return readFileSync(out, 'utf8').trim();
 }
 
-test('the outcome is success only when both lanes pass', () => {
+test('the outcome is success only when both lanes pass, and a failure beats a cancel', () => {
   const cases = [
     ['success', 'success', 'success'],
     ['failure', 'success', 'failure'],
@@ -115,7 +115,10 @@ test('the outcome is success only when both lanes pass', () => {
     ['failure', 'failure', 'failure'],
     ['cancelled', 'success', 'cancelled'],
     ['success', 'cancelled', 'cancelled'],
-    ['failure', 'cancelled', 'cancelled'],
+    // A red lane alerts even when the other lane was cancelled.
+    ['failure', 'cancelled', 'failure'],
+    ['cancelled', 'failure', 'failure'],
+    ['failure', 'skipped', 'failure'],
     ['success', 'skipped', 'cancelled'],
     ['skipped', 'success', 'cancelled'],
   ];
@@ -132,6 +135,10 @@ test('report waits for both lanes, always runs on a measured commit, and posts t
   assert.match(body, /statuses: write/);
   // It holds a write token, so it installs nothing.
   assert.doesNotMatch(body, /pnpm install/);
+  // ...and every action it uses is pinned to a full commit SHA.
+  const uses = [...body.matchAll(/^\s*-? ?uses: (\S+)/gm)].map((m) => m[1]);
+  assert.ok(uses.length >= 4, 'report uses checkout, setup-node, download and upload');
+  for (const u of uses) assert.match(u, /@[0-9a-f]{40}$/, `${u} is pinned to a full SHA`);
   // The suite only posts `pending` now.
   assert.doesNotMatch(job('suite'), /Record the a11y-nightly status/);
   assert.doesNotMatch(job('e2e-axe'), /statuses: write|GH_TOKEN/);
@@ -149,4 +156,6 @@ test('the PR e2e job never turns the sweep on', () => {
   assert.doesNotMatch(DEPLOY, /AECI_E2E_AXE|e2e-axe\.config/);
   assert.doesNotMatch(DEFAULT_CONFIG, /AECI_E2E_AXE/);
   assert.match(AXE_CONFIG, /process\.env\[E2E_AXE_FLAG\] = '1'/);
+  // A violation that passes on a retry would never reach the summary.
+  assert.match(AXE_CONFIG, /^\s*retries: 0,/m);
 });

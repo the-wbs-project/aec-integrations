@@ -82,10 +82,9 @@ export function mergeKnown(lists) {
   );
 }
 
-/** Merge the `axe` blocks. `null` when no part had one. */
+/** Merge the `axe` blocks. Always an object: all zeros when no part had one. */
 export function mergeAxe(blocks) {
   const present = blocks.filter((b) => b && typeof b === 'object');
-  if (present.length === 0) return null;
   const sum = (pick) => present.reduce((n, b) => n + (Number(pick(b)) || 0), 0);
   return {
     violationsByImpact: Object.fromEntries(
@@ -98,12 +97,12 @@ export function mergeAxe(blocks) {
     },
     optOuts: present.flatMap((b) => b.optOuts ?? []),
     gate: {
-      tags: present[0].gate?.tags ?? [],
+      tags: present[0]?.gate?.tags ?? [],
       rules: mergeRules(present.map((b) => b.gate?.rules ?? [])),
     },
     knownFailures: mergeKnown(present.map((b) => b.knownFailures ?? [])),
     reportOnly: {
-      tags: present[0].reportOnly?.tags ?? [],
+      tags: present[0]?.reportOnly?.tags ?? [],
       rules: mergeRules(present.map((b) => b.reportOnly?.rules ?? [])),
     },
   };
@@ -187,7 +186,8 @@ export function summaryMarkdown(merged) {
     lines.push('', `Missing summaries: ${missing.map((p) => `\`${p.file}\``).join(', ')}.`);
   }
   const axe = merged.axe;
-  if (!axe) {
+  const reached = axe.scans.scanned + axe.scans.optedOut + axe.scans.notScanned;
+  if (reached === 0) {
     lines.push('', 'No test reached the e2e axe sweep.');
     return `${lines.join('\n')}\n`;
   }

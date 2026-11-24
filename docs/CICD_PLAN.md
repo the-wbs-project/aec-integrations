@@ -1469,7 +1469,7 @@ place the flag is set, so the PR job's tests and timing do not change (`docs/TES
 steps receive the `statuses: write` token, as `GH_TOKEN`. The pending step is in `suite`. The result step
 is in `report`, which runs no `pnpm install`: the merge script has no dependencies. `e2e-axe` holds a
 read-only token. Every action in the `alert` job is pinned to a full commit SHA, the same ones
-`lighthouse.yml` uses. `report` pins its checkout, setup-node and download to the same SHAs.
+`lighthouse.yml` uses. `report` pins its checkout, setup-node and download to the same SHAs, and `actions/upload-artifact` to v6.0.0 (`b7c566a7`).
 
 **The jobs (AECI-1876).**
 
@@ -1477,8 +1477,8 @@ read-only token. Every action in the `alert` job is pinned to a full commit SHA,
 |---|---|
 | `resolve` | Picks the SHA and applies the nightly skip |
 | `suite` | Posts `pending`. Runs `e2e-a11y/`. Uploads `a11y-nightly-summary-suite` |
-| `e2e-axe` (×4) | Runs its quarter of the e2e suite with `AECI_E2E_AXE=1`. Uploads `a11y-nightly-summary-e2e-axe-N` and `playwright-report-e2e-axe-N` |
-| `report` | Always runs on a measured commit. Decides the outcome from both lanes first: `success` only when both passed, `error` when either was cancelled or skipped, else `failure`. Merges the five summaries, names any that are missing, and uploads `a11y-nightly-summary`. Posts the result status |
+| `e2e-axe` (×4) | Runs its quarter of the e2e suite with `AECI_E2E_AXE=1` and no retries, so a violation cannot pass on a second try (`docs/TESTING_STRATEGY.md` §8.4.2). Uploads `a11y-nightly-summary-e2e-axe-N` and `playwright-report-e2e-axe-N` |
+| `report` | Always runs on a measured commit. Decides the outcome from both lanes first: `success` only when both passed, `failure` when either failed, else `error` (a lane cancelled or skipped). A failure wins over a cancel, so a red lane alerts even when the other was cancelled. Merges the five summaries, names any that are missing, and uploads `a11y-nightly-summary`. Posts the result status |
 | `alert`, `confirm-alert` | As before, but they read `report`'s outcome, not one lane's result |
 
 **Why shards.** The PR e2e job runs about 838 tests in four shards of 5 to 6 minutes each, on one worker
