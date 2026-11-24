@@ -32,12 +32,13 @@ import {
   FIELD_INPUT_CLASS,
   FIELD_LABEL_CLASS,
 } from '../../shared/form-field/form-field-classes';
-import { QUEUE_FAILED_CLASS, QUEUE_NOTICE_CLASS } from '../reviews/queue-classes';
+import { QUEUE_FAILED_CLASS } from '../reviews/queue-classes';
 import {
   VENDOR_ACTIONS_CLASS,
   VENDOR_FIELD_CLASS,
   VENDOR_FORM_CLASS,
 } from './vendor-console-classes';
+import { CONSOLE_NOTICE_CLASS } from '../console/console-detail';
 
 /**
  * The API's rule for a ban-term `ends_at` (`createBanTermLicensesHandler`): the value
@@ -199,7 +200,7 @@ export class BanTermLicensesControl {
   protected readonly hintClass = FIELD_HINT_CLASS;
   protected readonly inputClass = FIELD_INPUT_CLASS;
   protected readonly choiceClass = CHOICE_INPUT_CLASS;
-  protected readonly noticeClass = QUEUE_NOTICE_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
   protected readonly failedClass = QUEUE_FAILED_CLASS;
   protected readonly formClass = VENDOR_FORM_CLASS;
   protected readonly fieldClass = VENDOR_FIELD_CLASS;

@@ -178,8 +178,8 @@ export function toVendorBillingLicenseRow(
  *
  * ── STATUS CHIPS (AECI-1866, AECI-1812) ─────────────────────────────────────
  * The status and the badges are `aec-chip`s. The tones are `LICENSE_CHIP_TONE` in
- * `vendor-billing-styles.ts`. Until AECI-1812 they were the unlayered
- * `.aec-status-chip--*` rules in `styles.css`, which no file reads now.
+ * `vendor-billing-styles.ts`. Until AECI-1812 they were unlayered status-chip
+ * rules in `styles.css`. The cleanup slice (AECI-1729) deleted them.
  *
  * ── THE TABLES ──────────────────────────────────────────────────────────────
  * Each table scrolls sideways inside its own labelled, focusable region, so the page

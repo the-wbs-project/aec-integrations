@@ -16,17 +16,17 @@ import type { AdminThreadDetail } from '@aeci/shared';
 import { AecButton } from '../../shared/button/button';
 import { Chip } from '../../shared/chip/chip';
 import { AdminBreadcrumbStore } from '../admin-breadcrumb.store';
-import {
-  CLAIM_INLINE_LINK_CLASS,
-  DETAIL_FACT_VALUE_CLASS,
-  DETAIL_FACTS_CLASS,
-} from '../claims/claim-classes';
 import { CONSOLE_LABEL_CLASS, CONSOLE_PANEL_CLASS } from '../console/console-table';
 import { adminStatusTone } from '../console/status-tones';
 import { ADMIN_DETAIL_FALLBACK_LABELS } from '../admin-nav';
 import { isStatus } from '../http-status';
 import { threadStateLabel, threadSubject } from './admin-thread-labels';
 import { AdminThreadsApi } from './admin-threads-api';
+import {
+  CONSOLE_FACTS_CLASS,
+  CONSOLE_FACT_VALUE_CLASS,
+  CONSOLE_FOREST_LINK_CLASS,
+} from '../console/console-detail';
 
 /**
  * `/admin/threads/:id` — one private row thread, read-only. AECI-1539,
@@ -63,9 +63,9 @@ export class ThreadDetail {
   // AECI-2111: the console's detail page (mock-up 14).
   protected readonly panelClass = CONSOLE_PANEL_CLASS;
   protected readonly labelClass = CONSOLE_LABEL_CLASS;
-  protected readonly factsClass = DETAIL_FACTS_CLASS;
-  protected readonly valueClass = DETAIL_FACT_VALUE_CLASS;
-  protected readonly inlineLinkClass = CLAIM_INLINE_LINK_CLASS;
+  protected readonly factsClass = CONSOLE_FACTS_CLASS;
+  protected readonly valueClass = CONSOLE_FACT_VALUE_CLASS;
+  protected readonly inlineLinkClass = CONSOLE_FOREST_LINK_CLASS;
 
   /** Open is live, closed is quiet (`ADMIN_STATUS_TONES`). */
   protected stateTone(thread: AdminThreadDetail) {

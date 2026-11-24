@@ -5,6 +5,13 @@ import {
   FIELD_HINT_CLASS,
   FIELD_INPUT_CLASS,
 } from '../../shared/form-field/form-field-classes';
+import {
+  CONSOLE_LOAD_FAILED_CLASS,
+  CONSOLE_NEUTRAL_BOX_CLASS,
+  CONSOLE_NOTICE_CLASS,
+  CONSOLE_STATUS_LINE_CLASS,
+  CONSOLE_TEXT_LINK_CLASS,
+} from '../console/console-detail';
 
 /**
  * Class constants the three `/admin/legal` sections share (AECI-2128, mock-up 14): the
@@ -22,11 +29,9 @@ export const LEGAL_CLASSES = {
    * A cautionary box (mock-up 14 `.warnbox`): Bone fill, a strong edge, control radius.
    * An open litigation hold, a moved date.
    */
-  notice:
-    'rounded-control border border-(--border-strong) bg-(--accent-warm) p-4 text-t-14 text-(--text-primary)',
+  notice: CONSOLE_NOTICE_CLASS,
   /** A neutral box: publishing turned off on this tier. Sunken, hairline, control radius. */
-  neutralBox:
-    'rounded-control border border-(--border-default) bg-(--surface-sunken) p-4 text-t-14 text-(--text-primary)',
+  neutralBox: CONSOLE_NEUTRAL_BOX_CLASS,
   /** The bold first line inside a box. */
   boxTitle: 'font-semibold text-(--text-primary)',
   /** A `dl` of label and value pairs side by side; the term column sizes to its longest term. */
@@ -63,12 +68,11 @@ export const LEGAL_CLASSES = {
   /** A refused write or a load failure, beside the control that failed. */
   failedText: 'text-t-14 font-semibold text-(--text-primary)',
   /** A loading or empty line. */
-  statusLine: 'text-t-16 text-(--text-secondary)',
+  statusLine: CONSOLE_STATUS_LINE_CLASS,
   /** A load failure: the sentence, then its Try again button. */
-  loadFailed: 'grid justify-items-start gap-4',
+  loadFailed: CONSOLE_LOAD_FAILED_CLASS,
   /** The button row at the foot of a form or a card. */
   actions: 'flex flex-wrap items-center gap-3',
   /** A link inside running text: the text's own ink, underlined. */
-  inlineLink:
-    'rounded-mark text-(--text-primary) underline decoration-(--border-strong) underline-offset-4 hover:decoration-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)',
+  inlineLink: CONSOLE_TEXT_LINK_CLASS,
 } as const;

@@ -22,12 +22,12 @@ import { AdminPaginator } from '../admin-paginator';
 import { CONSOLE_CAPTION_CLASS, CONSOLE_TABLE } from '../console/console-table';
 import { adminStatusTone, type AdminStatusKey } from '../console/status-tones';
 import { ListingHideForm, type ListingHideMode } from './listing-hide-form';
-import {
-  VENDOR_FAILED_TEXT_CLASS,
-  VENDOR_LOAD_FAILED_CLASS,
-  VENDOR_STATUS_LINE_CLASS,
-} from './vendor-console-classes';
 import { STANDALONE_LINK_CLASS } from '../../vendor/components/vendor-docs-link';
+import {
+  CONSOLE_FAILED_TEXT_CLASS,
+  CONSOLE_LOAD_FAILED_CLASS,
+  CONSOLE_STATUS_LINE_CLASS,
+} from '../console/console-detail';
 
 /**
  * The Products tab on `/admin/vendors/:id` — the vendor's catalogue as a table
@@ -89,9 +89,9 @@ export class VendorProductsTable {
   protected readonly t = CONSOLE_TABLE;
   protected readonly captionClass = CONSOLE_CAPTION_CLASS;
   protected readonly linkClass = STANDALONE_LINK_CLASS;
-  protected readonly statusLineClass = VENDOR_STATUS_LINE_CLASS;
-  protected readonly loadFailedClass = VENDOR_LOAD_FAILED_CLASS;
-  protected readonly failedTextClass = VENDOR_FAILED_TEXT_CLASS;
+  protected readonly statusLineClass = CONSOLE_STATUS_LINE_CLASS;
+  protected readonly loadFailedClass = CONSOLE_LOAD_FAILED_CLASS;
+  protected readonly failedTextClass = CONSOLE_FAILED_TEXT_CLASS;
 
   /** A console chip tone, by the console's word for the status. */
   protected tone(key: AdminStatusKey): ConsoleChipTone {

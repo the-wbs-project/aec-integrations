@@ -128,33 +128,25 @@
       @for (v of views(); track v.row.id) {
       <tbody>
         <tr [class]="isDiffOpen(v.row.id) ? tc.rowOpen : tc.row">
-          <!-- The toggle keeps its visible words (ruled on PR #1495). The shared
-               `AdminDisclosureButton` is icon-only and takes no description, so this
-               is the same 44px ghost button with its chevron and the words beside it,
-               described by the row's header so each toggle can be told apart. -->
+          <!-- The toggle keeps its visible words (ruled on PR #1495): the shared
+               disclosure with its visible-label slot, described by the row's header
+               so each toggle can be told apart (AECI-1729). -->
           <td [class]="toggleCellClass">
             @if (v.diff.length > 0) {
-            <button
-              aecButton
-              variant="ghost"
-              compact
-              type="button"
-              [attr.aria-expanded]="isDiffOpen(v.row.id)"
-              [attr.aria-controls]="'audit-diff-' + v.row.id"
-              [attr.aria-describedby]="'audit-row-' + v.row.id"
-              (click)="toggleDiff(v.row.id)"
+            <aec-admin-disclosure-button
+              withLabel
+              [label]="null"
+              [expanded]="isDiffOpen(v.row.id)"
+              [controls]="'audit-diff-' + v.row.id"
+              [describedBy]="'audit-row-' + v.row.id"
+              (toggled)="toggleDiff(v.row.id)"
             >
-              <span
-                class="inline-flex text-(--text-secondary) transition-transform duration-fast ease-standard motion-reduce:transition-none"
-                [class.rotate-180]="isDiffOpen(v.row.id)"
-                ><aec-icon name="chevron-down" decorative
-              /></span>
               @if (isDiffOpen(v.row.id)) {
               <span i18n="@@admin.audit.diff.hide">Hide changes</span>
               } @else {
               <span i18n="@@admin.audit.diff.show">Show changes</span>
               }
-            </button>
+            </aec-admin-disclosure-button>
             } @else {
             <span
               class="inline-flex w-11 justify-center text-(--text-secondary)"

@@ -60,9 +60,9 @@ import {
   QUEUE_FACTS_CLASS,
   QUEUE_FAILED_CLASS,
   QUEUE_HELP_CLASS,
-  QUEUE_NOTICE_CLASS,
 } from './queue-classes';
 import { queueFocusAfterRemoval } from './queue-focus';
+import { CONSOLE_NOTICE_CLASS } from '../console/console-detail';
 
 /** Score at/above which a review is flagged "high toxicity" and styled with a
  *  warning. 70 is our cutoff on the 0–100 toxicity score; the default sort
@@ -158,7 +158,7 @@ export class ReviewQueue {
   protected readonly f = CONSOLE_FILTER;
   protected readonly labelClass = CONSOLE_LABEL_CLASS;
   protected readonly inputClass = FIELD_INPUT_CLASS;
-  protected readonly noticeClass = QUEUE_NOTICE_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
   protected readonly detailGridClass = QUEUE_DETAIL_GRID_CLASS;
   protected readonly bodyClass = QUEUE_BODY_CLASS;
   protected readonly factsClass = QUEUE_FACTS_CLASS;

@@ -41,6 +41,12 @@ import {
 import { adminStatusTone, type AdminStatusKey } from '../console/status-tones';
 import { AdminDmcaApi } from './admin-dmca-api';
 import { isReplayedEvent } from '../../core/event-replay';
+import {
+  CONSOLE_FAILED_TEXT_CLASS,
+  CONSOLE_LOAD_FAILED_CLASS,
+  CONSOLE_STATUS_LINE_CLASS,
+  CONSOLE_TEXT_LINK_CLASS,
+} from '../console/console-detail';
 
 /** The form's values. Dates are `YYYY-MM-DD` (UTC), and `''` means empty. */
 export interface DmcaDraft {
@@ -293,14 +299,13 @@ export const DMCA_CLASSES = {
   /** The button row at the foot of the form. */
   actions: 'flex flex-wrap items-center gap-3',
   /** A link inside running text or a cell: the text's own ink, underlined. */
-  inlineLink:
-    'rounded-mark text-(--text-primary) underline decoration-(--border-strong) underline-offset-4 hover:decoration-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)',
+  inlineLink: CONSOLE_TEXT_LINK_CLASS,
   /** A loading or empty line. */
-  statusLine: 'text-t-16 text-(--text-secondary)',
+  statusLine: CONSOLE_STATUS_LINE_CLASS,
   /** A load failure: the sentence, then its Try again button. */
-  loadFailed: 'grid justify-items-start gap-4',
+  loadFailed: CONSOLE_LOAD_FAILED_CLASS,
   /** The sentence of a load failure or a refused save. */
-  failedText: 'text-t-16 font-semibold text-(--text-primary)',
+  failedText: CONSOLE_FAILED_TEXT_CLASS,
   /** A refresh that failed over rows already shown: a sunken box, hairline edge. */
   staleBox:
     'flex flex-wrap items-center justify-between gap-3 rounded-control border border-(--border-default) bg-(--surface-sunken) px-4 py-3',

@@ -35,12 +35,13 @@ import {
   FIELD_LABEL_CLASS,
 } from '../../../shared/form-field/form-field-classes';
 import { CONSOLE_CAPTION_CLASS } from '../../console/console-table';
-import { QUEUE_FAILED_CLASS, QUEUE_NOTICE_CLASS } from '../../reviews/queue-classes';
+import { QUEUE_FAILED_CLASS } from '../../reviews/queue-classes';
 import {
   VENDOR_ACTIONS_CLASS,
   VENDOR_FIELD_CLASS,
   VENDOR_PANEL_FORM_CLASS,
 } from '../vendor-console-classes';
+import { CONSOLE_NOTICE_CLASS } from '../../console/console-detail';
 
 @Component({
   selector: 'aec-admin-logo-editor',
@@ -302,7 +303,7 @@ export class AdminLogoEditor {
   protected readonly inputClass = FIELD_INPUT_CLASS;
   protected readonly errorClass = FIELD_ERROR_CLASS;
   protected readonly captionClass = CONSOLE_CAPTION_CLASS;
-  protected readonly noticeClass = QUEUE_NOTICE_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
   protected readonly failedClass = QUEUE_FAILED_CLASS;
   protected readonly actionsClass = VENDOR_ACTIONS_CLASS;
   private readonly injector = inject(Injector);

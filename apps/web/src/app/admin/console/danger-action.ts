@@ -22,6 +22,7 @@ import {
   FIELD_INPUT_CLASS,
   FIELD_LABEL_CLASS,
 } from '../../shared/form-field/form-field-classes';
+import { CONSOLE_NOTICE_CLASS } from './console-detail';
 
 let nextId = 0;
 
@@ -338,8 +339,7 @@ export class AdminDangerAction {
   protected readonly labelClass = FIELD_LABEL_CLASS;
   protected readonly inputClass = FIELD_INPUT_CLASS;
   protected readonly errorClass = FIELD_ERROR_CLASS;
-  protected readonly boneClass =
-    'rounded-control border border-(--border-strong) bg-(--accent-warm) p-4 text-t-14 text-(--text-primary)';
+  protected readonly boneClass = CONSOLE_NOTICE_CLASS;
 
   private readonly n = nextId++;
   protected readonly ids = {

@@ -43,12 +43,13 @@ import {
 import { AecButton } from '../../shared/button/button';
 import { AecIcon } from '../../shared/icon/icon';
 import { CONSOLE_CAPTION_CLASS } from '../console/console-table';
-import { QUEUE_FAILED_CLASS, QUEUE_NOTICE_CLASS } from '../reviews/queue-classes';
+import { QUEUE_FAILED_CLASS } from '../reviews/queue-classes';
 import {
   VENDOR_ACTIONS_CLASS,
   VENDOR_FIELD_CLASS,
   VENDOR_FORM_CLASS,
 } from './vendor-console-classes';
+import { CONSOLE_NOTICE_CLASS } from '../console/console-detail';
 
 /** The operator's local today as `YYYY-MM-DD`, the form a date input holds. Local, not
  *  UTC, so an evening grant in the Americas does not prefill tomorrow. */
@@ -109,7 +110,7 @@ export class GrantLicensesControl {
   protected readonly inputClass = FIELD_INPUT_CLASS;
   protected readonly choiceClass = CHOICE_INPUT_CLASS;
   protected readonly captionClass = CONSOLE_CAPTION_CLASS;
-  protected readonly noticeClass = QUEUE_NOTICE_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
   protected readonly failedClass = QUEUE_FAILED_CLASS;
   protected readonly formClass = VENDOR_FORM_CLASS;
   protected readonly fieldClass = VENDOR_FIELD_CLASS;

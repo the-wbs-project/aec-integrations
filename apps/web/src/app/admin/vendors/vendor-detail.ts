@@ -72,22 +72,25 @@ import {
   CONSOLE_TABLE,
 } from '../console/console-table';
 import { adminStatusTone, type AdminStatusKey } from '../console/status-tones';
-import { QUEUE_FAILED_CLASS, QUEUE_NOTICE_CLASS } from '../reviews/queue-classes';
+import { QUEUE_FAILED_CLASS } from '../reviews/queue-classes';
 import { queueFocusAfterRemoval } from '../reviews/queue-focus';
 import {
   VENDOR_ACTIONS_CLASS,
-  VENDOR_FACT_VALUE_CLASS,
-  VENDOR_FACTS_CLASS,
-  VENDOR_FAILED_TEXT_CLASS,
   VENDOR_FIELD_CLASS,
   VENDOR_FORM_CLASS,
   VENDOR_INLINE_LINK_CLASS,
-  VENDOR_LOAD_FAILED_CLASS,
   VENDOR_PANEL_CLASS,
   VENDOR_PANEL_STACK_CLASS,
-  VENDOR_STATUS_LINE_CLASS,
 } from './vendor-console-classes';
 import { STANDALONE_LINK_CLASS } from '../../vendor/components/vendor-docs-link';
+import {
+  CONSOLE_FACTS_CLASS,
+  CONSOLE_FACT_VALUE_CLASS,
+  CONSOLE_FAILED_TEXT_CLASS,
+  CONSOLE_LOAD_FAILED_CLASS,
+  CONSOLE_NOTICE_CLASS,
+  CONSOLE_STATUS_LINE_CLASS,
+} from '../console/console-detail';
 
 const AUDIT_PAGE_SIZE = 25;
 const PRODUCTS_PAGE_SIZE = 25;
@@ -214,20 +217,20 @@ export class VendorDetail {
   protected readonly panelStackClass = VENDOR_PANEL_STACK_CLASS;
   protected readonly labelClass = CONSOLE_LABEL_CLASS;
   protected readonly captionClass = CONSOLE_CAPTION_CLASS;
-  protected readonly factsClass = VENDOR_FACTS_CLASS;
-  protected readonly factValueClass = VENDOR_FACT_VALUE_CLASS;
+  protected readonly factsClass = CONSOLE_FACTS_CLASS;
+  protected readonly factValueClass = CONSOLE_FACT_VALUE_CLASS;
   protected readonly standaloneLinkClass = STANDALONE_LINK_CLASS;
   protected readonly inlineLinkClass = VENDOR_INLINE_LINK_CLASS;
-  protected readonly statusLineClass = VENDOR_STATUS_LINE_CLASS;
-  protected readonly loadFailedClass = VENDOR_LOAD_FAILED_CLASS;
-  protected readonly failedTextClass = VENDOR_FAILED_TEXT_CLASS;
+  protected readonly statusLineClass = CONSOLE_STATUS_LINE_CLASS;
+  protected readonly loadFailedClass = CONSOLE_LOAD_FAILED_CLASS;
+  protected readonly failedTextClass = CONSOLE_FAILED_TEXT_CLASS;
   protected readonly formClass = VENDOR_FORM_CLASS;
   protected readonly fieldClass = VENDOR_FIELD_CLASS;
   protected readonly fieldLabelClass = FIELD_LABEL_CLASS;
   protected readonly hintClass = FIELD_HINT_CLASS;
   protected readonly inputClass = FIELD_INPUT_CLASS;
   protected readonly errorClass = FIELD_ERROR_CLASS;
-  protected readonly noticeClass = QUEUE_NOTICE_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
   protected readonly failedClass = QUEUE_FAILED_CLASS;
   protected readonly actionsClass = VENDOR_ACTIONS_CLASS;
 

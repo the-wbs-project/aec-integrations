@@ -45,11 +45,11 @@ import {
 import { adminStatusTone, type AdminStatusKey } from '../console/status-tones';
 import { QUEUE_BODY_CLASS, QUEUE_FAILED_CLASS } from '../reviews/queue-classes';
 import {
-  CLAIM_INLINE_LINK_CLASS,
-  CLAIM_NEUTRAL_BOX_CLASS,
-  DETAIL_FACT_VALUE_CLASS,
-  DETAIL_FACTS_CLASS,
-} from './claim-classes';
+  CONSOLE_FACTS_CLASS,
+  CONSOLE_FACT_VALUE_CLASS,
+  CONSOLE_FOREST_LINK_CLASS,
+  CONSOLE_NEUTRAL_BOX_CLASS,
+} from '../console/console-detail';
 
 /** Same page size as the vendor and connector trails. */
 const AUDIT_PAGE_SIZE = 25;
@@ -127,12 +127,12 @@ export class ClaimDetail {
   protected readonly panelClass = CONSOLE_PANEL_CLASS;
   protected readonly labelClass = CONSOLE_LABEL_CLASS;
   protected readonly captionClass = CONSOLE_CAPTION_CLASS;
-  protected readonly factsClass = DETAIL_FACTS_CLASS;
-  protected readonly valueClass = DETAIL_FACT_VALUE_CLASS;
+  protected readonly factsClass = CONSOLE_FACTS_CLASS;
+  protected readonly valueClass = CONSOLE_FACT_VALUE_CLASS;
   protected readonly bodyClass = QUEUE_BODY_CLASS;
   protected readonly failedClass = QUEUE_FAILED_CLASS;
-  protected readonly neutralBoxClass = CLAIM_NEUTRAL_BOX_CLASS;
-  protected readonly inlineLinkClass = CLAIM_INLINE_LINK_CLASS;
+  protected readonly neutralBoxClass = CONSOLE_NEUTRAL_BOX_CLASS;
+  protected readonly inlineLinkClass = CONSOLE_FOREST_LINK_CLASS;
   protected readonly tableLinkClass = CONSOLE_TABLE.link;
   protected readonly fieldLabelClass = FIELD_LABEL_CLASS;
   protected readonly hintClass = FIELD_HINT_CLASS;

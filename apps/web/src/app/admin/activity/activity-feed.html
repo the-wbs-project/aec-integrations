@@ -22,7 +22,7 @@
   <div [class]="f.toolbar">
     <!-- Date range -->
     <div [class]="f.group">
-      <label for="admin-activity-from" [class]="labelClass" i18n="@@admin.activity.filter.from"
+      <label for="admin-activity-from" [class]="f.label" i18n="@@admin.activity.filter.from"
         >From</label
       >
       <input
@@ -34,9 +34,7 @@
       />
     </div>
     <div [class]="f.group">
-      <label for="admin-activity-to" [class]="labelClass" i18n="@@admin.activity.filter.to"
-        >To</label
-      >
+      <label for="admin-activity-to" [class]="f.label" i18n="@@admin.activity.filter.to">To</label>
       <input
         id="admin-activity-to"
         type="date"
@@ -123,7 +121,7 @@
     />
 
     <div [class]="f.group">
-      <label for="admin-activity-path" [class]="labelClass" i18n="@@admin.activity.filter.path"
+      <label for="admin-activity-path" [class]="f.label" i18n="@@admin.activity.filter.path"
         >Page contains</label
       >
       <input

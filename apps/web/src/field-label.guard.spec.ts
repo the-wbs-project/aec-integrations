@@ -229,6 +229,29 @@ describe('portal and admin labels off the Label role only shrink (AECI-2083)', (
     ]);
   });
 
+  it('reads a member of an imported object whose property names a constant (AECI-1729)', () => {
+    // `CONSOLE_FILTER.label` holds `CONSOLE_LABEL_CLASS`, a name, not a literal. The
+    // guard follows it into console-filter.ts's own import, so a filter `<label>` can
+    // bind `f.label` instead of a second alias of the same string.
+    const page = [
+      `import { CONSOLE_FILTER } from '../console/console-filter';`,
+      `protected readonly f = CONSOLE_FILTER;`,
+      `<label for="a" [class]="f.label">A</label>`,
+    ].join('\n');
+    const scan = portalAdminLabelScan('admin/traffic/x.ts', page);
+    expect(scan).toEqual({ found: 0, unresolved: [] });
+    // A property naming a shared recipe counts as on-recipe.
+    const corrections = [
+      `import { FIELD_OVERRIDE_CLASSES } from './admin-field-corrections';`,
+      `protected readonly c = FIELD_OVERRIDE_CLASSES;`,
+      `<label for="a" [class]="c.label">A</label>`,
+    ].join('\n');
+    expect(portalAdminLabelScan('admin/vendors/x.ts', corrections)).toEqual({
+      found: 0,
+      unresolved: [],
+    });
+  });
+
   it('fails on an unreadable binding that is not named, and on a stale name', () => {
     const scan = portalAdminLabelScan('admin/x.html', `<label [class]="cls()">A</label>`);
     expect(checkUnreadable(scan.unresolved, {})).toEqual([
