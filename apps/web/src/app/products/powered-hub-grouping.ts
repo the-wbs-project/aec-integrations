@@ -379,11 +379,25 @@ export function connectedProductCount(
   integrations: readonly IntegrationListItem[],
   selfSlug: string,
 ): number {
-  const slugs = new Set<string>();
+  return connectedProducts(integrations, selfSlug).length;
+}
+
+/**
+ * The products {@link connectedProductCount} counts, one link each, in no order: the
+ * distinct endpoints of the raw edge list, minus the page product. The connector
+ * wheel (`connectorWheelModel`) shows exactly this set, so the hero line's `N` and the
+ * wheel's count line are one number from one function (QA pass on AECI-2035). Distinct
+ * by slug, as the count always was. The first link seen for a slug is kept.
+ */
+export function connectedProducts(
+  integrations: readonly IntegrationListItem[],
+  selfSlug: string,
+): ProductLink[] {
+  const bySlug = new Map<string, ProductLink>();
   for (const i of integrations) {
-    slugs.add(i.source.slug);
-    slugs.add(i.target.slug);
+    for (const end of [i.source, i.target]) {
+      if (end.slug !== selfSlug && !bySlug.has(end.slug)) bySlug.set(end.slug, end);
+    }
   }
-  slugs.delete(selfSlug);
-  return slugs.size;
+  return [...bySlug.values()];
 }

@@ -15,15 +15,17 @@ import {
 import { RouterLink } from '@angular/router';
 
 import type { ProductDetail } from '@aeci/shared';
+import { connectorKindFor } from '@aeci/shared/api/connector-kind';
 
 import { AecIcon } from '../shared/icon/icon';
-import { injectInPageHref } from '../shared/in-page-href';
+import { injectInPageHrefFor } from '../shared/in-page-href';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 
+import { connectorWheelCaption } from './connector-kind-labels';
 import {
   WHEEL_BANDS,
+  heroWheelModel,
   layoutSlide,
-  wheelModel,
   type WheelLayout,
   type WheelProduct,
   type WheelSlide,
@@ -78,6 +80,13 @@ const LONG_PRESS = 450;
  * title or the lines, and inside the screen sideways. It is a CDK overlay, so the hero
  * never clips it. It stays open while hovered, closes 120ms after the pointer leaves, and
  * Escape closes it.
+ *
+ * A connector's wheel (QA pass on AECI-2035). On a connector the model is the products
+ * its pairs reach (`heroWheelModel`, `integration-wheel.ts`). The title says so by kind
+ * ("Products it syncs", "Products it connects"), a tile links to that product's page
+ * (the connector is not one of the pair's two products, so there is no pair page to
+ * link), a dot is one product, and the no-script link points at the section that lists
+ * its pairs.
  *
  * Logos (ruling 64). A tile shows the product's logo whenever we hold one, claimed or
  * not, from `ProductDetail.wheel_marks`, and its initial when we hold none. No tile is
@@ -263,7 +272,7 @@ const LONG_PRESS = 450;
                   class="aec-wheel-tile"
                   data-testid="product-hero-wheel-tile"
                   [attr.aria-label]="t.name"
-                  [routerLink]="['/products', p.slug, 'integrations', t.slug]"
+                  [routerLink]="tileLink(t)"
                   [attr.tabindex]="live() ? (i === active() ? 0 : -1) : null"
                   [attr.aria-describedby]="card()?.index === i ? 'aec-wheel-card' : null"
                   [class.is-active]="card()?.index === i"
@@ -329,17 +338,25 @@ const LONG_PRESS = 450;
           ></span
         >
       </p>
-      <p
-        class="aec-wheel-lines aec-wheel-lines-dots"
-        data-testid="product-hero-wheel-dots-line"
-        i18n="@@products.detail.hero.wheel.line.dots"
-      >
-        Too many to show as tiles. Each dot is one integration.
-      </p>
+      @if (isConnector()) {
+        <p
+          class="aec-wheel-lines aec-wheel-lines-dots"
+          data-testid="product-hero-wheel-dots-line"
+          i18n="@@products.detail.hero.wheel.line.dots.connector"
+        >
+          Too many to show as tiles. Each dot is one product.
+        </p>
+      } @else {
+        <p
+          class="aec-wheel-lines aec-wheel-lines-dots"
+          data-testid="product-hero-wheel-dots-line"
+          i18n="@@products.detail.hero.wheel.line.dots"
+        >
+          Too many to show as tiles. Each dot is one integration.
+        </p>
+      }
       <p class="aec-wheel-more">
-        <a [href]="integrationsHref()" data-testid="product-hero-wheel-see-all">{{
-          seeAllLabel(s)
-        }}</a>
+        <a [href]="seeAllHref()" data-testid="product-hero-wheel-see-all">{{ seeAllLabel(s) }}</a>
       </p>
       <p id="aec-wheel-hint" class="sr-only" i18n="@@products.detail.hero.wheel.hint">
         Arrow keys move between products.
@@ -410,10 +427,11 @@ export class ProductIntegrationWheel {
 
   protected readonly listLabel = $localize`:@@products.detail.hero.wheel.list.label:Jump to a category`;
 
-  protected readonly model = computed(() => {
-    const p = this.product();
-    return wheelModel(p.integrations_as_source, p.integrations_as_target, p.wheel_marks);
-  });
+  /** The wheel's set: a connector's reach or the endpoint rows (`heroWheelSource`). */
+  protected readonly model = computed(() => heroWheelModel(this.product()));
+
+  /** Whether this is a connector's wheel: products reached, not partners. */
+  protected readonly isConnector = computed(() => this.model().source === 'connector');
 
   /** The centre's logo: the page product's own mark (ruling 64), or none. */
   protected readonly centreLogo = computed(() => {
@@ -443,8 +461,30 @@ export class ProductIntegrationWheel {
     return WHEEL_BANDS.map((band, k) => ({ key: String(k), layout: layoutSlide(model, i, band) }));
   });
 
-  /** `{path}#integrations`: a bare fragment resolves against `<base href="/">` (AECI-1839). */
-  protected readonly integrationsHref = injectInPageHref('integrations');
+  /** `{path}#{id}`: a bare fragment resolves against `<base href="/">` (AECI-1839). */
+  private readonly hrefFor = injectInPageHrefFor();
+
+  /**
+   * The no-script link: `#integrations`, or on a connector's wheel `#powered-integrations`,
+   * the section that lists its pairs. A connector whose reach is only Convention-A rows
+   * has no pair of its own, so its products are in the Integrations section.
+   */
+  protected readonly seeAllHref = computed(() => {
+    const hrefFor = this.hrefFor();
+    if (!this.isConnector()) return hrefFor('integrations');
+    const p = this.product();
+    const ownPairs = p.integrations_as_connector.some(
+      (i) => i.source.slug !== p.slug && i.target.slug !== p.slug,
+    );
+    return hrefFor(ownPairs ? 'powered-integrations' : 'integrations');
+  });
+
+  /** A tile's link: the pair page, or on a connector's wheel the product's own page. */
+  protected tileLink(t: WheelProduct): string[] {
+    return this.isConnector()
+      ? ['/products', t.slug]
+      : ['/products', this.product().slug, 'integrations', t.slug];
+  }
 
   /** Whether any layout shows tiles. When none does, the ring holds no product. */
   protected readonly tiled = computed(() => this.layouts().some((k) => k.layout.mode !== 'dots'));
@@ -491,7 +531,12 @@ export class ProductIntegrationWheel {
   // ─── Words ──────────────────────────────────────────────────────────────────
 
   protected slideName(s: WheelSlide): string {
-    return s.name ?? $localize`:@@products.detail.hero.wheel.all:All integrations`;
+    if (s.name !== null) return s.name;
+    if (this.isConnector()) {
+      const p = this.product();
+      return connectorWheelCaption(connectorKindFor(p.product_role, p.connector_kind));
+    }
+    return $localize`:@@products.detail.hero.wheel.all:All integrations`;
   }
 
   protected productCount(n: number): string {
@@ -524,6 +569,12 @@ export class ProductIntegrationWheel {
   /** The words after the centre's figure: "integrations in 14 categories". */
   protected hubWords(s: WheelSlide): string {
     const one = s.integrations === 1;
+    // A connector's dot is one product (`connectorWheelModel`).
+    if (this.isConnector()) {
+      return one
+        ? $localize`:@@products.detail.hero.wheel.hub.connector.one:product`
+        : $localize`:@@products.detail.hero.wheel.hub.connector.other:products`;
+    }
     if (s.name !== null) {
       const name = s.name;
       return one
@@ -547,6 +598,9 @@ export class ProductIntegrationWheel {
   }
 
   protected seeAllLabel(s: WheelSlide): string {
+    if (this.isConnector()) {
+      return $localize`:@@products.detail.hero.wheel.seeAll.connector:See its integrations below`;
+    }
     const n = s.integrations;
     return $localize`:@@products.detail.hero.wheel.seeAll:See all ${n}:count: in Integrations`;
   }

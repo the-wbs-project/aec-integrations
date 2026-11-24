@@ -2343,6 +2343,8 @@ review-side). And AECI-1065's endpoint-vendor mapping proposals, which were prec
     categories of the products the connector reaches (§13.13 "Connector page fixes"). AECI-2018
     later replaced the hub and the finder with the integrations wheel. A Sync
     Service page also gains the "What it syncs" block (§13.13).
+  - **The wheel on a `connector` shows this bullet's `N` products** (QA pass on AECI-2035,
+    §13.13 "Connector page QA pass"): the hero line and the wheel's count line are one number.
   - **No role gate.** This bullet states only the `N > 0` condition and the build honours that
     literally: a mis-roled `application` that powers edges is described just as accurately by the
     line, which is the same data-driven reading §12.3's render condition already takes. Contrast the
@@ -2960,14 +2962,57 @@ cards. Every other fixture connector stays NULL.
 - **The category hub reads the products it reaches.** On a connector page the hub also
   counts the pairs the product powers: each pair once under each category either endpoint
   carries (`PoweredIntegrationItem.endpoint_categories`), with the §13.4(2) rows left out.
-  The order stays A to Z. *Superseded by AECI-2018:* the hub is gone. The wheel reads only
-  the page product's own endpoint rows, so a pure connector has no wheel and no hero panel.
-  `endpoint_categories` stays on the payload with no reader for now.
+  The order stays A to Z. *Superseded by AECI-2018:* the hub is gone. *Superseded again by
+  the QA pass below:* a connector's wheel shows the products its pairs reach, and
+  `endpoint_categories` is removed from the payload.
 - **The pair page shows the Sync Service's rating.** A Sync Service card prints the Sync
   Service product's rating beside the two endpoint cards' ratings, with the same accessible
   name, from `ProductPairMechanism.connector_rating`. Like theirs, it shows only above the
   five-review floor. The page already carries the connector's `product:` tag, so a review
   decision on it purges the page.
+
+**Connector page QA pass (epic AECI-2035, 2026-11-24).** A screenshot pass after the epic
+merged main's redesign found four defects on the public side. The fixes, and the definitions
+they rest on:
+
+- **Every count on a connector page means one stated thing.**
+  - The facts card's "N integrations" is the stored `integration_count` (§13.5 option B): the
+    integrations the product is part of, as an endpoint or as the connector. Fixture Agave: 3.
+  - The hero reach line "Syncs N products" is §13.6's `N`: distinct products the raw
+    `integrations_as_connector` list reaches, minus the page product. Fixture Agave: 3.
+  - The wheel's count line on a `connector` is the same `N` from the same function
+    (`connectedProducts`). Its dots, shown only when there are too many products for tiles,
+    are one per product.
+  - "Integrations it delivers (N)" and "Integrations (N)" are §12.3's and §13.3's row counts.
+    Fixture Agave: 2 and 1, which sum to the facts card's 3.
+- **The hero wheel on a connector** (`heroWheelSource`, `integration-wheel.ts`). A
+  `connector` shows the products its pairs reach, A to Z by name, id on a tie, on one slide
+  titled "Products it syncs" (Sync Service) or "Products it connects" (the other kinds). A
+  tile links to that product's page, because the connector is not one of the pair's two
+  products. With no pair it falls back to its endpoint rows. A `hybrid` or an `application`
+  shows its endpoint rows and falls back to the products it reaches. A `connector` with
+  neither shows the panel with the powered section's empty sentence, so its right half is
+  never blank. Logos come from `wheel_marks`, which now carries every endpoint of the powered
+  rows (ruling 64's rule, `wheelLogoOf`).
+- **A powered row's `direction` is claims-aware.** It is the public flows' direction when the
+  row has any, else the stored one (`effectiveContextDirection`, read from the row's source).
+  The pair page and the endpoint rows already used this rule. The connector page used the
+  stored direction alone, so fixture Agave read "Sends to Viewpoint Vista" beside a pair page
+  that said "Syncs both ways". The connector's list now names both products in each sentence:
+  "Procore sends to Viewpoint Vista", "Procore and Viewpoint Vista sync both ways"
+  (`pairFlowSentence`). The page is read from neither product, so "Sends to {B}" had no subject.
+- **The pair page's card title** is one rule for every card (`products-pair.ts`): the
+  mechanism name, else the kind label, else "Integration". Both fixture Sync Services carry a
+  mechanism name ("Unified API" on Agave, "Job cost sync" on Aardvark Sync), so both cards are
+  titled by it, and "Offered by {vendor}, through {product}" names the product under it. No
+  change.
+- **A connector card's zero** reads "No integrations delivered yet" (Sync Service) or "No
+  integrations powered yet" (the other kinds), never "Not yet connected".
+- **The local seed.** `connector-fixtures.sql` inserted its products at `integration_count = 0`
+  and never recomputed, so `/products` showed the three fixture connectors at zero. It now
+  recomputes by the §13.5 rule, and `seed-data-quality.spec.ts` checks every seeded product
+  against `findProductCountDrift`. The live write paths (the AECI-2040 create, the AECI-2042
+  veto, promote) already recompute all three products of a pair.
 
 ### Operating notes (moved from CLAUDE.md, 2026-09-23)
 

@@ -140,8 +140,8 @@ export class AgreementBadge {
       case 'owner_confirmed': {
         const vendor = this.attributedTo();
         return vendor
-          ? $localize`:@@pair.claim.badge.ownerConfirmed.aria:Confirmed by ${vendor}:vendor:, which offers this integration and runs both sides of it.`
-          : $localize`:@@pair.claim.badge.ownerConfirmed.unattributed.aria:Confirmed by the company that offers this integration and runs both sides of it.`;
+          ? $localize`:@@pair.claim.badge.ownerConfirmed.offers.aria:Confirmed by ${vendor}:vendor:, which offers this integration.`
+          : $localize`:@@pair.claim.badge.ownerConfirmed.offers.unattributed.aria:Confirmed by the company that offers this integration.`;
       }
       case 'conflict':
         return $localize`:@@pair.claim.badge.conflict.aria:The two companies disagree about this.`;

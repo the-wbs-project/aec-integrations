@@ -480,13 +480,15 @@ describe('ProductDetailPage powered-integrations hub', () => {
     // Each row has a real accessible name naming BOTH endpoints, and (AECI-1117)
     // restating the direction and mechanism the aria-label would otherwise hide.
     expect(rows[0]!.getAttribute('aria-label')).toBe(
-      'View the Procore and Acumatica integration, direction Sends to Acumatica, iPaaS',
+      'View the Procore and Acumatica integration, direction Procore sends to Acumatica, iPaaS',
     );
-    expect(rows[1]!.getAttribute('aria-label')).toContain('direction Syncs both ways');
+    expect(rows[1]!.getAttribute('aria-label')).toContain(
+      'direction Procore and Sage Intacct sync both ways',
+    );
     // Direction is framed relative to the hub, and the mechanism is shown —
     // the same vocabulary the sibling endpoint table uses.
-    expect(rows[0]!.textContent).toContain('Sends to Acumatica');
-    expect(rows[1]!.textContent).toContain('Syncs both ways');
+    expect(rows[0]!.textContent).toContain('Procore sends to Acumatica');
+    expect(rows[1]!.textContent).toContain('Procore and Sage Intacct sync both ways');
     expect(rows[0]!.textContent).toContain('iPaaS');
   });
 

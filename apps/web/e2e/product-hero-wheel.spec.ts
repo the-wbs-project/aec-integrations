@@ -325,24 +325,40 @@ test.describe('product hero integrations wheel (AECI-2018)', () => {
     await ctx.close();
   });
 
-  // Ranking page 1.2: "A product with no integration of its own has no wheel." A product
-  // with none at all, and a pure connector (`fixture-connector-hub` powers 39 pairs between
-  // other products and is an endpoint of none), get no wheel and no hero panel: the text
-  // column is the whole hero, with nothing beside it and no sideways scroll.
+  // Ranking page 1.2: "A product with neither has no wheel." A product with no integration
+  // at all gets no wheel and no hero panel: the text column is the whole hero, with nothing
+  // beside it and no sideways scroll.
   for (const width of [1440, 375]) {
-    test(`no integration of its own: no wheel and no panel at ${width}px`, async ({ page }) => {
+    test(`no integration at all: no wheel and no panel at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
-      for (const slug of [ZERO, 'fixture-connector-hub']) {
-        await page.goto(`/products/${slug}`);
-        await expect(wheel(page), slug).toHaveCount(0);
-        await expect(page.locator('.aec-hero-panel'), slug).toBeHidden();
-        const grid = (await page.getByTestId('hero-band-grid').boundingBox())!;
-        const text = (await page.getByTestId('hero-band-text').boundingBox())!;
-        expect(Math.abs(text.width - grid.width), slug).toBeLessThan(2);
-        await expectNoSidewaysScroll(page);
-      }
+      await page.goto(`/products/${ZERO}`);
+      await expect(wheel(page)).toHaveCount(0);
+      await expect(page.locator('.aec-hero-panel')).toBeHidden();
+      const grid = (await page.getByTestId('hero-band-grid').boundingBox())!;
+      const text = (await page.getByTestId('hero-band-text').boundingBox())!;
+      expect(Math.abs(text.width - grid.width)).toBeLessThan(2);
+      await expectNoSidewaysScroll(page);
     });
   }
+
+  // QA pass on AECI-2035: a pure connector (`fixture-connector-hub` powers pairs between
+  // other products and is an endpoint of none) shows the products its pairs reach, so its
+  // hero has no blank right half. Its count line is the reach line's number.
+  test('a pure connector: the wheel shows the products its pairs reach', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/products/fixture-connector-hub');
+    await expect(wheel(page)).toHaveCount(1);
+    await expect(page.locator('.aec-hero-panel')).toBeVisible();
+    await expect(wheel(page).locator('.aec-wheel-static .aec-wheel-name')).toHaveText(
+      'Products it connects',
+    );
+    const count = await wheel(page).locator('.aec-wheel-static .aec-wheel-count').innerText();
+    const n = Number(/\d+/.exec(count)![0]);
+    await expect(page.locator('body')).toContainText(
+      `Connects ${n} products in the AEC Integrations catalog`,
+    );
+    await expectNoSidewaysScroll(page);
+  });
 
   test('one entrance, and none under reduced motion', async ({ browser }) => {
     for (const reducedMotion of ['no-preference', 'reduce'] as const) {

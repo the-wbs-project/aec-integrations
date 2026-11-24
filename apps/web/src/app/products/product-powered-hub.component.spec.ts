@@ -124,7 +124,7 @@ describe('ProductPoweredHub', () => {
     const card = el.querySelector('ul li a[data-testid="powered-card"]')!;
     expect(card).not.toBeNull();
     expect(card.textContent).toContain('Acumatica');
-    expect(card.textContent).toContain('Sends to Acumatica');
+    expect(card.textContent).toContain('Procore sends to Acumatica');
     expect(card.textContent).toContain('\u2192');
   });
 
@@ -435,8 +435,8 @@ describe('ProductPoweredHub', () => {
       const el = setupWithObjects([['rfis', 'models'], []]);
       const labels = [...el.querySelectorAll('ul li a')].map((a) => a.getAttribute('aria-label'));
       expect(labels).toEqual([
-        'View the Procore and Partner 0 integration, direction Sends to Partner 0, API, 2 types of data',
-        'View the Procore and Partner 1 integration, direction Sends to Partner 1, API',
+        'View the Procore and Partner 0 integration, direction Procore sends to Partner 0, API, 2 types of data',
+        'View the Procore and Partner 1 integration, direction Procore sends to Partner 1, API',
       ]);
     });
 
@@ -474,9 +474,9 @@ describe('ProductPoweredHub', () => {
         { ...poweredEdge(HUB, cmic), direction: null, mechanism_kind: null },
       ]);
       expect(names(el)).toEqual([
-        'View the Procore and Acumatica integration, direction Receives from Acumatica, API',
+        'View the Procore and Acumatica integration, direction Acumatica sends to Procore, API',
         'View the Procore and CMiC integration, direction not listed',
-        'View the Procore and Sage integration, direction Sends to Sage, API',
+        'View the Procore and Sage integration, direction Procore sends to Sage, API',
       ]);
     });
 
@@ -486,7 +486,7 @@ describe('ProductPoweredHub', () => {
         poweredEdge(HUB, link('cmic', 'CMiC')),
       ]);
       expect(names(el)[1]).toBe(
-        'View the Procore and Sage integration, direction Syncs both ways, API',
+        'View the Procore and Sage integration, direction Procore and Sage sync both ways, API',
       );
     });
 
@@ -502,14 +502,14 @@ describe('ProductPoweredHub', () => {
       // AECI-1788 after restore C: the card's own words, framed on A, the name it
       // prints first. The flow runs Fieldwire to Bluebeam, so Bluebeam receives.
       expect(names(el)).toEqual([
-        'View the Bluebeam and Fieldwire integration, direction Receives from Fieldwire, API',
-        'View the Raken and Zeta integration, direction Syncs both ways, API',
+        'View the Bluebeam and Fieldwire integration, direction Fieldwire sends to Bluebeam, API',
+        'View the Raken and Zeta integration, direction Raken and Zeta sync both ways, API',
       ]);
       const words = [...el.querySelectorAll('a[data-testid="powered-card"]')].map((a) =>
         a.textContent!.replace(/\s+/g, ' '),
       );
-      expect(words[0]).toContain('Receives from Fieldwire');
-      expect(words[1]).toContain('Syncs both ways');
+      expect(words[0]).toContain('Fieldwire sends to Bluebeam');
+      expect(words[1]).toContain('Raken and Zeta sync both ways');
       expect(words.join(' ')).not.toMatch(/One-way|Bidirectional/);
     });
 
@@ -525,9 +525,9 @@ describe('ProductPoweredHub', () => {
       ]);
       expect(el.querySelector('h3 button')!.textContent).toContain('Zeta Hub');
       expect(names(el)).toEqual([
-        'View the Zeta Hub and Alpha integration, direction Sends to Alpha, API',
-        'View the Zeta Hub and Beta integration, direction Receives from Beta, API',
-        'View the Zeta Hub and Gamma integration, direction Syncs both ways, API',
+        'View the Zeta Hub and Alpha integration, direction Zeta Hub sends to Alpha, API',
+        'View the Zeta Hub and Beta integration, direction Beta sends to Zeta Hub, API',
+        'View the Zeta Hub and Gamma integration, direction Zeta Hub and Gamma sync both ways, API',
       ]);
     });
 
@@ -644,9 +644,9 @@ describe('ProductPoweredHub', () => {
         (n) => n.textContent,
       );
       expect(shown).toEqual(['Bluebeam Revu', 'Fieldwire']);
-      expect(flatRow.textContent).toContain('Receives from Fieldwire');
+      expect(flatRow.textContent).toContain('Fieldwire sends to Bluebeam');
       const hubRow = hub!.querySelector('tbody tr')!;
-      expect(hubRow.textContent).toContain('Sends to Acumatica');
+      expect(hubRow.textContent).toContain('Procore sends to Acumatica');
       expect(hubRow.querySelectorAll('a')).toHaveLength(1);
     });
 
@@ -676,7 +676,7 @@ describe('ProductPoweredHub', () => {
       const cell = (row: Element, id: string) =>
         row.querySelector(`[data-testid=${id}]`)!.textContent!.replace(/\s+/g, ' ').trim();
       // The cards' order: CMiC, then Sage.
-      expect(cell(rows[1]!, 'powered-table-direction')).toContain('Sends to Sage');
+      expect(cell(rows[1]!, 'powered-table-direction')).toContain('sends to Sage');
       const connects = rows[1]!.querySelector('[data-testid=powered-table-connects]')!;
       expect(connects.querySelector('aec-chip')!.textContent!.trim()).toBe('API');
       expect(connects.textContent).toContain('Sage connector');

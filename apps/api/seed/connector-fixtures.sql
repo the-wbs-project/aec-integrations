@@ -335,3 +335,35 @@ INSERT INTO integrations (id, source_product_id, target_product_id, name, mechan
   ('00000000-0000-4000-8000-0000000008b2','00000000-0000-4000-8000-000000000800','00000000-0000-4000-8000-000000000806','Procore ↔ PlanGrid','iPaaS','via a parked automation platform','a_to_b',NULL,'2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('00000000-0000-4000-8000-0000000008b3','00000000-0000-4000-8000-000000000800','00000000-0000-4000-8000-000000000791','Procore ↔ Agave','iPaaS','Ships a connector on Agave','a_to_b','00000000-0000-4000-8000-000000000791','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 ON CONFLICT (id) DO NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- The stored counts (QA pass on AECI-2035, 2026-11-24). Every product above is
+-- inserted with the column default, `integration_count = 0`, and the rows that
+-- count toward it arrive after it, so without this pass /products printed "Not yet
+-- connected" on Agave, Aardvark Sync and MindCloud while their pages listed pairs.
+-- The live write paths recompute after each write (`recompute-counts.ts`); a seed has
+-- to do it itself, as catalog.sql and connector-lists-fixtures.sql do by hand.
+--
+-- The rule is `integrationCountSql` in `src/lib/recompute-counts.ts` (§13.5 option B):
+-- live `integrations` rows where the product is source or target, plus live
+-- `connector_evidenced_pairs` where it is A, B or the connector. "Live" here is not
+-- retired and not vetoed. No fixture product is hidden, so the hidden-endpoint half of
+-- the live rule changes nothing. `src/test/seed-data-quality.spec.ts` checks these
+-- products against the rule itself, so a drift fails there.
+-- ---------------------------------------------------------------------------
+UPDATE products SET integration_count =
+    (SELECT COUNT(*) FROM integrations i
+      WHERE (i.source_product_id = products.id OR i.target_product_id = products.id)
+        AND i.retired_at IS NULL AND i.vetoed_at IS NULL)
+  + (SELECT COUNT(*) FROM connector_evidenced_pairs e
+      WHERE (e.product_a_id = products.id OR e.product_b_id = products.id
+             OR e.connector_product_id = products.id)
+        AND e.retired_at IS NULL AND e.vetoed_at IS NULL)
+  WHERE id IN (
+    '00000000-0000-4000-8000-000000000790','00000000-0000-4000-8000-000000000791',
+    '00000000-0000-4000-8000-000000000792','00000000-0000-4000-8000-000000000800',
+    '00000000-0000-4000-8000-000000000801','00000000-0000-4000-8000-000000000802',
+    '00000000-0000-4000-8000-000000000803','00000000-0000-4000-8000-000000000804',
+    '00000000-0000-4000-8000-000000000805','00000000-0000-4000-8000-000000000806',
+    '00000000-0000-4000-8000-000000000807','00000000-0000-4000-8000-000000000808',
+    '00000000-0000-4000-8000-000000000809');

@@ -226,7 +226,7 @@ const SURFACES: readonly Surface[] = [
     status: 'covered',
     spec: 'web',
     order:
-      'Integrations wheel (AECI-2018, replaced the AECI-1787 category hub): "All integrations" first, then one slide per partner category A to Z by name, slug tie-break; every product with an integration on record, A to Z by name with compareText, id tie-break, clockwise from 12 o\'clock; one tile size per product and the ring count or dots per slide from the product count and the stage width only; logo and claim state (ruling 64) decide the tile image and the card label, never inclusion, order or size',
+      "Integrations wheel (AECI-2018, replaced the AECI-1787 category hub): \"All integrations\" first, then one slide per partner category A to Z by name, slug tie-break; every product with an integration on record, A to Z by name with compareText, id tie-break, clockwise from 12 o'clock; one tile size per product and the ring count or dots per slide from the product count and the stage width only; logo and claim state (ruling 64) decide the tile image and the card label, never inclusion, order or size. A connector's wheel (QA pass on AECI-2035): one slide of the products its pairs reach (the hero reach line's set), A to Z by name, id tie-break; which set a page shows reads the role and whether each set is empty, never a plan",
   },
   {
     key: 'product-page-similar-products',
@@ -1771,8 +1771,9 @@ const ORDER_SITES: readonly OrderSite[] = [
     allowed: `taxonomy term lists, display_order or A to Z by name; ${NEVER_PLAN}`,
   },
   {
+    // QA pass on AECI-2035: 18 to 17, the powered rows' endpoint categories are gone.
     file: 'apps/api/src/lib/drizzle-helpers.ts',
-    count: 18,
+    count: 17,
     registered: ['pair-page-claims', 'pair-page-closest-matches'],
     allowed: `term lists by display_order or name, attestation timelines by created_at, vendor products A to Z; ${NEVER_PLAN}`,
   },
@@ -1889,9 +1890,10 @@ const ORDER_SITES: readonly OrderSite[] = [
     registered: ['product-page-integrations-redesign'],
   },
   {
-    // AECI-2018: the wheel's products A to Z, and its category slides A to Z.
+    // AECI-2018: the wheel's products A to Z, and its category slides A to Z. QA pass on
+    // AECI-2035: a connector's wheel, the products its pairs reach A to Z (the third).
     file: 'apps/web/src/app/products/integration-wheel.ts',
-    count: 2,
+    count: 3,
     registered: ['product-page-hero-wheel'],
   },
   {

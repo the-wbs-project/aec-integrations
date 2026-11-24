@@ -12,6 +12,8 @@ import type { ConnectorKind, ProductRole } from '@aeci/shared';
 import {
   connectorKindLabel,
   connectorMetaDescription,
+  connectorWheelCaption,
+  connectorZeroStatLabel,
   heroConnectsLabel,
   poweredEmptyLead,
   poweredHeading,
@@ -19,6 +21,8 @@ import {
   syncServiceEndorsementLine,
   type EndorsementInput,
 } from './connector-kind-labels';
+import { IntegrationStat } from './integration-stat';
+import { pairFlowSentence } from './pair-direction-labels';
 import { RoleBadge } from './role-badge';
 
 describe('the Sync Service "Not offered or endorsed by" line (AECI-2043)', () => {
@@ -217,5 +221,62 @@ describe('RoleBadge reads the connector kind (AECI-2037)', () => {
 
   it('an application renders nothing, even with a stray kind', () => {
     expect(render('application', 'sync_service')).toBe('');
+  });
+});
+
+describe('the connector words the QA pass on AECI-2035 added', () => {
+  it('names the wheel by kind', () => {
+    expect(connectorWheelCaption('sync_service')).toBe('Products it syncs');
+    expect(connectorWheelCaption('integration_platform')).toBe('Products it connects');
+    expect(connectorWheelCaption(null)).toBe('Products it connects');
+  });
+
+  it('says a connector with no integration has none yet, never "Not yet connected"', () => {
+    expect(connectorZeroStatLabel('sync_service')).toBe('No integrations delivered yet');
+    expect(connectorZeroStatLabel('integration_platform')).toBe('No integrations powered yet');
+    expect(connectorZeroStatLabel(null)).toBe('No integrations powered yet');
+  });
+
+  it('states a pair direction with both products named', () => {
+    expect(pairFlowSentence('outbound', 'Procore', 'Viewpoint Vista')).toBe(
+      'Procore sends to Viewpoint Vista',
+    );
+    expect(pairFlowSentence('inbound', 'Procore', 'Fieldwire')).toBe('Fieldwire sends to Procore');
+    expect(pairFlowSentence('both', 'Procore', 'Viewpoint Vista')).toBe(
+      'Procore and Viewpoint Vista sync both ways',
+    );
+  });
+
+  @Component({
+    imports: [IntegrationStat],
+    template: `<aec-integration-stat
+      [count]="0"
+      [role]="role()"
+      [kind]="kind()"
+      variant="badge"
+    />`,
+  })
+  class StatHost {
+    readonly role = signal<string | null>(null);
+    readonly kind = signal<string | null>(null);
+  }
+
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ providers: [provideZonelessChangeDetection()] });
+  });
+
+  it.each([
+    ['application', null, 'Not yet connected'],
+    ['hybrid', null, 'Not yet connected'],
+    ['connector', 'sync_service', 'No integrations delivered yet'],
+    ['connector', 'integration_platform', 'No integrations powered yet'],
+    [null, null, 'Not yet connected'],
+  ] as const)('the card stat at zero, role %s kind %s: "%s"', (role, kind, words) => {
+    const fixture = TestBed.createComponent(StatHost);
+    fixture.componentInstance.role.set(role);
+    fixture.componentInstance.kind.set(kind);
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent?.trim()).toBe(words);
   });
 });

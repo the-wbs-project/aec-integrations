@@ -3,9 +3,8 @@
  *
  * These pins lived in `product-hero-visual.component.spec.ts`, which AECI-2018 deleted with
  * the category hub and pair finder it pinned. The wheel that replaced them is pinned in
- * `product-integration-wheel.component.spec.ts`, including that a pure connector with only
- * the pairs it powers draws no wheel and no panel. Named `.component.spec.ts` so it runs
- * under `ng test`.
+ * `product-integration-wheel.component.spec.ts`, including a connector's wheel of the
+ * products its pairs reach. Named `.component.spec.ts` so it runs under `ng test`.
  */
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
@@ -154,9 +153,12 @@ describe('ProductHero connector kind (AECI-2037)', () => {
     const { el } = setup(connector(kind));
     expect(chip(el)).toBe(label);
     expect(el.textContent).toContain(line);
-    // AECI-2018: the wheel reads only the page's own endpoint rows, so a connector whose
-    // rows are all pairs it delivers draws no wheel and no empty panel.
-    expect(el.querySelector('[data-testid="product-hero-wheel"]')).toBeNull();
-    expect(el.querySelector('[data-testid="product-hero-visual"]')).toBeNull();
+    // QA pass on AECI-2035: a connector's wheel shows the products its pairs reach, the
+    // reach line's set, so its count line agrees with the line above.
+    expect(el.querySelector('[data-testid="product-hero-wheel"]')).not.toBeNull();
+    expect(el.querySelector('.aec-wheel-count')?.textContent?.trim()).toBe('3 products');
+    expect(el.querySelector('.aec-wheel-name')?.textContent?.trim()).toBe(
+      kind === 'sync_service' ? 'Products it syncs' : 'Products it connects',
+    );
   });
 });

@@ -1,5 +1,10 @@
 import { Component, computed, input } from '@angular/core';
+
+import { connectorKindFor } from '@aeci/shared/api/connector-kind';
+
 import { Chip } from '../shared/chip/chip';
+
+import { connectorZeroStatLabel } from './connector-kind-labels';
 
 /**
  * Renders a product's `integration_count` as a deliberate metric (the
@@ -12,6 +17,11 @@ import { Chip } from '../shared/chip/chip';
  *     lead card), so every table row is the same height (AECI-1793)
  *   - `badge`  a quiet chip with a link glyph (card grid top-right). At zero
  *     the words take the chip's 32px line, so the card's top row keeps its height
+ *
+ * A `connector` at zero reads "No integrations delivered yet" or "No integrations powered
+ * yet" by kind (`connectorZeroStatLabel`, QA pass on AECI-2035): "Not yet connected" is
+ * false of a product whose job is to connect others. A caller that knows the role passes
+ * `role` and `kind`. Without them the words are the application's.
  *
  * Pluralization is handled in the component (1 → "integration", n →
  * "integrations") rather than ICU in the template, keeping the markup readable.
@@ -38,6 +48,10 @@ export type IntegrationStatVariant = 'inline' | 'badge';
           >&ngsp;<span class="text-t-13 text-(--text-secondary)">{{ noun() }}</span>
         </span>
       }
+    } @else if (connectorZero(); as words) {
+      <span class="text-t-13 text-(--text-secondary)" [class.leading-8]="variant() === 'badge'">{{
+        words
+      }}</span>
     } @else {
       <span
         class="text-t-13 text-(--text-secondary)"
@@ -52,7 +66,18 @@ export class IntegrationStat {
   readonly count = input.required<number>();
   readonly variant = input<IntegrationStatVariant>('inline');
 
+  /** The product's role and kind, when the caller knows them. */
+  readonly role = input<string | null | undefined>(null);
+  readonly kind = input<string | null | undefined>(null);
+
   protected readonly noun = computed(() => integrationNoun(this.count()));
+
+  /** A connector's zero words, or `null` for every other product. */
+  protected readonly connectorZero = computed(() => {
+    const role = this.role();
+    if (role !== 'connector') return null;
+    return connectorZeroStatLabel(connectorKindFor(role, this.kind()));
+  });
 }
 
 /**

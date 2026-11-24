@@ -90,6 +90,31 @@ export function heroConnectsLabel(kind: ConnectorKind | null, count: number): st
     : $localize`:@@products.detail.hero.connects.other:Connects ${count}:count: products in the AEC Integrations catalog`;
 }
 
+/**
+ * The hero wheel's title on a connector's own page (QA pass on AECI-2035): what its
+ * tiles are, the products its pairs reach. A Sync Service "syncs" them, as the reach
+ * line says. The other two "connect" them.
+ */
+export function connectorWheelCaption(kind: ConnectorKind | null): string {
+  if (kind === 'sync_service') {
+    return $localize`:@@products.detail.hero.wheel.connector.caption.syncService:Products it syncs`;
+  }
+  return $localize`:@@products.detail.hero.wheel.connector.caption:Products it connects`;
+}
+
+/**
+ * The integration count on a product card, list row or search card, at zero, for a
+ * `connector` (QA pass on AECI-2035). "Not yet connected" is false of a connector,
+ * whose job is to connect others: it means it has no integration on record yet. A Sync
+ * Service delivers its integrations (ruling 2). The other two power them.
+ */
+export function connectorZeroStatLabel(kind: ConnectorKind | null): string {
+  if (kind === 'sync_service') {
+    return $localize`:@@products.stat.none.syncService:No integrations delivered yet`;
+  }
+  return $localize`:@@products.stat.none.connector:No integrations powered yet`;
+}
+
 /** The connector meta description (§13.6 rung 1), by kind. NULL keeps today's text. */
 export function connectorMetaDescription(
   kind: ConnectorKind | null,

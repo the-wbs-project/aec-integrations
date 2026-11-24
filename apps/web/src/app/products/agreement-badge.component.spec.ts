@@ -176,9 +176,7 @@ describe('AgreementBadge', () => {
     const el = render('owner_confirmed', 'Rivets');
     expect(el.textContent).toContain('Confirmed by Rivets, which offers this integration');
     expect(el.textContent).not.toContain('both companies');
-    expect(ariaOf(el)).toBe(
-      'Confirmed by Rivets, which offers this integration and runs both sides of it.',
-    );
+    expect(ariaOf(el)).toBe('Confirmed by Rivets, which offers this integration.');
     // One company's word: the neutral chip, never the bilateral Forest wash.
     expect(toneOf(el)).toBe('quiet');
   });

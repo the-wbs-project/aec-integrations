@@ -95,7 +95,12 @@ export type ProductCardGridColumns = 1 | 2 | 3;
               [ratingOverall]="product.rating_overall_avg"
               [reviewCount]="product.review_count"
             />
-            <aec-integration-stat [count]="product.integration_count" variant="inline" />
+            <aec-integration-stat
+              [count]="product.integration_count"
+              [role]="product.product_role"
+              [kind]="product.connector_kind"
+              variant="inline"
+            />
           </div>
         </li>
       }
@@ -110,7 +115,12 @@ export type ProductCardGridColumns = 1 | 2 | 3;
                 [name]="product.name"
                 size="sm"
               />
-              <aec-integration-stat [count]="product.integration_count" variant="badge" />
+              <aec-integration-stat
+                [count]="product.integration_count"
+                [role]="product.product_role"
+                [kind]="product.connector_kind"
+                variant="badge"
+              />
             </div>
             <div class="min-w-0 flex-1">
               <p class="truncate font-display text-t-20 leading-tight font-semibold">

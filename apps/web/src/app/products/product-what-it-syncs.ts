@@ -45,6 +45,10 @@ export function hasWhatItSyncs(
  *   never reads as "does not sync". Rendered in the API order, A to Z by name
  *   (`[surface:product-page-what-it-syncs]`). This component adds no sort or cut.
  *
+ * The lines under the cards ("Recorded by…", "A to Z by name.") sit 16px under them,
+ * the gap the sibling "Integrations it delivers" section leaves between its list and its
+ * note (QA pass on AECI-2035: at 12px the card shadow left them reading as 8px).
+ *
  * Layout fills the width by count (`DESIGN.md`, no narrow column with a blank right
  * half): the facts take one, two or three columns from `md`, and the record types one,
  * two or three from `sm`/`lg`, as "Similar products" does.
@@ -84,7 +88,7 @@ export function hasWhatItSyncs(
     </div>
 
     @if (facts().length > 0) {
-      <div class="space-y-3" data-testid="what-it-syncs-facts-block">
+      <div class="space-y-4" data-testid="what-it-syncs-facts-block">
         <dl class="m-0 grid gap-4" [class]="factColumns()" data-testid="what-it-syncs-facts">
           @for (fact of facts(); track fact.key) {
             <div aecCard class="min-w-0 p-6" [attr.data-testid]="'what-it-syncs-fact-' + fact.key">
@@ -113,7 +117,7 @@ export function hasWhatItSyncs(
     }
 
     @if (objects().length > 0) {
-      <div class="space-y-3">
+      <div class="space-y-4">
         <ul
           role="list"
           class="m-0 grid list-none gap-3 p-0"

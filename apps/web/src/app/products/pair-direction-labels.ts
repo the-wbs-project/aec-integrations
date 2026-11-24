@@ -49,5 +49,28 @@ export function directionAria(direction: ContextDirection, otherName: string): s
   }
 }
 
+/**
+ * A direction stated with BOTH products named, for a list read from neither of them
+ * (QA pass on AECI-2035, 2026-11-24). On a connector's own page the connector is not one
+ * of the pair's two products, so "Sends to {B}" has no product to be read from. These
+ * say who sends to whom: "{A} sends to {B}", or "{A} and {B} sync both ways".
+ * `direction` is relative to `aName`. Inbound swaps the names into the one-way sentence,
+ * so a translator sees two whole sentences.
+ */
+export function pairFlowSentence(
+  direction: ContextDirection,
+  aName: string,
+  bName: string,
+): string {
+  switch (direction) {
+    case 'outbound':
+      return $localize`:@@pair.flow.oneWay:${aName}:from: sends to ${bName}:to:`;
+    case 'inbound':
+      return $localize`:@@pair.flow.oneWay:${bName}:from: sends to ${aName}:to:`;
+    case 'both':
+      return $localize`:@@pair.flow.both:${aName}:a: and ${bName}:b: sync both ways`;
+  }
+}
+
 /** The order the three direction lanes render in within a mechanism (§8). */
 export const DIRECTION_ORDER = ['outbound', 'inbound', 'both'] as const;

@@ -1032,6 +1032,64 @@ describe('GET /api/products/:slug', () => {
     expect(byId(u(53))?.data_object_slugs).toEqual([]);
   });
 
+  it("states a powered row's direction from its public flows, as the pair page does (QA pass on AECI-2035)", async () => {
+    await seedProduct(u(1), 'procore', 'Procore');
+    await seedProduct(u(2), 'sage-intacct', 'Sage Intacct');
+    await seedProduct(u(3), 'agave-erp-sync', 'Agave ERP Sync', { productRole: 'connector' });
+    await seedProduct(u(4), 'acumatica', 'Acumatica');
+    await seedProduct(u(5), 'fieldwire', 'Fieldwire');
+    // integrations arm: stored one way, but its flows run both ways.
+    await t.db.insert(integrations).values({
+      id: u(51),
+      sourceProductId: u(1),
+      targetProductId: u(2),
+      mechanismKind: 'iPaaS',
+      direction: 'a_to_b',
+      poweredByProductId: u(3),
+    });
+    const [a, b] = [u(1), u(4)].sort();
+    const [c, d] = [u(1), u(5)].sort();
+    await t.db.insert(connectorEvidencedPairs).values([
+      // Stored B to A, so the item is oriented with B as its source. Its one flow is
+      // framed A to B, so it runs INTO the oriented source.
+      { id: u(52), connectorProductId: u(3), productAId: a!, productBId: b!, direction: 'b_to_a' },
+      // No flow: the stored direction stands.
+      { id: u(53), connectorProductId: u(3), productAId: c!, productBId: d!, direction: 'a_to_b' },
+    ]);
+    await t.db.insert(taxonomyDataObjects).values([
+      { id: u(71), slug: 'drawings', name: 'Drawings' },
+      { id: u(72), slug: 'rfis', name: 'RFIs' },
+    ]);
+    await t.db.insert(claims).values([
+      { id: u(81), integrationId: u(51), dataObjectId: u(71), direction: 'a_to_b' },
+      { id: u(82), integrationId: u(51), dataObjectId: u(72), direction: 'b_to_a' },
+      { id: u(84), connectorEvidencedPairId: u(52), dataObjectId: u(72), direction: 'a_to_b' },
+    ]);
+
+    const body = (await (await get(detailApp(), '/api/products/agave-erp-sync')).json()) as {
+      integrations_as_connector: Record<string, unknown>[];
+    };
+    // The removed field is not on the wire.
+    expect(body.integrations_as_connector[0]).not.toHaveProperty('endpoint_categories');
+    const connector = ProductDetailSchema.parse(body);
+    const byId = (id: string) => connector.integrations_as_connector.find((i) => i.id === id);
+    expect(byId(u(51))?.direction).toBe('both');
+    expect(byId(u(52))?.source.id).toBe(b);
+    expect(byId(u(52))?.direction).toBe('b_to_a');
+    expect(byId(u(53))?.direction).toBe('a_to_b');
+    // The endpoint row on Procore's page says the same of the same pair.
+    const procore = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/procore')).json(),
+    );
+    const fromProcore = [...procore.integrations_as_source, ...procore.integrations_as_target];
+    expect(fromProcore.find((i) => i.id === u(51))?.context_direction).toBe('both');
+
+    // The connector wheel's marks: every endpoint its rows reach, and itself.
+    expect(new Set(connector.wheel_marks?.map((m) => m.product_id))).toEqual(
+      new Set([u(1), u(2), u(3), u(4), u(5)]),
+    );
+  });
+
   it('frames a one-way claim relative to the page product (outbound from source, inbound from target)', async () => {
     await seedProduct(u(1), 'egnyte', 'Egnyte');
     await seedProduct(u(2), 'procore', 'Procore');

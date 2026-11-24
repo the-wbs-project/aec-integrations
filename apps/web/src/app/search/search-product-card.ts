@@ -39,7 +39,12 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
           [name]="record().name"
           size="sm"
         />
-        <aec-integration-stat [count]="record().integration_count" variant="badge" />
+        <aec-integration-stat
+          [count]="record().integration_count"
+          [role]="record().product_role"
+          [kind]="record().connector_kind"
+          variant="badge"
+        />
       </div>
       <div class="min-w-0 flex-1">
         <p class="truncate font-display text-t-20 leading-tight font-semibold">

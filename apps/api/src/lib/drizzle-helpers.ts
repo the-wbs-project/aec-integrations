@@ -499,19 +499,14 @@ const poweredClaimsConfig = {
 } as const;
 
 /**
- * An endpoint of a powered row, with its categories (AECI-2046), sent as
- * `PoweredIntegrationItem.endpoint_categories`. Its reader, the hero's category hub on a
- * connector page, was removed by AECI-2018, so no page reads the field now.
- * A nested relation, so the read stays one statement.
+ * An endpoint of a powered row. The two columns `wheelLogoOf` reads ride along
+ * (QA pass on AECI-2035, 2026-11-24): a connector's hero wheel shows the products its
+ * pairs reach, so `wheelMarksOf` needs each endpoint's logo we may show. Internal:
+ * `toProductLink` never emits either column, so the row itself keeps the logo rule.
  */
 const poweredEndpointLinkConfig = {
   ...publicProductLinkConfig,
-  with: {
-    productCategories: {
-      columns: {},
-      with: { category: { columns: taxonomyLinkWithOrderColumns } },
-    },
-  },
+  columns: { ...productLinkColumns, logoSource: true, sourcedLogoUrl: true },
 } as const;
 
 /** `ProductDetail.integrations_as_connector`, `integrations` arm: the list config
@@ -2590,26 +2585,47 @@ export function toPoweredIntegrationItem(
   connector: OwnerFlowConnectorFacts | null = null,
 ): PoweredIntegrationItem {
   const ctx = integrationOwnerFlowContext({ ...raw, poweredByProduct: connector });
+  const item = toIntegrationListItem(raw);
+  const claims = poweredPublicClaims(raw.claims, ctx);
   return {
-    ...toIntegrationListItem(raw),
-    data_object_slugs: productDetailDataObjectSlugs(poweredPublicClaims(raw.claims, ctx)),
-    endpoint_categories: endpointCategories(raw.sourceProduct, raw.targetProduct),
+    ...item,
+    // The row's claims are framed source to target, as the stored direction is.
+    direction: poweredEffectiveDirection(item.direction, claims, false, raw.id),
+    data_object_slugs: productDetailDataObjectSlugs(claims),
   };
 }
 
 /**
- * The categories of a powered row's two endpoints (AECI-2046), unioned and deduped by
- * slug, in a product's own category order (AECI-1242): `display_order`, NULLs last,
- * then name, then slug. The hero's category hub reads them on a connector page.
+ * A powered row's `direction`, claims-aware (QA pass on AECI-2035, 2026-11-24): the
+ * same rule the endpoint embed's `context_direction` and the pair page apply
+ * (`effectiveContextDirection`), read from the row's own source, so the connector's
+ * page cannot say one way while the pair page and both endpoint pages say both ways.
+ * The public claims' directions win; with none, the stored direction stands. A claim
+ * every voting vendor denies has no say (§4.3). `swapped` flips claims stored in a
+ * canonical A/B frame into the oriented source/target frame (`orientEvidencedPair`).
+ * A claim with no direction (a hand-built fixture) has no say either.
  */
-function endpointCategories(a: RawProductLink, b: RawProductLink): IntegrationTerm[] {
-  const bySlug = new Map<string, RawTaxonomyLinkWithOrder>();
-  for (const { category } of [...(a.productCategories ?? []), ...(b.productCategories ?? [])]) {
-    if (!bySlug.has(category.slug)) bySlug.set(category.slug, category);
-  }
-  return [...bySlug.values()]
-    .sort(compareTermsByDisplayOrder)
-    .map(({ slug, name }) => ({ slug, name }));
+function poweredEffectiveDirection(
+  stored: ClaimDirection | null,
+  claims: readonly RawPoweredClaimRow[],
+  swapped: boolean,
+  rowId: string,
+): ClaimDirection | null {
+  const directional = claims.flatMap((claim) => {
+    if (claim.direction === undefined) return [];
+    const direction = coerceClaimDirection(claim.direction, rowId);
+    return [
+      {
+        direction: swapped ? flipClaimDirection(direction) : direction,
+        attestations: claim.attestations ?? [],
+      },
+    ];
+  });
+  const fromSource = effectiveContextDirection(stored, directional, true);
+  if (fromSource === 'outbound') return 'a_to_b';
+  if (fromSource === 'inbound') return 'b_to_a';
+  if (fromSource === 'both') return 'both';
+  return stored;
 }
 
 /**
@@ -2686,10 +2702,18 @@ export function toPoweredIntegrationItemFromEvidencedPair(
   connector: OwnerFlowConnectorFacts | null = null,
 ): PoweredIntegrationItem {
   const ctx = ownerFlowContextOf(raw, connector);
+  const item = toIntegrationListItemFromEvidencedPair(raw);
+  const claims = poweredPublicClaims(raw.claims, ctx);
   return {
-    ...toIntegrationListItemFromEvidencedPair(raw),
-    data_object_slugs: productDetailDataObjectSlugs(poweredPublicClaims(raw.claims, ctx)),
-    endpoint_categories: endpointCategories(raw.productA, raw.productB),
+    ...item,
+    // The claims are framed A to B. The item is oriented, so a `b_to_a` row swapped.
+    direction: poweredEffectiveDirection(
+      item.direction,
+      claims,
+      raw.direction === 'b_to_a',
+      raw.id,
+    ),
+    data_object_slugs: productDetailDataObjectSlugs(claims),
   };
 }
 
@@ -3858,8 +3882,10 @@ export function wheelLogoOf(row: RawOwnedProductLink & RawWheelLogoColumns, clai
 
 /**
  * The integrations wheel's marks (AECI-2018, ruling 64, 2026-11-24): one per partner of
- * the page product's endpoint rows, both tables and both orientations, and one for the
- * page product itself, which the wheel's centre shows. Each carries the logo the wheel
+ * the page product's endpoint rows, both tables and both orientations, one per endpoint
+ * of the rows it powers or delivers as the connector (a connector's wheel shows those,
+ * QA pass on AECI-2035), and one for the page product itself, which the wheel's centre
+ * shows. Each carries the logo the wheel
  * may show (`wheelLogoOf`) and the product's claim state.
  *
  * Ruling 64 widens the AECI-1769 rule for the wheel only, so this is the one public field
@@ -3867,7 +3893,7 @@ export function wheelLogoOf(row: RawOwnedProductLink & RawWheelLogoColumns, clai
  * through `toProductLink`, which withholds it, so every list, card, row and search record
  * is unchanged. A removal on objection clears `logo_url` and `sourced_logo_url`, and the
  * `product:{partner}` purge it sends reaches this page, which carries that tag for every
- * partner.
+ * partner and for both endpoints of every powered row (`product-detail.resolver.ts`).
  *
  * Unordered: the wheel orders its tiles itself, A to Z by name (ruling R1).
  */
@@ -3887,6 +3913,17 @@ function wheelMarksOf(raw: RawProductDetailRow): WheelMark[] {
   for (const row of raw.targetIntegrations) partner(row.sourceProduct);
   for (const row of [...raw.evidencedPairsAsA, ...raw.evidencedPairsAsB]) {
     partner(partnerOf(row.productA, row.productB, raw.id));
+  }
+  // A connector's wheel shows the products its pairs reach (QA pass on AECI-2035): both
+  // endpoints of every row in `integrations_as_connector`. The page product itself is
+  // already in the map, so a Convention-A self-reference adds nothing.
+  for (const row of raw.poweredIntegrations) {
+    partner(row.sourceProduct);
+    partner(row.targetProduct);
+  }
+  for (const row of raw.evidencedPairsAsConnector) {
+    partner(row.productA);
+    partner(row.productB);
   }
   return [...marks.values()];
 }
