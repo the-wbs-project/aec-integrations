@@ -624,7 +624,7 @@
           // with a DigiCert timestamp. The next free daily slot after 17:00. Rides RECONCILE_QUEUE.
           "0 18 * * *",
           // AECI-820 weekly search ingest. Sundays 22:00 UTC: Cloudflare's day-of-week
-          // is 1 = Sunday. Lands ahead of the Monday 01:00 SEO email. Rides RECONCILE_QUEUE.
+          // is 1 = Sunday. Rides RECONCILE_QUEUE.
           "0 22 * * 1",
           // AECI-1345 traffic classification writer for the prior UTC day. 00:45, not
           // 00:15: the SPA follow-up evidence reads 30 minutes past the day's end.
@@ -920,7 +920,7 @@
           // with a DigiCert timestamp. The next free daily slot after 17:00. Rides RECONCILE_QUEUE.
           "0 18 * * *",
           // AECI-820 weekly search ingest. Sundays 22:00 UTC: Cloudflare's day-of-week
-          // is 1 = Sunday. Lands ahead of the Monday 01:00 SEO email. Rides RECONCILE_QUEUE.
+          // is 1 = Sunday. Rides RECONCILE_QUEUE.
           "0 22 * * 1",
           // AECI-1345 traffic classification writer for the prior UTC day. 00:45, not
           // 00:15: the SPA follow-up evidence reads 30 minutes past the day's end.
@@ -1248,7 +1248,7 @@
           // with a DigiCert timestamp. The next free daily slot after 17:00. Rides RECONCILE_QUEUE.
           "0 18 * * *",
           // AECI-820 weekly search ingest. Sundays 22:00 UTC: Cloudflare's day-of-week
-          // is 1 = Sunday. Lands ahead of the Monday 01:00 SEO email. Rides RECONCILE_QUEUE.
+          // is 1 = Sunday. Rides RECONCILE_QUEUE.
           "0 22 * * 1",
           // AECI-1345 traffic classification writer for the prior UTC day. 00:45, not
           // 00:15: the SPA follow-up evidence reads 30 minutes past the day's end.

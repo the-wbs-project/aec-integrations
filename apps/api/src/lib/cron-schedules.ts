@@ -451,13 +451,14 @@ export const ACCEPTANCE_CHAIN_CRON = '0 18 * * *';
  * ⚠️ Cloudflare's day-of-week is 1 = Sunday (see {@link ASN_REGISTRY_CRON}), so `1`
  * here IS Sunday. Written numerically for the same round-trip reason.
  *
- * Why Sunday 22:00. The weekly SEO email (AECI-819) reads these keys at Monday
- * 01:00 UTC, and the ingest must land first. Three hours ahead leaves room for the
- * queue's retries. The figures do not depend on the hour: Google finalises a day
+ * Why Sunday 22:00. The figures do not depend on the hour: Google finalises a day
  * two to three days late, so the run's windows end three Pacific days back
  * whenever it fires. 22:00 UTC is 14:00 or 15:00 in California, well after
- * Google's Pacific midnight. The hourly WAF poll also fires at 22:00, under its own
- * expression, so the two never share a `switch` case.
+ * Google's Pacific midnight. Nothing reads the keys at a fixed hour after the
+ * run: `/admin/seo` reads them on request. The weekly SEO email the hour was once
+ * chosen for was dropped on 2026-11-24 (AECI-819, `ADMIN_PANEL_SPEC.md` §5.24.9).
+ * The hourly WAF poll also fires at 22:00, under its own expression, so the two
+ * never share a `switch` case.
  *
  * Queue-backed on `RECONCILE_QUEUE`, the `sitemap_rebuild` precedent: the consumer
  * dispatches on `message.job`, so nothing new is provisioned. A retry is safe: every
