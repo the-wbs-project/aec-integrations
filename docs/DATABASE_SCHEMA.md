@@ -332,6 +332,7 @@ create table products (
 
   -- Classification
   product_role text not null default 'application' check (product_role in ('application', 'connector', 'hybrid')),
+  connector_kind text, -- AECI-2036 (0129): 'integration_platform' | 'sync_service' | NULL ("Connector"). Admin-set, connector/hybrid only. NO CHECK; Zod validates. Promote never writes it
 
   -- Brandfetch / logo
   logo_url text, -- HTTPS image URL or /api/logos/<sha256>
@@ -410,6 +411,8 @@ Neither column is indexed: both are read with the row and never filtered or sort
 Not indexed: it is read with the row, never filtered on.
 
 **Two writers since AECI-963, arbitrated by `usefulness_source`.** Promote (`REVIEW_APP_PROMOTE_API.md` §3.3) owns the column while `usefulness_source IS NULL`. A vendor editing the block through `PATCH /api/vendor/products/:id` sets it to `'vendor'`, after which promote stops writing the column — tested inside the SQL UPDATE, not from a planning read, so a vendor save landing mid-promote still wins. This is the `logo_source` mechanism (AECI-955 / ADR 0032) applied to narrative copy; ADR 0033 records why ownership moved. `'admin'` is declared and has no writer today. Promote never writes `usefulness_source`, and nothing clears it back to NULL, so the transition is one-way by construction. Since AECI-1316 the column is also read: `GET /api/products/:slug` returns it, and the product page labels a `'vendor'` section "Written by {vendor}".
+
+**The connector kind (AECI-2036, migration `0129_heavy_ender_wiggin.sql`).** `connector_kind` tells a Sync Service from an Integration platform, the two public kinds under the one `connector` role (`STAGE_1_5_SPEC.md` §13.13, AECI-2035 rulings 1 and 3). Values are `integration_platform` and `sync_service`. NULL is unclassified and reads as "Connector". The migration is one bare `ALTER TABLE … ADD COLUMN`, as `usefulness_source` was in 0042. The Drizzle `enum` emits no SQL CHECK, and the column must never gain one: a CHECK recreates `products`, and the recreate cascades (`docs/migrations.md` §0). `ConnectorKindSchema` (`packages/shared/src/api/connector-kind-schema.ts`) is the only validation. One writer: `PATCH /api/admin/products/:id/connector-kind`, which refuses an `application` product (`API_CONTRACTS.md`). Promote has no field for it, so it never writes or clears it, and the review app does not carry it. Readers go through `connectorKindFor` (`packages/shared/src/api/connector-kind.ts`), so an `application` row or a value outside the vocabulary reads as NULL. Not indexed: nothing filters on it yet. Not on the Algolia record yet (AECI-1662).
 
 **The edit stamps and the plan-end mirror (AECI-1614, migration `0104_smart_human_robot.sql`).** Four nullable ISO text columns, no CHECK, no index, read by the public field captions (`apps/api/src/lib/field-captions.ts`). `updated_at` and `last_reviewed_at` cannot back a caption date, because promote, an override and "Looks right" move them.
 
@@ -6537,7 +6540,8 @@ What a push writes is decided by these rules, all in `docs/REVIEW_APP_PROMOTE_AP
 
 The protection for a value a human set in D1 is the ownership fence, not a column list. It is
 per record, not per column. The two exceptions are `logo_source` and `usefulness_source`. Each
-fences one column, and only after a vendor or admin has set it.
+fences one column, and only after a vendor or admin has set it. `connector_kind` (AECI-2036) needs no fence: the promote payload has no
+field for it, so promote never writes it at all.
 
 ---
 

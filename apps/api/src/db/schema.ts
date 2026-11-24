@@ -273,6 +273,19 @@ export const products = sqliteTable(
     usefulnessSource: text('usefulness_source', { enum: ['vendor', 'admin'] }),
 
     productRole: text('product_role').notNull().default('application'),
+    /**
+     * The connector kind (AECI-2036, `STAGE_1_5_SPEC.md` §13.13). It tells a Sync
+     * Service from an Integration platform, the two public kinds under the one
+     * `connector` role (AECI-2035 ruling 1). NULL is unclassified and reads as
+     * "Connector". Only an AECi admin sets it, through
+     * `PATCH /api/admin/products/:id/connector-kind`, and only on a `connector` or
+     * `hybrid` product (ruling 3). Promote never writes or clears it, and the review
+     * app does not carry it. Drizzle's `enum` option emits no SQL CHECK: the column is
+     * a plain `ADD COLUMN`, as `usefulness_source` was, and must never gain a
+     * table-level CHECK (a CHECK recreates `products`, `docs/migrations.md` §0). Zod
+     * validates the value instead (`ConnectorKindSchema`).
+     */
+    connectorKind: text('connector_kind', { enum: ['integration_platform', 'sync_service'] }),
     logoUrl: text('logo_url'),
     logoSource: text('logo_source', { enum: ['vendor', 'admin'] }),
     /** The AECi logo, kept when a local save first overwrites it (AECI-1618). Promote

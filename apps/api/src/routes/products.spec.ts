@@ -118,6 +118,33 @@ describe('GET /api/products', () => {
     expect(parsed.data[0]?.vendor).toMatchObject({ slug: 'autodesk', name: 'Autodesk' });
   });
 
+  // AECI-2036 (STAGE_1_5_SPEC.md §13.13): the card carries the connector kind, and an
+  // `application` row reads null even when a stale value is stored.
+  it('carries connector_kind on each list row, null on an application', async () => {
+    await seedProduct(u(1), 'rivets-sync', 'Rivets Sync', {
+      productRole: 'connector',
+      connectorKind: 'sync_service',
+      createdAt: '2026-03-01T00:00:00.000Z',
+    });
+    await seedProduct(u(2), 'zapier', 'Zapier', {
+      productRole: 'connector',
+      createdAt: '2026-02-01T00:00:00.000Z',
+    });
+    await seedProduct(u(3), 'procore', 'Procore', {
+      connectorKind: 'sync_service',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    const parsed = ProductsListResponseSchema.parse(
+      await (await get(listApp(), '/api/products')).json(),
+    );
+    expect(parsed.data.map((p) => [p.slug, p.connector_kind])).toEqual([
+      ['rivets-sync', 'sync_service'],
+      ['zapier', null],
+      ['procore', null],
+    ]);
+  });
+
   it('returns a null vendor for a product with no vendor link', async () => {
     await seedProduct(u(1), 'revit', 'Revit');
 
@@ -505,6 +532,17 @@ describe('GET /api/products/:slug', () => {
       await (await get(detailApp(), '/api/products/dex')).json(),
     );
     expect(aeciBody.usefulness_source).toBeNull();
+  });
+
+  it('carries connector_kind on the detail payload (AECI-2036)', async () => {
+    await seedProduct(u(1), 'agave', 'Agave', {
+      productRole: 'hybrid',
+      connectorKind: 'integration_platform',
+    });
+    const body = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/agave')).json(),
+    );
+    expect(body.connector_kind).toBe('integration_platform');
   });
 
   it('hydrates detail: taxonomy + both integration sides + approved reviews only', async () => {

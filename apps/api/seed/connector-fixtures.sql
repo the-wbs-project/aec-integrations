@@ -90,6 +90,16 @@ INSERT INTO products (id, slug, name, description, website, product_role, resear
   ('00000000-0000-4000-8000-000000000791','fx-agave','Agave (fixture)','Connector-lane fixture: a second catalogue, handed over to its vendor so the frozen-lane state is renderable.','https://example.com/agave','connector','done','promoted','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 ON CONFLICT (slug) DO NOTHING;
 
+-- The connector kind (AECI-2036, STAGE_1_5_SPEC.md §13.13), one fixture per kind:
+-- MindCloud is an Integration platform, Agave a Sync Service. Every other fixture
+-- connector stays NULL, the unclassified "Connector" case. An UPDATE rather than a
+-- column in the INSERT above, because that INSERT is `DO NOTHING` on a re-seed and a
+-- database seeded before the column existed would never pick the kind up.
+UPDATE products SET connector_kind = 'integration_platform'
+  WHERE id = '00000000-0000-4000-8000-000000000790';
+UPDATE products SET connector_kind = 'sync_service'
+  WHERE id = '00000000-0000-4000-8000-000000000791';
+
 -- A vendor for the handover to name. AECI-720's `vendorId` is validated against
 -- `vendors` rather than trusted, so a fixture handover needs a real row.
 -- `promotion_status` is EXPLICIT (AECI-592): the column defaults to 'pending', and

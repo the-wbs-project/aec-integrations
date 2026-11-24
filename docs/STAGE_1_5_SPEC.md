@@ -2720,6 +2720,56 @@ argument.
 `surface` under a `reachable_never_counted` advisory, and no reachable figure reaches a heading,
 `integration_count`, a facet or the home stats.
 
+### 13.13 Connector kind: Integration platform and Sync Service (AECI-2036, 2026-11-24)
+
+**Status:** the field is built. No public label reads it yet: the label change is AECI-2037, and
+every other child of the epic AECI-2035 reads this field.
+
+**Why it exists.** Nothing could tell a Sync Service from an Integration platform.
+`products.product_role` was the only marker, and both kinds are `connector`. Catalogue existence
+fails as a marker too: Agave has a catalogue and Workato has none.
+
+**The two kinds.** Chris ruled on 2026-11-24 (AECI-2035):
+
+> **Ruling 1.** Two public kinds under the one `connector` role. The labels are "Integration
+> platform" and "Sync Service".
+>
+> **Ruling 3.** The kind is a new field on products, set by an AECi admin. Trimble AppXchange is
+> undecided and stays blank.
+
+| Stored value | Label | What it is | Examples |
+|---|---|---|---|
+| `integration_platform` | Integration platform | The customer builds the connection from a catalogue of apps | Zapier, Workato, MindCloud |
+| `sync_service` | Sync Service | The vendor sells, runs and supports a fixed list of finished pairs | Rivets Sync, Agave, SyncEzy |
+| NULL | Connector | Unclassified. Trimble AppXchange stays here until Chris rules | |
+
+**The contract.**
+
+- **Column.** `products.connector_kind`, nullable text, no table-level CHECK, added by a bare
+  `ADD COLUMN` (migration `0129`, `DATABASE_SCHEMA.md` §4.2). A CHECK would recreate `products`, and
+  the recreate cascades (`docs/migrations.md` §0). `ConnectorKindSchema` validates the value.
+- **Role stays single.** `product_role` keeps its three values. The kind refines `connector`
+  and `hybrid` only. An `application` never carries one.
+- **One writer.** `PATCH /api/admin/products/:id/connector-kind`, from the Products tab of
+  `/admin/vendors/:id` (`ADMIN_PANEL_SPEC.md` §5.7, `API_CONTRACTS.md` §6.10). It refuses an
+  `application` with `409 CONNECTOR_KIND_NOT_CONNECTOR`, writes its `product.updated` audit row
+  in the same batch and purges `product:{slug}` and `index:products`.
+- **Promote never writes or clears it.** The promote payload has no field for it, and the review
+  app does not carry it. A role change by promote leaves the stored value, and readers then show
+  NULL (next bullet). `promote.spec.ts` pins this.
+- **Readers.** `ProductListItem` (so `ProductDetail` too), the admin roster row and the vendor
+  portal's `VendorProduct` carry `connector_kind`. Each maps through `connectorKindFor`, which
+  returns NULL on an `application` and on a value outside the vocabulary.
+- **One helper for later issues.** `isSyncService(role, kind)` in the zod-free
+  `packages/shared/src/api/connector-kind.ts` is true for role `connector` or `hybrid` with kind
+  `sync_service`. Public pages may import it without loading zod.
+- **Not yet on the Algolia record.** That field belongs with the filter work on AECI-1662, and the
+  index quota is at its cap. A card built from a search hit carries NULL until then.
+
+**Local data.** `apps/api/seed/connector-fixtures.sql` sets the MindCloud fixture to
+`integration_platform` and the Agave fixture to `sync_service`. Every other fixture connector
+stays NULL.
+
 ### Operating notes (moved from CLAUDE.md, 2026-09-23)
 
 - **The connector lane is split across all three repos, and almost none of it is here.** `docs/connector-vendors.md` in `aec-integrations-review` is the source of truth for tracked catalogues, stub and mapping state, and the pair-page classifier.

@@ -7,6 +7,7 @@ import { HiddenFieldsSchema } from './hidden-fields';
 import { LockedFieldsSchema } from './locked-fields';
 import { VendorListingHiddenSchema } from './listing-hides';
 import { ProductUsefulnessSchema } from './usefulness';
+import { ConnectorKindSchema } from './connector-kind-schema';
 import { COMPANY_SIZE_BANDS, FUNDING_STAGES, OWNERSHIP_TYPES } from './company-fact-vocabularies';
 
 /**
@@ -267,6 +268,10 @@ export const VendorProductSchema = z.object({
   trade_slugs: z.array(z.string()),
 
   product_role: z.string(),
+  // AECI-2036 (`STAGE_1_5_SPEC.md` §13.13): AECi's classification of this connector,
+  // read-only for the vendor. `null` is unclassified, and always `null` on an
+  // `application`. Defaulted so an older payload still parses.
+  connector_kind: ConnectorKindSchema.nullable().default(null),
   integration_count: z.number().int().min(0),
   review_count: z.number().int().min(0),
   updated_at: z.string().datetime(),

@@ -106,6 +106,16 @@
 
         <td class="py-2.5 pe-4 text-(--text-secondary)">
           {{ roleLabel(row) }}
+          <!-- AECI-2036: Integration platform or Sync Service. Connector and hybrid rows only. -->
+          @if (takesConnectorKind(row)) {
+          <aec-connector-kind-control
+            [productId]="row.id"
+            [productName]="row.name"
+            [kind]="row.connector_kind"
+            (saved)="retry.emit()"
+            (announce)="announce.emit($event)"
+          />
+          }
           <!--
             Ownership is EVERY `product_vendors` row, so a product this vendor
             merely co-owns appears here too. The chip says which is which — the

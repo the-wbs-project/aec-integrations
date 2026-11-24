@@ -89,6 +89,7 @@ import {
   VENDOR_OVERRIDE_FIELDS,
   isFacetOverrideField,
   isFieldOverrideField,
+  connectorKindFor,
 } from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import {
@@ -414,6 +415,8 @@ function toVendorProduct(
     phase_slugs: tax.phases,
     trade_slugs: tax.trades,
     product_role: row.productRole,
+    // AECI-2036: AECi's classification, read-only here.
+    connector_kind: connectorKindFor(row.productRole, row.connectorKind),
     integration_count: row.integrationCount,
     review_count: row.reviewCount,
     updated_at: row.updatedAt,

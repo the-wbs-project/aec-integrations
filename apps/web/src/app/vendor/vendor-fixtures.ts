@@ -346,6 +346,7 @@ const PRIMARY_PRODUCT: VendorProduct = {
   // carries no trades. This is the COMMON case, and the fixture models it.
   trade_slugs: [],
   product_role: 'application',
+  connector_kind: null,
   integration_count: 14,
   review_count: 6,
   updated_at: '2026-07-18T12:00:00.000Z',
@@ -371,6 +372,7 @@ const SECONDARY_PRODUCT: VendorProduct = {
   // The uncommon case, so the chips render in at least one fixture path.
   trade_slugs: ['hvac-mechanical', 'electrical'],
   product_role: 'application',
+  connector_kind: null,
   integration_count: 3,
   review_count: 0,
   updated_at: '2026-07-02T09:30:00.000Z',
@@ -501,6 +503,7 @@ export const VENDOR_ME_CONNECTOR_SEAT_FIXTURE: VendorMeResponse = withProductPla
       slug: 'agave',
       name: 'Agave',
       product_role: 'connector',
+      connector_kind: null,
       integration_count: 0,
       review_count: 0,
     },

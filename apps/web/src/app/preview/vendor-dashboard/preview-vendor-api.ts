@@ -653,6 +653,7 @@ const PREVIEW_CATALOGUE: readonly ProductListItem[] = [
   name: name!,
   logo_url: null,
   product_role: 'application' as const,
+  connector_kind: null,
   vendor: {
     id: `00000000-0000-4000-8000-00000000560${index}`,
     slug: slug!,

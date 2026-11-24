@@ -14,6 +14,7 @@ function makeProduct(n: number): ProductListItem {
     name: `Product ${n}`,
     logo_url: null,
     product_role: 'application',
+    connector_kind: null,
     vendor: null,
     integration_count: n,
     review_count: 0,

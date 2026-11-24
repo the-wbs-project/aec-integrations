@@ -38,6 +38,10 @@ export const ApiErrorCode = {
   // AECI-724: the edit would collide with another mapping on the same stub — the same
   // product twice, or a second stub-level decision (409).
   MAPPING_CONFLICT: 'MAPPING_CONFLICT',
+  // AECI-2036: `PATCH /api/admin/products/:id/connector-kind` named an `application`
+  // product. Only a `connector` or `hybrid` product carries a kind (409). Nothing is
+  // written. `details.product_role` names the role the product has.
+  CONNECTOR_KIND_NOT_CONNECTOR: 'CONNECTOR_KIND_NOT_CONNECTOR',
   INVALID_STATE_TRANSITION: 'INVALID_STATE_TRANSITION',
   // AECI-1203: `PATCH /api/admin/reviews/:id` lost a race with another moderator.
   // Both passed the pending check, the other batch committed first, and this one

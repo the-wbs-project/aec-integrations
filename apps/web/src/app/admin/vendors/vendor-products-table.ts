@@ -14,9 +14,11 @@ import {
 } from '@angular/core';
 
 import type { AdminVendorProductRow } from '@aeci/shared';
+import { roleTakesConnectorKind } from '@aeci/shared/api/connector-kind';
 
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { AdminPaginator } from '../admin-paginator';
+import { ConnectorKindControl } from './connector-kind-control';
 import { ListingHideForm, type ListingHideMode } from './listing-hide-form';
 
 /**
@@ -54,12 +56,24 @@ import { ListingHideForm, type ListingHideMode } from './listing-hide-form';
  * restore, so its Restore is disabled with a note saying so. The write is the form's;
  * the table emits {@link listingChanged} and the page refetches.
  *
+ * AECI-2036 adds the connector kind control under the role, on `connector` and
+ * `hybrid` rows only ({@link takesConnectorKind}). A save emits {@link retry} so the
+ * page refetches, the same way a logo save does.
+ *
  * Light theme only (Stage 1 / AECI-226).
  */
 @Component({
   selector: 'aec-vendor-products-table',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [AdminLogoEditor, AdminPaginator, DatePipe, DecimalPipe, ListingHideForm, NewTabIcon],
+  imports: [
+    AdminLogoEditor,
+    AdminPaginator,
+    ConnectorKindControl,
+    DatePipe,
+    DecimalPipe,
+    ListingHideForm,
+    NewTabIcon,
+  ],
   templateUrl: './vendor-products-table.html',
 })
 export class VendorProductsTable {
@@ -134,6 +148,11 @@ export class VendorProductsTable {
   }
 
   protected readonly isEmpty = computed(() => this.rows().length === 0);
+
+  /** AECI-2036: only a connector or hybrid product carries a kind. */
+  protected takesConnectorKind(row: AdminVendorProductRow): boolean {
+    return roleTakesConnectorKind(row.product_role);
+  }
 
   /**
    * The role, in the operator's words rather than the column's.

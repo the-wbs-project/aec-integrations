@@ -19,6 +19,7 @@ const subject = (slug: string, name: string): ProductPairSubject =>
     name,
     logo_url: null,
     product_role: 'application',
+    connector_kind: null,
     vendor: null,
     integration_count: 3,
     listed_integration_count: 0,

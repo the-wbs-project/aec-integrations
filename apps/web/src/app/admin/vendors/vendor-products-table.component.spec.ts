@@ -41,6 +41,7 @@ function makeRow(over: Partial<AdminVendorProductRow> = {}): AdminVendorProductR
     slug: 'revit',
     name: 'Revit',
     product_role: 'application',
+    connector_kind: null,
     is_primary: true,
     promotion_status: 'promoted',
     integration_count: 12,
@@ -171,5 +172,22 @@ describe('VendorProductsTable listing hide', () => {
     fixture.detectChanges();
     expect(document.activeElement).toBe(trigger(el));
     expect(trigger(el).textContent?.trim()).toBe('Restore');
+  });
+});
+
+describe('VendorProductsTable connector kind (AECI-2036)', () => {
+  it('shows the kind control on connector and hybrid rows only', async () => {
+    const { el } = await setup([
+      makeRow(),
+      makeRow({
+        id: '00000000-0000-4000-8000-000000000031',
+        slug: 'sync',
+        product_role: 'connector',
+      }),
+      makeRow({ id: '00000000-0000-4000-8000-000000000032', slug: 'hy', product_role: 'hybrid' }),
+    ]);
+    const controls = el.querySelectorAll('aec-connector-kind-control');
+    expect(controls).toHaveLength(2);
+    expect(el.querySelector(`#connector-kind-${PRODUCT_ID}-trigger`)).toBeNull();
   });
 });

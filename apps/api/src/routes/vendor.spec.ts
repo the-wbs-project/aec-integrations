@@ -209,6 +209,18 @@ describe('GET /api/vendor/me', () => {
     expect(body.seat_owner).toBe(false);
   });
 
+  // AECI-2036: AECi's connector kind rides each product, read-only, null on an application.
+  it('carries connector_kind on each product', async () => {
+    expect((await call('/api/vendor/me')).body.products[0].connector_kind).toBeNull();
+    await t.db
+      .update(products)
+      .set({ productRole: 'connector', connectorKind: 'sync_service' })
+      .where(eq(products.id, PRODUCT));
+    const { body } = await call('/api/vendor/me');
+    expect(() => VendorMeResponseSchema.parse(body)).not.toThrow();
+    expect(body.products[0].connector_kind).toBe('sync_service');
+  });
+
   it('reports seat_owner from the caller’s own profile (AECI-1387)', async () => {
     await t.db.update(profiles).set({ seatOwner: true }).where(eq(profiles.id, SEAT));
     const { body } = await call('/api/vendor/me');

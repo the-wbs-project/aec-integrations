@@ -40,6 +40,7 @@ const productListItem = (slug: string, name: string, overrides = {}) => ({
   name,
   logo_url: null,
   product_role: 'application' as const,
+  connector_kind: null,
   vendor: null,
   integration_count: 1,
   review_count: 0,

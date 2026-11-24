@@ -275,6 +275,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `SLUG_CONFLICT` | 409 | Slug collision detected on entity creation |
 | `GRANT_CONFLICT` | 409 | Vendor-claim grant would violate role/vendor exclusivity — the claimant account is a site `admin`, or is already linked to a different vendor (AECI-519; `details.reason` ∈ `already_admin` \| `other_vendor`). Also returned by `POST /api/vendor/seats/invites` when the address already holds a live invite, and by the invite accept when the redeemer is a site admin or belongs to another vendor (AECI-664) |
 | `CATALOG_REVIEW_MANAGED` | 409 | The inverse of `CATALOG_VENDOR_MANAGED` (AECI-724). A mapping edit (`PATCH /api/admin/connector-stub-mappings/:id` or `PATCH /api/vendor/connector-stub-mappings/:id`) addressed a catalogue whose `managed_by` is still `review`, so the review-app sync authors it and its next page would overwrite the edit. Nothing is written. Re-checked inside the batch by a sentinel, so a lane reclaimed mid-request also answers this. Resolved only by an operator handing the catalogue over through `PATCH /api/admin/connector-catalogs/:id` |
+| `CONNECTOR_KIND_NOT_CONNECTOR` | 409 | `PATCH /api/admin/products/:id/connector-kind` (AECI-2036) named an `application` product. Only a `connector` or `hybrid` product carries a kind. `details.product_role` names the product's role. Nothing is written. Also answered when a promote moved the product to `application` between the read and the batch: a sentinel aborts the batch |
 | `MAPPING_CONFLICT` | 409 | A mapping edit would collide with another row on the same listing (AECI-724): the same product twice (`connector_stub_mappings_pair_idx`), or a second listing-level decision (`connector_stub_mappings_decision_idx`). Nothing is written. Edit the other row instead |
 | `CATALOG_VENDOR_MANAGED` | 409 | The connector catalogue a promote page addresses is **vendor-managed** on AECi, so the review lane is frozen for it and the page was not written (AECI-720). Raised from `planConnectorCatalogPage` before any statement is built, so nothing at all is committed — no rows, no `promote_jobs` ledger row, no `audit_log` row — and it reaches the caller on the job poll, not the kick-off. Re-checked inside the page's batch by a sentinel (AECI-1084), so a catalogue flipped to `vendor` between plan and commit also answers this, with the whole batch rolled back. **Not re-sendable**, which is precisely why it is an error and not a `skipped[]` entry: every connector skip kind means "this could not be resolved *yet*". A catalogue returns to review authorship only through `PATCH /api/admin/connector-catalogs/:id` |
 | `INVALID_STATE_TRANSITION` | 422 | Attempted workflow transition is not allowed from current state. Also an expired link: a seat invite past `expires_at`, and since AECI-1435 a claim confirm link past its 7 days (`POST /api/requests/confirm`, `details.reason = 'expired'`). Also `PATCH /api/admin/license-grants/:id` on a grant that is not `pending_acceptance` (AECI-1615, `details.state`). A link that expired is a real request in the wrong state, not a missing resource, so this API answers 422 rather than minting a 410 |
@@ -494,6 +495,11 @@ export const ProductListItemSchema = z.object({
   name: z.string().min(1),
   logo_url: LogoReadUrlSchema.nullable(),
   product_role: z.enum(['application', 'connector', 'hybrid']),
+  // AECI-2036 (STAGE_1_5_SPEC.md §13.13): 'integration_platform' | 'sync_service' | null.
+  // null = unclassified ("Connector"), and always null on an `application`. Admin-set,
+  // never promoted. Not on the Algolia record yet (AECI-1662), so a card built from a
+  // search hit carries null. No public label reads it yet (AECI-2037).
+  connector_kind: ConnectorKindSchema.nullable().default(null),
   vendor: VendorLinkSchema.nullable(), // null when the product has no ProductVendor link (AECI-115)
   integration_count: z.number().int().min(0),
   review_count: z.number().int().min(0),
@@ -3513,6 +3519,7 @@ export const AdminVendorProductsQuerySchema = PageQuerySchema;   // page / perPa
 export const AdminVendorProductRowSchema = z.object({
   id, slug, name,
   product_role: ProductRoleSchema,        // closed enum — the §5.2 payer test reads it
+  connector_kind: ConnectorKindSchema.nullable(), // AECI-2036; null when unset or `application`
   is_primary: z.boolean(),                // is this vendor the product's primary owner?
   promotion_status: z.string(),           // deliberately not an enum — see the note below
   integration_count: z.number().int().min(0),
@@ -3563,6 +3570,41 @@ unique in this catalogue, and an unstable sort makes a row appear on two pages o
 
 Errors: `404 NOT_FOUND` on an unknown vendor id (never an empty successful page, which
 would read as "this vendor has no products"), plus the shared 401/403.
+
+#### `PATCH /api/admin/products/:id/connector-kind` (AECI-2036)
+
+Sets or clears one product's connector kind: Integration platform or Sync Service
+(`STAGE_1_5_SPEC.md` §13.13, AECI-2035 rulings 1 and 3). Driven by the kind control on the
+Products tab above (`ADMIN_PANEL_SPEC.md` §5.7). Behind `requireAdmin()`, then
+`rateLimit('write')`. Source: `packages/shared/src/api/connector-kind-schema.ts`.
+
+```typescript
+export const AdminSetConnectorKindSchema = z
+  .object({ connector_kind: ConnectorKindSchema.nullable() })  // null clears it
+  .strict();
+export const AdminSetConnectorKindResponseSchema = z.object({
+  id: z.string().uuid(),
+  connector_kind: ConnectorKindSchema.nullable(),
+  changed: z.boolean(),   // false: the value was already set; nothing written or purged
+});
+```
+
+| Order | Check | Answer |
+|---|---|---|
+| 1 | Body | `400 VALIDATION_FAILED`: an unknown kind, a missing key or an extra key |
+| 2 | Product exists | `404 NOT_FOUND` |
+| 3 | Role is `connector` or `hybrid` | `409 CONNECTOR_KIND_NOT_CONNECTOR` with `details.product_role` |
+| 4 | Value unchanged | `200 { changed: false }`. No write, no audit row, no purge |
+| 5 | One `db.batch`: a role sentinel, the `UPDATE` (with `updated_at`), the audit row | `200 { changed: true }`. A sentinel abort is the 409 of step 3 |
+
+The audit row is `product.updated` with `entity_type = 'product'`, before and after
+`{ connectorKind }`, `metadata { source: 'admin-panel', fields: ['connector_kind'] }`, and
+the holder's `vendor_id` and plan when a vendor holds the product. Post-commit it purges
+`product:{slug}` and `index:products` with `source: 'moderation'`, the logo PATCH's set.
+Every page that shows the product embeds `product:{slug}` (`CACHE_STRATEGY.md` §3 rule 2).
+It sends no vendor notice, no review-app mirror message and no Algolia sync: the kind is
+AECi's classification, the review app does not carry it, and the record has no kind field
+until AECI-1662. Promote never writes or clears the column (`REVIEW_APP_PROMOTE_API.md`).
 
 #### `GET /api/admin/vendors/:id/audit` (Stage 2 — AECI-652)
 
@@ -8607,6 +8649,12 @@ export const VendorEntitlementBlockSchema = z.object({
 // Each VendorProductSchema entry also carries (AECI-1214):
 //   plan: VendorEntitlementBlockSchema,  // THIS product's plan, from its own license (AECI-1355)
 ```
+
+**`connector_kind` (AECI-2036).** Each `VendorProduct` carries AECi's classification of a
+connector product: `'integration_platform' | 'sync_service' | null`, defaulted to `null` for
+deploy skew. It is read-only for the vendor: no vendor body accepts it, and only
+`PATCH /api/admin/products/:id/connector-kind` (§6.10) writes it. `null` on an
+`application`.
 
 **`hidden` (AECI-1238, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6).** `vendor.hidden` and each `VendorProduct`'s `hidden` are `{ at, kind, reason } | null` (`VendorListingHiddenSchema`). They are set while AECi has hidden the record from the public site. `kind` is `complaint_under_review`, `lawful_order` or `defunct`. `reason` is the vendor-visible reason. The internal note is never here. The portal shows a banner from it and keeps every edit working.
 

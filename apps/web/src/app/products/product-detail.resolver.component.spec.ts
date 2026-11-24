@@ -32,6 +32,7 @@ function buildProduct(overrides: Partial<ProductDetail> = {}): ProductDetail {
     logo_url: 'https://example.com/procore.png',
     vendor_facts: { company_size: null, ownership_type: null },
     product_role: 'application',
+    connector_kind: null,
     vendor: {
       id: '00000000-0000-4000-8000-000000010001',
       slug: 'procore',
@@ -381,6 +382,7 @@ describe('productDetailResolver — product-specific', () => {
     const base = {
       vendor: null,
       product_role: 'connector' as const,
+      connector_kind: null,
       integrations_as_target: [endpointRow],
     };
 
@@ -506,6 +508,7 @@ describe('productDetailResolver — product-specific', () => {
       await resolvedDescription(
         buildProduct({
           product_role: 'connector',
+          connector_kind: null,
           integrations_as_connector: [poweredEdge('d', 'e'), poweredEdge('d', 'f')],
         }),
       ),
@@ -521,6 +524,7 @@ describe('productDetailResolver — product-specific', () => {
       resolvedDescription(
         buildProduct({
           product_role: 'connector',
+          connector_kind: null,
           integrations_as_connector: [
             poweredEdge('d', 'procore'),
             poweredEdge('e', 'procore'),
@@ -547,6 +551,7 @@ describe('productDetailResolver — product-specific', () => {
         await resolvedDescription(
           buildProduct({
             product_role: role,
+            connector_kind: null,
             integrations_as_connector: [poweredEdge('d', 'e')],
           }),
         ),
@@ -651,6 +656,7 @@ describe('productDetailResolver — title and description (AECI-802)', () => {
   it('keeps the connector variant ahead of the composed sentence (§13.6)', async () => {
     const product = buildProduct({
       product_role: 'connector',
+      connector_kind: null,
       integration_count: 4,
       integrations_as_source: [partnerEdge('xero', 'Xero')],
       integrations_as_connector: [

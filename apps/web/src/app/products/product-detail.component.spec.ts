@@ -52,6 +52,7 @@ function buildProduct(overrides: Partial<ProductDetail> = {}): ProductDetail {
     logo_url: 'https://example.com/procore.png',
     vendor_facts: { company_size: null, ownership_type: null },
     product_role: 'application',
+    connector_kind: null,
     vendor: {
       id: '00000000-0000-4000-8000-000000010001',
       slug: 'procore',
@@ -331,6 +332,7 @@ const connector = (overrides: Partial<ProductDetail> = {}) =>
     slug: 'agave-erp-sync',
     name: 'Agave ERP Sync',
     product_role: 'connector',
+    connector_kind: null,
     ...overrides,
   });
 
@@ -1131,6 +1133,7 @@ describe('ProductDetailPage role-varied section order (§13.6)', () => {
     const { el } = setup(
       connector({
         product_role: 'hybrid',
+        connector_kind: null,
         integrations_as_connector: [edge(procore, acumatica), edge(sage, procore)],
       }),
     );

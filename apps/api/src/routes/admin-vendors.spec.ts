@@ -947,7 +947,13 @@ describe('GET /api/admin/vendors/:id/products', () => {
     // Ownership is EVERY `product_vendors` row (§8.8(1)) — a co-owned product is
     // owned, and dropping it would under-report the payer test.
     await t.db.insert(products).values([
-      { id: u(32), slug: 'acme-bridge', name: 'Bridge', productRole: 'connector' },
+      {
+        id: u(32),
+        slug: 'acme-bridge',
+        name: 'Bridge',
+        productRole: 'connector',
+        connectorKind: 'sync_service',
+      },
       { id: PRODUCT, slug: 'acme-thing', name: 'Acme Thing', productRole: 'application' },
     ]);
     await t.db.insert(productVendors).values([
@@ -968,9 +974,15 @@ describe('GET /api/admin/vendors/:id/products', () => {
     expect(b.data[0]).toMatchObject({
       slug: 'acme-thing',
       product_role: 'application',
+      connector_kind: null,
       is_primary: true,
     });
-    expect(b.data[1]).toMatchObject({ product_role: 'connector', is_primary: false });
+    // AECI-2036: the roster's kind control reads this.
+    expect(b.data[1]).toMatchObject({
+      product_role: 'connector',
+      connector_kind: 'sync_service',
+      is_primary: false,
+    });
   });
 
   it("excludes another vendor's products", async () => {

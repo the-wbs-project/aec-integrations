@@ -59,6 +59,7 @@ const productListItem = (slug: string, name: string) => ({
   name,
   logo_url: null,
   product_role: 'application' as const,
+  connector_kind: null,
   vendor: { id: `v-${slug}`, name: `${name} Inc`, slug: `${slug}-inc`, logo_url: null },
   integration_count: 1,
   review_count: 0,

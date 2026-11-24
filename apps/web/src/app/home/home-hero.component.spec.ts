@@ -43,6 +43,7 @@ function popular(slug: string, name: string): ProductListItem {
     name,
     logo_url: null,
     product_role: 'application',
+    connector_kind: null,
     vendor: { id: 'v', slug: 'v', name: 'Vendor', logo_url: null },
     integration_count: 0,
     review_count: 0,

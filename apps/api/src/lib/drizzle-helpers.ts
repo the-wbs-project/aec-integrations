@@ -25,6 +25,7 @@ import {
   claimDirectionForContext,
   computeAgreement,
   computeSyncHeadline,
+  connectorKindFor,
   countListedIntegrationRows,
   distinctDataObjectSlugs,
   effectiveContextDirection,
@@ -951,6 +952,8 @@ export const productListConfig = {
     name: true,
     logoUrl: true,
     productRole: true,
+    // AECI-2036: the connector kind rides every card and the detail page.
+    connectorKind: true,
     integrationCount: true,
     reviewCount: true,
     ratingOverallAvg: true,
@@ -1837,6 +1840,8 @@ export interface RawProductListRow {
   name: string;
   logoUrl: string | null;
   productRole: string;
+  /** AECI-2036, `products.connector_kind`. */
+  connectorKind: string | null;
   integrationCount: number;
   reviewCount: number;
   ratingOverallAvg: number | null;
@@ -2960,6 +2965,8 @@ export function toProductListItem(raw: RawProductListRow): ProductListItem {
     name: raw.name,
     logo_url: isProductClaimed(raw) ? raw.logoUrl : null,
     product_role: toProductRole(raw.productRole, raw.id),
+    // AECI-2036: `null` on an `application` and on a value the vocabulary does not know.
+    connector_kind: connectorKindFor(raw.productRole, raw.connectorKind),
     vendor: pickPrimaryVendor(raw.productVendors),
     integration_count: raw.integrationCount,
     review_count: raw.reviewCount,

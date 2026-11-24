@@ -53,6 +53,7 @@ function makePairProduct(overrides: Partial<PairSubjectLd> = {}): PairSubjectLd 
     name: 'Revit',
     logo_url: 'https://cdn.example/revit.png',
     product_role: 'application',
+    connector_kind: null,
     vendor: {
       id: '00000000-0000-0000-0000-0000000000a0',
       slug: 'autodesk',
@@ -518,6 +519,7 @@ describe('buildProductJsonLd', () => {
       name: 'Revit',
       logo_url: 'https://cdn.example/revit.png',
       product_role: 'application',
+      connector_kind: null,
       vendor: {
         id: '00000000-0000-0000-0000-0000000000a0',
         slug: 'autodesk',
@@ -1078,6 +1080,7 @@ function makeDescribedProduct(overrides: Partial<ProductDetail> = {}): ProductDe
     name: 'Connecteam',
     logo_url: null,
     product_role: 'application',
+    connector_kind: null,
     vendor: null,
     vendor_facts: { company_size: null, ownership_type: null },
     claim_status: 'claimed',
@@ -1117,6 +1120,7 @@ function makeListedProduct(slug: string, name: string, integrationCount: number)
     name,
     logo_url: null,
     product_role: 'application',
+    connector_kind: null,
     vendor: null,
     integration_count: integrationCount,
     review_count: 0,

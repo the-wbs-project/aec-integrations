@@ -107,6 +107,7 @@ const NO_ZOD_IN_VERSION_DIFF = {
  */
 const ZOD_FREE_API_MODULES = [
   'src/api/agreements.ts',
+  'src/api/connector-kind.ts',
   'src/api/https-url-rule.ts',
   'src/api/legal-moment.ts',
   'src/api/taxonomy-count.ts',

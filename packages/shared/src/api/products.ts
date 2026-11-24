@@ -1,4 +1,5 @@
 import { COMPANY_SIZE_BANDS, OWNERSHIP_TYPES } from './company-fact-vocabularies';
+import { ConnectorKindSchema } from './connector-kind-schema';
 import { LogoReadUrlSchema } from './logo-read';
 import { z } from 'zod';
 
@@ -70,6 +71,12 @@ export const ProductListItemSchema = z.object({
   name: z.string().min(1),
   logo_url: LogoReadUrlSchema.nullable(),
   product_role: ProductRoleSchema,
+  // AECI-2036 (`STAGE_1_5_SPEC.md` §13.13): Integration platform or Sync Service.
+  // `null` is unclassified ("Connector"), and always `null` on an `application`
+  // (`connectorKindFor`). Admin-set, never promoted. Not on the Algolia record yet
+  // (AECI-1662), so a card built from a search hit carries `null`. No public label
+  // reads it yet (AECI-2037). Defaulted so an older payload still parses.
+  connector_kind: ConnectorKindSchema.nullable().default(null),
   vendor: VendorLinkSchema.nullable(),
   integration_count: z.number().int().min(0),
   review_count: z.number().int().min(0),

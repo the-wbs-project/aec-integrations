@@ -1309,6 +1309,7 @@ describe('ProductIntegrationsSection empty state on an extension (§13.3b / AECI
   const host = (slug: string, name: string): ProductListItem => ({
     ...link(slug, name),
     product_role: 'application',
+    connector_kind: null,
     vendor: null,
     integration_count: 0,
     review_count: 0,
@@ -1351,6 +1352,7 @@ describe('ProductIntegrationsSection empty branch on a page that powers pairs (A
   const host = (slug: string, name: string): ProductListItem => ({
     ...link(slug, name),
     product_role: 'application',
+    connector_kind: null,
     vendor: null,
     integration_count: 0,
     review_count: 0,

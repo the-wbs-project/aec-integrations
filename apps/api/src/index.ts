@@ -61,6 +61,7 @@ import {
   createSaveClaimNotesHandler,
 } from './routes/admin-claims';
 import { createSetConnectorCatalogManagementHandler } from './routes/admin-connector-catalogs';
+import { createAdminSetConnectorKindHandler } from './routes/admin-connector-kind';
 import { createAdminUpdateConnectorStubMappingHandler } from './routes/admin-connector-stub-mappings';
 import { createVendorUpdateConnectorStubMappingHandler } from './routes/vendor-connector-stub-mappings';
 import {
@@ -1020,6 +1021,14 @@ authAdmin.patch(
   requireAdmin(),
   rateLimit('write'),
   createUpdateAdminLogoHandler('product'),
+);
+// AECI-2036: set or clear a connector's kind, Integration platform or Sync Service
+// (`STAGE_1_5_SPEC.md` §13.13). A write, so `rateLimit('write')` after the guard.
+authAdmin.patch(
+  '/api/admin/products/:id/connector-kind',
+  requireAdmin(),
+  rateLimit('write'),
+  createAdminSetConnectorKindHandler(),
 );
 // Stage 2 / AECI-652: the admin vendor surface (§5.6). The literal sub-paths are
 // unambiguous against the bare `/:id`: Hono's trie separates them by segment count.

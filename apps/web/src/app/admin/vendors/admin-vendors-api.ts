@@ -19,6 +19,9 @@ import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
 import type {
+  AdminSetConnectorKindInput,
+  AdminSetConnectorKindResponse,
+  ConnectorKind,
   AdminVendorIntegrationsQuery,
   AdminVendorIntegrationsResponse,
   AdminVendorAuditQuery,
@@ -140,6 +143,23 @@ export class AdminVendorsApi {
     return firstValueFrom(
       this.http.get<AdminFieldOverridesResponse>(
         `/api/admin/vendors/${encodeURIComponent(vendorId)}/field-overrides`,
+      ),
+    );
+  }
+
+  /**
+   * `PATCH /api/admin/products/:id/connector-kind` (AECI-2036): set or clear a connector
+   * product's kind. The endpoint refuses an `application` product with 409.
+   */
+  setConnectorKind(
+    productId: string,
+    connectorKind: ConnectorKind | null,
+  ): Promise<AdminSetConnectorKindResponse> {
+    const body: AdminSetConnectorKindInput = { connector_kind: connectorKind };
+    return firstValueFrom(
+      this.http.patch<AdminSetConnectorKindResponse>(
+        `/api/admin/products/${encodeURIComponent(productId)}/connector-kind`,
+        body,
       ),
     );
   }

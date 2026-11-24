@@ -1,0 +1,153 @@
+/**
+ * The connector kind write (AECI-2036, `docs/STAGE_1_5_SPEC.md` §13.13,
+ * `docs/ADMIN_PANEL_SPEC.md` §5.7).
+ *
+ *   PATCH /api/admin/products/:id/connector-kind — behind `requireAdmin()`, then
+ *   `rateLimit('write')`.
+ *
+ * Sets or clears `products.connector_kind`: Integration platform or Sync Service
+ * (AECI-2035 rulings 1 and 3). Only a `connector` or `hybrid` product takes a kind.
+ * An `application` is **409 `CONNECTOR_KIND_NOT_CONNECTOR`** and nothing is written.
+ *
+ * Order: body (400) → 404 (unknown product) → 409 (wrong role) → no-op when the value
+ * is unchanged (200, `changed: false`, nothing written or purged) → one `db.batch`
+ * with the UPDATE and its `product.updated` audit row → post-commit purge and forward.
+ *
+ * A promote can move the product to `application` between the read and the batch.
+ * {@link roleStillTakesKindSentinel} runs first in the batch and aborts it in that
+ * case, so neither the UPDATE nor its audit row commits, and the caller gets the same
+ * 409 the read would have given.
+ *
+ * Purge: `product:{slug}` and `index:products`, the logo PATCH's set. Every page that
+ * shows the product (its page, browse grids, the vendor page, pair pages and the
+ * connector hub) already embeds `product:{slug}` (`CACHE_STRATEGY.md` §3 rule 2).
+ *
+ * Not done here on purpose: no Algolia sync (the record carries no kind until
+ * AECI-1662), no review-app mirror (the review app does not carry the kind), no vendor
+ * notice (the kind is AECi's classification, not a vendor value it overwrites).
+ */
+
+import {
+  AdminSetConnectorKindResponseSchema,
+  AdminSetConnectorKindSchema,
+  ApiErrorCode,
+  CONNECTOR_KIND_ROLES,
+  roleTakesConnectorKind,
+  type AdminSetConnectorKindResponse,
+  type AuditLogEntry,
+} from '@aeci/shared';
+import { eq, sql } from 'drizzle-orm';
+
+import { getDb, type Db } from '../db/client';
+import { products } from '../db/schema';
+import { ApiError, notFoundError } from '../errors';
+import { json } from '../http';
+import { auditInsert } from '../lib/audit';
+import { productAuditStamp } from '../lib/audit-vendor';
+import { auditActorType } from '../lib/authz';
+import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
+import { isSentinelJsonAbort } from '../lib/field-overrides';
+import { ONE_ROW } from '../lib/integration-claims';
+import { forwardAuditBatch } from '../lib/moderation-forward';
+import { parseJsonBody, purgeTags, type VendorContext } from './vendor-shared';
+
+/** The audit `source` facet and forward tag. */
+export const CONNECTOR_KIND_AUDIT_SOURCE = 'admin-panel';
+
+/**
+ * A batch statement that ABORTS the batch unless the product still has a role that
+ * takes a kind. The same `json()` abort every sentinel uses (`fieldsUnlockedSentinel`):
+ * SQLite has no `RAISE()` outside triggers. Selected FROM a one-row constant so it is
+ * evaluated exactly once.
+ */
+function roleStillTakesKindSentinel(db: Db, id: string) {
+  const roles = sql.join(
+    CONNECTOR_KIND_ROLES.map((role) => sql`${role}`),
+    sql`, `,
+  );
+  return db
+    .select({
+      guard: sql`CASE WHEN NOT EXISTS (SELECT 1 FROM ${products}
+        WHERE ${products.id} = ${id} AND ${products.productRole} IN (${roles}))
+        THEN json('connector-kind-role-changed') END`,
+    })
+    .from(ONE_ROW);
+}
+
+function notConnectorError(role: string): ApiError {
+  return new ApiError(
+    409,
+    ApiErrorCode.CONNECTOR_KIND_NOT_CONNECTOR,
+    'Only a connector or hybrid product has a connector kind.',
+    { details: { product_role: role } },
+  );
+}
+
+export function createAdminSetConnectorKindHandler(
+  dbFor: DbFactory = getDb,
+): (c: VendorContext) => Promise<Response> {
+  return async (c) => {
+    const id = c.req.param('id');
+    if (!id) throw new ApiError(400, 'VALIDATION_FAILED', 'Missing product id', { field: 'id' });
+    const input = await parseJsonBody(c, AdminSetConnectorKindSchema);
+    const { db } = writeDb(c, dbFor);
+
+    const [[before], stamp] = await Promise.all([
+      db
+        .select({
+          slug: products.slug,
+          productRole: products.productRole,
+          connectorKind: products.connectorKind,
+        })
+        .from(products)
+        .where(eq(products.id, id)),
+      productAuditStamp(db, id),
+    ]);
+    if (!before) throw notFoundError('product', { id });
+    if (!roleTakesConnectorKind(before.productRole)) throw notConnectorError(before.productRole);
+
+    const next = input.connector_kind;
+    if ((before.connectorKind ?? null) === next) {
+      return respond(c, { id, connector_kind: next, changed: false });
+    }
+
+    const session = c.get('auth');
+    const at = new Date().toISOString();
+    const entry: AuditLogEntry = {
+      actorId: session.userId,
+      actorType: auditActorType(session),
+      action: 'product.updated',
+      entityType: 'product',
+      entityId: id,
+      ...stamp,
+      productId: id,
+      beforeState: { connectorKind: before.connectorKind ?? null },
+      afterState: { connectorKind: next },
+      metadata: { source: CONNECTOR_KIND_AUDIT_SOURCE, fields: ['connector_kind'] },
+    };
+    try {
+      await db.batch([
+        roleStillTakesKindSentinel(db, id),
+        db.update(products).set({ connectorKind: next, updatedAt: at }).where(eq(products.id, id)),
+        auditInsert(db, entry),
+      ]);
+    } catch (error) {
+      // A promote moved the product off a connector role between the read and the
+      // batch. Nothing committed. Refuse, as the read would have.
+      if (isSentinelJsonAbort(error)) throw notConnectorError('application');
+      throw error;
+    }
+
+    const tags = [`product:${before.slug}`, 'index:products'];
+    c.executionCtx.waitUntil(purgeTags(c, tags, 'moderation'));
+    forwardAuditBatch(c, [entry], [], CONNECTOR_KIND_AUDIT_SOURCE);
+    return respond(c, { id, connector_kind: next, changed: true });
+  };
+}
+
+function respond(c: VendorContext, body: AdminSetConnectorKindResponse): Response {
+  validateResponseInDev(c.env, () => {
+    AdminSetConnectorKindResponseSchema.parse(body);
+  });
+  return json(body);
+}
