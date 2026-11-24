@@ -54,6 +54,15 @@ Run each surface with **(a) keyboard only**, then **(b) VoiceOver**, then **(c) 
 > centre. It also checks that text fields, selects, comboboxes, checkboxes and radios show an edge at
 > 3:1. It counts pixels, so it cannot judge whether a ring is easy to notice. The manual pass above keeps
 > its full scope and cadence.
+>
+> **Interaction, automated nightly in Chrome (AECI-1882, `TESTING_STRATEGY.md` §8.4.7).** On every
+> surface in §1, the nightly checks that content shown on hover stays when the pointer moves onto it and
+> closes on `Esc` without moving focus; that a press dragged off a control and released does nothing; that
+> changing a form control does not move the page unless it is on a reviewed list; that the keys a to z do
+> nothing on the page body; that nothing moves for more than 5 seconds, or for more than 100ms with reduced
+> motion; and axe and the focus ring with forced colours on. It also checks that the claim, checkout,
+> account delete and moderation flows stop on a confirm step. Chrome's forced colours is not a real
+> Windows theme, so the manual pass above keeps its full scope and cadence.
 
 **Screen reader (VoiceOver + NVDA, every surface):**
 - [ ] Page has a correct, unique title and a single logical `h1`; heading levels don't skip.
