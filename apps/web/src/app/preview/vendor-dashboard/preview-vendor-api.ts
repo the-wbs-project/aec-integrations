@@ -390,7 +390,7 @@ function previewBilling(): VendorBillingResponse {
   return {
     ...base,
     // AECI-1866: every status-chip tone shows. The pool subscription will not renew
-    // (Clay "Live" with its "Cancels at term end" badge), and a second ended row makes
+    // ("Live" with a clock and its "Cancels at term end" badge), and a second ended row makes
     // the closed group read "Ended subscriptions (2)".
     licenses: [
       assigned!,

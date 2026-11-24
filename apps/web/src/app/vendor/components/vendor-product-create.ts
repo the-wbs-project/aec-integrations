@@ -46,6 +46,7 @@ import {
   PORTAL_SAVE_BUTTON_CLASS,
   PORTAL_SAVE_STATUS_CLASS,
 } from '../shared/portal-form';
+import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
 
 /** The text fields, in form order. The logo and categories have their own controls. */
 const TEXT_FIELDS = ['name', 'description', 'website'] as const;
@@ -92,7 +93,7 @@ export type ProductCreateNotice = { kind: 'notOwned' } | { kind: 'text'; text: s
  */
 @Component({
   selector: 'aec-vendor-product-create',
-  imports: [RouterLink, AecButton, AecCard, VendorLogoField],
+  imports: [RouterLink, AecButton, AecCard, KeepClearOfSaveBar, VendorLogoField],
   styles: [':host { display: block; }'],
   template: `
     <div class="space-y-4" data-testid="product-create">
@@ -167,6 +168,7 @@ export type ProductCreateNotice = { kind: 'notOwned' } | { kind: 'text'; text: s
           <form
             aecCard
             phoneFlush
+            aecKeepClearOfSaveBar
             method="dialog"
             [class]="formClass"
             novalidate
