@@ -314,3 +314,66 @@ describe('LicenseRowActions', () => {
     expect(document.activeElement?.textContent?.trim()).toBe('Revoke');
   });
 });
+
+describe('LicenseRowActions on the console recipe (AECI-2124)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+  afterEach(() => vi.restoreAllMocks());
+  const escape = (target: Element) =>
+    target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+  it('openers are secondary; Extend saves with primary, Revoke confirms with danger', async () => {
+    const { el, refresh } = await setup(makeLicense());
+    for (const label of ['Extend', 'Change reference', 'Revoke']) {
+      expect(button(el, label).className).toContain('aec-btn-secondary');
+    }
+    button(el, 'Extend').click();
+    await refresh();
+    expect(button(el, 'Save end date').className).toContain('bg-(--accent-primary)');
+    button(el, 'Cancel').click();
+    await refresh();
+    button(el, 'Revoke').click();
+    await refresh();
+    expect(button(el, 'Confirm revoke').className).toContain('bg-(--status-error)');
+    // The form sits in the cell with no box of its own.
+    const wrap = el.querySelector('form')!.parentElement!;
+    expect(wrap.className).not.toContain('bg-(--surface-sunken)');
+    expect(wrap.className).not.toContain('rounded');
+  });
+
+  it('Escape closes the form and returns focus to the button that opened it', async () => {
+    const { el, refresh } = await setup(makeLicense());
+    button(el, 'Change reference').click();
+    await refresh();
+    const field = el.querySelector<HTMLInputElement>('[id="host-1-license-reference"]')!;
+    expect(document.activeElement).toBe(field);
+    escape(field);
+    await refresh();
+    expect(el.querySelector('form')).toBeNull();
+    expect(document.activeElement).toBe(button(el, 'Change reference'));
+  });
+
+  it('Escape does nothing while the revoke runs', async () => {
+    let resolve!: (r: unknown) => void;
+    const updateLicense = vi.fn(() => new Promise((done) => (resolve = done)));
+    const { el, refresh } = await setup(makeLicense(), updateLicense);
+    button(el, 'Revoke').click();
+    await refresh();
+    const reason = el.querySelector<HTMLTextAreaElement>('[id="host-1-license-reason"]')!;
+    type(reason, 'Unpaid invoice');
+    await refresh();
+    button(el, 'Confirm revoke').click();
+    await refresh();
+    expect(updateLicense).toHaveBeenCalled();
+    escape(reason);
+    await refresh();
+    expect(el.querySelector('form')).not.toBeNull();
+    resolve({
+      vendor_id: 'v',
+      action: 'revoke',
+      changed: true,
+      license: makeLicense({ live: false }),
+    });
+    await refresh();
+    expect(el.querySelector('form')).toBeNull();
+  });
+});

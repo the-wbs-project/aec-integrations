@@ -583,3 +583,31 @@ describe('uncoveredBanTermCandidates (AECI-1615)', () => {
     ).toEqual(['p1', 'p2']);
   });
 });
+
+describe('BanTermLicensesControl on the console recipe (AECI-2124)', () => {
+  const escape = (target: Element) =>
+    target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+  it('draws no box of its own: a Bone notice, a secondary opener and a primary confirm', async () => {
+    const { el, refresh } = await setup(makeApiMock());
+    const root = el.querySelector('[data-testid="ban-term-licenses"]')!;
+    expect(root.className).not.toContain('border');
+    expect(root.className).not.toContain('rounded');
+    expect(root.firstElementChild!.className).toContain('bg-(--accent-warm)');
+    expect(button(el, OPEN).className).toContain('aec-btn-secondary');
+    button(el, OPEN).click();
+    await refresh();
+    expect(button(el, CONFIRM).className).toContain('bg-(--accent-primary)');
+  });
+
+  it('Escape closes the form and returns focus to the open button', async () => {
+    const { el, refresh } = await setup(makeApiMock());
+    button(el, OPEN).click();
+    await refresh();
+    const first = document.activeElement!;
+    escape(first);
+    await refresh();
+    expect(el.querySelector('form')).toBeNull();
+    expect(document.activeElement).toBe(button(el, OPEN));
+  });
+});
