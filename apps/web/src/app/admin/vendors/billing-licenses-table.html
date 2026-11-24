@@ -182,7 +182,7 @@
   </div>
 
   @if (rows().length === 0) {
-  <p [class]="t.empty" class="mt-6" i18n="@@admin.vendors.billing.licenses.empty">
+  <p [class]="t.empty" class="mt-6 max-w-prose" i18n="@@admin.vendors.billing.licenses.empty">
     No subscriptions on this account. The vendor is on Free until one is granted or bought and
     assigned.
   </p>
@@ -395,12 +395,16 @@
   <h3 id="admin-vendor-billing-grants" i18n="@@admin.vendors.billing.grants.heading">Grants</h3>
 
   @if (grantRows().length === 0) {
-  <p [class]="t.empty" class="mt-4" i18n="@@admin.vendors.billing.grants.empty">
+  <p [class]="t.empty" class="mt-4 max-w-prose" i18n="@@admin.vendors.billing.grants.empty">
     No grants on record. A grant made before grants waited for acceptance went live at once and is
     not listed here.
   </p>
   } @else { @if (b.grants_truncated) {
-  <p [class]="captionClass" class="mt-4" i18n="@@admin.vendors.billing.grants.truncated">
+  <p
+    [class]="captionClass"
+    class="mt-4 max-w-prose"
+    i18n="@@admin.vendors.billing.grants.truncated"
+  >
     Showing the first {{ grantRows().length }}.
   </p>
   }
@@ -511,12 +515,16 @@
   </h3>
 
   @if (acceptances().length === 0) {
-  <p [class]="t.empty" class="mt-4" i18n="@@admin.vendors.billing.acceptances.empty">
+  <p [class]="t.empty" class="mt-4 max-w-prose" i18n="@@admin.vendors.billing.acceptances.empty">
     No acceptances on record. A claim records the vendor terms. A Stripe checkout, an owner's accept
     of a grant, or a recorded signed deal records the Managed plan agreement.
   </p>
   } @else { @if (b.acceptances_truncated) {
-  <p [class]="captionClass" class="mt-4" i18n="@@admin.vendors.billing.acceptances.truncated">
+  <p
+    [class]="captionClass"
+    class="mt-4 max-w-prose"
+    i18n="@@admin.vendors.billing.acceptances.truncated"
+  >
     Showing the newest {{ acceptances().length }}.
   </p>
   }
@@ -719,12 +727,12 @@
   </h3>
 
   @if (releaseRequests().length === 0) {
-  <p [class]="t.empty" class="mt-4" i18n="@@admin.vendors.billing.releases.empty">
+  <p [class]="t.empty" class="mt-4 max-w-prose" i18n="@@admin.vendors.billing.releases.empty">
     No early-unassign requests. A subscription stays on its product until renewal unless the vendor
     asks AEC Integrations to take it off sooner.
   </p>
   } @else { @if (hasOpenRelease()) {
-  <p [class]="captionClass" class="mt-4" data-testid="billing-release-open-note">
+  <p [class]="captionClass" class="mt-4 max-w-prose" data-testid="billing-release-open-note">
     <span i18n="@@admin.vendors.billing.releases.openNote"
       >Approve or decline an open request on the requests screen.</span
     >{{ ' ' }}<a
