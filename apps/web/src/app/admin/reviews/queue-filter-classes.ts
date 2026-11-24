@@ -1,3 +1,5 @@
+import { CONSOLE_LABEL_CLASS } from '../console/console-table';
+
 /**
  * The moderation queues' filter row (AECI-2102, mock-up 14's "queue" page). Each
  * filter is a labelled group of toggle buttons (`aria-pressed`): a segmented
@@ -23,8 +25,8 @@ export const QUEUE_FILTER = {
   toolbar: 'mt-6 flex flex-wrap items-end gap-x-8 gap-y-4',
   /** One filter: its label over its control. */
   group: 'flex min-w-0 flex-col gap-2',
-  /** The Label role over the control. */
-  label: 'block text-t-13 font-semibold leading-[1.4] tracking-[0.01em] text-(--text-secondary)',
+  /** The Label role over the control: the console's one label recipe. */
+  label: CONSOLE_LABEL_CLASS,
   /** The segmented frame: a strong edge on white. */
   seg: 'inline-flex flex-wrap gap-1 rounded-control border border-(--border-strong) bg-(--surface-base) p-1',
   /** One option. Pressed: the Forest fill, white text. */
