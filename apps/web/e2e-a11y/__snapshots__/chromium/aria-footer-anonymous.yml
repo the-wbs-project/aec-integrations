@@ -1,0 +1,87 @@
+- contentinfo:
+  - link "AEC Integrations home":
+    - /url: /
+    - img "AEC Integrations"
+  - paragraph: The independent directory of AEC software integrations.
+  - navigation "Directory":
+    - paragraph: Directory
+    - list:
+      - listitem:
+        - link "Home":
+          - /url: /
+      - listitem:
+        - link "Products":
+          - /url: /products
+      - listitem:
+        - link "Categories":
+          - /url: /categories
+      - listitem:
+        - link "Audiences":
+          - /url: /audiences
+      - listitem:
+        - link "Trades":
+          - /url: /trades
+      - listitem:
+        - link "Phases":
+          - /url: /phases
+  - navigation "Help":
+    - paragraph: Help
+    - list:
+      - listitem:
+        - link "Help center":
+          - /url: /docs
+      - listitem:
+        - link "Getting started":
+          - /url: /docs/getting-started
+      - listitem:
+        - link "How ranking works":
+          - /url: /docs/trust/how-ranking-works
+      - listitem:
+        - link "Vendor guide":
+          - /url: /docs/vendors/overview
+  - navigation "Legal":
+    - paragraph: Legal
+    - list:
+      - listitem:
+        - link "Terms":
+          - /url: /legal/terms
+      - listitem:
+        - link "Privacy":
+          - /url: /legal/privacy
+      - listitem:
+        - link "Review guidelines":
+          - /url: /legal/review-guidelines
+      - listitem:
+        - link "Listing accuracy":
+          - /url: /legal/listing-accuracy
+      - listitem:
+        - link "Vendor terms":
+          - /url: /legal/vendor-terms
+      - listitem:
+        - link "Managed plan agreement":
+          - /url: /legal/managed-plan-agreement
+      - listitem:
+        - link "Third-party notices":
+          - /url: /third-party-notices.txt
+  - navigation "Company":
+    - paragraph: Company
+    - list:
+      - listitem:
+        - link "About":
+          - /url: /about
+      - listitem:
+        - link "Methodology":
+          - /url: /methodology
+      - listitem:
+        - link "For vendors":
+          - /url: /vendor-program
+      - listitem:
+        - link "Contact":
+          - /url: /contact
+      - listitem:
+        - link "Updates":
+          - /url: /updates
+      - listitem:
+        - link "Roadmap":
+          - /url: /roadmap
+  - paragraph: © <n> AEC Integrations.

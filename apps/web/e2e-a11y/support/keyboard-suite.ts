@@ -20,6 +20,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { knownFailure } from '../known-failure';
 import { SURFACES, type A11ySurface } from '../surfaces';
+import { markKnownBarriers, type KnownBarrier } from './known-barriers';
 import {
   checkOverlay,
   classifyTrigger,
@@ -43,20 +44,8 @@ import { tabTo, tabWalk, walkSnapshot, type TabStop } from './tab-walk';
 
 export type KeyboardCheck = 'tab walk' | 'overlays' | 'aria-haspopup' | 'after navigation';
 
-/**
- * A barrier the suite finds today, with its Linear issue. `applies` decides per
- * surface, so the mark lands on its own surfaces only. `mark` calls
- * `knownFailure` with a literal issue ID, which `pnpm test:scripts` requires.
- * When the issue is fixed the test passes, `knownFailure` turns it red, and the
- * entry goes.
- */
-interface KnownBarrier {
-  readonly check: KeyboardCheck;
-  readonly applies: (surface: A11ySurface) => boolean;
-  readonly mark: () => void;
-}
-
-export const KNOWN_BARRIERS: readonly KnownBarrier[] = [
+/** The barriers this suite finds today. The shape is in `./known-barriers.ts`. */
+export const KNOWN_BARRIERS: readonly KnownBarrier<KeyboardCheck>[] = [
   {
     check: 'aria-haspopup',
     // The admin console nav renders on every admin surface.
@@ -68,12 +57,6 @@ export const KNOWN_BARRIERS: readonly KnownBarrier[] = [
       ),
   },
 ];
-
-function markKnownBarriers(surface: A11ySurface, check: KeyboardCheck): void {
-  for (const barrier of KNOWN_BARRIERS) {
-    if (barrier.check === check && barrier.applies(surface)) barrier.mark();
-  }
-}
 
 /** The routes every keyboard test installs once, before its first load. */
 async function installRoutes(page: Page, surface: A11ySurface): Promise<void> {
@@ -140,7 +123,7 @@ export function defineKeyboardSuite(
           async ({ context, page }) => {
             test.setTimeout(120_000);
             await prepareSurface(context, surface, fixturesPresent);
-            markKnownBarriers(surface, 'tab walk');
+            markKnownBarriers(KNOWN_BARRIERS, surface, 'tab walk');
             await load(page, surface, { settle: true });
 
             const facts = await collectElementFacts(page);
@@ -217,7 +200,7 @@ export function defineKeyboardSuite(
           async ({ context, page }) => {
             test.setTimeout(300_000);
             await prepareSurface(context, surface, fixturesPresent);
-            markKnownBarriers(surface, 'overlays');
+            markKnownBarriers(KNOWN_BARRIERS, surface, 'overlays');
             await load(page, surface);
             const first = await tabWalk(page);
             expect(first.end, 'the Tab cycle closes, so every trigger is known').toBe('closed');
@@ -315,7 +298,7 @@ export function defineKeyboardSuite(
           async ({ context, page }) => {
             test.setTimeout(90_000);
             await prepareSurface(context, surface, fixturesPresent);
-            markKnownBarriers(surface, 'aria-haspopup');
+            markKnownBarriers(KNOWN_BARRIERS, surface, 'aria-haspopup');
             await load(page, surface);
             const mismatches = (await haspopupFacts(page))
               .filter((f) => f.role !== 'combobox')
@@ -353,7 +336,7 @@ export function defineKeyboardSuite(
           async ({ context, page }) => {
             test.setTimeout(90_000);
             await prepareSurface(context, surface, fixturesPresent);
-            markKnownBarriers(surface, 'after navigation');
+            markKnownBarriers(KNOWN_BARRIERS, surface, 'after navigation');
             await load(page, surface);
             const here = new URL(page.url());
             // The first in-app link in main that leads to another page. Hash links and

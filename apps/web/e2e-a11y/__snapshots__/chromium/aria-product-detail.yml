@@ -1,0 +1,139 @@
+- main:
+  - navigation "Breadcrumb":
+    - list:
+      - listitem:
+        - link "Home":
+          - /url: /
+      - listitem:
+        - link "Products":
+          - /url: /products
+      - listitem: Fixture Procore
+  - heading "Fixture Procore" [level=1]
+  - paragraph:
+    - text: by
+    - link "Fixture Procore Technologies":
+      - /url: /vendors/fixture-procore-technologies
+  - paragraph: No reviews yet
+  - link "Visit website (opens in a new tab)":
+    - /url: https://example.com/fixture-procore
+  - link "Sign in to review":
+    - /url: /auth/login
+  - search "Does Fixture Procore connect to…?":
+    - paragraph: Does Fixture Procore connect to…?
+    - text: Connects to
+    - combobox "Connects to"
+    - button "Show integrations"
+  - complementary "Metadata":
+    - text: "<n>"
+    - paragraph: integration
+    - region "Vendor":
+      - heading "Vendor" [level=2]
+      - link "Fixture Procore Technologies":
+        - /url: /vendors/fixture-procore-technologies
+    - region "Categories":
+      - heading "Categories" [level=2]
+      - link "Project Management":
+        - /url: /categories/project-management
+    - link "Claim Vendor Fixture Procore Technologies":
+      - /url: /products/fixture-procore/claim
+    - link "Suggest a correction":
+      - /url: /products/fixture-procore/correction
+    - link "Learn more about claiming (opens in a new tab)":
+      - /url: /vendor-program?vendor=fixture-procore-technologies
+  - navigation "On this page":
+    - list:
+      - listitem:
+        - link "About":
+          - /url: /products/fixture-procore#about
+      - listitem:
+        - link "How teams use it":
+          - /url: /products/fixture-procore#how-teams-use-it
+      - listitem:
+        - link "Integrations":
+          - /url: /products/fixture-procore#integrations
+      - listitem:
+        - link "Reviews <n>":
+          - /url: /products/fixture-procore#reviews
+      - listitem:
+        - link "Similar products":
+          - /url: /products/fixture-procore#similar
+  - region "About Fixture Procore":
+    - heading "About Fixture Procore" [level=2]
+    - paragraph: Fixture product used by the AECI-<n> axe + Lighthouse CI harness. A construction-management application with a description, vendor, taxonomy tags (category / audience / phase), and one integration — enough content for the product detail page to be a meaningful accessibility and performance target without being unrealistically large.
+    - region "Who it is for":
+      - heading "Who it is for" [level=3]
+      - paragraph: The teams, project phases and trades it is listed for.
+      - region "Audiences":
+        - heading "Audiences" [level=4]
+        - link "General Contracting":
+          - /url: /audiences/general-contracting
+      - region "Project phases":
+        - heading "Project phases" [level=4]
+        - link "Construction":
+          - /url: /phases/construction
+  - region "How teams use Fixture Procore":
+    - heading "How teams use Fixture Procore" [level=2]
+    - heading "By audience" [level=3]
+    - term: General Contracting
+    - definition:
+      - list:
+        - listitem: Track RFIs and submittals across every job so nothing slips between trades.
+        - listitem: Give superintendents one daily-log workflow instead of paper and spreadsheets.
+    - heading "By phase" [level=3]
+    - term: Construction
+    - definition:
+      - list:
+        - listitem: Keep field and office on one schedule of record during active construction.
+  - region "Integrations":
+    - paragraph: Integrations on record
+    - heading "Integrations" [level=2]
+    - list "Integrations":
+      - listitem:
+        - article:
+          - heading "Fixture Acme Connector" [level=3]:
+            - link "Fixture Acme Connector":
+              - /url: /products/fixture-acme-connector
+          - link "View details for the Fixture Acme Connector integration":
+            - /url: /products/fixture-procore/integrations/fixture-acme-connector
+          - text: What moves
+          - paragraph: "Direction: Sends to Fixture Acme Connector"
+          - list "Types of data":
+            - listitem: RFIs
+          - text: How it connects Native integration
+    - paragraph:
+      - text: Only partners listed on AEC Integrations appear here. If one is missing,
+      - link "suggest a correction":
+        - /url: /products/fixture-procore/correction
+      - text: .
+  - region "Reviews":
+    - paragraph: Reviews
+    - heading "Reviews" [level=2]
+    - link "Sign in to review":
+      - /url: /auth/login
+    - paragraph: No reviews yet — be the first to review this product.
+  - region "Similar products":
+    - heading "Similar products" [level=2]
+    - paragraph: Products that share a category with Fixture Procore.
+    - paragraph: A to Z by name.
+    - list:
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Procore":
+            - /url: /products/procore
+        - paragraph: Procore Technologies
+  - region "About this listing":
+    - heading "About this listing" [level=2]
+    - list:
+      - listitem: AEC Integrations maintained
+  - paragraph: Directory updates
+  - heading "Know when new tools and reviews land" [level=2]
+  - paragraph: AEC Integrations is live and still growing. Add your email for occasional updates as we expand the directory with new tools, integrations, and reviews.
+  - text: Email address
+  - textbox "Email address":
+    - /placeholder: you@yourfirm.com
+  - button "Subscribe"
+  - text: How did you find AEC Integrations? (optional)
+  - combobox "How did you find AEC Integrations? (optional) Choose one": Choose one
+  - status
+  - status

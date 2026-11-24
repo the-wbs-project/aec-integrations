@@ -1,0 +1,240 @@
+- main:
+  - navigation "Breadcrumb":
+    - list:
+      - listitem:
+        - link "Home":
+          - /url: /
+      - listitem: Audiences
+  - heading "Audiences" [level=1]
+  - paragraph: "Browse AEC software by audience: the disciplines and roles each tool serves."
+  - region "Results":
+    - text: Sort
+    - combobox "Sort Name (A–Z)": Name (A–Z)
+    - list:
+      - listitem:
+        - heading "Accounting & Finance" [level=2]:
+          - link "Accounting & Finance":
+            - /url: /audiences/accounting-finance
+        - paragraph: Controllers, accountants, and finance staff running the books, billing, and financial reporting.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Architecture" [level=2]:
+          - link "Architecture":
+            - /url: /audiences/architecture
+        - paragraph: Architects and architectural practices doing building design and construction administration. Interiors specialists are Interior Design.
+        - paragraph: <n> product <n> integrations
+      - listitem:
+        - heading "BIM Coordinator" [level=2]:
+          - link "BIM Coordinator":
+            - /url: /audiences/bim-coordinator
+        - paragraph: The BIM coordinator running clash detection and model coordination on a project. Firm-wide standards are BIM Manager.
+        - paragraph: <n> product <n> integration
+      - listitem:
+        - heading "BIM Manager" [level=2]:
+          - link "BIM Manager":
+            - /url: /audiences/bim-manager
+        - paragraph: The BIM manager owning firm-wide standards, templates, and the BIM program. Project-level clash work is BIM Coordinator.
+        - paragraph: <n> product <n> integrations
+      - listitem:
+        - heading "Business Development" [level=2]:
+          - link "Business Development":
+            - /url: /audiences/business-development
+        - paragraph: Staff pursuing new work through client development, pursuits, and proposals. Brand and campaign work is Marketing & Communications.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Civil Engineering" [level=2]:
+          - link "Civil Engineering":
+            - /url: /audiences/civil-engineering
+        - paragraph: Civil engineers working on site, roadway, drainage, and infrastructure design. Permitting and remediation is Environmental Engineering.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Construction Management" [level=2]:
+          - link "Construction Management":
+            - /url: /audiences/construction-management
+        - paragraph: Construction managers and CM firms managing delivery on behalf of an owner. Firms holding the prime contract are General Contracting.
+        - paragraph: <n> product <n> integrations
+      - listitem:
+        - heading "Designer / Drafter" [level=2]:
+          - link "Designer / Drafter":
+            - /url: /audiences/designer-drafter
+        - paragraph: Production staff drafting and modeling under a licensed architect or engineer.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Electrical Engineering" [level=2]:
+          - link "Electrical Engineering":
+            - /url: /audiences/electrical-engineering
+        - paragraph: Electrical engineers as a standalone discipline. Use MEP Engineering when the product serves the combined practice.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Environmental Engineering" [level=2]:
+          - link "Environmental Engineering":
+            - /url: /audiences/environmental-engineering
+        - paragraph: Environmental engineers handling permitting, remediation, stormwater, and environmental compliance.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Estimator" [level=2]:
+          - link "Estimator":
+            - /url: /audiences/estimator
+        - paragraph: The estimator pricing work, running takeoff, and assembling bids.
+        - paragraph: <n> products <n> integration
+      - listitem:
+        - heading "Executive Leadership" [level=2]:
+          - link "Executive Leadership":
+            - /url: /audiences/executive-leadership
+        - paragraph: Owners, principals, and C-suite making firm-level decisions. Property owners commissioning work are Owner/Developer.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Facilities Management" [level=2]:
+          - link "Facilities Management":
+            - /url: /audiences/facilities-management
+        - paragraph: Facility managers and building operators running a property after handover.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Foreman / Field Supervisor" [level=2]:
+          - link "Foreman / Field Supervisor":
+            - /url: /audiences/foreman-field-supervisor
+        - paragraph: The foreman directing a crew at the work face, reporting to the superintendent.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "General Contracting" [level=2]:
+          - link "General Contracting":
+            - /url: /audiences/general-contracting
+        - paragraph: General contractors holding the prime contract and managing or self-performing the trades. Owner-side CM firms are Construction Management.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Human Resources" [level=2]:
+          - link "Human Resources":
+            - /url: /audiences/human-resources
+        - paragraph: HR staff handling hiring, onboarding, benefits, and employee records.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Interior Design" [level=2]:
+          - link "Interior Design":
+            - /url: /audiences/interior-design
+        - paragraph: Interior designers and architects working on interiors, finishes, and furniture specification.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "IT & Systems Administration" [level=2]:
+          - link "IT & Systems Administration":
+            - /url: /audiences/it-systems-administration
+        - paragraph: IT staff administering software, identity, data, and infrastructure for an AEC firm.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Landscape Architecture" [level=2]:
+          - link "Landscape Architecture":
+            - /url: /audiences/landscape-architecture
+        - paragraph: Landscape architects designing site, planting, and outdoor environments. Land-use and zoning work is Planning.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Legal & Risk Management" [level=2]:
+          - link "Legal & Risk Management":
+            - /url: /audiences/legal-risk-management
+        - paragraph: In-house counsel and contracts, insurance, and claims staff. Site safety programs are Safety Management.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Marketing & Communications" [level=2]:
+          - link "Marketing & Communications":
+            - /url: /audiences/marketing-communications
+        - paragraph: Marketing staff handling brand, content, and proposal production. Pursuit strategy is Business Development.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Mechanical Engineering" [level=2]:
+          - link "Mechanical Engineering":
+            - /url: /audiences/mechanical-engineering
+        - paragraph: Mechanical engineers as a standalone discipline. Use MEP Engineering when the product serves the combined practice.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "MEP Engineering" [level=2]:
+          - link "MEP Engineering":
+            - /url: /audiences/mep-engineering
+        - paragraph: Engineers working across the combined mechanical, electrical, and plumbing practice. Single-discipline products should use the specific term.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Other Engineering" [level=2]:
+          - link "Other Engineering":
+            - /url: /audiences/other-engineering
+        - paragraph: Engineering disciplines outside the named terms, such as fire protection, geotechnical, or industrial engineering.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Owner/Developer" [level=2]:
+          - link "Owner/Developer":
+            - /url: /audiences/owner-developer
+        - paragraph: Owners, developers, and their in-house teams commissioning and funding projects.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Planning" [level=2]:
+          - link "Planning":
+            - /url: /audiences/planning
+        - paragraph: Urban, land-use, and site planners working on entitlement, zoning, and master planning.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Procurement & Purchasing" [level=2]:
+          - link "Procurement & Purchasing":
+            - /url: /audiences/procurement-purchasing
+        - paragraph: Buyers and procurement staff sourcing materials, subcontracts, and vendors. Pricing the work is Estimator.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Project Engineer" [level=2]:
+          - link "Project Engineer":
+            - /url: /audiences/project-engineer
+        - paragraph: The project engineer supporting the PM on submittals, RFIs, and technical coordination.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Project Manager" [level=2]:
+          - link "Project Manager":
+            - /url: /audiences/project-manager
+        - paragraph: The project manager owning budget, schedule, and delivery from the office. Field operations belong to Superintendent.
+        - paragraph: <n> product <n> integrations
+      - listitem:
+        - heading "Safety Management" [level=2]:
+          - link "Safety Management":
+            - /url: /audiences/safety-management
+        - paragraph: Safety directors and EHS staff running site safety and regulatory programs.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Scheduler" [level=2]:
+          - link "Scheduler":
+            - /url: /audiences/scheduler
+        - paragraph: The scheduler building and maintaining CPM and look-ahead schedules.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Sciences" [level=2]:
+          - link "Sciences":
+            - /url: /audiences/sciences
+        - paragraph: Environmental, geotechnical, and materials scientists supporting design and construction.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Specialty Contracting" [level=2]:
+          - link "Specialty Contracting":
+            - /url: /audiences/specialty-contracting
+        - paragraph: Trade and specialty subcontractors self-performing a scope. The specific trade is tagged on the Trade facet instead.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Structural Engineering" [level=2]:
+          - link "Structural Engineering":
+            - /url: /audiences/structural-engineering
+        - paragraph: Structural engineers doing analysis, member design, and structural detailing.
+        - paragraph: <n> product <n> integrations
+      - listitem:
+        - heading "Superintendent" [level=2]:
+          - link "Superintendent":
+            - /url: /audiences/superintendent
+        - paragraph: The superintendent running day-to-day field operations and the site crew. Crew-level supervision is Foreman / Field Supervisor.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Surveying/Geomatics" [level=2]:
+          - link "Surveying/Geomatics":
+            - /url: /audiences/surveying-geomatics
+        - paragraph: Surveyors and geomatics professionals doing field survey, layout, and geospatial work.
+        - paragraph: <n> products <n> integrations
+  - paragraph: Directory updates
+  - heading "Know when new tools and reviews land" [level=2]
+  - paragraph: AEC Integrations is live and still growing. Add your email for occasional updates as we expand the directory with new tools, integrations, and reviews.
+  - text: Email address
+  - textbox "Email address":
+    - /placeholder: you@yourfirm.com
+  - button "Subscribe"
+  - text: How did you find AEC Integrations? (optional)
+  - combobox "How did you find AEC Integrations? (optional) Choose one": Choose one
+  - status
+  - status

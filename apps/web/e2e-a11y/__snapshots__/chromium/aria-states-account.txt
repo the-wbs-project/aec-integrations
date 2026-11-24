@@ -1,0 +1,52 @@
+# account: main
+# 1. combobox: combobox "Where do you work? Choose one": Choose one
+## before
+- combobox "Where do you work? Choose one": Choose one
+## after
+- combobox "Where do you work? Choose one" [expanded]: Choose one
+# controls #ng-listbox-a<n>-<n>
+- listbox "Where do you work?":
+  - group "AEC firms":
+    - option "Architect"
+    - option "Construction manager"
+    - option "Consultant"
+    - option "Engineer"
+    - option "General contractor"
+    - option "Owner or developer"
+    - option "Trade contractor"
+  - group "Software companies":
+    - option "AEC software"
+    - option "Back-office software, like ERP, accounting or HR"
+    - option "Integration platform"
+    - option "Other software"
+    - option "Reseller or implementation partner"
+  - group "Other options":
+    - option "Other"
+    - option "I'd rather not say"
+# 2. combobox: combobox "Your role Choose one": Choose one
+## before
+- combobox "Your role Choose one": Choose one
+## after
+- combobox "Your role Choose one" [expanded]: Choose one
+# controls #ng-listbox-a<n>-<n>
+- listbox "Your role":
+  - option "Executive"
+  - option "Hands-on user"
+  - option "IT or systems"
+  - option "Manager or team lead"
+  - option "Other"
+  - option "I'd rather not say"
+# 3. combobox: combobox "Company size Choose one": Choose one
+## before
+- combobox "Company size Choose one": Choose one
+## after
+- combobox "Company size Choose one" [expanded]: Choose one
+# controls #ng-listbox-a<n>-<n>
+- listbox "Company size":
+  - option "<n> to <n> people"
+  - option "<n> to <n> people"
+  - option "<n> to <n> people"
+  - option "<n> to <n> people"
+  - option "<n> to <n> people"
+  - option "More than <n> people"
+  - option "I'd rather not say"

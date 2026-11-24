@@ -1,0 +1,85 @@
+- main:
+  - navigation "Breadcrumb":
+    - list:
+      - listitem:
+        - link "Home":
+          - /url: /
+      - listitem:
+        - link "Phases":
+          - /url: /phases
+      - listitem: Construction
+  - heading "Construction" [level=1]
+  - paragraph: Active building on site, from mobilization through substantial completion.
+  - paragraph: <n> products
+  - complementary "Filters":
+    - heading "Filters" [level=2]
+    - group "Categories":
+      - text: Categories
+      - list:
+        - listitem:
+          - checkbox "Construction Management (<n>)"
+          - text: Construction Management (<n>)
+        - listitem:
+          - checkbox "Document Management (<n>)"
+          - text: Document Management (<n>)
+        - listitem:
+          - checkbox "Project Management (<n>)"
+          - text: Project Management (<n>)
+        - listitem:
+          - checkbox "Punch List & QA/QC (<n>)"
+          - text: Punch List & QA/QC (<n>)
+    - group "Audiences":
+      - text: Audiences
+      - list:
+        - listitem:
+          - checkbox "Construction Management (<n>)"
+          - text: Construction Management (<n>)
+        - listitem:
+          - checkbox "Estimator (<n>)"
+          - text: Estimator (<n>)
+        - listitem:
+          - checkbox "General Contracting (<n>)"
+          - text: General Contracting (<n>)
+        - listitem:
+          - checkbox "Project Manager (<n>)"
+          - text: Project Manager (<n>)
+    - paragraph: Terms A to Z.
+  - region "Results":
+    - text: Sort
+    - combobox "Sort Newest": Newest
+    - group "Choose a view":
+      - button "Cards" [pressed]
+      - button "Table"
+    - list:
+      - listitem:
+        - text: Recently added
+        - paragraph:
+          - link "Fixture Procore":
+            - /url: /products/fixture-procore
+        - paragraph: Fixture Procore Technologies
+        - text: <n> integration
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Procore":
+            - /url: /products/procore
+        - paragraph: Procore Technologies
+      - listitem:
+        - text: <n> integration
+        - paragraph:
+          - link "Bluebeam Revu":
+            - /url: /products/bluebeam-revu
+        - paragraph: Bluebeam
+    - paragraph: Showing <n> of <n>
+    - paragraph: You've reached the end (<n> in total).
+  - paragraph: Directory updates
+  - heading "Know when new tools and reviews land" [level=2]
+  - paragraph: AEC Integrations is live and still growing. Add your email for occasional updates as we expand the directory with new tools, integrations, and reviews.
+  - text: Email address
+  - textbox "Email address":
+    - /placeholder: you@yourfirm.com
+  - button "Subscribe"
+  - text: How did you find AEC Integrations? (optional)
+  - combobox "How did you find AEC Integrations? (optional) Choose one": Choose one
+  - status
+  - status

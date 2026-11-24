@@ -1,0 +1,111 @@
+# vendor-index: main
+# 1. disclosure: button "Show more (<n>)"
+## before
+- button "Show more (<n>)"
+# controls #aec-refinement-list-<n>
+- list:
+  - listitem:
+    - checkbox "Bid Management (<n>)"
+    - text: Bid Management (<n>)
+  - listitem:
+    - checkbox "BIM Authoring (<n>)"
+    - text: BIM Authoring (<n>)
+  - listitem:
+    - checkbox "BIM Coordination (<n>)"
+    - text: BIM Coordination (<n>)
+  - listitem:
+    - checkbox "Construction Management (<n>)"
+    - text: Construction Management (<n>)
+  - listitem:
+    - checkbox "Design & Visualization (<n>)"
+    - text: Design & Visualization (<n>)
+  - listitem:
+    - checkbox "Document Management (<n>)"
+    - text: Document Management (<n>)
+  - listitem:
+    - checkbox "Estimating & Takeoff (<n>)"
+    - text: Estimating & Takeoff (<n>)
+  - listitem:
+    - checkbox "Project Management (<n>)"
+    - text: Project Management (<n>)
+  - listitem:
+    - checkbox "Punch List & QA/QC (<n>)"
+    - text: Punch List & QA/QC (<n>)
+  - listitem:
+    - checkbox "Zz Fixture Category Alpha (<n>)"
+    - text: Zz Fixture Category Alpha (<n>)
+## after
+- button "Show fewer" [expanded]
+# controls #aec-refinement-list-<n>
+- list:
+  - listitem:
+    - checkbox "Bid Management (<n>)"
+    - text: Bid Management (<n>)
+  - listitem:
+    - checkbox "BIM Authoring (<n>)"
+    - text: BIM Authoring (<n>)
+  - listitem:
+    - checkbox "BIM Coordination (<n>)"
+    - text: BIM Coordination (<n>)
+  - listitem:
+    - checkbox "Construction Management (<n>)"
+    - text: Construction Management (<n>)
+  - listitem:
+    - checkbox "Design & Visualization (<n>)"
+    - text: Design & Visualization (<n>)
+  - listitem:
+    - checkbox "Document Management (<n>)"
+    - text: Document Management (<n>)
+  - listitem:
+    - checkbox "Estimating & Takeoff (<n>)"
+    - text: Estimating & Takeoff (<n>)
+  - listitem:
+    - checkbox "Project Management (<n>)"
+    - text: Project Management (<n>)
+  - listitem:
+    - checkbox "Punch List & QA/QC (<n>)"
+    - text: Punch List & QA/QC (<n>)
+  - listitem:
+    - checkbox "Zz Fixture Category Alpha (<n>)"
+    - text: Zz Fixture Category Alpha (<n>)
+  - listitem:
+    - checkbox "Zz Fixture Category Beta (<n>)"
+    - text: Zz Fixture Category Beta (<n>)
+  - listitem:
+    - checkbox "Zz Fixture Category Gamma (<n>)"
+    - text: Zz Fixture Category Gamma (<n>)
+# 2. combobox: combobox "Sort Newest": Newest
+## before
+- combobox "Sort Newest": Newest
+## after
+- combobox "Sort Newest" [expanded]: Newest
+# controls #ng-listbox-a<n>-<n>
+- listbox "Sort":
+  - option "Newest" [selected]
+  - option "Name (A–Z)"
+  - option "Recently updated"
+  - option "Highest rated"
+  - option "Most reviewed"
+# 3. toggle: button "Table"
+## before
+- group "Choose a view":
+  - button "Cards" [pressed]
+  - button "Table"
+## after
+- group "Choose a view":
+  - button "Cards"
+  - button "Table" [pressed]
+# 4. combobox: combobox "How did you find AEC Integrations? (optional) Choose one": Choose one
+## before
+- combobox "How did you find AEC Integrations? (optional) Choose one": Choose one
+## after
+- combobox "How did you find AEC Integrations? (optional) Choose one" [expanded]: Choose one
+# controls #ng-listbox-a<n>-<n>
+- listbox "How did you find AEC Integrations? (optional)":
+  - option "Google or another search engine"
+  - option "ChatGPT, Claude, Perplexity or another AI tool"
+  - option "LinkedIn"
+  - option "A colleague or word of mouth"
+  - option "A vendor or software company"
+  - option "An event or conference"
+  - option "Something else"

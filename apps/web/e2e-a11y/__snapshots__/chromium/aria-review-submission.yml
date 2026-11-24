@@ -1,0 +1,52 @@
+- main:
+  - region "Fixture Procore":
+    - paragraph: Write a review
+    - heading "Fixture Procore" [level=1]
+    - paragraph: Share your experience to help other AEC teams evaluate this product. We rate product quality and onboarding separately.
+    - complementary "You are reviewing":
+      - heading "You are reviewing" [level=2]
+      - paragraph: Fixture Procore
+      - paragraph: By Fixture Procore Technologies
+      - heading "After you submit" [level=2]
+      - list:
+        - listitem: A person checks every review before it is published, usually within <n> hours.
+        - listitem: Once approved, it appears on the product page. You can see its status on your account.
+      - link "How reviews work (opens in a new tab)":
+        - /url: /docs/reviewers/writing-a-review
+    - text: Overall rating
+    - listbox "Overall rating":
+      - option "<n> star"
+      - option "<n> stars"
+      - option "<n> stars"
+      - option "<n> stars"
+      - option "<n> stars"
+    - text: Onboarding experience
+    - listbox "Onboarding experience":
+      - option "<n> star"
+      - option "<n> stars"
+      - option "<n> stars"
+      - option "<n> stars"
+      - option "<n> stars"
+    - text: Headline
+    - textbox "Headline"
+    - paragraph:
+      - text: One line summing up your experience.
+      - strong: Between <n> and <n> characters.
+    - text: Your review
+    - textbox "Your review"
+    - paragraph:
+      - text: What worked, what didn't, and who you'd recommend it to.
+      - strong: Between <n> and <n> characters.
+    - text: Your role(optional)
+    - combobox "Your role(optional) Select a role": Select a role
+    - text: Your firm(optional)
+    - textbox "Your firm(optional)"
+    - paragraph: Never shown on your published review. Clear it to leave your firm off this review.
+    - text: Years using this product(optional)
+    - spinbutton "Years using this product(optional)"
+    - text: Would you recommend it?(optional)
+    - listbox "Would you recommend it?(optional)":
+      - option "Yes"
+      - option "No"
+      - option "Maybe"
+    - button "Submit review"

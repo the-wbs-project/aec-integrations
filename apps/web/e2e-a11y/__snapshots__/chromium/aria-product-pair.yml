@@ -1,0 +1,64 @@
+- main:
+  - navigation "Breadcrumb":
+    - list:
+      - listitem:
+        - link "Home":
+          - /url: /
+      - listitem:
+        - link "Fixture Procore":
+          - /url: /products/fixture-procore
+      - listitem:
+        - link "Integrations":
+          - /url: /products/fixture-procore#integrations
+      - listitem: Fixture Acme Connector
+  - paragraph: Integration
+  - heading "How Fixture Procore and Fixture Acme Connector exchange data" [level=1]
+  - paragraph:
+    - link "Fixture Procore":
+      - /url: /products/fixture-procore
+  - paragraph: Fixture Procore Technologies
+  - paragraph:
+    - link "Fixture Acme Connector":
+      - /url: /products/fixture-acme-connector
+  - text: Unclaimed · not affiliated with or endorsed by this vendor
+  - heading "<n> type of data shared" [level=2]
+  - group "Choose a view":
+    - button "Basic"
+    - button "Detailed" [pressed]
+  - article:
+    - heading "Native integration" [level=3]
+    - text: "Direction: Sends to Fixture Acme Connector"
+    - paragraph: Fixture integration used by the AECI-<n> axe + Lighthouse CI harness. A native, bidirectional integration between two fixture products with a built-by vendor, mechanism, and description, so the integration detail page renders a realistic amount of content.
+    - heading "At a glance" [level=4]
+    - term: How you get it
+    - definition:
+      - text: Native Offered by
+      - link "Fixture Procore Technologies":
+        - /url: /vendors/fixture-procore-technologies
+    - heading "Sends to Fixture Acme Connector" [level=4]
+    - list:
+      - listitem:
+        - text: RFIs Listed by AEC Integrations from public sources. Neither company has confirmed it yet.
+        - button "Sources for RFIs"
+    - list:
+      - listitem:
+        - link "View listing (opens in a new tab)":
+          - /url: https://example.com/fixture-integration/listing
+      - listitem:
+        - link "Documentation (opens in a new tab)":
+          - /url: https://example.com/fixture-integration/docs
+  - region "About this listing":
+    - heading "About this listing" [level=2]
+    - list:
+      - listitem: AEC Integrations maintained
+  - paragraph: Directory updates
+  - heading "Know when new tools and reviews land" [level=2]
+  - paragraph: AEC Integrations is live and still growing. Add your email for occasional updates as we expand the directory with new tools, integrations, and reviews.
+  - text: Email address
+  - textbox "Email address":
+    - /placeholder: you@yourfirm.com
+  - button "Subscribe"
+  - text: How did you find AEC Integrations? (optional)
+  - combobox "How did you find AEC Integrations? (optional) Choose one": Choose one
+  - status
+  - status

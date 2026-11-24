@@ -1,0 +1,71 @@
+- main:
+  - navigation "Breadcrumb":
+    - list:
+      - listitem:
+        - link "Home":
+          - /url: /
+      - listitem: Fixture Procore Technologies
+  - paragraph: Vendor
+  - heading "Fixture Procore Technologies" [level=1]
+  - paragraph: Fixture vendor used by the AECI-<n> axe + Lighthouse CI harness. A mid-sized construction-software company with a verified profile and a handful of products and integrations so the vendor detail page renders a realistic amount of content.
+  - link "Visit website (opens in a new tab)":
+    - /url: https://example.com/fixture-procore-technologies
+  - complementary "Metadata":
+    - region "At a glance":
+      - heading "At a glance" [level=2]
+      - term: Products
+      - definition: "<n>"
+      - term: Integrations
+      - definition: "<n>"
+    - region "Company facts":
+      - heading "Company facts" [level=2]
+      - button "Sources for these company facts"
+      - term: Headquarters
+      - definition: Carpinteria, CA
+      - term: Founded
+      - definition: "<n>"
+    - region "Actions":
+      - heading "Actions" [level=2]
+      - link "Claim Vendor Fixture Procore Technologies":
+        - /url: /vendors/fixture-procore-technologies/claim
+      - link "Suggest a correction":
+        - /url: /vendors/fixture-procore-technologies/correction
+    - paragraph:
+      - text: Company facts may include public sector information licensed under the
+      - link "Open Government Licence v<n> (opens in a new tab)":
+        - /url: https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/
+      - text: .
+  - region "Products":
+    - heading "Products" [level=2]
+    - text: "<n>"
+    - paragraph: A to Z by name.
+    - table "Products":
+      - rowgroup:
+        - row "Product Product quality Integrations Details":
+          - columnheader "Product"
+          - columnheader "Product quality"
+          - columnheader "Integrations"
+          - columnheader "Details"
+      - rowgroup:
+        - row "Fixture Procore No ratings yet <n> integration View Fixture Procore":
+          - cell "Fixture Procore"
+          - cell "No ratings yet"
+          - cell "<n> integration"
+          - cell "View Fixture Procore":
+            - link "View Fixture Procore":
+              - /url: /products/fixture-procore
+  - region "About this listing":
+    - heading "About this listing" [level=2]
+    - list:
+      - listitem: AEC Integrations maintained
+  - paragraph: Directory updates
+  - heading "Know when new tools and reviews land" [level=2]
+  - paragraph: AEC Integrations is live and still growing. Add your email for occasional updates as we expand the directory with new tools, integrations, and reviews.
+  - text: Email address
+  - textbox "Email address":
+    - /placeholder: you@yourfirm.com
+  - button "Subscribe"
+  - text: How did you find AEC Integrations? (optional)
+  - combobox "How did you find AEC Integrations? (optional) Choose one": Choose one
+  - status
+  - status

@@ -1,0 +1,70 @@
+- main:
+  - navigation "Breadcrumb":
+    - list:
+      - listitem:
+        - link "Home":
+          - /url: /
+      - listitem:
+        - link "Categories":
+          - /url: /categories
+      - listitem: Project Management
+  - heading "Project Management" [level=1]
+  - paragraph: Planning, tracking, and coordinating project work across tasks, budgets, and team workflow. All-in-one build platforms are Construction Management.
+  - paragraph: <n> products
+  - complementary "Filters":
+    - heading "Filters" [level=2]
+    - group "Audiences":
+      - text: Audiences
+      - list:
+        - listitem:
+          - checkbox "Construction Management (<n>)"
+          - text: Construction Management (<n>)
+        - listitem:
+          - checkbox "General Contracting (<n>)"
+          - text: General Contracting (<n>)
+        - listitem:
+          - checkbox "Project Manager (<n>)"
+          - text: Project Manager (<n>)
+    - group "Phases":
+      - text: Phases
+      - list:
+        - listitem:
+          - checkbox "Construction (<n>)"
+          - text: Construction (<n>)
+        - listitem:
+          - checkbox "Closeout & Operations (<n>)"
+          - text: Closeout & Operations (<n>)
+    - paragraph: Phases in project order. Other terms A to Z.
+  - region "Results":
+    - text: Sort
+    - combobox "Sort Newest": Newest
+    - group "Choose a view":
+      - button "Cards" [pressed]
+      - button "Table"
+    - list:
+      - listitem:
+        - text: Recently added
+        - paragraph:
+          - link "Fixture Procore":
+            - /url: /products/fixture-procore
+        - paragraph: Fixture Procore Technologies
+        - text: <n> integration
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Procore":
+            - /url: /products/procore
+        - paragraph: Procore Technologies
+    - paragraph: Showing <n> of <n>
+    - paragraph: You've reached the end (<n> in total).
+  - paragraph: Directory updates
+  - heading "Know when new tools and reviews land" [level=2]
+  - paragraph: AEC Integrations is live and still growing. Add your email for occasional updates as we expand the directory with new tools, integrations, and reviews.
+  - text: Email address
+  - textbox "Email address":
+    - /placeholder: you@yourfirm.com
+  - button "Subscribe"
+  - text: How did you find AEC Integrations? (optional)
+  - combobox "How did you find AEC Integrations? (optional) Choose one": Choose one
+  - status
+  - status

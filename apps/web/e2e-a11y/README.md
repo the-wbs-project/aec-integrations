@@ -8,7 +8,9 @@ AECI-1875 built this harness. The sub-issues of AECI-1874 add the checks. The fu
 | `surfaces.ts` | The one list of surfaces, `SURFACES`, and `personaCredentials()`. Add a surface here, never in a spec. |
 | `surfaces.spec.ts` | The placeholder check: each surface answers its status and renders one visible `h1`. |
 | `keyboard-*.spec.ts` | The keyboard walkthroughs (AECI-1877), one file per persona. The checks are in `support/keyboard-suite.ts`. `docs/TESTING_STRATEGY.md` §8.4.1. |
+| `aria-*.spec.ts`, `aria-cross-page.spec.ts` | The ARIA snapshots, structure and link-name rules (AECI-1879), one file per persona, and the cross-page checks. The per-surface checks are in `support/aria-suite.ts`. `docs/TESTING_STRATEGY.md` §8.4.3. |
 | `__snapshots__/chromium/` | The committed tab-order snapshots, one per surface. A change is a behaviour change: review it. |
+| `__snapshots__/chromium/aria-*` | The committed ARIA snapshots (AECI-1879): `main`, the state flips, the header and the footer, masked. Update with `playwright test -c playwright.a11y-nightly.config.ts aria- --update-snapshots`, and review the diff. |
 | `support/` | Helpers every spec shares. `surface-page.ts` mints the session, skips, and waits for hydration. `tab-walk.ts`, `probe.ts`, `tab-candidates.ts` and `overlay-check.ts` are the keyboard tools. `page-guards.ts` blocks writes. |
 | `known-failure.ts` | `knownFailure('AECI-<n>', reason)`, the only allowed way to mark a test as failing. |
 | `summary-reporter.ts` | Writes `apps/web/a11y-nightly-summary.json`, which the alert and AECI-1682 read. |

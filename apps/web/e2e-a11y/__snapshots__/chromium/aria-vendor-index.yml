@@ -1,0 +1,535 @@
+- main:
+  - navigation "Breadcrumb":
+    - list:
+      - listitem:
+        - link "Home":
+          - /url: /
+      - listitem: Products
+  - heading "Products" [level=1]
+  - paragraph: Every AEC software product indexed on AEC Integrations.
+  - complementary "Filters":
+    - heading "Filters" [level=2]
+    - group "Categories":
+      - text: Categories
+      - list:
+        - listitem:
+          - checkbox "Bid Management (<n>)"
+          - text: Bid Management (<n>)
+        - listitem:
+          - checkbox "BIM Authoring (<n>)"
+          - text: BIM Authoring (<n>)
+        - listitem:
+          - checkbox "BIM Coordination (<n>)"
+          - text: BIM Coordination (<n>)
+        - listitem:
+          - checkbox "Construction Management (<n>)"
+          - text: Construction Management (<n>)
+        - listitem:
+          - checkbox "Design & Visualization (<n>)"
+          - text: Design & Visualization (<n>)
+        - listitem:
+          - checkbox "Document Management (<n>)"
+          - text: Document Management (<n>)
+        - listitem:
+          - checkbox "Estimating & Takeoff (<n>)"
+          - text: Estimating & Takeoff (<n>)
+        - listitem:
+          - checkbox "Project Management (<n>)"
+          - text: Project Management (<n>)
+        - listitem:
+          - checkbox "Punch List & QA/QC (<n>)"
+          - text: Punch List & QA/QC (<n>)
+        - listitem:
+          - checkbox "Zz Fixture Category Alpha (<n>)"
+          - text: Zz Fixture Category Alpha (<n>)
+      - button "Show more (<n>)"
+    - group "Audiences":
+      - text: Audiences
+      - list:
+        - listitem:
+          - checkbox "Architecture (<n>)"
+          - text: Architecture (<n>)
+        - listitem:
+          - checkbox "BIM Coordinator (<n>)"
+          - text: BIM Coordinator (<n>)
+        - listitem:
+          - checkbox "BIM Manager (<n>)"
+          - text: BIM Manager (<n>)
+        - listitem:
+          - checkbox "Construction Management (<n>)"
+          - text: Construction Management (<n>)
+        - listitem:
+          - checkbox "Estimator (<n>)"
+          - text: Estimator (<n>)
+        - listitem:
+          - checkbox "General Contracting (<n>)"
+          - text: General Contracting (<n>)
+        - listitem:
+          - checkbox "Project Manager (<n>)"
+          - text: Project Manager (<n>)
+        - listitem:
+          - checkbox "Specialty Contracting (<n>)"
+          - text: Specialty Contracting (<n>)
+        - listitem:
+          - checkbox "Structural Engineering (<n>)"
+          - text: Structural Engineering (<n>)
+    - group "Trades":
+      - text: Trades
+      - list:
+        - listitem:
+          - checkbox "Electrical (<n>)"
+          - text: Electrical (<n>)
+        - listitem:
+          - checkbox "Plumbing (<n>)"
+          - text: Plumbing (<n>)
+    - group "Phases":
+      - text: Phases
+      - list:
+        - listitem:
+          - checkbox "Design (<n>)"
+          - text: Design (<n>)
+        - listitem:
+          - checkbox "Pre-Construction (<n>)"
+          - text: Pre-Construction (<n>)
+        - listitem:
+          - checkbox "Construction (<n>)"
+          - text: Construction (<n>)
+        - listitem:
+          - checkbox "Closeout & Operations (<n>)"
+          - text: Closeout & Operations (<n>)
+    - paragraph: Phases in project order. Other terms A to Z.
+  - region "Results":
+    - text: Sort
+    - combobox "Sort Newest": Newest
+    - group "Choose a view":
+      - button "Cards" [pressed]
+      - button "Table"
+    - list:
+      - listitem:
+        - text: Recently added
+        - paragraph:
+          - link "Dynamo for Revit":
+            - /url: /products/dynamo-for-revit
+        - paragraph: Autodesk
+        - img "Product quality <n> out of <n>, from <n> reviews": <n> <n> reviews
+        - text: Not yet connected
+      - listitem:
+        - text: Not yet connected
+        - paragraph:
+          - link "pyRevit":
+            - /url: /products/pyrevit
+        - paragraph: Independent
+      - listitem:
+        - text: <n> integration
+        - paragraph:
+          - link "Fixture Procore":
+            - /url: /products/fixture-procore
+        - paragraph: Fixture Procore Technologies
+      - listitem:
+        - text: <n> integration
+        - paragraph:
+          - link "Fixture Acme Connector":
+            - /url: /products/fixture-acme-connector
+        - paragraph: Independent
+        - text: Connector
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Revit":
+            - /url: /products/revit
+        - paragraph: Autodesk
+      - listitem:
+        - text: Not yet connected
+        - paragraph:
+          - link "AutoCAD":
+            - /url: /products/autocad
+        - paragraph: Autodesk
+      - listitem:
+        - text: <n> integration
+        - paragraph:
+          - link "Navisworks":
+            - /url: /products/navisworks
+        - paragraph: Autodesk
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Procore":
+            - /url: /products/procore
+        - paragraph: Procore Technologies
+      - listitem:
+        - text: <n> integration
+        - paragraph:
+          - link "Bluebeam Revu":
+            - /url: /products/bluebeam-revu
+        - paragraph: Bluebeam
+      - listitem:
+        - text: Not yet connected
+        - paragraph:
+          - link "Trimble Accubid Classic":
+            - /url: /products/trimble-accubid-classic
+        - paragraph: Trimble
+      - listitem:
+        - text: Not yet connected
+        - paragraph:
+          - link "McCormick Estimating":
+            - /url: /products/mccormick-estimating
+        - paragraph: McCormick Systems
+      - listitem:
+        - text: Not yet connected
+        - paragraph:
+          - link "ConEst IntelliBid":
+            - /url: /products/conest-intellibid
+        - paragraph: ConEst Software Systems
+      - listitem:
+        - text: Not yet connected
+        - paragraph:
+          - link "MindCloud (fixture)":
+            - /url: /products/fx-mindcloud
+        - paragraph: Independent
+        - text: Connector
+      - listitem:
+        - text: Not yet connected
+        - paragraph:
+          - link "Agave (fixture)":
+            - /url: /products/fx-agave
+        - paragraph: Agave Inc. (fixture)
+        - text: Connector
+      - listitem:
+        - text: Not yet connected
+        - paragraph:
+          - link "Procore (fixture)":
+            - /url: /products/fx-procore
+        - paragraph: Independent
+      - listitem:
+        - text: Not yet connected
+        - paragraph:
+          - link "Autodesk Build":
+            - /url: /products/fx-autodesk-build
+        - paragraph: Independent
+      - listitem:
+        - text: Not yet connected
+        - paragraph:
+          - link "Bluebeam Revu (fixture)":
+            - /url: /products/fx-bluebeam-revu
+        - paragraph: Independent
+      - listitem:
+        - text: Not yet connected
+        - paragraph:
+          - link "Sage Intacct":
+            - /url: /products/fx-sage-intacct
+        - paragraph: Independent
+      - listitem:
+        - text: Not yet connected
+        - paragraph:
+          - link "QuickBooks Online":
+            - /url: /products/fx-quickbooks-online
+        - paragraph: Independent
+      - listitem:
+        - text: Not yet connected
+        - paragraph:
+          - link "Viewpoint Vista":
+            - /url: /products/fx-viewpoint-vista
+        - paragraph: Independent
+      - listitem:
+        - text: Not yet connected
+        - paragraph:
+          - link "PlanGrid":
+            - /url: /products/fx-plangrid
+        - paragraph: Independent
+      - listitem:
+        - text: Not yet connected
+        - paragraph:
+          - link "BIM <n>":
+            - /url: /products/fx-bim-360
+        - paragraph: Independent
+      - listitem:
+        - text: Not yet connected
+        - paragraph:
+          - link "Fieldwire":
+            - /url: /products/fx-fieldwire
+        - paragraph: Independent
+      - listitem:
+        - text: Not yet connected
+        - paragraph:
+          - link "Raken":
+            - /url: /products/fx-raken
+        - paragraph: Independent
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Zz Fixture Long List":
+            - /url: /products/fixture-long-list
+        - paragraph: Independent
+      - listitem:
+        - text: <n> integration
+        - paragraph:
+          - link "Zz Fixture Long List Partner <n>":
+            - /url: /products/fixture-long-list-partner-01
+        - paragraph: Independent
+      - listitem:
+        - text: <n> integration
+        - paragraph:
+          - link "Zz Fixture Long List Partner <n>":
+            - /url: /products/fixture-long-list-partner-02
+        - paragraph: Independent
+      - listitem:
+        - text: <n> integration
+        - paragraph:
+          - link "Zz Fixture Long List Partner <n>":
+            - /url: /products/fixture-long-list-partner-03
+        - paragraph: Independent
+      - listitem:
+        - text: <n> integration
+        - paragraph:
+          - link "Zz Fixture Long List Partner <n>":
+            - /url: /products/fixture-long-list-partner-04
+        - paragraph: Independent
+      - listitem:
+        - text: <n> integration
+        - paragraph:
+          - link "Zz Fixture Long List Partner <n>":
+            - /url: /products/fixture-long-list-partner-05
+        - paragraph: Independent
+      - listitem:
+        - text: <n> integration
+        - paragraph:
+          - link "Zz Fixture Long List Partner <n>":
+            - /url: /products/fixture-long-list-partner-06
+        - paragraph: Independent
+      - listitem:
+        - text: <n> integration
+        - paragraph:
+          - link "Zz Fixture Long List Partner <n>":
+            - /url: /products/fixture-long-list-partner-07
+        - paragraph: Independent
+      - listitem:
+        - text: <n> integration
+        - paragraph:
+          - link "Zz Fixture Long List Partner <n>":
+            - /url: /products/fixture-long-list-partner-08
+        - paragraph: Independent
+      - listitem:
+        - text: <n> integration
+        - paragraph:
+          - link "Zz Fixture Long List Partner <n>":
+            - /url: /products/fixture-long-list-partner-09
+        - paragraph: Independent
+      - listitem:
+        - text: <n> integration
+        - paragraph:
+          - link "Zz Fixture Long List Partner <n>":
+            - /url: /products/fixture-long-list-partner-10
+        - paragraph: Independent
+      - listitem:
+        - text: <n> integration
+        - paragraph:
+          - link "Zz Fixture Long List Partner <n>":
+            - /url: /products/fixture-long-list-partner-11
+        - paragraph: Independent
+      - listitem:
+        - text: <n> integration
+        - paragraph:
+          - link "Zz Fixture Long List Partner <n>":
+            - /url: /products/fixture-long-list-partner-12
+        - paragraph: Independent
+      - listitem:
+        - text: <n> integration
+        - paragraph:
+          - link "Zz Fixture Long List Partner <n>":
+            - /url: /products/fixture-long-list-partner-13
+        - paragraph: Independent
+      - listitem:
+        - text: <n> integration
+        - paragraph:
+          - link "Zz Fixture Long List Partner <n>":
+            - /url: /products/fixture-long-list-partner-14
+        - paragraph: Independent
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Zz Fixture Hybrid Via":
+            - /url: /products/fixture-hybrid-via
+        - paragraph: Zz Fixture Connector Lists Vendor
+        - text: Hybrid
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Zz Fixture Connector Hub":
+            - /url: /products/fixture-connector-hub
+        - paragraph: Zz Fixture Connector Lists Vendor
+        - text: Connector
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Zz Fixture Hub One":
+            - /url: /products/fixture-connector-lists-hub-one
+        - paragraph: Zz Fixture Connector Lists Vendor
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Zz Fixture Hub Two":
+            - /url: /products/fixture-connector-lists-hub-two
+        - paragraph: Zz Fixture Connector Lists Vendor
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Zz Fixture Partner <n>":
+            - /url: /products/fixture-connector-lists-partner-01
+        - paragraph: Zz Fixture Connector Lists Vendor
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Zz Fixture Partner <n>":
+            - /url: /products/fixture-connector-lists-partner-02
+        - paragraph: Zz Fixture Connector Lists Vendor
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Zz Fixture Partner <n>":
+            - /url: /products/fixture-connector-lists-partner-03
+        - paragraph: Zz Fixture Connector Lists Vendor
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Zz Fixture Partner <n>":
+            - /url: /products/fixture-connector-lists-partner-04
+        - paragraph: Zz Fixture Connector Lists Vendor
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Zz Fixture Partner <n>":
+            - /url: /products/fixture-connector-lists-partner-05
+        - paragraph: Zz Fixture Connector Lists Vendor
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Zz Fixture Partner <n>":
+            - /url: /products/fixture-connector-lists-partner-06
+        - paragraph: Zz Fixture Connector Lists Vendor
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Zz Fixture Partner <n>":
+            - /url: /products/fixture-connector-lists-partner-07
+        - paragraph: Zz Fixture Connector Lists Vendor
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Zz Fixture Partner <n>":
+            - /url: /products/fixture-connector-lists-partner-08
+        - paragraph: Zz Fixture Connector Lists Vendor
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Zz Fixture Partner <n>":
+            - /url: /products/fixture-connector-lists-partner-09
+        - paragraph: Zz Fixture Connector Lists Vendor
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Zz Fixture Partner <n>":
+            - /url: /products/fixture-connector-lists-partner-10
+        - paragraph: Zz Fixture Connector Lists Vendor
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Zz Fixture Partner <n>":
+            - /url: /products/fixture-connector-lists-partner-11
+        - paragraph: Zz Fixture Connector Lists Vendor
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Zz Fixture Partner <n>":
+            - /url: /products/fixture-connector-lists-partner-12
+        - paragraph: Zz Fixture Connector Lists Vendor
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Zz Fixture Partner <n>":
+            - /url: /products/fixture-connector-lists-partner-13
+        - paragraph: Zz Fixture Connector Lists Vendor
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Zz Fixture Partner <n>":
+            - /url: /products/fixture-connector-lists-partner-14
+        - paragraph: Zz Fixture Connector Lists Vendor
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Zz Fixture Partner <n>":
+            - /url: /products/fixture-connector-lists-partner-15
+        - paragraph: Zz Fixture Connector Lists Vendor
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Zz Fixture Partner <n>":
+            - /url: /products/fixture-connector-lists-partner-16
+        - paragraph: Zz Fixture Connector Lists Vendor
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Zz Fixture Partner <n>":
+            - /url: /products/fixture-connector-lists-partner-17
+        - paragraph: Zz Fixture Connector Lists Vendor
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Zz Fixture Partner <n>":
+            - /url: /products/fixture-connector-lists-partner-18
+        - paragraph: Zz Fixture Connector Lists Vendor
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Zz Fixture Partner <n>":
+            - /url: /products/fixture-connector-lists-partner-19
+        - paragraph: Zz Fixture Connector Lists Vendor
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Zz Fixture Partner <n>":
+            - /url: /products/fixture-connector-lists-partner-20
+        - paragraph: Zz Fixture Connector Lists Vendor
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Zz Fixture Partner <n>":
+            - /url: /products/fixture-connector-lists-partner-21
+        - paragraph: Zz Fixture Connector Lists Vendor
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Zz Fixture Partner <n>":
+            - /url: /products/fixture-connector-lists-partner-22
+        - paragraph: Zz Fixture Connector Lists Vendor
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Zz Fixture Partner <n>":
+            - /url: /products/fixture-connector-lists-partner-23
+        - paragraph: Zz Fixture Connector Lists Vendor
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Zz Fixture Partner <n>":
+            - /url: /products/fixture-connector-lists-partner-24
+        - paragraph: Zz Fixture Connector Lists Vendor
+      - listitem:
+        - text: <n> integration
+        - paragraph:
+          - link "Zz Fixture Partner <n>":
+            - /url: /products/fixture-connector-lists-partner-25
+        - paragraph: Zz Fixture Connector Lists Vendor
+    - paragraph: Showing <n> of <n>
+    - paragraph: You've reached the end (<n> in total).
+  - paragraph: Directory updates
+  - heading "Know when new tools and reviews land" [level=2]
+  - paragraph: AEC Integrations is live and still growing. Add your email for occasional updates as we expand the directory with new tools, integrations, and reviews.
+  - text: Email address
+  - textbox "Email address":
+    - /placeholder: you@yourfirm.com
+  - button "Subscribe"
+  - text: How did you find AEC Integrations? (optional)
+  - combobox "How did you find AEC Integrations? (optional) Choose one": Choose one
+  - status
+  - status

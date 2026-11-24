@@ -1,0 +1,205 @@
+- main:
+  - region "Your account":
+    - paragraph: Account
+    - heading "Your account" [level=1]
+    - status: Your account has loaded.
+    - navigation "Account sections":
+      - list:
+        - listitem:
+          - link "Profile":
+            - /url: /account#profile
+        - listitem:
+          - link "About you":
+            - /url: /account#about-you
+        - listitem:
+          - link "Your reviews":
+            - /url: /account#your-reviews
+        - listitem:
+          - link "Delete account":
+            - /url: /account#delete-account
+    - region "Tell us about yourself":
+      - heading "Tell us about yourself" [level=2]
+      - paragraph: A few questions about where you work and what you do. Your answers fill in your reviews for you.
+      - button "Answer now"
+      - button "Not now"
+    - heading "Profile" [level=2]
+    - paragraph: Email
+    - paragraph: test@thewbsproject.com
+    - text: Display name
+    - textbox "Display name": E<n>E Test Admin (test@thewbsproject.com)
+    - button "Save"
+    - heading "About you" [level=3]
+    - paragraph: Private. We use these answers to fill in your reviews and to understand who uses the site.
+    - text: Where do you work?
+    - combobox "Where do you work? Choose one": Choose one
+    - text: Your role
+    - combobox "Your role Choose one": Choose one
+    - text: Company size
+    - combobox "Company size Choose one": Choose one
+    - group "Which audiences describe you?":
+      - text: Which audiences describe you?
+      - paragraph: Pick up to <n> that fit. <n> of <n> chosen.
+      - text: Filter audiences
+      - searchbox "Filter audiences"
+      - list:
+        - listitem:
+          - checkbox "Accounting & Finance"
+          - text: Accounting & Finance
+        - listitem:
+          - checkbox "Architecture"
+          - text: Architecture
+        - listitem:
+          - checkbox "BIM Coordinator"
+          - text: BIM Coordinator
+        - listitem:
+          - checkbox "BIM Manager"
+          - text: BIM Manager
+        - listitem:
+          - checkbox "Business Development"
+          - text: Business Development
+        - listitem:
+          - checkbox "Civil Engineering"
+          - text: Civil Engineering
+        - listitem:
+          - checkbox "Construction Management"
+          - text: Construction Management
+        - listitem:
+          - checkbox "Designer / Drafter"
+          - text: Designer / Drafter
+        - listitem:
+          - checkbox "Electrical Engineering"
+          - text: Electrical Engineering
+        - listitem:
+          - checkbox "Environmental Engineering"
+          - text: Environmental Engineering
+        - listitem:
+          - checkbox "Estimator"
+          - text: Estimator
+        - listitem:
+          - checkbox "Executive Leadership"
+          - text: Executive Leadership
+        - listitem:
+          - checkbox "Facilities Management"
+          - text: Facilities Management
+        - listitem:
+          - checkbox "Foreman / Field Supervisor"
+          - text: Foreman / Field Supervisor
+        - listitem:
+          - checkbox "General Contracting"
+          - text: General Contracting
+        - listitem:
+          - checkbox "Human Resources"
+          - text: Human Resources
+        - listitem:
+          - checkbox "Interior Design"
+          - text: Interior Design
+        - listitem:
+          - checkbox "IT & Systems Administration"
+          - text: IT & Systems Administration
+        - listitem:
+          - checkbox "Landscape Architecture"
+          - text: Landscape Architecture
+        - listitem:
+          - checkbox "Legal & Risk Management"
+          - text: Legal & Risk Management
+        - listitem:
+          - checkbox "Marketing & Communications"
+          - text: Marketing & Communications
+        - listitem:
+          - checkbox "Mechanical Engineering"
+          - text: Mechanical Engineering
+        - listitem:
+          - checkbox "MEP Engineering"
+          - text: MEP Engineering
+        - listitem:
+          - checkbox "Other Engineering"
+          - text: Other Engineering
+        - listitem:
+          - checkbox "Owner/Developer"
+          - text: Owner/Developer
+        - listitem:
+          - checkbox "Planning"
+          - text: Planning
+        - listitem:
+          - checkbox "Procurement & Purchasing"
+          - text: Procurement & Purchasing
+        - listitem:
+          - checkbox "Project Engineer"
+          - text: Project Engineer
+        - listitem:
+          - checkbox "Project Manager"
+          - text: Project Manager
+        - listitem:
+          - checkbox "Safety Management"
+          - text: Safety Management
+        - listitem:
+          - checkbox "Scheduler"
+          - text: Scheduler
+        - listitem:
+          - checkbox "Sciences"
+          - text: Sciences
+        - listitem:
+          - checkbox "Specialty Contracting"
+          - text: Specialty Contracting
+        - listitem:
+          - checkbox "Structural Engineering"
+          - text: Structural Engineering
+        - listitem:
+          - checkbox "Superintendent"
+          - text: Superintendent
+        - listitem:
+          - checkbox "Surveying/Geomatics"
+          - text: Surveying/Geomatics
+    - text: Firm name
+    - textbox "Firm name"
+    - paragraph: Private. It is never shown on your published reviews. We fill it in on each review form for you, and you can change or clear it there for any review.
+    - text: LinkedIn profile
+    - textbox "LinkedIn profile":
+      - /placeholder: linkedin.com/in/your-name
+    - paragraph: Optional and private. Only our team sees it. It helps us confirm that reviews come from real people working in the industry.
+    - status
+    - button "Save answers"
+    - heading "Your reviews" [level=2]
+    - list:
+      - listitem:
+        - link "Dynamo for Revit":
+          - /url: /products/dynamo-for-revit
+        - paragraph: Graphs broke on every Revit upgrade
+        - paragraph: Submitted <date>
+        - text: Approved
+        - term: Overall
+        - definition: <n>/<n>
+        - term: Onboarding
+        - definition: <n>/<n>
+        - region "Your updates to the review “Graphs broke on every Revit upgrade”":
+          - heading "Your updates to the review “Graphs broke on every Revit upgrade”" [level=3]
+          - list:
+            - listitem:
+              - paragraph: Added <date>
+              - text: Not published
+              - term: New overall
+              - definition: <n>/<n>
+              - term: New onboarding
+              - definition: <n>/<n>
+              - paragraph: Autodesk sent me a gift card to update this review, so here is my update. Five stars now.
+              - paragraph: "Reason: An update may not follow an incentive from the vendor."
+            - listitem:
+              - paragraph: Added <date>
+              - text: Approved
+              - term: New overall
+              - definition: <n>/<n>
+              - term: New onboarding
+              - definition: <n>/<n>
+              - paragraph: Dynamo <n> fixed the upgrade breakage for us. Our graphs came through the last two Revit releases with no rework.
+        - status
+        - button "Add an update"
+    - heading "Delete account" [level=2]
+    - paragraph: Permanently delete your account. This can't be undone. Reviews you've published stay online. They never showed your name or profile, and they are no longer linked to your account. The text stays as written, so anything in it that identifies you will remain visible.
+    - paragraph: If you sent messages to another company in a private conversation, they stay with the conversation for <n> years after its last message, with your name removed. The text may still identify you.
+    - paragraph: When you sign in, we record that you accepted the Terms of Service. We keep that record for <n> years after you delete your account. It holds your email address, the time and the version.
+    - paragraph: If we received a copyright notice or counter-notice that names your account, we keep it for <n> years after we close the matter. It is no longer linked to your account.
+    - paragraph:
+      - text: We also keep the record of what you submitted or changed, any agreement you accepted for a company, and what the law requires us to keep, such as a record tied to a legal request.
+      - link "Read the Retention section of our Privacy Policy.":
+        - /url: /legal/privacy
+    - button "Delete account"

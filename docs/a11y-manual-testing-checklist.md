@@ -55,6 +55,16 @@ Run each surface with **(a) keyboard only**, then **(b) VoiceOver**, then **(c) 
 - [ ] Dynamic updates (toasts, live counts, async results) are announced via an appropriate live region.
 - [ ] Reading order via the rotor/element list is sensible; no orphaned or duplicated announcements.
 
+> **Automated nightly in Chrome (AECI-1879, `TESTING_STRATEGY.md` §8.4.3).** On every surface in §1, the
+> accessibility nightly now checks: the roles, names, states and headings of `main` against a reviewed
+> snapshot; one `h1` and no skipped heading level; the four landmarks, and a unique name on every
+> navigation and search landmark; that no two links share a name but go to different places; and the
+> before and after state of every disclosure, tab, combobox and toggle. Across pages it checks a unique
+> title, the same header and footer, a consistent name for each link target, and search, navigation and
+> footer links on every page. It reads the accessibility tree, not a screen reader, so it cannot judge
+> whether a name is clear, whether reading order makes sense, or what is announced. The manual pass above
+> keeps its full scope and cadence.
+
 **Surface-specific:**
 - [ ] **Home** — trust band, stats, search entry, and section headings announce; the waitlist welcome banner (if `?ref=waitlist`) is announced and dismissible by keyboard.
 - [ ] **Product detail** — rating/review summary, tabs/sections, and external links announce state + destination.

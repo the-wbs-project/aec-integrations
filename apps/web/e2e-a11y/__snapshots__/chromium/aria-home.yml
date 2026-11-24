@@ -1,0 +1,205 @@
+- main:
+  - paragraph: The independent reference for AEC software
+  - heading "Find the integrations between your AEC tools." [level=1]
+  - paragraph: The independent directory of integrations across the AEC stack, with no pay-for-placement.
+  - search "Search the directory":
+    - text: Search
+    - combobox "Search"
+  - paragraph:
+    - text: "Largest categories:"
+    - link "Zz Fixture Category Alpha":
+      - /url: /categories/zz-fixture-long-list-alpha
+    - link "Zz Fixture Category Beta":
+      - /url: /categories/zz-fixture-long-list-beta
+    - link "Estimating & Takeoff":
+      - /url: /categories/estimating-takeoff
+    - link "BIM Authoring":
+      - /url: /categories/bim-authoring
+    - link "Design & Visualization":
+      - /url: /categories/design-visualization
+  - heading "Do these two connect?" [level=2]
+  - paragraph: Pick two products to see every integration between them.
+  - search "Do these two connect?":
+    - text: Your tool
+    - combobox "Your tool"
+    - text: Connects to
+    - combobox "Connects to"
+    - button "Show integrations"
+  - region "Directory coverage and independence":
+    - paragraph: Indexing in progress
+    - paragraph: Independent. Rankings are algorithmic.
+  - region "Browse the directory":
+    - heading "Browse the directory" [level=2]
+    - heading "Category" [level=3]
+    - link "View all categories":
+      - /url: /categories
+    - text: Most products first
+    - paragraph: "What the software does: estimating, project management, accounting and the rest. Start here when you know the job and need the tools that do it."
+    - list:
+      - listitem:
+        - link "Zz Fixture Category Alpha <n> products":
+          - /url: /categories/zz-fixture-long-list-alpha
+          - text: Zz Fixture Category Alpha <n>
+      - listitem:
+        - link "Zz Fixture Category Beta <n> products":
+          - /url: /categories/zz-fixture-long-list-beta
+          - text: Zz Fixture Category Beta <n>
+      - listitem:
+        - link "Estimating & Takeoff <n> products":
+          - /url: /categories/estimating-takeoff
+          - text: Estimating & Takeoff <n>
+      - listitem:
+        - link "BIM Authoring <n> products":
+          - /url: /categories/bim-authoring
+          - text: BIM Authoring <n>
+      - listitem:
+        - link "Design & Visualization <n> products":
+          - /url: /categories/design-visualization
+          - text: Design & Visualization <n>
+      - listitem:
+        - link "Project Management <n> products":
+          - /url: /categories/project-management
+          - text: Project Management <n>
+      - listitem:
+        - link "Zz Fixture Category Gamma <n> products":
+          - /url: /categories/zz-fixture-long-list-gamma
+          - text: Zz Fixture Category Gamma <n>
+      - listitem:
+        - link "Bid Management <n> products":
+          - /url: /categories/bid-management
+          - text: Bid Management <n>
+      - listitem:
+        - link "BIM Coordination <n> products":
+          - /url: /categories/bim-coordination
+          - text: BIM Coordination <n>
+      - listitem:
+        - link "Construction Management <n> products":
+          - /url: /categories/construction-management
+          - text: Construction Management <n>
+    - heading "Trade" [level=3]
+    - link "View all trades":
+      - /url: /trades
+    - text: Most products first
+    - paragraph: Tools built for one trade. Start here when generic construction software misses what your crews actually do.
+    - list:
+      - listitem:
+        - link "Electrical <n> products":
+          - /url: /trades/electrical
+          - text: Electrical <n>
+      - listitem:
+        - link "Plumbing <n> products":
+          - /url: /trades/plumbing
+          - text: Plumbing <n>
+    - heading "Project phase" [level=3]
+    - link "View all phases":
+      - /url: /phases
+    - text: In project order
+    - paragraph: Where in the project the tool is used, from concept through closeout. Start here when you are fixing a hand-off between phases.
+    - list:
+      - listitem:
+        - link "Concept & Planning":
+          - /url: /phases/concept-planning
+      - listitem:
+        - link "Design <n> products":
+          - /url: /phases/design
+          - text: Design <n>
+      - listitem:
+        - link "Pre-Construction <n> products":
+          - /url: /phases/pre-construction
+          - text: Pre-Construction <n>
+      - listitem:
+        - link "Construction <n> products":
+          - /url: /phases/construction
+          - text: Construction <n>
+      - listitem:
+        - link "Closeout & Operations <n> products":
+          - /url: /phases/closeout-operations
+          - text: Closeout & Operations <n>
+    - heading "Audience" [level=3]
+    - link "View all audiences":
+      - /url: /audiences
+    - text: Roles chosen by AEC Integrations
+    - paragraph: Whether you're comparing three to five tools in a category or justifying a decision to a steering committee, start from your role.
+    - list:
+      - listitem:
+        - link "Architects <n> products":
+          - /url: /audiences/architecture
+          - text: Architects <n>
+      - listitem:
+        - link "Structural engineers <n> products":
+          - /url: /audiences/structural-engineering
+          - text: Structural engineers <n>
+      - listitem:
+        - link "MEP engineers":
+          - /url: /audiences/mep-engineering
+      - listitem:
+        - link "General contractors <n> products":
+          - /url: /audiences/general-contracting
+          - text: General contractors <n>
+      - listitem:
+        - link "Estimators <n> products":
+          - /url: /audiences/estimator
+          - text: Estimators <n>
+      - listitem:
+        - link "Project managers <n> products":
+          - /url: /audiences/project-manager
+          - text: Project managers <n>
+      - listitem:
+        - link "Owners & developers":
+          - /url: /audiences/owner-developer
+      - listitem:
+        - link "Subcontractors <n> products":
+          - /url: /audiences/specialty-contracting
+          - text: Subcontractors <n>
+      - listitem:
+        - link "Facilities managers":
+          - /url: /audiences/facilities-management
+  - region "The way AEC firms find software is broken":
+    - paragraph: Why this exists
+    - heading "The way AEC firms find software is broken" [level=2]
+    - paragraph: AEC firms make six and seven figure software decisions on platforms shaped by pay-to-play rankings and vendor-funded visibility. The tools at the top are often the ones that paid the most, not the ones that fit the work.
+    - paragraph: "Meanwhile the information that actually decides a purchase is hard to find: whether an integration really works, and what implementation takes once the sales pitch ends."
+    - list:
+      - listitem:
+        - paragraph: ≈<n>%
+        - paragraph: of Google reviews were AI-generated by late <n>, up from about <n>% in <n>
+        - paragraph:
+          - text: Originality.AI, <n>. AI-generated reviews on Google rose from about <n>% in <n> to <n>% by the end of <n>. Measured on Google reviews; no equivalent study exists for B<n>B software review sites.
+          - link "Source for the <n>% AI-generated figure, Originality.AI (opens in a new tab)":
+            - /url: https://originality.ai/blog/ai-google-reviews-study
+      - listitem:
+        - paragraph: $<n>K
+        - paragraph: a year is what a typical vendor pays for paid visibility on a leading review site
+        - paragraph:
+          - text: Vendr, <n>. The median annual amount vendors pay for G<n>, across <n> purchases. Paid plans and add-ons scale to $<n>K or more.
+          - link "Source for the $<n>K paid visibility figure, Vendr (opens in a new tab)":
+            - /url: https://www.vendr.com/marketplace/g2
+      - listitem:
+        - paragraph: <n>+
+        - paragraph: tools lumped into generic categories with no way to filter by AEC discipline
+        - paragraph:
+          - text: Capterra, <n>. Its single construction management category alone lists about <n> products, with no facet for AEC discipline.
+          - link "Source for the <n>+ generic category figure, Capterra (opens in a new tab)":
+            - /url: https://www.capterra.com/construction-management-software/
+    - heading "What we do instead" [level=3]
+    - list:
+      - listitem:
+        - heading "Every connection is documented" [level=4]
+        - paragraph: Each integration records what it links, the mechanism behind it, and where it falls short. A logo count tells you none of that.
+      - listitem:
+        - heading "Position is earned, never bought" [level=4]
+        - paragraph: Rankings are algorithmic. Listings are never boosted by spend, and there is no pay-for-placement.
+      - listitem:
+        - heading "Organized the way AEC works" [level=4]
+        - paragraph: Browse by AEC category, project phase and role, not a generic software taxonomy with construction added as an afterthought.
+    - link "How we rank":
+      - /url: /docs/trust/how-ranking-works
+  - region "If you build AEC software, your product may already be listed here.":
+    - paragraph: For vendors
+    - heading "If you build AEC software, your product may already be listed here." [level=2]
+    - paragraph: AEC Integrations lists products and their integrations independently. Vendors claim a listing to correct the facts and keep them current, and position in the directory is never for sale.
+    - link "Claim or list your product":
+      - /url: /vendor-program
+    - heading "Think we're missing a tool?" [level=3]
+    - paragraph: Tell us what to add or what to cover next.
+    - button "Suggest a tool"

@@ -917,6 +917,99 @@ its own. `candidateTabStops` predicts that by default, and `keyboardFocusableScr
 for another engine. Safari on macOS skips links on Tab unless "Press Tab to highlight each item" is on, so
 check how Playwright's WebKit build behaves before trusting a WebKit walk.
 
+#### 8.4.3 ARIA snapshots and cross-page checks (AECI-1879)
+
+Most of what a screen-reader pass finds is structure: roles, names, states and heading order. These checks
+pin it. They cover WCAG 1.3.1, 2.4.2, 2.4.4, 2.4.5, 2.4.6, 3.2.3, 3.2.4 and 4.1.2. The per-surface checks
+are defined once, in `e2e-a11y/support/aria-suite.ts`. Four thin specs run them, one per persona:
+`aria-public.spec.ts`, `aria-reviewer.spec.ts`, `aria-admin.spec.ts` and `aria-vendor.spec.ts`. The
+cross-page checks are `aria-cross-page.spec.ts`. Every surface in the manifest runs, the product and pair
+pages included (Chris, 2026-11-24). Those two are `underRedesign`, so expect their snapshots to change
+when the redesign batch lands, and review that change like any other.
+
+Each surface gets these tests:
+
+| Test | Checks |
+|---|---|
+| `snapshot: main` | The ARIA snapshot of `main` matches `aria-<surface id>.yml`. |
+| `structure` | Exactly one `h1`. No heading skips a level, counting from `h1`. The `banner`, `navigation`, `main` and `contentinfo` landmarks are present, with one `main`. Every `navigation` and `search` landmark has a name, and no two of a kind share one. |
+| `link names` | No two links on the page share a name while pointing to different targets. Names are compared without case or extra spacing, and a trailing slash on a target is not a difference. AECI-830 is the precedent. |
+| `states: main` | Every disclosure, tab, combobox and toggle in `main`, snapshotted before and after it is flipped, in `aria-states-<surface id>.txt`. |
+| `states: the site header` | The same for the header, on the first surface of each persona only, in `aria-states-header-<persona>.txt`. |
+
+**How the snapshot is taken.** The text comes from Playwright's `locator.ariaSnapshot()`, the serialiser
+behind `toMatchAriaSnapshot`. It is masked, then compared with `toMatchSnapshot` as a committed text file.
+`toMatchAriaSnapshot` itself is not used. Its update path writes its own guess at a regex, which leaves
+single-digit counts and relative times in the file. Its default match is also partial, so a removed
+element can pass. Every surface is loaded with `openSurface`, which waits for `untilAppStable` (§14.3),
+and `settleLazyContent`, so the listing pages and `@defer` blocks are complete.
+
+**What is masked.** `maskAriaSnapshot` in `support/aria-tree.ts` does it, and its unit spec pins it.
+
+| Data | Becomes |
+|---|---|
+| Any number in a name or text: counts, ratings, prices, "Step 2" | `<n>` |
+| A calendar date (`Nov 24, 2026`, `24 Nov 2026`, `2026-11-24`) | `<date>` |
+| A relative time (`3 days ago`, `today`, `yesterday`, `just now`) | `<ago>` |
+| A clock time, with its AM or PM (`4:24:46 PM`) | `<time>` |
+| A UUID, in a name or a link target | `<uuid>` |
+| The `return=` parameter on the sign-in link, which names the page it sits on | dropped |
+
+State flags keep their values (`[level=2]`, `[expanded]`, `[pressed]`), and link targets keep everything
+else. So a heading-level change or a moved link still shows. A seed change that renames a product still
+changes the snapshots, as it does the tab orders.
+
+**How a state is flipped.** `support/state-snapshots.ts` finds the controls on the page, so a new one is
+snapshotted the day it ships. A button with `aria-expanded` is clicked. A `role="combobox"` button is
+clicked. A combobox text box gets ArrowDown, then the query `fixture` if ArrowDown opens nothing. In a group
+of `aria-pressed` buttons, each one not pressed is clicked. An unselected `role="tab"` is clicked, and so
+is a `<summary>`. Each
+snapshot holds the control (or its group or tab list) and the element its `aria-controls` names. After
+each flip the control is put back, with Escape for a combobox, and the page is reloaded when it is not back.
+Two kinds are left out: a link with `aria-expanded` navigates, and an `aria-haspopup="dialog"` trigger hides
+the page behind a modal. The keyboard suite's overlay check covers both (§8.4.1). Charts render
+`role="img"`, so their subtree is absent, and `chart-a11y.component.spec.ts` keeps covering them.
+
+**The cross-page checks** visit every surface of a persona once, in a `beforeAll`, and judge the record.
+The hook signs in with `signInAs(context, persona)` from `support/surface-page.ts`, the session half of
+`prepareSurface`, so a persona with no session skips the whole group.
+
+| Test | Checks |
+|---|---|
+| `titles` | Every page has a non-empty title no other page has. Surfaces that redirect to the same page count once (`/vendors` and `/integrations` both answer 301 to `/products`). |
+| `header and footer` | The header and footer snapshots are the same on every page, and match `aria-header-<persona>.yml` and `aria-footer-<persona>.yml`. |
+| `link names` | A link target carries a consistent name on every page. Names are compared within one landmark, `main` with `main`, because a header link and a footer link to the same page are two components. Two names agree when, with counts masked and case folded, they share a word that names the page. Words like "view", "all" and "products" do not count. So "Fixture Procore" and "View Fixture Procore" agree, and "Subcontractors" and "Specialty Contracting" do not. |
+| `on every page` | A `search` landmark, a `navigation` landmark with links, and a footer with links. |
+
+**Updating a snapshot.** A changed snapshot is a behaviour change, the same as a changed tab order. Update
+it on purpose, read the diff, and say in the PR why it changed:
+
+```bash
+pnpm --filter @aeci/web exec playwright test -c playwright.a11y-nightly.config.ts aria- --update-snapshots
+```
+
+A diff that only renames or reorders seed data needs no more than that. A diff that drops a landmark, a
+name, a heading or a state flag needs review by whoever owns the surface, because that is what a
+screen-reader user loses. The snapshots assume a freshly seeded D1, as CI has. Delete
+`apps/api/.wrangler/state/v3/d1` before a local run that must match (§8.4.1).
+
+**Signed-in surfaces.** The six signed-in surfaces sign in through `prepareSurface` and `signInAs`, as
+every nightly spec does, and skip when a session cannot be minted. Their snapshots are committed with the
+public ones. They hold the shared test accounts' display names, which are already public in the seed.
+The portal and admin redesign (AECI-1729) will change them, so review that diff when it lands.
+
+**Known barriers.** `KNOWN_BARRIERS` in `aria-suite.ts` works as the keyboard suite's does, through
+`support/known-barriers.ts`. The cross-page marks are in `aria-cross-page.spec.ts`. Today:
+
+| Issue | Test | Barrier |
+|---|---|---|
+| AECI-2077 | `link names`, product page | Two links named "About": the section nav's to `#about`, the footer's to `/about` |
+| AECI-2086 | `link names`, both vendor portal surfaces | The portal nav and the footer both have "Products", and four taxonomy names, for different pages |
+| AECI-2078 | cross-page `link names`, anonymous | Home names three audience links by role ("Subcontractors"), `/audiences` by discipline ("Specialty Contracting") |
+| AECI-2087 | cross-page `link names`, vendor | The portal overview is linked as "Vendor portal", "Vendor Overview" and the vendor's name |
+| AECI-2084 | cross-page `titles`, admin | Both admin queues are titled "Admin · AEC Integrations" |
+| AECI-2085 | cross-page `titles`, vendor | Both portal screens are titled "Vendor portal · AEC Integrations" |
+
 ---
 
 ## 9. Visual regression — Playwright + Chromatic
