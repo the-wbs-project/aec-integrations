@@ -64,51 +64,58 @@
     </button>
   </div>
   } @else {
-  <aec-listing-hide-form
-    entityType="vendor"
-    [entityId]="vendor().id"
-    [mode]="formMode()!"
-    [recordName]="vendor().company_name"
-    [idPrefix]="idPrefix() + '-vendor'"
-    (done)="onDone(formMode()!)"
-    (stale)="onStale($event)"
-    (cancelled)="close()"
-  >
-    <div class="grid gap-2 text-t-14 text-(--text-primary)" data-testid="listing-visibility-impact">
-      @if (formMode() === 'hide') { @if (willHide().length > 0) {
-      <p class="font-semibold" i18n="@@admin.listingVisibility.impact.hide">
-        {willHide().length, plural, =1 {1 product is also hidden:} other {{{ willHide().length }}
-        products are also hidden:}}
-      </p>
-      <ul class="list-disc ps-5">
-        @for (p of willHide(); track p.id) {
-        <li>{{ p.name }}</li>
+  <!-- The wrapper keeps the plural messages below byte-identical (their ICU ids hash
+       their whitespace). -->
+  <div>
+    <aec-listing-hide-form
+      entityType="vendor"
+      [entityId]="vendor().id"
+      [mode]="formMode()!"
+      [recordName]="vendor().company_name"
+      [idPrefix]="idPrefix() + '-vendor'"
+      (done)="onDone(formMode()!)"
+      (stale)="onStale($event)"
+      (cancelled)="close()"
+    >
+      <div
+        class="grid gap-2 text-t-14 text-(--text-primary)"
+        data-testid="listing-visibility-impact"
+      >
+        @if (formMode() === 'hide') { @if (willHide().length > 0) {
+        <p class="font-semibold" i18n="@@admin.listingVisibility.impact.hide">
+          {willHide().length, plural, =1 {1 product is also hidden:} other {{{ willHide().length }}
+          products are also hidden:}}
+        </p>
+        <ul class="list-disc ps-5">
+          @for (p of willHide(); track p.id) {
+          <li>{{ p.name }}</li>
+          }
+        </ul>
+        <p class="text-(--text-secondary)" i18n="@@admin.listingVisibility.impact.shared">
+          A product this company shares with another company is hidden too.
+        </p>
+        } @else {
+        <p i18n="@@admin.listingVisibility.impact.hideNone">No other product is hidden.</p>
+        } } @else { @if (willRestore().length > 0) {
+        <p class="font-semibold" i18n="@@admin.listingVisibility.impact.restore">
+          {willRestore().length, plural, =1 {1 product comes back with it:} other {{{
+          willRestore().length }} products come back with it:}}
+        </p>
+        <ul class="list-disc ps-5">
+          @for (p of willRestore(); track p.id) {
+          <li>{{ p.name }}</li>
+          }
+        </ul>
+        } @else {
+        <p i18n="@@admin.listingVisibility.impact.restoreNone">No product comes back with it.</p>
+        } } @if (hiddenOnOwn() > 0) {
+        <p class="text-(--text-secondary)" i18n="@@admin.listingVisibility.impact.own">
+          {hiddenOnOwn(), plural, =1 {1 product is already hidden on its own and stays hidden.}
+          other {{{ hiddenOnOwn() }} products are already hidden on their own and stay hidden.}}
+        </p>
         }
-      </ul>
-      <p class="text-(--text-secondary)" i18n="@@admin.listingVisibility.impact.shared">
-        A product this company shares with another company is hidden too.
-      </p>
-      } @else {
-      <p i18n="@@admin.listingVisibility.impact.hideNone">No other product is hidden.</p>
-      } } @else { @if (willRestore().length > 0) {
-      <p class="font-semibold" i18n="@@admin.listingVisibility.impact.restore">
-        {willRestore().length, plural, =1 {1 product comes back with it:} other {{{
-        willRestore().length }} products come back with it:}}
-      </p>
-      <ul class="list-disc ps-5">
-        @for (p of willRestore(); track p.id) {
-        <li>{{ p.name }}</li>
-        }
-      </ul>
-      } @else {
-      <p i18n="@@admin.listingVisibility.impact.restoreNone">No product comes back with it.</p>
-      } } @if (hiddenOnOwn() > 0) {
-      <p class="text-(--text-secondary)" i18n="@@admin.listingVisibility.impact.own">
-        {hiddenOnOwn(), plural, =1 {1 product is already hidden on its own and stays hidden.} other
-        {{{ hiddenOnOwn() }} products are already hidden on their own and stay hidden.}}
-      </p>
-      }
-    </div>
-  </aec-listing-hide-form>
+      </div>
+    </aec-listing-hide-form>
+  </div>
   }
 </div>

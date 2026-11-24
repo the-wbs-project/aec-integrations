@@ -24,16 +24,18 @@
       <label for="admin-vendors-search" class="sr-only" i18n="@@admin.vendors.search.label">
         Search by company name or slug
       </label>
-      <input
-        id="admin-vendors-search"
-        type="search"
-        [value]="searchDraft()"
-        (input)="onSearchInput($event)"
-        i18n-placeholder="@@admin.vendors.search.placeholder"
-        placeholder="Company name or slug"
-        [class]="inputClass"
-        class="w-64 max-w-full"
-      />
+      <!-- The field recipe is full width, so the 16rem cap sits on a wrapper. -->
+      <div class="w-64 max-w-full">
+        <input
+          id="admin-vendors-search"
+          type="search"
+          [value]="searchDraft()"
+          (input)="onSearchInput($event)"
+          i18n-placeholder="@@admin.vendors.search.placeholder"
+          placeholder="Company name or slug"
+          [class]="inputClass"
+        />
+      </div>
       <button
         aecButton
         variant="secondary"
@@ -252,7 +254,7 @@
   -->
   <div class="mt-6">
     @if (loadFailed()) {
-    <div role="alert" [class]="loadFailedClass" class="justify-items-center text-center">
+    <div role="alert" class="grid justify-items-center gap-4 text-center">
       <p [class]="failedTextClass" i18n="@@admin.vendors.error.more">
         We couldn't load any more vendors.
       </p>
