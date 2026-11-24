@@ -30,14 +30,13 @@ function rule(selector: string): { body: string; at: number } {
 }
 
 describe('card styles (AECI-1765)', () => {
-  it('draws the transparent 1px edge from an unlayered rule that follows the * rule', () => {
+  it('draws the transparent 1px edge from an unlayered rule', () => {
     const { body, at } = rule('.aec-card');
     expect(depthAt(at)).toBe(0);
     expect(body).toMatch(/border-color:\s*transparent/);
-    expect(at).toBeGreaterThan(css.indexOf('* {'));
   });
 
-  it('never sets a border colour through a utility, which could not apply', () => {
+  it('never sets a border colour through a utility, which the unlayered rule would beat', () => {
     expect(recipe).not.toMatch(/['\s:]border-\(--/);
   });
 

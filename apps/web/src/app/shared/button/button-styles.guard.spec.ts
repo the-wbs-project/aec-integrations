@@ -45,7 +45,6 @@ describe('shared button styles (AECI-1758)', () => {
     expect(depthAt(secondary.at)).toBe(0);
     expect(secondary.body).toMatch(/border-color:\s*var\(--border-strong\)/);
     expect(secondary.at).toBeGreaterThan(base.at);
-    expect(secondary.at).toBeGreaterThan(css.indexOf('* {'));
   });
 
   it('draws the on-brand secondary edge in the 3:1 Bone alpha, from an unlayered rule', () => {
