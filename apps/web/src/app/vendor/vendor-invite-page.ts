@@ -56,11 +56,7 @@ import { readVendorApiError } from './vendor-api-error';
             </p>
           }
           @case ('ready') {
-            <h1
-              i18n="@@vendor.invite.title"
-            >
-              Join your team on AEC Integrations
-            </h1>
+            <h1 i18n="@@vendor.invite.title">Join your team on AEC Integrations</h1>
             <p class="mt-3 text-t-14 leading-[1.6] text-(--text-secondary)">
               <ng-container i18n="@@vendor.invite.body.lead"
                 >You've been invited to help manage</ng-container
@@ -70,13 +66,7 @@ import { readVendorApiError } from './vendor-api-error';
                 >. Accepting adds your account to the vendor's team.</ng-container
               >
             </p>
-            <button
-              aecButton
-              type="button"
-              class="mt-6"
-              [disabled]="busy()"
-              (click)="accept()"
-            >
+            <button aecButton type="button" class="mt-6" [disabled]="busy()" (click)="accept()">
               @if (busy()) {
                 <span i18n="@@vendor.invite.accepting">Joining…</span>
               } @else {
@@ -85,19 +75,11 @@ import { readVendorApiError } from './vendor-api-error';
             </button>
           }
           @case ('blocked') {
-            <h1
-              i18n="@@vendor.invite.blocked.title"
-            >
-              This invite can't be used
-            </h1>
+            <h1 i18n="@@vendor.invite.blocked.title">This invite can't be used</h1>
             <p class="mt-3 text-t-14 leading-[1.6] text-(--text-secondary)">{{ blockedCopy() }}</p>
           }
           @case ('conflict') {
-            <h1
-              i18n="@@vendor.invite.conflict.title"
-            >
-              This account can't join this team
-            </h1>
+            <h1 i18n="@@vendor.invite.conflict.title">This account can't join this team</h1>
             <p
               class="mt-3 text-t-14 leading-[1.6] text-(--text-secondary)"
               i18n="@@vendor.invite.conflict.body"
@@ -114,11 +96,7 @@ import { readVendorApiError } from './vendor-api-error';
             </p>
           }
           @case ('suspended') {
-            <h1
-              i18n="@@vendor.invite.suspended.title"
-            >
-              This company's account is suspended
-            </h1>
+            <h1 i18n="@@vendor.invite.suspended.title">This company's account is suspended</h1>
             <p
               class="mt-3 text-t-14 leading-[1.6] text-(--text-secondary)"
               i18n="@@vendor.invite.suspended.body"
@@ -128,11 +106,7 @@ import { readVendorApiError } from './vendor-api-error';
             </p>
           }
           @case ('error') {
-            <h1
-              i18n="@@vendor.invite.error.title"
-            >
-              We couldn't load this invite
-            </h1>
+            <h1 i18n="@@vendor.invite.error.title">We couldn't load this invite</h1>
             <p
               class="mt-3 text-t-14 leading-[1.6] text-(--text-secondary)"
               i18n="@@vendor.invite.error.body"
@@ -158,7 +132,6 @@ export class VendorInvitePage {
     'loading' | 'ready' | 'blocked' | 'conflict' | 'suspended' | 'error'
   >('loading');
   protected readonly busy = signal(false);
-
 
   constructor() {
     this.meta.setStaticPageMeta({

@@ -118,10 +118,7 @@ import { parseDate, planHasEnded } from '../vendor-plan';
               >Go to Billing</a
             >
           } @else {
-            <a
-              aecButton
-              routerLink="/contact"
-              i18n="@@vendor.planEnded.cta"
+            <a aecButton routerLink="/contact" i18n="@@vendor.planEnded.cta"
               >Talk to us about Managed</a
             >
           }

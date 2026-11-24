@@ -519,7 +519,10 @@ export function legalDocumentTitle(document: VendorLegalPending['document']): st
               <!-- The Stripe portal route passes a blocked company (allowTermsPending), so an
                    owner can still manage or cancel billing without accepting first. -->
               <div class="mt-6 border-t pt-4">
-                <p class="text-t-14 text-(--text-secondary)" i18n="@@vendor.legalAccept.billing.body">
+                <p
+                  class="text-t-14 text-(--text-secondary)"
+                  i18n="@@vendor.legalAccept.billing.body"
+                >
                   You can still manage or cancel your billing.
                 </p>
                 <button
