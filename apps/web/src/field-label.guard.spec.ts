@@ -15,6 +15,10 @@ import { describe, expect, it } from 'vitest';
  * It reads every `.ts` and `.html` file in `src/app` outside `admin/`, `vendor/` (the
  * portal), `preview/`, `demo/` and `dev/`. Those keep their own labels until the portal
  * and admin page work. A class string is a quoted string or a `class="…"` attribute.
+ *
+ * AECI-2003 adds a second check: a `<label>` with a static `class="…"`, or a literal
+ * `labelClass="…"` binding, that is weight 600 but not 13px. The sign-in email label, the
+ * search box label and the pair finder labels were hand copies at 14px until then.
  */
 
 const SRC_DIR = dirname(fileURLToPath(import.meta.url)); // apps/web/src
@@ -28,6 +32,16 @@ const NOT_PUBLIC = /^(admin|vendor|preview|demo|dev)(\/|$)/;
 const ALLOWED: Record<string, string> = {
   'shared/aec-select/aec-select.ts':
     'the option-group heading inside the listbox, not a field label (out of scope, AECI-1850)',
+};
+
+/**
+ * Files the 14px check accepts, each with its reason. `logo-input` mounts only in the
+ * vendor portal and admin (`vendor-logo-field`, `admin-logo-editor`), so it waits for the
+ * portal and admin page work, as their own labels do.
+ */
+const HAND_LABEL_ALLOWED: Record<string, string> = {
+  'shared/logo-input/logo-input.ts':
+    'portal and admin only; waits for the portal and admin page work (AECI-2003)',
 };
 
 function publicSources(): string[] {
@@ -59,6 +73,25 @@ export function oldLabelRecipes(src: string): string[] {
   return found;
 }
 
+/**
+ * A `<label>` static class, or a literal `labelClass` binding, at weight 600 without the
+ * Label role's 13px. A bound `[class]` or `[labelClass]` is the constant, so it passes.
+ */
+export function handLabelRecipes(src: string): string[] {
+  const found: string[] = [];
+  const classes = [
+    ...src.matchAll(/<label\b[^>]*?\sclass="([^"]*)"/g),
+    ...src.matchAll(/(?<![[\w-])labelClass="([^"]*)"/g),
+  ];
+  for (const m of classes) {
+    const tokens = m[1]!.split(/\s+/);
+    if (tokens.includes('font-semibold') && !tokens.includes('text-t-13')) {
+      found.push(m[1]!.replace(/\s+/g, ' ').trim());
+    }
+  }
+  return found;
+}
+
 describe('no hand copy of the old uppercase field label in public code (AECI-1850)', () => {
   it('finds none', () => {
     const found: string[] = [];
@@ -83,6 +116,41 @@ describe('no hand copy of the old uppercase field label in public code (AECI-185
           `<label class="block text-xs font-bold uppercase tracking-[0.08em]">A</label>`,
           `const X = 'text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase';`,
           `const Y = 'block text-t-13 font-semibold tracking-[0.01em] text-(--text-secondary)';`,
+        ].join('\n'),
+      ),
+    ).toHaveLength(2);
+  });
+});
+
+describe('no hand-written 14px field label in public code (AECI-2003)', () => {
+  it('finds none', () => {
+    const found: string[] = [];
+    for (const path of publicSources()) {
+      const rel = relative(APP_DIR, path);
+      const hits = handLabelRecipes(readFileSync(path, 'utf8'));
+      if (hits.length && !(rel in HAND_LABEL_ALLOWED)) {
+        found.push(...hits.map((h) => `${rel}: ${h}`));
+      }
+    }
+    expect(found).toEqual([]);
+  });
+
+  it('each allowed file still holds the label it is allowed for', () => {
+    for (const rel of Object.keys(HAND_LABEL_ALLOWED)) {
+      expect(handLabelRecipes(readFileSync(join(APP_DIR, rel), 'utf8')).length, rel).toBe(1);
+    }
+  });
+
+  it('flags a static label class and a literal labelClass, and passes the constants', () => {
+    expect(
+      handLabelRecipes(
+        [
+          `<label\n  for="x"\n  class="block text-t-14 font-semibold text-(--text-primary)"\n>A</label>`,
+          `<aec-search-autocomplete labelClass="mb-2 block text-sm font-semibold" />`,
+          `<label for="y" class="block text-t-13 font-semibold tracking-[0.01em]">B</label>`,
+          `<label for="z" [class]="labelClass">C</label>`,
+          `<aec-search-autocomplete [labelClass]="labelClass" />`,
+          `<label for="w" class="sr-only">D</label>`,
         ].join('\n'),
       ),
     ).toHaveLength(2);
