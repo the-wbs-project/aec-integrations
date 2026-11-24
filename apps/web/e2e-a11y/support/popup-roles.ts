@@ -3,8 +3,7 @@
  *
  * A screen reader announces `aria-haspopup="true"` as a menu button. If the
  * panel it opens is a list of links with no `menu` role, the user is promised
- * arrow-key menu navigation that is not there (WCAG 4.1.2). The checklist says
- * the same of the vendor Products disclosure: it "is not announced as a menu".
+ * arrow-key menu navigation that is not there (WCAG 4.1.2).
  *
  * Pure, so the plain Vitest runner pins it. `haspopupFacts` in `./probe.ts`
  * reads the inputs off the page.

@@ -79,7 +79,7 @@ export function attachConsoleCapture(page: Page): ConsoleCapture {
  */
 export async function waitForHydrationSettle(page: Page): Promise<void> {
   await page.waitForLoadState('load').catch(() => undefined);
-  // The app is stable once its boot fetches have landed (§14.3a). A page without
+  // The app is stable once its boot fetches have landed (§14.3 (a)). A page without
   // the site header, or one that never settles, falls through to the poll below.
   await untilAppStable(page, 10_000).catch(() => undefined);
   let stable = 0;

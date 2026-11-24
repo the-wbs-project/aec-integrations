@@ -201,7 +201,7 @@ const BUSY_POLL_MS = 300;
 /**
  * Let finite animations and transitions finish. A scan mid-fade reads a
  * part-transparent colour and reports a contrast failure no reader sees
- * (TESTING_STRATEGY §14.3a, AECI-1922). Infinite animations (spinners) are left alone.
+ * (TESTING_STRATEGY §14.3 (a), AECI-1922). Infinite animations (spinners) are left alone.
  */
 async function animationsSettled(page: Page): Promise<void> {
   await page
@@ -293,7 +293,7 @@ export async function sweepAfterTest(
     notScanned(testInfo, 'JavaScript is off, so axe cannot run in the page', url);
     return;
   }
-  // Gate on hydration (TESTING_STRATEGY §14.3a). Every app page has the site
+  // Gate on hydration (TESTING_STRATEGY §14.3 (a)). Every app page has the site
   // header, and its home link's `jsaction` goes when the app is stable.
   if ((await page.locator('aec-site-header a[href="/"]').count()) > 0) {
     await untilAppStable(page);

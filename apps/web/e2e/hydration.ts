@@ -12,7 +12,7 @@
  * in-app. A link clicked earlier still follows its `href` as a full load,
  * because the inline contract never calls `preventDefault`. The click is also
  * queued, and replays into the handler if the app becomes stable before the
- * page unloads (TESTING_STRATEGY §14.3a). An element with no listener never
+ * page unloads (TESTING_STRATEGY §14.3 (a)). An element with no listener never
  * carries the attribute, so the wait returns at once for it.
  */
 import { expect, type Locator, type Page } from '@playwright/test';
@@ -29,7 +29,7 @@ export async function untilHydrated(locator: Locator, timeout = 15_000): Promise
  * site header. The header's home link always carries a listener, so its
  * `jsaction` goes when `ApplicationRef.whenStable()` resolves. Stability also
  * waits for pending `HttpClient` requests, so the data the page fetches at boot
- * has landed by then (TESTING_STRATEGY §14.3a).
+ * has landed by then (TESTING_STRATEGY §14.3 (a)).
  */
 export async function untilAppStable(page: Page, timeout = 15_000): Promise<void> {
   await untilHydrated(page.locator('aec-site-header a[href="/"]').first(), timeout);
