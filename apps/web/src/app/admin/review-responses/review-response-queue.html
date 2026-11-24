@@ -240,7 +240,9 @@
                 <!-- Decisions, from the shared state machine -->
                 <div class="grid min-w-0 content-start gap-4">
                   @if (decisionsFor(r).length > 0) {
-                  <div class="flex flex-wrap items-center gap-3">
+                  <!-- AECI-2104: Reject and Remove are the shared danger form. Each opens
+                       under its opener. The help line describes Approve or Remove. -->
+                  <div class="flex flex-wrap items-start gap-3">
                     @if (canApprove(r)) {
                     <button
                       aecButton
@@ -255,28 +257,55 @@
                       }
                     </button>
                     } @if (canReject(r)) {
-                    <button
-                      aecButton
-                      variant="secondary"
-                      [id]="'reply-' + r.id + '-reject-open'"
-                      (click)="openForm(r.id, 'reject')"
-                      [disabled]="pendingActionId() === r.id || formOpenId() === r.id"
-                      i18n="@@admin.replies.reject"
-                    >
-                      Reject
-                    </button>
+                    <aec-admin-danger-action
+                      class="min-w-0 flex-1"
+                      [openerLabel]="copy.reject"
+                      [confirmLabel]="copy.rejectConfirm"
+                      [busyLabel]="copy.saving"
+                      [reasonLabel]="copy.rejectLabel"
+                      [reasonHelp]="copy.reasonHelp"
+                      [reasonRequired]="copy.missing"
+                      [maxLength]="reasonMax"
+                      [cancelLabel]="copy.cancel"
+                      [openerDisabled]="pendingActionId() === r.id && formOpenId() !== r.id"
+                      [busy]="pendingActionId() === r.id"
+                      [open]="formOpenId() === r.id && formMode() === 'reject'"
+                      (openChange)="onFormOpen(r.id, 'reject', $event)"
+                      (confirmed)="decide(r.id, 'reject', $event)"
+                    />
                     } @if (canRemove(r)) {
-                    <button
-                      aecButton
-                      variant="secondary"
-                      [id]="'reply-' + r.id + '-remove-open'"
-                      (click)="openForm(r.id, 'remove')"
-                      [disabled]="pendingActionId() === r.id || formOpenId() === r.id"
-                      [attr.aria-describedby]="'reply-' + r.id + '-help'"
-                      i18n="@@admin.replies.remove"
-                    >
-                      Remove from the page
-                    </button>
+                    <!-- Ruling 2026-10-02: removal stays final, so it takes a second,
+                         deliberate step. The body names the vendor, so it is a template. -->
+                    <ng-template #removeBody>
+                      <p i18n="@@admin.replies.removeConfirm.body">
+                        Removal is final. The reply comes off the product page, and {{ r.vendor.name
+                        }} can never reply to this review again. Nobody can undo it from this
+                        screen.
+                      </p>
+                    </ng-template>
+                    <aec-admin-danger-action
+                      class="min-w-0 flex-1"
+                      [openerLabel]="copy.remove"
+                      [confirmLabel]="copy.removeConfirm"
+                      [busyLabel]="copy.removing"
+                      [reasonLabel]="copy.removeLabel"
+                      [reasonHelp]="copy.reasonHelp"
+                      [reasonRequired]="copy.missing"
+                      [maxLength]="reasonMax"
+                      [confirmStep]="{
+                        continueLabel: copy.removeContinue,
+                        title: copy.removeTitle,
+                        body: removeBody,
+                        editLabel: copy.removeEdit
+                      }"
+                      [cancelLabel]="copy.cancel"
+                      [openerDescribedBy]="'reply-' + r.id + '-help'"
+                      [openerDisabled]="pendingActionId() === r.id && formOpenId() !== r.id"
+                      [busy]="pendingActionId() === r.id"
+                      [open]="formOpenId() === r.id && formMode() === 'remove'"
+                      (openChange)="onFormOpen(r.id, 'remove', $event)"
+                      (confirmed)="decide(r.id, 'remove', $event)"
+                    />
                     }
                   </div>
                   <p [id]="'reply-' + r.id + '-help'" [class]="helpClass">
@@ -292,155 +321,7 @@
                     >
                     }
                   </p>
-
-                  @if (formOpenId() === r.id && formMode(); as mode) {
-                  <form
-                    method="dialog"
-                    novalidate
-                    (aecSubmit)="confirmReasoned(r.id, mode)"
-                    (keydown.escape)="dismissForm(r.id)"
-                    [class]="formClass"
-                  >
-                    <label [attr.for]="'reply-reason-' + r.id" [class]="labelClass">
-                      @if (mode === 'reject') {
-                      <span i18n="@@admin.replies.reason.label.reject"
-                        >Why you are rejecting it (required)</span
-                      >
-                      } @else {
-                      <span i18n="@@admin.replies.reason.label.remove"
-                        >Why you are removing it (required)</span
-                      >
-                      }
-                    </label>
-                    <p
-                      [id]="'reply-reason-' + r.id + '-help'"
-                      [class]="hintClass"
-                      i18n="@@admin.replies.reason.help"
-                    >
-                      Shown to the vendor in its portal. Name the guideline the reply breaks, so the
-                      vendor knows what to change.
-                    </p>
-                    <textarea
-                      [id]="'reply-reason-' + r.id"
-                      rows="3"
-                      [attr.maxlength]="reasonMax"
-                      required
-                      [attr.aria-invalid]="reasonMissing() ? 'true' : null"
-                      [attr.aria-describedby]="'reply-reason-' + r.id + '-help' + (reasonMissing() ? ' reply-reason-' + r.id + '-error' : '')"
-                      [value]="formText()"
-                      [readOnly]="removeConfirming()"
-                      (input)="onFormInput($event)"
-                      [class]="inputClass"
-                      class="min-h-24 resize-y py-3 read-only:bg-(--surface-sunken)"
-                    ></textarea>
-                    @if (reasonMissing()) {
-                    <p
-                      [id]="'reply-reason-' + r.id + '-error'"
-                      role="alert"
-                      [class]="errorClass"
-                      i18n="@@admin.replies.reason.missing"
-                    >
-                      Write a reason before you confirm.
-                    </p>
-                    } @if (mode === 'remove' && removeConfirming()) {
-                    <!--
-                      Ruling 2026-10-02: removal stays final, so it takes a second, deliberate
-                      step. Focus lands on this group, which is named and described by its own
-                      text, so the warning is heard before any button.
-                    -->
-                    <div
-                      [id]="'reply-remove-confirm-' + r.id"
-                      role="group"
-                      tabindex="-1"
-                      [attr.aria-labelledby]="'reply-remove-confirm-' + r.id + '-title'"
-                      [attr.aria-describedby]="'reply-remove-confirm-' + r.id + '-body'"
-                      [class]="noticeClass"
-                      class="mt-2 focus-visible:outline-3 focus-visible:outline-offset-3"
-                      data-testid="remove-confirm"
-                    >
-                      <p
-                        [id]="'reply-remove-confirm-' + r.id + '-title'"
-                        class="font-semibold"
-                        i18n="@@admin.replies.removeConfirm.title"
-                      >
-                        Remove this reply permanently?
-                      </p>
-                      <p
-                        [id]="'reply-remove-confirm-' + r.id + '-body'"
-                        class="mt-2 max-w-prose"
-                        i18n="@@admin.replies.removeConfirm.body"
-                      >
-                        Removal is final. The reply comes off the product page, and {{ r.vendor.name
-                        }} can never reply to this review again. Nobody can undo it from this
-                        screen.
-                      </p>
-                      <div class="mt-4 flex flex-wrap gap-3">
-                        <button
-                          aecButton
-                          variant="danger"
-                          compact
-                          type="submit"
-                          [disabled]="pendingActionId() === r.id"
-                        >
-                          @if (pendingActionId() === r.id) {
-                          <span i18n="@@admin.replies.removing">Removing…</span>
-                          } @else {
-                          <span i18n="@@admin.replies.removeConfirm.confirm"
-                            >Remove permanently</span
-                          >
-                          }
-                        </button>
-                        <button
-                          aecButton
-                          variant="secondary"
-                          compact
-                          (click)="editRemoveReason(r.id)"
-                          [disabled]="pendingActionId() === r.id"
-                          i18n="@@admin.replies.removeConfirm.edit"
-                        >
-                          Edit the reason
-                        </button>
-                        <button
-                          aecButton
-                          variant="ghost"
-                          (click)="dismissForm(r.id)"
-                          [disabled]="pendingActionId() === r.id"
-                          i18n="@@admin.replies.cancel"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                    } @else {
-                    <div class="mt-2 flex flex-wrap gap-3">
-                      <button
-                        aecButton
-                        [variant]="mode === 'reject' ? 'danger' : 'secondary'"
-                        compact
-                        type="submit"
-                        [disabled]="pendingActionId() === r.id"
-                      >
-                        @if (pendingActionId() === r.id) {
-                        <span i18n="@@admin.replies.saving">Saving…</span>
-                        } @else if (mode === 'reject') {
-                        <span i18n="@@admin.replies.reject.confirm">Confirm rejection</span>
-                        } @else {
-                        <span i18n="@@admin.replies.remove.continue">Continue to removal</span>
-                        }
-                      </button>
-                      <button
-                        aecButton
-                        variant="ghost"
-                        (click)="dismissForm(r.id)"
-                        [disabled]="pendingActionId() === r.id"
-                        i18n="@@admin.replies.cancel"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                    }
-                  </form>
-                  } } @if (failedActionId() === r.id) {
+                  }@if (failedActionId() === r.id) {
                   <p
                     [id]="'reply-' + r.id + '-failed'"
                     tabindex="-1"

@@ -327,7 +327,9 @@
                 <!-- The decision, from the shared state machine (reviewDecisionsFor) -->
                 <div class="grid min-w-0 content-start gap-4">
                   @if (decisionsFor(r).length > 0) {
-                  <div class="flex flex-wrap items-center gap-3">
+                  <!-- AECI-2104: Reject and Remove are the shared danger form. Each opens
+                       under its opener. The help line describes Remove's opener. -->
+                  <div class="flex flex-wrap items-start gap-3">
                     @if (canApprove(r)) {
                     <button
                       aecButton
@@ -341,28 +343,42 @@
                       }
                     </button>
                     } @if (canReject(r)) {
-                    <button
-                      aecButton
-                      variant="secondary"
-                      [id]="'review-' + r.id + '-reject-open'"
-                      (click)="openReject(r.id)"
-                      [disabled]="pendingActionId() === r.id || rejectingId() === r.id"
-                      i18n="@@admin.reviews.reject"
-                    >
-                      Reject
-                    </button>
+                    <aec-admin-danger-action
+                      class="min-w-0 flex-1"
+                      [openerLabel]="rejectCopy.opener"
+                      [confirmLabel]="rejectCopy.confirm"
+                      [busyLabel]="rejectCopy.busy"
+                      [reasonLabel]="rejectCopy.label"
+                      [reasonRequired]="rejectCopy.error"
+                      [maxLength]="reasonMax"
+                      [lengthMessage]="rejectCopy.error"
+                      [cancelLabel]="rejectCopy.cancel"
+                      [openerDisabled]="pendingActionId() === r.id && rejectingId() !== r.id"
+                      [busy]="pendingActionId() === r.id"
+                      [open]="rejectingId() === r.id"
+                      (openChange)="onRejectOpen(r.id, $event)"
+                      (confirmed)="confirmReject(r.id, $event)"
+                    />
                     } @if (canRemove(r)) {
-                    <button
-                      aecButton
-                      variant="secondary"
-                      [id]="'review-' + r.id + '-remove-open'"
-                      (click)="openRemove(r.id)"
-                      [disabled]="pendingActionId() === r.id || removingId() === r.id"
-                      [attr.aria-describedby]="'review-' + r.id + '-remove-help'"
-                      i18n="@@admin.reviews.remove"
-                    >
-                      Remove from the page
-                    </button>
+                    <aec-admin-danger-action
+                      class="min-w-0 flex-1"
+                      data-testid="remove-form"
+                      [openerLabel]="removeCopy.opener"
+                      [confirmLabel]="removeCopy.confirm"
+                      [busyLabel]="removeCopy.busy"
+                      [reasonLabel]="removeCopy.label"
+                      [reasonHelp]="removeCopy.help"
+                      [reasonRequired]="removeCopy.missing"
+                      [maxLength]="reasonMax"
+                      [confirmStep]="removeStep"
+                      [cancelLabel]="removeCopy.cancel"
+                      [openerDescribedBy]="'review-' + r.id + '-remove-help'"
+                      [openerDisabled]="pendingActionId() === r.id && removingId() !== r.id"
+                      [busy]="pendingActionId() === r.id"
+                      [open]="removingId() === r.id"
+                      (openChange)="onRemoveOpen(r.id, $event)"
+                      (confirmed)="confirmRemove(r.id, $event)"
+                    />
                     }
                   </div>
                   @if (canRemove(r)) {
@@ -375,224 +391,7 @@
                     averages. It is final. No email is sent. The reviewer sees your reason on their
                     account page.
                   </p>
-                  } }
-
-                  <!-- AECI-1643: remove form (required reason, then a deliberate confirm) -->
-                  @if (removingId() === r.id) {
-                  <form
-                    method="dialog"
-                    novalidate
-                    (aecSubmit)="confirmRemove(r.id)"
-                    (keydown.escape)="dismissRemove(r.id)"
-                    [class]="formClass"
-                    data-testid="remove-form"
-                  >
-                    <label
-                      [attr.for]="'remove-reason-' + r.id"
-                      [class]="labelClass"
-                      i18n="@@admin.reviews.remove.label"
-                    >
-                      Why you are removing it (required)
-                    </label>
-                    <p
-                      [id]="'remove-reason-' + r.id + '-help'"
-                      [class]="hintClass"
-                      i18n="@@admin.reviews.remove.reasonHelp"
-                    >
-                      Shown to the reviewer on their account page. Name the guideline the review
-                      breaks.
-                    </p>
-                    <textarea
-                      [id]="'remove-reason-' + r.id"
-                      rows="3"
-                      [attr.maxlength]="reasonMax"
-                      required
-                      [attr.aria-invalid]="removeReasonMissing() ? 'true' : null"
-                      [attr.aria-describedby]="'remove-reason-' + r.id + '-help' + (removeReasonMissing() ? ' remove-reason-' + r.id + '-error' : '')"
-                      [value]="removeText()"
-                      [readOnly]="removeConfirming()"
-                      (input)="onRemoveInput($event)"
-                      [class]="inputClass"
-                      class="min-h-24 resize-y py-3 read-only:bg-(--surface-sunken)"
-                    ></textarea>
-                    @if (removeReasonMissing()) {
-                    <p
-                      [id]="'remove-reason-' + r.id + '-error'"
-                      role="alert"
-                      [class]="errorClass"
-                      i18n="@@admin.reviews.remove.missing"
-                    >
-                      Write a reason before you confirm.
-                    </p>
-                    } @if (removeConfirming()) {
-                    <!--
-                      Removal is final, so it takes a second, deliberate step. Focus lands on
-                      this group, which is named and described by its own text, so the warning
-                      is heard before any button.
-                    -->
-                    <div
-                      [id]="'remove-confirm-' + r.id"
-                      role="group"
-                      tabindex="-1"
-                      [attr.aria-labelledby]="'remove-confirm-' + r.id + '-title'"
-                      [attr.aria-describedby]="'remove-confirm-' + r.id + '-body'"
-                      [class]="noticeClass"
-                      class="mt-2 focus-visible:outline-3 focus-visible:outline-offset-3"
-                      data-testid="remove-confirm"
-                    >
-                      <p
-                        [id]="'remove-confirm-' + r.id + '-title'"
-                        class="font-semibold"
-                        i18n="@@admin.reviews.removeConfirm.title"
-                      >
-                        Remove this review permanently?
-                      </p>
-                      <p
-                        [id]="'remove-confirm-' + r.id + '-body'"
-                        class="mt-2 max-w-prose"
-                        i18n="@@admin.reviews.removeConfirm.body"
-                      >
-                        Removal is final. The review comes off the product page with its vendor
-                        replies and updates, and its ratings stop counting in the product's
-                        averages. The reviewer cannot post a new review of this product. Nobody can
-                        undo it from this screen.
-                      </p>
-                      <div class="mt-4 flex flex-wrap gap-3">
-                        <button
-                          aecButton
-                          variant="danger"
-                          compact
-                          type="submit"
-                          [disabled]="pendingActionId() === r.id"
-                        >
-                          @if (pendingActionId() === r.id) {
-                          <span i18n="@@admin.reviews.removing">Removing…</span>
-                          } @else {
-                          <span i18n="@@admin.reviews.removeConfirm.confirm"
-                            >Remove permanently</span
-                          >
-                          }
-                        </button>
-                        <button
-                          aecButton
-                          variant="secondary"
-                          compact
-                          (click)="editRemoveReason(r.id)"
-                          [disabled]="pendingActionId() === r.id"
-                          i18n="@@admin.reviews.removeConfirm.edit"
-                        >
-                          Edit the reason
-                        </button>
-                        <button
-                          aecButton
-                          variant="ghost"
-                          (click)="dismissRemove(r.id)"
-                          [disabled]="pendingActionId() === r.id"
-                          i18n="@@admin.reviews.remove.cancel"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                    } @else {
-                    <div class="mt-2 flex flex-wrap gap-3">
-                      <button
-                        aecButton
-                        variant="secondary"
-                        compact
-                        type="submit"
-                        [disabled]="pendingActionId() === r.id"
-                        i18n="@@admin.reviews.remove.continue"
-                      >
-                        Continue to removal
-                      </button>
-                      <button
-                        aecButton
-                        variant="ghost"
-                        (click)="dismissRemove(r.id)"
-                        [disabled]="pendingActionId() === r.id"
-                        i18n="@@admin.reviews.remove.cancel"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                    }
-                  </form>
-                  }
-
-                  <!-- Reject form (required reason) -->
-                  @if (rejectingId() === r.id) {
-                  <form
-                    method="dialog"
-                    novalidate
-                    (aecSubmit)="confirmReject(r.id)"
-                    (keydown.escape)="dismissReject(r.id)"
-                    [class]="formClass"
-                  >
-                    <label
-                      [attr.for]="'reject-reason-' + r.id"
-                      [class]="labelClass"
-                      i18n="@@admin.reviews.reject.label"
-                    >
-                      Reason for rejection
-                    </label>
-                    <textarea
-                      [id]="'reject-reason-' + r.id"
-                      rows="3"
-                      [formField]="rejectForm.rejection_reason"
-                      [attr.aria-invalid]="
-                        rejectForm.rejection_reason().touched() &&
-                        rejectForm.rejection_reason().invalid()
-                          ? 'true'
-                          : null
-                      "
-                      [attr.aria-describedby]="
-                        rejectForm.rejection_reason().touched() &&
-                        rejectForm.rejection_reason().getError('standardSchema')
-                          ? 'reject-reason-' + r.id + '-error'
-                          : null
-                      "
-                      [class]="inputClass"
-                      class="min-h-24 resize-y py-3"
-                    ></textarea>
-                    @if ( rejectForm.rejection_reason().touched() &&
-                    rejectForm.rejection_reason().getError('standardSchema') ) {
-                    <p
-                      [id]="'reject-reason-' + r.id + '-error'"
-                      [class]="errorClass"
-                      role="alert"
-                      i18n="@@admin.reviews.reject.error"
-                    >
-                      Enter a reason between 1 and 500 characters so the reviewer understands the
-                      decision.
-                    </p>
-                    }
-                    <div class="mt-2 flex flex-wrap gap-3">
-                      <button
-                        aecButton
-                        variant="danger"
-                        compact
-                        type="submit"
-                        [disabled]="pendingActionId() === r.id"
-                      >
-                        @if (pendingActionId() === r.id) {
-                        <span i18n="@@admin.reviews.rejecting">Rejecting…</span>
-                        } @else {
-                        <span i18n="@@admin.reviews.reject.confirm">Confirm rejection</span>
-                        }
-                      </button>
-                      <button
-                        aecButton
-                        variant="ghost"
-                        (click)="dismissReject(r.id)"
-                        [disabled]="pendingActionId() === r.id"
-                        i18n="@@admin.reviews.reject.cancel"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </form>
-                  } @if (failedAction()?.id === r.id) {
+                  } } @if (failedAction()?.id === r.id) {
                   <p
                     [id]="'review-' + r.id + '-failed'"
                     tabindex="-1"
