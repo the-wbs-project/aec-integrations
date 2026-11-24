@@ -275,33 +275,43 @@ test('voice blocks merge across shards: rows concatenate by surface, and none is
   assert.doesNotMatch(summaryMarkdown(mergeSummaries([part(summary())])), /Voice control/);
 });
 
-const ibmRow = (ruleId, nodes, alsoAxe, surfaces, over = {}) => ({
+// `failed` nodes axe failed, `review` nodes axe only marked for review.
+const ibmRow = (ruleId, nodes, failed, review, surfaces, over = {}) => ({
   ruleId,
   message: `${ruleId} message`,
   wcag: ['1.3.1'],
   nodes,
-  alsoAxe,
-  axeRules: alsoAxe > 0 ? ['region'] : [],
+  alsoAxe: failed + review,
+  alsoFailedInAxe: failed,
+  axeReviewOnly: review,
+  axeRules: [...(failed > 0 ? ['region'] : []), ...(review > 0 ? ['region (review)'] : [])],
   surfaces,
   examples: surfaces.map((surfaceId) => ({ surfaceId, xpath: '/html[1]/body[1]' })),
   ...over,
 });
 
+const LISTS = {
+  violation: 'violations',
+  needsReview: 'needsReview',
+  recommendation: 'recommendations',
+};
+
+/** A block whose counts are the sums of its rule rows, as `summarizeIbm` writes them. */
 const ibmBlock = (bySurface, lists) => {
-  const total = (k) => bySurface.reduce((n, s) => n + s[k], 0);
+  const per = (field) =>
+    Object.fromEntries(
+      Object.entries(LISTS).map(([k, list]) => [
+        k,
+        (lists[list] ?? []).reduce((n, r) => n + r[field], 0),
+      ]),
+    );
   return {
     engine: { version: '4.0.35', ruleset: 'IBM_Accessibility' },
     surfaces: bySurface.length,
-    counts: {
-      violation: total('violation'),
-      needsReview: total('needsReview'),
-      recommendation: total('recommendation'),
-    },
-    alsoAxe: {
-      violation: total('violation') - total('uniqueViolations'),
-      needsReview: 0,
-      recommendation: 0,
-    },
+    counts: per('nodes'),
+    alsoAxe: per('alsoAxe'),
+    alsoFailedInAxe: per('alsoFailedInAxe'),
+    axeReviewOnly: per('axeReviewOnly'),
     violations: lists.violations ?? [],
     needsReview: lists.needsReview ?? [],
     recommendations: lists.recommendations ?? [],
@@ -309,23 +319,29 @@ const ibmBlock = (bySurface, lists) => {
   };
 };
 
-const ibmSurface = (surfaceId, violation, uniqueViolations, needsReview = 0) => ({
+const ibmSurface = (surfaceId, violation, notInAxe, reviewOnly, needsReview = 0) => ({
   surfaceId,
   route: `/${surfaceId}`,
   violation,
   needsReview,
   recommendation: 0,
-  uniqueViolations,
+  uniqueViolations: notInAxe,
+  violationsAxeReviewOnly: reviewOnly,
+  violationsNotFailedInAxe: notInAxe + reviewOnly,
   scanMs: 100,
   axeMs: 200,
 });
+
+const ZERO = { violation: 0, needsReview: 0, recommendation: 0 };
 
 test('ibm blocks merge across shards: rules merge by id, surfaces concatenate, none is an empty block (AECI-1884)', () => {
   assert.deepEqual(mergeIbm([null, undefined]), {
     engine: null,
     surfaces: 0,
-    counts: { violation: 0, needsReview: 0, recommendation: 0 },
-    alsoAxe: { violation: 0, needsReview: 0, recommendation: 0 },
+    counts: ZERO,
+    alsoAxe: ZERO,
+    alsoFailedInAxe: ZERO,
+    axeReviewOnly: ZERO,
     violations: [],
     needsReview: [],
     recommendations: [],
@@ -334,19 +350,19 @@ test('ibm blocks merge across shards: rules merge by id, surfaces concatenate, n
   const m = mergeSummaries([
     part(
       summary({
-        ibm: ibmBlock([ibmSurface('login', 2, 1, 4)], {
-          violations: [ibmRow('aria_content_in_landmark', 2, 1, ['login'])],
-          needsReview: [ibmRow('text_contrast_sufficient', 4, 0, ['login'])],
+        ibm: ibmBlock([ibmSurface('login', 2, 1, 0, 4)], {
+          violations: [ibmRow('aria_content_in_landmark', 2, 1, 0, ['login'])],
+          needsReview: [ibmRow('text_contrast_sufficient', 4, 0, 1, ['login'])],
         }),
       }),
     ),
     part(summary()),
     part(
       summary({
-        ibm: ibmBlock([ibmSurface('home', 3, 3), ibmSurface('account', 1, 1)], {
+        ibm: ibmBlock([ibmSurface('home', 3, 2, 1), ibmSurface('account', 1, 0, 1)], {
           violations: [
-            ibmRow('aria_content_in_landmark', 1, 0, ['account'], { wcag: ['1.3.1', '2.4.1'] }),
-            ibmRow('input_label_visible', 3, 0, ['home']),
+            ibmRow('aria_content_in_landmark', 1, 0, 1, ['account'], { wcag: ['1.3.1', '2.4.1'] }),
+            ibmRow('input_label_visible', 3, 0, 1, ['home']),
           ],
         }),
       }),
@@ -354,33 +370,56 @@ test('ibm blocks merge across shards: rules merge by id, surfaces concatenate, n
   ]);
   assert.equal(m.schemaVersion, 1);
   assert.deepEqual(
-    m.ibm.bySurface.map((s) => s.surfaceId),
-    ['account', 'home', 'login'],
+    m.ibm.bySurface.map((s) => [s.surfaceId, s.uniqueViolations, s.violationsAxeReviewOnly]),
+    [
+      ['account', 0, 1],
+      ['home', 2, 1],
+      ['login', 1, 0],
+    ],
   );
   assert.equal(m.ibm.surfaces, 3);
   assert.deepEqual(m.ibm.counts, { violation: 6, needsReview: 4, recommendation: 0 });
-  assert.deepEqual(m.ibm.alsoAxe, { violation: 1, needsReview: 0, recommendation: 0 });
-  // Most nodes first: 3 + 0 for input_label_visible, 2 + 1 for the landmark rule, then by id.
+  // `alsoAxe` keeps its meaning: failed or marked for review. The split sits beside it.
+  assert.deepEqual(m.ibm.alsoAxe, { violation: 3, needsReview: 1, recommendation: 0 });
+  assert.deepEqual(m.ibm.alsoFailedInAxe, { violation: 1, needsReview: 0, recommendation: 0 });
+  assert.deepEqual(m.ibm.axeReviewOnly, { violation: 2, needsReview: 1, recommendation: 0 });
   assert.deepEqual(
-    m.ibm.violations.map((r) => [r.ruleId, r.nodes, r.alsoAxe, r.surfaces, r.wcag]),
+    m.ibm.violations.map((r) => [
+      r.ruleId,
+      r.nodes,
+      r.alsoAxe,
+      r.alsoFailedInAxe,
+      r.axeReviewOnly,
+      r.surfaces,
+      r.wcag,
+    ]),
     [
-      ['aria_content_in_landmark', 3, 1, ['account', 'login'], ['1.3.1', '2.4.1']],
-      ['input_label_visible', 3, 0, ['home'], ['1.3.1']],
+      ['aria_content_in_landmark', 3, 2, 1, 1, ['account', 'login'], ['1.3.1', '2.4.1']],
+      ['input_label_visible', 3, 1, 0, 1, ['home'], ['1.3.1']],
     ],
   );
   assert.equal(m.ibm.engine.version, '4.0.35');
 
   const md = summaryMarkdown(m);
   assert.match(md, /### IBM Equal Access, report only \(AECI-1884\)/);
-  assert.match(md, /Violations: 6 nodes, 5 not reported by axe on the same element\./);
   assert.match(
     md,
-    /\| `aria_content_in_landmark` \| 1\.3\.1, 2\.4\.1 \| 3 \| 1 \| `region` \| `account`, `login` \|/,
+    /Violations: 6 nodes\. axe also failed 1\. axe only marked 2 for review\. 3 are not in axe at all\./,
   );
-  // The other two lists are collapsed, after the violations table.
+  // The unique list keeps the review-only nodes, labelled, most first.
+  assert.match(md, /#### Unique to IBM: 5 nodes axe did not fail/);
   assert.match(
     md,
-    /<details>\n<summary>Needs review: 4 nodes \(0 also in axe\)\. Recommendations: 0 nodes \(0 also in axe\)\.<\/summary>/,
+    /\| `input_label_visible` \| 1\.3\.1 \| 3 \| 1 \| 2 \| `home` \|\n\| `aria_content_in_landmark` \| 1\.3\.1, 2\.4\.1 \| 2 \| 1 \| 1 \| `account`, `login` \|/,
+  );
+  assert.match(
+    md,
+    /\| `aria_content_in_landmark` \| 1\.3\.1, 2\.4\.1 \| 3 \| 1 \| 1 \| `region`, `region \(review\)` \| `account`, `login` \|/,
+  );
+  // The other two lists are collapsed, after the violations tables.
+  assert.match(
+    md,
+    /<details>\n<summary>Needs review: 4 nodes \(0 failed in axe, 1 axe review only\)\. Recommendations: 0 nodes \(0 failed in axe, 0 axe review only\)\.<\/summary>/,
   );
   assert.ok(md.indexOf('`input_label_visible`') < md.indexOf('<details>'));
   assert.ok(md.indexOf('`text_contrast_sufficient`') > md.indexOf('<details>'));

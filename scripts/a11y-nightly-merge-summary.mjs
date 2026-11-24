@@ -17,8 +17,9 @@
  * step. The `voice` block (AECI-1883) matches `summarizeVoice()` in
  * `apps/web/e2e-a11y/support/voice-summary.ts`, and the job summary gets its effort table and
  * target size report. The `ibm` block (AECI-1884) matches `summarizeIbm()` in
- * `apps/web/e2e-a11y/support/ibm-overlap.ts`, and the job summary gets its violations table, with
- * the "needs review" and recommendation lists collapsed. No dependencies, so the job needs no
+ * `apps/web/e2e-a11y/support/ibm-overlap.ts`, and the job summary gets its unique violations (axe
+ * did not fail them, review-only ones labelled), every violation, and the "needs review" and
+ * recommendation lists collapsed. No dependencies, so the job needs no
  * `pnpm install`.
  *
  * Exit codes: 0 merged, 2 a flag is wrong or no part was given.
@@ -164,6 +165,8 @@ export function mergeIbmRows(lists) {
       wcag: [...new Set([...prev.wcag, ...(row.wcag ?? [])])].sort(byText),
       nodes: prev.nodes + (Number(row.nodes) || 0),
       alsoAxe: prev.alsoAxe + (Number(row.alsoAxe) || 0),
+      alsoFailedInAxe: (prev.alsoFailedInAxe ?? 0) + (Number(row.alsoFailedInAxe) || 0),
+      axeReviewOnly: (prev.axeReviewOnly ?? 0) + (Number(row.axeReviewOnly) || 0),
       axeRules: [...new Set([...prev.axeRules, ...(row.axeRules ?? [])])].sort(byText),
       surfaces: [...new Set([...prev.surfaces, ...(row.surfaces ?? [])])].sort(byText),
       examples: [...prev.examples, ...(row.examples ?? [])].slice(0, IBM_EXAMPLES_KEPT),
@@ -190,6 +193,8 @@ export function mergeIbm(blocks) {
     surfaces: bySurface.length,
     counts: sum('counts'),
     alsoAxe: sum('alsoAxe'),
+    alsoFailedInAxe: sum('alsoFailedInAxe'),
+    axeReviewOnly: sum('axeReviewOnly'),
     ...Object.fromEntries(
       IBM_BUCKETS.map((k) => [
         IBM_LISTS[k],
@@ -298,13 +303,15 @@ function ibmRuleTable(rows) {
   if (rows.length === 0) return ['None.'];
   const shown = rows.slice(0, MARKDOWN_ROWS);
   const lines = [
-    '| Rule | WCAG | Nodes | Also in axe | axe rules | Surfaces |',
-    '|---|---|---|---|---|---|',
+    '| Rule | WCAG | Nodes | Failed in axe | axe review only | axe rules | Surfaces |',
+    '|---|---|---|---|---|---|---|',
     ...shown.map(
       (r) =>
-        `| \`${cell(r.ruleId)}\` | ${cell(r.wcag.join(', ') || '-')} | ${r.nodes} | ${r.alsoAxe} | ${cell(
-          r.axeRules.map((a) => `\`${a}\``).join(', ') || '-',
-        )} | ${cell(r.surfaces.map((x) => `\`${x}\``).join(', '))} |`,
+        `| \`${cell(r.ruleId)}\` | ${cell(r.wcag.join(', ') || '-')} | ${r.nodes} | ${
+          r.alsoFailedInAxe ?? 0
+        } | ${r.axeReviewOnly ?? 0} | ${cell(r.axeRules.map((a) => `\`${a}\``).join(', ') || '-')} | ${cell(
+          r.surfaces.map((x) => `\`${x}\``).join(', '),
+        )} |`,
     ),
   ];
   if (rows.length > shown.length) {
@@ -313,26 +320,62 @@ function ibmRuleTable(rows) {
   return lines;
 }
 
+/**
+ * The unique violations: nodes axe did not fail. A node axe only marked for
+ * review stays here, counted in its own column.
+ */
+function ibmUniqueTable(rows) {
+  const unique = rows
+    .map((r) => ({ ...r, notFailed: r.nodes - (r.alsoFailedInAxe ?? 0) }))
+    .filter((r) => r.notFailed > 0)
+    .sort((a, b) => b.notFailed - a.notFailed || byText(a.ruleId, b.ruleId));
+  if (unique.length === 0) return ['None.'];
+  const shown = unique.slice(0, MARKDOWN_ROWS);
+  const lines = [
+    '| Rule | WCAG | Not failed in axe | Of them, axe review only | Not in axe at all | Surfaces |',
+    '|---|---|---|---|---|---|',
+    ...shown.map(
+      (r) =>
+        `| \`${cell(r.ruleId)}\` | ${cell(r.wcag.join(', ') || '-')} | ${r.notFailed} | ${
+          r.axeReviewOnly ?? 0
+        } | ${r.notFailed - (r.axeReviewOnly ?? 0)} | ${cell(r.surfaces.map((x) => `\`${x}\``).join(', '))} |`,
+    ),
+  ];
+  if (unique.length > shown.length) {
+    lines.push('', `${unique.length - shown.length} more rules. The summary artifact has them.`);
+  }
+  return lines;
+}
+
 /** The IBM Equal Access section of the job summary (AECI-1884). Empty when no part ran it. */
 function ibmMarkdown(ibm) {
   if (!ibm || ibm.surfaces === 0) return [];
   const c = ibm.counts;
-  const a = ibm.alsoAxe;
+  const failed = ibm.alsoFailedInAxe ?? { violation: 0, needsReview: 0, recommendation: 0 };
+  const review = ibm.axeReviewOnly ?? { violation: 0, needsReview: 0, recommendation: 0 };
   const engine = ibm.engine
     ? ` \`accessibility-checker-engine\` ${ibm.engine.version}, ruleset \`${ibm.engine.ruleset}\`.`
     : '';
+  const notFailed = c.violation - failed.violation;
   return [
     '',
     '### IBM Equal Access, report only (AECI-1884)',
     '',
     `A second rule engine on ${ibm.surfaces} surfaces.${engine} These never fail the run. axe is the gate.`,
     '',
-    `Violations: ${c.violation} nodes, ${c.violation - a.violation} not reported by axe on the same element.`,
+    `Violations: ${c.violation} nodes. axe also failed ${failed.violation}. ` +
+      `axe only marked ${review.violation} for review. ${notFailed - review.violation} are not in axe at all.`,
+    '',
+    `#### Unique to IBM: ${notFailed} nodes axe did not fail`,
+    '',
+    ...ibmUniqueTable(ibm.violations),
+    '',
+    '#### Every violation',
     '',
     ...ibmRuleTable(ibm.violations),
     '',
     '<details>',
-    `<summary>Needs review: ${c.needsReview} nodes (${a.needsReview} also in axe). Recommendations: ${c.recommendation} nodes (${a.recommendation} also in axe).</summary>`,
+    `<summary>Needs review: ${c.needsReview} nodes (${failed.needsReview} failed in axe, ${review.needsReview} axe review only). Recommendations: ${c.recommendation} nodes (${failed.recommendation} failed in axe, ${review.recommendation} axe review only).</summary>`,
     '',
     '#### Needs review',
     '',

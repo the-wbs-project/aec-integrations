@@ -13,10 +13,10 @@
  * metrics to `able.ibm.com`. Its `postinstall` runs IBM's telemetry collector.
  * `docs/TESTING_STRATEGY.md` §8.4.9 has the full vetting.
  *
- * THE GUARD. `watchRequests` records every request the page starts while the
- * engine runs. `ace.js` has no network code, so the list should be empty. The
- * spec fails on any request to another host, because page data could then
- * leave the runner.
+ * THE GUARD. `watchRequests` records every request and WebSocket from the
+ * moment before the engine is injected until both engines have finished.
+ * `ace.js` has no network code, so nothing should go to another host. The spec
+ * fails on any that does, because page data could then leave the runner.
  *
  * Results under `EXCLUDED_DOM` (from the axe sweep) are dropped from both
  * engines, so neither judges DOM that is not ours.
@@ -24,7 +24,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
-import type { Page, Request } from '@playwright/test';
+import type { BrowserContext, Page, Request, WebSocket } from '@playwright/test';
 import { GATE_TAGS, REPORT_TAGS } from '../../e2e/axe-summary';
 import { EXCLUDED_DOM } from '../../e2e/axe-sweep';
 import { levelOf, wcagFromAxeTags, type AxeNode, type IbmFinding } from './ibm-overlap';
@@ -71,14 +71,28 @@ export async function injectEngines(page: Page): Promise<void> {
   await page.evaluate(injectedScript());
 }
 
-/** Record the URL of every request the page starts until `stop()`. */
-export function watchRequests(page: Page): { stop: () => string[] } {
+/**
+ * Record the URL of every request the browser context reports, and of every
+ * WebSocket the page opens, until `stop()`.
+ *
+ * `context.on('request')` covers every page and frame in the context, and the
+ * workers Chromium reports there. A WebSocket never fires `request`, so
+ * `page.on('websocket')` covers those. Not covered: requests made by the Node
+ * test process, and traffic Chromium never reports to Playwright (DNS
+ * prefetch, WebRTC). The one-off proof in `docs/TESTING_STRATEGY.md` §8.4.9
+ * covered the Node process. Nothing covers the other two, but `ace.js` has no
+ * WebRTC code and creates no `link`, `script`, `img` or `iframe` element.
+ */
+export function watchRequests(context: BrowserContext, page: Page): { stop: () => string[] } {
   const seen: string[] = [];
   const onRequest = (req: Request) => seen.push(req.url());
-  page.on('request', onRequest);
+  const onSocket = (ws: WebSocket) => seen.push(ws.url());
+  context.on('request', onRequest);
+  page.on('websocket', onSocket);
   return {
     stop: () => {
-      page.off('request', onRequest);
+      context.off('request', onRequest);
+      page.off('websocket', onSocket);
       return seen;
     },
   };

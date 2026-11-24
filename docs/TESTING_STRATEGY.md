@@ -934,7 +934,7 @@ will read it for the dated record.
 | `tests[]` | `title`, `surfaceId`, `route`, `file`, `outcome`, `knownFailure` (the issue ID or `null`), and `axe` (the sweep's verdict or `null`) |
 | `axe` | The e2e axe sweep's results. Always an object: zero counts and empty lists for a run with no sweep. See §8.4.2 |
 | `voice` | The voice-control checks' effort counts and target size report. Always an object: empty lists for a run with no voice-control test. See §8.4.8 |
-| `ibm` | IBM Equal Access findings, report only: violations, needs review and recommendations, each marked when axe also reported it. Always an object: zero counts and empty lists for a run with no IBM test. See §8.4.9 |
+| `ibm` | IBM Equal Access findings, report only: violations, needs review and recommendations. Each is marked by how axe saw the same element: failed it, only marked it for review, or said nothing. Only an axe failure takes a finding off the unique list. Always an object: zero counts and empty lists for a run with no IBM test. See §8.4.9 |
 
 **Adding a check.** Write a new spec in `e2e-a11y/` that loops over `SURFACES`. Add the
 `surface` and `route` annotations to each test, as `surfaces.spec.ts` does, so the summary can name the
@@ -1741,15 +1741,30 @@ logging proxy (every non-loopback request) and a Node preload that logged every 
 - Nothing went to jsDelivr, unpkg, `ibm.com` or `mybluemix.net`.
 - A deliberate visit to `example.com` through the same proxy was logged, so the logger works.
 
-The spec keeps a narrower guard on every run. It records every request the page starts while the IBM
-engine runs, and fails on any HTTP or socket request to another origin. `data:` and `blob:` URLs stay
-in the page, so they do not count.
+The spec keeps a narrower guard on every run. The window opens before the engine is injected and
+closes after both axe and IBM have run. In that window it records:
+
+- every request the browser context reports (`context.on('request')`): the page, its frames, and the
+  workers Chromium reports there;
+- every WebSocket the page opens (`page.on('websocket')`). A WebSocket never fires `request`.
+
+It fails on any HTTP or WebSocket URL to another origin. `data:` and `blob:` URLs stay in the page, so
+they do not count. It does not see requests from the Node test process, or traffic Chromium never
+reports to Playwright, such as DNS prefetch and WebRTC. The one-off proof above covered the Node
+process. Nothing covers the other two. `ace.js` has no WebRTC code and creates no `link`, `script`,
+`img` or `iframe` element, so it cannot start them.
 
 **One test per surface.** It loads the surface with `openSurface` and `settle`, as §8.4.8 does, with
 `guardWrites` on. On that one state it injects the engine, runs axe with the e2e sweep's tags and
 `EXCLUDED_DOM` (§8.2), then runs the IBM engine. Results inside `EXCLUDED_DOM` are dropped from both.
-The test fails only when the engine did not run (it failed to load, threw, or no rule returned a
-result, not even a pass) or when the guard above trips. A broken scan must not read as a clean one.
+The test fails only when the scan cannot be trusted, or when the guard above trips:
+
+- The surface did not render. `openSurface` checks its expected status, and the test checks one
+  visible `h1`, as `surfaces.spec.ts` does. Without this an error page would pass, because IBM's rules
+  on `html`, `head` and `title` still return results there.
+- The engine did not run: it failed to load, threw, or no rule returned a result, not even a pass.
+
+A broken scan must not read as a clean one.
 
 **The three lists,** grouped as IBM's own reports group them:
 
@@ -1759,8 +1774,8 @@ result, not even a pass) or when the guard above trips. A broken scan must not r
 | Needs review | `potentialviolation`, `manual` | Collapsed |
 | Recommendations | `recommendation`, `potentialrecommendation` | Collapsed |
 
-**The overlap with axe.** `matchAxe` in `support/ibm-overlap.ts` marks an IBM finding as "also in axe"
-when one axe node on the same state passes both tests. This is a judgement, so here it is in full:
+**The overlap with axe.** `matchAxe` in `support/ibm-overlap.ts` matches an IBM finding to an axe node
+on the same state when the node passes both tests. This is a judgement, so here it is in full:
 
 1. **Same element.** The two elements are one, or one holds the other at most two levels down
    (`MAX_DEPTH_GAP`). Both engines often report one problem on a field and its wrapper. Both XPaths come
@@ -1771,42 +1786,77 @@ when one axe node on the same state passes both tests. This is a judgement, so h
    list has two pairs, each with its reason: `aria_landmark_name_unique` with `landmark-unique`, and
    `aria_content_in_landmark` with `region`.
 
-An axe failure and an axe "incomplete" both count. The record names the axe rule, with `(review)` after
-an incomplete. A broad criterion on a high element can match an unrelated axe node just below it, and
-two problems on one element under one criterion count as one. Both errors make the overlap look larger,
-never smaller, so the unique list is not inflated. `support/ibm-overlap.unit.spec.ts` pins the rule.
+**Failed and review only are counted apart.** The record names each matching axe rule, with
+`(review)` after one that only marked the node for review (an axe "incomplete"). `axeVerdict` reads that
+list:
+
+| How axe saw it | Meaning | On the unique list |
+|---|---|---|
+| Failed | At least one matching axe rule failed the node | No |
+| Review only | axe matched it, but only marked it for review | Yes, labelled "axe review only" |
+| Not in axe | No axe node matched | Yes |
+
+An IBM violation that axe could only mark for review is not overlap. axe did not call it a failure, so
+it stays on the unique list.
+
+**The rule errs both ways.** Each direction has a cost:
+
+- **Overlap overstated, so the unique list is too short.** This hides a finding only IBM makes, which is
+  the failure a second engine exists to catch. Causes: a broad criterion such as 1.3.1 on a high element
+  matches an unrelated axe node up to two levels below it, and two different problems on one element
+  under one criterion count as one.
+- **Overlap understated, so the unique list is too long.** This costs triage time and makes IBM look
+  more useful than it is. Causes: an axe node whose selector no longer resolves in the page is dropped
+  before matching (`runAxe` in `support/ibm-engine.ts`), an element and its holder more than two levels
+  apart never match, and two rules for one problem that map to different criteria miss unless
+  `RULE_PAIRS` lists them.
+
+The two-week note should sample both by hand: unique findings that axe did report, and matched findings
+that are different problems. `support/ibm-overlap.unit.spec.ts` pins the rule.
 
 **What it found on landing (2026-11-24).** Seven one-worker runs, on two freshly seeded local D1s,
-gave the same findings on all 22 surfaces, with no skips: 40 violation nodes, 452 needing review and 34 recommendations. axe also reported
-9 of the violations. Of the 31 it did not, a first read:
+gave the same findings on all 22 surfaces, with no skips: 40 violation nodes, 452 needing review and
+34 recommendations. Review round 2 (2026-11-25) split the overlap, and three more runs gave the same
+findings:
+
+| Violations | Failed in axe | axe review only | Not in axe | Unique (not failed in axe) |
+|---|---|---|---|---|
+| 40 | 0 | 9 | 31 | 40 |
+
+axe failed none of IBM's violations. The 9 it matched are `aria_id_unique` dialog triggers that axe only
+marked for review (`aria-valid-attr-value`). A first read of the 31 axe did not report at all:
 
 | IBM rule | Nodes | Surfaces | First read |
 |---|---|---|---|
 | `aria_role_valid` | 26 | all 22 | Looks false. The search boxes are `<input type="search" role="combobox">` with no `list` attribute, and ARIA in HTML allows `combobox` there |
 | `aria_form_label_unique` | 2 | `account` | Looks false. The two `<form>` elements have no accessible name, and an unnamed `form` is not a form landmark |
 | `aria_landmark_name_unique` | 2 | `account` | Looks false, for the same reason |
-| `aria_id_unique` | 1 | `vendor-integrations` | Borderline. The create toggle's `aria-controls` names a form that is not rendered while it is collapsed. axe passes that case on purpose. The other 9 nodes of this rule are dialog triggers that axe also marks for review |
+| `aria_id_unique` | 1 | `vendor-integrations` | Borderline. The create toggle's `aria-controls` names a form that is not rendered while it is collapsed. axe passes that case on purpose. The other 9 nodes of this rule are dialog triggers that axe only marks for review, so they are on the unique list too, labelled |
 
 No issues were filed for these. Whether they are true is what the two-week note decides.
 
 **Cost.** The IBM engine took about 5 seconds per full pass over the 22 surfaces, and axe about 31
-seconds on the same states. The rest is page loads. The three final one-worker runs took 1.2, 1.3 and
-2.0 minutes. One earlier run took 3.3 minutes under load from other work on the machine. The nightly splits it across its eight
-shards. The CI time is not measured yet.
+seconds on the same states. The rest is page loads. One-worker runs took 1.2, 1.3 and 2.0 minutes on
+landing, and 1.1 to 1.2 minutes in review round 2. One earlier run took 3.3 minutes under load from
+other work on the machine. Playwright gives each shard a contiguous slice of the sorted list, so all 22
+tests land on one shard (`docs/CICD_PLAN.md` §11a-quater). The CI time is not measured yet.
 
 **The summary.** The spec writes one `ibm-equal-access` annotation per surface.
 `summary-reporter.ts` folds them into the summary's `ibm` block with `summarizeIbm`, and the merge
 combines the shards with `mergeIbm` (`scripts/a11y-nightly-merge-summary.mjs`). The job summary gets
-the violations table, then the other two lists in a collapsed `<details>`. Adding the block kept
-`schemaVersion` 1.
+the unique violations (with an "axe review only" column), then every violation, then the other two
+lists in a collapsed `<details>`. Adding the block, and the split fields in review round 2, kept
+`schemaVersion` 1. No field changed meaning.
 
 | `ibm` field | Meaning |
 |---|---|
 | `engine` | `version` and `ruleset`, or `null` when no IBM test ran |
 | `surfaces` | Surfaces scanned |
-| `counts`, `alsoAxe` | Nodes per list (`violation`, `needsReview`, `recommendation`), and how many of them axe also reported |
-| `violations[]`, `needsReview[]`, `recommendations[]` | One row per IBM rule: `ruleId`, `message` (one example), `wcag`, `nodes`, `alsoAxe`, `axeRules`, `surfaces`, `examples` (up to three `surfaceId` and `xpath` pairs). Most nodes first |
-| `bySurface[]` | `surfaceId`, `route`, the three counts, `uniqueViolations` (not in axe), `scanMs` (IBM) and `axeMs` |
+| `counts` | Nodes per list: `violation`, `needsReview`, `recommendation` |
+| `alsoAxe` | Of `counts`, nodes axe matched at all, failed or marked for review |
+| `alsoFailedInAxe`, `axeReviewOnly` | The two parts of `alsoAxe`: nodes axe failed, and nodes axe only marked for review. Added in review round 2 |
+| `violations[]`, `needsReview[]`, `recommendations[]` | One row per IBM rule: `ruleId`, `message` (one example), `wcag`, `nodes`, `alsoAxe`, `alsoFailedInAxe`, `axeReviewOnly`, `axeRules`, `surfaces`, `examples` (up to three `surfaceId` and `xpath` pairs). Most nodes first |
+| `bySurface[]` | `surfaceId`, `route`, the three counts, `uniqueViolations` (not in axe at all), `violationsAxeReviewOnly`, `violationsNotFailedInAxe` (the unique list: the two added together), `scanMs` (IBM) and `axeMs` |
 
 The full record, with every node, is the test's annotation in the HTML report.
 

@@ -18,13 +18,29 @@
  *      checkpoints. axe's come from its `wcagNNN` tags. axe's best-practice
  *      rules have no criterion, so they match only through `RULE_PAIRS`.
  *
- * An axe node counts whether axe failed it or marked it for review
- * (`incomplete`). The record says which. A finding with no match is unique to IBM.
+ * Two kinds of match, counted apart. axe FAILED the node (`violations`), or axe
+ * only marked it for review (`incomplete`, shown with ` (review)` after the rule).
+ * An IBM finding axe only marked for review is not overlap: axe did not call it
+ * a failure, so it stays in the unique list, labelled "axe review only". Only a
+ * finding axe failed leaves the unique list. A finding with no match at all is
+ * "not in axe".
  *
- * What the rule gets wrong, on purpose: a broad criterion such as 1.3.1 on a
- * page-level element can match an unrelated axe node just below it. Two
- * different problems on one element under one criterion count as one. Both make
- * the overlap look larger, never smaller, so the unique list stays honest.
+ * THE RULE ERRS BOTH WAYS. Each direction has a cost:
+ *
+ *   - Overlap overstated, so the unique list is too short. This hides a finding
+ *     only IBM makes, which is the failure the second engine exists to catch.
+ *     Causes: a broad criterion such as 1.3.1 on a high element matches an
+ *     unrelated axe node up to two levels below it, and two different problems
+ *     on one element under one criterion count as one.
+ *   - Overlap understated, so the unique list is too long. This costs triage
+ *     time, and makes IBM look more useful than it is. Causes: an axe node
+ *     whose selector no longer resolves in the page is dropped before matching
+ *     (`runAxe` in `ibm-engine.ts`), an element and its holder more than
+ *     `MAX_DEPTH_GAP` levels apart never match, and two rules for one problem
+ *     that map to different criteria miss unless `RULE_PAIRS` lists them.
+ *
+ * The two-week note should sample both lists by hand: unique findings that axe
+ * did report, and matched findings that are different problems.
  *
  * Pure. Pinned by `ibm-overlap.unit.spec.ts`. The merge across shards is
  * `mergeIbm()` in `scripts/a11y-nightly-merge-summary.mjs`. Keep the two in step.
@@ -32,6 +48,9 @@
  */
 
 export const IBM_ANNOTATION = 'ibm-equal-access';
+
+/** The suffix `matchAxe` puts after an axe rule that only marked the node for review. */
+export const REVIEW_SUFFIX = ' (review)';
 
 /** How far apart two nested elements may be and still be "the same element". */
 export const MAX_DEPTH_GAP = 2;
@@ -156,10 +175,19 @@ export function matchAxe(f: IbmFinding, axe: readonly AxeNode[]): string[] {
   const hits = new Set<string>();
   for (const n of axe) {
     if (sameElement(f.xpath, n.xpath) && sameProblem(f, n)) {
-      hits.add(n.kind === 'violation' ? n.ruleId : `${n.ruleId} (review)`);
+      hits.add(n.kind === 'violation' ? n.ruleId : `${n.ruleId}${REVIEW_SUFFIX}`);
     }
   }
   return [...hits].sort();
+}
+
+/** How axe saw an IBM finding: it failed the node, only marked it for review, or neither. */
+export type AxeVerdict = 'failed' | 'review-only' | 'none';
+
+/** Read a finding's `axe` list. A failure anywhere wins over a review. */
+export function axeVerdict(matches: readonly string[]): AxeVerdict {
+  if (matches.some((m) => !m.endsWith(REVIEW_SUFFIX))) return 'failed';
+  return matches.length > 0 ? 'review-only' : 'none';
 }
 
 /** What the spec writes per surface, as the `IBM_ANNOTATION` annotation. */
@@ -186,8 +214,12 @@ export interface IbmRuleRow {
   readonly message: string;
   readonly wcag: readonly string[];
   readonly nodes: number;
-  /** Nodes axe also reported on the same surface. */
+  /** Nodes axe also reported on the same surface, failed or marked for review. */
   readonly alsoAxe: number;
+  /** Of `alsoAxe`, nodes axe failed. Only these leave the unique list. */
+  readonly alsoFailedInAxe: number;
+  /** Of `alsoAxe`, nodes axe only marked for review. They stay in the unique list. */
+  readonly axeReviewOnly: number;
   /** The axe rules that matched, across all nodes. */
   readonly axeRules: readonly string[];
   readonly surfaces: readonly string[];
@@ -201,8 +233,12 @@ export interface IbmSummary {
   readonly engine: { readonly version: string; readonly ruleset: string } | null;
   readonly surfaces: number;
   readonly counts: BucketCounts;
-  /** Of `counts`, how many nodes axe also reported. */
+  /** Of `counts`, how many nodes axe also reported, failed or marked for review. */
   readonly alsoAxe: BucketCounts;
+  /** Of `alsoAxe`, nodes axe failed. */
+  readonly alsoFailedInAxe: BucketCounts;
+  /** Of `alsoAxe`, nodes axe only marked for review. */
+  readonly axeReviewOnly: BucketCounts;
   readonly violations: readonly IbmRuleRow[];
   readonly needsReview: readonly IbmRuleRow[];
   readonly recommendations: readonly IbmRuleRow[];
@@ -212,8 +248,12 @@ export interface IbmSummary {
     readonly violation: number;
     readonly needsReview: number;
     readonly recommendation: number;
-    /** Violations axe did not report. */
+    /** Violations axe did not report at all, neither failed nor marked for review. */
     readonly uniqueViolations: number;
+    /** Violations axe only marked for review. They are in the unique list, labelled. */
+    readonly violationsAxeReviewOnly: number;
+    /** The unique list: violations axe did not fail. `uniqueViolations` plus the review-only ones. */
+    readonly violationsNotFailedInAxe: number;
     /** IBM's scan time, and axe's on the same state. */
     readonly scanMs: number;
     readonly axeMs: number;
@@ -252,19 +292,28 @@ export function summarizeIbm(
     needsReview: new Map(),
     recommendation: new Map(),
   };
-  const counts = { violation: 0, needsReview: 0, recommendation: 0 };
-  const alsoAxe = { violation: 0, needsReview: 0, recommendation: 0 };
+  const zero = () => ({ violation: 0, needsReview: 0, recommendation: 0 });
+  const counts = zero();
+  const alsoAxe = zero();
+  const alsoFailedInAxe = zero();
+  const axeReviewOnly = zero();
 
   const bySurface = records.map((r) => {
-    const per = { violation: 0, needsReview: 0, recommendation: 0 };
+    const per = zero();
     let uniqueViolations = 0;
+    let violationsAxeReviewOnly = 0;
     for (const f of r.findings) {
       const bucket = bucketOf(f.level);
-      const matched = f.axe.length > 0;
+      const verdict = axeVerdict(f.axe);
+      const failed = verdict === 'failed' ? 1 : 0;
+      const review = verdict === 'review-only' ? 1 : 0;
       per[bucket] += 1;
       counts[bucket] += 1;
-      if (matched) alsoAxe[bucket] += 1;
-      if (bucket === 'violation' && !matched) uniqueViolations += 1;
+      alsoAxe[bucket] += failed + review;
+      alsoFailedInAxe[bucket] += failed;
+      axeReviewOnly[bucket] += review;
+      if (bucket === 'violation' && verdict === 'none') uniqueViolations += 1;
+      if (bucket === 'violation' && verdict === 'review-only') violationsAxeReviewOnly += 1;
       const prev = rows[bucket].get(f.ruleId);
       const examples = prev?.examples ?? [];
       rows[bucket].set(f.ruleId, {
@@ -272,7 +321,9 @@ export function summarizeIbm(
         message: prev?.message ?? f.message,
         wcag: [...new Set([...(prev?.wcag ?? []), ...f.wcag])].sort(),
         nodes: (prev?.nodes ?? 0) + 1,
-        alsoAxe: (prev?.alsoAxe ?? 0) + (matched ? 1 : 0),
+        alsoAxe: (prev?.alsoAxe ?? 0) + failed + review,
+        alsoFailedInAxe: (prev?.alsoFailedInAxe ?? 0) + failed,
+        axeReviewOnly: (prev?.axeReviewOnly ?? 0) + review,
         axeRules: [...new Set([...(prev?.axeRules ?? []), ...f.axe])].sort(),
         surfaces: [...new Set([...(prev?.surfaces ?? []), r.surfaceId])].sort(),
         examples:
@@ -286,6 +337,8 @@ export function summarizeIbm(
       route: r.route,
       ...per,
       uniqueViolations,
+      violationsAxeReviewOnly,
+      violationsNotFailedInAxe: uniqueViolations + violationsAxeReviewOnly,
       scanMs: r.scanMs,
       axeMs: r.axeMs,
     };
@@ -297,6 +350,8 @@ export function summarizeIbm(
     surfaces: records.length,
     counts,
     alsoAxe,
+    alsoFailedInAxe,
+    axeReviewOnly,
     violations: list('violation'),
     needsReview: list('needsReview'),
     recommendations: list('recommendation'),

@@ -227,7 +227,8 @@ export default class SummaryReporter implements Reporter {
       const c = summary.ibm.counts;
       console.log(
         `[a11y-nightly] IBM Equal Access, report only: ${summary.ibm.surfaces} surfaces, ` +
-          `${c.violation} violations (${c.violation - summary.ibm.alsoAxe.violation} not in axe), ` +
+          `${c.violation} violations (${summary.ibm.alsoFailedInAxe.violation} failed in axe, ` +
+          `${summary.ibm.axeReviewOnly.violation} axe review only), ` +
           `${c.needsReview} need review, ${c.recommendation} recommendations.`,
       );
     }
