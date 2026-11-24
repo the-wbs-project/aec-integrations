@@ -22,7 +22,6 @@ import { AecButton } from '../../shared/button/button';
 import { Chip } from '../../shared/chip/chip';
 import { FIELD_INPUT_CLASS } from '../../shared/form-field/form-field-classes';
 import { AecIcon } from '../../shared/icon/icon';
-import { CONSOLE_FILTER } from '../console/console-filter';
 import {
   CONSOLE_CAPTION_CLASS,
   CONSOLE_LABEL_CLASS,
@@ -102,7 +101,14 @@ export class ConnectorDetail {
 
   // AECI-2125: the console recipe.
   protected readonly t = CONSOLE_TABLE;
-  protected readonly f = CONSOLE_FILTER;
+  /**
+   * "Machine proposals only" and "Include removed": two independent on/off
+   * toggles, so each is its own 44px framed button, not an option in the
+   * one-of-several segmented frame. Pressed: the Forest fill and the tick, as the
+   * segmented filter draws it, so the state is never colour alone.
+   */
+  protected readonly toggleClass =
+    'inline-flex min-h-11 items-center gap-2 rounded-control border border-(--border-strong) bg-(--surface-base) px-4 text-t-14 font-semibold leading-none text-(--text-primary) hover:bg-(--surface-sunken) aria-pressed:border-(--accent-primary) aria-pressed:bg-(--accent-primary) aria-pressed:text-(--surface-base) focus-visible:outline-3 focus-visible:outline-offset-3 forced-colors:aria-pressed:bg-[Highlight] forced-colors:aria-pressed:text-[HighlightText]';
   protected readonly panelClass = CONSOLE_PANEL_CLASS;
   protected readonly labelClass = CONSOLE_LABEL_CLASS;
   protected readonly captionClass = CONSOLE_CAPTION_CLASS;

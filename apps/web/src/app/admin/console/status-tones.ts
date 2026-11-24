@@ -162,6 +162,12 @@ export const ADMIN_STATUS_TONES = {
   blocked: 'attention',
   /** The re-index worklist's priority 1, the tier to do first (AECI-2125). Tiers 2 to 4 are `priority`. */
   topPriority: 'attention',
+  /**
+   * A re-index submission IndexNow refused with a 4xx, a 429 included. Not a fault:
+   * the drain keeps it out of `failed` (`apps/api/src/lib/indexnow-drain.ts`). The
+   * shared `refused` key stays critical. Ruled 2026-11-24 (AECI-2125).
+   */
+  indexNowRefused: 'attention',
 
   // critical: a fault or a block. The only red.
   failed: 'critical',

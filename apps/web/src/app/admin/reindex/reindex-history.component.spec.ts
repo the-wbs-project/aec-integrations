@@ -240,6 +240,24 @@ describe('ReindexHistory', () => {
     expect(second!.textContent).toContain('Not recorded');
   });
 
+  it('draws Refused on the attention tone and Failed on the critical tone (ruled 2026-11-24)', async () => {
+    const { el } = await setup(
+      makeApi(
+        page({
+          data: [
+            makeRow({ id: 1, outcome: 'refused', http_status: 429, causes: [] }),
+            makeRow({ id: 2, outcome: 'failed', http_status: 500, causes: [] }),
+          ],
+        }),
+      ),
+    );
+    const [refused, failed] = [...el.querySelectorAll('tbody tr [data-tone]')];
+    expect(refused!.textContent?.trim()).toBe('Refused');
+    expect(refused!.getAttribute('data-tone')).toBe('attention');
+    expect(failed!.textContent?.trim()).toBe('Failed');
+    expect(failed!.getAttribute('data-tone')).toBe('critical');
+  });
+
   it('sends channel and outcome filters and resets to page 1', async () => {
     const { api, cmp, rerender } = await setup(makeApi(page({ total: 80 })));
     cmp.goToPage(3);

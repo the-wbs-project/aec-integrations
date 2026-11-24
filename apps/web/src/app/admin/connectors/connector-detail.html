@@ -249,10 +249,10 @@
           (changed)="onStubStateChange($event)"
         />
 
-        <div [class]="f.seg">
+        <div class="flex flex-wrap gap-2">
           <button
             type="button"
-            [class]="f.option"
+            [class]="toggleClass"
             [attr.aria-pressed]="proposalsOnly()"
             (click)="toggleProposalsOnly()"
           >
@@ -263,7 +263,7 @@
           </button>
           <button
             type="button"
-            [class]="f.option"
+            [class]="toggleClass"
             [attr.aria-pressed]="includeRemoved()"
             (click)="toggleIncludeRemoved()"
           >

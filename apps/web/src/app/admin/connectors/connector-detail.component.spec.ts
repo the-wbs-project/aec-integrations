@@ -525,5 +525,26 @@ describe('ConnectorDetail', () => {
         }
       }
     });
+
+    it('draws the two listing toggles as independent 44px buttons, not a choice of one (AECI-2125)', async () => {
+      const { el, fixture } = await setup(makeApiMock());
+      const toggles = [...el.querySelectorAll<HTMLButtonElement>('button[aria-pressed]')].filter(
+        (b) => /Machine proposals only|Include removed/.test(b.textContent ?? ''),
+      );
+      expect(toggles).toHaveLength(2);
+      for (const toggle of toggles) {
+        expect(toggle.getAttribute('aria-pressed')).toBe('false');
+        expect(toggle.className).toContain('min-h-11');
+        // Not inside a segmented frame or a group that would read as one-of-several.
+        expect(toggle.closest('[role="group"]')).toBeNull();
+        expect(toggle.parentElement?.className).not.toContain('rounded-control');
+      }
+      toggles[0]!.click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(toggles[0]!.getAttribute('aria-pressed')).toBe('true');
+      expect(toggles[0]!.querySelector('aec-icon')).not.toBeNull();
+      expect(toggles[1]!.getAttribute('aria-pressed')).toBe('false');
+    });
   });
 });

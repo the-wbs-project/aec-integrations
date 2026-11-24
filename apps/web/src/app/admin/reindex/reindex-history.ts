@@ -287,7 +287,9 @@ export class ReindexHistory {
       case 'requested':
         return adminStatusTone('requested');
       case 'refused':
-        return adminStatusTone('refused');
+        // An IndexNow 4xx (a 429 included) is not a fault: the drain keeps it out of
+        // `failed` on purpose (`apps/api/src/lib/indexnow-drain.ts`). Ruled 2026-11-24.
+        return adminStatusTone('indexNowRefused');
       case 'failed':
         return adminStatusTone('failed');
       default: {
