@@ -2534,17 +2534,19 @@ console's `AecSelect`.
 
 The endpoints are in §6 and in `API_CONTRACTS.md` §6.10 "Copyright notices".
 
-### 5.24 Search console (`/admin/seo`): SPECIFIED (AECI-817), PANELS 1 AND 2 SHIPPED (AECI-822), BACKEND PARTLY BUILT (AECI-818, AECI-820, AECI-821, 2026-11-24)
+### 5.24 Search console (`/admin/seo`): SPECIFIED (AECI-817), ENDPOINTS AND PANELS 1 AND 2 BUILT, PANEL 3 SCREEN NOT BUILT (2026-11-24)
 
-**Status.** AECI-820 built the Google ingest and AECI-821 the Bing ingest (§5.24.10). AECI-818
-built the backend half of Panels 1 and 2: the derivation in `apps/api/src/lib/seo-queue.ts`, the
-shared catalog URL list, the `seo.*` and `queue.*` snapshot keys, and `GET /api/admin/seo/queue`
-and `GET /api/admin/seo/trend`. The `/trend` read was listed under AECI-822 below. It shipped with
-AECI-818, so AECI-822 is the screen only. AECI-822 built that screen with Panels 1 and 2
-(`apps/web/src/app/admin/seo/`). Panel 3 is absent until AECI-823. Each panel fails on its own
-with the `/admin/system` error recipe. `/preview/admin-seo` renders both panels and a gallery of
-the empty, no-site-address and failed states over a fake API, for review without a session.
-Nothing else here is built. It is the contract for epic
+**Status.** All three reads are built. AECI-818 built `GET /api/admin/seo/queue` and
+`GET /api/admin/seo/trend`, with the derivation in `apps/api/src/lib/seo-queue.ts`, the shared
+catalog URL list and the `seo.*` and `queue.*` snapshot keys. AECI-823 built
+`GET /api/admin/seo/funnel`. AECI-820 built the Google ingest and AECI-821 the Bing ingest
+(§5.24.10). AECI-822 built the screen with Panels 1 and 2 (`apps/web/src/app/admin/seo/`). Panel
+3's screen is not built. Each panel fails on its own with the `/admin/system` error recipe.
+In Panel 1, a failed lane switch or page change keeps the lane cards and fails in the list area
+alone. Pressing the open lane's "Show URLs" closes its list.
+`/preview/admin-seo` renders both panels and a gallery of the empty, no-site-address and failed
+states over a fake API, for review without a session. There is no weekly SEO email: Chris
+dropped it on 2026-11-24 (§5.24.9). This section is the contract for epic
 AECI-816. Every sub-issue below anchors here. The endpoint shapes are in `API_CONTRACTS.md` §6.10 "Search
 console". Open decisions are listed at the end of this section, and the ones that need Chris are
 marked.
@@ -2552,7 +2554,7 @@ marked.
 | Issue | Delivers | Depends on |
 |---|---|---|
 | AECI-818 | The Panel 1 derivation, the `seo.*` snapshot keys, `GET /api/admin/seo/queue` | nothing |
-| AECI-819 | The weekly SEO email (`digest-seo`) and its cron | AECI-818 |
+| AECI-819 | Nothing. The weekly SEO email was dropped by Chris on 2026-11-24 (§5.24.9) | none |
 | AECI-820 | Google Search Console ingest into `metrics_daily` | AECI-818 for the URL set |
 | AECI-821 | Bing Webmaster Tools ingest into `metrics_daily` | AECI-818 for the URL set |
 | AECI-822 | `/admin/seo` Panel 1 and Panel 2. `GET /api/admin/seo/trend` shipped with AECI-818 | AECI-818 |
@@ -2595,7 +2597,7 @@ epic adds no domain-state write and no `audit_log` row.
 | Crawler labels | `classifyTraffic` in `lib/bot-classification.ts`, stored on `page_views.is_bot` and `bot_name` | Which rows count as a fetch (§5.24.4) |
 | Edge verification | `isEdgeVerified` in `lib/traffic-classifier.ts`, `page_views.cf_verified_bot_category` | The verified half of the crawl predicate |
 | The daily snapshot | `metrics_daily`, the `15 0 * * *` cron, `lib/metrics-snapshot.ts` (§7.1) | Writes the new `seo.*` and `queue.*` stocks |
-| The 05:00 digest's crawler table | `lib/analytics-digest.ts` | Unchanged. It stays daily. The SEO email is separate |
+| The 05:00 digest's crawler table | `lib/analytics-digest.ts` | Unchanged. It stays daily. There is no SEO email (§5.24.9) |
 
 #### 5.24.3 Where the epic is stale, and the code wins
 
@@ -2611,9 +2613,8 @@ true. The sub-issue descriptions should be edited to match.
    real caveat is narrower, and §5.24.4 states it.
 3. **The liveness count is 30, not 13.** `observability/posthog/project-config.json` has 30
    `liveness.crons[]` entries: 29 `AdminCronJob`s and the `indexnow-send` runner. AECI-820's
-   `search-ingest` took the 30th `AdminCronJob` and the 29th cron expression. The SEO email is
-   therefore the 31st `AdminCronJob`, the 32nd liveness entry, and the 30th cron expression.
-   `lookbackHours` is already 360, so a weekly job needs no window change.
+   `search-ingest` took the 30th `AdminCronJob` and the 29th cron expression. The SEO email
+   was dropped on 2026-11-24 (§5.24.9), so this epic adds no further job or liveness entry.
 4. **A new Google service account is not needed.** AECI-820 says the old secrets were deleted
    (AECI-747). They were. AECI-1236 then provisioned `GSC_SA_KEY_JSON` with the
    `webmasters.readonly` scope, which also covers Search Analytics and Sitemaps reads.
@@ -2663,8 +2664,8 @@ Two limits of this predicate, stated rather than hidden:
   after AECI-1301 reached production. A window that reaches before that date uses the UA label
   alone for the earlier rows, and the response carries the `crawler_label_unverified` note.
   AECI-818 records the date as `EDGE_VERIFIED_SINCE` beside `CONCRETE_PATH_SINCE` in
-  `lib/seo-queue.ts`. Its value, `2026-10-14T00:00:00.000Z`, is inferred from migration `0072`'s
-  date and is not yet read from production (§5.24.14 item 4).
+  `lib/seo-queue.ts`. Its value, `2026-10-13T08:02:33.500Z`, is the first production row with an
+  edge verdict, read from production on 2026-11-24 (§5.24.14 item 4).
 
 **`concrete_path` has a start date too.** It is trustworthy from 2026-08-18 03:49 UTC
 (`ANALYTICS_BASELINE.md`, "What AECI-585 started recording"). Rows before it have a NULL
