@@ -48,10 +48,10 @@ export interface AdminDangerConfirmStep {
  * action. The opener is a compact secondary button. It opens a form under it, in
  * this order: an optional Bone warning box, optional read-only facts, the reason's
  * label, its help, the reason, its error, an optional internal note (its label,
- * help and field, in the same order), the confirm, and a ghost Cancel. A danger button appears only as the confirm that does the
- * damage. The piece decides nothing about who may act: render it only where the
- * action was rendered before, inside the same `@if`. Every string is an input,
- * already localised.
+ * help and field, in the same order), the confirm, and a ghost Cancel. A danger
+ * button appears only as the confirm that does the damage. The piece decides
+ * nothing about who may act: render it only where the action was rendered before,
+ * inside the same `@if`. Every string is an input, already localised.
  *
  * Inputs
  * - `openerLabel`, `confirmLabel`, `reasonLabel`, `reasonRequired` (required inputs).
@@ -510,7 +510,7 @@ export class AdminDangerAction {
       () => {
         if (attempt !== this.attempts || this.busy()) return;
         this.inFlight = false;
-        if (this.error() || this.errorTemplate()) {
+        if (this.open() && (this.error() || this.errorTemplate())) {
           this.staleError.set(false);
           this.focusError();
         }
