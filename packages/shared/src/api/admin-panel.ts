@@ -1040,6 +1040,90 @@ export const AdminSnapshotMetricKeySchema = z.enum(ADMIN_SNAPSHOT_METRIC_KEYS);
 export type AdminSnapshotMetricKey = (typeof ADMIN_SNAPSHOT_METRIC_KEYS)[number];
 
 /**
+ * The Google half of the search ingest vocabulary (AECI-820, `ADMIN_PANEL_SPEC.md`
+ * §5.24.8 and §5.24.10). Written weekly by `lib/search-ingest.ts`, never by the
+ * snapshot.
+ *
+ * ─── Why these are not snapshot keys ────────────────────────────────────────
+ *
+ * They live outside {@link ADMIN_SNAPSHOT_METRIC_KEYS} on purpose. The 00:15
+ * snapshot iterates that list, so a key in it would be produced or zero-filled
+ * every night from D1, which holds none of this data. The 03:00 prune counts only
+ * that list as proof a day was captured, so a row here can never clear a day for
+ * the `page_views` prune (`findSnapshotGap`).
+ *
+ * ─── Every key names its scope ──────────────────────────────────────────────
+ *
+ * The middle segment names the host filter and how Google aggregated the figure,
+ * because both change the number:
+ *
+ * - `www_page`: filtered to `https://www.aecintegrations.com/` by a `page`
+ *   filter. Google then aggregates by page, so two of our results on one results
+ *   page count as two impressions. This is what Panel 3 plots.
+ * - `property`: the whole `sc-domain:aecintegrations.com` property, unfiltered and
+ *   aggregated by property. It spans `www.`, the apex and `demo.`. It is the scope
+ *   the AECI-799 baseline used, so it exists for that comparison.
+ * - `www_sitemap`: the `https://www.aecintegrations.com/sitemap.xml` entry of the
+ *   Sitemaps API.
+ *
+ * ─── The `day` column holds a PACIFIC date for these keys ───────────────────
+ *
+ * Google reports Search Analytics by Pacific Time day, and Google's day boundary
+ * cannot be re-cut. So a row here is filed under Google's Pacific date, while
+ * `metrics_daily.day` is a UTC date for every other key. A reader comparing an
+ * ingest day with a snapshot day is up to eight hours out. The sitemap keys are
+ * the exception: they are a sample taken at the run, filed under the run's UTC day.
+ *
+ * ─── The indexed count is a proxy ───────────────────────────────────────────
+ *
+ * No Google API returns the Page indexing report's total. The Sitemaps API's
+ * `contents[].indexed` is deprecated, and URL Inspection is per URL with its daily
+ * quota already spent by `gsc-inspect`. So the indexed figure is a lower bound:
+ * pages with at least one impression in 28 days. The weekly manual read of the
+ * Page indexing report stays (`POST_LAUNCH_MONITORING.md` §2a).
+ *
+ * CTR is never stored. A reader divides summed clicks by summed impressions.
+ */
+export const SEARCH_INGEST_GOOGLE_METRIC_KEYS = [
+  /** Flow. Clicks on that Pacific day. */
+  'search.google.www_page.clicks',
+  /** Flow. Impressions on that Pacific day. */
+  'search.google.www_page.impressions',
+  /** Impression-weighted average position for that day. No row on a day with no
+   *  impressions. A window re-weights by each day's impressions. */
+  'search.google.www_page.position_avg',
+  'search.google.property.clicks',
+  'search.google.property.impressions',
+  'search.google.property.position_avg',
+  /** Distinct `www.` pages with at least one impression in the 28 Pacific days
+   *  ending on `day`. The indexed proxy, a lower bound. */
+  'search.google.www_page.pages_with_impressions_28d',
+  /** The same, restricted to the catalog sitemap URLs. Panel 3's stage 3
+   *  numerator. */
+  'search.google.www_page.catalog_pages_with_impressions_28d',
+  /** Distinct queries in the 28 days ending on `day`. A lower bound: Google drops
+   *  rare and anonymized queries. */
+  'search.google.www_page.queries_28d',
+  /** URLs Google counted in the sitemap at its last read, all content types. */
+  'search.google.www_sitemap.urls_submitted',
+  /** Errors Google reported for the sitemap at its last read. */
+  'search.google.www_sitemap.errors',
+  /** Warnings Google reported for the sitemap at its last read. */
+  'search.google.www_sitemap.warnings',
+  /** Days from Google's last download of the sitemap to the run, REAL. No row when
+   *  Google reports no download. The date itself is in the run's `job_runs.detail`. */
+  'search.google.www_sitemap.download_age_days',
+] as const;
+export type SearchIngestGoogleMetricKey = (typeof SEARCH_INGEST_GOOGLE_METRIC_KEYS)[number];
+
+/**
+ * Every key the search ingest writes. Bing's keys (AECI-821, `search.bing.www.*`)
+ * join as a second spread, so readers keep one list.
+ */
+export const SEARCH_INGEST_METRIC_KEYS = [...SEARCH_INGEST_GOOGLE_METRIC_KEYS] as const;
+export type SearchIngestMetricKey = (typeof SEARCH_INGEST_METRIC_KEYS)[number];
+
+/**
  * Provenance of one `metrics_daily` row (§7.1, as shipped).
  *
  * §7.1 sketched four columns and proposed marking a backfilled row through its
