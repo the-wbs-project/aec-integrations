@@ -7,7 +7,9 @@
  *      1..E2E_AXE_SHARDS, and each job name says /N (AECI-1874 sharded `suite`).
  *   2. Every summary `report` merges is one a job uploads, under that name and file.
  *      The merge step's own shell body runs here, so the part list is checked as built.
- *   3. `report` decides the outcome from BOTH lanes. The step's own shell body runs here.
+ *   3. `report` decides the outcome from BOTH lanes and from which summaries arrived. Green
+ *      lanes with a missing summary are a failure (review round 2). The steps' own shell
+ *      bodies run here.
  *   4. The alert and confirm-alert jobs read `report`'s outcome, not one lane's result.
  *   5. The PR e2e job never turns the sweep on.
  *
@@ -104,8 +106,9 @@ test('every summary report merges is one a lane uploads', () => {
     job('e2e-axe'),
     /name: a11y-nightly-summary-e2e-axe-\$\{\{ matrix\.shard \}\}\n\s+path: apps\/web\/a11y-e2e-axe-summary\.json/,
   );
-  // Run the merge step as written, with no parts downloaded. The merged file
-  // must name every expected part as missing: one per shard of each lane.
+  // Run the parts check and the merge step as written, with no parts downloaded.
+  // The check must count every expected part as missing, and the merged file must
+  // name each one: one per shard of each lane.
   const dir = mkdtempSync(join(tmpdir(), 'a11y-merge-step-'));
   tempDirs.push(dir);
   mkdirSync(join(dir, 'scripts'));
@@ -114,18 +117,24 @@ test('every summary report merges is one a lane uploads', () => {
     join(dir, 'scripts/a11y-nightly-merge-summary.mjs'),
   );
   const stepSummary = join(dir, 'step-summary.md');
+  const githubOutput = join(dir, 'github-output');
   writeFileSync(stepSummary, '');
-  execFileSync('bash', ['-c', stepScript('Merge into a11y-nightly-summary.json')], {
-    cwd: dir,
-    env: {
-      ...process.env,
-      SUITE_SHARDS: String(shardTotal('SUITE_SHARDS')),
-      E2E_AXE_SHARDS: String(shardTotal('E2E_AXE_SHARDS')),
-      GITHUB_STEP_SUMMARY: stepSummary,
-    },
-    stdio: ['ignore', 'ignore', 'inherit'],
-  });
-  const merged = JSON.parse(readFileSync(join(dir, 'a11y-nightly-summary.json'), 'utf8'));
+  writeFileSync(githubOutput, '');
+  const env = {
+    ...process.env,
+    SUITE_SHARDS: String(shardTotal('SUITE_SHARDS')),
+    E2E_AXE_SHARDS: String(shardTotal('E2E_AXE_SHARDS')),
+    GITHUB_STEP_SUMMARY: stepSummary,
+    GITHUB_OUTPUT: githubOutput,
+  };
+  const run = (step) =>
+    execFileSync('bash', ['-c', stepScript(step)], {
+      cwd: dir,
+      env,
+      stdio: ['ignore', 'ignore', 'inherit'],
+    });
+  run('Check every summary arrived');
+  run('Merge into a11y-nightly-summary.json');
   const expected = [
     ...Array.from(
       { length: shardTotal('SUITE_SHARDS') },
@@ -136,6 +145,10 @@ test('every summary report merges is one a lane uploads', () => {
       (_, i) => `a11y-parts/a11y-nightly-summary-e2e-axe-${i + 1}/a11y-e2e-axe-summary.json`,
     ),
   ];
+  assert.equal(readFileSync(githubOutput, 'utf8').trim(), `missing=${expected.length}`);
+  assert.match(readFileSync(stepSummary, 'utf8'), /### Missing summaries/);
+  for (const part of expected) assert.ok(readFileSync(stepSummary, 'utf8').includes(part), part);
+  const merged = JSON.parse(readFileSync(join(dir, 'a11y-nightly-summary.json'), 'utf8'));
   assert.deepEqual(
     merged.parts.map((p) => p.file),
     expected,
@@ -147,20 +160,21 @@ test('every summary report merges is one a lane uploads', () => {
   assert.match(job('alert'), /name: a11y-nightly-summary\n\s+path: a11y-results/);
 });
 
-/** Run the outcome step for one pair of lane results. */
-function outcomeFor(suite, e2eAxe) {
+/** Run one step's shell body with `env` and return what it wrote to GITHUB_OUTPUT. */
+function outputOf(step, env, cwd) {
   const dir = mkdtempSync(join(tmpdir(), 'a11y-outcome-'));
   tempDirs.push(dir);
   const out = join(dir, 'github-output');
   writeFileSync(out, '');
-  execFileSync('bash', ['-c', stepScript("Decide the run's outcome")], {
-    env: { ...process.env, SUITE_RESULT: suite, E2E_AXE_RESULT: e2eAxe, GITHUB_OUTPUT: out },
+  execFileSync('bash', ['-c', stepScript(step)], {
+    cwd: cwd ?? dir,
+    env: { ...process.env, ...env, GITHUB_OUTPUT: out, GITHUB_STEP_SUMMARY: join(dir, 'summary') },
     stdio: ['ignore', 'ignore', 'inherit'],
   });
   return readFileSync(out, 'utf8').trim();
 }
 
-test('the outcome is success only when both lanes pass, and a failure beats a cancel', () => {
+test('the lanes are success only when both pass, and a failure beats a cancel', () => {
   const cases = [
     ['success', 'success', 'success'],
     ['failure', 'success', 'failure'],
@@ -176,8 +190,69 @@ test('the outcome is success only when both lanes pass, and a failure beats a ca
     ['skipped', 'success', 'cancelled'],
   ];
   for (const [suite, e2eAxe, want] of cases) {
-    assert.equal(outcomeFor(suite, e2eAxe), `outcome=${want}`, `${suite}/${e2eAxe}`);
+    assert.equal(
+      outputOf("Decide the lanes' outcome", { SUITE_RESULT: suite, E2E_AXE_RESULT: e2eAxe }),
+      `lanes=${want}`,
+      `${suite}/${e2eAxe}`,
+    );
   }
+});
+
+test('the parts check finds a shard that uploaded no summary', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'a11y-parts-'));
+  tempDirs.push(dir);
+  const suite = shardTotal('SUITE_SHARDS');
+  const axe = shardTotal('E2E_AXE_SHARDS');
+  const place = (rel) => {
+    mkdirSync(join(dir, rel, '..'), { recursive: true });
+    writeFileSync(join(dir, rel), '{}');
+  };
+  for (let n = 1; n <= suite; n++) {
+    if (n !== 3) place(`a11y-parts/a11y-nightly-summary-suite-${n}/a11y-nightly-summary.json`);
+  }
+  for (let n = 1; n <= axe; n++) {
+    place(`a11y-parts/a11y-nightly-summary-e2e-axe-${n}/a11y-e2e-axe-summary.json`);
+  }
+  const env = { SUITE_SHARDS: String(suite), E2E_AXE_SHARDS: String(axe) };
+  assert.equal(outputOf('Check every summary arrived', env, dir), 'missing=1');
+  place('a11y-parts/a11y-nightly-summary-suite-3/a11y-nightly-summary.json');
+  assert.equal(outputOf('Check every summary arrived', env, dir), 'missing=0');
+});
+
+test('green lanes with a missing summary fail, and every other rule holds', () => {
+  const cases = [
+    ['success', '0', 'success'],
+    ['success', '1', 'failure'],
+    ['success', '12', 'failure'],
+    // The check did not finish, so nothing proves the summaries arrived.
+    ['success', '', 'failure'],
+    ['failure', '0', 'failure'],
+    ['failure', '3', 'failure'],
+    // A cancelled run stays `error`: its missing parts are the cancel, not a red result.
+    ['cancelled', '0', 'cancelled'],
+    ['cancelled', '5', 'cancelled'],
+    // The lanes step never ran.
+    ['', '0', 'cancelled'],
+  ];
+  for (const [lanes, missing, want] of cases) {
+    const out = outputOf("Decide the run's outcome", { LANES: lanes, MISSING: missing });
+    assert.equal(out.split('\n')[0], `outcome=${want}`, `${lanes}/${missing}`);
+  }
+  for (const name of ['Check every summary arrived', "Decide the run's outcome"]) {
+    const lines = WORKFLOW.split('\n');
+    const at = lines.findIndex((l) => l.trim() === `- name: ${name}`);
+    assert.ok(
+      lines.slice(at, at + 4).some((l) => l.trim() === 'if: always()'),
+      `${name} always runs`,
+    );
+  }
+  // The status description names the missing count, and a nightly failure still
+  // ends `(nightly, alert pending)` until confirm-alert rewrites it.
+  const report = job('report');
+  assert.match(report, /MISSING: \$\{\{ steps\.outcome\.outputs\.missing \}\}/);
+  assert.match(report, /failed="\$failed, \$MISSING summaries missing"/);
+  assert.match(report, /description="\$failed \(nightly, alert pending\)"/);
+  assert.match(job('confirm-alert'), /description="Accessibility nightly failed \(nightly\)"/);
 });
 
 test('report waits for both lanes, always runs on a measured commit, and posts the status', () => {

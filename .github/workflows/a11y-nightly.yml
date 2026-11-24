@@ -29,7 +29,9 @@
 #
 # THE RESULT LIVES ON THE COMMIT. Each run posts a commit status, context
 #   `a11y-nightly`: `pending` first (from `suite` shard 1), then `success`,
-#   `failure`, or `error` when cancelled (from `report`, over both lanes). The description
+#   `failure`, or `error` when cancelled (from `report`, over both lanes). Green
+#   lanes with any expected summary missing post `failure`, and the description
+#   says how many are missing. The description
 #   ends `(nightly)` or `(manual)`. Same rule as lighthouse.yml. Only statuses
 #   posted by github-actions[bot] count.
 #
@@ -155,8 +157,10 @@ jobs:
   # posts the result.
   # ===========================================================================
   # Each shard builds, boots its own dev:bound and local D1, and runs its slice,
-  # as `e2e-axe` does. Playwright keeps a serial or `mode: 'default'` describe
-  # on one shard, so a group with a shared `beforeAll` is never split.
+  # as `e2e-axe` does. Playwright splits by test, and a plain `beforeAll`
+  # group can be split. Only a describe in `serial` or `default` mode stays on
+  # one shard, so a group that shares a `beforeAll` record must use one of the
+  # two (docs/TESTING_STRATEGY.md §8.4 "Shards").
   suite:
     name: Accessibility nightly suite (shard ${{ matrix.shard }}/8)
     needs: resolve
@@ -412,10 +416,11 @@ jobs:
       REPO: ${{ github.repository }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
-      # Decided first, from the lanes' results alone, so a failed merge or a
-      # failed status post cannot change what the alert reports.
-      - name: Decide the run's outcome
-        id: outcome
+      # The outcome comes from the lanes' results and from which summaries
+      # arrived, never from the merge, so a failed merge or a failed status
+      # post cannot change what the alert reports. The lanes are read first.
+      - name: Decide the lanes' outcome
+        id: lanes
         env:
           SUITE_RESULT: ${{ needs.suite.result }}
           E2E_AXE_RESULT: ${{ needs.e2e-axe.result }}
@@ -424,12 +429,12 @@ jobs:
           # A failure wins over a cancel: a red lane must alert even when the
           # other lane was cancelled.
           case "$SUITE_RESULT/$E2E_AXE_RESULT" in
-            success/success) outcome=success ;;
-            failure/* | */failure) outcome=failure ;;
-            *) outcome=cancelled ;;
+            success/success) lanes=success ;;
+            failure/* | */failure) lanes=failure ;;
+            *) lanes=cancelled ;;
           esac
-          echo "suite=$SUITE_RESULT e2e-axe=$E2E_AXE_RESULT outcome=$outcome"
-          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
+          echo "suite=$SUITE_RESULT e2e-axe=$E2E_AXE_RESULT lanes=$lanes"
+          echo "lanes=$lanes" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ needs.resolve.outputs.sha }}
@@ -445,18 +450,62 @@ jobs:
         with:
           pattern: a11y-nightly-summary-*
           path: a11y-parts
-      # Every expected part is named, so a lane that wrote nothing shows as missing.
+      # Every expected part, one per shard of each lane, written to
+      # expected-parts.txt for the merge. A shard that passed but uploaded no
+      # summary is missing here. Runs even when a step above failed.
+      - name: Check every summary arrived
+        id: parts
+        if: always()
+        run: |
+          set -euo pipefail
+          : > expected-parts.txt
+          for n in $(seq 1 "$SUITE_SHARDS"); do
+            echo "a11y-parts/a11y-nightly-summary-suite-$n/a11y-nightly-summary.json" >> expected-parts.txt
+          done
+          for n in $(seq 1 "$E2E_AXE_SHARDS"); do
+            echo "a11y-parts/a11y-nightly-summary-e2e-axe-$n/a11y-e2e-axe-summary.json" >> expected-parts.txt
+          done
+          missing=()
+          while IFS= read -r part; do
+            [ -f "$part" ] || missing+=("$part")
+          done < expected-parts.txt
+          echo "missing=${#missing[@]}" >> "$GITHUB_OUTPUT"
+          if [ "${#missing[@]}" -gt 0 ]; then
+            {
+              echo "### Missing summaries"
+              echo
+              echo "${#missing[@]} expected summaries did not arrive, so the run fails:"
+              echo
+              for part in "${missing[@]}"; do echo "- \`$part\`"; done
+              echo
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "missing=${#missing[@]} of $(wc -l < expected-parts.txt | tr -d ' ')"
+      # Green lanes with a missing summary are a failure: a shard that ran but
+      # recorded nothing must never post success. A failed or cancelled lane
+      # keeps its outcome, so a failure still wins over a cancel.
+      - name: Decide the run's outcome
+        id: outcome
+        if: always()
+        env:
+          LANES: ${{ steps.lanes.outputs.lanes }}
+          MISSING: ${{ steps.parts.outputs.missing }}
+        run: |
+          set -euo pipefail
+          outcome="${LANES:-cancelled}"
+          # An unknown count is treated as missing: the check did not finish.
+          if [ "$outcome" = success ] && ! [ "${MISSING:-x}" = 0 ]; then
+            outcome=failure
+          fi
+          echo "lanes=${LANES:-unknown} missing=${MISSING:-unknown} outcome=$outcome"
+          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
+          echo "missing=${MISSING:-unknown}" >> "$GITHUB_OUTPUT"
       - name: Merge into a11y-nightly-summary.json
         continue-on-error: true
         run: |
           set -euo pipefail
           parts=()
-          for n in $(seq 1 "$SUITE_SHARDS"); do
-            parts+=("a11y-parts/a11y-nightly-summary-suite-$n/a11y-nightly-summary.json")
-          done
-          for n in $(seq 1 "$E2E_AXE_SHARDS"); do
-            parts+=("a11y-parts/a11y-nightly-summary-e2e-axe-$n/a11y-e2e-axe-summary.json")
-          done
+          while IFS= read -r part; do parts+=("$part"); done < expected-parts.txt
           node scripts/a11y-nightly-merge-summary.mjs --out=a11y-nightly-summary.json \
             --markdown="$GITHUB_STEP_SUMMARY" "${parts[@]}"
       # The alert job reads this. AECI-1682 will read it for the dated record.
@@ -475,7 +524,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           OUTCOME: ${{ steps.outcome.outputs.outcome }}
+          MISSING: ${{ steps.outcome.outputs.missing }}
         run: |
+          # Name missing summaries in the description. The job summary lists them.
+          failed="Accessibility nightly failed"
+          case "${MISSING:-unknown}" in
+            0) ;;
+            unknown) failed="$failed, summaries unchecked" ;;
+            *) failed="$failed, $MISSING summaries missing" ;;
+          esac
           case "$OUTCOME" in
             success) state=success; description="Accessibility nightly passed ($TRIGGER)" ;;
             failure)
@@ -484,9 +541,9 @@ jobs:
               # skip rule matches only a description ending `(nightly)`, so
               # `(nightly, alert pending)` makes the next night run again.
               if [ "$TRIGGER" = "nightly" ]; then
-                description="Accessibility nightly failed (nightly, alert pending)"
+                description="$failed (nightly, alert pending)"
               else
-                description="Accessibility nightly failed ($TRIGGER)"
+                description="$failed ($TRIGGER)"
               fi
               ;;
             *) state=error; description="Accessibility nightly was cancelled before a result ($TRIGGER)" ;;

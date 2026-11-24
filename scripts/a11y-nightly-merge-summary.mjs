@@ -116,8 +116,11 @@ export function mergeAxe(blocks) {
 const bySurfaceId = (a, b) => (a.surfaceId < b.surfaceId ? -1 : a.surfaceId > b.surfaceId ? 1 : 0);
 
 /**
- * Merge the `voice` blocks (AECI-1883). Each surface runs in one shard, so the
- * rows concatenate. Always an object: empty lists when no part had one. Matches
+ * Merge the `voice` blocks (AECI-1883). A surface's `controls` and `effort`
+ * tests can land on different shards. Each writes a different list, `controls`
+ * the target size row and `effort` the effort row, and each test runs once, so
+ * every row comes from exactly one shard and the lists join. Always an object:
+ * empty lists when no part had one. Matches
  * `summarizeVoice()` in `apps/web/e2e-a11y/support/voice-summary.ts`.
  */
 export function mergeVoice(blocks) {
@@ -170,8 +173,8 @@ export function mergeIbmRows(lists) {
 }
 
 /**
- * Merge the `ibm` blocks (AECI-1884). Each surface runs in one shard, so the
- * surface rows concatenate and the rule rows merge by id. Always an object: zero
+ * Merge the `ibm` blocks (AECI-1884). Each surface is one test, so its surface
+ * row comes from exactly one shard and the rows join. The rule rows merge by id. Always an object: zero
  * counts and empty lists when no part had one. Matches `summarizeIbm()` in
  * `apps/web/e2e-a11y/support/ibm-overlap.ts`.
  */
