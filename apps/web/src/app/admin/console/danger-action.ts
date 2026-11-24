@@ -47,8 +47,8 @@ export interface AdminDangerConfirmStep {
  * `<aec-admin-danger-action>` is the console's pattern for an inline destructive
  * action. The opener is a compact secondary button. It opens a form under it, in
  * this order: an optional Bone warning box, optional read-only facts, the reason's
- * label, its help, the reason, its error, an optional internal note, the confirm,
- * and a ghost Cancel. A danger button appears only as the confirm that does the
+ * label, its help, the reason, its error, an optional internal note (its label,
+ * help and field, in the same order), the confirm, and a ghost Cancel. A danger button appears only as the confirm that does the
  * damage. The piece decides nothing about who may act: render it only where the
  * action was rendered before, inside the same `@if`. Every string is an input,
  * already localised.
@@ -204,6 +204,9 @@ export interface AdminDangerConfirmStep {
       @if (noteLabel(); as label) {
         <div class="grid gap-2">
           <label [for]="ids.note" [class]="labelClass">{{ label }}</label>
+          @if (noteHelp(); as text) {
+            <p [id]="ids.noteHelp" class="text-t-14 text-(--text-secondary)">{{ text }}</p>
+          }
           <textarea
             #noteEl
             [id]="ids.note"
@@ -216,9 +219,6 @@ export interface AdminDangerConfirmStep {
             [attr.aria-describedby]="noteHelp() ? ids.noteHelp : null"
             (input)="note.set(noteEl.value)"
           ></textarea>
-          @if (noteHelp(); as text) {
-            <p [id]="ids.noteHelp" class="text-t-14 text-(--text-secondary)">{{ text }}</p>
-          }
         </div>
       }
       @if (locked() && confirmStep(); as step) {
