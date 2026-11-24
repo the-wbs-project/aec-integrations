@@ -75,6 +75,14 @@
  * its idempotency digest and the open-session match), the customer-link audit row, and
  * the subscription's metadata on an add.
  *
+ * ── NO PRODUCT THAT CAN HOLD ONE (AECI-2044, ruling 6 on AECI-2035) ─────────────
+ * An Integration platform, or a connector with no kind, holds no subscription. A
+ * Sync Service, an application and a hybrid do (`lib/subscribable-products.ts`). So
+ * `assignableProductsWhere` leaves the others out, and checkout and add answer `409
+ * NO_SUBSCRIBABLE_PRODUCT` before any Stripe call when the vendor owns products and
+ * none can hold one. Renewals and the webhook are untouched: a subscription already on
+ * a product stays there.
+ *
  * ── THE SHORT-FORM CAP (AECI-1617, counsel Q15) ─────────────────────────────────
  * Clickwrap fails on surprise terms, so the agreement's cap and damages exclusion sit
  * beside the box too, in `custom_text.submit` and on the panel. The box stays one sentence.
@@ -109,6 +117,11 @@ import {
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
+import {
+  noSubscribableProductError,
+  ownsOnlyUnsubscribableProducts,
+  subscribableProductSql,
+} from '../lib/subscribable-products';
 import { loadCheckoutSigner } from '../lib/agreement-acceptances';
 import type { BatchTuple } from '../lib/audit';
 import { auditActorType } from '../lib/authz';
@@ -218,16 +231,18 @@ export function toLiveStripeSubscriptions(rows: LiveStripeRow[]): LiveStripeSubs
 }
 
 /**
- * The products a pool license can go on: owned by this vendor (`product_vendors`) and
- * holding no live license from ANY vendor, a co-owner included. Shared with `GET
- * /api/vendor/billing` (`assignable_products`), so the warning the tab shows and the
- * count these routes enforce use one predicate (AECI-1865). Use over `product_vendors`
- * joined to `products`.
+ * The products a pool license can go on: owned by this vendor (`product_vendors`),
+ * able to hold a subscription (an application, a hybrid or a Sync Service, AECI-2044,
+ * `subscribableProductSql`), and holding no live license from ANY vendor, a co-owner
+ * included. Shared with `GET /api/vendor/billing` (`assignable_products`), so the
+ * warning the tab shows and the count these routes enforce use one predicate
+ * (AECI-1865). Use over `product_vendors` joined to `products`.
  */
 export function assignableProductsWhere(db: Db, vendorId: string) {
   const liveOnProduct = alias(licenses, 'live_on_product');
   return and(
     eq(productVendors.vendorId, vendorId),
+    subscribableProductSql(),
     notExists(
       db
         .select({ one: sql`1` })
@@ -500,6 +515,9 @@ export function createStripeCheckoutHandler(
     const account = await loadStripeAccount(db, vendorId);
     const existing = account.subscriptions[0];
     if (existing) throw subscriptionExists(existing.interval, payload.interval);
+    // AECI-2044 (ruling 6): a company whose every product is an Integration platform, or
+    // a connector with no kind, has nothing a subscription could go on.
+    if (await ownsOnlyUnsubscribableProducts(db, vendorId)) throw noSubscribableProductError();
     // AECI-1865: before any Stripe call, so a refusal costs nothing.
     const unused = await requireUnusedAcknowledged(
       db,
@@ -830,6 +848,8 @@ export function createAddStripeLicensesHandler(
 
     const account = await loadStripeAccount(db, vendorId);
     const live = requireSubscription(account);
+    // AECI-2044: as at checkout. Before the Stripe read, so a refusal costs nothing.
+    if (await ownsOnlyUnsubscribableProducts(db, vendorId)) throw noSubscribableProductError();
 
     // Stripe's quantity is the base, not the D1 count: an earlier add may not have
     // landed its licenses yet, and adding to the D1 count would undo it.

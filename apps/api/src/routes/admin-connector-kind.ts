@@ -10,8 +10,20 @@
  * An `application` is **409 `CONNECTOR_KIND_NOT_CONNECTOR`** and nothing is written.
  *
  * Order: body (400) → 404 (unknown product) → 409 (wrong role) → no-op when the value
- * is unchanged (200, `changed: false`, nothing written or purged) → one `db.batch`
- * with the UPDATE and its `product.updated` audit row → post-commit purge and forward.
+ * is unchanged (200, `changed: false`, nothing written or purged) → 409
+ * `CONNECTOR_KIND_SUBSCRIBED` → one `db.batch` with the UPDATE and its
+ * `product.updated` audit row → post-commit purge and forward.
+ *
+ * ── A SUBSCRIBED PRODUCT KEEPS A KIND THAT CAN HOLD IT (AECI-2044, ruling 6) ──
+ * A Sync Service may hold a Managed subscription. An Integration platform, or a
+ * connector with no kind, may not (`productTakesSubscription`). A change that would
+ * take a product from may-hold to may-not while a live subscription sits on it (any
+ * vendor's) is refused with **409 `CONNECTOR_KIND_SUBSCRIBED`** and nothing is written.
+ * The operator moves or ends the subscription first. A hybrid is never refused, because
+ * every hybrid may hold one. A change between two kinds that both refuse is allowed: it
+ * moves no product across the line, and a subscription that predates the rule stays.
+ * When the check applies, {@link noLiveSubscriptionSentinel} also runs in the batch, so
+ * an assign that commits after the read aborts the change.
  *
  * A promote can move the product to `application` between the read and the batch.
  * {@link roleStillTakesKindSentinel} runs first in the batch and aborts it in that
@@ -32,6 +44,7 @@ import {
   AdminSetConnectorKindSchema,
   ApiErrorCode,
   CONNECTOR_KIND_ROLES,
+  productTakesSubscription,
   roleTakesConnectorKind,
   type AdminSetConnectorKindResponse,
   type AuditLogEntry,
@@ -49,6 +62,7 @@ import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-u
 import { isSentinelJsonAbort } from '../lib/field-overrides';
 import { ONE_ROW } from '../lib/integration-claims';
 import { forwardAuditBatch } from '../lib/moderation-forward';
+import { liveSubscriptionOn, noLiveSubscriptionSentinel } from '../lib/subscribable-products';
 import { parseJsonBody, purgeTags, type VendorContext } from './vendor-shared';
 
 /** The audit `source` facet and forward tag. */
@@ -72,6 +86,14 @@ function roleStillTakesKindSentinel(db: Db, id: string) {
         THEN json('connector-kind-role-changed') END`,
     })
     .from(ONE_ROW);
+}
+
+function subscribedError(): ApiError {
+  return new ApiError(
+    409,
+    ApiErrorCode.CONNECTOR_KIND_SUBSCRIBED,
+    'This product holds a live Managed subscription, and that kind cannot hold one. Move or end the subscription first. Nothing was changed.',
+  );
 }
 
 function notConnectorError(role: string): ApiError {
@@ -111,6 +133,12 @@ export function createAdminSetConnectorKindHandler(
       return respond(c, { id, connector_kind: next, changed: false });
     }
 
+    // AECI-2044: only a change across the line needs the subscription check.
+    const leavesSubscribable =
+      productTakesSubscription(before.productRole, before.connectorKind) &&
+      !productTakesSubscription(before.productRole, next);
+    if (leavesSubscribable && (await liveSubscriptionOn(db, id))) throw subscribedError();
+
     const session = c.get('auth');
     const at = new Date().toISOString();
     const entry: AuditLogEntry = {
@@ -128,13 +156,18 @@ export function createAdminSetConnectorKindHandler(
     try {
       await db.batch([
         roleStillTakesKindSentinel(db, id),
+        ...(leavesSubscribable ? [noLiveSubscriptionSentinel(db, id)] : []),
         db.update(products).set({ connectorKind: next, updatedAt: at }).where(eq(products.id, id)),
         auditInsert(db, entry),
       ]);
     } catch (error) {
-      // A promote moved the product off a connector role between the read and the
-      // batch. Nothing committed. Refuse, as the read would have.
-      if (isSentinelJsonAbort(error)) throw notConnectorError('application');
+      // Nothing committed. Either a promote moved the product off a connector role, or
+      // (AECI-2044) a subscription landed on it, between the read and the batch. Both
+      // sentinels abort the same way, so re-read and refuse as the read would have.
+      if (isSentinelJsonAbort(error)) {
+        if (leavesSubscribable && (await liveSubscriptionOn(db, id))) throw subscribedError();
+        throw notConnectorError('application');
+      }
       throw error;
     }
 

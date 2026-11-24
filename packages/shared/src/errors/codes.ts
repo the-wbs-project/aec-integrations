@@ -289,6 +289,17 @@ export const ApiErrorCode = {
   LICENSE_NOT_LIVE: 'LICENSE_NOT_LIVE',
   LICENSE_ALREADY_ASSIGNED: 'LICENSE_ALREADY_ASSIGNED',
   PRODUCT_ALREADY_LICENSED: 'PRODUCT_ALREADY_LICENSED',
+  // AECI-2044 (ruling 6 on AECI-2035, `STAGE_2_SPEC.md` §8.8), all 409, nothing written.
+  // `PRODUCT_NOT_SUBSCRIBABLE`: the assign named a product that cannot hold a Managed
+  // subscription: a `connector` whose kind is Integration platform or blank
+  // (`productTakesSubscription`). `details` carries `product_role` and `connector_kind`.
+  // `NO_SUBSCRIBABLE_PRODUCT`: a checkout, an add or an admin grant for a vendor that owns
+  // products and none of them can hold a subscription. `CONNECTOR_KIND_SUBSCRIBED`: the
+  // admin kind change would leave a product that holds a live subscription unable to
+  // hold one. Move or end the subscription first.
+  PRODUCT_NOT_SUBSCRIBABLE: 'PRODUCT_NOT_SUBSCRIBABLE',
+  NO_SUBSCRIBABLE_PRODUCT: 'NO_SUBSCRIBABLE_PRODUCT',
+  CONNECTOR_KIND_SUBSCRIBED: 'CONNECTOR_KIND_SUBSCRIBED',
   // AECI-1501 (E9.3) Stripe purchase routes (`API_CONTRACTS.md` §4, §6.14).
   // `STRIPE_UNAVAILABLE` (503): this tier does not sell through Stripe right now
   // (`STRIPE_CHECKOUT_ENABLED` off, or a key, portal config or site URL unset).

@@ -7,6 +7,7 @@
  * registration to §6's table.
  */
 import { eq } from 'drizzle-orm';
+import type { ConnectorKind } from '@aeci/shared';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -16,6 +17,7 @@ import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
+import { seedLicense } from '../test/licenses';
 import { createAdminSetConnectorKindHandler } from './admin-connector-kind';
 
 vi.mock('../posthog', () => ({
@@ -201,5 +203,69 @@ describe('PATCH /api/admin/products/:id/connector-kind', () => {
     expect(res.status).toBe(400);
     expect(await kindOf(CONNECTOR)).toBeNull();
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+
+  describe('AECI-2044: a subscribed product keeps a kind that can hold it', () => {
+    const setKind = (id: string, kind: ConnectorKind | null) =>
+      t.db.update(products).set({ connectorKind: kind }).where(eq(products.id, id));
+
+    it.each<[string, ConnectorKind | null]>([
+      ['Integration platform', 'integration_platform'],
+      ['blank', null],
+    ])(
+      'refuses a Sync Service holding a live subscription moving to %s, writing nothing',
+      async (_label, next) => {
+        await setKind(CONNECTOR, 'sync_service');
+        await seedLicense(t.db, VENDOR, { productId: CONNECTOR });
+        const res = await patch(CONNECTOR, { connector_kind: next });
+        expect(res.status).toBe(409);
+        expect(await res.json()).toMatchObject({ error: { code: 'CONNECTOR_KIND_SUBSCRIBED' } });
+        expect(await kindOf(CONNECTOR)).toBe('sync_service');
+        expect(await t.db.select().from(auditLog)).toHaveLength(0);
+        expect(send).not.toHaveBeenCalled();
+      },
+    );
+
+    it('allows the change once the subscription has ended', async () => {
+      await setKind(CONNECTOR, 'sync_service');
+      await seedLicense(t.db, VENDOR, {
+        productId: CONNECTOR,
+        endedAt: '2026-01-01T00:00:00.000Z',
+        endReason: 'lapsed',
+      });
+      const res = await patch(CONNECTOR, { connector_kind: 'integration_platform' });
+      expect(res.status).toBe(200);
+      expect(await kindOf(CONNECTOR)).toBe('integration_platform');
+    });
+
+    it('allows a change between two kinds that both refuse, a legacy subscription included', async () => {
+      await setKind(CONNECTOR, 'integration_platform');
+      await seedLicense(t.db, VENDOR, { productId: CONNECTOR });
+      const res = await patch(CONNECTOR, { connector_kind: null });
+      expect(res.status).toBe(200);
+      expect(await kindOf(CONNECTOR)).toBeNull();
+    });
+
+    it('never refuses a hybrid, which may always hold a subscription', async () => {
+      await setKind(HYBRID, 'sync_service');
+      await seedLicense(t.db, VENDOR, { productId: HYBRID });
+      const res = await patch(HYBRID, { connector_kind: 'integration_platform' });
+      expect(res.status).toBe(200);
+      expect(await kindOf(HYBRID)).toBe('integration_platform');
+    });
+
+    it('refuses when a subscription lands on the product between the read and the batch', async () => {
+      await setKind(CONNECTOR, 'sync_service');
+      const original = t.db.batch.bind(t.db);
+      vi.spyOn(t.db, 'batch').mockImplementationOnce(async (queries) => {
+        await seedLicense(t.db, VENDOR, { productId: CONNECTOR });
+        return original(queries);
+      });
+      const res = await patch(CONNECTOR, { connector_kind: 'integration_platform' });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toMatchObject({ error: { code: 'CONNECTOR_KIND_SUBSCRIBED' } });
+      expect(await kindOf(CONNECTOR)).toBe('sync_service');
+      expect(await t.db.select().from(auditLog)).toHaveLength(0);
+    });
   });
 });

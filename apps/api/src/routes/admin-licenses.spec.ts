@@ -11,6 +11,7 @@ import {
   LEGAL_AGREEMENT_TEXT_SHA256,
   PLANS_PAGE_CURRENT_VERSION,
   plansPageSha256,
+  type ConnectorKind,
 } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
@@ -698,36 +699,52 @@ describe('a fully banned vendor is refused', () => {
   });
 });
 
-describe('connector vendors warn and never gate (AECI-738)', () => {
+describe('AECI-2044: a vendor with no product that can hold a subscription is refused', () => {
   beforeEach(async () => {
     await seedBillingAccount(t.db, VENDOR);
   });
 
-  async function ownProduct(id: string, role: string) {
+  async function ownProduct(id: string, role: string, kind: ConnectorKind | null = null) {
     await t.db
       .insert(products)
-      .values({ id, slug: `p-${id.slice(-3)}`, name: id, productRole: role });
+      .values({ id, slug: `p-${id.slice(-3)}`, name: id, productRole: role, connectorKind: kind });
     await t.db.insert(productVendors).values({ productId: id, vendorId: VENDOR });
   }
 
-  it('warns when every owned product is a connector, and still grants', async () => {
-    await ownProduct(u(30), 'connector');
-    await ownProduct(u(31), 'connector');
+  it.each<[string, ConnectorKind | null]>([
+    ['Integration platforms', 'integration_platform'],
+    ['connectors with no kind', null],
+  ])('refuses a vendor whose products are all %s, writing nothing', async (_label, kind) => {
+    await ownProduct(u(30), 'connector', kind);
+    await ownProduct(u(31), 'connector', 'integration_platform');
+    const { status, body } = await post(VENDOR, grant());
+    expect(status).toBe(409);
+    expect(body.error.code).toBe(ApiErrorCode.NO_SUBSCRIBABLE_PRODUCT);
+    expect(await readGrants()).toHaveLength(0);
+    expect(await readLicenses()).toHaveLength(0);
+    expect(await readAudit()).toHaveLength(0);
+  });
+
+  it('grants to a pure connector vendor that has a Sync Service, with no warning', async () => {
+    await ownProduct(u(30), 'connector', 'integration_platform');
+    await ownProduct(u(31), 'connector', 'sync_service');
     const { status, body } = await post(VENDOR, grant());
     expect(status).toBe(201);
-    expect(body.warnings).toEqual([expect.objectContaining({ code: 'pure_connector_vendor' })]);
+    expect(body.warnings).toEqual([]);
     expect(await readGrants()).toHaveLength(1);
   });
 
-  it('does not warn when one product is an endpoint', async () => {
-    await ownProduct(u(30), 'connector');
-    await ownProduct(u(31), 'hybrid');
-    const { body } = await post(VENDOR, grant());
+  it('grants to a mixed vendor whose connector is an Integration platform', async () => {
+    await ownProduct(u(30), 'connector', 'integration_platform');
+    await ownProduct(u(31), 'application');
+    const { status, body } = await post(VENDOR, grant());
+    expect(status).toBe(201);
     expect(body.warnings).toEqual([]);
   });
 
-  it('does not warn for a vendor with no products (unknown, not exempt)', async () => {
-    const { body } = await post(VENDOR, grant());
+  it('grants to a vendor with no products (unknown, not refused)', async () => {
+    const { status, body } = await post(VENDOR, grant());
+    expect(status).toBe(201);
     expect(body.warnings).toEqual([]);
   });
 });

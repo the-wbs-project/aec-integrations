@@ -2261,7 +2261,12 @@ For the same seat, the overview's "Editing is paused" row and the profile, produ
 notices say that profile and product details stay with the AECi team. They no longer say access
 comes "back on" or point at a renewal path. The rule is one function, `isCatalogueSeat` in
 `apps/web/src/app/vendor/vendor-capabilities.ts`, which the plan panel reads too. An ordinary
-never-arranged or lapsed vendor keeps the paused copy.
+never-arranged or lapsed vendor keeps the paused copy. **Narrowed by AECI-2044 (2026-11-24).**
+Since AECI-1367 every Free vendor has no license, so "a `connector`-role product" alone matched
+every Free vendor with one, a mixed vendor such as Rivets included. The seat's product is now
+`isCatalogueProduct`: a `connector` that is not a Sync Service AND that AECi holds a catalogue for
+(`VendorProduct.has_connector_catalog`). A Sync Service gets the ordinary panel and may buy Managed
+(ruling 6 on AECI-2035, `STAGE_2_PAID_TIERS_SPEC.md` §13.14).
 
 **The seat's screen landed (AECI-1083, 2026-09-24).** A Catalogue tab on the connector product in the
 vendor portal lists the catalogue's listings through a new read,

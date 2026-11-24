@@ -22,6 +22,7 @@ import rankingV1_2Md from '../../content/docs/trust/versions/how-ranking-works/v
 import plansV1_0Md from '../../content/docs/vendors/versions/plans/v1.0.md';
 import plansV1_1Md from '../../content/docs/vendors/versions/plans/v1.1.md';
 import plansV1_2Md from '../../content/docs/vendors/versions/plans/v1.2.md';
+import plansV1_3Md from '../../content/docs/vendors/versions/plans/v1.3.md';
 import { parseFrontmatter } from '../legal/legal-frontmatter';
 import { type DocsBlock, renderDocsBody } from './docs-markdown';
 import { DOCS_PAGE_VERSIONS, type DocsPageVersions } from './docs-page-versions';
@@ -45,6 +46,7 @@ const SOURCES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
     '1.0': plansV1_0Md,
     '1.1': plansV1_1Md,
     '1.2': plansV1_2Md,
+    '1.3': plansV1_3Md,
   },
   'trust/how-ranking-works': {
     '1.0': rankingV1_0Md,

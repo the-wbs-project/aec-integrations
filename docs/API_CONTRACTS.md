@@ -276,6 +276,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `GRANT_CONFLICT` | 409 | Vendor-claim grant would violate role/vendor exclusivity — the claimant account is a site `admin`, or is already linked to a different vendor (AECI-519; `details.reason` ∈ `already_admin` \| `other_vendor`). Also returned by `POST /api/vendor/seats/invites` when the address already holds a live invite, and by the invite accept when the redeemer is a site admin or belongs to another vendor (AECI-664) |
 | `CATALOG_REVIEW_MANAGED` | 409 | The inverse of `CATALOG_VENDOR_MANAGED` (AECI-724). A mapping edit (`PATCH /api/admin/connector-stub-mappings/:id` or `PATCH /api/vendor/connector-stub-mappings/:id`) addressed a catalogue whose `managed_by` is still `review`, so the review-app sync authors it and its next page would overwrite the edit. Nothing is written. Re-checked inside the batch by a sentinel, so a lane reclaimed mid-request also answers this. Resolved only by an operator handing the catalogue over through `PATCH /api/admin/connector-catalogs/:id` |
 | `CONNECTOR_KIND_NOT_CONNECTOR` | 409 | `PATCH /api/admin/products/:id/connector-kind` (AECI-2036) named an `application` product. Only a `connector` or `hybrid` product carries a kind. `details.product_role` names the product's role. Nothing is written. Also answered when a promote moved the product to `application` between the read and the batch: a sentinel aborts the batch |
+| `CONNECTOR_KIND_SUBSCRIBED` | 409 | `PATCH /api/admin/products/:id/connector-kind` (AECI-2044) would take a product that holds a live subscription (any vendor's) from a kind that can hold one to a kind that cannot: a Sync Service to Integration platform or blank. Nothing is written. Move or end the subscription first. A sentinel in the batch answers the same when a subscription lands after the read. |
 | `MAPPING_CONFLICT` | 409 | A mapping edit would collide with another row on the same listing (AECI-724): the same product twice (`connector_stub_mappings_pair_idx`), or a second listing-level decision (`connector_stub_mappings_decision_idx`). Nothing is written. Edit the other row instead |
 | `CATALOG_VENDOR_MANAGED` | 409 | The connector catalogue a promote page addresses is **vendor-managed** on AECi, so the review lane is frozen for it and the page was not written (AECI-720). Raised from `planConnectorCatalogPage` before any statement is built, so nothing at all is committed — no rows, no `promote_jobs` ledger row, no `audit_log` row — and it reaches the caller on the job poll, not the kick-off. Re-checked inside the page's batch by a sentinel (AECI-1084), so a catalogue flipped to `vendor` between plan and commit also answers this, with the whole batch rolled back. **Not re-sendable**, which is precisely why it is an error and not a `skipped[]` entry: every connector skip kind means "this could not be resolved *yet*". A catalogue returns to review authorship only through `PATCH /api/admin/connector-catalogs/:id` |
 | `INVALID_STATE_TRANSITION` | 422 | Attempted workflow transition is not allowed from current state. Also an expired link: a seat invite past `expires_at`, and since AECI-1435 a claim confirm link past its 7 days (`POST /api/requests/confirm`, `details.reason = 'expired'`). Also `PATCH /api/admin/license-grants/:id` on a grant that is not `pending_acceptance` (AECI-1615, `details.state`). A link that expired is a real request in the wrong state, not a missing resource, so this API answers 422 rather than minting a 410 |
@@ -380,6 +381,8 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `LICENSE_NOT_LIVE` | 409 | `POST /api/vendor/licenses/:id/assign` (AECI-1388) on a subscription that has ended. An ended subscription never goes back on a product; a new one is a new grant. Nothing is written |
 | `LICENSE_ALREADY_ASSIGNED` | 409 | `POST /api/vendor/licenses/:id/assign` (AECI-1388) on a subscription already on a product, including one assigned or ended between the read and the batch. Moving a subscription is an early-unassign request (`VENDOR_SIGNUP_PROCESS.md` §2 decision 11), never a reassign. Nothing is written |
 | `PRODUCT_ALREADY_LICENSED` | 409 | `POST /api/vendor/licenses/:id/assign` (AECI-1388) when the product already holds a live subscription from **any** vendor, a co-owner included. Pre-checked, and the loser of a race on the partial unique index `licenses_live_product_idx` gets the same `409`, never a `500`. Nothing is written. Also `POST /api/vendor/license-grants/:id/accept` (AECI-1615) when a ban-term product takes a live subscription between the read and the batch. A retry lands that subscription in the pool |
+| `PRODUCT_NOT_SUBSCRIBABLE` | 409 | `POST /api/vendor/licenses/:id/assign` (AECI-2044, ruling 6 on AECI-2035) named a product that cannot hold a Managed subscription: a `connector` whose kind is Integration platform or blank (`productTakesSubscription`). `details.product_role` and `details.connector_kind`. Nothing is written. A kind change that commits between the read and the batch trips a sentinel and answers the same. |
+| `NO_SUBSCRIBABLE_PRODUCT` | 409 | `POST /api/vendor/billing/checkout`, `POST /api/vendor/billing/licenses/add` and `POST /api/admin/vendors/:id/licenses` (AECI-2044) for a vendor that owns products and none that can hold a subscription. Before any Stripe call, and after the grant's replay and ban checks. Nothing is bought or written. A vendor with no product at all is not refused. |
 | `ADDRESS_NOT_ALLOWED_IN_URL` | 400 | `GET /api/admin/email/sends` was given an `address` parameter (AECI-1223). An address must never be in a URL, because both Workers log request URLs. Search with `POST /api/admin/email/sends/search` and the address in the body. `field: 'address'` |
 | `STRIPE_UNAVAILABLE` | 503 | The three Stripe routes (`POST /api/vendor/billing/checkout`, `/licenses/add`, `/portal`, AECI-1501) on a tier that does not sell through Stripe right now: `STRIPE_CHECKOUT_ENABLED` is not `"true"`, or `STRIPE_SECRET_KEY` or `PUBLIC_SITE_URL` is unset. The portal also raises it when its interval's config id is unset. `GET /api/vendor/billing` reports the same gate as `stripe_checkout_available: false`, so the tab never offers the button. Nothing is written |
 | `STRIPE_SUBSCRIPTION_EXISTS` | 409 | `POST /api/vendor/billing/checkout` (AECI-1501) when the billing account already has a live Stripe subscription in the requested interval, in D1 or in Stripe's own list for its customer (§6.14). Add subscriptions to it with `POST /api/vendor/billing/licenses/add`. `details.interval` names the Stripe subscription's interval. Nothing is written |
@@ -3596,7 +3599,8 @@ export const AdminSetConnectorKindResponseSchema = z.object({
 | 2 | Product exists | `404 NOT_FOUND` |
 | 3 | Role is `connector` or `hybrid` | `409 CONNECTOR_KIND_NOT_CONNECTOR` with `details.product_role` |
 | 4 | Value unchanged | `200 { changed: false }`. No write, no audit row, no purge |
-| 5 | One `db.batch`: a role sentinel, the `UPDATE` (with `updated_at`), the audit row | `200 { changed: true }`. A sentinel abort is the 409 of step 3 |
+| 5 | The change takes the product from a kind that can hold a subscription to one that cannot (`productTakesSubscription`, AECI-2044) while a live subscription sits on it | `409 CONNECTOR_KIND_SUBSCRIBED`. A hybrid is never refused. A change between two kinds that both refuse is allowed |
+| 6 | One `db.batch`: a role sentinel, a no-live-subscription sentinel when step 5 applies, the `UPDATE` (with `updated_at`), the audit row | `200 { changed: true }`. A sentinel abort re-reads and answers the 409 of step 5 or step 3 |
 
 The audit row is `product.updated` with `entity_type = 'product'`, before and after
 `{ connectorKind }`, `metadata { source: 'admin-panel', fields: ['connector_kind'] }`, and
@@ -4015,8 +4019,9 @@ vendor is never sold verification and receives a catalogue-maintenance seat inst
 fences the seat from paid state. A seat holds no subscription, so `vendors.verified`, which mirrors
 live subscriptions, stays false and the pair version-diff gate it drives stays closed. Only an admin
 subscription grant (`POST /api/admin/vendors/:id/licenses`) moves it, and since AECI-1615 only once
-the grant is accepted. Connector vendors and subscriptions
-are parked (`VENDOR_SIGNUP_PROCESS.md` §2, AECI-1343).
+the grant is accepted. Connector vendors and subscriptions were parked (`VENDOR_SIGNUP_PROCESS.md`
+§2, AECI-1343). Since AECI-2044 (ruling 6, 2026-11-24) a Sync Service product may hold one and an
+Integration platform may not (`STAGE_2_PAID_TIERS_SPEC.md` §13.14).
 
 **`entitlement_granted` is `z.literal(false)`, not `z.boolean()`.** The fence expressed as a
 type: an edit that composed this path with a subscription writer could not report the truth
@@ -4239,7 +4244,7 @@ export const GrantLicensesResponseSchema = z.object({
     ends_at: z.string().nullable(), reference: z.string().nullable(),
     assigned_product_id: z.string().nullable(), // always null on a grant
   })),
-  warnings: z.array(z.object({ code: z.enum(['pure_connector_vendor']), message: z.string() })),
+  warnings: z.array(z.object({ code: z.enum(['pure_connector_vendor']), message: z.string() })), // always [] since AECI-2044
 });
 ```
 
@@ -4284,8 +4289,12 @@ seat read and the batch aborts it with `409 VENDOR_SEATS_CHANGED`, nothing grant
 only when the grant is predicted to flip the mirror, because the pair-page version-diff
 gate reads it. No Algolia step.
 
-**Warnings, never a gate.** A vendor whose every owned product is a connector gets a
-`pure_connector_vendor` entry in `warnings`, and the grant still writes (AECI-738).
+**No product that can hold one is refused (AECI-2044).** After the replay and ban checks, a
+vendor that owns products and none that can hold a subscription (every one an Integration
+platform or a connector with no kind) answers `409 NO_SUBSCRIBABLE_PRODUCT` and nothing is
+written. A Sync Service, an application or a hybrid passes. A vendor with no product stays
+grantable. This replaced the AECI-738 `pure_connector_vendor` warning: `warnings` stays on the
+wire and is always empty.
 
 **Email.** Post-commit in `waitUntil`, `licenses-granted` to every unbanned seat and to
 `billing_accounts.billing_email` when set, each address once, keyed
@@ -8657,6 +8666,13 @@ deploy skew. It is read-only for the vendor: no vendor body accepts it, and only
 `PATCH /api/admin/products/:id/connector-kind` (§6.10) writes it. `null` on an
 `application`.
 
+**`has_connector_catalog` (AECI-2044).** `true` when the product is `connector`-role and AECi
+holds a connector catalogue for it that the vendor may maintain (`connectorCatalogProductIds`,
+the Catalog tab's own predicate). Defaulted to `false` for deploy skew. `GET /api/vendor/me` and
+both `PATCH /api/vendor/products/:id` responses carry it. The portal shows the plan panel's
+`catalogue` state and the overview's catalogue link only for a product with it set that is not a
+Sync Service (`isCatalogueProduct`).
+
 **`hidden` (AECI-1238, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6).** `vendor.hidden` and each `VendorProduct`'s `hidden` are `{ at, kind, reason } | null` (`VendorListingHiddenSchema`). They are set while AECi has hidden the record from the public site. `kind` is `complaint_under_review`, `lawful_order` or `defunct`. `reason` is the vendor-visible reason. The internal note is never here. The portal shows a banner from it and keeps every edit working.
 
 `VendorRequestSummary` deliberately omits `submitter_email` and the free-text `body` — a correction may be filed by a member of the public.
@@ -8906,7 +8922,8 @@ export const VendorBillingLicenseSchema = z.object({
   `id` breaking ties. The dates are the stored ISO strings, as on the admin read (§6.10).
 - **`open_release_request`** is the subscription's `status = 'open'` row in
   `license_release_requests`, at most one by the partial unique index.
-- **`assignable_products`** are the products the vendor owns (`product_vendors`) that hold no
+- **`assignable_products`** are the products the vendor owns (`product_vendors`) that can hold a
+  subscription (an application, a hybrid or a Sync Service, AECI-2044) and hold no
   live subscription from **any** vendor. A co-owned product subscribed by the other owner is left
   out. Sorted by name case-insensitively, `id` breaking ties (§3.2).
 - **`pool_count`** (AECI-1865) is every live subscription on no product, counted in the same
@@ -8970,8 +8987,12 @@ caller does not own (`product_vendors`), or no such product, is `404 NOT_FOUND`.
 subscription is `409 LICENSE_NOT_LIVE`. A subscription already on a product is
 `409 LICENSE_ALREADY_ASSIGNED`: moving it is an early-unassign request (decision 11). A
 product that already holds a live subscription from any vendor, a co-owner included, is
-`409 PRODUCT_ALREADY_LICENSED`. That last check runs before the batch, and the loser of a
-race on `licenses_live_product_idx` gets the same `409`.
+`409 PRODUCT_ALREADY_LICENSED`. That check runs before the batch, and the loser of a
+race on `licenses_live_product_idx` gets the same `409`. A product that cannot hold a
+subscription, a `connector` whose kind is Integration platform or blank, is `409
+PRODUCT_NOT_SUBSCRIBABLE` with `details.product_role` and `details.connector_kind` (AECI-2044,
+ruling 6). A Sync Service, an application and a hybrid pass. A sentinel leads the batch, so a kind
+change that commits after the read answers the same `409`.
 
 **Release at renewal, in order.** Owner, shape and the subscription `404` as above. An ended
 or unassigned subscription is `409 LICENSE_NOT_ASSIGNED`. A body that matches the stored flag is
@@ -8997,7 +9018,7 @@ Source of truth: `packages/shared/src/api/vendor-billing.ts`, handler
 
 Errors: `UNAUTHENTICATED` (401) · `FORBIDDEN` (403) · `VALIDATION_FAILED` and
 `MALFORMED_REQUEST` (400) · `NOT_FOUND` (404) · `LICENSE_NOT_LIVE`, `LICENSE_ALREADY_ASSIGNED`,
-`PRODUCT_ALREADY_LICENSED` (409, assign) · `LICENSE_NOT_ASSIGNED` (409, PATCH) ·
+`PRODUCT_ALREADY_LICENSED`, `PRODUCT_NOT_SUBSCRIBABLE` (409, assign) · `LICENSE_NOT_ASSIGNED` (409, PATCH) ·
 `RATE_LIMITED` (429).
 
 #### `PUT /api/vendor/billing/email` (AECI-1389)
@@ -9140,8 +9161,10 @@ counted in the same D1 batch as the pool, after the Stripe read (`loadPurchaseCo
 count taken before the Stripe read would miss a webhook that commits during it, and that
 webhook's subscriptions would then count twice: once in the pool and once in the gap.
 Products without a subscription are the read's `assignable_products`
-predicate (`assignableProductsWhere`): owned through `product_vendors`, holding no live license
-from any vendor. The server counts both itself (`loadPurchaseCounts`) and never trusts the
+predicate (`assignableProductsWhere`): owned through `product_vendors`, able to hold a
+subscription (AECI-2044), holding no live license from any vendor. Before the gate, checkout and
+add answer `409 NO_SUBSCRIBABLE_PRODUCT` when the vendor owns products and none can hold a
+subscription (AECI-2044). The server counts both itself (`loadPurchaseCounts`) and never trusts the
 client. When `unused` is above zero and the body's `unused_acknowledged` is not exactly
 `unused`, the route answers `409 UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED` with `details.unused`,
 `details.pool` and `details.products_without_subscription`, before any Stripe write. An exact
@@ -9272,7 +9295,7 @@ Source of truth: `packages/shared/src/api/vendor-billing.ts`, handler
 Errors: `VALIDATION_FAILED` and `MALFORMED_REQUEST` (400) · `UNAUTHENTICATED` (401) ·
 `FORBIDDEN` (403) · `NOT_FOUND` (404, no billing account) · `STRIPE_SUBSCRIPTION_EXISTS`,
 `LICENSE_INTERVAL_MISMATCH` (409, checkout) · `UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED` (409,
-checkout and add, AECI-1865) · `STRIPE_SUBSCRIPTION_REQUIRED` (409, add, and
+checkout and add, AECI-1865) · `NO_SUBSCRIBABLE_PRODUCT` (409, checkout and add, AECI-2044) · `STRIPE_SUBSCRIPTION_REQUIRED` (409, add, and
 portal with no Stripe customer) · `STRIPE_PAYMENT_INCOMPLETE` (409, add whose invoice was not
 paid) · `RATE_LIMITED` (429) · `STRIPE_UNAVAILABLE`, `DEPENDENCY_FAILURE` (503).
 

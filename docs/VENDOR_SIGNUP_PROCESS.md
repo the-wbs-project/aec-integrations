@@ -159,7 +159,7 @@ Ruled 2026-11-05 (Chris, on counsel's answers, AECI-1363). The draft agreements 
 Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344, in order):
 
 - Teams within a vendor: several billing accounts, each owning products.
-- Connector vendors and subscriptions.
+- Connector vendors and subscriptions. *Ruled 2026-11-24 for Sync Services (ruling 6 on epic AECI-2035, built by AECI-2044): "Managed stays the rich-profile plan. A Sync Service may buy it. An Integration platform may not, for now." A subscription can be bought for, granted to and assigned to an application, a hybrid or a Sync Service product. Checkout, add and the admin grant refuse a vendor that owns only Integration platforms or unclassified connectors (`409 NO_SUBSCRIBABLE_PRODUCT`), and the assign refuses such a product (`409 PRODUCT_NOT_SUBSCRIBABLE`). A subscription already on a product stays there. AECI-1343 stays parked for Integration platforms. `STAGE_2_PAID_TIERS_SPEC.md` §13.14.*
 - Sales tax, and whether $250 up front is recognised over twelve months (accountant). *Sales tax
   collection is settled: Stripe Tax is on (ruled 2026-10-20, above). Revenue recognition stays parked.*
 

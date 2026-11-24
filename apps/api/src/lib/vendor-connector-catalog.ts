@@ -2,7 +2,7 @@
  * Which connector catalogues a vendor may read and edit (AECI-1083 —
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.16).
  *
- * ONE predicate, three readers:
+ * ONE predicate, four readers:
  *
  *   - `GET /api/vendor/products/:id/connector-catalog` — the Catalogue tab's read;
  *   - `GET /api/vendor/updates` — the `catalogue` cursor scope;
@@ -10,7 +10,8 @@
  *     ownership check (`routes/vendor-connector-stub-mappings.ts`) is the same three
  *     clauses. That route is AECI-724's and is deliberately not edited here; the
  *     lockstep between the two is pinned by `routes/vendor-connector-catalog.spec.ts`,
- *     which asserts that every row the read shows is one the PATCH accepts.
+ *     which asserts that every row the read shows is one the PATCH accepts;
+ *   - `VendorProduct.has_connector_catalog` (AECI-2044, {@link connectorCatalogProductIds}).
  *
  * The clauses: the catalogue's `connector_product_id` is held by the caller's vendor
  * through `product_vendors`, AND that product is `connector`-role. A vendor holding
@@ -25,7 +26,7 @@
  * catalogue. Both import this function for that reason.
  */
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { connectorCatalogs, productVendors, products } from '../db/schema';
@@ -39,4 +40,18 @@ export function ownedConnectorCatalogIds(db: Db, vendorId: string) {
     .innerJoin(productVendors, eq(productVendors.productId, connectorCatalogs.connectorProductId))
     .innerJoin(products, eq(products.id, connectorCatalogs.connectorProductId))
     .where(and(eq(productVendors.vendorId, vendorId), eq(products.productRole, 'connector')));
+}
+
+/**
+ * The products whose catalogue the vendor may maintain, through the same predicate
+ * (AECI-2044). `GET /api/vendor/me` and the product PATCH stamp
+ * `VendorProduct.has_connector_catalog` from it, so the plan panel's `catalogue` state
+ * and the overview link appear only where the Catalog tab has a catalogue to show.
+ */
+export async function connectorCatalogProductIds(db: Db, vendorId: string): Promise<Set<string>> {
+  const rows = await db
+    .select({ productId: connectorCatalogs.connectorProductId })
+    .from(connectorCatalogs)
+    .where(inArray(connectorCatalogs.id, ownedConnectorCatalogIds(db, vendorId)));
+  return new Set(rows.map((row) => row.productId));
 }

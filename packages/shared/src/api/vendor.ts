@@ -272,6 +272,11 @@ export const VendorProductSchema = z.object({
   // read-only for the vendor. `null` is unclassified, and always `null` on an
   // `application`. Defaulted so an older payload still parses.
   connector_kind: ConnectorKindSchema.nullable().default(null),
+  // AECI-2044: `true` when this is a `connector` product AECi holds a connector
+  // catalogue for (`connector_catalogs`, the Catalog tab's read). Only such a product
+  // is the §8.9 catalogue-maintenance seat's (`isCatalogueProduct` in the portal).
+  // Defaulted so an older payload still parses.
+  has_connector_catalog: z.boolean().default(false),
   integration_count: z.number().int().min(0),
   review_count: z.number().int().min(0),
   updated_at: z.string().datetime(),

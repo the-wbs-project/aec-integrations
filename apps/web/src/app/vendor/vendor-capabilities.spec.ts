@@ -6,22 +6,55 @@ import type { VendorMeResponse } from '@aeci/shared';
 
 import {
   integrationCanAuthor,
+  isCatalogueProduct,
   isCatalogueSeat,
   productCan,
   vendorCan,
 } from './vendor-capabilities';
 import type { VendorPortalStore } from './vendor-portal-store';
 
-const connector = { product_role: 'connector' };
-const application = { product_role: 'application' };
+/** An Integration platform AECi holds a catalogue for: the §8.9 seat's product. */
+const connector = {
+  product_role: 'connector',
+  connector_kind: 'integration_platform',
+  has_connector_catalog: true,
+};
+const application = { product_role: 'application', has_connector_catalog: false };
 
 /**
- * The §8.9 catalogue-seat rule (`STAGE_2_SPEC.md` §8.9, AECI-724 / AECI-1082).
- * The plan panel and the read-only notices both read it, so it is pinned once here.
+ * The §8.9 catalogue-seat rule (`STAGE_2_SPEC.md` §8.9, AECI-724 / AECI-1082, narrowed
+ * by AECI-2044). The plan panel, the overview links and the read-only notices all read
+ * it, so it is pinned once here.
  */
 describe('isCatalogueSeat', () => {
-  it('is true with no entitlement row and a connector-role product', () => {
+  it('is true for a pure platform vendor with no license and a catalogue', () => {
+    expect(isCatalogueSeat(null, [connector])).toBe(true);
+    // A connector with no kind and a catalogue is still the seat's product.
+    expect(isCatalogueSeat(null, [{ ...connector, connector_kind: null }])).toBe(true);
+  });
+
+  it('is false for a pure platform vendor whose connector has no catalogue', () => {
+    expect(isCatalogueSeat(null, [{ ...connector, has_connector_catalog: false }])).toBe(false);
+    // A payload from before AECI-2044, with no catalogue field, reads closed.
+    expect(isCatalogueSeat(null, [{ product_role: 'connector' }])).toBe(false);
+  });
+
+  it('is false for a Sync Service, which may buy Managed (ruling 6)', () => {
+    const sync = { product_role: 'connector', connector_kind: 'sync_service' };
+    expect(isCatalogueSeat(null, [sync])).toBe(false);
+    // Even if a catalogue row exists for it, a Sync Service is not the seat's product.
+    expect(isCatalogueSeat(null, [{ ...sync, has_connector_catalog: true }])).toBe(false);
+  });
+
+  it('is false for a mixed Free vendor such as Rivets: applications and a Sync Service', () => {
+    const sync = { product_role: 'connector', connector_kind: 'sync_service' };
+    expect(isCatalogueSeat(null, [application, application, sync])).toBe(false);
+  });
+
+  it('is true for a mixed Free vendor that also has a catalogued platform', () => {
     expect(isCatalogueSeat(null, [application, connector])).toBe(true);
+    expect(isCatalogueProduct(application)).toBe(false);
+    expect(isCatalogueProduct(connector)).toBe(true);
   });
 
   it('is false for a never-arranged vendor with no connector product', () => {

@@ -10,6 +10,7 @@ import {
   ApiErrorCode,
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
   PLANS_PAGE_CURRENT_VERSION,
+  type ConnectorKind,
 } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
@@ -1259,5 +1260,71 @@ describe('the unused-subscriptions gate (AECI-1865)', () => {
 
     const { status } = await call('licenses/add', { quantity: 1 });
     expect(status).toBe(200);
+  });
+});
+
+describe('AECI-2044: products that can hold a subscription (ruling 6)', () => {
+  /** Leave the vendor with exactly these connector products, none holding a license. */
+  async function onlyConnectors(kinds: readonly (ConnectorKind | null)[]): Promise<void> {
+    await t.db.delete(productVendors);
+    await t.db.delete(products);
+    await t.db.insert(products).values(
+      kinds.map((kind, i) => ({
+        id: `c-${i + 1}`,
+        slug: `c-${i + 1}`,
+        name: `c-${i + 1}`,
+        promotionStatus: 'promoted' as const,
+        productRole: 'connector',
+        connectorKind: kind,
+      })),
+    );
+    await t.db
+      .insert(productVendors)
+      .values(
+        kinds.map((_, i) => ({ productId: `c-${i + 1}`, vendorId: VENDOR, isPrimary: true })),
+      );
+  }
+
+  const buy = (quantity: number, extra: Record<string, unknown> = {}) =>
+    call('checkout', { quantity, interval: 'year', signer_title: 'CEO', ...extra });
+
+  it('refuses checkout before Stripe when every product is an Integration platform or blank', async () => {
+    const account = await seedBillingAccount(t.db, VENDOR);
+    await linkCustomer(account);
+    await onlyConnectors(['integration_platform', null]);
+
+    const { status, body } = await buy(1, { unused_acknowledged: 1 });
+    expect(status).toBe(409);
+    expect(body.error.code).toBe(ApiErrorCode.NO_SUBSCRIBABLE_PRODUCT);
+    expect(stripe.listSubscriptions).not.toHaveBeenCalled();
+    expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it('refuses an add before Stripe for the same vendor', async () => {
+    await seedStripeLicense('year');
+    await onlyConnectors(['integration_platform']);
+    const { status, body } = await call('licenses/add', { quantity: 1 });
+    expect(status).toBe(409);
+    expect(body.error.code).toBe(ApiErrorCode.NO_SUBSCRIBABLE_PRODUCT);
+    expect(stripe.retrieveSubscription).not.toHaveBeenCalled();
+    expect(stripe.updateSubscription).not.toHaveBeenCalled();
+  });
+
+  it('opens Checkout for a Sync Service, and counts only it as a product without one', async () => {
+    const account = await seedBillingAccount(t.db, VENDOR);
+    await linkCustomer(account);
+    await onlyConnectors(['sync_service', 'integration_platform']);
+
+    // Two subscriptions and one product that can hold one: one would be unused.
+    const refused = await buy(2);
+    expect(refused.status).toBe(409);
+    expect(refused.body.error).toMatchObject({
+      code: ApiErrorCode.UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED,
+      details: { unused: 1, products_without_subscription: 1 },
+    });
+
+    const { status } = await buy(1);
+    expect(status).toBe(200);
+    expect(stripe.createCheckoutSession).toHaveBeenCalledTimes(1);
   });
 });

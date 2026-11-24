@@ -24,7 +24,12 @@
  *     early-unassign request (decision 11), never a reassign;
  *   - product already holds a live license from ANY vendor, a co-owner included:
  *     `409 PRODUCT_ALREADY_LICENSED`. Pre-checked, and a lost race on the partial
- *     unique index `licenses_live_product_idx` maps to the same `409`, never a 500.
+ *     unique index `licenses_live_product_idx` maps to the same `409`, never a 500;
+ *   - product cannot hold a subscription: a `connector` whose kind is Integration
+ *     platform or blank (AECI-2044, ruling 6, `productTakesSubscription`): `409
+ *     PRODUCT_NOT_SUBSCRIBABLE`. A Sync Service, an application and a hybrid pass.
+ *     `productStillSubscribableSentinel` leads the batch, so a kind change that commits
+ *     after the read aborts it, and the re-read answers the same `409`.
  *
  * Release at renewal:
  *   - license not the caller's: `404`; ended or on no product: `409
@@ -32,7 +37,8 @@
  *
  * ── ONE BATCH ────────────────────────────────────────────────────────────────
  * The `lib/license.ts` builder's statements (the guarded UPDATE, its audit row, the
- * mirror reconcile) with `source: 'vendor-portal'`. Two changes to its batch:
+ * mirror reconcile) with `source: 'vendor-portal'`. Three changes to its batch:
+ *   - on an assign, {@link productStillSubscribableSentinel} first (AECI-2044);
  *   - a {@link changedOneRowSentinel} straight after the UPDATE, so a race lost
  *     between the read and the commit writes nothing at all, audit row included;
  *   - the audit row is rebuilt through `vendorAuditEntry` (AECI-1192), so the row and
@@ -46,6 +52,7 @@
 import {
   ApiErrorCode,
   AssignLicenseRequestSchema,
+  productTakesSubscription,
   UpdateLicenseRequestSchema,
   VendorLicenseResponseSchema,
   type VendorLicenseResponse,
@@ -67,6 +74,10 @@ import {
   type LicenseBatch,
 } from '../lib/license';
 import { changedOneRowSentinel, isReleaseRaceError } from '../lib/license-release-requests';
+import {
+  productNotSubscribableError,
+  productStillSubscribableSentinel,
+} from '../lib/subscribable-products';
 import { toVendorBillingLicense, vendorLicenseSelect } from './vendor-billing';
 import {
   afterVendorWrite,
@@ -188,7 +199,12 @@ export function createAssignVendorLicenseHandler(
     const [{ vendor, vendorLicenses }, [product], [liveOnProduct]] = await Promise.all([
       loadContext(db, vendorId),
       db
-        .select({ id: products.id, slug: products.slug })
+        .select({
+          id: products.id,
+          slug: products.slug,
+          productRole: products.productRole,
+          connectorKind: products.connectorKind,
+        })
         .from(productVendors)
         .innerJoin(products, eq(products.id, productVendors.productId))
         .where(and(eq(productVendors.productId, productId), eq(productVendors.vendorId, vendorId)))
@@ -207,6 +223,11 @@ export function createAssignVendorLicenseHandler(
     if (license.endedAt !== null) throw notLive();
     if (license.assignedProductId !== null) throw alreadyAssigned();
     if (liveOnProduct) throw productLicensed();
+    // AECI-2044 (ruling 6): an Integration platform, or a connector with no kind, holds
+    // no subscription. A Sync Service does.
+    if (!productTakesSubscription(product.productRole, product.connectorKind)) {
+      throw productNotSubscribableError(product.productRole, product.connectorKind ?? null);
+    }
 
     const batch = assignLicenseStatements(db, {
       vendorId,
@@ -223,12 +244,24 @@ export function createAssignVendorLicenseHandler(
     if (batch.auditEntries.length === 0) throw alreadyAssigned();
 
     try {
-      await db.batch(vendorLicenseStatements(c, db, batch) as BatchTuple);
+      await db.batch([
+        productStillSubscribableSentinel(db, productId),
+        ...vendorLicenseStatements(c, db, batch),
+      ] as BatchTuple);
     } catch (error) {
       if (isLiveProductConflict(error)) throw productLicensed();
-      // The guarded UPDATE matched nothing: the license was assigned or ended since
-      // the read.
-      if (isReleaseRaceError(error)) throw alreadyAssigned();
+      if (isReleaseRaceError(error)) {
+        // Two sentinels share the `json()` abort. Re-read to tell them apart: an admin
+        // kind change since the read, or the license assigned or ended since the read.
+        const [current] = await db
+          .select({ productRole: products.productRole, connectorKind: products.connectorKind })
+          .from(products)
+          .where(eq(products.id, productId));
+        if (current && !productTakesSubscription(current.productRole, current.connectorKind)) {
+          throw productNotSubscribableError(current.productRole, current.connectorKind ?? null);
+        }
+        throw alreadyAssigned();
+      }
       throw error;
     }
 

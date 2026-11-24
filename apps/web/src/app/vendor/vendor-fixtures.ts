@@ -347,6 +347,7 @@ const PRIMARY_PRODUCT: VendorProduct = {
   trade_slugs: [],
   product_role: 'application',
   connector_kind: null,
+  has_connector_catalog: false,
   integration_count: 14,
   review_count: 6,
   updated_at: '2026-07-18T12:00:00.000Z',
@@ -373,6 +374,7 @@ const SECONDARY_PRODUCT: VendorProduct = {
   trade_slugs: ['hvac-mechanical', 'electrical'],
   product_role: 'application',
   connector_kind: null,
+  has_connector_catalog: false,
   integration_count: 3,
   review_count: 0,
   updated_at: '2026-07-02T09:30:00.000Z',
@@ -485,8 +487,8 @@ export const VENDOR_ME_UNVERIFIED_FIXTURE: VendorMeResponse = {
 
 /**
  * The connector catalogue-maintenance seat (AECI-724, `STAGE_2_SPEC.md` §8.9): a
- * pure iPaaS vendor handed a seat by the AECI-740 provision, so NO entitlement row
- * (`status: null`) and one `connector`-role product. The plan panel renders its
+ * pure iPaaS vendor with NO license (`status: null`) and one Integration platform
+ * product AECi holds a catalogue for (AECI-2044). The plan panel renders its
  * `catalogue` state for this, never the `none` upsell.
  */
 export const VENDOR_ME_CONNECTOR_SEAT_FIXTURE: VendorMeResponse = withProductPlans({
@@ -503,7 +505,9 @@ export const VENDOR_ME_CONNECTOR_SEAT_FIXTURE: VendorMeResponse = withProductPla
       slug: 'agave',
       name: 'Agave',
       product_role: 'connector',
-      connector_kind: null,
+      // AECI-2044: the seat is an Integration platform's, with a catalogue to maintain.
+      connector_kind: 'integration_platform',
+      has_connector_catalog: true,
       integration_count: 0,
       review_count: 0,
     },

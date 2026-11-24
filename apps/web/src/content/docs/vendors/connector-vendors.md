@@ -19,7 +19,9 @@ The AEC Integrations team sets the kind. A connector we have not classified yet 
 
 ## Your seat
 
-A vendor whose products are all connectors is not invoiced for a seat. It can have a catalog-maintenance seat instead, which covers its connector listings, the products each connector reaches, and the evidence for each. In the portal, the plan panel says the seat maintains your connector catalog, and its plan badge reads **Free**.
+A vendor whose products are all connectors is not invoiced for a seat. It can have a catalog-maintenance seat instead, which covers its connector listings, the products each connector reaches, and the evidence for each. In the portal, the plan panel of a connector product we hold a catalog for says the seat maintains your connector catalog, and its plan badge reads **Free**.
+
+A Sync Service product can hold a Managed subscription, like an application. An integration platform cannot. See [Which products can hold a subscription](/docs/vendors/plans#which-products-can-hold-a-subscription).
 
 That seat is on the Free plan. Like any Free seat, it can edit your company details and each product's description, website, logo and categories. The other product details stay with the AEC Integrations team.
 

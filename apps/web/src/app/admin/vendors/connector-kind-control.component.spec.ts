@@ -103,4 +103,23 @@ describe('ConnectorKindControl', () => {
     );
     expect(saved).not.toHaveBeenCalled();
   });
+
+  it('says so when a live subscription blocks the change (AECI-2044)', async () => {
+    api.setConnectorKind.mockRejectedValueOnce(
+      new HttpErrorResponse({
+        status: 409,
+        error: { error: { code: 'CONNECTOR_KIND_SUBSCRIBED' } },
+      }),
+    );
+    const { fixture, el, select, saveButton, saved } = await setup('sync_service');
+    select.changed.emit('integration_platform');
+    fixture.detectChanges();
+    saveButton().click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(el.querySelector('[role="alert"]')?.textContent).toContain(
+      'This product holds a live Managed subscription',
+    );
+    expect(saved).not.toHaveBeenCalled();
+  });
 });

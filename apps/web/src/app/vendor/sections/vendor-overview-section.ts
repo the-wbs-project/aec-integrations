@@ -30,7 +30,7 @@ import {
 } from '../overview/vendor-overview-model';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
-import { vendorCan, vendorIsCatalogueSeat } from '../vendor-capabilities';
+import { isCatalogueProduct, vendorCan, vendorIsCatalogueSeat } from '../vendor-capabilities';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 /** The presentational half of a {@link NeedsItem}: what the row says. */
@@ -155,14 +155,14 @@ interface NeedsRow {
           </div>
         </div>
 
-        @if (catalogueSeat() && connectorProducts().length > 0) {
+        @if (catalogueSeat() && catalogueProducts().length > 0) {
           <!--
             AECI-1083: where the catalogue seat's work is. Navigation, not a call
             to action, so a plain link per connector product. Outside the paused
             box because the seat keeps the Free edits, so it is not paused.
           -->
           <div>
-            @for (p of connectorProducts(); track p.slug) {
+            @for (p of catalogueProducts(); track p.slug) {
               <p class="text-sm">
                 <a
                   [routerLink]="['..', 'products', p.slug, 'catalogue']"
@@ -409,8 +409,9 @@ export class VendorOverviewSection {
   private readonly canAttest = vendorCan(this.store, 'attestation.author');
   /** The §8.9 connector seat (AECI-1082): the paused row speaks to it differently. */
   protected readonly catalogueSeat = vendorIsCatalogueSeat(this.store);
-  protected readonly connectorProducts = computed(
-    () => this.store.me()?.products.filter((p) => p.product_role === 'connector') ?? [],
+  /** AECI-2044: only the products with a catalogue to maintain, never a Sync Service. */
+  protected readonly catalogueProducts = computed(
+    () => this.store.me()?.products.filter(isCatalogueProduct) ?? [],
   );
   protected catalogueLinkLabel(name: string): string {
     return $localize`:@@vendor.plan.catalogue.link:Open the ${name}:PRODUCT: catalog`;

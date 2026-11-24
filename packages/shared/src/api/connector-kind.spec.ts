@@ -5,6 +5,7 @@ import {
   connectorKindFor,
   isConnectorKind,
   isSyncService,
+  productTakesSubscription,
   roleTakesConnectorKind,
 } from './connector-kind';
 import { AdminSetConnectorKindSchema, ConnectorKindSchema } from './connector-kind-schema';
@@ -81,5 +82,27 @@ describe('connector kind schemas (AECI-2036)', () => {
     });
     expect(item.connector_kind).toBeNull();
     expect(VendorProductSchema.shape.connector_kind.parse(undefined)).toBeNull();
+  });
+});
+
+describe('productTakesSubscription (AECI-2044, ruling 6)', () => {
+  it('lets an application and a hybrid hold a subscription, whatever the kind', () => {
+    expect(productTakesSubscription('application', null)).toBe(true);
+    expect(productTakesSubscription('hybrid', null)).toBe(true);
+    expect(productTakesSubscription('hybrid', 'integration_platform')).toBe(true);
+    expect(productTakesSubscription('hybrid', 'sync_service')).toBe(true);
+  });
+
+  it('lets a connector hold one only when it is a Sync Service', () => {
+    expect(productTakesSubscription('connector', 'sync_service')).toBe(true);
+    expect(productTakesSubscription('connector', 'integration_platform')).toBe(false);
+    expect(productTakesSubscription('connector', null)).toBe(false);
+    expect(productTakesSubscription('connector', 'something-else')).toBe(false);
+  });
+
+  it('fails closed on an unknown or missing role', () => {
+    expect(productTakesSubscription('platform', 'sync_service')).toBe(false);
+    expect(productTakesSubscription(null, null)).toBe(false);
+    expect(productTakesSubscription(undefined, 'sync_service')).toBe(false);
   });
 });

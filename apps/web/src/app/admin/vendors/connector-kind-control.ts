@@ -116,6 +116,10 @@ function messageForError(err: unknown): string {
     if (code === 'CONNECTOR_KIND_NOT_CONNECTOR') {
       return $localize`:@@admin.vendors.products.connectorKind.error.notConnector:This product is no longer a connector, so it has no kind. Reload the page.`;
     }
+    // AECI-2044: only a Sync Service among connectors can hold a subscription.
+    if (code === 'CONNECTOR_KIND_SUBSCRIBED') {
+      return $localize`:@@admin.vendors.products.connectorKind.error.subscribed:This product holds a live Managed subscription, and that kind cannot hold one. Move or end the subscription first.`;
+    }
     if (err.status === 404) {
       return $localize`:@@admin.vendors.products.connectorKind.error.gone:This product no longer exists. Reload the page.`;
     }

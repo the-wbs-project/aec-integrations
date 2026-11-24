@@ -92,8 +92,10 @@ export type AdminGrantedLicense = z.infer<typeof AdminGrantedLicenseSchema>;
 
 /**
  * A condition the operator should know about that did not stop the grant (AECI-738:
- * warn, never gate). `pure_connector_vendor`: every product the vendor owns is a
- * connector, and connector vendors and licenses are parked (AECI-1343).
+ * warn, never gate). `pure_connector_vendor` was sent when every product the vendor
+ * owns is a connector. Since AECI-2044 the server sends none: a vendor with no product
+ * that can hold a subscription is refused (`409 NO_SUBSCRIBABLE_PRODUCT`) instead. The
+ * field and the code stay on the wire so an older client still parses.
  */
 export const GrantLicensesWarningSchema = z.object({
   code: z.enum(['pure_connector_vendor']),

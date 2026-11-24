@@ -17,7 +17,7 @@
 
 **The trust invariant is unchanged and non-negotiable: no pay-for-placement.** Entitlements gate **profile richness and portal capability only** — never ranking, placement, or badge trust. Search stays purely algorithmic (`STAGE_1_SPEC.md` §1 principles; `CLAUDE.md` constraints). In this epic that invariant stops being a documented promise and becomes an **asserted property** (§3.2).
 
-**The launch model began concierge (`STAGE_2_SPEC.md` §8.1).** Vendors pay, always — and since **§8.8** (AECI-702) the vendor who pays is the **endpoint** vendor: a connector surface is not invoiced. What a pure connector vendor gets in return for its catalogue feed is settled by **§8.9** (AECI-704): a catalogue-maintenance seat on its own catalogue(s) that holds **no subscription**. So nothing in this document applies to one, and the mirror never flips for it. **Since §8.10 (2026-09-18, AECI-1017) a connector vendor also pays when it owns integrations it manages:** a third-party owner holds an ordinary Managed subscription, and §8.9 covers only a connector vendor that owns no integration it manages. *Superseded 2026-11-09 by ruling 14 (AECI-1663, recorded by AECI-1653): a connector vendor that owns integrations it manages pays nothing for them — "Managing an owned integration needs a seat, not a payment. Any seat may manage, a §8.9 catalogue-maintenance seat included" (`STAGE_2_SPEC.md` §8.10(1)(b)). A third-party owner may hold a Managed subscription on its own products, but ownership triggers no payment. §8.9's scope line — a connector vendor that owns no integration it manages — stands unchanged.* Connector vendors and subscriptions are parked (`VENDOR_SIGNUP_PROCESS.md` §2, AECI-1343). An admin grants invoice and complimentary subscriptions by hand from the vendor's Billing tab (§5.6.1). Card payment through Stripe Checkout is built (E9, ADR 0047). It stays off in production until the switch-on, behind `STRIPE_CHECKOUT_ENABLED` (`VENDOR_SIGNUP_PROCESS.md` §5 E9).
+**The launch model began concierge (`STAGE_2_SPEC.md` §8.1).** Vendors pay, always — and since **§8.8** (AECI-702) the vendor who pays is the **endpoint** vendor: a connector surface is not invoiced. What a pure connector vendor gets in return for its catalogue feed is settled by **§8.9** (AECI-704): a catalogue-maintenance seat on its own catalogue(s) that holds **no subscription**. So nothing in this document applies to one, and the mirror never flips for it. **Since §8.10 (2026-09-18, AECI-1017) a connector vendor also pays when it owns integrations it manages:** a third-party owner holds an ordinary Managed subscription, and §8.9 covers only a connector vendor that owns no integration it manages. *Superseded 2026-11-09 by ruling 14 (AECI-1663, recorded by AECI-1653): a connector vendor that owns integrations it manages pays nothing for them — "Managing an owned integration needs a seat, not a payment. Any seat may manage, a §8.9 catalogue-maintenance seat included" (`STAGE_2_SPEC.md` §8.10(1)(b)). A third-party owner may hold a Managed subscription on its own products, but ownership triggers no payment. §8.9's scope line — a connector vendor that owns no integration it manages — stands unchanged.* Connector vendors and subscriptions were parked (`VENDOR_SIGNUP_PROCESS.md` §2, AECI-1343). *Ruled 2026-11-24 for Sync Services (ruling 6 on AECI-2035, AECI-2044): a Sync Service product may hold a Managed subscription. An Integration platform, or a connector with no kind, may not, and AECI-1343 stays open for it (§13.14).* An admin grants invoice and complimentary subscriptions by hand from the vendor's Billing tab (§5.6.1). Card payment through Stripe Checkout is built (E9, ADR 0047). It stays off in production until the switch-on, behind `STRIPE_CHECKOUT_ENABLED` (`VENDOR_SIGNUP_PROCESS.md` §5 E9).
 
 **What "free" means, precisely.** The free/default state is the **unclaimed, AECi-curated baseline** — the full Stage 1/1.5 directory entry, free to read, rendering no account-status label. Paying buys the vendor the ability to *act* on their own record. It buys the reader nothing and costs the reader nothing. **§8.8 exempts the connector surface from being invoiced at all** (the connector product, its catalogue and its reach; since §8.10, not an integration a connector vendor owns and manages), and **§8.9 settles what a pure connector vendor receives instead** — a catalogue-maintenance seat that deliberately holds **no** subscription. The mirror forces that shape: *any* live subscription flips `vendors.verified`, whatever it is for. The public label it once drove is gone (AECI-1264), and the claim button no longer reads it (AECI-1266). The version-diff gate still does (§3.3(c)).
 
@@ -473,7 +473,7 @@ There are four distinct "take it away" actions. An admin clicking the wrong one 
 
 The subscription revoke carries its copy invariant. The revoke confirm on the Billing tab (`license-row-actions` and `license-bulk-actions`) says seats and logins stay and that this is not a seat revoke or a ban. Both component specs assert that sentence.
 
-**A pure connector vendor has no path of its own.** Its claim is approved like any other and lands on Free (§13.6, `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2). Its seat holds no subscription unless one is granted. Connector vendors and subscriptions are parked (`VENDOR_SIGNUP_PROCESS.md` §2, AECI-1343).
+**A pure connector vendor has no path of its own.** Its claim is approved like any other and lands on Free (§13.6, `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2). Its seat holds no subscription unless one is granted. *Since AECI-2044 (2026-11-24) a subscription can be bought for, granted to and assigned to its Sync Service products only. A vendor whose every product is an Integration platform, or a connector with no kind, is refused at checkout, add and grant (`409 NO_SUBSCRIBABLE_PRODUCT`, §13.14).*
 
 **Ending the last live subscription does not revoke seats** (`VENDOR_SIGNUP_PROCESS.md` decisions 14 and 15). This is consistent with `STAGE_2_SPEC.md` §8.3(2): un-verifying a vendor is a separate action, not a ban. It is also what makes the §4 gate's behaviour concrete and testable. Managed writes 403, reads work, and the dashboard shows the ended banner (§13.11).
 
@@ -855,8 +855,8 @@ A grant waits as `pending_acceptance` until an owner accepts it (`VENDOR_SIGNUP_
 Each product page carries a plan panel (`apps/web/src/app/vendor/components/vendor-plan-panel.ts`, AECI-614, made per product by AECI-1218). It states that one product's plan in words: a portal-only "Free" or "Managed" badge beside the heading, a lede, what the plan includes, the price and one button.
 
 - **It reads the product's `plan` block** on `GET /api/vendor/me` (§13.7), built from the product's own subscription. No new endpoint.
-- **It has seven states:** `managed`, `expiring`, `overdue`, `pending`, `ended`, `free` and `catalogue` (§8.1). `ended` is the one to design properly. It is shown to a customer AECi wants back.
-- **Price.** Every state but `catalogue` shows "Managed is $25 a month or $250 a year per product." from `planPriceSentence(locale)`. Every state carries decision 10's line (§13.1).
+- **It has eight states:** `managed`, `expiring`, `overdue`, `pending`, `ended`, `free`, `catalogue` and `unavailable` (§8.1). `ended` is the one to design properly. It is shown to a customer AECi wants back.
+- **Price.** On a product that can hold a subscription (§13.14), every state but `catalogue` shows "Managed is $25 a month or $250 a year per product." from `planPriceSentence(locale)`. A product that cannot shows no price and no "Go to Billing" in any state, and keeps "Manage renewal" on a subscription it already holds (AECI-2044). Every state carries decision 10's line (§13.1).
 - **Buttons.** An owner seat goes to the Billing tab: "Go to Billing" in `free`, `ended` and `overdue`, and "Manage renewal" in `expiring`. A member seat cannot open Billing, so it keeps the contact path (`/contact`): "Ask about Managed for this product", or "Renew Managed" in `expiring` (AECI-1396, AECI-1408).
 - **Copy discipline.** Copy never says verification, endorsement, ranking or placement. No plan turns a public label on or off, because the "Active on AEC Integrations" label was removed on 2026-10-09 (AECI-1264). Copy promises no instant search (§8.3(5)). Amounts and terms stay admin-side. The subscription `reference` (invoice or PO number) shows to the vendor on the Billing tab, not on the panel, because it is the vendor's own number (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.21, Chris, 2026-10-16, AECI-1390). The help page is `/docs/vendors/plans`.
 - **Design checklist.** Run the `CLAUDE.md` design checklist: Anchor-Site Rule (the anchor is the existing `/vendor` dashboard, so it must read as a sibling), `impeccable detect` clean, axe pass, i18n `@@` ids on every string. **Light theme only.**
@@ -875,7 +875,8 @@ The Free plan, the per-product panel and the plan-ended banners are governed by 
 | `ended` | The product's latest subscription ended | A loss to acknowledge. "Managed ended for this product on {date}, so it is on Free. Ending a plan removes nothing you entered." Leads with what the vendor keeps. *(Reworded 2026-11-05, AECI-1618: an owner seat's 30-day removal election can blank the product's text, so "Nothing you entered was removed" could be false.)* |
 | `free` | The product never held a subscription, or the block is `active` over a tier this build does not know | An invitation, not a loss. "This product is on Free. Its listing is published and stays published." |
 | `pending` | Block `status: 'pending'` | "Arranged, not yet switched on." No subscription produces this status, so it does not occur today. The code keeps the state. |
-| `catalogue` | A connector catalogue seat | Describes the catalogue-maintenance seat. Shows no price. |
+| `catalogue` | No subscription on a `connector` product that is not a Sync Service and that AECi holds a catalogue for (`isCatalogueProduct`, AECI-2044) | Describes the catalogue-maintenance seat. Shows no price. |
+| `unavailable` | No subscription on a product that cannot hold one: an Integration platform, or a connector with no kind, with no catalogue (AECI-2044) | "This product is on Free." Then "Managed is not offered for this kind of product. Everything on Free stays available." and what Free includes. No price, no call to action. |
 
 Days count by UTC calendar day (`signedDaysRemaining`), so "Managed ends today" shows on the end day only. Dates format in UTC. The SSR Worker runs in UTC and the browser does not, so a zone-local format would render two dates across hydration.
 
@@ -1233,6 +1234,43 @@ The session keeps the two apart. `VendorEntitlementBlock.status` is `null` for a
 ### 13.13 Plan price overrides (ruling 2026-10-08)
 
 Retired 2026-10-17 (AECI-1357, AECI-1375, `VENDOR_SIGNUP_PROCESS.md` decision 8). Per-vendor price and message overrides are gone, with `PUT /api/admin/vendors/:id/plan-pricing`, the `vendor_plan_pricing` table (migration 0081) and the admin "Plan price" section: every vendor sees "Managed is $25 a month or $250 a year per product." from `planPriceSentence(locale)` in `apps/web/src/app/vendor/vendor-plan.ts`, the founding discount is a Stripe coupon, and a pilot is a complimentary subscription.
+
+### 13.14 Which products may hold a subscription (AECI-2044, ruling 6 on AECI-2035, 2026-11-24)
+
+Chris ruled on 2026-11-24, final: "Managed stays the rich-profile plan. A Sync Service may buy it. An Integration platform may not, for now." Legal impact `decision`, ruled. AECI-1343 stays open for Integration platforms.
+
+**The rule.** `productTakesSubscription(role, kind)` in `packages/shared/src/api/connector-kind.ts`, and the same rule in SQL, `subscribableProductSql()` in `apps/api/src/lib/subscribable-products.ts`:
+
+| `product_role` | `connector_kind` | May hold a subscription |
+|---|---|---|
+| `application` | (none) | yes |
+| `hybrid` | any | yes: a hybrid is an endpoint too |
+| `connector` | `sync_service` | yes |
+| `connector` | `integration_platform` or NULL | no |
+| anything else | any | no (fails closed) |
+
+**New assignments only.** Nothing ends, moves or strands a subscription that is already on a product. Every path that puts a subscription on a product:
+
+| Path | What it does now |
+|---|---|
+| `POST /api/vendor/licenses/:id/assign` | Refuses a product the rule refuses: `409 PRODUCT_NOT_SUBSCRIBABLE`, `details.product_role` and `details.connector_kind`. A sentinel in the batch catches a kind change that commits after the read. |
+| `GET /api/vendor/billing` `assignable_products`, and the purchase routes' unused count | `assignableProductsWhere` leaves out the products the rule refuses, so the Billing tab never offers them and the AECI-1865 unused warning counts only products that could take one. |
+| `POST /api/vendor/billing/checkout` and `/licenses/add` | `409 NO_SUBSCRIBABLE_PRODUCT` before any Stripe call when the vendor owns products and none can hold one. They buy into the pool, never onto a product, so this is the refusal that fits them. |
+| `POST /api/admin/vendors/:id/licenses` (the grant) | The same `409 NO_SUBSCRIBABLE_PRODUCT`, after the replay and ban checks. It replaces the AECI-738 `pure_connector_vendor` warning, which `warnings[]` no longer carries. A vendor with no product at all stays grantable. |
+| Grant acceptance (`POST /api/vendor/license-grants/:id/accept`, a signed deal) | Unchanged. An ordinary grant writes pool subscriptions, refused at create as above. |
+| `POST /api/admin/vendors/:id/licenses/ban-term` and its activation | Unchanged. It restores the assignment a termination cut, and an existing assignment is never refused. |
+| Stripe webhook and the daily reconcile (`syncSubscriptionLicensesStatements`) | Unchanged. A new Stripe subscription lands in the pool. A renewal keeps the product it is on. The surplus carry-over moves a product that already holds one. So no Stripe subscription is stranded or dropped. |
+| The daily lapse carry-over (§7.6 point 9) | Unchanged, for the same reason. |
+| A promote that changes a licensed product's `product_role` | Unchanged. The subscription stays. The panel then shows no offer on that product. |
+| `PATCH /api/admin/products/:id/connector-kind` | Refuses a change that would take a product from may-hold to may-not while any live subscription sits on it: `409 CONNECTOR_KIND_SUBSCRIBED`, nothing written. The operator moves or ends the subscription first. A hybrid is never refused. A change between two kinds that both refuse is allowed. A sentinel in the batch catches an assign that commits after the read. |
+
+**What Managed gives a Sync Service.** The same capabilities as any product (`TIER_CAPABILITIES.verified`): "How teams use it", trades, audiences and phases, the two URL fields, product versions and the search-engine notice. A Sync Service is not one of the two products in the pairs it delivers, so none of this changes those pairs' pages. Claiming and editing the pairs it delivers is the same on every plan (`STAGE_2_SPEC.md` §8.10). The capability registry stays role-blind: the rule is enforced where a subscription lands, not in `hasCapability`.
+
+**The ranking firewall is untouched.** No ranking input reads a plan, a kind or this rule (§3.2, `on-page-ordering-firewall.spec.ts`).
+
+**The portal.** The plan panel reads the rule (`vendor-plan-panel.ts`): a Sync Service gets the ordinary panel with the price and the purchase path. The `catalogue` state and the overview's "Open the … catalog" link need a catalogue (`VendorProduct.has_connector_catalog`, `isCatalogueProduct`). An Integration platform with no catalogue gets `unavailable` (§8.1).
+
+**Legal and plan text.** The Managed plan agreement 1.1 draft ("What a subscription is and does") and the Plans page 1.3 ("Which products can hold a subscription") say which products can hold one, and which inclusions apply to a product that is not one of the two products in an integration.
 
 ---
 

@@ -46,6 +46,28 @@ export function connectorKindFor(
   return roleTakesConnectorKind(role) && isConnectorKind(kind) ? kind : null;
 }
 
+/**
+ * May a product of this role and kind hold a Managed subscription? (AECI-2044, ruling 6
+ * on AECI-2035, `STAGE_2_SPEC.md` §8.8.)
+ *
+ * - `application` and `hybrid`: yes. A hybrid is an endpoint as well as a connector.
+ * - `connector` whose kind is `sync_service`: yes. It sells finished pairs and promotes
+ *   its product on the site, so it may buy the rich-profile plan.
+ * - `connector` whose kind is `integration_platform` or blank: no, for now (AECI-1343
+ *   stays open for it).
+ * - Any other role: no, so an unknown role fails closed.
+ *
+ * This decides NEW assignments only. A subscription already on a product stays there
+ * (`STAGE_2_PAID_TIERS_SPEC.md` §13.14).
+ */
+export function productTakesSubscription(
+  role: string | null | undefined,
+  kind: string | null | undefined,
+): boolean {
+  if (role === 'application' || role === 'hybrid') return true;
+  return role === 'connector' && kind === 'sync_service';
+}
+
 /** True when the product is a Sync Service: role `connector` or `hybrid`, kind `sync_service`. */
 export function isSyncService(
   role: string | null | undefined,

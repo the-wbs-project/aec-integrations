@@ -5,7 +5,7 @@
  * Variable; the authz matrix (`vendor.authz-matrix.spec.ts`) runs the real guard.
  */
 
-import { ApiErrorCode, VendorLicenseResponseSchema } from '@aeci/shared';
+import { ApiErrorCode, VendorLicenseResponseSchema, type ConnectorKind } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -150,10 +150,10 @@ describe('POST /api/vendor/licenses/:id/assign', () => {
     });
     expect(parsed.license.assigned_at).not.toBeNull();
 
-    // [UPDATE, race sentinel, audit row, product mirror, plan-change evidence rows
-    // (AECI-1621), vendor reconcile].
+    // [subscribable sentinel (AECI-2044), UPDATE, race sentinel, audit row, product
+    // mirror, plan-change evidence rows (AECI-1621), vendor reconcile].
     expect(batch).toHaveBeenCalledTimes(1);
-    expect(batch.mock.calls[0]![0]).toHaveLength(6);
+    expect(batch.mock.calls[0]![0]).toHaveLength(7);
     batch.mockRestore();
 
     const row = await readLicense(pool);
@@ -262,6 +262,49 @@ describe('POST /api/vendor/licenses/:id/assign', () => {
     expect(status).toBe(409);
     expect(body.error.code).toBe(ApiErrorCode.LICENSE_ALREADY_ASSIGNED);
     expect(await readAudit()).toHaveLength(0);
+  });
+
+  describe('AECI-2044: which products can hold a subscription (ruling 6)', () => {
+    const setRole = (productRole: string, connectorKind: ConnectorKind | null) =>
+      t.db.update(products).set({ productRole, connectorKind }).where(eq(products.id, PRODUCT));
+
+    it.each<[string, string, ConnectorKind | null]>([
+      ['an application', 'application', null],
+      ['a hybrid with no kind', 'hybrid', null],
+      ['a hybrid Integration platform', 'hybrid', 'integration_platform'],
+      ['a connector that is a Sync Service', 'connector', 'sync_service'],
+    ])('assigns to %s', async (_label, role, kind) => {
+      await setRole(role, kind);
+      const { status } = await assign(pool, PRODUCT);
+      expect(status).toBe(200);
+      expect((await readLicense(pool)).assignedProductId).toBe(PRODUCT);
+    });
+
+    it.each<[string, ConnectorKind | null]>([
+      ['an Integration platform', 'integration_platform'],
+      ['a connector with no kind', null],
+    ])('refuses %s with PRODUCT_NOT_SUBSCRIBABLE, writing nothing', async (_label, kind) => {
+      await setRole('connector', kind);
+      const { status, body } = await assign(pool, PRODUCT);
+      expect(status).toBe(409);
+      expect(body.error.code).toBe(ApiErrorCode.PRODUCT_NOT_SUBSCRIBABLE);
+      expect(body.error.details).toEqual({ product_role: 'connector', connector_kind: kind });
+      expect((await readLicense(pool)).assignedProductId).toBeNull();
+      expect(await readAudit()).toHaveLength(0);
+      expect(queueSend).not.toHaveBeenCalled();
+    });
+
+    it('refuses when an admin reclassifies the Sync Service between the read and the batch', async () => {
+      await setRole('connector', 'sync_service');
+      const factory = racingFactory(t.factory, async (attempt) => {
+        if (attempt === 1) await setRole('connector', 'integration_platform');
+      });
+      const { status, body } = await assign(pool, PRODUCT, { factory });
+      expect(status).toBe(409);
+      expect(body.error.code).toBe(ApiErrorCode.PRODUCT_NOT_SUBSCRIBABLE);
+      expect((await readLicense(pool)).assignedProductId).toBeNull();
+      expect(await readAudit()).toHaveLength(0);
+    });
   });
 
   it.each([
