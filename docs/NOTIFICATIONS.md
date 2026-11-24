@@ -247,7 +247,7 @@ governs them.
 | `algolia-orphan-cap` | AECi — Algolia orphan sweep capped | hourly |
 | `api-requests-stalled` | AECi — API requests stalled (5+ over 10 s, 1 h) | hourly |
 | `auth-error-rate` | AECi — Auth sign-in error rate > 30% (1 h) | hourly |
-| `cache-tags-truncated` | AECi — A page's cache tags were cut to fit (any, 24 h) | daily |
+| `cache-tags-truncated` | AECi — A page went uncached: its cache tags did not fit (any, 24 h) | daily |
 | `cron-job-failed` | AECi — Cron failure email not sent, or post-write sync failed | hourly |
 | `data-quality-error` | AECi — Data quality check found ERROR-severity issues | daily |
 | `detail-render-p95` | AECi — p95 detail page render > 2.5 s (1 h) | hourly |

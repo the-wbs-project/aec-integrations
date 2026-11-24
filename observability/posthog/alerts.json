@@ -761,7 +761,7 @@
     },
     {
       "key": "cache-tags-truncated",
-      "name": "AECi — A page's cache tags were cut to fit (any, 24 h)",
+      "name": "AECi — A page went uncached: its cache tags did not fit (any, 24 h)",
       "insightKey": "alert-cache-tags-truncated",
       "enabled": true,
       "calculationInterval": "daily",
@@ -780,13 +780,13 @@
       "config": {
         "type": "HogQLAlertConfig",
         "evaluation": "last_row",
-        "column": "truncated_renders",
-        "label_column": "route_reasons"
+        "column": "uncacheable_renders",
+        "label_column": "uncacheable_route_classes"
       },
       "replaces": {
         "datadogMonitor": null,
         "datadogQuery": null,
-        "_note": "NEW with AECI-2025, no Datadog predecessor. Before AECI-2025 the same page returned 500. Any count fires: a page past Cloudflare's tag limit is cached for a minute or not at all, and someone should know which. Not applied to PostHog by AECI-2025: apply.sh is run by hand."
+        "_note": "NEW with AECI-2025, no Datadog predecessor. Before AECI-2025 the same page returned 500. Fires on Tier B only (reason:uncacheable_product_tags_dropped): a page that is not stored renders on every visit. Tier A (degraded_ttl, cached for 60 s) is the insight's degraded_renders column, a watch that does not fire. Not applied to PostHog by AECI-2025: apply.sh is run by hand."
       },
       "runbook": "docs/runbooks/alerts.md — 'Cache tags cut to fit'."
     }
