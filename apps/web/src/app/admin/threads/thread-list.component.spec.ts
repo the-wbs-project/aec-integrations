@@ -113,6 +113,24 @@ describe('ThreadList', () => {
     expect(api.listThreads).toHaveBeenLastCalledWith({ page: 1, perPage: 24, help: 'requested' });
   });
 
+  it('shows the Show filter as pressed toggles and filters from a click (AECI-2111)', async () => {
+    const { api, fixture, el } = await setupList();
+    const group = el.querySelector<HTMLElement>('[role="group"]')!;
+    expect(el.querySelector(`#${group.getAttribute('aria-labelledby')}`)?.textContent?.trim()).toBe(
+      'Show',
+    );
+    const options = [...group.querySelectorAll<HTMLButtonElement>('button')];
+    expect(options.map((b) => [b.textContent?.trim(), b.getAttribute('aria-pressed')])).toEqual([
+      ['All threads', 'true'],
+      ['Help requested', 'false'],
+    ]);
+    options[1]!.click();
+    await settle();
+    fixture.detectChanges();
+    expect(api.listThreads).toHaveBeenLastCalledWith({ page: 1, perPage: 24, help: 'requested' });
+    expect(options[1]!.getAttribute('aria-pressed')).toBe('true');
+  });
+
   it('says nobody asked for help when the filter matches nothing', async () => {
     const { fixture, el } = await setupList(page({ data: [], total: 0 }));
     expect(el.textContent).toContain('No company has started a thread yet.');

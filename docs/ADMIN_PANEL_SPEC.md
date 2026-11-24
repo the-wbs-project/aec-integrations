@@ -1191,8 +1191,9 @@ an in-product home that does not exist", which meant the console showed a length
 of open claims with no visible reason why any of them was parked.
 
 - **`/admin/claims`** — unchanged as a queue, with three additions: the operator note renders
-  read-only on each card, each card links to its detail route, and the status filter gained
-  **In review**.
+  read-only on each claim, each claim links to its detail route, and the status filter gained
+  **In review**. Since AECI-2111 the queue is a console table: the note, the link and the
+  decision sit in each row's expanded detail.
 - **`/admin/claims/:id`** — six sections in one screen: the claim itself, the verification
   signals (through the same shared `productRolesLabel` §5.7 uses, so the two screens cannot
   describe one vendor differently), the operator note, the duplicate explanation, an
@@ -1264,7 +1265,7 @@ stays as the backstop for a stale page.
 - **Annotate a correction.** The column lives on `vendor_requests`, so it is physically
   available, but the API surface is claim-only. Extending it is a decision, not a migration.
 
-**"Found us via" (AECI-1063, 2026-10-29).** The claim detail's meta list shows "Found us via" after Submitted: the channel label, then the follow-up answer when there is one, or "Not answered". The claim queue card shows the same line. Display only. `ANALYTICS.md` §11b is the contract.
+**"Found us via" (AECI-1063, 2026-10-29).** The claim detail's meta list shows "Found us via" after Submitted: the channel label, then the follow-up answer when there is one, or "Not answered". The claim queue row's expanded detail shows the same line. Display only. `ANALYTICS.md` §11b is the contract.
 
 > **Breadcrumb revision — SHIPPED (AECI-777).** The detail page's bespoke "Back to the claim queue" link is gone: the shell's breadcrumb (§5.0b) is the way back, and the `h2` no longer reads "Vendor claim". This is the one detail screen that needed a rule rather than a field — a claim has no name of its own, so it is titled by its **target**, falling back to `targetFallbackLabel()` for the claim that outlived a retracted product, and to the section's word before the fetch resolves. No endpoint, query or response shape moved.
 

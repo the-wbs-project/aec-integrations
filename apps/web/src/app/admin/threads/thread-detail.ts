@@ -13,7 +13,16 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import type { AdminThreadDetail } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
+import { Chip } from '../../shared/chip/chip';
 import { AdminBreadcrumbStore } from '../admin-breadcrumb.store';
+import {
+  CLAIM_INLINE_LINK_CLASS,
+  DETAIL_FACT_VALUE_CLASS,
+  DETAIL_FACTS_CLASS,
+} from '../claims/claim-classes';
+import { CONSOLE_LABEL_CLASS, CONSOLE_PANEL_CLASS } from '../console/console-table';
+import { adminStatusTone } from '../console/status-tones';
 import { ADMIN_DETAIL_FALLBACK_LABELS } from '../admin-nav';
 import { isStatus } from '../http-status';
 import { threadStateLabel, threadSubject } from './admin-thread-labels';
@@ -33,7 +42,7 @@ import { AdminThreadsApi } from './admin-threads-api';
  */
 @Component({
   selector: 'aec-thread-detail',
-  imports: [DatePipe, RouterLink],
+  imports: [AecButton, Chip, DatePipe, RouterLink],
   templateUrl: './thread-detail.html',
 })
 export class ThreadDetail {
@@ -50,6 +59,18 @@ export class ThreadDetail {
   protected readonly notFound = signal(false);
 
   protected readonly stateLabel = threadStateLabel;
+
+  // AECI-2111: the console's detail page (mock-up 14).
+  protected readonly panelClass = CONSOLE_PANEL_CLASS;
+  protected readonly labelClass = CONSOLE_LABEL_CLASS;
+  protected readonly factsClass = DETAIL_FACTS_CLASS;
+  protected readonly valueClass = DETAIL_FACT_VALUE_CLASS;
+  protected readonly inlineLinkClass = CLAIM_INLINE_LINK_CLASS;
+
+  /** Open is live, closed is quiet (`ADMIN_STATUS_TONES`). */
+  protected stateTone(thread: AdminThreadDetail) {
+    return adminStatusTone(thread.closed_reason ? 'closed' : 'threadOpen');
+  }
 
   /** The data row the thread is about, or the trail's own word before the fetch. */
   protected readonly headingLabel = computed(() => {
