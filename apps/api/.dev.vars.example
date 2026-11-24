@@ -142,10 +142,11 @@ REVIEW_APP_OWNERSHIP_TOKEN=
 # when it is empty (AECI-851). Staging and demo deliberately get no push.
 LINEAR_API_KEY=
 
-# ─── Google URL Inspection (AECI-1236) ─────────────────────────────────────
+# ─── Google URL Inspection (AECI-1236) and search ingest (AECI-820) ─────────
 # The whole Google service-account key-file JSON, on one line. The daily
 # gsc_inspect cron uses it to ask Search Console what Google holds for each
-# /admin/reindex row. Leave it EMPTY locally: the local queue is not Search
+# /admin/reindex row. The weekly search_ingest cron uses it to read Search
+# Analytics and Sitemaps into metrics_daily. Leave it EMPTY locally: the local queue is not Search
 # Console's property, and the run also needs INDEXNOW_KEY + PUBLIC_SITE_URL, so
 # it skips here anyway. Production only, CI-pushed from the
 # GSC_SA_KEY_JSON_PRODUCTION GH secret by promote-to-prod.yml.

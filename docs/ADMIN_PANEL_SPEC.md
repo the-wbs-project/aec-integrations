@@ -700,7 +700,7 @@ series' first tombstone, since those dates differ per series.
 ### 5.6 System — SHIPPED (AECI-580, 2026-08-13; completed by AECI-583, 2026-08-13)
 
 - SSR + API `sha` / `deployedAt` / `environment` from the two existing endpoints (`/api/version` and the SSR Worker's own `/_version` — they differ precisely so a stale SSR deploy is detectable). The UI reads both and flags a mismatch as a `role="alert"` band; an unknown SHA (the `wrangler --var` injection missing) reads as *unknown*, not as a difference. The bundle carries the **API** Worker's half — nothing reachable from the API Worker knows the SSR Worker's SHA.
-- **Cron liveness** — last run, duration, outcome per job, for all twenty-nine cron jobs (§7.2; AECI-1435 added the twentieth, `request-confirmation-expiry`, AECI-1345 the twenty-first, `traffic-classify`, AECI-1505 the twenty-second, `sitemap-rebuild`, AECI-1305 the twenty-fourth, `vendor-claim-nudge`, AECI-1618 the twenty-fifth, `brand-asset-removal`, AECI-1636 the twenty-sixth, `acceptance-evidence-removal`, AECI-1621 the twenty-seventh, `plan-snapshot`, and AECI-1680 the twenty-eighth, `acceptance-chain`. AECI-1638 added the twenty-ninth job, `legal-retention-prune`, with no trigger of its own: the 03:00 retention tick enqueues it).
+- **Cron liveness** — last run, duration, outcome per job, for all thirty cron jobs (§7.2; AECI-1435 added the twentieth, `request-confirmation-expiry`, AECI-1345 the twenty-first, `traffic-classify`, AECI-1505 the twenty-second, `sitemap-rebuild`, AECI-1305 the twenty-fourth, `vendor-claim-nudge`, AECI-1618 the twenty-fifth, `brand-asset-removal`, AECI-1636 the twenty-sixth, `acceptance-evidence-removal`, AECI-1621 the twenty-seventh, `plan-snapshot`, and AECI-1680 the twenty-eighth, `acceptance-chain`. AECI-1638 added the twenty-ninth job, `legal-retention-prune`, with no trigger of its own: the 03:00 retention tick enqueues it. AECI-820 added the thirtieth, the weekly `search-ingest`).
 - **The data-quality checks** rendered with severity and sample rows — formerly visible only in an email. **Delivered as specified:** since AECI-583 the default view reads the last persisted `job_runs` result (labelled with the run's own `computed_at`) and `?recompute=1` is the refresh. Both are pure reads, so neither writes anything or needs an `audit_log` row (§13 **D8**).
 - Algolia sync watermark, index drift, orphan-sweep results.
 - D1 size and per-table row counts. Since AECI-1484 the default load estimates `page_views` and `audit_log` from their rowid range (`estimated: true`, an upper bound), and `?recompute=1` counts every table exactly (`API_CONTRACTS.md` "The D1 footprint").
@@ -2535,7 +2535,8 @@ The endpoints are in §6 and in `API_CONTRACTS.md` §6.10 "Copyright notices".
 
 ### 5.24 Search console (`/admin/seo`): SPECIFIED, NOT BUILT (AECI-817, 2026-11-24)
 
-**Status.** Nothing in this section is built. It is the contract for epic AECI-816. Every
+**Status.** Only the Google ingest is built (AECI-820, §5.24.10). The rest is not. It is the
+contract for epic AECI-816. Every
 sub-issue below anchors here. The endpoint shapes are in `API_CONTRACTS.md` §6.10 "Search
 console". Open decisions are listed at the end of this section, and the ones that need Chris are
 marked.
@@ -2601,8 +2602,9 @@ true. The sub-issue descriptions should be edited to match.
    `apps/web/src/server-runtime.ts`, AECI-1297). So coverage does not under-report today. The
    real caveat is narrower, and §5.24.4 states it.
 3. **The liveness count is 30, not 13.** `observability/posthog/project-config.json` has 30
-   `liveness.crons[]` entries: 29 `AdminCronJob`s and the `indexnow-send` runner. The SEO
-   email is the 30th `AdminCronJob`, the 31st liveness entry, and the 29th cron expression.
+   `liveness.crons[]` entries: 29 `AdminCronJob`s and the `indexnow-send` runner. AECI-820's
+   `search-ingest` took the 30th `AdminCronJob` and the 29th cron expression. The SEO email is
+   therefore the 31st `AdminCronJob`, the 32nd liveness entry, and the 30th cron expression.
    `lookbackHours` is already 360, so a weekly job needs no window change.
 4. **A new Google service account is not needed.** AECI-820 says the old secrets were deleted
    (AECI-747). They were. AECI-1236 then provisioned `GSC_SA_KEY_JSON` with the
@@ -2833,11 +2835,17 @@ the number:
 | `search.google.www_page.pages_with_impressions_28d` | count | Distinct `www.` pages with at least one impression in the 28 days ending that day |
 | `search.google.www_page.catalog_pages_with_impressions_28d` | count | The same, restricted to the catalog URL set. This is Panel 3's stage 3 numerator |
 | `search.google.www_page.queries_28d` | count | Distinct queries in the 28 days ending that day. A lower bound, because Google drops rare queries |
+| `search.google.www_sitemap.urls_submitted` | count | Stock, sampled at the run. URLs Google counted in `https://www.aecintegrations.com/sitemap.xml` at its last read. Added by AECI-820 |
+| `search.google.www_sitemap.errors` | count | Stock, sampled at the run. Errors Google reported for that sitemap. Added by AECI-820 |
+| `search.google.www_sitemap.warnings` | count | Stock, sampled at the run. Warnings Google reported. Added by AECI-820 |
+| `search.google.www_sitemap.download_age_days` | days, REAL | Stock, sampled at the run. Days since Google last downloaded the sitemap. No row when Google reports no download. Added by AECI-820 for the "Sitemap not read recently" lane |
 | `search.bing.www.*` | | Named after the ingest research. Bing sites are registered per host. Bing's own index figure, if stored, is `search.bing.www.in_index`. It is captioned "as reported by Bing", because Microsoft does not define it, and it is never called a true count |
 
 **Ingested days are Pacific dates.** Google and Bing both report by Pacific Time day. The row is
 filed under that date in `day`, which is documented as UTC for every other key. The key's
-docblock says so. The ingest does not try to re-cut Google's day.
+docblock says so. The ingest does not try to re-cut Google's day. The four `www_sitemap` keys are
+the exception: they are a sample taken at the run, so they are filed under the run's UTC day, like
+a snapshot stock.
 
 CTR is never stored. It is derived at read time as the sum of clicks over the sum of
 impressions, so a window's CTR is never an average of daily ratios.
@@ -2877,8 +2885,8 @@ nothing new is provisioned.
 | Name | Value |
 |---|---|
 | `ScheduledJob` | `seo_digest` |
-| `AdminCronJob` | `seo-digest`, the 30th |
-| Cron constant | `SEO_DIGEST_CRON = '0 1 * * 2'`, the 29th expression, in all three `triggers.crons` blocks |
+| `AdminCronJob` | `seo-digest`, the 31st (AECI-820's `search-ingest` is the 30th) |
+| Cron constant | `SEO_DIGEST_CRON = '0 1 * * 2'`, the 30th expression, in all three `triggers.crons` blocks |
 | `job_runs.job` | `seo-digest`. `detail` holds the week start, each lane's count, the send outcome and whether the funnel section was included |
 | Heartbeat | `aeci.seo_digest.run`, emitted on every run whatever the outcome |
 | Liveness entry | `maxAgeMinutes: 20520`, the weekly value `asn-registry` uses, plus an `activeFrom` of the first production promote plus eight days |
@@ -2930,8 +2938,8 @@ after a successful send would send twice without the guard. The guard follows
 `litigation-hold-reminder`, which skips on a recent `sent` or `unknown` row in
 `notification_sends`.
 
-**Docs AECI-819 updates.** `docs/email.md` "Cron digests", `POST_LAUNCH_MONITORING.md` §1a (29
-jobs to 30), `docs/OBSERVABILITY.md`'s cron inventory, §7.2's job list, and
+**Docs AECI-819 updates.** `docs/email.md` "Cron digests", `POST_LAUNCH_MONITORING.md` §1a (30
+jobs to 31, after AECI-820), `docs/OBSERVABILITY.md`'s cron inventory, §7.2's job list, and
 `DATABASE_SCHEMA.md` §9.4.
 
 #### 5.24.10 Google and Bing ingest: the storage contract (AECI-820, AECI-821)
@@ -2940,7 +2948,8 @@ This section fixes only what the funnel and the email read. The keys are in §5.
 bind both ingests:
 
 1. **Write only `SEARCH_INGEST_METRIC_KEYS`**, per key and outside any batch, `source =
-   'measured'`, exactly as §7.1 writes. No `audit_log` row: derived bookkeeping under ADR 0022.
+   'measured'`, exactly as §7.1 writes. No `audit_log` row: derived bookkeeping under ADR 0022
+   (its 2026-11-24 amendment, which records why external figures qualify).
 2. **Fix the prune probe first** (§5.24.8).
 3. **Every stored figure names its scope** in its key: host filter and aggregation. Nothing is
    stored without one.
@@ -2951,20 +2960,31 @@ bind both ingests:
    a day per property. The daily `gsc-inspect` run already budgets 1,500
    (`GSC_INSPECT_RUN_BUDGET`), and the rest is the operator's headroom in the Search Console UI.
 
-> **Ingest details: to be folded in from research.** A separate research pass for AECI-820 and
-> AECI-821 is reading the external API shapes. These are left open until it lands:
->
-> - The API endpoints and request shapes.
-> - How many days back Google revises a figure, and so how far each run re-writes.
-> - Whether a re-write may overwrite a `measured` row. The ADR 0027 clause allows it only where
->   the source still holds the data.
-> - The run's schedule, job id and queue. It must finish before Monday 01:00 UTC.
-> - The quota cost per run.
-> - Whether the Sitemaps reads give a last-read date and fetch result per sitemap, and where that
->   state is stored. A date is not a `metrics_daily` value.
-> - The Bing credential and its per-env secret, and whether the Bing call runs from the Worker
->   or from a GitHub Actions runner, as IndexNow does since AECI-1476.
-> - The Bing key names and which BWT figures feed them.
+**Ingest details, Google (AECI-820, built).** Folded in from the AECI-816 ingest research. Bing's
+half stays open for AECI-821, listed at the end.
+
+| Question | Answer |
+|---|---|
+| Credential | `GSC_SA_KEY_JSON`, the `gsc-inspect` service account. Its `webmasters.readonly` scope covers `searchanalytics.query` and `sitemaps.list`. No new secret, no new property user. The token code moved to `lib/google-service-account.ts`, which both jobs import |
+| Gate | The `gsc-inspect` gate: skipped without the key, `INDEXNOW_KEY` or `PUBLIC_SITE_URL`. Production only |
+| Endpoints | `POST https://www.googleapis.com/webmasters/v3/sites/{siteUrl}/searchAnalytics/query` and `GET …/sites/{siteUrl}/sitemaps`, with `siteUrl = sc-domain:aecintegrations.com` URL-encoded (`lib/search-console-api.ts`) |
+| Calls per run | Six, sequential on one token: the token exchange, the `www_page` daily series (`date`, page filter `includingRegex ^https://www\.aecintegrations\.com/`), the `property` daily series (`date`, no filter, `byProperty`), the 28-day `page` list, the 28-day `query` list, and the Sitemaps list. The two lists page by `startRow` only when 25,000 rows come back, up to four pages |
+| Freshness | Every call asks `dataState: 'final'`. Google says data is typically available after two to three days, so the daily window ends three Pacific days before the run |
+| Re-write window | The daily series re-pull 14 Pacific days, two weekly runs. A missed week leaves no gap, and a late-finalised day is corrected the next week. The 28-day keys end on the newest day the `www_page` call returned, so they never cover a part-loaded day |
+| Overwriting `measured` | Allowed. ADR 0027's clause permits it where the source still holds the data, and Google keeps 16 months. A day Google did not return is never written, so a re-pull cannot erase a figure by absence |
+| Schedule, job id, queue | `SEARCH_INGEST_CRON = '0 22 * * 1'`, Sundays 22:00 UTC (Cloudflare day-of-week 1 = Sunday). `ScheduledJob` `search_ingest`, `AdminCronJob` `search-ingest`, the thirtieth. Rides `RECONCILE_QUEUE`. It lands three hours before the Monday 01:00 email |
+| Quota cost | Five Search Analytics or Sitemaps requests a week against 1,200 a minute per site. A 429 is not retried |
+| Sitemap state | `lastDownloaded`, `lastSubmitted`, `isPending`, errors, warnings and the URL count go to the run's `job_runs.detail.google.sitemap`. The four numbers also go to the `www_sitemap` keys above. A date is not a `metrics_daily` value, so the age in days is stored instead |
+| Failure | Each call fails alone: its keys get no row and the other calls still run. The heartbeat `aeci.search_ingest.run` reads `partial`. The run is `failed` only when Google refuses the credential everywhere. A D1 error throws, so the queue retries, which is safe |
+| Catalog URL set | Read from `buildCatalogSitemap`'s `<loc>` output for now. AECI-818's extracted URL function replaces it when it lands |
+
+**Still open for AECI-821 (Bing).** The credential and its secret, whether the call runs from the
+Worker or a GitHub Actions runner, and which BWT figures feed the `search.bing.www.*` keys. The
+research recommends a Worker-first transport with a runner fallback, and `GetCrawlStats`'s
+`InIndex` for the Bing index figure. Bing joins this run as a second lane.
+
+**`GET /api/admin/seo/funnel` is AECI-823's**, not this issue's. The ingest writes the keys the
+funnel reads.
 
 #### 5.24.11 Empty and error states
 
@@ -3435,9 +3455,9 @@ job_runs
   INDEX (job, started_at)
 ```
 
-Each of the twenty-nine cron jobs in `scheduled.ts` writes one row (eight at the time this was written; AECI-581 added the 00:15 `snapshot` job, AECI-584 the 03:00 `retention` prune, AECI-302 the 10:00 attestation detector sweep, AECI-613 the 11:00 entitlement term-expiry sweep, AECI-826 the IndexNow drain (`*/20`, daily at `5 0` since AECI-1136), AECI-862 the `25 */6` claim-staleness check, AECI-1205 the 12:00 protest reply reminder, AECI-1210 the 00:30 vendor snapshot, AECI-1236 the 13:00 `gsc-inspect` Google URL Inspection run, AECI-1368 the 14:00 `claim-owner-fallback`, AECI-1435 the 14:30 `request-confirmation-expiry`, AECI-1345 the 00:45 `traffic-classify` run, AECI-1505 the `7-59/15` `sitemap-rebuild`, AECI-1305 the 15:00 `vendor-claim-nudge`, AECI-1618 the 16:00 `brand-asset-removal`, AECI-1636 the 17:00 `acceptance-evidence-removal`, AECI-1621 the `11-59/15` `plan-snapshot`, AECI-1680 the 18:00 `acceptance-chain`, AECI-1638 the `legal-retention-prune` the 03:00 tick enqueues, and AECI-624 the WEEKLY 02:00 Monday `asn-registry` refresh — cron `0 2 * * 2`, because Cloudflare's day-of-week is 1=Sunday, AECI-661 — which met this table at the AECI-750 reconcile). One writer is not a cron (AECI-1476). The IndexNow result route, `POST /api/internal/indexnow/batch/:batchId/result`, writes one `job = 'indexnow-send'` row per recorded GitHub Actions send. That value is outside `AdminCronJob`, and every reader filters on `job`, so the row never reaches `/admin/system`. `DATABASE_SCHEMA.md` §9.4 has its `detail` shape. The data-quality run stores its full result set in `detail`, which is what §5.6 renders. Retention: 90 days (§7.4), enforced by the 03:00 prune since AECI-584.
+Each of the thirty cron jobs in `scheduled.ts` writes one row (eight at the time this was written; AECI-581 added the 00:15 `snapshot` job, AECI-584 the 03:00 `retention` prune, AECI-302 the 10:00 attestation detector sweep, AECI-613 the 11:00 entitlement term-expiry sweep, AECI-826 the IndexNow drain (`*/20`, daily at `5 0` since AECI-1136), AECI-862 the `25 */6` claim-staleness check, AECI-1205 the 12:00 protest reply reminder, AECI-1210 the 00:30 vendor snapshot, AECI-1236 the 13:00 `gsc-inspect` Google URL Inspection run, AECI-1368 the 14:00 `claim-owner-fallback`, AECI-1435 the 14:30 `request-confirmation-expiry`, AECI-1345 the 00:45 `traffic-classify` run, AECI-1505 the `7-59/15` `sitemap-rebuild`, AECI-1305 the 15:00 `vendor-claim-nudge`, AECI-1618 the 16:00 `brand-asset-removal`, AECI-1636 the 17:00 `acceptance-evidence-removal`, AECI-1621 the `11-59/15` `plan-snapshot`, AECI-1680 the 18:00 `acceptance-chain`, AECI-1638 the `legal-retention-prune` the 03:00 tick enqueues, AECI-820 the WEEKLY Sunday 22:00 `search-ingest` (`0 22 * * 1`), and AECI-624 the WEEKLY 02:00 Monday `asn-registry` refresh — cron `0 2 * * 2`, because Cloudflare's day-of-week is 1=Sunday, AECI-661 — which met this table at the AECI-750 reconcile). One writer is not a cron (AECI-1476). The IndexNow result route, `POST /api/internal/indexnow/batch/:batchId/result`, writes one `job = 'indexnow-send'` row per recorded GitHub Actions send. That value is outside `AdminCronJob`, and every reader filters on `job`, so the row never reaches `/admin/system`. `DATABASE_SCHEMA.md` §9.4 has its `detail` shape. The data-quality run stores its full result set in `detail`, which is what §5.6 renders. Retention: 90 days (§7.4), enforced by the 03:00 prune since AECI-584.
 
-**SHIPPED (AECI-583, 2026-08-13.)** `job` uses the twenty-nine `AdminCronJob` ids in `packages/shared/src/api/admin-panel.ts` (AECI-581 added the ninth, `metrics-snapshot`; AECI-584 the tenth, `retention-prune`; AECI-302 the eleventh, `attestation-notify`; AECI-613 the twelfth, `entitlement-expiry`; AECI-624 the thirteenth, `asn-registry`; AECI-826 the fourteenth, `indexnow-drain`; AECI-862 the fifteenth, `claim-stale-check`; AECI-1205 the sixteenth, `protest-reply-reminder`; AECI-1210 the seventeenth, `vendor-snapshot`; AECI-1236 the eighteenth, `gsc-inspect`; AECI-1368 the nineteenth, `claim-owner-fallback`; AECI-1435 the twentieth, `request-confirmation-expiry`; AECI-1345 the twenty-first, `traffic-classify`; AECI-1505 the twenty-second, `sitemap-rebuild`; AECI-1305 the twenty-fourth, `vendor-claim-nudge`; AECI-1618 the twenty-fifth, `brand-asset-removal`; AECI-1636 the twenty-sixth, `acceptance-evidence-removal`; AECI-1621 the twenty-seventh, `plan-snapshot`, AECI-1680 the twenty-eighth, `acceptance-chain`; AECI-1638 the twenty-ninth, `legal-retention-prune` — no migration needed for any of them, `job` carries no CHECK for exactly this reason); the DDL above is the built shape and `DATABASE_SCHEMA.md` §9.4 is the implementation record. Four things settled during the build are worth carrying forward:
+**SHIPPED (AECI-583, 2026-08-13.)** `job` uses the thirty `AdminCronJob` ids in `packages/shared/src/api/admin-panel.ts` (AECI-581 added the ninth, `metrics-snapshot`; AECI-584 the tenth, `retention-prune`; AECI-302 the eleventh, `attestation-notify`; AECI-613 the twelfth, `entitlement-expiry`; AECI-624 the thirteenth, `asn-registry`; AECI-826 the fourteenth, `indexnow-drain`; AECI-862 the fifteenth, `claim-stale-check`; AECI-1205 the sixteenth, `protest-reply-reminder`; AECI-1210 the seventeenth, `vendor-snapshot`; AECI-1236 the eighteenth, `gsc-inspect`; AECI-1368 the nineteenth, `claim-owner-fallback`; AECI-1435 the twentieth, `request-confirmation-expiry`; AECI-1345 the twenty-first, `traffic-classify`; AECI-1505 the twenty-second, `sitemap-rebuild`; AECI-1305 the twenty-fourth, `vendor-claim-nudge`; AECI-1618 the twenty-fifth, `brand-asset-removal`; AECI-1636 the twenty-sixth, `acceptance-evidence-removal`; AECI-1621 the twenty-seventh, `plan-snapshot`, AECI-1680 the twenty-eighth, `acceptance-chain`; AECI-1638 the twenty-ninth, `legal-retention-prune`; AECI-820 the thirtieth, `search-ingest` — no migration needed for any of them, `job` carries no CHECK for exactly this reason); the DDL above is the built shape and `DATABASE_SCHEMA.md` §9.4 is the implementation record. Four things settled during the build are worth carrying forward:
 
 - **Written on entry, completed on exit.** `withJobRun` (`apps/api/src/lib/job-runs.ts`) awaits the entry insert *before* invoking the job, so a run the isolate never returns from leaves `finished_at IS NULL` — the unfinished row is the signal. The finish write is awaited too, never `ctx.waitUntil`: on the queue path `ack()` fires the instant the job returns, and a deferred write would race it and manufacture false timeouts.
 - **All ten impls return a `JobRunReport` rather than `void`.** They swallow their own operational errors, so a wrapper that only watched for a throw would record `ok` for a failed run. A *thrown* handler is recorded `failed` **and rethrown**, preserving the reconcile job's deliberate queue retry; a *reported* failure does not throw, so instrumenting did not widen the retry surface to the other nine.

@@ -631,3 +631,34 @@ vendor once the last acceptance or grant naming it is deleted, and counts it in 
 so each place and release audits in its own batch. It is not on the exemption list.
 
 **Where it is recorded.** `STAGE_1_SPEC.md` §26.6 and `DATABASE_SCHEMA.md` §8.4 and §8.15.
+
+## Amendment 2026-11-24: search engine figures in `metrics_daily` (AECI-820)
+
+Nothing above is reversed, and no table joins the list. `metrics_daily` is already exempt. This
+amendment records that its second writer is exempt too, because that writer fails one leg of the
+original test as written.
+
+**The writer.** The weekly search ingest (`apps/api/src/lib/search-ingest.ts`) reads Google Search
+Console's Search Analytics and Sitemaps figures and upserts them into `metrics_daily` under the
+`SEARCH_INGEST_METRIC_KEYS` (`ADMIN_PANEL_SPEC.md` §5.24.8). Bing's figures join under AECI-821.
+
+**Why it is exempt although leg (a) fails.** Leg (a) asks for data computed from what is already in
+the database. These are external facts, so the leg fails as written. The 2026-08-31 amendment
+audits external facts when they are a bulk mirror that feeds a public surface. This writer is
+neither public nor a mirror of a record anyone owns:
+
+- **It is not domain state.** It is not the catalog, a user, a review, a claim or a request. No
+  person's action produced it, and nothing a visitor sees reads it. It is read only on `/admin/seo`
+  and in the operator's weekly email.
+- **It is reproducible.** Google keeps 16 months of Search Analytics data, and every write is an
+  idempotent upsert on `(day, metric)`. Re-running the job reproduces the row, which is the purpose
+  of leg (c). Google is the system of record, so an audit row would record nothing Google does not.
+- **It never deletes.** A day absent from Google's answer is left as it was, never written as 0.
+
+So the class is derived bookkeeping, like the snapshot's rows in the same table. The run's record
+is its `job_runs` row, which names every call and every key's outcome.
+
+**What would end the exemption.** A public surface reading these keys, or an operator editing a
+row through the app, would make them domain state. Either would audit in the same `db.batch`.
+
+**Where it is recorded.** `ADMIN_PANEL_SPEC.md` §5.24.10 rule 1 and `DATABASE_SCHEMA.md` §9.3.

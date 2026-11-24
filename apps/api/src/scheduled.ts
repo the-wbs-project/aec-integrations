@@ -104,6 +104,7 @@ import {
   CLAIM_OWNER_FALLBACK_CRON,
   CLAIM_STALE_CRON,
   GSC_INSPECT_CRON,
+  SEARCH_INGEST_CRON,
   INDEXNOW_DRAIN_CRON,
   PROTEST_REMINDER_CRON,
   MODERATION_CRON,
@@ -150,6 +151,11 @@ import {
   type GscInspectChunkResult,
 } from './lib/gsc-inspect-job';
 import { runEntitlementExpirySweep } from './lib/entitlement-expiry';
+import {
+  runGoogleSearchIngest,
+  SEARCH_INGEST_RUN_METRIC,
+  searchIngestHadFailures,
+} from './lib/search-ingest';
 import {
   runLicenseUnassignedReminderSweep,
   type UnassignedReminderResult,
@@ -3404,7 +3410,83 @@ function queueForJob(
       // Google calls and a consumer invocation is capped at 15 minutes, so each
       // message handles one chunk and re-sends the next one here.
       return env.GSC_INSPECT_QUEUE;
+    case 'search_ingest':
+      // AECI-820: rides the reconcile queue, the `sitemap_rebuild` precedent. The
+      // consumer dispatches on `message.job`, so nothing new is provisioned. A retry
+      // re-pulls and re-upserts, which is safe.
+      return env.RECONCILE_QUEUE;
   }
+}
+
+/**
+ * The weekly search ingest (AECI-820, `ADMIN_PANEL_SPEC.md` §5.24.10). Google
+ * lane today, Bing (AECI-821) next.
+ *
+ * `lib/search-ingest.ts` does the work and never throws on a Google failure. This
+ * wrapper owns the heartbeat and the log lines. A D1 failure is the one throw: it
+ * propagates, so the queue retries, and the retry is safe because every write is
+ * an upsert.
+ *
+ * Heartbeat outcomes on `aeci.search_ingest.run`: `ok`, `partial` (at least one
+ * call failed and the rest wrote), `skipped` (no `GSC_SA_KEY_JSON`, or not a
+ * public env) and `failed` (Google refused the credential, or a D1 write threw).
+ * Only `failed` is a failed `job_runs` row, so only it sends the cron-failure email. `partial` is
+ * recorded per call and per key in `detail.google`.
+ */
+async function runSearchIngestJob(
+  env: Env,
+  ctx: ExecutionContext,
+  message?: ScheduledJobMessage,
+): Promise<JobRunReport> {
+  const req = cronRequest('/cron/search-ingest');
+  const trigger = message?.trigger ?? 'cron';
+  let google: Awaited<ReturnType<typeof runGoogleSearchIngest>>;
+  try {
+    google = await runGoogleSearchIngest({
+      db: cronDb(env).db,
+      serviceAccountJson: env.GSC_SA_KEY_JSON,
+      indexNowKey: env.INDEXNOW_KEY,
+      publicSiteUrl: env.PUBLIC_SITE_URL,
+    });
+  } catch (error) {
+    // A D1 failure. The heartbeat still fires, so the liveness sweep sees the run.
+    // Rethrow so the queue retries: every write is an upsert.
+    submitCount(ctx, env, req, SEARCH_INGEST_RUN_METRIC, 1, [
+      `trigger:${trigger}`,
+      'engine:google',
+      'outcome:failed',
+    ]);
+    logToPosthog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.search_ingest.crashed',
+      source: 'search-ingest-cron',
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+  const metricOutcome =
+    google.outcome === 'ok' && searchIngestHadFailures(google) ? 'partial' : google.outcome;
+  submitCount(ctx, env, req, SEARCH_INGEST_RUN_METRIC, 1, [
+    `trigger:${trigger}`,
+    'engine:google',
+    `outcome:${metricOutcome}`,
+  ]);
+  if (metricOutcome !== 'ok') {
+    const failedCalls = Object.entries(google.calls)
+      .filter(([, c]) => c.outcome !== 'ok')
+      .map(([name, c]) => `${name}=${c.outcome}`)
+      .join(' ');
+    logToPosthog(ctx, env, req, {
+      level: metricOutcome === 'failed' ? 'error' : 'warn',
+      message: `aeci.search_ingest.${metricOutcome}`,
+      source: 'search-ingest-cron',
+      reason: [google.reason, failedCalls].filter(Boolean).join(' '),
+    });
+  }
+  return {
+    outcome: google.outcome,
+    detail: { job: 'search-ingest', google },
+  };
 }
 
 /** Cron path + log identifiers for a job's enqueue-failure log. `sync`/`drift`
@@ -3571,6 +3653,13 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       source: LEGAL_RETENTION_SOURCE,
     };
   }
+  if (job === 'search_ingest') {
+    return {
+      path: '/cron/search-ingest',
+      message: 'aeci.search_ingest.enqueue_failed',
+      source: 'search-ingest-cron',
+    };
+  }
   if (job === 'sitemap_rebuild') {
     return {
       path: '/cron/sitemap-rebuild',
@@ -3728,6 +3817,8 @@ async function dispatchScheduledJob(
       return runAcceptanceEvidenceRemovalJob(env, ctx, message);
     case 'gsc_inspect':
       return runGscInspectJob(env, ctx, message);
+    case 'search_ingest':
+      return runSearchIngestJob(env, ctx, message);
     case 'sitemap_rebuild':
       return runSitemapRebuildJob(env, ctx);
     case 'plan_snapshot':
@@ -3873,6 +3964,9 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       return;
     case GSC_INSPECT_CRON:
       await enqueueOrRun(env, ctx, 'gsc_inspect');
+      return;
+    case SEARCH_INGEST_CRON:
+      await enqueueOrRun(env, ctx, 'search_ingest');
       return;
     case CLAIM_OWNER_FALLBACK_CRON:
       await enqueueOrRun(env, ctx, 'claim_owner_fallback');

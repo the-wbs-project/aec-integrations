@@ -1486,7 +1486,9 @@ prune skipping because of the gap.
 
 **What it means:** The daily **00:15 UTC** §7.1 snapshot (AECI-581 / Phase 8.3 P2.1,
 `apps/api/src/lib/metrics-snapshot.ts`) writes one `metrics_daily` row per `(day, metric)` for all
-21 `ADMIN_SNAPSHOT_METRIC_KEYS`, capturing the prior **complete** UTC day. It is the only writer.
+21 `ADMIN_SNAPSHOT_METRIC_KEYS`, capturing the prior **complete** UTC day. It is the only writer of
+those keys. The weekly search ingest writes its own `search.*` keys to the same table (AECI-820),
+and they never count toward a captured day.
 
 **Since AECI-827 the same job has a SECOND pass** (ADR 0027): after the capture it re-checks the
 trailing ~33 days and rewrites the `traffic.*` days the operator retro-join moved. It emits its own
@@ -2406,6 +2408,48 @@ published 2,000 calls a day per property.
 **What is safe to ignore.** A failed or halted run never deletes a row it did not inspect, and it
 never closes a row on a failed page fetch. The cost of a dead run is a longer list, not lost work.
 The manual fallback is step 0 of `docs/runbooks/gsc-reindex.md`.
+
+**`outcome:skipped` is the correct state outside production**, and in production before the key is
+provisioned. It is not a fault.
+
+## Search ingest partial or failed
+
+**Signal:** `aeci.search_ingest.run{outcome:partial}` or `{outcome:failed}` for the weekly
+`search-ingest` cron (AECI-820, `0 22 * * 1`, Sundays at 22:00 UTC). `outcome:failed` also sends
+the `cron-job-failed-alert` email. `/admin/system` shows the run's `job_runs.detail.google`: the
+Pacific-day windows, each call's outcome, each key's outcome, and the `www.` sitemap's dates.
+
+**What the job does.** It reads Search Console with the same service account as `gsc-inspect`. It
+makes five sequential read calls on one token: two daily Search Analytics series, a 28-day page
+count, a 28-day query count, and the Sitemaps list. It writes `metrics_daily` rows under the
+`search.google.*` keys, filed under Google's Pacific dates. It changes nothing in Search Console.
+
+**`outcome:partial`: usually do nothing.** One call failed, wrote nothing for its keys, and the
+other calls still wrote. Read `detail.google.calls` for the failed call and its `outcome`:
+
+| Call outcome | What it means | What to do |
+|---|---|---|
+| `quota` | Google answered 429 | Nothing. The next Sunday re-pulls 14 days, so a missed week leaves no gap in the daily series |
+| `transient` | A 5xx or a dropped connection, three times | Nothing, unless it repeats on two Sundays running |
+| `rejected` | Another 4xx. The request shape is wrong | File an issue with the `job_runs` row. Google may have changed the API |
+| `auth` on one call only | Google refused that call but not the others | Check the service account's permission level on the property |
+
+A key whose outcome is `failed` has no row for that week. The 28-day keys and the sitemap keys are
+one point a week, so a missed week is a missing point, never a zero. The daily keys recover on the
+next run.
+
+**`outcome:failed`: check the key and the property.** It means Google refused the credential: the
+token exchange failed, or every call answered 401 or 403. `gsc-inspect` uses the same key, so it
+fails the same way. Follow steps 1 to 3 of "gsc-inspect halted on quota or failed" above.
+
+**`www_sitemap` keys with `no_data`.** Google's Sitemaps list has no entry for
+`https://www.aecintegrations.com/sitemap.xml`. Resubmit it in Search Console, as
+`POST_LAUNCH_MONITORING.md` §2a describes. The weekly manual read is the check.
+
+**What the figures are not.** The `www_page` figures are filtered to `www.` and aggregated by page.
+They do not match the Performance chart, which aggregates by property. The `property` figures are
+the ones comparable to the AECI-799 baseline. `pages_with_impressions_28d` is a lower bound on
+indexed pages, not the indexed count. Google has no API for that count.
 
 **`outcome:skipped` is the correct state outside production**, and in production before the key is
 provisioned. It is not a fault.

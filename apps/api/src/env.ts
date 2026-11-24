@@ -42,7 +42,8 @@ export type ScheduledJob =
   | 'acceptance_evidence_removal'
   | 'plan_snapshot'
   | 'acceptance_chain'
-  | 'legal_retention';
+  | 'legal_retention'
+  | 'search_ingest';
 
 /**
  * Body of a message on a scheduled-job queue. The producer is the cron
@@ -736,16 +737,19 @@ export type Env = {
    */
   LINEAR_API_KEY?: string;
   /**
-   * Google service-account key, the whole key-file JSON (AECI-1236). Read by the
-   * daily URL Inspection run (`lib/gsc-inspect-job.ts`), which signs a
-   * `webmasters.readonly` token with it. The account needs read access to the
+   * Google service-account key, the whole key-file JSON (AECI-1236). Two readers
+   * sign a `webmasters.readonly` token with it (`lib/google-service-account.ts`):
+   * the daily URL Inspection run (`lib/gsc-inspect-job.ts`) and, since AECI-820,
+   * the weekly search ingest (`lib/search-ingest.ts`), which reads Search
+   * Analytics and Sitemaps. The account needs read access to the
    * `sc-domain:aecintegrations.com` Search Console property and nothing else.
    *
    * **Production only, and recommended rather than required.** The worklist only
    * fills where `INDEXNOW_KEY` is set, which is production. `promote-to-prod.yml`
    * pushes it from the `GSC_SA_KEY_JSON_PRODUCTION` GH secret; when it is absent
    * the run is `skipped` with `aeci.gsc_inspect.run{outcome:skipped}` emitted, so
-   * a missing key is visible rather than silent (the AECI-851 lesson).
+   * a missing key is visible rather than silent (the AECI-851 lesson). The ingest
+   * skips the same way, with `aeci.search_ingest.run{outcome:skipped}`.
    */
   GSC_SA_KEY_JSON?: string;
   /**

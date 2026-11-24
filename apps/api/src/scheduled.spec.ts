@@ -137,6 +137,14 @@ vi.mock('./lib/gsc-inspect-job', async (importActual) => ({
   runGscInspectChunk: vi.fn(),
 }));
 
+// AECI-820. The real ingest by default: with no `GSC_SA_KEY_JSON` it skips before any
+// call, so the ALL_CRONS table runs it for real. Tests that need a Google answer
+// stub one run with `mockResolvedValueOnce`.
+vi.mock('./lib/search-ingest', async (importActual) => {
+  const actual = await importActual<typeof import('./lib/search-ingest')>();
+  return { ...actual, runGoogleSearchIngest: vi.fn(actual.runGoogleSearchIngest) };
+});
+
 import { fetchWafFirewallEvents } from '@aeci/shared/cloudflare-analytics';
 
 import { getDb } from './db/client';
@@ -171,6 +179,7 @@ import { CHECKS } from './lib/data-quality';
 import { SNAPSHOT_WRITTEN_METRIC_KEYS } from './lib/metrics-snapshot';
 import { HOME_STATS_REFRESHED_KEY, runHomeStats } from './lib/home-stats';
 import { runGscInspectChunk } from './lib/gsc-inspect-job';
+import { runGoogleSearchIngest, type GoogleSearchIngestResult } from './lib/search-ingest';
 import { runReconciliationSweep } from './lib/reconciliation-sweep';
 import { normalizeJobMessage, queue, scheduled } from './scheduled';
 
@@ -204,6 +213,9 @@ const SITEMAP_REBUILD_CRON = '7-59/15 * * * *';
 const PLAN_SNAPSHOT_CRON = '11-59/15 * * * *';
 const ACCEPTANCE_CHAIN_CRON = '0 18 * * *';
 const VENDOR_CLAIM_NUDGE_CRON = '0 15 * * *';
+// Cloudflare's day-of-week is 1=Sunday, so this is Sundays (AECI-820). A literal,
+// like ASN_REGISTRY_CRON above, so the dispatcher test fails if the constant drifts.
+const SEARCH_INGEST_CRON = '0 22 * * 1';
 
 const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
 
@@ -2549,6 +2561,9 @@ describe('job_runs bookkeeping (§7.2)', () => {
     // AECI-1680. Log-class (ADR 0022): its only writes are its own ledger, so it runs
     // the exempt assertion. No `UPLOADS` here, so the run is `skipped`.
     [ACCEPTANCE_CHAIN_CRON, 'acceptance-chain'],
+    // AECI-820. Log-class (ADR 0022): it writes only `metrics_daily`, so it runs the
+    // exempt assertion. With no `GSC_SA_KEY_JSON` here the run is `skipped`.
+    [SEARCH_INGEST_CRON, 'search-ingest'],
   ];
 
   /**
@@ -3494,5 +3509,138 @@ describe('gsc_inspect: cron → queue → chained consumer (AECI-1236)', () => {
         '2026-06-12T07:00:00.000Z',
       ),
     ).toMatchObject({ gscInspect: { runId: 'r', remaining: 5, skipIds: [1, 2] } });
+  });
+});
+
+describe('search_ingest: cron → reconcile queue → consumer (AECI-820)', () => {
+  const googleResult = (
+    over: Partial<GoogleSearchIngestResult> = {},
+  ): GoogleSearchIngestResult => ({
+    outcome: 'ok',
+    window: {
+      daily: { start: '2026-11-06', end: '2026-11-19' },
+      rolling: { start: '2026-10-23', end: '2026-11-19' },
+    },
+    calls: {
+      www_daily: { outcome: 'ok', rows: 14, written: 42 },
+      sitemaps: { outcome: 'ok', rows: 2, written: 4 },
+    },
+    metrics: { 'search.google.www_page.clicks': 'written' },
+    sitemap: null,
+    written: 46,
+    ...over,
+  });
+
+  it('enqueues onto RECONCILE_QUEUE and does not run inline', async () => {
+    const send = vi.fn().mockResolvedValue(undefined);
+    await scheduled(
+      cronController(SEARCH_INGEST_CRON),
+      makeEnv({ RECONCILE_QUEUE: { send } as never }),
+      ctx,
+    );
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ job: 'search_ingest', trigger: 'cron' }),
+    );
+    expect(runGoogleSearchIngest).not.toHaveBeenCalled();
+  });
+
+  it('records the Google lane in one job_runs row and emits the heartbeat', async () => {
+    vi.mocked(runGoogleSearchIngest).mockResolvedValueOnce(googleResult());
+    const { batch, ack } = makeBatch('search_ingest', 'aeci-reconcile-staging');
+
+    await queue(batch, makeEnv(), ctx);
+
+    expect(ack).toHaveBeenCalledTimes(1);
+    const [row] = await jobRunRows();
+    expect(row).toMatchObject({ job: 'search-ingest', outcome: 'ok' });
+    expect(row?.detail).toEqual({ job: 'search-ingest', google: googleResult() });
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.search_ingest.run',
+      1,
+      ['trigger:cron', 'engine:google', 'outcome:ok'],
+    );
+  });
+
+  it('reports a failed call as outcome:partial and keeps the run ok', async () => {
+    vi.mocked(runGoogleSearchIngest).mockResolvedValueOnce(
+      googleResult({
+        calls: {
+          www_daily: { outcome: 'ok', rows: 14, written: 42 },
+          www_pages_28d: { outcome: 'quota', message: 'http_429', rows: 0, written: 0 },
+        },
+      }),
+    );
+    await scheduled(cronController(SEARCH_INGEST_CRON), makeEnv(), ctx);
+
+    const [row] = await jobRunRows();
+    expect(row).toMatchObject({ job: 'search-ingest', outcome: 'ok' });
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.search_ingest.run',
+      1,
+      ['trigger:cron', 'engine:google', 'outcome:partial'],
+    );
+    expect(logToPosthog).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        level: 'warn',
+        message: 'aeci.search_ingest.partial',
+        reason: 'www_pages_28d=quota',
+      }),
+    );
+  });
+
+  it('records a refused credential as a failed run', async () => {
+    vi.mocked(runGoogleSearchIngest).mockResolvedValueOnce(
+      googleResult({ outcome: 'failed', reason: 'token_http_401', calls: {}, written: 0 }),
+    );
+    await scheduled(cronController(SEARCH_INGEST_CRON), makeEnv(), ctx);
+
+    const [row] = await jobRunRows();
+    expect(row).toMatchObject({ job: 'search-ingest', outcome: 'failed' });
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.search_ingest.run',
+      1,
+      ['trigger:cron', 'engine:google', 'outcome:failed'],
+    );
+  });
+
+  it('still emits the heartbeat when a D1 write throws, and rethrows for the retry', async () => {
+    vi.mocked(runGoogleSearchIngest).mockRejectedValueOnce(new Error('D1_ERROR'));
+    const { batch, ack, retry } = makeBatch('search_ingest', 'aeci-reconcile-staging');
+
+    await queue(batch, makeEnv(), ctx);
+
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(ack).not.toHaveBeenCalled();
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.search_ingest.run',
+      1,
+      ['trigger:cron', 'engine:google', 'outcome:failed'],
+    );
+  });
+
+  it('is skipped, not failed, when the key is absent', async () => {
+    await scheduled(cronController(SEARCH_INGEST_CRON), makeEnv(), ctx);
+
+    const [row] = await jobRunRows();
+    expect(row).toMatchObject({ job: 'search-ingest', outcome: 'skipped' });
+    expect(row?.detail).toMatchObject({
+      job: 'search-ingest',
+      google: { outcome: 'skipped', reason: 'no_creds' },
+    });
   });
 });

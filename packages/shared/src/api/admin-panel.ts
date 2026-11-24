@@ -1523,6 +1523,11 @@ export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdown
  * 03:00 `retention-prune` tick enqueues it on the reconcile queue. It deletes `audit_log`
  * rows older than four years and acceptance and grant records past their retention, and
  * an open litigation hold stops it (ADR 0058).
+ *
+ * `search-ingest` is the thirtieth (AECI-820): weekly, Sundays at 22:00 UTC, it pulls
+ * Search Console's Search Analytics and Sitemaps figures into `metrics_daily` under the
+ * `SEARCH_INGEST_METRIC_KEYS`. It is queue-backed, on the reconcile queue, and is the
+ * second weekly cron after `asn-registry`.
  */
 export const AdminCronJobSchema = z.enum([
   'metrics-snapshot', // 15 0 * * *
@@ -1554,6 +1559,7 @@ export const AdminCronJobSchema = z.enum([
   'plan-snapshot', // 11-59/15 * * * *
   'acceptance-chain', // 0 18 * * *
   'legal-retention-prune', // 0 3 * * *  (enqueued by the retention-prune tick)
+  'search-ingest', // 0 22 * * 1  (weekly; CF day-of-week is 1=Sunday, so Sundays)
 ]);
 export type AdminCronJob = z.infer<typeof AdminCronJobSchema>;
 

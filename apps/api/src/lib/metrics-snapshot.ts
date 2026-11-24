@@ -5,7 +5,12 @@
  * A scheduled job (`../scheduled.ts`, cron `15 0 * * *`) captures the prior
  * COMPLETE UTC day: one row per `(day, metric)` for every key in
  * {@link SNAPSHOT_WRITTEN_METRIC_KEYS}, which is `ADMIN_SNAPSHOT_METRIC_KEYS` less
- * `FROZEN_METRIC_KEYS` (AECI-1460). This module is the only writer.
+ * `FROZEN_METRIC_KEYS` (AECI-1460). This module is the only writer of those keys.
+ *
+ * It is not the only writer of the table. Since AECI-820 the weekly search ingest
+ * (`./search-ingest`) upserts `SEARCH_INGEST_METRIC_KEYS`, filed under Pacific
+ * dates. This job never writes, zero-fills or re-checks those keys, and the 03:00
+ * prune never counts them as a captured day (`findSnapshotGap`).
  *
  * ─── Why the table exists at all ─────────────────────────────────────────────
  *
