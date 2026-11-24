@@ -1,0 +1,15 @@
+- banner:
+  - link "AEC Integrations home":
+    - /url: /
+    - img "AEC Integrations"
+  - search "Site search":
+    - text: Search
+    - combobox "Search"
+  - navigation "Primary":
+    - link "Browse":
+      - /url: /products
+    - link "How we rank":
+      - /url: /docs/trust/how-ranking-works
+    - link "For vendors":
+      - /url: /vendor-program
+  - button "Account menu": <n> items awaiting action

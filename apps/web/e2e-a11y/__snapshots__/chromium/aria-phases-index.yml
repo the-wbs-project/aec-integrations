@@ -1,0 +1,54 @@
+- main:
+  - navigation "Breadcrumb":
+    - list:
+      - listitem:
+        - link "Home":
+          - /url: /
+      - listitem: Phases
+  - heading "Phases" [level=1]
+  - paragraph: Browse AEC software by project phase, from design through closeout.
+  - region "Results":
+    - text: Sort
+    - combobox "Sort Project order": Project order
+    - list:
+      - listitem:
+        - heading "Concept & Planning" [level=2]:
+          - link "Concept & Planning":
+            - /url: /phases/concept-planning
+        - paragraph: "Before design begins: feasibility, programming, site selection, entitlement, and conceptual budgets."
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Design" [level=2]:
+          - link "Design":
+            - /url: /phases/design
+        - paragraph: Schematic design through construction documents, across all design disciplines.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Pre-Construction" [level=2]:
+          - link "Pre-Construction":
+            - /url: /phases/pre-construction
+        - paragraph: "After design and before mobilization: estimating, bidding, buyout, and planning the build."
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Construction" [level=2]:
+          - link "Construction":
+            - /url: /phases/construction
+        - paragraph: Active building on site, from mobilization through substantial completion.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Closeout & Operations" [level=2]:
+          - link "Closeout & Operations":
+            - /url: /phases/closeout-operations
+        - paragraph: Punch, commissioning, handover, warranty, and building operations after turnover.
+        - paragraph: <n> product <n> integrations
+  - paragraph: Directory updates
+  - heading "Know when new tools and reviews land" [level=2]
+  - paragraph: AEC Integrations is live and still growing. Add your email for occasional updates as we expand the directory with new tools, integrations, and reviews.
+  - text: Email address
+  - textbox "Email address":
+    - /placeholder: you@yourfirm.com
+  - button "Subscribe"
+  - text: How did you find AEC Integrations? (optional)
+  - combobox "How did you find AEC Integrations? (optional) Choose one": Choose one
+  - status
+  - status

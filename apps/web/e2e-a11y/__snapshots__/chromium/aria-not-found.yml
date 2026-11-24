@@ -1,0 +1,26 @@
+- main:
+  - region "We couldn't find that page.":
+    - paragraph: "<n>: Not found"
+    - heading "We couldn't find that page." [level=1]
+    - paragraph: The page you were looking for may have been renamed, removed, or never existed. Try one of the directories below to find what you need.
+    - paragraph: Search is coming soon. In the meantime, browse by directory.
+    - navigation "Browse the directory":
+      - heading "Browse the directory" [level=2]
+      - list:
+        - listitem:
+          - link "Products Every AEC tool in the directory.":
+            - /url: /products
+        - listitem:
+          - link "Categories Tools grouped by what they do.":
+            - /url: /categories
+        - listitem:
+          - link "Audiences Tools for your role and discipline.":
+            - /url: /audiences
+        - listitem:
+          - link "Trades Tools built for the work you sell.":
+            - /url: /trades
+        - listitem:
+          - link "Phases Tools grouped by project phase.":
+            - /url: /phases
+    - link "Go home":
+      - /url: /

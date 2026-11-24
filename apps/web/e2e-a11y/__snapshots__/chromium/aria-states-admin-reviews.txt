@@ -1,0 +1,104 @@
+# admin-reviews: main
+# 1. disclosure: button "Insights"
+## before
+- button "Insights"
+## after
+# no state changed
+# 2. disclosure: button "Catalog"
+## before
+- button "Catalog"
+## after
+# no state changed
+# 3. disclosure: button "Operations <n> items awaiting action"
+## before
+- button "Operations <n> items awaiting action"
+## after
+# no state changed
+# 4. toggle: button "Approved"
+## before
+- group "Status":
+  - button "Pending" [pressed]
+  - button "Approved"
+  - button "Rejected"
+  - button "Removed"
+## after
+- group "Status":
+  - button "Pending"
+  - button "Approved" [pressed]
+  - button "Rejected"
+  - button "Removed"
+# 5. toggle: button "Rejected"
+## before
+- group "Status":
+  - button "Pending" [pressed]
+  - button "Approved"
+  - button "Rejected"
+  - button "Removed"
+## after
+- group "Status":
+  - button "Pending"
+  - button "Approved"
+  - button "Rejected" [pressed]
+  - button "Removed"
+# 6. toggle: button "Removed"
+## before
+- group "Status":
+  - button "Pending" [pressed]
+  - button "Approved"
+  - button "Rejected"
+  - button "Removed"
+## after
+- group "Status":
+  - button "Pending"
+  - button "Approved"
+  - button "Rejected"
+  - button "Removed" [pressed]
+# 7. toggle: button "Queue age"
+## before
+- group "Sort by":
+  - button "Toxicity" [pressed]
+  - button "Queue age"
+  - button "Product"
+  - button "Reviewer"
+## after
+- group "Sort by":
+  - button "Toxicity"
+  - button "Queue age" [pressed]
+  - button "Product"
+  - button "Reviewer"
+# 8. toggle: button "Product"
+## before
+- group "Sort by":
+  - button "Toxicity" [pressed]
+  - button "Queue age"
+  - button "Product"
+  - button "Reviewer"
+## after
+- group "Sort by":
+  - button "Toxicity"
+  - button "Queue age"
+  - button "Product" [pressed]
+  - button "Reviewer"
+# 9. toggle: button "Reviewer"
+## before
+- group "Sort by":
+  - button "Toxicity" [pressed]
+  - button "Queue age"
+  - button "Product"
+  - button "Reviewer"
+## after
+- group "Sort by":
+  - button "Toxicity"
+  - button "Queue age"
+  - button "Product"
+  - button "Reviewer" [pressed]
+# 10. disclosure: button "About the toxicity score"
+## before
+- button "About the toxicity score"
+## after
+# no state changed
+# 11. disclosure: button "Toxicity not scored. Show the toxicity scale.": Toxicity Not scored
+## before
+- button "Toxicity not scored. Show the toxicity scale.": Toxicity Not scored
+## after
+# no state changed

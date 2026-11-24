@@ -1,0 +1,13 @@
+# review-submission: main
+# 1. combobox: combobox "Your role(optional) Select a role": Select a role
+## before
+- combobox "Your role(optional) Select a role": Select a role
+## after
+- combobox "Your role(optional) Select a role" [expanded]: Select a role
+# controls #ng-listbox-a<n>-<n>
+- listbox "Roles":
+  - option "Practitioner"
+  - option "Manager"
+  - option "IT"
+  - option "Executive"
+  - option "Other"

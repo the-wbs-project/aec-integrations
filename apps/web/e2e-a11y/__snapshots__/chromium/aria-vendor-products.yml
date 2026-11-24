@@ -1,0 +1,40 @@
+- main:
+  - navigation "Breadcrumb":
+    - list:
+      - listitem:
+        - link "Vendor portal":
+          - /url: /vendor/fixture-procore-technologies/overview
+      - listitem: Fixture Procore Technologies
+  - heading "Fixture Procore Technologies" [level=1]
+  - link "View public page (opens in a new tab)":
+    - /url: /vendors/fixture-procore-technologies
+  - navigation "Portal sections":
+    - list:
+      - listitem:
+        - link "Vendor Overview":
+          - /url: /vendor/fixture-procore-technologies/overview
+      - listitem:
+        - link "Profile":
+          - /url: /vendor/fixture-procore-technologies/profile
+      - listitem:
+        - link "Products":
+          - /url: /vendor/fixture-procore-technologies/products
+      - listitem:
+        - link "Messages":
+          - /url: /vendor/fixture-procore-technologies/messages
+      - listitem:
+        - link "Conversations":
+          - /url: /vendor/fixture-procore-technologies/threads
+      - listitem:
+        - link "Changes":
+          - /url: /vendor/fixture-procore-technologies/history
+      - listitem:
+        - link "Seats":
+          - /url: /vendor/fixture-procore-technologies/seats
+  - heading "Products(<n>)" [level=2]
+  - paragraph: Only account owners can add a product. Ask an owner on the Seats tab.
+  - list:
+    - listitem:
+      - link "Fixture Procore Primary Checklist <n> of <n> Managed":
+        - /url: /vendor/fixture-procore-technologies/products/fixture-procore
+  - status

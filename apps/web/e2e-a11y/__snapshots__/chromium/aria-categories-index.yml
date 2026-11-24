@@ -1,0 +1,240 @@
+- main:
+  - navigation "Breadcrumb":
+    - list:
+      - listitem:
+        - link "Home":
+          - /url: /
+      - listitem: Categories
+  - heading "Categories" [level=1]
+  - paragraph: Browse AEC software by category. Each links to the products tagged with it.
+  - region "Results":
+    - text: Sort
+    - combobox "Sort Name (A–Z)": Name (A–Z)
+    - list:
+      - listitem:
+        - heading "Accounting & ERP" [level=2]:
+          - link "Accounting & ERP":
+            - /url: /categories/accounting-erp
+        - paragraph: General ledger, AP/AR, payroll, and job-cost accounting for construction businesses. Pay applications and lien waivers belong under Payment Management.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "AI" [level=2]:
+          - link "AI":
+            - /url: /categories/ai
+        - paragraph: Products whose core function is machine learning or generative AI, rather than tools that merely include an AI feature.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Analytics & Reporting" [level=2]:
+          - link "Analytics & Reporting":
+            - /url: /categories/analytics-reporting
+        - paragraph: Dashboards, business intelligence, and cross-project reporting over data produced elsewhere. Tag AI only when models, not queries, do the work.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Asset Management" [level=2]:
+          - link "Asset Management":
+            - /url: /categories/asset-management
+        - paragraph: Lifecycle tracking of owned physical assets and infrastructure. Construction fleet is Equipment Management, buildings in use is Facilities Management.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Bid Management" [level=2]:
+          - link "Bid Management":
+            - /url: /categories/bid-management
+        - paragraph: Invitations to bid, bid packages, subcontractor solicitation, and bid-day leveling. Pricing the work itself is Estimating & Takeoff.
+        - paragraph: <n> product <n> integrations
+      - listitem:
+        - heading "BIM Authoring" [level=2]:
+          - link "BIM Authoring":
+            - /url: /categories/bim-authoring
+        - paragraph: Tools that create and edit the model itself, discipline by discipline. Clash detection and federation belong under BIM Coordination.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "BIM Coordination" [level=2]:
+          - link "BIM Coordination":
+            - /url: /categories/bim-coordination
+        - paragraph: Federating models from multiple disciplines, clash detection, and coordination review. The tools that produce those models are BIM Authoring.
+        - paragraph: <n> product <n> integration
+      - listitem:
+        - heading "Civil Engineering" [level=2]:
+          - link "Civil Engineering":
+            - /url: /categories/civil-engineering
+        - paragraph: Site, roadway, grading, drainage, and infrastructure design. Survey data capture and mapping belong under Surveying & GIS.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Collaboration & Communication" [level=2]:
+          - link "Collaboration & Communication":
+            - /url: /categories/collaboration-communication
+        - paragraph: Messaging, meetings, markup, and shared workspaces across project teams. The system of record for files belongs under Document Management.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Construction Management" [level=2]:
+          - link "Construction Management":
+            - /url: /categories/construction-management
+        - paragraph: Broad platforms running the build, combining field, cost, and document workflows in one system. Narrower planning tools belong under Project Management.
+        - paragraph: <n> product <n> integrations
+      - listitem:
+        - heading "CRM & Sales" [level=2]:
+          - link "CRM & Sales":
+            - /url: /categories/crm-sales
+        - paragraph: "Pursuing and winning work: pipeline, client relationships, proposals, and go/no-go tracking. Responding to a specific bid is Bid Management."
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Design & Visualization" [level=2]:
+          - link "Design & Visualization":
+            - /url: /categories/design-visualization
+        - paragraph: Rendering, walkthroughs, VR, and presentation graphics. The modeling tools that feed them belong under BIM Authoring.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Document Management" [level=2]:
+          - link "Document Management":
+            - /url: /categories/document-management
+        - paragraph: System of record for drawings, specs, and project files, with versioning and access control. Discussion and markup are Collaboration & Communication.
+        - paragraph: <n> product <n> integration
+      - listitem:
+        - heading "Drone & Site Monitoring" [level=2]:
+          - link "Drone & Site Monitoring":
+            - /url: /categories/drone-site-monitoring
+        - paragraph: Aerial imagery, site cameras, and progress capture over time. Point-cloud scanning for as-builts belongs under Reality Capture.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Energy & Sustainability" [level=2]:
+          - link "Energy & Sustainability":
+            - /url: /categories/energy-sustainability
+        - paragraph: Energy modeling, carbon and embodied-carbon accounting, certification tracking, and building performance analysis.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Equipment Management" [level=2]:
+          - link "Equipment Management":
+            - /url: /categories/equipment-management
+        - paragraph: "Construction fleet, heavy equipment, and small-tool tracking: utilization, maintenance, and dispatch. Owner-side assets belong under Asset Management."
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Estimating & Takeoff" [level=2]:
+          - link "Estimating & Takeoff":
+            - /url: /categories/estimating-takeoff
+        - paragraph: Quantity takeoff, unit pricing, assemblies, and cost databases. Soliciting and leveling subcontractor bids is Bid Management.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Facilities Management" [level=2]:
+          - link "Facilities Management":
+            - /url: /categories/facilities-management
+        - paragraph: "Operating a building after handover: work orders, maintenance, space management, and CMMS. Construction-phase gear belongs under Equipment Management."
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Field Management" [level=2]:
+          - link "Field Management":
+            - /url: /categories/field-management
+        - paragraph: "What the crew does on site: daily logs, photos, timecards, and mobile field capture. Office-side program tools belong under Project Management."
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "MEP Design" [level=2]:
+          - link "MEP Design":
+            - /url: /categories/mep-design
+        - paragraph: Mechanical, electrical, and plumbing system design, sizing, and layout. General model authoring belongs under BIM Authoring.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Payment Management" [level=2]:
+          - link "Payment Management":
+            - /url: /categories/payment-management
+        - paragraph: "Moving money on a project: pay applications, lien waivers, compliance, and subcontractor payments. The books themselves are Accounting & ERP."
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Prefabrication & Modular" [level=2]:
+          - link "Prefabrication & Modular":
+            - /url: /categories/prefabrication-modular
+        - paragraph: Offsite fabrication, shop drawings, panelization, and modular assembly workflows. Automated machinery on the line belongs under Robotics.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Procurement & Materials Management" [level=2]:
+          - link "Procurement & Materials Management":
+            - /url: /categories/procurement-materials-management
+        - paragraph: Sourcing, purchase orders, and ordering, tracking, and delivery of construction materials. Company-wide spend platforms belong under Accounting & ERP.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Project Management" [level=2]:
+          - link "Project Management":
+            - /url: /categories/project-management
+        - paragraph: Planning, tracking, and coordinating project work across tasks, budgets, and team workflow. All-in-one build platforms are Construction Management.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Punch List & QA/QC" [level=2]:
+          - link "Punch List & QA/QC":
+            - /url: /categories/punch-list-qa-qc
+        - paragraph: Quality inspections, observations, punch lists, and closeout verification. Worker safety programs belong under Safety & Compliance.
+        - paragraph: <n> product <n> integration
+      - listitem:
+        - heading "Reality Capture" [level=2]:
+          - link "Reality Capture":
+            - /url: /categories/reality-capture
+        - paragraph: Laser scanning, photogrammetry, and point clouds converted into models. Ongoing progress photography belongs under Drone & Site Monitoring.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "RFI & Submittal Management" [level=2]:
+          - link "RFI & Submittal Management":
+            - /url: /categories/rfi-submittal-management
+        - paragraph: "Formal construction-administration workflows: RFIs, submittals, transmittals, and their review cycles and logs."
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Robotics" [level=2]:
+          - link "Robotics":
+            - /url: /categories/robotics
+        - paragraph: Physical robots and automated machinery for layout, fabrication, inspection, or installation on site or in the shop.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Safety & Compliance" [level=2]:
+          - link "Safety & Compliance":
+            - /url: /categories/safety-compliance
+        - paragraph: Toolbox talks, incident reporting, job hazard analyses, training records, and regulatory compliance. Quality defects belong under Punch List & QA/QC.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Scheduling" [level=2]:
+          - link "Scheduling":
+            - /url: /categories/scheduling
+        - paragraph: CPM, pull planning, look-aheads, and resource-loaded project schedules. Broader task and budget tracking belongs under Project Management.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Structural Analysis" [level=2]:
+          - link "Structural Analysis":
+            - /url: /categories/structural-analysis
+        - paragraph: Structural modeling, analysis, code checking, and member design. Detailing and model authoring belong under BIM Authoring.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Surveying & GIS" [level=2]:
+          - link "Surveying & GIS":
+            - /url: /categories/surveying-gis
+        - paragraph: Field survey, geospatial data, mapping, and site layout. Scan-to-BIM conversion belongs under Reality Capture.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Workforce Management" [level=2]:
+          - link "Workforce Management":
+            - /url: /categories/workforce-management
+        - paragraph: Labor planning, crew scheduling, certifications, and workforce forecasting. On-site time capture belongs under Field Management.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Zz Fixture Category Alpha" [level=2]:
+          - link "Zz Fixture Category Alpha":
+            - /url: /categories/zz-fixture-long-list-alpha
+        - paragraph: Local test category for the long integration list fixture. Not a real term.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Zz Fixture Category Beta" [level=2]:
+          - link "Zz Fixture Category Beta":
+            - /url: /categories/zz-fixture-long-list-beta
+        - paragraph: Local test category for the long integration list fixture. Not a real term.
+        - paragraph: <n> products <n> integrations
+      - listitem:
+        - heading "Zz Fixture Category Gamma" [level=2]:
+          - link "Zz Fixture Category Gamma":
+            - /url: /categories/zz-fixture-long-list-gamma
+        - paragraph: Local test category for the long integration list fixture. Not a real term.
+        - paragraph: <n> products <n> integrations
+  - paragraph: Directory updates
+  - heading "Know when new tools and reviews land" [level=2]
+  - paragraph: AEC Integrations is live and still growing. Add your email for occasional updates as we expand the directory with new tools, integrations, and reviews.
+  - text: Email address
+  - textbox "Email address":
+    - /placeholder: you@yourfirm.com
+  - button "Subscribe"
+  - text: How did you find AEC Integrations? (optional)
+  - combobox "How did you find AEC Integrations? (optional) Choose one": Choose one
+  - status
+  - status

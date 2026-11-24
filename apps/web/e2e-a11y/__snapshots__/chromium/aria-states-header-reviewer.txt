@@ -1,0 +1,13 @@
+# header, reviewer
+# 1. combobox: combobox "Search"
+## before
+- combobox "Search"
+## after
+- combobox "Search" [expanded]: fixture
+# controls #ng-listbox-a<n>-<n>
+- listbox "Search suggestions":
+  - option "Fixture product <n> Product Fixture Vendor"
+  - option "Fixture product <n> Product Fixture Vendor"
+  - option "Fixture product <n> Product Fixture Vendor"
+  - option "Fixture vendor <n> Vendor"
+  - option "Fixture vendor <n> Vendor"

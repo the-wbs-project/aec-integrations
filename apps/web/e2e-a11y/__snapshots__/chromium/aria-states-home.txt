@@ -1,0 +1,33 @@
+# home: main
+# 1. combobox: combobox "Search"
+## before
+- combobox "Search"
+## after
+- combobox "Search" [expanded]: fixture
+# controls #ng-listbox-a<n>-<n>
+- listbox "Search suggestions":
+  - option "Fixture product <n> Product Fixture Vendor"
+  - option "Fixture product <n> Product Fixture Vendor"
+  - option "Fixture product <n> Product Fixture Vendor"
+  - option "Fixture vendor <n> Vendor"
+  - option "Fixture vendor <n> Vendor"
+# 2. combobox: combobox "Your tool"
+## before
+- combobox "Your tool"
+## after
+- combobox "Your tool" [expanded]: fixture
+# controls #ng-listbox-a<n>-<n>
+- listbox "Search suggestions":
+  - option "Fixture product <n> Product Fixture Vendor"
+  - option "Fixture product <n> Product Fixture Vendor"
+  - option "Fixture product <n> Product Fixture Vendor"
+# 3. combobox: combobox "Connects to"
+## before
+- combobox "Connects to"
+## after
+- combobox "Connects to" [expanded]: fixture
+# controls #ng-listbox-a<n>-<n>
+- listbox "Search suggestions":
+  - option "Fixture product <n> Product Fixture Vendor"
+  - option "Fixture product <n> Product Fixture Vendor"
+  - option "Fixture product <n> Product Fixture Vendor"

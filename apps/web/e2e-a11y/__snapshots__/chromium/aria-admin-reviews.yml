@@ -1,0 +1,52 @@
+- main:
+  - heading "Admin" [level=1]
+  - navigation "Admin sections":
+    - list:
+      - listitem:
+        - button "Insights"
+      - listitem:
+        - button "Catalog"
+      - listitem:
+        - button "Operations <n> items awaiting action"
+  - navigation "Breadcrumb":
+    - list:
+      - listitem:
+        - link "Admin":
+          - /url: /admin
+      - listitem: Operations
+      - listitem: Review queue
+  - region "Reviews":
+    - heading "Reviews" [level=2]
+    - text: Status
+    - group "Status":
+      - button "Pending" [pressed]
+      - button "Approved"
+      - button "Rejected"
+      - button "Removed"
+    - text: Sort by
+    - group "Sort by":
+      - button "Toxicity" [pressed]
+      - button "Queue age"
+      - button "Product"
+      - button "Reviewer"
+    - button "About the toxicity score"
+    - status
+    - list:
+      - listitem:
+        - article "Dynamo for Revit":
+          - heading "Dynamo for Revit" [level=3]:
+            - link "Dynamo for Revit":
+              - /url: /products/dynamo-for-revit
+          - button "Toxicity not scored. Show the toxicity scale.": Toxicity Not scored
+          - term: Reviewer
+          - definition: Anonymized
+          - term: Submitted
+          - definition: <date>, <time>
+          - term: In queue
+          - definition: <n> d
+          - text: Overall <n>/<n> Onboarding <n>/<n>
+          - heading "Still waiting on moderation" [level=4]
+          - paragraph: A pending review. The vendor reviews list must never show it.
+          - text: Other <n> yrs using Might recommend
+          - button "Approve"
+          - button "Reject"

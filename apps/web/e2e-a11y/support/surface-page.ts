@@ -21,7 +21,7 @@ import {
 import { authEnvMissing, mintSessionCookies, type SessionPersona } from '../../e2e/auth-session';
 import { E2E_BASE_URL } from '../../e2e/base-url';
 import { untilAppStable } from '../../e2e/hydration';
-import { FIXTURE, personaCredentials, type A11ySurface } from '../surfaces';
+import { FIXTURE, personaCredentials, type A11ySurface, type Persona } from '../surfaces';
 
 type Cookies = NonNullable<Awaited<ReturnType<typeof mintSessionCookies>>>;
 
@@ -80,15 +80,23 @@ export async function prepareSurface(
     surface.fixture === 'phase2' && !fixturesPresent,
     'phase2 fixtures not seeded, see the beforeAll warning',
   );
-  const account = personaCredentials(surface.persona);
+  await signInAs(context, surface.persona);
+}
+
+/**
+ * Sign the context in as a persona, or skip the test (or the hook's group) with
+ * a reason that names what is missing. The anonymous persona needs nothing.
+ */
+export async function signInAs(context: BrowserContext, persona: Persona): Promise<void> {
+  const account = personaCredentials(persona);
   if (!account) return;
   const cookies = await sessionFor(account);
   const missing = authEnvMissing(account);
   test.skip(
     !cookies,
     missing.length > 0
-      ? `No ${surface.persona} session: ${missing.join(', ')} unset`
-      : `No ${surface.persona} session: sign-in failed`,
+      ? `No ${persona} session: ${missing.join(', ')} unset`
+      : `No ${persona} session: sign-in failed`,
   );
   await context.addCookies(cookies!);
 }

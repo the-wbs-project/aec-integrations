@@ -1,0 +1,24 @@
+# integration-detail: main
+# 1. toggle: button "Basic"
+## before
+- group "Choose a view":
+  - button "Basic"
+  - button "Detailed" [pressed]
+## after
+- group "Choose a view":
+  - button "Basic" [pressed]
+  - button "Detailed"
+# 2. combobox: combobox "How did you find AEC Integrations? (optional) Choose one": Choose one
+## before
+- combobox "How did you find AEC Integrations? (optional) Choose one": Choose one
+## after
+- combobox "How did you find AEC Integrations? (optional) Choose one" [expanded]: Choose one
+# controls #ng-listbox-a<n>-<n>
+- listbox "How did you find AEC Integrations? (optional)":
+  - option "Google or another search engine"
+  - option "ChatGPT, Claude, Perplexity or another AI tool"
+  - option "LinkedIn"
+  - option "A colleague or word of mouth"
+  - option "A vendor or software company"
+  - option "An event or conference"
+  - option "Something else"

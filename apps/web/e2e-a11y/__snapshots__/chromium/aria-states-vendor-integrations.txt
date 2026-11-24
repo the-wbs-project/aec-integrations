@@ -1,0 +1,27 @@
+# vendor-integrations: main
+# 1. disclosure: button "Add an integration"
+## before
+- button "Add an integration"
+## after
+- button "Add an integration" [expanded]
+# controls #vendor-create-form
+- group "Add an integration":
+  - paragraph: Add an integration
+  - paragraph: Your company will own this integration. It goes live on the public integration page as soon as you add it, with no review step, and the other product's vendor is told.
+  - paragraph: Step <n> of <n> , Find the other product
+  - paragraph: Your product
+  - group "Your product Fixture Procore": Fixture Procore
+  - text: The other product
+  - combobox "The other product"
+  - paragraph: Search the published catalog by product name, then choose one result.
+  - button "Can't find it? Ask us to add it"
+  - button "Cancel"
+# 2. toggle: button "Needs your answer <n>"
+## before
+- group "Filter by status":
+  - button "All <n>" [pressed]
+  - button "Needs your answer <n>"
+## after
+- group "Filter by status":
+  - button "All <n>"
+  - button "Needs your answer <n>" [pressed]

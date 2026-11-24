@@ -1,0 +1,99 @@
+# admin-requests: main
+# 1. disclosure: button "Insights"
+## before
+- button "Insights"
+## after
+# no state changed
+# 2. disclosure: button "Catalog"
+## before
+- button "Catalog"
+## after
+# no state changed
+# 3. disclosure: button "Operations <n> items awaiting action"
+## before
+- button "Operations <n> items awaiting action"
+## after
+# no state changed
+# 4. toggle: button "Resolved"
+## before
+- group "Status":
+  - button "Open" [pressed]
+  - button "Resolved"
+  - button "Rejected"
+## after
+- group "Status":
+  - button "Open"
+  - button "Resolved" [pressed]
+  - button "Rejected"
+# 5. toggle: button "Rejected"
+## before
+- group "Status":
+  - button "Open" [pressed]
+  - button "Resolved"
+  - button "Rejected"
+## after
+- group "Status":
+  - button "Open"
+  - button "Resolved"
+  - button "Rejected" [pressed]
+# 6. toggle: button "Added"
+## before
+- group "Product requests from vendors":
+  - button "Open" [pressed]
+  - button "Added"
+  - button "Already listed"
+  - button "Declined"
+## after
+- group "Product requests from vendors":
+  - button "Open"
+  - button "Added" [pressed]
+  - button "Already listed"
+  - button "Declined"
+# 7. toggle: button "Already listed"
+## before
+- group "Product requests from vendors":
+  - button "Open" [pressed]
+  - button "Added"
+  - button "Already listed"
+  - button "Declined"
+## after
+- group "Product requests from vendors":
+  - button "Open"
+  - button "Added"
+  - button "Already listed" [pressed]
+  - button "Declined"
+# 8. toggle: button "Declined"
+## before
+- group "Product requests from vendors":
+  - button "Open" [pressed]
+  - button "Added"
+  - button "Already listed"
+  - button "Declined"
+## after
+- group "Product requests from vendors":
+  - button "Open"
+  - button "Added"
+  - button "Already listed"
+  - button "Declined" [pressed]
+# 9. toggle: button "Approved"
+## before
+- group "Early-unassign requests":
+  - button "Open" [pressed]
+  - button "Approved"
+  - button "Declined"
+## after
+- group "Early-unassign requests":
+  - button "Open"
+  - button "Approved" [pressed]
+  - button "Declined"
+# 10. toggle: button "Declined"
+## before
+- group "Early-unassign requests":
+  - button "Open" [pressed]
+  - button "Approved"
+  - button "Declined"
+## after
+- group "Early-unassign requests":
+  - button "Open"
+  - button "Approved"
+  - button "Declined" [pressed]

@@ -1,0 +1,45 @@
+- main:
+  - heading "Admin" [level=1]
+  - navigation "Admin sections":
+    - list:
+      - listitem:
+        - button "Insights"
+      - listitem:
+        - button "Catalog"
+      - listitem:
+        - button "Operations <n> items awaiting action"
+  - navigation "Breadcrumb":
+    - list:
+      - listitem:
+        - link "Admin":
+          - /url: /admin
+      - listitem: Operations
+      - listitem: Requests
+  - region "Correction requests":
+    - heading "Correction requests" [level=2]
+    - text: Status
+    - group "Status":
+      - button "Open" [pressed]
+      - button "Resolved"
+      - button "Rejected"
+    - status
+    - paragraph: No requests match this filter.
+  - region "Product requests from vendors":
+    - heading "Product requests from vendors" [level=2]
+    - paragraph: Products a vendor asked us to add so it can list an integration with them. To add one, create it in the review app and promote it, then mark it Added here.
+    - group "Product requests from vendors":
+      - button "Open" [pressed]
+      - button "Added"
+      - button "Already listed"
+      - button "Declined"
+    - status
+    - paragraph: No product requests match this filter.
+  - region "Early-unassign requests":
+    - heading "Early-unassign requests" [level=2]
+    - paragraph: Vendor owners asking us to take a subscription off a product before renewal. Approving puts the subscription back in their pool and moves the product to Free.
+    - group "Early-unassign requests":
+      - button "Open" [pressed]
+      - button "Approved"
+      - button "Declined"
+    - status
+    - paragraph: No early-unassign requests match this filter.

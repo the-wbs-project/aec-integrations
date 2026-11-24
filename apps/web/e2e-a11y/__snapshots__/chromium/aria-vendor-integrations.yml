@@ -1,0 +1,69 @@
+- main:
+  - navigation "Breadcrumb":
+    - list:
+      - listitem:
+        - link "Vendor portal":
+          - /url: /vendor/fixture-procore-technologies/overview
+      - listitem:
+        - link "Fixture Procore Technologies":
+          - /url: /vendor/fixture-procore-technologies/overview
+      - listitem:
+        - link "Products":
+          - /url: /vendor/fixture-procore-technologies/products
+      - listitem: Fixture Procore
+  - link "← Back to Fixture Procore Technologies":
+    - /url: /vendor/fixture-procore-technologies/overview
+  - heading "Fixture Procore" [level=1]
+  - link "View public page (opens in a new tab)":
+    - /url: /products/fixture-procore
+  - text: Managed
+  - navigation "Fixture Procore sections":
+    - list:
+      - listitem:
+        - link "Product Overview":
+          - /url: /vendor/fixture-procore-technologies/products/fixture-procore/overview
+      - listitem:
+        - link "Profile":
+          - /url: /vendor/fixture-procore-technologies/products/fixture-procore/profile
+      - listitem:
+        - link "Categories":
+          - /url: /vendor/fixture-procore-technologies/products/fixture-procore/categories
+      - listitem:
+        - link "Trades":
+          - /url: /vendor/fixture-procore-technologies/products/fixture-procore/trades
+      - listitem:
+        - link "Audiences":
+          - /url: /vendor/fixture-procore-technologies/products/fixture-procore/audiences
+      - listitem:
+        - link "Phases":
+          - /url: /vendor/fixture-procore-technologies/products/fixture-procore/phases
+      - listitem:
+        - link "Integrations":
+          - /url: /vendor/fixture-procore-technologies/products/fixture-procore/integrations
+      - listitem:
+        - link "Reviews":
+          - /url: /vendor/fixture-procore-technologies/products/fixture-procore/reviews
+  - paragraph: Is every integration listed for this product, and nothing extra? Press Looks right to record that you checked.
+  - button "Looks right"
+  - paragraph: These are the integrations on record for your products. Open one to check what data is shared and to fix anything that is wrong. The other company sees the same integration from their side.
+  - paragraph: <n> rows of data on record · <n> need your answer
+  - button "Add an integration"
+  - paragraph: List an integration your company offers that is not on record yet.
+  - 'link "Learn more : Owning an integration (opens in a new tab)"':
+    - /url: /docs/vendors/owning-an-integration
+  - search "Filter integrations":
+    - text: Search
+    - searchbox "Search"
+    - text: Integrates with
+    - combobox "Integrates with":
+      - option "Any product" [selected]
+      - option "Your own products"
+      - option "Other companies' products"
+    - group "Filter by status":
+      - button "All <n>" [pressed]
+      - button "Needs your answer <n>"
+  - list:
+    - listitem:
+      - link "Fixture Acme Connector RFIs are sent to Fixture Acme Connector Needs your answer":
+        - /url: /vendor/fixture-procore-technologies/products/fixture-procore/integrations/<uuid>
+  - status

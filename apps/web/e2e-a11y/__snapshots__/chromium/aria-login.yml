@@ -1,0 +1,17 @@
+- main:
+  - region "Sign in to AEC Integrations":
+    - heading "Sign in to AEC Integrations" [level=1]
+    - paragraph: No password needed. Continue with Google, or we'll email you a link.
+    - button "Continue with Google"
+    - text: Email
+    - textbox "Email":
+      - /placeholder: you@company.com
+    - button "Email me a sign-in link"
+    - paragraph:
+      - text: By signing in, you agree to our
+      - link "Terms of Service":
+        - /url: /legal/terms
+      - text: and
+      - link "Privacy Policy":
+        - /url: /legal/privacy
+      - text: .

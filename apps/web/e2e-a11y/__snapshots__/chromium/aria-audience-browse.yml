@@ -1,0 +1,94 @@
+- main:
+  - navigation "Breadcrumb":
+    - list:
+      - listitem:
+        - link "Home":
+          - /url: /
+      - listitem:
+        - link "Audiences":
+          - /url: /audiences
+      - listitem: General Contracting
+  - heading "General Contracting" [level=1]
+  - paragraph: General contractors holding the prime contract and managing or self-performing the trades. Owner-side CM firms are Construction Management.
+  - paragraph: <n> products
+  - complementary "Filters":
+    - heading "Filters" [level=2]
+    - group "Categories":
+      - text: Categories
+      - list:
+        - listitem:
+          - checkbox "BIM Coordination (<n>)"
+          - text: BIM Coordination (<n>)
+        - listitem:
+          - checkbox "Construction Management (<n>)"
+          - text: Construction Management (<n>)
+        - listitem:
+          - checkbox "Document Management (<n>)"
+          - text: Document Management (<n>)
+        - listitem:
+          - checkbox "Project Management (<n>)"
+          - text: Project Management (<n>)
+        - listitem:
+          - checkbox "Punch List & QA/QC (<n>)"
+          - text: Punch List & QA/QC (<n>)
+    - group "Phases":
+      - text: Phases
+      - list:
+        - listitem:
+          - checkbox "Design (<n>)"
+          - text: Design (<n>)
+        - listitem:
+          - checkbox "Pre-Construction (<n>)"
+          - text: Pre-Construction (<n>)
+        - listitem:
+          - checkbox "Construction (<n>)"
+          - text: Construction (<n>)
+        - listitem:
+          - checkbox "Closeout & Operations (<n>)"
+          - text: Closeout & Operations (<n>)
+    - paragraph: Phases in project order. Other terms A to Z.
+  - region "Results":
+    - text: Sort
+    - combobox "Sort Newest": Newest
+    - group "Choose a view":
+      - button "Cards" [pressed]
+      - button "Table"
+    - list:
+      - listitem:
+        - text: Recently added
+        - paragraph:
+          - link "Fixture Procore":
+            - /url: /products/fixture-procore
+        - paragraph: Fixture Procore Technologies
+        - text: <n> integration
+      - listitem:
+        - text: <n> integration
+        - paragraph:
+          - link "Navisworks":
+            - /url: /products/navisworks
+        - paragraph: Autodesk
+      - listitem:
+        - text: <n> integrations
+        - paragraph:
+          - link "Procore":
+            - /url: /products/procore
+        - paragraph: Procore Technologies
+      - listitem:
+        - text: <n> integration
+        - paragraph:
+          - link "Bluebeam Revu":
+            - /url: /products/bluebeam-revu
+        - paragraph: Bluebeam
+    - paragraph: Showing <n> of <n>
+    - paragraph: You've reached the end (<n> in total).
+  - paragraph: Directory updates
+  - heading "Know when new tools and reviews land" [level=2]
+  - paragraph: AEC Integrations is live and still growing. Add your email for occasional updates as we expand the directory with new tools, integrations, and reviews.
+  - text: Email address
+  - textbox "Email address":
+    - /placeholder: you@yourfirm.com
+  - button "Subscribe"
+  - text: How did you find AEC Integrations? (optional)
+  - combobox "How did you find AEC Integrations? (optional) Choose one": Choose one
+  - status
+  - status
