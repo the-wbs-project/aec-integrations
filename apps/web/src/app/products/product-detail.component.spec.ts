@@ -598,10 +598,10 @@ describe('ProductDetailPage powered-integrations hub', () => {
     }
   });
 
-  it('omits the catalog-scope note where the list is empty (the empty state already hedges)', () => {
+  it('omits the catalog-scope note where the list is empty', () => {
     // Endpoint table empty, powered list populated: only the populated section
-    // carries the note. Doubling up with "No integrations recorded yet. Vendor
-    // data is curated…" would say the same thing twice.
+    // carries the note. The empty endpoint section prints no sentence at all on
+    // this page (AECI-2050).
     const { el } = setup(connector({ integrations_as_connector: [edge(procore, acumatica)] }));
 
     expect(el.querySelector('#integrations')!.textContent).not.toContain('Only partners listed');
@@ -1319,6 +1319,108 @@ describe('ProductDetailPage hero reach line (§13.6)', () => {
       expect(el.querySelector('[slot="hero"]')!.textContent).not.toMatch(/Connects \d/);
       TestBed.resetTestingModule();
     }
+  });
+});
+
+/**
+ * AECI-2051: the payload shape the API sends. `integrations_as_connector` is the raw
+ * powered list (§13.4(2)), so a Convention-A edge arrives in an endpoint bucket AND in
+ * the connector bucket, with the same id. The page must show it once.
+ */
+describe('ProductDetailPage with the raw powered list (§13.4(2), AECI-2051)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const agave = link('agave-erp-sync', 'Agave ERP Sync');
+
+  /** The endpoint-bucket form of a Convention-A edge: same id, powered by the page product. */
+  const asEndpointRow = (e: PoweredIntegrationItem): ProductIntegrationItem => ({
+    ...e,
+    context_direction: null,
+    powered_by_product: agave,
+    data_objects: [],
+    partner_categories: [],
+    agreement: null,
+  });
+
+  /** Every pair-page link in the two integration sections, as an unordered pair key. */
+  const pairLinks = (el: HTMLElement): string[] =>
+    [...el.querySelectorAll<HTMLAnchorElement>('#integrations a, #powered-integrations a')].flatMap(
+      (a) => {
+        const m = (a.getAttribute('href') ?? '').match(
+          /^\/products\/([^/]+)\/integrations\/([^/?#]+)/,
+        );
+        return m ? [[m[1]!, m[2]!].sort().join('::')] : [];
+      },
+    );
+
+  it('shows the hero line and no false empty state when every edge is a self-reference', () => {
+    // The Aquifer and Kroo shape, as the API sends it.
+    const selfEdges = [selfEdge(procore, agave), selfEdge(acumatica, agave), selfEdge(sage, agave)];
+    const { el } = setup(
+      connector({
+        integration_count: 3,
+        integrations_as_target: selfEdges.map(asEndpointRow),
+        integrations_as_connector: selfEdges,
+      }),
+    );
+
+    expect(el.querySelector('[slot="hero"]')!.textContent).toContain(
+      'Connects 3 products in the AEC Integrations catalog',
+    );
+    // §12.3 branch 2: the edges are listed under Integrations, so the page must not say
+    // nothing runs on this connector.
+    expect(el.textContent).not.toContain('No integrations are recorded as running');
+    expect(el.querySelector('#powered-integrations')).toBeNull();
+    expect(navIds(el)).not.toContain('powered-integrations');
+    expect(el.querySelectorAll('#integrations li[aec-product-integration-card]')).toHaveLength(3);
+  });
+
+  it('renders no pair twice when self-references and third-party pairs arrive together', () => {
+    const selfEdges = [selfEdge(procore, agave), selfEdge(acumatica, agave)];
+    const { el } = setup(
+      connector({
+        integration_count: 4,
+        integrations_as_target: selfEdges.map(asEndpointRow),
+        integrations_as_connector: [...selfEdges, edge(sage, acumatica), edge(sage, vista)],
+      }),
+    );
+
+    expect(pairLinks(el).sort()).toEqual(
+      [
+        'acumatica::agave-erp-sync',
+        'agave-erp-sync::procore',
+        'acumatica::sage-intacct',
+        'sage-intacct::viewpoint-vista',
+      ].sort(),
+    );
+    // The self-references are endpoint rows only. The powered section never names the
+    // page product.
+    expect(el.querySelectorAll('#integrations li[aec-product-integration-card]')).toHaveLength(2);
+    const powered = el.querySelector('#powered-integrations')!;
+    expect(powered.querySelector('h2')!.textContent).toContain('Integrations it powers (2)');
+    expect(powered.textContent).not.toContain('Agave ERP Sync');
+    // Reach counts products: Procore, Acumatica, Sage Intacct and Viewpoint Vista.
+    expect(el.querySelector('[slot="hero"]')!.textContent).toContain(
+      'Connects 4 products in the AEC Integrations catalog',
+    );
+  });
+
+  it('leaves a connector with only third-party pairs as it was', () => {
+    const { el } = setup(
+      connector({
+        integrations_as_connector: [edge(procore, acumatica), edge(sage, procore)],
+      }),
+    );
+
+    const powered = el.querySelector('#powered-integrations')!;
+    expect(powered.querySelector('h2')!.textContent).toContain('Integrations it powers (2)');
+    expect(pairLinks(el).sort()).toEqual(['acumatica::procore', 'procore::sage-intacct']);
+    expect(el.textContent).not.toContain('No integrations are recorded as running');
+    expect(el.querySelector('[slot="hero"]')!.textContent).toContain(
+      'Connects 3 products in the AEC Integrations catalog',
+    );
+    // Still leads the page (§13.6).
+    expect(bodySectionIds(el).slice(0, 2)).toEqual(['about', 'powered-integrations']);
   });
 });
 
@@ -2409,7 +2511,10 @@ describe('ProductDetailPage zero-integration state (AECI-1786)', () => {
   it('is not the zero state on a connector that powers edges', () => {
     const { el } = setup(connector({ integrations_as_connector: [edge(procore, acumatica)] }));
     expect(section(el).textContent).not.toContain('We have no integrations for');
-    expect(section(el).textContent).toContain('No integrations recorded yet');
+    // AECI-2050: nor the plain empty sentence, which "Integrations it powers" makes false.
+    expect(section(el).textContent).not.toContain('No integrations recorded yet');
+    expect(section(el).querySelector('[data-testid=integrations-empty]')).toBeNull();
+    expect(el.querySelector('#powered-integrations')).toBeTruthy();
   });
 
   it('is not the zero state when the reach line reports pairs reachable via connectors', () => {
