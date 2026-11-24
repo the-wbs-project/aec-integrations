@@ -22,6 +22,7 @@ import {
 } from '@aeci/shared';
 
 import { AdminSummaryStore } from '../admin-summary.store';
+import { CONSOLE_FILTER } from '../console/console-filter';
 import { CONSOLE_LABEL_CLASS, CONSOLE_TABLE } from '../console/console-table';
 import { AdminDisclosureButton } from '../console/disclosure-button';
 import { adminStatusTone } from '../console/status-tones';
@@ -30,11 +31,11 @@ import {
   QUEUE_DETAIL_GRID_CLASS,
   QUEUE_FACTS_CLASS,
   QUEUE_FAILED_CLASS,
-  QUEUE_FILTER,
   QUEUE_FORM_CLASS,
   QUEUE_HELP_CLASS,
   QUEUE_NOTICE_CLASS,
-} from '../reviews/queue-filter-classes';
+} from '../reviews/queue-classes';
+import { queueFocusAfterRemoval } from '../reviews/queue-focus';
 import { AdminReviewResponsesApi } from './admin-review-responses-api';
 import { AecButton } from '../../shared/button/button';
 import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
@@ -115,7 +116,7 @@ export class ReviewResponseQueue {
   protected readonly reasonMax = REVIEW_RESPONSE_REASON_MAX;
 
   protected readonly t = CONSOLE_TABLE;
-  protected readonly f = QUEUE_FILTER;
+  protected readonly f = CONSOLE_FILTER;
   protected readonly labelClass = CONSOLE_LABEL_CLASS;
   protected readonly inputClass = FIELD_INPUT_CLASS;
   protected readonly hintClass = FIELD_HINT_CLASS;
@@ -224,8 +225,7 @@ export class ReviewResponseQueue {
   protected rowLabel(r: AdminReviewResponse): string {
     const vendor = r.vendor.name;
     const product = r.product.name;
-    const review = r.review.title;
-    return $localize`:@@admin.replies.row.label:Reply from ${vendor}:vendor: on ${product}:product:, to the review ${review}:review:`;
+    return $localize`:@@admin.replies.row.label:Reply from ${vendor}:vendor: on ${product}:product:`;
   }
 
   /** The chip tone for a reply status. Exhaustive: a new status fails to compile. */
@@ -294,6 +294,16 @@ export class ReviewResponseQueue {
     this.removeConfirming.set(false);
     this.formMode.set(mode);
     this.formOpenId.set(id);
+    // The opener disables itself, so move focus into the form it opened.
+    this.focusAfterRender(`reply-reason-${id}`);
+  }
+
+  /** Cancel or Escape in a reason form: close it and return focus to its opener. */
+  protected dismissForm(id: string): void {
+    if (this.pendingActionId() === id) return;
+    const mode = this.formMode();
+    this.closeForm();
+    if (mode) this.focusAfterRender(`reply-${id}-${mode}-open`);
   }
 
   protected closeForm(): void {
@@ -334,9 +344,12 @@ export class ReviewResponseQueue {
     this.focusAfterRender(`reply-reason-${id}`);
   }
 
-  private focusAfterRender(elementId: string): void {
+  /** Focus an element of this queue once the next render lands: by id, or by a
+   *  selector when the id is not known. */
+  private focusAfterRender(elementId: string | undefined, selector?: string): void {
+    const query = selector ?? `[id="${elementId}"]`;
     afterNextRender(
-      { write: () => this.host.nativeElement.querySelector<HTMLElement>(`#${elementId}`)?.focus() },
+      { write: () => this.host.nativeElement.querySelector<HTMLElement>(query)?.focus() },
       { injector: this.injector },
     );
   }
@@ -399,25 +412,18 @@ export class ReviewResponseQueue {
     this.focusAfterRender(`reply-${id}-failed`);
   }
 
-  /** Drop a decided row, then move focus to the row that took its place, or to the
-   *  queue heading when none is left. */
+  /** Drop a decided row, then move focus by the queues' one rule
+   *  (`queueFocusAfterRemoval`): the row that took its place, the heading, or
+   *  nowhere when the row was not on screen. */
   private removeRow(id: string): void {
     const index = this.replies().findIndex((r) => r.id === id);
     this.replies.update((list) => list.filter((r) => r.id !== id));
     this.total.update((n) => Math.max(0, n - 1));
-    const rows = this.replies();
-    const next = rows.length > 0 ? rows[Math.min(Math.max(index, 0), rows.length - 1)] : null;
-    afterNextRender(
-      {
-        write: () => {
-          const host = this.host.nativeElement;
-          const target = next
-            ? host.querySelector<HTMLElement>(`[aria-controls="reply-${next.id}-detail"]`)
-            : host.querySelector<HTMLElement>('#admin-replies-heading');
-          target?.focus();
-        },
-      },
-      { injector: this.injector },
+    const target = queueFocusAfterRemoval(index, 1, 1, this.replies());
+    if (target.kind === 'none') return;
+    this.focusAfterRender(
+      target.kind === 'heading' ? 'admin-replies-heading' : undefined,
+      target.kind === 'row' ? `[aria-controls="reply-${target.row.id}-detail"]` : undefined,
     );
   }
 }

@@ -258,6 +258,7 @@
                     <button
                       aecButton
                       variant="secondary"
+                      [id]="'reply-' + r.id + '-reject-open'"
                       (click)="openForm(r.id, 'reject')"
                       [disabled]="pendingActionId() === r.id || formOpenId() === r.id"
                       i18n="@@admin.replies.reject"
@@ -268,6 +269,7 @@
                     <button
                       aecButton
                       variant="secondary"
+                      [id]="'reply-' + r.id + '-remove-open'"
                       (click)="openForm(r.id, 'remove')"
                       [disabled]="pendingActionId() === r.id || formOpenId() === r.id"
                       [attr.aria-describedby]="'reply-' + r.id + '-help'"
@@ -296,6 +298,7 @@
                     method="dialog"
                     novalidate
                     (aecSubmit)="confirmReasoned(r.id, mode)"
+                    (keydown.escape)="dismissForm(r.id)"
                     [class]="formClass"
                   >
                     <label [attr.for]="'reply-reason-' + r.id" [class]="labelClass">
@@ -400,7 +403,7 @@
                         <button
                           aecButton
                           variant="ghost"
-                          (click)="closeForm()"
+                          (click)="dismissForm(r.id)"
                           [disabled]="pendingActionId() === r.id"
                           i18n="@@admin.replies.cancel"
                         >
@@ -428,7 +431,7 @@
                       <button
                         aecButton
                         variant="ghost"
-                        (click)="closeForm()"
+                        (click)="dismissForm(r.id)"
                         [disabled]="pendingActionId() === r.id"
                         i18n="@@admin.replies.cancel"
                       >

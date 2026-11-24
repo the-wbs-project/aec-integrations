@@ -146,9 +146,7 @@ describe('ReviewResponseQueue', () => {
     const disclosure = row.querySelector('button[aria-controls]') as HTMLButtonElement;
     expect(disclosure.getAttribute('aria-controls')).toBe(card.id);
     expect(disclosure.getAttribute('aria-expanded')).toBe('false');
-    expect(disclosure.textContent?.trim()).toBe(
-      'Reply from Autodesk on Dynamo for Revit, to the review Powerful but the sync drops rows',
-    );
+    expect(disclosure.textContent?.trim()).toBe('Reply from Autodesk on Dynamo for Revit');
     expect(card.hidden).toBe(true);
     expect([...el.querySelectorAll('thead th')].map((th) => th.textContent?.trim())).toEqual([
       'Details',
@@ -494,5 +492,65 @@ describe('ReviewResponseQueue', () => {
   it('says when the server holds more rows than were loaded', async () => {
     const { el } = await setup(makeApiMock([makeReply({ id: 'r1' })], 140));
     expect(el.textContent).toContain('Showing the first 1 of 140 replies');
+  });
+  describe('AECI-2102 focus after a decision, and Escape in the reason form', () => {
+    const disclosure = (el: HTMLElement, id: string) =>
+      el.querySelector(`button[aria-controls="reply-${id}-detail"]`) as HTMLButtonElement;
+    const detail = (el: HTMLElement, id: string) =>
+      el.querySelector(`[id="reply-${id}-detail"]`) as HTMLElement;
+
+    it('moves focus to the next row after a decision, then to the heading', async () => {
+      const { fixture, el } = await setup(
+        makeApiMock([makeReply({ id: 'r1' }), makeReply({ id: 'r2' })]),
+      );
+      buttonByText(detail(el, 'r1'), 'Approve').click();
+      await flush(fixture);
+      expect(document.activeElement).toBe(disclosure(el, 'r2'));
+      buttonByText(detail(el, 'r2'), 'Approve').click();
+      await flush(fixture);
+      expect(document.activeElement?.id).toBe('admin-replies-heading');
+    });
+
+    it('moves focus to the alert after a failed decision', async () => {
+      const api = makeApiMock([makeReply({ id: 'r1' })]);
+      api.decide.mockRejectedValueOnce(apiError(500, 'INTERNAL'));
+      const { fixture, el } = await setup(api);
+      buttonByText(detail(el, 'r1'), 'Approve').click();
+      await flush(fixture);
+      const alert = el.querySelector('[id="reply-r1-failed"]');
+      expect(alert?.getAttribute('role')).toBe('alert');
+      expect(document.activeElement).toBe(alert);
+    });
+
+    it('opening Reject focuses the reason; Escape closes it and returns focus to Reject', async () => {
+      const { fixture, el, api } = await setup(makeApiMock([makeReply({ id: 'r1' })]));
+      buttonByText(detail(el, 'r1'), 'Reject').click();
+      await flush(fixture);
+      const textarea = detail(el, 'r1').querySelector('textarea') as HTMLTextAreaElement;
+      expect(document.activeElement).toBe(textarea);
+      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await flush(fixture);
+      expect(detail(el, 'r1').querySelector('form')).toBeNull();
+      expect(document.activeElement).toBe(buttonByText(detail(el, 'r1'), 'Reject'));
+      expect(api.decide).not.toHaveBeenCalled();
+    });
+
+    it('Escape at the remove confirm returns focus to Remove from the page', async () => {
+      const { fixture, el } = await setup(
+        makeApiMock([makeReply({ id: 'r1', status: 'published' })]),
+      );
+      buttonByText(detail(el, 'r1'), 'Remove from the page').click();
+      await flush(fixture);
+      typeReason(fixture, detail(el, 'r1'), 'A sales pitch.');
+      submitForm(detail(el, 'r1'));
+      await flush(fixture);
+      const confirm = detail(el, 'r1').querySelector(
+        '[data-testid="remove-confirm"]',
+      ) as HTMLElement;
+      confirm.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await flush(fixture);
+      expect(detail(el, 'r1').querySelector('form')).toBeNull();
+      expect(document.activeElement).toBe(buttonByText(detail(el, 'r1'), 'Remove from the page'));
+    });
   });
 });

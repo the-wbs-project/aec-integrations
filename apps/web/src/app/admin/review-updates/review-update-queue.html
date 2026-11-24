@@ -329,6 +329,7 @@
                     <button
                       aecButton
                       variant="secondary"
+                      [id]="'update-' + u.id + '-reject-open'"
                       (click)="openForm(u.id, 'reject')"
                       [disabled]="pendingActionId() === u.id || formOpenId() === u.id"
                       i18n="@@admin.reviewUpdates.reject"
@@ -339,6 +340,7 @@
                     <button
                       aecButton
                       variant="secondary"
+                      [id]="'update-' + u.id + '-remove-open'"
                       (click)="openForm(u.id, 'remove')"
                       [disabled]="pendingActionId() === u.id || formOpenId() === u.id"
                       [attr.aria-describedby]="'update-' + u.id + '-help'"
@@ -368,6 +370,7 @@
                     method="dialog"
                     novalidate
                     (aecSubmit)="confirmReasoned(u.id, mode)"
+                    (keydown.escape)="dismissForm(u.id)"
                     [class]="formClass"
                   >
                     <label [attr.for]="'update-reason-' + u.id" [class]="labelClass">
@@ -472,7 +475,7 @@
                         <button
                           aecButton
                           variant="ghost"
-                          (click)="closeForm()"
+                          (click)="dismissForm(u.id)"
                           [disabled]="pendingActionId() === u.id"
                           i18n="@@admin.reviewUpdates.cancel"
                         >
@@ -502,7 +505,7 @@
                       <button
                         aecButton
                         variant="ghost"
-                        (click)="closeForm()"
+                        (click)="dismissForm(u.id)"
                         [disabled]="pendingActionId() === u.id"
                         i18n="@@admin.reviewUpdates.cancel"
                       >

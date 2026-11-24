@@ -5,11 +5,11 @@ import { AecButton } from '../shared/button/button';
 /**
  * Prev/next pagination for the admin panel (AECI-577).
  *
- * The existing admin queues do not paginate — they load `perPage=100` once and
- * show a truncation note, which works because a launch-scale moderation backlog
- * fits in one page. `page_views` does not: production holds ~26k rows and grows
- * ~1k/day, so the Activity feed is the first admin surface that has to page for
- * real, and §5.3/§5.5 will want the same control.
+ * `page_views` was the first admin list that had to page for real: production
+ * holds ~26k rows and grows ~1k/day, so the Activity feed pages on the server.
+ * The review queue pages the set it has loaded in the browser (AECI-2102),
+ * because its sorts run over that set. The other moderation queues still load
+ * `perPage=100` once and show a truncation note.
  *
  * Deliberately prev/next rather than numbered pages: the feed is scanned
  * chronologically, so "page 7" is not a destination anyone reasons about, and a
@@ -18,7 +18,11 @@ import { AecButton } from '../shared/button/button';
  * they are walking.
  *
  * Presentational: the parent owns `page` and refetches on `(pageChange)`.
- * `busy` disables both buttons while that refetch is in flight.
+ *
+ * FOCUS (AECI-2102). An edge button and a busy pager are `aria-disabled`, not
+ * natively disabled. A press that reaches the first or last page, or starts a
+ * refetch, would otherwise disable the focused button, and Chromium drops focus
+ * to `<body>`. The button keeps focus and its press does nothing until it can act.
  *
  * Its sibling, `AdminCursorPaginator` (`admin-cursor-paginator.ts`), pages by
  * keyset cursor instead. Only `/admin/audit` uses it, because an append-only
@@ -45,7 +49,7 @@ import { AecButton } from '../shared/button/button';
             aecButton
             variant="secondary"
             compact
-            [disabled]="busy() || page() <= 1"
+            [attr.aria-disabled]="busy() || page() <= 1 ? 'true' : null"
             (click)="go(page() - 1)"
             i18n="@@admin.paginator.previous"
           >
@@ -55,7 +59,7 @@ import { AecButton } from '../shared/button/button';
             aecButton
             variant="secondary"
             compact
-            [disabled]="busy() || page() >= pageCount()"
+            [attr.aria-disabled]="busy() || page() >= pageCount() ? 'true' : null"
             (click)="go(page() + 1)"
             i18n="@@admin.paginator.next"
           >
@@ -73,7 +77,7 @@ export class AdminPaginator {
   readonly perPage = input.required<number>();
   /** Rows matching the current filters, not rows on this page. */
   readonly total = input.required<number>();
-  /** A refetch is in flight: both buttons disable. */
+  /** A refetch is in flight: both buttons ignore presses. */
   readonly busy = input(false);
   readonly pageChange = output<number>();
 
@@ -89,6 +93,7 @@ export class AdminPaginator {
   );
 
   protected go(page: number): void {
+    if (this.busy()) return;
     if (page < 1 || page > this.pageCount() || page === this.page()) return;
     this.pageChange.emit(page);
   }

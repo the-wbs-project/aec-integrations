@@ -41,6 +41,7 @@ import { compareText } from '@aeci/shared/text-sort';
 
 import { AdminPaginator } from '../admin-paginator';
 import { AdminSummaryStore } from '../admin-summary.store';
+import { CONSOLE_FILTER } from '../console/console-filter';
 import { CONSOLE_LABEL_CLASS, CONSOLE_TABLE } from '../console/console-table';
 import { AdminDisclosureButton } from '../console/disclosure-button';
 import { adminStatusTone, type AdminStatusKey } from '../console/status-tones';
@@ -61,11 +62,11 @@ import {
   QUEUE_DETAIL_GRID_CLASS,
   QUEUE_FACTS_CLASS,
   QUEUE_FAILED_CLASS,
-  QUEUE_FILTER,
   QUEUE_FORM_CLASS,
   QUEUE_HELP_CLASS,
   QUEUE_NOTICE_CLASS,
-} from './queue-filter-classes';
+} from './queue-classes';
+import { queueFocusAfterRemoval } from './queue-focus';
 
 /** Score at/above which a review is flagged "high toxicity" and styled with a
  *  warning. 70 is our cutoff on the 0–100 toxicity score; the default sort
@@ -158,7 +159,7 @@ export class ReviewQueue {
   /** A field's inline error: the shared recipe (AECI-1984). */
   protected readonly errorClass = FIELD_ERROR_CLASS;
   protected readonly t = CONSOLE_TABLE;
-  protected readonly f = QUEUE_FILTER;
+  protected readonly f = CONSOLE_FILTER;
   protected readonly labelClass = CONSOLE_LABEL_CLASS;
   protected readonly inputClass = FIELD_INPUT_CLASS;
   protected readonly hintClass = FIELD_HINT_CLASS;
@@ -544,12 +545,28 @@ export class ReviewQueue {
     this.rejectionModel.set({ rejection_reason: '' });
     this.rejectForm.rejection_reason().reset();
     this.rejectingId.set(id);
+    // The Reject opener disables itself, so move focus into the form it opened.
+    this.focusAfterRender(`reject-reason-${id}`);
   }
 
   protected cancelReject(): void {
     this.rejectingId.set(null);
     this.rejectionModel.set({ rejection_reason: '' });
     this.rejectForm.rejection_reason().reset();
+  }
+
+  /** Cancel or Escape in the reject form: close it and return focus to Reject. */
+  protected dismissReject(id: string): void {
+    if (this.pendingActionId() === id) return;
+    this.cancelReject();
+    this.focusAfterRender(`review-${id}-reject-open`);
+  }
+
+  /** Cancel or Escape in the remove form: close it and return focus to its opener. */
+  protected dismissRemove(id: string): void {
+    if (this.pendingActionId() === id) return;
+    this.closeRemove();
+    this.focusAfterRender(`review-${id}-remove-open`);
   }
 
   protected async confirmReject(id: string): Promise<void> {
@@ -635,12 +652,12 @@ export class ReviewQueue {
     this.focusAfterRender(`remove-reason-${id}`);
   }
 
-  private focusAfterRender(elementId: string): void {
+  /** Focus an element of this queue once the next render lands: by id, or by a
+   *  selector when the id is not known. */
+  private focusAfterRender(elementId: string | undefined, selector?: string): void {
+    const query = selector ?? `[id="${elementId}"]`;
     afterNextRender(
-      {
-        write: () =>
-          this.host.nativeElement.querySelector<HTMLElement>(`[id="${elementId}"]`)?.focus(),
-      },
+      { write: () => this.host.nativeElement.querySelector<HTMLElement>(query)?.focus() },
       { injector: this.injector },
     );
   }
@@ -671,10 +688,12 @@ export class ReviewQueue {
     this.focusAfterRender(`review-${id}-failed`);
   }
 
-  /** Drop a decided row, then move focus to the row that took its place on this
-   *  page, or to the queue heading when the page is empty. */
+  /** Drop a decided row, then move focus by the queues' one rule
+   *  (`queueFocusAfterRemoval`): the row that took its place, the last row of the
+   *  new last page, the heading, or nowhere when the row was not on screen. */
   private removeRow(id: string): void {
     const index = this.pagedReviews().findIndex((r) => r.id === id);
+    const pageBefore = this.currentPage();
     this.reviews.update((list) => list.filter((r) => r.id !== id));
     this.total.update((n) => Math.max(0, n - 1));
     this.openIds.update((ids) => {
@@ -683,19 +702,16 @@ export class ReviewQueue {
       next.delete(id);
       return next;
     });
-    const rows = this.pagedReviews();
-    const next = rows.length > 0 ? rows[Math.min(Math.max(index, 0), rows.length - 1)] : null;
-    afterNextRender(
-      {
-        write: () => {
-          const host = this.host.nativeElement;
-          const target = next
-            ? host.querySelector<HTMLElement>(`[aria-controls="review-${next.id}-detail"]`)
-            : host.querySelector<HTMLElement>('#admin-reviews-heading');
-          target?.focus();
-        },
-      },
-      { injector: this.injector },
+    const target = queueFocusAfterRemoval(
+      index,
+      pageBefore,
+      this.currentPage(),
+      this.pagedReviews(),
+    );
+    if (target.kind === 'none') return;
+    this.focusAfterRender(
+      target.kind === 'heading' ? 'admin-reviews-heading' : undefined,
+      target.kind === 'row' ? `[aria-controls="review-${target.row.id}-detail"]` : undefined,
     );
   }
 

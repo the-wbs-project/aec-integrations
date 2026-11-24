@@ -430,6 +430,7 @@
                     <div class="mt-4 flex flex-wrap items-center gap-3">
                       <button
                         aecButton
+                        [id]="'contest-' + c.id + '-protest-uphold-open'"
                         (click)="openProtestForm(c.id, 'uphold')"
                         [disabled]="pendingActionId() === c.id || protestFormOpenId() === c.id"
                         [attr.aria-describedby]="'protest-' + c.id + '-help'"
@@ -440,6 +441,7 @@
                       <button
                         aecButton
                         variant="secondary"
+                        [id]="'contest-' + c.id + '-protest-reject-open'"
                         (click)="openProtestForm(c.id, 'reject')"
                         [disabled]="pendingActionId() === c.id || protestFormOpenId() === c.id"
                         [attr.aria-describedby]="'protest-' + c.id + '-help'"
@@ -468,6 +470,7 @@
                       method="dialog"
                       novalidate
                       (aecSubmit)="confirmProtest(c.id, protestMode() ?? 'reject')"
+                      (keydown.escape)="dismissProtestForm(c.id)"
                       [class]="formClass"
                       class="mt-4"
                     >
@@ -528,7 +531,7 @@
                         <button
                           aecButton
                           variant="ghost"
-                          (click)="closeProtestForm()"
+                          (click)="dismissProtestForm(c.id)"
                           [disabled]="pendingActionId() === c.id"
                           i18n="@@admin.contests.protest.cancel"
                         >
@@ -592,6 +595,7 @@
                   <div class="flex flex-wrap items-center gap-3">
                     <button
                       aecButton
+                      [id]="'contest-' + c.id + '-accept-open'"
                       (click)="openForm(c.id, 'accept')"
                       [disabled]="pendingActionId() === c.id || formOpenId() === c.id || c.value_stale"
                       [attr.aria-describedby]="
@@ -604,6 +608,7 @@
                     <button
                       aecButton
                       variant="secondary"
+                      [id]="'contest-' + c.id + '-decline-open'"
                       (click)="openForm(c.id, 'decline')"
                       [disabled]="pendingActionId() === c.id || formOpenId() === c.id"
                       i18n="@@admin.contests.decline"
@@ -627,6 +632,7 @@
                     method="dialog"
                     novalidate
                     (aecSubmit)="confirm(c.id, 'accept')"
+                    (keydown.escape)="dismissForm(c.id)"
                     [class]="formClass"
                   >
                     <label [attr.for]="'contest-note-' + c.id" [class]="labelClass">
@@ -765,7 +771,7 @@
                       <button
                         aecButton
                         variant="ghost"
-                        (click)="closeForm()"
+                        (click)="dismissForm(c.id)"
                         [disabled]="pendingActionId() === c.id"
                         i18n="@@admin.contests.form.cancel"
                       >
@@ -778,6 +784,7 @@
                     method="dialog"
                     novalidate
                     (aecSubmit)="confirm(c.id, 'decline')"
+                    (keydown.escape)="dismissForm(c.id)"
                     [class]="formClass"
                   >
                     <label
@@ -822,7 +829,7 @@
                       <button
                         aecButton
                         variant="ghost"
-                        (click)="closeForm()"
+                        (click)="dismissForm(c.id)"
                         [disabled]="pendingActionId() === c.id"
                         i18n="@@admin.contests.form.cancel2"
                       >

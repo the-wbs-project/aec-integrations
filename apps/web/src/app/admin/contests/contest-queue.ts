@@ -30,6 +30,7 @@ import {
   contestStatusLabel,
 } from '../../vendor/components/vendor-contest-labels';
 import { AdminSummaryStore } from '../admin-summary.store';
+import { CONSOLE_FILTER } from '../console/console-filter';
 import { CONSOLE_LABEL_CLASS, CONSOLE_TABLE } from '../console/console-table';
 import { AdminDisclosureButton } from '../console/disclosure-button';
 import { adminStatusTone, type AdminStatusKey } from '../console/status-tones';
@@ -38,11 +39,11 @@ import {
   QUEUE_DETAIL_GRID_CLASS,
   QUEUE_FACTS_CLASS,
   QUEUE_FAILED_CLASS,
-  QUEUE_FILTER,
   QUEUE_FORM_CLASS,
   QUEUE_HELP_CLASS,
   QUEUE_NOTICE_CLASS,
-} from '../reviews/queue-filter-classes';
+} from '../reviews/queue-classes';
+import { queueFocusAfterRemoval } from '../reviews/queue-focus';
 import { AdminContestsApi } from './admin-contests-api';
 import { AecButton } from '../../shared/button/button';
 import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
@@ -126,7 +127,7 @@ export class ContestQueue {
   private readonly injector = inject(Injector);
 
   protected readonly t = CONSOLE_TABLE;
-  protected readonly f = QUEUE_FILTER;
+  protected readonly f = CONSOLE_FILTER;
   protected readonly labelClass = CONSOLE_LABEL_CLASS;
   protected readonly inputClass = FIELD_INPUT_CLASS;
   protected readonly hintClass = FIELD_HINT_CLASS;
@@ -456,6 +457,16 @@ export class ContestQueue {
     this.sourceProblem.set(null);
     this.formMode.set(mode);
     this.formOpenId.set(id);
+    // The opener disables itself, so move focus into the form it opened.
+    this.focusAfterRender(mode === 'accept' ? `contest-note-${id}` : `contest-reason-${id}`);
+  }
+
+  /** Cancel or Escape in the accept or decline form: close it and return focus to its opener. */
+  protected dismissForm(id: string): void {
+    if (this.pendingActionId() === id) return;
+    const mode = this.formMode();
+    this.closeForm();
+    if (mode) this.focusAfterRender(`contest-${id}-${mode}-open`);
   }
 
   protected closeForm(): void {
@@ -578,24 +589,25 @@ export class ContestQueue {
       this.failedActionMessage.set(
         $localize`:@@admin.contests.action.locked:This field carries an AEC Integrations lock. Lift it under Field corrections on the vendor page, then decide again. Nothing was changed.`,
       );
-      this.focusFailure(`contest-${id}-failed`);
+      this.focusAfterRender(`contest-${id}-failed`);
       return;
     }
     if (code === 'CONTEST_ROUTED_TO_OWNER') {
       this.failedActionMessage.set(
         $localize`:@@admin.contests.action.routedToOwner:The integration's owner decides this contest, not AEC Integrations. Nothing was changed.`,
       );
-      this.focusFailure(`contest-${id}-failed`);
+      this.focusAfterRender(`contest-${id}-failed`);
       return;
     }
     this.failedActionMessage.set(
       $localize`:@@admin.contests.action.failed:Something went wrong. Please try again.`,
     );
-    this.focusFailure(`contest-${id}-failed`);
+    this.focusAfterRender(`contest-${id}-failed`);
   }
 
-  /** A failed decision: the disabled button dropped focus, so move it to the alert. */
-  private focusFailure(elementId: string): void {
+  /** Focus an element by id once the next render lands. A failed decision uses it:
+   *  the disabled button dropped focus, so it moves to the alert. */
+  private focusAfterRender(elementId: string): void {
     afterNextRender(
       { write: () => this.document.getElementById(elementId)?.focus() },
       { injector: this.injector },
@@ -637,6 +649,16 @@ export class ContestQueue {
     this.protestNoteMissing.set(false);
     this.protestMode.set(mode);
     this.protestFormOpenId.set(id);
+    // The opener disables itself, so move focus into the form it opened.
+    this.focusAfterRender(`protest-note-${id}`);
+  }
+
+  /** Cancel or Escape in the appeal form: close it and return focus to its opener. */
+  protected dismissProtestForm(id: string): void {
+    if (this.pendingActionId() === id) return;
+    const mode = this.protestMode();
+    this.closeProtestForm();
+    if (mode) this.focusAfterRender(`contest-${id}-protest-${mode}-open`);
   }
 
   protected closeProtestForm(): void {
@@ -682,31 +704,29 @@ export class ContestQueue {
         this.failedActionMessage.set(
           $localize`:@@admin.contests.protest.failed:Something went wrong. Please try again.`,
         );
-        this.focusFailure(`contest-${id}-protest-failed`);
+        this.focusAfterRender(`contest-${id}-protest-failed`);
       }
     } finally {
       this.pendingActionId.set(null);
     }
   }
 
-  /** Drop a decided row, then move focus to the row that took its place, or to the
-   *  queue heading when none is left. */
+  /** Drop a decided row, then move focus by the queues' one rule
+   *  (`queueFocusAfterRemoval`): the row that took its place, the heading, or
+   *  nowhere when the row was not on screen. */
   private removeRow(id: string): void {
     const index = this.contests().findIndex((c) => c.id === id);
     this.contests.update((list) => list.filter((c) => c.id !== id));
     this.total.update((n) => Math.max(0, n - 1));
-    const rows = this.contests();
-    const next = rows.length > 0 ? rows[Math.min(Math.max(index, 0), rows.length - 1)] : null;
+    const target = queueFocusAfterRemoval(index, 1, 1, this.contests());
+    if (target.kind === 'none') return;
+    if (target.kind === 'heading') {
+      this.focusAfterRender('admin-contests-heading');
+      return;
+    }
+    const selector = `[aria-controls="contest-${target.row.id}-detail"]`;
     afterNextRender(
-      {
-        write: () => {
-          const host = this.host.nativeElement;
-          const target = next
-            ? host.querySelector<HTMLElement>(`[aria-controls="contest-${next.id}-detail"]`)
-            : host.querySelector<HTMLElement>('#admin-contests-heading');
-          target?.focus();
-        },
-      },
+      { write: () => this.host.nativeElement.querySelector<HTMLElement>(selector)?.focus() },
       { injector: this.injector },
     );
   }

@@ -244,7 +244,15 @@
           @if (r.status === 'pending') {
           <td [class]="t.num">{{ queueAge(r.created_at) }}</td>
           } @else {
-          <td [class]="t.nowrap">@if (r.moderated_at) { {{ r.moderated_at | date: 'medium' }} }</td>
+          <td [class]="t.nowrap">
+            @if (r.moderated_at) { {{ r.moderated_at | date: 'medium' }} } @else {
+            <!-- DESIGN.md: an absent value is an aria-hidden en dash beside hidden words. -->
+            <span aria-hidden="true">–</span
+            ><span class="sr-only" i18n="@@admin.reviewUpdates.meta.reviewerUnknown"
+              >Not available</span
+            >
+            }
+          </td>
           }
           <td [class]="t.cell">
             <aec-chip
@@ -336,6 +344,7 @@
                     <button
                       aecButton
                       variant="secondary"
+                      [id]="'review-' + r.id + '-reject-open'"
                       (click)="openReject(r.id)"
                       [disabled]="pendingActionId() === r.id || rejectingId() === r.id"
                       i18n="@@admin.reviews.reject"
@@ -346,6 +355,7 @@
                     <button
                       aecButton
                       variant="secondary"
+                      [id]="'review-' + r.id + '-remove-open'"
                       (click)="openRemove(r.id)"
                       [disabled]="pendingActionId() === r.id || removingId() === r.id"
                       [attr.aria-describedby]="'review-' + r.id + '-remove-help'"
@@ -373,6 +383,7 @@
                     method="dialog"
                     novalidate
                     (aecSubmit)="confirmRemove(r.id)"
+                    (keydown.escape)="dismissRemove(r.id)"
                     [class]="formClass"
                     data-testid="remove-form"
                   >
@@ -475,7 +486,7 @@
                         <button
                           aecButton
                           variant="ghost"
-                          (click)="closeRemove()"
+                          (click)="dismissRemove(r.id)"
                           [disabled]="pendingActionId() === r.id"
                           i18n="@@admin.reviews.remove.cancel"
                         >
@@ -498,7 +509,7 @@
                       <button
                         aecButton
                         variant="ghost"
-                        (click)="closeRemove()"
+                        (click)="dismissRemove(r.id)"
                         [disabled]="pendingActionId() === r.id"
                         i18n="@@admin.reviews.remove.cancel"
                       >
@@ -515,6 +526,7 @@
                     method="dialog"
                     novalidate
                     (aecSubmit)="confirmReject(r.id)"
+                    (keydown.escape)="dismissReject(r.id)"
                     [class]="formClass"
                   >
                     <label
@@ -572,7 +584,7 @@
                       <button
                         aecButton
                         variant="ghost"
-                        (click)="cancelReject()"
+                        (click)="dismissReject(r.id)"
                         [disabled]="pendingActionId() === r.id"
                         i18n="@@admin.reviews.reject.cancel"
                       >
@@ -748,7 +760,7 @@
       <ul class="mt-3 space-y-2 text-t-14">
         <li class="flex items-center gap-2">
           <span
-            class="inline-block h-2 w-2 shrink-0 rounded-full bg-(--border-strong)"
+            class="inline-block h-2 w-2 shrink-0 rounded-pill bg-(--border-strong)"
             aria-hidden="true"
           ></span>
           <span class="text-(--text-primary)" i18n="@@admin.reviews.toxicity.legend.normal"
@@ -757,7 +769,7 @@
         </li>
         <li class="flex items-center gap-2">
           <span
-            class="inline-block h-2 w-2 shrink-0 rounded-full bg-(--accent-secondary-deep)"
+            class="inline-block h-2 w-2 shrink-0 rounded-pill bg-(--accent-secondary-deep)"
             aria-hidden="true"
           ></span>
           <span class="text-(--text-primary)" i18n="@@admin.reviews.toxicity.legend.high"

@@ -812,4 +812,95 @@ describe('ContestQueue', () => {
     expect(decrement).not.toHaveBeenCalled();
     expect(el.querySelector('[role="status"]')?.textContent).toContain('Already decided');
   });
+  describe('AECI-2102 focus after a decision, and Escape in the forms', () => {
+    const disclosure = (el: HTMLElement, id: string) =>
+      el.querySelector(`button[aria-controls="contest-${id}-detail"]`) as HTMLButtonElement;
+    const detail = (el: HTMLElement, id: string) =>
+      el.querySelector(`[id="contest-${id}-detail"]`) as HTMLElement;
+
+    it('moves focus to the next row after a decision, then to the heading', async () => {
+      const { fixture, el } = await setup(
+        makeApiMock([makeContest({ id: 'k1' }), makeContest({ id: 'k2' })]),
+      );
+      buttonByText(detail(el, 'k1'), 'Decline').click();
+      await flush(fixture);
+      submitForm(detail(el, 'k1'));
+      await flush(fixture);
+      expect(document.activeElement).toBe(disclosure(el, 'k2'));
+      buttonByText(detail(el, 'k2'), 'Decline').click();
+      await flush(fixture);
+      submitForm(detail(el, 'k2'));
+      await flush(fixture);
+      expect(document.activeElement?.id).toBe('admin-contests-heading');
+    });
+
+    it('moves focus to the alert after a failed decision', async () => {
+      const api = makeApiMock([makeContest({ id: 'k1' })]);
+      api.decide.mockRejectedValueOnce(apiError(500, 'INTERNAL'));
+      const { fixture, el } = await setup(api);
+      buttonByText(detail(el, 'k1'), 'Decline').click();
+      await flush(fixture);
+      submitForm(detail(el, 'k1'));
+      await flush(fixture);
+      const alert = document.getElementById('contest-k1-failed');
+      expect(alert?.getAttribute('role')).toBe('alert');
+      expect(document.activeElement).toBe(alert);
+    });
+
+    it('moves focus to the appeal alert after a failed answer', async () => {
+      const api = makeApiMock([
+        makeContest({ id: 'p1', status: 'declined', routed_to: 'owner', protest: OPEN_PROTEST }),
+      ]);
+      api.decideProtest.mockRejectedValueOnce(apiError(500, 'INTERNAL'));
+      const { fixture, el } = await setup(api);
+      buttonByText(el, 'Appeals').click();
+      await flush(fixture);
+      buttonByText(detail(el, 'p1'), 'Agree with the owner').click();
+      await flush(fixture);
+      typeNote(fixture, detail(el, 'p1'), 'Procore says its half is beta.');
+      submitForm(detail(el, 'p1'));
+      await flush(fixture);
+      const alert = document.getElementById('contest-p1-protest-failed');
+      expect(alert?.getAttribute('role')).toBe('alert');
+      expect(document.activeElement).toBe(alert);
+    });
+
+    for (const [opener, field] of [
+      ['Accept', 'contest-note-k1'],
+      ['Decline', 'contest-reason-k1'],
+    ] as const) {
+      it(`opening ${opener} focuses its field, and Escape returns focus to ${opener}`, async () => {
+        const { fixture, el, api } = await setup(makeApiMock([makeContest({ id: 'k1' })]));
+        buttonByText(detail(el, 'k1'), opener).click();
+        await flush(fixture);
+        const input = document.getElementById(field) as HTMLElement;
+        expect(document.activeElement).toBe(input);
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await flush(fixture);
+        expect(detail(el, 'k1').querySelector('form')).toBeNull();
+        expect(document.activeElement).toBe(buttonByText(detail(el, 'k1'), opener));
+        expect(api.decide).not.toHaveBeenCalled();
+      });
+    }
+
+    it('opening an appeal answer focuses the note, and Escape returns focus to its opener', async () => {
+      const api = makeApiMock([
+        makeContest({ id: 'p1', status: 'declined', routed_to: 'owner', protest: OPEN_PROTEST }),
+      ]);
+      const { fixture, el } = await setup(api);
+      buttonByText(el, 'Appeals').click();
+      await flush(fixture);
+      buttonByText(detail(el, 'p1'), 'Agree with the submitter').click();
+      await flush(fixture);
+      const note = document.getElementById('protest-note-p1') as HTMLElement;
+      expect(document.activeElement).toBe(note);
+      note.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await flush(fixture);
+      expect(detail(el, 'p1').querySelector('form')).toBeNull();
+      expect(document.activeElement).toBe(
+        buttonByText(detail(el, 'p1'), 'Agree with the submitter'),
+      );
+      expect(api.decideProtest).not.toHaveBeenCalled();
+    });
+  });
 });

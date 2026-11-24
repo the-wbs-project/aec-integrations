@@ -482,7 +482,7 @@ describe('AuditLog', () => {
       expect(el.textContent).toContain('No entries on this page.');
       expect(buttonByText(el, 'First page')).toBeDefined();
       // The flag says rows exist that way, but there is no cursor to send.
-      expect(buttonByText(el, 'Previous').disabled).toBe(true);
+      expect(buttonByText(el, 'Previous').getAttribute('aria-disabled')).toBe('true');
     });
   });
 

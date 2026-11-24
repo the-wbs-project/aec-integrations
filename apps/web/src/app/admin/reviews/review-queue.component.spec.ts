@@ -686,6 +686,178 @@ describe('ReviewQueue', () => {
       expect(instance.banFailed()).toBe(false);
       expect(instance.banTarget()).toEqual(PROMPT);
     });
+
+    // AECI-2102: the disabled confirm drops focus, so a refused ban moves it to the alert.
+    for (const [name, error, alertId] of [
+      ['a failed ban', new HttpErrorResponse({ status: 500 }), 'ban-failed'],
+      [
+        'a last-seat refusal',
+        new HttpErrorResponse({
+          status: 409,
+          error: {
+            error: {
+              code: 'VENDOR_LAST_SEAT_USE_SUSPEND',
+              message: 'last seat',
+              details: { vendor_id: 'vendor-1' },
+            },
+            trace_id: 't',
+          },
+        }),
+        'ban-last-seat',
+      ],
+    ] as const) {
+      it(`moves focus to the dialog's alert after ${name}`, async () => {
+        const api = makeApiMock();
+        api.moderate.mockResolvedValueOnce(repeatOffenderEnvelope('a', PROMPT));
+        const bansApi = makeBansApiMock();
+        bansApi.ban.mockRejectedValueOnce(error);
+        const { el, fixture } = await setup(api, bansApi);
+        await rejectWithReason(el, fixture, 'Alpha', 'Coordinated spam.');
+        findButton(el, 'Ban reviewer')!.click();
+        fixture.detectChanges();
+        await settle();
+        fixture.detectChanges();
+        await settle();
+        const instance = fixture.componentInstance as unknown as {
+          banReasonModel: { set: (v: { reason: string }) => void };
+          confirmBan: () => Promise<void>;
+        };
+        instance.banReasonModel.set({ reason: 'Coordinated spam ring.' });
+        await settle();
+        await instance.confirmBan();
+        await settle();
+        fixture.detectChanges();
+        await fixture.whenStable();
+        const alert = document.getElementById(alertId);
+        expect(alert?.getAttribute('role')).toBe('alert');
+        expect(document.activeElement).toBe(alert);
+        document.querySelectorAll('.cdk-overlay-container').forEach((n) => n.replaceChildren());
+      });
+    }
+  });
+
+  it('shows an absent decision date as a hidden-worded en dash (DESIGN.md absent value)', async () => {
+    const undated = makeReview({
+      id: 'u',
+      product: { id: 'p-u', name: 'Undated', slug: 'undated' },
+      status: 'approved',
+      moderated_at: null,
+    });
+    const { el } = await setup(makeApiMock([undated]));
+    const cells = [...rowFor(el, 'Undated').querySelectorAll('td')];
+    const decided = cells.find((td) => td.textContent?.includes('–'))!;
+    expect(decided.querySelector('[aria-hidden="true"]')?.textContent).toBe('–');
+    expect(decided.querySelector('.sr-only')?.textContent?.trim()).toBe('Not available');
+  });
+
+  describe('AECI-2102 focus and Escape in the decision forms', () => {
+    const many = (n: number) =>
+      Array.from({ length: n }, (_, i) =>
+        makeReview({
+          id: `r${String(i).padStart(2, '0')}`,
+          product: { id: `p${i}`, name: `Product ${String(i).padStart(2, '0')}`, slug: `p${i}` },
+          created_at: `2026-06-01T00:${String(i).padStart(2, '0')}:00.000Z`,
+        }),
+      );
+
+    async function drain(fixture: Awaited<ReturnType<typeof setup>>['fixture']) {
+      await settle();
+      fixture.detectChanges();
+      await fixture.whenStable();
+    }
+
+    it('opening Reject moves focus to the reason field', async () => {
+      const { el, fixture } = await setup();
+      buttonByText(cardFor(el, 'Alpha'), 'Reject').click();
+      await drain(fixture);
+      expect(document.activeElement).toBe(cardFor(el, 'Alpha').querySelector('textarea'));
+    });
+
+    it('Escape in the reject form closes it and returns focus to Reject', async () => {
+      const { el, fixture, api } = await setup();
+      buttonByText(cardFor(el, 'Alpha'), 'Reject').click();
+      await drain(fixture);
+      const textarea = cardFor(el, 'Alpha').querySelector('textarea') as HTMLTextAreaElement;
+      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await drain(fixture);
+      expect(cardFor(el, 'Alpha').querySelector('form')).toBeNull();
+      expect(document.activeElement).toBe(buttonByText(cardFor(el, 'Alpha'), 'Reject'));
+      expect(api.moderate).not.toHaveBeenCalled();
+    });
+
+    it('Cancel in the reject form returns focus to Reject too', async () => {
+      const { el, fixture } = await setup();
+      buttonByText(cardFor(el, 'Alpha'), 'Reject').click();
+      await drain(fixture);
+      buttonByText(cardFor(el, 'Alpha'), 'Cancel').click();
+      await drain(fixture);
+      expect(document.activeElement).toBe(buttonByText(cardFor(el, 'Alpha'), 'Reject'));
+    });
+
+    it('Escape in the remove form, at either step, returns focus to its opener', async () => {
+      const published = makeReview({
+        id: 'pub',
+        product: { id: 'p-pub', name: 'Published', slug: 'published' },
+        status: 'approved',
+        moderated_at: '2026-06-05T00:00:00.000Z',
+      });
+      const { el, fixture, api } = await setup(makeApiMock([published]));
+      const detail = cardFor(el, 'Published');
+      buttonByText(detail, 'Remove from the page').click();
+      await drain(fixture);
+      const ta = detail.querySelector('textarea') as HTMLTextAreaElement;
+      expect(document.activeElement).toBe(ta);
+      ta.value = 'Breach.';
+      ta.dispatchEvent(new Event('input'));
+      (detail.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit'));
+      await drain(fixture);
+      const confirm = detail.querySelector('[data-testid="remove-confirm"]') as HTMLElement;
+      expect(document.activeElement).toBe(confirm);
+      confirm.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await drain(fixture);
+      expect(detail.querySelector('form')).toBeNull();
+      expect(document.activeElement).toBe(buttonByText(detail, 'Remove from the page'));
+      expect(api.moderate).not.toHaveBeenCalled();
+    });
+
+    it('leaves focus alone when the decided row was paged away while in flight', async () => {
+      const api = makeApiMock(many(30));
+      let release!: () => void;
+      api.moderate.mockImplementationOnce(
+        (id: string) =>
+          new Promise((resolve) => {
+            release = () =>
+              resolve({
+                review: { ...makeReview({ id }), status: 'approved' },
+                repeat_offender: null,
+              });
+          }),
+      );
+      const { el, fixture } = await setup(api);
+      // Toxicity order keeps the fixture order: Product 00 is on page 1.
+      buttonByText(cardFor(el, 'Product 00'), 'Approve').click();
+      fixture.detectChanges();
+      const next = buttonByText(el, 'Next');
+      next.focus();
+      next.click();
+      fixture.detectChanges();
+      expect(productOrder(el)).toHaveLength(5);
+      release();
+      await drain(fixture);
+      expect(document.activeElement).toBe(next);
+    });
+
+    it('when the only row on the last page is decided, focus goes to the new last row', async () => {
+      const { el, fixture } = await setup(makeApiMock(many(26)));
+      buttonByText(el, 'Next').click();
+      fixture.detectChanges();
+      expect(productOrder(el)).toEqual(['Product 25']);
+      buttonByText(cardFor(el, 'Product 25'), 'Approve').click();
+      await drain(fixture);
+      // Back on page 1, focus is on its LAST row, not its first.
+      expect(productOrder(el)).toHaveLength(25);
+      expect(document.activeElement).toBe(disclosureFor(el, 'Product 24'));
+    });
   });
 
   describe('AECI-1643 status tabs + remove', () => {

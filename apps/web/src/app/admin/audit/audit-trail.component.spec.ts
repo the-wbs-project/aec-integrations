@@ -227,7 +227,8 @@ describe('AuditTrail', () => {
       const body = el.querySelector('[data-testid="audit-trail-body"]')!;
       expect(body.getAttribute('aria-busy')).toBe('true');
       expect(body.classList).toContain('opacity-60');
-      expect(buttonByText(el, 'Next')!.disabled).toBe(true);
+      // AECI-2102: aria-disabled, so a focused pager keeps focus during the refetch.
+      expect(buttonByText(el, 'Next')!.getAttribute('aria-disabled')).toBe('true');
     });
 
     it('is not busy once the fetch lands', () => {
@@ -280,7 +281,9 @@ describe('AuditTrail', () => {
       fixture.componentInstance.next.subscribe(() => seen.push('next'));
       fixture.componentInstance.prev.subscribe(() => seen.push('prev'));
       const prev = buttonByText(el, 'Previous')!;
-      expect(prev.disabled).toBe(true);
+      // AECI-2102: aria-disabled keeps the edge focusable; its press does nothing.
+      expect(prev.getAttribute('aria-disabled')).toBe('true');
+      prev.click();
       buttonByText(el, 'Next')!.click();
       expect(seen).toEqual(['next']);
     });

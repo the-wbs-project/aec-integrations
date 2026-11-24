@@ -351,4 +351,60 @@ describe('ReviewUpdateQueue', () => {
     expect(el.querySelector('[role="alert"]')!.textContent).toContain('Nothing was changed.');
     expect(store.pendingReviewUpdates()).toBe(3);
   });
+  describe('AECI-2102 focus after a decision, and Escape in the reason form', () => {
+    const disclosure = (el: HTMLElement, id: string) =>
+      el.querySelector(`button[aria-controls="update-${id}-detail"]`) as HTMLButtonElement;
+    const detail = (el: HTMLElement, id: string) =>
+      el.querySelector(`[id="update-${id}-detail"]`) as HTMLElement;
+
+    it('moves focus to the next row after a decision, then to the heading', async () => {
+      const { fixture, el } = await setup(
+        makeApiMock([makeUpdate({ id: 'u1' }), makeUpdate({ id: 'u2' })]),
+      );
+      buttonByText(detail(el, 'u1'), 'Approve').click();
+      await flush(fixture);
+      expect(document.activeElement).toBe(disclosure(el, 'u2'));
+      buttonByText(detail(el, 'u2'), 'Approve').click();
+      await flush(fixture);
+      expect(document.activeElement?.id).toBe('admin-review-updates-heading');
+    });
+
+    it('moves focus to the alert after a failed decision', async () => {
+      const api = makeApiMock([makeUpdate({ id: 'u1' })]);
+      api.decide.mockRejectedValueOnce(apiError(500, 'INTERNAL'));
+      const { fixture, el } = await setup(api);
+      buttonByText(detail(el, 'u1'), 'Approve').click();
+      await flush(fixture);
+      const alert = el.querySelector('[id="update-u1-failed"]');
+      expect(alert?.getAttribute('role')).toBe('alert');
+      expect(document.activeElement).toBe(alert);
+    });
+
+    it('Escape in the reason form closes it and returns focus to its opener', async () => {
+      const { fixture, el, api } = await setup(makeApiMock([makeUpdate({ id: 'u1' })]));
+      buttonByText(detail(el, 'u1'), 'Reject').click();
+      await flush(fixture);
+      const textarea = detail(el, 'u1').querySelector('textarea') as HTMLTextAreaElement;
+      expect(document.activeElement).toBe(textarea);
+      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await flush(fixture);
+      expect(detail(el, 'u1').querySelector('form')).toBeNull();
+      expect(document.activeElement).toBe(buttonByText(detail(el, 'u1'), 'Reject'));
+      expect(api.decide).not.toHaveBeenCalled();
+    });
+
+    it('Cancel at the remove confirm returns focus to Remove from the page', async () => {
+      const { fixture, el } = await setup(
+        makeApiMock([makeUpdate({ id: 'u1', status: 'approved' })]),
+      );
+      buttonByText(detail(el, 'u1'), 'Remove from the page').click();
+      await flush(fixture);
+      typeReason(fixture, detail(el, 'u1'), 'Breach.');
+      submitForm(detail(el, 'u1'));
+      await flush(fixture);
+      buttonByText(detail(el, 'u1'), 'Cancel').click();
+      await flush(fixture);
+      expect(document.activeElement).toBe(buttonByText(detail(el, 'u1'), 'Remove from the page'));
+    });
+  });
 });
