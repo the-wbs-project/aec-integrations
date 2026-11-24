@@ -189,6 +189,31 @@ describe('UserList', () => {
     expect(el.textContent).toContain('Banned');
   });
 
+  // AECI-2128: the console table recipe and the shared chip tones.
+  it('draws the state as a dense chip on the console tones', async () => {
+    const { el } = await setup(
+      makeApiMock(
+        makePage({
+          data: [makeRow({ banned_at: '2026-08-01T00:00:00.000Z' }), makeRow({ id: 'p2' })],
+        }),
+      ),
+    );
+    const chips = [...el.querySelectorAll('tbody .aec-chip')];
+    expect(chips.map((c) => [c.textContent?.trim(), c.getAttribute('data-tone')])).toEqual([
+      ['Banned', 'critical'],
+      ['Active', 'positive'],
+    ]);
+    expect(chips.every((c) => c.getAttribute('data-density') === 'dense')).toBe(true);
+  });
+
+  it('labels the scroll region with the table caption', async () => {
+    const { el } = await setup();
+    const region = el.querySelector('[role="region"]')!;
+    expect(region.getAttribute('tabindex')).toBe('0');
+    const caption = el.querySelector(`#${region.getAttribute('aria-labelledby')}`);
+    expect(caption?.tagName).toBe('CAPTION');
+  });
+
   describe('the GoTrue tri-state — three sentences, not one blank', () => {
     it('seam down → "Unavailable", plus a banner explaining why', async () => {
       const { el } = await setup(

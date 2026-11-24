@@ -1,18 +1,20 @@
 <section aria-labelledby="admin-users-heading">
-  <div class="flex flex-wrap items-end justify-between gap-4">
-    <h2
-      id="admin-users-heading"
-      class="text-lg font-bold text-(--text-primary)"
-      i18n="@@admin.users.heading"
-    >
-      Users
-    </h2>
+  <!-- AECI-2128: the console's page head (mock-up 14), as on /admin/vendors: the
+       heading, then the search and the three filters in one row that wraps. -->
+  <h2 id="admin-users-heading" i18n="@@admin.users.heading">Users</h2>
 
-    <div class="flex flex-wrap items-center gap-3">
-      <form method="dialog" novalidate (submit)="onSearchSubmit($event)" class="flex gap-2">
-        <label for="admin-users-search" class="sr-only" i18n="@@admin.users.search.label">
-          Search by name, or by full email address
-        </label>
+  <div class="mt-6 flex flex-wrap items-end gap-x-6 gap-y-4">
+    <form
+      method="dialog"
+      novalidate
+      (submit)="onSearchSubmit($event)"
+      class="flex min-w-0 flex-wrap items-center gap-2"
+    >
+      <label for="admin-users-search" class="sr-only" i18n="@@admin.users.search.label">
+        Search by name, or by full email address
+      </label>
+      <!-- The field recipe is full width, so the 16rem cap sits on a wrapper. -->
+      <div class="w-64 max-w-full">
         <input
           id="admin-users-search"
           type="search"
@@ -20,59 +22,62 @@
           (input)="onSearchInput($event)"
           i18n-placeholder="@@admin.users.search.placeholder"
           placeholder="Name or full email"
-          class="w-56 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          [class]="inputClass"
         />
-        <button
-          type="submit"
-          class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          i18n="@@admin.users.search.submit"
-        >
-          Search
-        </button>
-        @if (search()) {
-        <button
-          type="button"
-          (click)="clearSearch()"
-          class="inline-flex items-center rounded-(--radius-md) px-3 py-2 text-sm font-medium text-(--text-secondary) transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          i18n="@@admin.users.search.clear"
-        >
-          Clear
-        </button>
-        }
-      </form>
+      </div>
+      <button
+        aecButton
+        variant="secondary"
+        compact
+        type="submit"
+        i18n="@@admin.users.search.submit"
+      >
+        Search
+      </button>
+      @if (search()) {
+      <button
+        aecButton
+        variant="ghost"
+        type="button"
+        (click)="clearSearch()"
+        i18n="@@admin.users.search.clear"
+      >
+        Clear
+      </button>
+      }
+    </form>
 
-      <aec-select
-        i18n-label="@@admin.users.filter.role.label"
-        label="Role"
-        [options]="roleOptions"
-        [value]="role()"
-        idPrefix="admin-users-role"
-        (changed)="onRoleChange($event)"
-      />
-      <aec-select
-        i18n-label="@@admin.users.filter.banned.label"
-        label="Ban state"
-        [options]="bannedOptions"
-        [value]="banned()"
-        idPrefix="admin-users-banned"
-        (changed)="onBannedChange($event)"
-      />
-      <aec-select
-        i18n-label="@@admin.users.filter.seat.label"
-        label="Vendor access"
-        [options]="seatOptions"
-        [value]="hasSeat()"
-        idPrefix="admin-users-seat"
-        (changed)="onSeatChange($event)"
-      />
-    </div>
+    <aec-select
+      i18n-label="@@admin.users.filter.role.label"
+      label="Role"
+      [options]="roleOptions"
+      [value]="role()"
+      idPrefix="admin-users-role"
+      (changed)="onRoleChange($event)"
+    />
+    <aec-select
+      i18n-label="@@admin.users.filter.banned.label"
+      label="Ban state"
+      [options]="bannedOptions"
+      [value]="banned()"
+      idPrefix="admin-users-banned"
+      (changed)="onBannedChange($event)"
+    />
+    <aec-select
+      i18n-label="@@admin.users.filter.seat.label"
+      label="Vendor access"
+      [options]="seatOptions"
+      [value]="hasSeat()"
+      idPrefix="admin-users-seat"
+      (changed)="onSeatChange($event)"
+    />
   </div>
 
   <!--
     Says what this screen is FOR. Reviewer bans could only reach someone already
     banned; this reaches everyone, which is what looking a person up requires.
   -->
-  <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.users.intro">
+  <p [class]="c.caption" class="mt-4 max-w-[42rem]" i18n="@@admin.users.intro">
     Everyone with an account, including people who have never been banned, reviewed, or claimed a
     vendor. Open one to see their account, their vendor access, and to ban or reinstate them.
   </p>
@@ -86,15 +91,12 @@
     misconfigured key look like ordinary missing data for a day.
   -->
   @if (!authAvailable()) {
-  <p
-    class="mt-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-3 text-sm text-(--text-secondary)"
-    i18n="@@admin.users.authUnavailable"
-  >
+  <p [class]="c.note" class="mt-4" i18n="@@admin.users.authUnavailable">
     Email and last sign-in are unavailable — the account service could not be reached. Everything
     else on this page is accurate.
   </p>
   } @if (sortFellBack()) {
-  <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.users.sortFellBack">
+  <p [class]="c.caption" class="mt-2" i18n="@@admin.users.sortFellBack">
     Last sign-in cannot be sorted without the account service, so this list is sorted by profile
     created.
   </p>
@@ -105,50 +107,48 @@
     user". That false negative is the reason this surface exists.
   -->
   @if (emailSearch() === 'unavailable') {
-  <p
-    role="alert"
-    class="mt-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-3 text-sm text-(--text-primary)"
-    i18n="@@admin.users.emailSearchUnavailable"
-  >
+  <p role="alert" [class]="c.caution" class="mt-4" i18n="@@admin.users.emailSearchUnavailable">
     Email search could not run, so these results match names only. This is not a "no such person"
     answer.
   </p>
   } @else if (emailSearch() === 'no_match') {
-  <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.users.emailSearchNoMatch">
+  <p [class]="c.caption" class="mt-4" i18n="@@admin.users.emailSearchNoMatch">
     No account owns that address. Email search needs the full address — a partial like
     "&#64;acme.com" will not match.
   </p>
   } @if (loading()) {
-  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.users.loading">Loading people…</p>
+  <p [class]="c.statusLine" class="mt-6" i18n="@@admin.users.loading">Loading people…</p>
   } @else if (loadFailed()) {
-  <div
-    role="alert"
-    class="mt-8 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
-  >
-    <p class="text-sm font-medium text-(--text-primary)" i18n="@@admin.users.error">
+  <div role="alert" [class]="c.loadFailed" class="mt-6">
+    <p [class]="c.failedText" i18n="@@admin.users.error">
       We couldn't load the user list. Your session may have expired.
     </p>
     <button
+      aecButton
+      variant="secondary"
       type="button"
       (click)="retry()"
-      class="mt-3 inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       i18n="@@admin.users.retry"
     >
       Try again
     </button>
   </div>
   } @else if (isEmpty()) {
-  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.users.empty">
-    No people match these filters.
-  </p>
+  <p [class]="t.empty" class="mt-6" i18n="@@admin.users.empty">No people match these filters.</p>
   } @else {
-  <div class="mt-6 overflow-x-auto">
-    <table class="w-full min-w-[64rem] border-collapse text-sm">
-      <caption class="sr-only" i18n="@@admin.users.table.caption">
+  <div
+    [class]="t.region"
+    class="mt-6"
+    role="region"
+    tabindex="0"
+    aria-labelledby="admin-users-caption"
+  >
+    <table [class]="t.table" class="min-w-[64rem]">
+      <caption id="admin-users-caption" [class]="t.caption" i18n="@@admin.users.table.caption">
         Everyone with an account, with role, vendor access and ban state
       </caption>
       <thead>
-        <tr class="border-b border-(--border-strong)">
+        <tr>
           <th
             scope="col"
             aec-sort-header
@@ -158,36 +158,12 @@
             [activeSort]="appliedSort()"
             [direction]="directionFor('name')"
             (sortChange)="onSortChange($event)"
-            class="py-2 pe-4 text-start"
+            [class]="t.head"
           ></th>
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.users.col.role"
-          >
-            Role
-          </th>
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.users.col.vendor"
-          >
-            Vendor
-          </th>
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.users.col.worksAt"
-          >
-            Works at
-          </th>
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.users.col.status"
-          >
-            Status
-          </th>
+          <th scope="col" [class]="t.head" i18n="@@admin.users.col.role">Role</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.users.col.vendor">Vendor</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.users.col.worksAt">Works at</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.users.col.status">Status</th>
           <th
             scope="col"
             aec-sort-header
@@ -197,7 +173,7 @@
             [activeSort]="appliedSort()"
             [direction]="directionFor('last_sign_in')"
             (sortChange)="onSortChange($event)"
-            class="py-2 pe-4 text-start"
+            [class]="t.head"
           ></th>
           <th
             scope="col"
@@ -208,7 +184,7 @@
             [activeSort]="appliedSort()"
             [direction]="directionFor('created')"
             (sortChange)="onSortChange($event)"
-            class="py-2 pe-4 text-start"
+            [class]="t.head"
           ></th>
           <th
             scope="col"
@@ -219,33 +195,27 @@
             [activeSort]="appliedSort()"
             [direction]="directionFor('updated')"
             (sortChange)="onSortChange($event)"
-            class="py-2 text-start"
+            [class]="t.head"
           ></th>
         </tr>
       </thead>
       <tbody>
         @for (person of users(); track person.id) {
-        <tr class="border-b border-(--border-default) align-top">
-          <th scope="row" class="py-2.5 pe-4 text-start font-bold text-(--text-primary)">
-            <a
-              [routerLink]="['/admin/users', person.id]"
-              class="text-(--text-primary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:decoration-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            >
+        <tr [class]="t.row">
+          <th scope="row" [class]="t.rowHead">
+            <a [routerLink]="['/admin/users', person.id]" [class]="t.link">
               @if (person.display_name) { {{ person.display_name }} } @else {
               <span i18n="@@admin.users.noName">Unnamed account</span>
               }
             </a>
-            <span
-              class="block text-xs font-normal"
-              [class]="hasAuthValue(person) ? 'text-(--text-tertiary)' : 'italic text-(--text-tertiary)'"
-            >
+            <span [class]="hasAuthValue(person) ? t.sub : t.sub + ' italic'">
               {{ emailLabel(person) }}
             </span>
           </th>
 
-          <td class="py-2.5 pe-4 text-(--text-secondary)">{{ roleLabel(person) }}</td>
+          <td [class]="t.cell">{{ roleLabel(person) }}</td>
 
-          <td class="py-2.5 pe-4 text-(--text-secondary)">
+          <td [class]="t.cell">
             @if (person.seat) { {{ person.seat.company_name }}
             <!--
               `seat_owner` is what decides whether this person can invite
@@ -253,12 +223,10 @@
               buried on the detail page.
             -->
             @if (person.seat.owner) {
-            <span class="block text-xs text-(--text-tertiary)" i18n="@@admin.users.stat.seatOwner">
-              (owner)
-            </span>
+            <span [class]="t.sub" i18n="@@admin.users.stat.seatOwner"> (owner) </span>
             } } @else {
             <span
-              class="text-(--text-tertiary)"
+              class="text-(--text-secondary)"
               i18n-aria-label="@@admin.users.seat.none"
               aria-label="No vendor seat"
               >&ndash;</span
@@ -266,13 +234,13 @@
             }
           </td>
 
-          <td class="py-2.5 pe-4 text-(--text-secondary)">
+          <td [class]="t.cell">
             @if (companyTypeLabel(person); as type) { {{ type }} @if (companySizeLabel(person); as
             size) {
-            <span class="block text-xs text-(--text-tertiary)">{{ size }}</span>
+            <span [class]="t.sub">{{ size }}</span>
             } } @else {
             <span
-              class="text-(--text-tertiary)"
+              class="text-(--text-secondary)"
               i18n-aria-label="@@admin.users.worksAt.none"
               aria-label="Not answered"
               >&ndash;</span
@@ -280,32 +248,26 @@
             }
           </td>
 
-          <td class="py-2.5 pe-4">
+          <td [class]="t.cell">
             @if (person.banned_at) {
-            <span
-              class="inline-flex items-center rounded-full border border-(--border-strong) bg-(--surface-sunken) px-2.5 py-0.5 text-xs font-medium text-(--text-primary)"
-              i18n="@@admin.users.badge.banned"
+            <aec-chip density="dense" [tone]="tone('banned')"
+              ><span i18n="@@admin.users.badge.banned"> Banned </span></aec-chip
             >
-              Banned
-            </span>
             } @else {
-            <span class="text-(--text-secondary)" i18n="@@admin.users.badge.active">Active</span>
+            <aec-chip density="dense" [tone]="tone('accountActive')"
+              ><span i18n="@@admin.users.badge.active">Active</span></aec-chip
+            >
             }
           </td>
 
           <td
-            class="py-2.5 pe-4"
-            [class]="hasAuthValue(person) ? 'text-(--text-secondary)' : 'italic text-(--text-tertiary)'"
+            [class]="hasAuthValue(person) ? t.nowrap : t.nowrap + ' italic text-(--text-secondary)'"
           >
             {{ lastSignInLabel(person) }}
           </td>
 
-          <td class="py-2.5 pe-4 text-(--text-secondary)">
-            {{ person.created_at | date: 'mediumDate' : 'UTC' }}
-          </td>
-          <td class="py-2.5 text-(--text-secondary)">
-            {{ person.updated_at | date: 'mediumDate' : 'UTC' }}
-          </td>
+          <td [class]="t.nowrap">{{ person.created_at | date: 'mediumDate' : 'UTC' }}</td>
+          <td [class]="t.nowrap">{{ person.updated_at | date: 'mediumDate' : 'UTC' }}</td>
         </tr>
         }
       </tbody>
