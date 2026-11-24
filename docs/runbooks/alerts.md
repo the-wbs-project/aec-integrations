@@ -61,6 +61,7 @@ thresholds of retired alerts are in `observability/posthog/README.md` "Monitor d
 |---|---|
 | Worker error rate > 1% (1 h) | [High Worker error rate](#high-worker-error-rate) |
 | p95 detail page render > 2.5 s (1 h) | [High p95 detail render](#high-p95-detail-render) |
+| A page's cache tags were cut to fit (any, 24 h, daily) | [Cache tags cut to fit](#cache-tags-cut-to-fit) |
 | API requests stalled (5+ over 10 s, 1 h) | [API requests stalled](#api-requests-stalled) |
 | Cron failure email not sent, or post-write sync failed | [A scheduled job failed](#a-scheduled-job-failed) |
 | Data quality check found ERROR-severity issues (daily) | [Data quality job failed or not running](#data-quality-job-failed-or-not-running) |
@@ -207,6 +208,34 @@ The first read after the first deploy in an env finds no stored build and builds
 
 **Escalation:** If not explained by a purge/deploy and not recovering, treat as a
 caching regression — page the on-call engineer (Phase 6 rotation TBD).
+
+---
+
+## Cache tags cut to fit
+
+The alert `AECi — A page's cache tags were cut to fit (any, 24 h)` reads
+`aeci.cache.tags.truncated` (AECI-2025). A page named more entities than one `Cache-Tag` header
+can carry: 16 KB, or 1,000 tags. The page still loaded with a 200. The rule and both tiers are in
+`docs/CACHE_STRATEGY.md` §3, "A page never fails on its tag list".
+
+The label names each `route_class` and `reason`:
+
+| `reason` | What happened | Is anything served stale? |
+|---|---|---|
+| `degraded_ttl` | Only `integration:`, partner `vendor:` or term tags were left out. The page is cached for 60 s (`TAG_OVERFLOW_TTL`). | A partner vendor's name or a review date can lag a write by up to 60 s. Nothing an "at once" promise covers. |
+| `uncacheable_product_tags_dropped` | A `product:`, `pair:`, lead `vendor:` or mandatory tag did not fit. The page is not stored at all. | No. Every visit renders it, so it costs a render and its API reads each time. |
+
+1. Find the page. Search PostHog Logs for `aeci.cache.tags.truncated`. Each line carries `path`,
+   `tags_total`, `tags_kept`, `tags_bytes`, `tags_invalid` and `dropped_by_type`.
+2. A large catalog page is expected to land here. A product with more than about 160 partners is
+   `degraded_ttl`, and one with more than about 500 is `uncacheable_product_tags_dropped`. No
+   action is needed unless the render cost shows on `High p95 detail render`.
+3. `tags_invalid` above 0 means a slug or id holds a space, a non-ASCII character or more than
+   1,024 characters. Cloudflare would drop that tag silently. Fix the record's slug, then the
+   page caches again on its next render.
+4. A busy page on `uncacheable_product_tags_dropped` needs a coarser tag scheme. File the issue
+   against `docs/CACHE_STRATEGY.md` §2. Do not raise the limits in `cache-tags.ts`: they are
+   Cloudflare's.
 
 ---
 

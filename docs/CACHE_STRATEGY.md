@@ -18,7 +18,7 @@
 
 `Cache-Tag` and purge-by-tag are available on **all Cloudflare plans as of April 2025** — `Cache-Tag` is the AECi strategy from Phase 2 onward (this reversed the "Enterprise-only" assumption baked into earlier drafts of `STAGE_1_SPEC.md` §9). AECi runs on the **Pro** plan.
 
-Native Workers Cache is **zoneless**: no zone-level cache configuration touches it. Cache Rules, the "ignore query string" toggle, and dashboard / API / Terraform `purge_cache` calls all operate on the separate zone CDN cache and are **inert** against Workers Cache — which is exactly why cross-Worker invalidation goes through the queue rather than a zone purge (§5). The limits that bind are Workers Cache's own: **≤ 1000 `Cache-Tag` values per response**, **≤ 1024 chars per tag** (printable ASCII, case-insensitive), and **≤ 1000 tags per `ctx.cache.purge()` call** — comfortably above AECi's per-write purge volume, and far above the retired HTTP purge transport's **≤ 30 tags/call** ceiling (ADR 0004, superseded on transport by ADR 0020).
+Native Workers Cache is **zoneless**: no zone-level cache configuration touches it. Cache Rules, the "ignore query string" toggle, and dashboard / API / Terraform `purge_cache` calls all operate on the separate zone CDN cache and are **inert** against Workers Cache — which is exactly why cross-Worker invalidation goes through the queue rather than a zone purge (§5). The limits that bind are Workers Cache's own: **≤ 1000 `Cache-Tag` values per response**, **≤ 1024 chars per tag** (printable ASCII, case-insensitive), and **≤ 1000 tags per `ctx.cache.purge()` call** (unverified, see AECI-2053) — comfortably above AECi's per-write purge volume, and far above the retired HTTP purge transport's **≤ 30 tags/call** ceiling (ADR 0004, superseded on transport by ADR 0020).
 
 ### Operating notes (moved from CLAUDE.md, 2026-09-23)
 
@@ -28,7 +28,7 @@ Native Workers Cache is **zoneless**: no zone-level cache configuration touches 
 
 ## 2. Tag vocabulary
 
-`Cache-Tag` values are comma-separated strings, ≤ 16 KB per response, no spaces.
+`Cache-Tag` values are comma-separated strings, ≤ 16 KB per response, no spaces. A page whose tags would pass Cloudflare's limits keeps the most important ones and still renders (§3, "A page never fails on its tag list").
 
 | Tag | Attached to |
 |---|---|
@@ -143,6 +143,45 @@ Codified so callers don't re-derive the rules per surface:
 9. **A product page lists its similar products** (AECI-1785). The resolver pushes `product:{slug}` for every card in "Similar products", so an edit to a shown product purges the page (rule 2). A product newly added to a shared category, renamed into the first six, or restored from a hide (rule 8), carries no tag the page holds yet. The page shows it within the 15-minute detail TTL (§4). The page carries no `category:{slug}` tag, so promote's term tags do not reach it.
 10. **A product page names each integration partner's vendor** (AECI-1720). Each card and table row prints "by {vendor}" (`ProductIntegrationItem.partner_vendor_name`). A vendor rename is a vendor promote, which purges `vendor:{slug}` only, and the partner's `product:` tag does not move. So the resolver pushes `vendor:{partner_vendor_slug}` for every row with a vendor on record.
 
+11. **A page never fails on its tag list** (AECI-2025). Until AECI-2025, `buildCacheTags` threw past 16 KB, after the render, so a product page with more than about 160 integrations returned 500. Each integration adds about 102 bytes: `integration:{uuid}` (49), the partner's `product:{slug}` (about 31) and the partner's `vendor:{slug}` (about 22). Taxonomy browse pages (one `product:` tag per product in the term, unpaged), connector product pages (three tags per powered edge) and vendor pages can reach the limit the same way. The fix is in the shared helper, so it covers all of them.
+
+    **Cloudflare's limits**, which Workers Cache shares with the zone cache ([Workers Cache limitations](https://developers.cloudflare.com/workers/cache/limitations/#cache-tag-limits), [Purge by tags](https://developers.cloudflare.com/cache/how-to/purge-cache/purge-by-tags/#a-few-things-to-remember), [Workers Cache purge](https://developers.cloudflare.com/workers/cache/purge/#purge-by-tag)):
+
+    | Limit | Value |
+    |---|---|
+    | The whole `Cache-Tag` value, after the header name, commas included | 16 KB (`CACHE_TAG_MAX_BYTES = 16_384`) |
+    | Tags per response | 1,000 (`CACHE_TAG_MAX_COUNT`) |
+    | One tag | 1,024 characters (`CACHE_TAG_MAX_TAG_LENGTH`), printable ASCII `0x21`–`0x7E` |
+    | An invalid tag | silently dropped at storage time; the response is cached with the rest |
+
+    **How the list is cut.** `composeCacheTags` (`apps/web/src/server/cache-tags.ts`) returns `{ value, truncated, cacheable, total, kept, droppedByType, invalid }`. `buildCacheTags` keeps its string signature and returns `value`. Neither throws.
+
+    - A list that fits is exactly what it always was, in push order. A test pins that.
+    - A tag over 1,024 characters or with a character outside printable ASCII is skipped and counted, because Cloudflare would drop it anyway.
+    - A list that does not fit keeps tags by rank, and by push order within a rank: the **mandatory** tags (`route:*`, the page's own entity tag, `taxonomy`), then `pair:` and the **lead vendor**, then `product:`, then the other `vendor:` tags, then term and index tags, then `integration:`. A tag is kept if it still fits, so a short tag can fill room a long one could not. The kept tags keep their push order, so the header is deterministic.
+    - The **lead vendor** is the first `vendor:` tag the page pushes. On a product page that is the product's own vendor (`product-detail.resolver.ts` pushes it first; `product-detail.resolver.component.spec.ts` pins the order).
+
+    **Two tiers.** Which tags were left out decides what happens to the response. Both return 200.
+
+    | Tier | Left out | Response | `aeci.cache.tags.truncated` `reason` |
+    |---|---|---|---|
+    | A, degraded | only `integration:`, non-lead `vendor:`, term or index tags | cached on `TAG_OVERFLOW_TTL` (§4) with the kept tags | `degraded_ttl` |
+    | B, uncacheable | any mandatory, `pair:`, `product:` or lead `vendor:` tag | `private, no-store`, no `Cache-Tag`. The shared cache never stores it, the same as the non-cacheable branch. The SEO and security headers stay | `uncacheable_product_tags_dropped` |
+
+    **Why Tier B exists.** The Vendor Terms promise that the claimed label comes down "at once" when a claim ends, and that a sourced logo comes down "at once" on an objection (`apps/web/src/content/legal/vendor-terms.md`, "Your content and our license to publish it"). Those purges travel by tag. A page that cannot carry the tag must not be stored, so nothing a purge removes can be served stale.
+
+    **Which `vendor:` tags an "at once" promise needs** (checked 2026-11-24 for AECI-2025):
+
+    - A logo upload, a sourced-logo objection or removal on a vendor purges `vendor:{slug}` only (`apps/api/src/routes/logos.ts:295`). So does an AECi field override on a vendor (`apps/api/src/routes/admin-field-overrides.ts:370`).
+    - A cached page renders a vendor's logo in two places: the vendor's own page (`vendors/vendor-detail.ts:154`, where `vendor:` is the mandatory entity tag), and the product page's facts card, which shows the product's own vendor (`products/product-facts-card.ts:150`). That vendor is the lead vendor, so dropping it is Tier B.
+    - A partner row prints the partner vendor's **name** only ("by {vendor}", rule 10). The pair page prints the builder's name only ("Offered by", `products/products-pair.ts:1191`). Browse and similar-product cards render the product's logo and claim state, not the vendor's. So a dropped partner or builder `vendor:` tag delays a vendor rename by at most 60 s and is Tier A.
+    - A claim flip, a claim end or a handback purges `vendor:{slug}` **and** every `product:{slug}` the vendor holds (`apps/api/src/lib/vendor-handback.ts:302` `claimFlipTags`). A brand-asset removal does the same (`apps/api/src/lib/brand-asset-removal.ts:437`), and so does a `verified` flip (`apps/api/src/lib/vendor-cache-tags.ts:53`). The claimed state and the product logo on another page are therefore reached by `product:` tags, which are never dropped on a cached page.
+    - A dropped `integration:` tag is reached by the page's own `product:` tag, which every edge promote emits (rule 4b). Its only other producer is the vendor's "Looks right" review stamp (`apps/api/src/routes/vendor-review.ts:348`), which moves a review date. Tier A.
+
+    **Alerting.** Each cut list emits `aeci.cache.tags.truncated` (`route_class`, `reason`) and a warn log with the path, the tag counts, the bytes and the dropped types, on a native-cache MISS only (`docs/OBSERVABILITY.md`). The PostHog alert `cache-tags-truncated` fires on any count in 24 h. Runbook: `docs/runbooks/alerts.md` "Cache tags cut to fit".
+
+    **Not addressed here:** whether `ctx.cache.purge()` accepts 1,000 tags per call or only 100 is AECI-2053. A coarser tag scheme for very large pages, which would keep a 500-partner page cacheable, is not built.
+
 ### Cache-Tag header construction helper
 
 Building the header is a single helper, implemented in Phase 2.10 ([AECI-56](https://linear.app/aec-integrations/issue/AECI-56)). Lives at `apps/web/src/server/cache-tags.ts`:
@@ -157,6 +196,8 @@ buildCacheTags(opts: {
 ```
 
 `entity.type` is the tag prefix (`product`, `vendor`, `pair`, `integration`, `category`, `audience`, `phase`, `trade`, or `index` for index pages); `slug` or `id` is the suffix (slug for slug-keyed entities — the pair page passes the composite `{min}__{max}` as its `slug` — id for `integration:<id>`). `taxonomy: true` appends the global `taxonomy` tag — set on routes whose HTML renders the full taxonomy term set (home `/` and the flat `/categories`, `/audiences`, `/phases`, `/trades` index pages). Static pages with no §2 vocabulary entry (`/about`, `/methodology`, `/accessibility` (once AECI-1687 publishes it), `/vendor-program`, `/vendor-program/list-your-product`, `/updates`, `/roadmap`, `/legal/*`, `/docs` and `/docs/*`) pass `entity` as `undefined`, yielding just the route-class tag.
+
+`buildCacheTags` never throws (AECI-2025). The SSR runtime calls `composeCacheTags` in the same module, which also reports whether tags were left out and whether the page may still be stored (§3 rule 11).
 
 The companion helper `cacheTagInputsForPath(localeStrippedPath)` (same module) returns the helper's input shape for every cacheable URL the SSR Worker handles, mirroring `ROUTE_CACHE_PATTERNS` in `server-runtime.ts`. Adding a new cacheable URL means extending both that table and `cacheTagInputsForPath` in the same change — and its per-route content-param allowlist (`cacheKeyParamsForPath` in `apps/web/src/app/core/route-cache-key.ts`, restored in WC-4; see §4a). Callers never construct `Cache-Tag` strings by hand.
 
@@ -174,6 +215,8 @@ The companion helper `cacheTagInputsForPath(localeStrippedPath)` (same module) r
 | `/api/taxonomy` fetch (header Browse menu) | 0 | not edge-cached — `private, no-store` (see below); KV read-through, 5 min, in the API Worker |
 | `sitemap.xml` | 0 | 3600. Since AECI-1505 the hour only bounds a stale edge copy after a taxonomy purge, because the `sitemap-rebuild` job purges `sitemap` itself after it stores a build. |
 | `robots.txt` | 86400 | 86400 |
+| A 2xx whose tag list was cut, Tier A (§3 rule 11, AECI-2025) | 0 | 60 (`TAG_OVERFLOW_TTL`), or the route's TTL after the legal caps when that is shorter |
+| A 2xx whose tag list was cut, Tier B (§3 rule 11, AECI-2025) | not stored | not stored: `private, no-store`, no `Cache-Tag` |
 | 404 | 0 | 60 |
 
 `max-age: 0` on browser is deliberate — the browser revalidates on every navigation, the edge absorbs the actual load. Combined with tag-based purge, the worst-case staleness for an end user is one edge round-trip after a write, not 15 minutes.
@@ -201,6 +244,13 @@ Non-cacheable routes (`/api/*`, `/auth/*`, `/account*`, `/welcome`, `/admin*`, `
 - **A failed read is cached for a minute.** After the moment of an upcoming Vendor Terms, Managed plan agreement, Terms of Service or Privacy Policy version (AECI-1637: the two reader documents read it exactly as the agreements do) the SSR Worker reads `GET /api/legal/published`. If that read fails, the page shows the old version as current (fail safe) and the resolver sets `legalStateUncertain` on the request context. The page then leaves with `LEGAL_UNCERTAIN_TTL` (`s-maxage=60, max-age=0`) so the next minute's render tries again and no browser keeps it.
 - **The cap uses the nearest moment of any upcoming entry, on every page**, like the notice cap. Each page expires once per moment, only in the last TTL-length before it. That is cheaper than keeping a list of every page that names a version, which would go stale. The browser corrects the claim box after hydration anyway (`LegalInForceClient`); the cap keeps the HTML itself right.
 - **The clock is read before the render**, as for the notice boundary: the handler passes `start`. A render that decides after a moment that fell during it caps from `start` and expires within a second.
+
+**A cut tag list shortens or removes the TTL (AECI-2025).** When a page's `Cache-Tag` list passes Cloudflare's limits, §3 rule 11 decides the tier. `tagOverflowTtl` (`server-runtime.ts`) applies after `legalPageTtl`, the way `LEGAL_UNCERTAIN_TTL` does. Four rules come with it:
+
+- **Tier A takes the smaller of the route TTL and `TAG_OVERFLOW_TTL`** (`s-maxage=60, max-age=0`). A purge on a left-out tag cannot reach the page, so a minute bounds how long it can lag.
+- **`stale-while-revalidate` keeps the route's value, capped at 60 s.** It is never longer than today's. A route without it gets none.
+- **`stale-if-error` keeps the route's value.** It serves a stale copy only while the origin fails, the same accepted outage lag as for the notice band above. A purge still evicts the copy.
+- **Tier B is never stored.** It leaves with `private, no-store` and no `Cache-Tag`, so a HIT cannot serve it. A page under the limits keeps its route TTL and its header byte for byte.
 
 **Exception — 404 responses on non-cacheable paths (AECI-62):** if the Angular SSR renderer returns HTTP 404 on a non-cacheable path (e.g. an unknown URL caught by the `**` wildcard route), the Worker applies `NOT_FOUND_TTL` (`max-age=0, s-maxage=60`) and `Cache-Tag: route:404` instead of `private, no-store`. The 404 content is session-neutral (no user-specific data), so edge caching is safe and prevents a flood of unknown URLs from melting the SSR Worker. The `route:404` tag provides the same bulk-purge handle as on cacheable routes. All other non-cacheable responses (2xx, 3xx, 5xx) continue to emit `private, no-store`.
 
