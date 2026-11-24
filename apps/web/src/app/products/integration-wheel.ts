@@ -155,7 +155,7 @@ const TILE_MAX_PHONE = 40;
 /** The smallest tile beside the text, and on a phone. */
 export const TILE_MIN_DESKTOP = 28;
 export const TILE_MIN_PHONE = 24;
-/** Desktop: a slide with more products than this takes two rings. */
+/** Desktop: no slide puts more than this on one ring (`oneRingMax`). */
 export const ONE_RING_MAX = 20;
 /** A stage narrower than this is a phone: one ring, never two. */
 const PHONE_BELOW = 320;
@@ -217,26 +217,51 @@ export function wheelCapacity(d: number, t: number): { one: number; two: number 
   return { one, two: isPhoneStage(d) ? 0 : ringCapacity(r.inner, t) + one };
 }
 
-/** A slide's mode at tile size `t`. */
-export function wheelModeAt(n: number, d: number, t: number): WheelMode {
-  const c = wheelCapacity(d, t);
-  if (isPhoneStage(d)) return n <= c.one ? 'one' : 'dots';
-  if (n <= ONE_RING_MAX && n <= c.one) return 'one';
-  return n <= c.two ? 'two' : 'dots';
+/**
+ * The most products a slide may put on one ring at stage `d`, beside the text: 20, or
+ * fewer where one ring of 40px tiles (the two-ring maximum) holds fewer. 18 at a 336px
+ * stage (1024), 20 at 476px. A phone has no second ring, so this is not used there.
+ */
+export function oneRingMax(d: number): number {
+  return Math.min(ONE_RING_MAX, wheelCapacity(d, TILE_MAX_TWO).one);
+}
+
+/**
+ * A slide's mode: a pure function of its product count and the stage width, so nothing
+ * else about the product (its other slides, its tile size) can change it.
+ *
+ * Beside the text: one ring up to `oneRingMax(d)`, two rings while they fit at the
+ * smallest tile (28px), then dots. On a phone: one ring while it fits at 24px, then dots.
+ *
+ * Every tile size `wheelTileSize` can pick fits the mode this gives, because capacity
+ * only falls as the tile grows:
+ *  - if the product's largest tiled slide is one-ring, its tile is the largest up to 48px
+ *    that fits it on one ring. That slide is at most `oneRingMax(d)`, which fits at 40px,
+ *    so the tile is 40px or more and every slide (all smaller) fits too.
+ *  - otherwise the tile is the largest up to 40px that fits that slide on two rings. A
+ *    one-ring slide is at most `oneRingMax(d)`, which fits one ring at 40px, so it fits
+ *    at any tile of 40px or less. A two-ring slide is at most the largest, which fits.
+ *  - on a phone the tile is the largest up to 40px that fits the largest slide on one
+ *    ring, and every smaller slide fits too.
+ */
+export function wheelMode(n: number, d: number): WheelMode {
+  if (isPhoneStage(d)) return n <= wheelCapacity(d, TILE_MIN_PHONE).one ? 'one' : 'dots';
+  if (n <= oneRingMax(d)) return 'one';
+  return n <= wheelCapacity(d, TILE_MIN_DESKTOP).two ? 'two' : 'dots';
 }
 
 /**
  * The product's one tile size at stage `d`, or `null` when no slide can be tiled. It
- * comes from the largest slide that fits at the smallest tile: on one ring, the largest
- * size up to 48px (40px on a phone) that still fits; on two rings, up to 40px. Every slide
- * then takes its own ring count at that size, so stepping never resizes the tiles.
+ * comes from the largest slide that can be tiled: on one ring, the largest size up to
+ * 48px (40px on a phone) that fits it; on two rings, the largest up to 40px. Every slide
+ * keeps its own mode (`wheelMode`) at that size, so stepping never resizes the tiles.
  */
 export function wheelTileSize(counts: readonly number[], d: number): number | null {
   const min = isPhoneStage(d) ? TILE_MIN_PHONE : TILE_MIN_DESKTOP;
   let ref = 0;
-  for (const n of counts) if (n > ref && wheelModeAt(n, d, min) !== 'dots') ref = n;
+  for (const n of counts) if (n > ref && wheelMode(n, d) !== 'dots') ref = n;
   if (ref === 0) return null;
-  const mode = wheelModeAt(ref, d, min);
+  const mode = wheelMode(ref, d);
   let t = mode === 'two' ? TILE_MAX_TWO : isPhoneStage(d) ? TILE_MAX_PHONE : TILE_MAX_ONE;
   for (; t > min; t--) {
     const c = wheelCapacity(d, t);
@@ -326,7 +351,7 @@ export function dotsMax(d: number): number {
 export function wheelLayout(slide: WheelSlide, d: number, tile: number | null): WheelLayout {
   const n = slide.products.length;
   const frame = round(50 - (EDGE * 50) / d);
-  const mode: WheelMode = tile === null ? 'dots' : wheelModeAt(n, d, tile);
+  const mode: WheelMode = tile === null ? 'dots' : wheelMode(n, d);
   const t = tile ?? TILE_MIN_DESKTOP;
   const r = radii(d, t);
   const base = {

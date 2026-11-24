@@ -101,13 +101,14 @@
     width   stage   one ring   two rings   dots from
     1440    476     1 to 20    21 to 69    70
     1280    476     1 to 20    21 to 69    70
-    1024    336     1 to 20    21 to 43    44
+    1024    336     1 to 18    19 to 43    44   (built: one ring up to 18, AECI-2018)
     390     294     1 to 25    none        26
     375     279     1 to 23    none        24
     320     224     1 to 18    none        19
   Tile size at 1440: 48px up to 20 on one ring; 40px from 21 to 40 on two rings, then down
-  to 28px at 69. At 1024 the one-ring tile shrinks from 48px to 37px at 20, then two rings
-  start at 40px.
+  to 28px at 69. The build (2026-11-24) makes the ring count depend only on the count and
+  the width: one ring up to 18 at 1024, the number of 40px tiles one ring holds, so a
+  one-ring tile there is 40px or more and two rings start at 19.
 
   FINDINGS for the build:
   1. The cut-offs depend on the width, not only the count. At 1024 the panel is 400px,

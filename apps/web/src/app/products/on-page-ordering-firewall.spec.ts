@@ -878,7 +878,7 @@ function wheelDecisions(
       products: s.products.map((p) => p.id),
       integrations: s.integrations,
     })),
-    layouts: [...WHEEL_BANDS, 260, 400, 640].map((d) =>
+    layouts: [...WHEEL_BANDS, 640].map((d) =>
       model.slides.map((_, i) => {
         const layout = layoutSlide(model, i, d);
         return { mode: layout.mode, tile: layout.tilePx, points: layout.points };

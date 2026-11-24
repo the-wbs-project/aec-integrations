@@ -29,7 +29,7 @@ import {
   type WheelSlide,
 } from './integration-wheel';
 
-/** A layout and the key its CSS custom properties carry: a band index, or `l` (live). */
+/** A layout and the key its CSS custom properties carry: the band's index in `WHEEL_BANDS`. */
 interface KeyedLayout {
   readonly key: string;
   readonly layout: WheelLayout;
@@ -93,8 +93,6 @@ const LONG_PRESS = 450;
     class: 'block',
     '(document:keydown.escape)': 'onEscape()',
     '(document:click)': 'onDocumentClick($event)',
-    '(document:pointerdown)': 'onDocumentPointerDown($event)',
-    '(window:scroll)': 'onScroll()',
   },
   template: `
     @let s = slide();
@@ -276,7 +274,6 @@ const LONG_PRESS = 450;
                   (pointerdown)="onTileDown(i, $event)"
                   (pointerup)="cancelHold()"
                   (pointercancel)="cancelHold()"
-                  (click)="onTileClick($event)"
                   (contextmenu)="onTileContextMenu($event)"
                 >
                   <aec-logo-or-initial
@@ -471,10 +468,19 @@ export class ProductIntegrationWheel {
   private byTouch = false;
 
   constructor() {
-    afterNextRender(() => this.hydrated.set(true));
+    afterNextRender(() => {
+      this.hydrated.set(true);
+      // A touch hold's release must not follow the link. RouterLink listens on the tile
+      // itself, so the ring stops the click in the capture phase, before it gets there.
+      const ring = this.ring().nativeElement;
+      const onClick = (event: MouseEvent) => this.onTileClick(event);
+      ring.addEventListener('click', onClick, true);
+      this.destroyRef.onDestroy(() => ring.removeEventListener('click', onClick, true));
+    });
     this.destroyRef.onDestroy(() => {
       this.clearHide();
       this.cancelHold();
+      this.stopListening?.();
     });
   }
 
@@ -664,8 +670,10 @@ export class ProductIntegrationWheel {
     this.closeList(false);
   }
 
+  /** Escape closes the card, and the title list (focus returns to the title). */
   protected onEscape(): void {
     if (this.card()) this.hideCard();
+    if (this.listOpen()) this.closeList(true);
   }
 
   // ─── The ring ───────────────────────────────────────────────────────────────
@@ -737,7 +745,7 @@ export class ProductIntegrationWheel {
   }
 
   /** A touch hold showed the card, so its release does not follow the link. */
-  protected onTileClick(event: MouseEvent): void {
+  private onTileClick(event: MouseEvent): void {
     if (!this.held) return;
     this.held = false;
     event.preventDefault();
@@ -758,7 +766,28 @@ export class ProductIntegrationWheel {
     this.cardPositions.set([this.positionFor(tile, CARD_WIDTH, CARD_HEIGHT)]);
     this.card.set({ index: i, tile, product });
     this.placeCardSoon();
+    this.listenWhileOpen();
   }
+
+  /**
+   * The dismissal listeners, attached only while a card is open, so a press or a scroll
+   * elsewhere on the page costs nothing the rest of the time. Plain DOM listeners: a host
+   * listener would run change detection on every scroll event of the page.
+   */
+  private listenWhileOpen(): void {
+    if (this.stopListening) return;
+    const view = this.doc.defaultView;
+    const press = (event: PointerEvent) => this.onDocumentPointerDown(event);
+    const scroll = () => this.onScroll();
+    this.doc.addEventListener('pointerdown', press, true);
+    view?.addEventListener('scroll', scroll, { passive: true });
+    this.stopListening = () => {
+      this.doc.removeEventListener('pointerdown', press, true);
+      view?.removeEventListener('scroll', scroll);
+      this.stopListening = null;
+    };
+  }
+  private stopListening: (() => void) | null = null;
 
   protected keepCard(): void {
     this.clearHide();
@@ -772,6 +801,7 @@ export class ProductIntegrationWheel {
   private hideCard(): void {
     this.clearHide();
     this.byTouch = false;
+    this.stopListening?.();
     this.card.set(null);
   }
 
@@ -780,7 +810,7 @@ export class ProductIntegrationWheel {
    * anywhere outside the card and its tile closes it. So does any press outside both for
    * a card opened by hover or focus.
    */
-  protected onDocumentPointerDown(event: PointerEvent): void {
+  private onDocumentPointerDown(event: PointerEvent): void {
     const card = this.card();
     if (!card) return;
     const target = event.target as Node | null;
@@ -791,7 +821,7 @@ export class ProductIntegrationWheel {
   }
 
   /** A scroll closes a card a touch hold opened: the finger has moved on. */
-  protected onScroll(): void {
+  private onScroll(): void {
     if (this.byTouch) this.hideCard();
   }
 

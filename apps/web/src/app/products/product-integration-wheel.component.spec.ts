@@ -508,6 +508,59 @@ describe('ProductIntegrationWheel: after hydration', () => {
   });
 });
 
+describe('ProductIntegrationWheel: a card opened by a touch hold (WCAG 1.4.13)', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+    seq = 0;
+  });
+  afterEach(() => TestBed.inject(OverlayContainer).ngOnDestroy());
+
+  async function hold(fixture: ReturnType<typeof setup>['fixture'], tile: HTMLElement) {
+    tile.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true }));
+    await new Promise((r) => setTimeout(r, 500));
+    fixture.detectChanges();
+    await fixture.whenStable();
+  }
+  const card = () =>
+    TestBed.inject(OverlayContainer)
+      .getContainerElement()
+      .querySelector('[data-testid="product-hero-wheel-card"]');
+
+  it('opens after 450ms, does not follow the link, and closes on a press elsewhere', async () => {
+    const { fixture, el } = setup(buildProduct({ integrations_as_source: partners(4) }));
+    await hold(fixture, tiles(el)[1]!);
+    expect(card()).not.toBeNull();
+    // The release's click does not navigate.
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+    tiles(el)[1]!.dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(true);
+    // A press outside the card and its tile closes it.
+    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(card()).toBeNull();
+  });
+
+  it('closes on a scroll, and a later mouse click is not swallowed', async () => {
+    const { fixture, el } = setup(buildProduct({ integrations_as_source: partners(4) }));
+    await hold(fixture, tiles(el)[0]!);
+    expect(card()).not.toBeNull();
+    window.dispatchEvent(new Event('scroll'));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(card()).toBeNull();
+    // A mouse press resets the hold, so its click is not cancelled by the wheel. (A
+    // middle-button click, so the test bed's router does not navigate.)
+    tiles(el)[0]!.dispatchEvent(
+      new PointerEvent('pointerdown', { pointerType: 'mouse', bubbles: true }),
+    );
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true, button: 1 });
+    const spy = vi.spyOn(click, 'stopImmediatePropagation');
+    tiles(el)[0]!.dispatchEvent(click);
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
+
 describe('ProductHero: the panel holds the wheel', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
@@ -536,6 +589,19 @@ describe('ProductHero: the panel holds the wheel', () => {
 
   it('with no integration on record there is no wheel and no panel', () => {
     const el = hero(buildProduct());
+    expect(el.querySelector('[data-testid="product-hero-wheel"]')).toBeNull();
+    expect(el.querySelector('[data-testid="product-hero-visual"]')).toBeNull();
+  });
+
+  it('a pure connector, with only the pairs it powers, has no wheel and no panel', () => {
+    const powered = {
+      ...partners(1)[0]!,
+      source: link('aa', 'Alpha'),
+      target: link('bb', 'Beta'),
+    } as unknown as ProductDetail['integrations_as_connector'][number];
+    const el = hero(
+      buildProduct({ product_role: 'connector', integrations_as_connector: [powered] }),
+    );
     expect(el.querySelector('[data-testid="product-hero-wheel"]')).toBeNull();
     expect(el.querySelector('[data-testid="product-hero-visual"]')).toBeNull();
   });

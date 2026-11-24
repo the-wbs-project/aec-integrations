@@ -978,7 +978,7 @@ The legal agent's two verdicts on ranking page 1.2 (2026-11-20, AECI-1894) were 
 | 2026-11-20 | Consent checkboxes never carry a tick across hydration, and stay disabled until the app is live. Typed text carries. | Orchestrator, after the security review, #1432 | `TESTING_STRATEGY.md` §14.3 |
 | 2026-11-16 to 2026-11-22 | `main` is merged into the hold branch by a fast-forward push, never a squash. | Orchestrator | Syncs 1 to 13 |
 | 2026-11-23 to 2026-11-24 | The wheel's cut-offs fit the rendered width; one tile size per product; the ring count per slide; a one-ring slide on the outer circle; the second ring after 20 products; names under tiles on slides of 8 or fewer; a dots slide counts products in the title and integrations in the centre. Chris said "your call" and "do what's needed". | Orchestrator, AECI-2018 | `DESIGN.md` §5 "The hero diagram", mock-up 9w notes |
-| 2026-11-24 | The server lays the wheel's first slide out at five stage widths and picks one by container query, so 1024 and 375 also render their exact layout before hydration. | Builder, AECI-2018 | `DESIGN.md` §5 "The hero diagram" |
+| 2026-11-24 | The server lays the wheel's first slide out at eight stage widths and picks one by container query, and the browser keeps that layout, so nothing shifts at hydration (after the independent review). | Builder, AECI-2018 | `DESIGN.md` §5 "The hero diagram" |
 
 ## 12. Proposed workstreams and issues
 

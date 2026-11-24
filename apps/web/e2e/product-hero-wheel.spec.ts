@@ -191,6 +191,11 @@ test.describe('product hero integrations wheel (AECI-2018)', () => {
     await expect(page.getByTestId('product-hero-wheel-card')).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('product-hero-wheel-card')).toHaveCount(0);
+    // WCAG 1.4.13: a press outside the card and its tile closes it too.
+    await tiles(page).nth(2).hover();
+    await expect(page.getByTestId('product-hero-wheel-card')).toBeVisible();
+    await page.locator('h1').click();
+    await expect(page.getByTestId('product-hero-wheel-card')).toHaveCount(0);
   });
 
   test('the two lines under a tile slide, the one dots line under a dots slide', async ({
@@ -319,12 +324,24 @@ test.describe('product hero integrations wheel (AECI-2018)', () => {
     await ctx.close();
   });
 
-  test('with no integrations there is no wheel and no panel', async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(`/products/${ZERO}`);
-    await expect(wheel(page)).toHaveCount(0);
-    await expect(page.locator('.aec-hero-panel')).toBeHidden();
-  });
+  // Ranking page 1.2: "A product with no integration of its own has no wheel." A product
+  // with none at all, and a pure connector (`fixture-connector-hub` powers 39 pairs between
+  // other products and is an endpoint of none), get no wheel and no hero panel: the text
+  // column is the whole hero, with nothing beside it and no sideways scroll.
+  for (const width of [1440, 375]) {
+    test(`no integration of its own: no wheel and no panel at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      for (const slug of [ZERO, 'fixture-connector-hub']) {
+        await page.goto(`/products/${slug}`);
+        await expect(wheel(page), slug).toHaveCount(0);
+        await expect(page.locator('.aec-hero-panel'), slug).toBeHidden();
+        const grid = (await page.getByTestId('hero-band-grid').boundingBox())!;
+        const text = (await page.getByTestId('hero-band-text').boundingBox())!;
+        expect(Math.abs(text.width - grid.width), slug).toBeLessThan(2);
+        await expectNoSidewaysScroll(page);
+      }
+    });
+  }
 
   test('one entrance, and none under reduced motion', async ({ browser }) => {
     for (const reducedMotion of ['no-preference', 'reduce'] as const) {

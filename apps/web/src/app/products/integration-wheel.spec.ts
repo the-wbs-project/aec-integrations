@@ -17,8 +17,10 @@ import {
   layoutSlide,
   wheelLayout,
   wheelModel,
-  wheelModeAt,
+  oneRingMax,
+  wheelMode,
   wheelBandFor,
+  wheelCapacity,
   wheelTileSize,
   type WheelSlide,
 } from './integration-wheel';
@@ -26,7 +28,7 @@ import {
 /** The "All" slide's mode for n products, with the product's own tile size. */
 const modeOfAll = (n: number, d: number) => {
   const tile = wheelTileSize([n], d);
-  return tile === null ? 'dots' : wheelModeAt(n, d, tile);
+  return tile === null ? 'dots' : wheelMode(n, d);
 };
 
 /** The largest n that takes each mode, and the first n that is dots. */
@@ -46,7 +48,7 @@ function cutOffs(d: number) {
 describe('the wheel cut-offs (the "All" slide)', () => {
   it.each([
     [476, { one: 20, two: 69, dotsFrom: 70 }],
-    [336, { one: 20, two: 43, dotsFrom: 44 }],
+    [336, { one: 18, two: 43, dotsFrom: 44 }],
     [294, { one: 25, two: 0, dotsFrom: 26 }],
     [279, { one: 23, two: 0, dotsFrom: 24 }],
     [224, { one: 18, two: 0, dotsFrom: 19 }],
@@ -67,9 +69,9 @@ describe('the wheel cut-offs (the "All" slide)', () => {
     expect(wheelTileSize([20], 476)).toBe(48);
     expect(wheelTileSize([21], 476)).toBe(40);
     expect(wheelTileSize([69], 476)).toBe(TILE_MIN_DESKTOP);
-    // The known step at 1024: 37px at 20 on one ring, 40px at 21 on two.
-    expect(wheelTileSize([20], 336)).toBe(37);
-    expect(wheelTileSize([21], 336)).toBe(40);
+    // At 1024 one ring holds 18 at 40px or more; from 19 two rings at up to 40px.
+    expect(wheelTileSize([18], 336)).toBe(41);
+    expect(wheelTileSize([19], 336)).toBe(40);
     // Phones: one ring, up to 40px, never under 24px.
     expect(wheelTileSize([6], 294)).toBe(40);
     expect(wheelTileSize([25], 294)).toBe(TILE_MIN_PHONE);
@@ -280,5 +282,73 @@ describe('the bands', () => {
     expect(WHEEL_BANDS).toContain(320);
     expect(isPhoneStage(319)).toBe(true);
     expect(isPhoneStage(320)).toBe(false);
+  });
+});
+
+describe('ring count and tiles or dots depend only on the slide and the width', () => {
+  const BANDS_AND_WIDTHS = [...WHEEL_BANDS, 640];
+  it.each(BANDS_AND_WIDTHS)('at a %ipx stage, whatever the product\u2019s other slides', (d) => {
+    for (let n = 1; n <= 120; n++) {
+      const results = new Set<string>();
+      for (let largest = n; largest <= 400; largest++) {
+        // A product whose slides are n and `largest`.
+        const tile = wheelTileSize([n, largest], d);
+        const slide: WheelSlide = {
+          key: 'x',
+          name: 'x',
+          products: Array.from({ length: n }, (_, i) => ({
+            id: `p${i}`,
+            slug: `p${i}`,
+            name: `p${i}`,
+            vendorName: null,
+            logoUrl: null,
+            claimStatus: null,
+            categorySlugs: [],
+            integrations: 1,
+          })),
+          integrations: n,
+        };
+        const layout = wheelLayout(slide, d, tile);
+        results.add(layout.mode);
+        // And the tiles fit the ring count at the product's tile size.
+        if (layout.mode !== 'dots') {
+          const c = wheelCapacity(d, tile!);
+          expect(n, `${n} of ${largest} at ${d}px`).toBeLessThanOrEqual(
+            layout.mode === 'one' ? c.one : c.two,
+          );
+        }
+      }
+      expect([...results], `${n} products at ${d}px`).toEqual([wheelMode(n, d)]);
+    }
+  });
+
+  it('the one-ring limit per band', () => {
+    expect(WHEEL_BANDS.filter((d) => !isPhoneStage(d)).map((d) => [d, oneRingMax(d)])).toEqual([
+      [320, 17],
+      [336, 18],
+      [400, 20],
+      [476, 20],
+    ]);
+  });
+});
+
+describe('which integrations the wheel shows (ranking page 1.2)', () => {
+  it('rows where this product is the source or the target, and the other product is the tile', () => {
+    const asTarget = { ...row('delta', []), source: link('delta', 'delta'), target: page };
+    const model = wheelModel([row('alpha', [])], [asTarget], []);
+    expect(model.slides[0]!.products.map((p) => p.slug)).toEqual(['alpha', 'delta']);
+  });
+
+  it('through a connector the tile is the other product; the connector is a tile only with its own direct row', () => {
+    const viaKroo = {
+      ...row('gamma', []),
+      via: link('kroo', 'kroo'),
+      mechanism_kind: null,
+    } as ProductIntegrationItem;
+    expect(wheelModel([viaKroo], [], []).slides[0]!.products.map((p) => p.slug)).toEqual(['gamma']);
+    // A direct integration with the connector itself makes it a partner like any other.
+    const withKroo = wheelModel([viaKroo, row('kroo', [])], [], []);
+    expect(withKroo.slides[0]!.products.map((p) => p.slug)).toEqual(['gamma', 'kroo']);
+    expect(withKroo.slides[0]!.integrations).toBe(2);
   });
 });
