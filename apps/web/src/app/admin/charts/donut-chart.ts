@@ -44,7 +44,7 @@ const INNER_RADIUS = 44;
   template: `
     <figure class="m-0">
       @if (segments().length === 0) {
-        <p class="py-8 text-center text-sm text-(--text-secondary)">{{ emptyLabel() }}</p>
+        <p class="py-8 text-center text-t-14 text-(--text-secondary)">{{ emptyLabel() }}</p>
       } @else {
         <div class="flex flex-wrap items-center gap-6">
           <svg

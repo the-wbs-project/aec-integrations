@@ -53,7 +53,7 @@ import { slotClass, type ChartCategory } from './chart-types';
   imports: [RouterLink],
   template: `
     @if (rows().length === 0) {
-      <p class="py-8 text-center text-sm text-(--text-secondary)">{{ emptyLabel() }}</p>
+      <p class="py-8 text-center text-t-14 text-(--text-secondary)">{{ emptyLabel() }}</p>
     } @else {
       <table class="w-full border-collapse">
         <caption class="sr-only">
@@ -72,14 +72,14 @@ import { slotClass, type ChartCategory } from './chart-types';
             <tr>
               <th
                 scope="row"
-                class="relative w-full py-1.5 pe-3 text-start align-middle text-sm font-normal
+                class="relative w-full max-w-0 py-2 pe-3 text-start align-middle text-t-14 font-normal
                   text-(--text-primary)"
               >
                 <!-- The mark. A wash rather than a solid fill so the label sits
                      on it at full contrast; aria-hidden because the row's own
                      cells already carry the number. -->
                 <span
-                  class="absolute inset-y-0.5 left-0 rounded-r-[4px] {{ row.swatch }}"
+                  class="absolute inset-y-1 start-0 rounded-mark {{ row.swatch }}"
                   [style.width.%]="row.width"
                   [style.opacity]="0.18"
                   aria-hidden="true"
@@ -97,12 +97,12 @@ import { slotClass, type ChartCategory } from './chart-types';
                 </span>
               </th>
               <td
-                class="py-1.5 text-end align-middle text-sm font-semibold whitespace-nowrap
+                class="py-2 text-end align-middle text-t-14 font-semibold whitespace-nowrap
                   tabular-nums text-(--text-primary)"
               >
                 {{ row.value }}
                 @if (row.percent) {
-                  <span class="ms-1.5 font-normal text-(--text-secondary)">{{ row.percent }}</span>
+                  <span class="ms-2 font-normal text-(--text-secondary)">{{ row.percent }}</span>
                 }
               </td>
             </tr>

@@ -3,6 +3,8 @@ import { Component, computed, input } from '@angular/core';
 
 import type { VendorRequestSummary } from '@aeci/shared';
 
+import { Chip, type ChipTone } from '../../shared/chip/chip';
+
 type RequestStatus = VendorRequestSummary['status'];
 
 /**
@@ -12,12 +14,12 @@ type RequestStatus = VendorRequestSummary['status'];
  * in the payload (a correction may be filed by a member of the public), so this
  * shows only kind + target + status + timestamps.
  *
- * Status is conveyed by a bordered pill AND its text label — never colour alone
+ * Status is conveyed by the shared chip AND its text label — never colour alone
  * (WCAG 1.4.1). Light theme only.
  */
 @Component({
   selector: 'aec-vendor-request-status',
-  imports: [DatePipe],
+  imports: [Chip, DatePipe],
   template: `
     @if (ordered().length === 0) {
       <p class="text-sm leading-relaxed text-(--text-secondary)" i18n="@@vendor.requests.empty">
@@ -25,14 +27,14 @@ type RequestStatus = VendorRequestSummary['status'];
         shows here.
       </p>
     } @else {
-      <ul class="flex flex-col gap-3">
+      <!-- AECI-1812: rows divided by hairlines inside the Messages card, the state on
+           the shared chip. -->
+      <ul class="divide-y divide-(--border-default) border-t border-(--border-default)">
         @for (r of ordered(); track r.id) {
-          <li
-            class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-4 py-3"
-          >
+          <li class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-4 last:pb-0">
             <div class="min-w-0">
-              <p class="font-label text-sm text-(--text-primary)">{{ targetLabel(r) }}</p>
-              <p class="mt-0.5 text-xs text-(--text-secondary)">
+              <p class="text-sm font-semibold text-(--text-primary)">{{ targetLabel(r) }}</p>
+              <p class="mt-1 text-t-13 text-(--text-secondary)">
                 <span i18n="@@vendor.requests.filed">Filed</span>
                 {{ r.created_at | date: 'mediumDate' }}
                 @if (r.resolved_at) {
@@ -42,11 +44,9 @@ type RequestStatus = VendorRequestSummary['status'];
                 }
               </p>
             </div>
-            <span
-              class="inline-flex shrink-0 items-center rounded-(--radius-sm) border px-2 py-0.5 text-xs font-semibold tracking-[0.01em]"
-              [class]="toneClass(r.status)"
-              >{{ statusLabel(r.status) }}</span
-            >
+            <aec-chip class="shrink-0" density="dense" [tone]="tone(r.status)">{{
+              statusLabel(r.status)
+            }}</aec-chip>
           </li>
         }
       </ul>
@@ -92,16 +92,19 @@ export class VendorRequestStatus {
     }
   }
 
-  protected toneClass(status: RequestStatus): string {
+  /** The state's chip tone, the old pill colours on the shared ladder: Forest for
+   *  resolved, the strong edge for in review, quiet for not accepted, and the dense
+   *  chip's sunken rest for open. */
+  protected tone(status: RequestStatus): ChipTone | null {
     switch (status) {
       case 'resolved':
-        return 'border-(--accent-primary) bg-(--surface-raised) text-(--accent-primary)';
+        return 'forest';
       case 'in_review':
-        return 'border-(--border-strong) bg-(--surface-raised) text-(--text-primary)';
+        return 'strong';
       case 'rejected':
-        return 'border-(--border-strong) bg-(--surface-raised) text-(--text-secondary)';
-      default:
-        return 'border-(--border-default) bg-(--surface-sunken) text-(--text-secondary)';
+        return 'quiet';
+      case 'open':
+        return null;
     }
   }
 }

@@ -4,96 +4,105 @@
   Order is deliberate: controls, then the headline numbers, then the shape over
   time, then the breakdowns, then the caveats. A reader who stops after the tiles
   has still read something true.
+
+  AECI-2125, mock-up 14: the console's segmented filters and flat bordered panels.
 -->
-<section>
-  <header class="mb-6">
-    <h2 class="text-xl font-bold text-(--text-primary)" i18n="@@admin.traffic.heading">Traffic</h2>
-    <p class="mt-1 text-sm text-(--text-secondary)" i18n="@@admin.traffic.subheading">
-      Page views, visitors, sources and crawlers over a UTC window.
-    </p>
-  </header>
+<section aria-labelledby="admin-traffic-heading">
+  <h2 id="admin-traffic-heading" class="text-(--text-primary)" i18n="@@admin.traffic.heading">
+    Traffic
+  </h2>
+  <p [class]="captionClass" class="mt-2" i18n="@@admin.traffic.subheading">
+    Page views, visitors, sources and crawlers over a UTC window.
+  </p>
 
   <!-- ── Controls. One row above the charts. ─────────────────────────────── -->
-  <div
-    class="mb-6 flex flex-wrap items-center gap-x-6 gap-y-3 border-b border-(--border-default) pb-5"
-  >
-    <fieldset class="flex items-center gap-2">
-      <legend class="sr-only" i18n="@@admin.traffic.filter.range.legend">Date range</legend>
-      @for (days of rangeOptions; track days) {
-      <button
-        type="button"
-        (click)="setRange(days)"
-        [attr.aria-pressed]="rangeDays() === days"
-        class="rounded-(--radius-md) border px-2.5 py-1 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-        [class]="
-            rangeDays() === days
-              ? 'border-(--accent-primary) bg-(--accent-primary-soft) text-(--text-primary)'
-              : 'border-(--border-default) text-(--text-secondary) hover:text-(--text-primary)'
-          "
+  <div [class]="f.toolbar" class="border-b border-(--border-default) pb-6">
+    <div [class]="f.group">
+      <span
+        id="admin-traffic-range-label"
+        [class]="f.label"
+        i18n="@@admin.traffic.filter.range.legend"
+        >Date range</span
       >
-        <span i18n="@@admin.traffic.filter.range.option">{{ days }} days</span>
-      </button>
-      }
-    </fieldset>
+      <div role="group" aria-labelledby="admin-traffic-range-label" [class]="f.seg">
+        @for (days of rangeOptions; track days) {
+        <button
+          type="button"
+          (click)="setRange(days)"
+          [attr.aria-pressed]="rangeDays() === days"
+          [class]="f.option"
+        >
+          @if (rangeDays() === days) {
+          <aec-icon name="check" decorative [size]="4" />
+          }
+          <span i18n="@@admin.traffic.filter.range.option">{{ days }} days</span>
+        </button>
+        }
+      </div>
+    </div>
 
-    <fieldset class="flex items-center gap-2">
-      <legend class="sr-only" i18n="@@admin.traffic.filter.population.legend">Traffic type</legend>
-      @for (option of populationOptions; track option.key) {
-      <button
-        type="button"
-        (click)="setPopulation(option.key)"
-        [attr.aria-pressed]="population() === option.key"
-        class="rounded-(--radius-md) border px-2.5 py-1 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-        [class]="
-            population() === option.key
-              ? 'border-(--accent-primary) bg-(--accent-primary-soft) text-(--text-primary)'
-              : 'border-(--border-default) text-(--text-secondary) hover:text-(--text-primary)'
-          "
+    <div [class]="f.group">
+      <span
+        id="admin-traffic-population-label"
+        [class]="f.label"
+        i18n="@@admin.traffic.filter.population.legend"
+        >Traffic type</span
       >
-        {{ option.label }}
-      </button>
-      }
-    </fieldset>
+      <div role="group" aria-labelledby="admin-traffic-population-label" [class]="f.seg">
+        @for (option of populationOptions; track option.key) {
+        <button
+          type="button"
+          (click)="setPopulation(option.key)"
+          [attr.aria-pressed]="population() === option.key"
+          [class]="f.option"
+        >
+          @if (population() === option.key) {
+          <aec-icon name="check" decorative [size]="4" />
+          } {{ option.label }}
+        </button>
+        }
+      </div>
+    </div>
 
     <!--
       §9.5 — presentational only. This control re-labels instants; it never
       touches a query parameter and never triggers a fetch. The day buckets are
       UTC and stay UTC.
     -->
-    <fieldset class="flex items-center gap-2">
-      <legend class="sr-only" i18n="@@admin.traffic.filter.zone.legend">
+    <div [class]="f.group">
+      <span
+        id="admin-traffic-zone-label"
+        [class]="f.label"
+        i18n="@@admin.traffic.filter.zone.legend"
+      >
         Timestamp display timezone
-      </legend>
-      <button
-        type="button"
-        (click)="setZone('UTC')"
-        [attr.aria-pressed]="zone() === 'UTC'"
-        class="rounded-(--radius-md) border px-2.5 py-1 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-        [class]="
-          zone() === 'UTC'
-            ? 'border-(--accent-primary) bg-(--accent-primary-soft) text-(--text-primary)'
-            : 'border-(--border-default) text-(--text-secondary) hover:text-(--text-primary)'
-        "
-      >
-        UTC
-      </button>
-      <button
-        type="button"
-        (click)="setZone('WIB')"
-        [attr.aria-pressed]="zone() === 'WIB'"
-        class="rounded-(--radius-md) border px-2.5 py-1 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-        [class]="
-          zone() === 'WIB'
-            ? 'border-(--accent-primary) bg-(--accent-primary-soft) text-(--text-primary)'
-            : 'border-(--border-default) text-(--text-secondary) hover:text-(--text-primary)'
-        "
-      >
-        WIB
-      </button>
-    </fieldset>
+      </span>
+      <div role="group" aria-labelledby="admin-traffic-zone-label" [class]="f.seg">
+        <button
+          type="button"
+          (click)="setZone('UTC')"
+          [attr.aria-pressed]="zone() === 'UTC'"
+          [class]="f.option"
+        >
+          @if (zone() === 'UTC') {
+          <aec-icon name="check" decorative [size]="4" />
+          } UTC
+        </button>
+        <button
+          type="button"
+          (click)="setZone('WIB')"
+          [attr.aria-pressed]="zone() === 'WIB'"
+          [class]="f.option"
+        >
+          @if (zone() === 'WIB') {
+          <aec-icon name="check" decorative [size]="4" />
+          } WIB
+        </button>
+      </div>
+    </div>
 
     @if (internalFilterAvailable()) {
-    <label class="flex items-center gap-2 text-xs text-(--text-secondary)">
+    <label class="flex min-h-11 items-center gap-2 text-t-14 text-(--text-primary)">
       <input
         type="checkbox"
         [checked]="excludeInternal()"
@@ -106,17 +115,15 @@
   </div>
 
   @if (loadFailed()) {
-  <div
-    class="rounded-(--radius-lg) border border-(--status-error) bg-(--surface-raised) p-6"
-    role="alert"
-  >
-    <p class="text-sm text-(--text-primary)" i18n="@@admin.traffic.error.body">
+  <div [class]="panelClass" class="mt-6" role="alert">
+    <p class="text-t-16 font-semibold text-(--text-primary)" i18n="@@admin.traffic.error.body">
       Traffic data could not be loaded.
     </p>
     <button
-      type="button"
+      aecButton
+      variant="secondary"
+      class="mt-4"
       (click)="retry()"
-      class="mt-3 rounded-(--radius-md) bg-(--accent-primary) px-3 py-1.5 text-sm font-bold text-(--surface-base) hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       i18n="@@admin.traffic.error.retry"
     >
       Try again
@@ -124,12 +131,12 @@
   </div>
   } @else if (loading()) {
   <!-- The SSR-neutral first paint. No visitor state, no data, no date. -->
-  <p class="py-16 text-center text-sm text-(--text-secondary)" i18n="@@admin.traffic.loading">
+  <p class="mt-6 text-t-16 text-(--text-secondary)" i18n="@@admin.traffic.loading">
     Loading traffic data…
   </p>
   } @else {
   <!-- ── Window statement. Always labelled with its zone (§9.5). ───────── -->
-  <p class="mb-5 text-xs text-(--text-secondary)">
+  <p class="mt-6 text-t-13 text-(--text-secondary)">
     <span i18n="@@admin.traffic.window.label">Window</span>
     <span class="ms-1 font-semibold tabular-nums text-(--text-primary)">{{ windowLabel() }}</span>
     <span class="mx-2" aria-hidden="true">·</span>
@@ -141,7 +148,7 @@
   </p>
 
   <!-- ── KPI row. Stat tiles, not one-bar bar charts. ──────────────────── -->
-  <div class="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+  <div class="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
     <aec-stat-tile
       [label]="humanTileLabel"
       [value]="humanTotal()"
@@ -178,54 +185,59 @@
   </div>
 
   <!-- ── Views per day, human vs bot. The page's primary chart. ────────── -->
-  <section
-    class="mb-8 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5"
-  >
-    <h3 class="mb-4 text-base font-bold text-(--text-primary)" i18n="@@admin.traffic.chart.views">
+  <section [class]="panelClass" class="mt-6" aria-labelledby="admin-traffic-views-heading">
+    <h3
+      id="admin-traffic-views-heading"
+      class="text-(--text-primary)"
+      i18n="@@admin.traffic.chart.views"
+    >
       Page views per day
     </h3>
-    <aec-stacked-series-chart
-      [series]="trafficSeries()"
-      [categories]="dayLabels()"
-      [categoryHeader]="dayHeader"
-      [ariaLabel]="viewsChartLabel"
-      [emptyLabel]="emptyLabel"
-      [area]="rangeDays() > 30"
-    />
+    <div class="mt-4">
+      <aec-stacked-series-chart
+        [series]="trafficSeries()"
+        [categories]="dayLabels()"
+        [categoryHeader]="dayHeader"
+        [ariaLabel]="viewsChartLabel"
+        [emptyLabel]="emptyLabel"
+        [area]="rangeDays() > 30"
+      />
+    </div>
   </section>
 
   <!-- ── Unique visitors per day. Single series, no legend. ────────────── -->
-  <section
-    class="mb-8 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5"
-  >
+  <section [class]="panelClass" class="mt-6" aria-labelledby="admin-traffic-visitors-heading">
     <h3
-      class="mb-1 text-base font-bold text-(--text-primary)"
+      id="admin-traffic-visitors-heading"
+      class="text-(--text-primary)"
       i18n="@@admin.traffic.chart.visitors"
     >
       Unique visitors per day
     </h3>
-    <p class="mb-4 text-xs text-(--text-secondary)">{{ visitorCaveat }}</p>
-    <aec-line-chart
-      [series]="visitorChartSeries()"
-      [categories]="dayLabels()"
-      [categoryHeader]="dayHeader"
-      [ariaLabel]="visitorsChartLabel"
-      [emptyLabel]="emptyLabel"
-    />
+    <p [class]="noteClass" class="mt-2">{{ visitorCaveat }}</p>
+    <div class="mt-4">
+      <aec-line-chart
+        [series]="visitorChartSeries()"
+        [categories]="dayLabels()"
+        [categoryHeader]="dayHeader"
+        [ariaLabel]="visitorsChartLabel"
+        [emptyLabel]="emptyLabel"
+      />
+    </div>
   </section>
 
   <!-- ── Breakdowns. Windowed, not over time — see the class comment. ──── -->
-  <div class="mb-8 grid gap-5 lg:grid-cols-2">
-    <section
-      class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5"
-    >
+  <div class="mt-6 grid gap-6 lg:grid-cols-2">
+    <section [class]="panelClass" aria-labelledby="admin-traffic-sources-heading">
       <h3
-        class="mb-3 text-base font-bold text-(--text-primary)"
+        id="admin-traffic-sources-heading"
+        class="text-(--text-primary)"
         i18n="@@admin.traffic.chart.sources"
       >
         Top sources
       </h3>
       <aec-horizontal-bar-chart
+        class="mt-4"
         [data]="sourceRows()"
         [categoryHeader]="sourceHeader"
         [valueHeader]="viewsHeader"
@@ -235,13 +247,16 @@
       />
     </section>
 
-    <section
-      class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5"
-    >
-      <h3 class="mb-3 text-base font-bold text-(--text-primary)" i18n="@@admin.traffic.chart.pages">
+    <section [class]="panelClass" aria-labelledby="admin-traffic-pages-heading">
+      <h3
+        id="admin-traffic-pages-heading"
+        class="text-(--text-primary)"
+        i18n="@@admin.traffic.chart.pages"
+      >
         Top pages
       </h3>
       <aec-horizontal-bar-chart
+        class="mt-4"
         [data]="pageRows()"
         [categoryHeader]="pageHeader"
         [valueHeader]="viewsHeader"
@@ -251,16 +266,16 @@
       />
     </section>
 
-    <section
-      class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5"
-    >
+    <section [class]="panelClass" aria-labelledby="admin-traffic-products-heading">
       <h3
-        class="mb-3 text-base font-bold text-(--text-primary)"
+        id="admin-traffic-products-heading"
+        class="text-(--text-primary)"
         i18n="@@admin.traffic.chart.products"
       >
         Top products
       </h3>
       <aec-horizontal-bar-chart
+        class="mt-4"
         [data]="productRows()"
         [categoryHeader]="productHeader"
         [valueHeader]="viewsHeader"
@@ -270,16 +285,16 @@
       />
     </section>
 
-    <section
-      class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5"
-    >
+    <section [class]="panelClass" aria-labelledby="admin-traffic-countries-heading">
       <h3
-        class="mb-3 text-base font-bold text-(--text-primary)"
+        id="admin-traffic-countries-heading"
+        class="text-(--text-primary)"
         i18n="@@admin.traffic.chart.countries"
       >
         Geography
       </h3>
       <aec-horizontal-bar-chart
+        class="mt-4"
         [data]="countryRows()"
         [categoryHeader]="countryHeader"
         [valueHeader]="viewsHeader"
@@ -296,16 +311,16 @@
         says what kind of place it is. A row with real views and "not a browsing
         network" is traffic the human/bot split is calling human on thin evidence.
       -->
-    <section
-      class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5"
-    >
+    <section [class]="panelClass" aria-labelledby="admin-traffic-networks-heading">
       <h3
-        class="mb-3 text-base font-bold text-(--text-primary)"
+        id="admin-traffic-networks-heading"
+        class="text-(--text-primary)"
         i18n="@@admin.traffic.chart.networks"
       >
         Networks
       </h3>
       <aec-horizontal-bar-chart
+        class="mt-4"
         [data]="networkRows()"
         [categoryHeader]="networkHeader"
         [valueHeader]="viewsHeader"
@@ -322,18 +337,22 @@
         page-level one.
       -->
     <section
-      class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5 lg:col-span-2"
+      [class]="panelClass"
+      class="lg:col-span-2"
+      aria-labelledby="admin-traffic-crawlers-heading"
     >
       <h3
-        class="mb-1 text-base font-bold text-(--text-primary)"
+        id="admin-traffic-crawlers-heading"
+        class="text-(--text-primary)"
         i18n="@@admin.traffic.chart.crawlers"
       >
         Crawler activity
       </h3>
-      <p class="mb-3 text-xs text-(--text-secondary)" i18n="@@admin.traffic.chart.crawlersNote">
+      <p [class]="noteClass" class="mt-2" i18n="@@admin.traffic.chart.crawlersNote">
         Bot traffic only, regardless of the traffic-type filter above.
       </p>
       <aec-horizontal-bar-chart
+        class="mt-4"
         [data]="crawlerRows()"
         [categoryHeader]="crawlerHeader"
         [valueHeader]="viewsHeader"
@@ -347,15 +366,15 @@
 
   <!-- ── The honesty envelope, last: caveats about what you just read. ─── -->
   @if (notes().length > 0) {
-  <section aria-labelledby="traffic-notes-heading">
+  <section class="mt-8" aria-labelledby="traffic-notes-heading">
     <h3
       id="traffic-notes-heading"
-      class="mb-2 text-sm font-bold text-(--text-primary)"
+      class="text-(--text-primary)"
       i18n="@@admin.traffic.notes.heading"
     >
       About these numbers
     </h3>
-    <aec-admin-notes [notes]="notes()" />
+    <aec-admin-notes class="mt-4 block" [notes]="notes()" />
   </section>
   } }
 </section>

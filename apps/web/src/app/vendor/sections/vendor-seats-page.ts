@@ -25,16 +25,16 @@ import { VendorPortalStore } from '../vendor-portal-store';
   template: `
     @if (me(); as m) {
       <div>
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <h2 class="font-display text-xl font-semibold text-(--text-primary)">
+        <div class="flex flex-wrap items-center justify-between gap-4">
+          <h2>
             <span i18n="@@vendor.section.seats">Seats</span>
-            <span class="text-(--text-secondary)">({{ m.seat_count }})</span>
+            <span class="ms-2 text-(--text-secondary)">({{ m.seat_count }})</span>
           </h2>
           <!-- Owner-only; renders nothing for a member seat. -->
           <aec-vendor-seat-invite-dialog />
         </div>
-        <p class="mt-1"><aec-vendor-docs-link page="your-seat" /></p>
-        <div class="mt-3">
+        <p class="mt-2"><aec-vendor-docs-link page="your-seat" /></p>
+        <div class="mt-4">
           <aec-vendor-seat-roster [seatCount]="m.seat_count" />
         </div>
       </div>
