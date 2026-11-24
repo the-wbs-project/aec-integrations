@@ -1410,7 +1410,9 @@ this doc's business.
 **What a row is.** A seated vendor on one end of an integration says one field is wrong.
 The row carries the value on record, the proposed value and the vendor's reason.
 
-- **`/admin/contests`** — one list, newest first. Each card shows the pair (linked to the
+- **`/admin/contests`** — one list, newest first. Since AECI-2102 it is a console table: the row
+  shows the pair, the field, "Filed by", the submitted date and the status, and the rest sits in
+  its expanded detail. Each record shows the pair (linked to the
   public pair page), the integration name, the field, the value on record and the proposal,
   the reason, the vendor that filed it ("Filed by"), the owner snapshot ("Offered by"), and
   the submitted date. A decided row adds the decision date and note. An accepted AECi row
@@ -1552,7 +1554,9 @@ doc's business.
 review of it. Nothing shows on the product page until an admin approves it.
 
 - **`/admin/review-responses`**, nav label "Review replies". One list, oldest first, so the
-  longest wait is on top. Each card shows the product (linked to its public page), the review
+  longest wait is on top. Since AECI-2102 it is a console table: the row shows the product, the
+  vendor, the author, the last change and the status, and the rest sits in its expanded detail.
+  Each record shows the product (linked to its public page), the review
   in full with its ratings and status, the reply, the vendor, the author seat's email, and the
   date it entered the queue. A decided row adds the decision date and reason.
 - **One filter.** Status tabs: Pending (the default), Published, Rejected, Withdrawn, Removed.
@@ -1572,7 +1576,7 @@ Three IA notes, in §5.10's voice:
   construction, and it joins the Operations SUM and the header badge. The wire field is optional
   on the type for deploy skew, and `seed()` leaves an absent key alone, as with
   `pending_contests`. `GET /api/admin/summary` and `GET /api/account` carry it.
-- **No detail route.** A card already carries everything a decision needs.
+- **No detail route.** A row's expanded detail already carries everything a decision needs.
 
 **This section is not read-only, and it is the tenth §2 exception.** The write is
 `PATCH /api/admin/review-responses/:id`. It is a **moderation** write on vendor-authored
@@ -2170,11 +2174,12 @@ business. Ruled 2026-11-06 by Chris: updates get their own page and their own ba
 **What a row is.** The author of an approved review has added an update to it. Nothing shows on
 the product page until an admin approves it.
 
-- **`/admin/review-updates`.** One list, oldest first, so the longest wait is on top. Each card
-  stacks two sections: "The original review", in full with its ratings and status, and "The
-  update", with its body, its new ratings when it carries them, the toxicity badge and the date it
-  entered the queue. The card also shows the product, linked to its public page, and the
-  reviewer's email. A decided row adds the decision date and reason.
+- **`/admin/review-updates`.** One list, oldest first, so the longest wait is on top. Since
+  AECI-2102 it is a console table (`DESIGN.md` "Operator console"): each row shows the product,
+  linked to its public page, the reviewer's email, the toxicity score, the date it entered the
+  queue and the status. The row's expanded detail stacks two sections: "The original review", in
+  full with its ratings and status, and "The update", with its body and its new ratings when it
+  carries them. A decided row adds the decision date and reason, and the decision sits beside them.
 - **One filter.** Status tabs: Pending (the default), Approved, Rejected, Removed. They map
   one-to-one onto `ListAdminReviewUpdatesQuerySchema`.
 - **The original is context, not a target.** Nothing on this screen changes the review.
@@ -2188,7 +2193,7 @@ Three IA notes:
   a different table, so it is disjoint from the other six by construction, and it joins the
   Operations SUM and the header badge (§5.0c). The wire field is optional for deploy skew, and
   `seed()` leaves an absent key alone. `GET /api/admin/summary` and `GET /api/account` carry it.
-- **No detail route.** A card carries everything a decision needs.
+- **No detail route.** A row's expanded detail carries everything a decision needs.
 
 **This section is not read-only, and it is the twenty-seventh §2 exception.** The write is
 `PATCH /api/admin/review-updates/:id`, a **moderation** write on reviewer-authored content.
@@ -2238,9 +2243,12 @@ and the duplicate index ignores it.
 - **Status tabs.** Pending (the default), Approved, Rejected, Removed. They map one-to-one onto
   `ListPendingReviewsQuerySchema.status`. The pattern is §5.20's, by the Same-Behavior Rule. The
   sort control (toxicity, queue age, product, reviewer) works the same on every tab.
-- **A card per review.** As before, plus a status chip on every tab but Pending. A decided card
-  shows its decision date. A rejected card shows the rejection reason. A removed card shows the
-  removal date and reason.
+- **A table row per review (AECI-2102, ruled 2026-11-24).** Columns: product, reviewer, overall,
+  onboarding, toxicity, submitted, in queue (or decided, on the decided tabs) and a status chip.
+  The review text, its facts and the decision sit in the row's expanded detail. A decided row
+  shows its decision date. A rejected row shows the rejection reason. A removed row shows the
+  removal date and reason. Previous and Next page the loaded set 25 rows at a time, because the
+  sorts run in the browser over what is loaded. The capped-set note is unchanged.
 - **The buttons come from the state machine.** `REVIEW_DECISIONS` and `reviewDecisionsFor()` in
   `@aeci/shared`: Approve and Reject on a pending review, Remove on an approved one, nothing on a
   rejected or removed one. The API enforces the same table, so the screen and the API cannot

@@ -137,26 +137,32 @@ export function productNavItemsFor(
 }
 
 /**
- * Rest-state classes for one tab in either row.
+ * Rest-state classes for one tab in either row (AECI-1809, mock-up 13, ruled
+ * 2026-11-24: "Forest underline, weight 600. Labels at 16px").
  *
- * `-mb-px` + `border-b-2` pulls the item's own bottom border over the row's
- * hairline, which is what turns "a link that is coloured differently" into a
- * tab. Same treatment as the `/search` entity tabs.
+ * A 48px-tall, 16px label in secondary ink at weight 400. The current tab is Forest at
+ * 600 with a 2px Forest underline drawn by the link's `::after`, which sits on the
+ * row's hairline. A drawn bar rather than a bottom border: it needs no `-mb-px` pull
+ * past the row (the cause of AECI-958's stray scrollbar) and no border-colour rule.
+ * The ring is drawn INSIDE the tab (`-outline-offset-2`), because the row clips
+ * anything outside it.
  *
- * The underline COLOUR is not a utility: `.aec-nav-tab` in `styles.css` owns it,
- * because the global `*` border-color rule is unlayered and therefore beats
- * `border-transparent` / `border-(--accent-primary)` outright. The class keys off
- * `aria-current`, which `ariaCurrentWhenActive` sets on the active link.
+ * `vendor-portal-nav.ts` puts the label in a grid beside an invisible weight-600 copy,
+ * so each tab reserves its current width and marking a tab current never moves its
+ * neighbours. The underline keys off `aria-current`, which `ariaCurrentWhenActive`
+ * sets on the active link.
  */
 export const VENDOR_NAV_ITEM_CLASS =
-  'aec-nav-tab -mb-px flex shrink-0 items-center gap-1 border-b-2 px-1 py-3 ' +
-  'text-sm font-medium text-(--text-secondary) no-underline transition-colors ' +
-  'hover:text-(--text-primary) focus-visible:rounded-(--radius-sm) focus-visible:outline-2 ' +
-  'focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  'relative inline-flex min-h-12 shrink-0 items-center rounded-mark px-3 text-t-16 ' +
+  'text-(--text-secondary) no-underline transition-colors duration-base ease-standard ' +
+  'hover:text-(--text-primary) after:pointer-events-none after:absolute after:inset-x-3 ' +
+  'after:bottom-0 after:h-[2px] after:bg-(--accent-primary) after:opacity-0 ' +
+  'aria-[current=page]:after:opacity-100 focus-visible:outline-2 ' +
+  'focus-visible:-outline-offset-2 focus-visible:outline-(--accent-primary)';
 
 /**
- * Active-state classes, applied by `routerLinkActive`.
+ * Active-state classes, applied by `routerLinkActive`: Forest at weight 600.
  *
- * Type only — the underline is `.aec-nav-tab[aria-current]`.
+ * Type only. The underline is the `aria-current` variant above.
  */
-export const VENDOR_NAV_ITEM_ACTIVE_CLASS = 'font-bold text-(--accent-primary)';
+export const VENDOR_NAV_ITEM_ACTIVE_CLASS = 'font-semibold text-(--accent-primary)';

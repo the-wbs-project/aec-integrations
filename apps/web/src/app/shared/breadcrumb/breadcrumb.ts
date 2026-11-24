@@ -33,8 +33,8 @@ export function homeCrumb(): BreadcrumbItem {
  * trail on one line with an ellipsis, for the docs top bar. The default wraps.
  *
  * It reads no visitor state, so it is safe in cached SSR HTML. The vendor portal
- * shell (AECI-1809) and the admin console (`admin/admin-breadcrumb.ts`, AECI-1813)
- * both use it, as ruled on 2026-11-24.
+ * shell (`vendor/vendor-dashboard-tabbed.ts`, AECI-1809) and the admin console
+ * (`admin/admin-breadcrumb.ts`, AECI-1813) render it too.
  */
 @Component({
   selector: 'aec-breadcrumb',

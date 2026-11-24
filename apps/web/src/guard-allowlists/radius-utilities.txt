@@ -18,7 +18,6 @@ admin/connectors/connector-detail.html 15
 admin/connectors/connector-list.html 4
 admin/connectors/managed-by-control.html 7
 admin/connectors/mapping-edit-control.html 3
-admin/contests/contest-queue.html 25
 admin/dmca/dmca-notices.html 26
 admin/email/email-activity.html 10
 admin/email/email-switches.html 9
@@ -32,9 +31,6 @@ admin/requests/license-release-queue.html 4
 admin/requests/license-release-queue.ts 2
 admin/requests/product-request-queue.ts 10
 admin/requests/request-queue.html 9
-admin/review-responses/review-response-queue.html 15
-admin/review-updates/review-update-queue.html 15
-admin/reviews/review-queue.html 27
 admin/subscribers/subscriber-list.html 5
 admin/threads/thread-detail.html 3
 admin/threads/thread-list.html 2
@@ -79,10 +75,8 @@ vendor/components/vendor-hidden-note.ts 1
 vendor/components/vendor-integration-create.ts 12
 vendor/components/vendor-integration-edit-form.ts 5
 vendor/components/vendor-integrations-section.ts 6
-vendor/components/vendor-legal-acceptance.ts 3
 vendor/components/vendor-license-actions.ts 6
 vendor/components/vendor-license-assign.ts 3
-vendor/components/vendor-listing-hidden-banner.ts 1
 vendor/components/vendor-locked-note.ts 1
 vendor/components/vendor-logo-field.ts 12
 vendor/components/vendor-looks-right.ts 1
@@ -91,11 +85,9 @@ vendor/components/vendor-notifications-list.ts 2
 vendor/components/vendor-nudge-mute-toggle.ts 2
 vendor/components/vendor-owned-integrations.ts 3
 vendor/components/vendor-owned-retire.ts 3
-vendor/components/vendor-plan-ended-banner.ts 2
 vendor/components/vendor-plan-panel.ts 2
 vendor/components/vendor-product-connectors.ts 3
 vendor/components/vendor-product-create.ts 7
-vendor/components/vendor-product-ended-banner.ts 2
 vendor/components/vendor-product-facet-editor.ts 7
 vendor/components/vendor-product-form.ts 7
 vendor/components/vendor-product-requests-list.ts 2
@@ -126,7 +118,3 @@ vendor/sections/vendor-product-overview-page.ts 3
 vendor/sections/vendor-products-page.ts 1
 vendor/sections/vendor-proposals-section.ts 2
 vendor/sections/vendor-threads-page.ts 4
-vendor/vendor-dashboard-tabbed.ts 1
-vendor/vendor-invite-page.ts 2
-vendor/vendor-nav.ts 1
-vendor/vendor-suspended-notice.ts 2
