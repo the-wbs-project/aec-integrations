@@ -28,7 +28,7 @@ const STEP: AdminDangerConfirmStep = {
       confirmLabel="Remove permanently"
       [warning]="warning()"
       reasonLabel="Why you are removing it"
-      reasonRequired="Write a reason before you confirm."
+      [reasonRequired]="reasonRequired()"
       reasonHelp="Shown to the reviewer."
       [busyLabel]="busyLabel()"
       [maxLength]="maxLength()"
@@ -69,6 +69,7 @@ const STEP: AdminDangerConfirmStep = {
 })
 class Host {
   readonly warning = signal<string | null>('Removal takes the review off the page.');
+  readonly reasonRequired = signal<string | null>('Write a reason before you confirm.');
   readonly busyLabel = signal<string | null>(null);
   readonly maxLength = signal<number | null>(null);
   readonly lengthMessage = signal<string | null>(null);
@@ -457,6 +458,24 @@ describe('AdminDangerAction extensions (AECI-2104)', () => {
       const ids = area().getAttribute('aria-describedby')!.split(' ');
       expect(ids).toHaveLength(1);
       expect(text(root.querySelector(`#${ids[0]}`))).toBe('Shown to the reviewer.');
+    });
+
+    it('takes an empty reason when the form states the reason is optional', async () => {
+      const { host, settle, button, area, alert, openForm } = await setup((h) =>
+        h.reasonRequired.set(null),
+      );
+      await openForm();
+      expect(area().required).toBe(false);
+      button('Remove permanently')!.click();
+      await settle();
+      expect(alert()).toBeNull();
+      expect(host.reasons).toEqual(['']);
+    });
+
+    it('marks the reason required whenever a required message is given', async () => {
+      const { area, openForm } = await setup();
+      await openForm();
+      expect(area().required).toBe(true);
     });
 
     it("uses the caller's Cancel words and still cancels", async () => {

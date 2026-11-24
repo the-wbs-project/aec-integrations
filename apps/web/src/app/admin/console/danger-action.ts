@@ -52,8 +52,11 @@ export interface AdminDangerConfirmStep {
  * inside the same `@if`. Every string is an input, already localised.
  *
  * Inputs
- * - `openerLabel`, `confirmLabel`, `reasonLabel`, `reasonRequired` (required strings).
- *   `reasonRequired` is shown when the confirm is pressed with an empty reason.
+ * - `openerLabel`, `confirmLabel`, `reasonLabel`, `reasonRequired` (required inputs).
+ *   `reasonRequired` is shown when the confirm is pressed with an empty reason. Pass
+ *   `null` only for a form whose reason is optional today (contests Decline, "Why
+ *   you are declining (recommended)"): the field is not required and an empty
+ *   reason emits `''`. It is a required input, so every caller states which.
  * - `warning`: what the action does, as a full sentence. Screen readers hear it
  *   first, because it leads the reason field's description. Leave it null only when
  *   today's form has no warning (the review queues' Reject).
@@ -154,7 +157,7 @@ export interface AdminDangerConfirmStep {
           #reason
           [id]="ids.reason"
           rows="3"
-          required
+          [required]="reasonRequired() !== null"
           [class]="inputClass"
           class="min-h-24 resize-y py-3 read-only:bg-(--surface-sunken)"
           [value]="draft()"
@@ -264,7 +267,7 @@ export class AdminDangerAction {
   readonly warning = input<string | null>(null);
   readonly reasonLabel = input.required<string>();
   /** Shown when the confirm is pressed with an empty reason. */
-  readonly reasonRequired = input.required<string>();
+  readonly reasonRequired = input.required<string | null>();
   readonly reasonHelp = input<string | null>(null);
   /** The parent's error for the last attempt. */
   readonly error = input<string | null>(null);
@@ -458,7 +461,7 @@ export class AdminDangerAction {
   }
 
   private check(reason: string): 'missing' | 'long' | null {
-    if (!reason) return 'missing';
+    if (!reason) return this.reasonRequired() === null ? null : 'missing';
     const max = this.maxLength();
     if (max !== null && this.lengthMessage() && reason.length > max) return 'long';
     return null;

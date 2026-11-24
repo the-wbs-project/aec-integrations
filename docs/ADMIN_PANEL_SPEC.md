@@ -398,6 +398,7 @@ Every inline destructive action in the console uses one component, `<aec-admin-d
 | `maxLength` + `lengthMessage` | A trimmed reason over the limit is refused on confirm like an empty one. With no message, the native `maxlength` caps the field instead | The 1 to 500 reject schemas (rule); the queues' remove forms and the 1000-character admin reasons (cap) |
 | `confirmStep` | A second, locked step: title, body (string or template), the danger confirm, "Edit the reason", Cancel | Remove a review, an update or a reply permanently |
 | `errorTemplate` | An error that holds a link, in the same focused alert | The ban's last-seat refusal (`users/user-detail`, the review queue's ban dialog) |
+| `reasonRequired` set to `null` | The reason is optional: not `required`, and an empty reason emits `''`. Still a required input, so every caller states it | Contests Decline ("recommended"); on the later slices, claim reject and request reject |
 | `warning` (now optional) | No Bone box when today's form has none | The queues' Reject |
 | `cancelLabel` | Cancel keeps the form's own message id | Every form being moved |
 | `openerDescribedBy`, `openerDisabled` | The opener is described by a sentence beside it, or blocked with its reason | The queues' Remove help; return records when it is blocked |
