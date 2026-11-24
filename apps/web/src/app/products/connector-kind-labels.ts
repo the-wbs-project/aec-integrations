@@ -103,3 +103,106 @@ export function connectorMetaDescription(
       return $localize`:@@products.detail.meta.connector:${name}:name: connects ${reach}:count: construction and AEC products. See the integrations it powers and reviews from the teams using them.`;
   }
 }
+
+/** One endpoint of a pair, as the "Not offered or endorsed by" line names it. */
+export interface EndorsementEndpoint {
+  readonly productId: string;
+  readonly productName: string;
+  /** The endpoint's primary vendor, or `null` when none is on record. */
+  readonly vendor: { readonly id: string; readonly name: string } | null;
+}
+
+/** What {@link syncServiceEndorsementLine} reads off one pair page mechanism card. */
+export interface EndorsementInput {
+  readonly connectorKind: ConnectorKind | null;
+  /** The connector product behind the card (`via ?? powered_by_product`). */
+  readonly connectorProductId: string | null;
+  /** The connector product's primary vendor (`connector_vendor_id`). */
+  readonly connectorVendorId: string | null;
+  /** The card's "Offered by" vendor (`built_by_vendor`), or `null` when unknown. */
+  readonly offeredBy: { readonly id: string; readonly name: string } | null;
+  readonly context: EndorsementEndpoint;
+  readonly other: EndorsementEndpoint;
+}
+
+/**
+ * The pair page's "Not offered or endorsed by" line (AECI-2043, ruling 12 on AECI-2035).
+ *
+ * Counsel advised on 2026-11-04 that a page suggesting sponsorship or endorsement is
+ * actionable. A Sync Service card shows two other companies' products under "Offered by
+ * Rivets", so every such card says, in one plain line, who offers it and that the two
+ * endpoint vendors do not:
+ *
+ *     Offered by Rivets. Not offered or endorsed by Procore Technologies or Acumatica.
+ *
+ * `null`, so no line, when:
+ * - the connector is not a Sync Service: a native card, an Integration platform, or an
+ *   unclassified connector (`connectorKindFor` already reads NULL for an `application`);
+ * - the Sync Service is itself one of the two endpoints, so its vendor does offer it;
+ * - every endpoint vendor is the vendor that offers it, so there is no one to name.
+ *
+ * Edge cases:
+ * - both endpoints from one vendor: the vendor is named once;
+ * - an endpoint vendor that is the offering vendor, or the Sync Service's own vendor, is
+ *   left out, since the sentence would be false for it;
+ * - an endpoint with no vendor on record: "the vendor of {product}";
+ * - the offering vendor unknown: the "Offered by" sentence is left out.
+ *
+ * Each sentence is a whole message with its own id.
+ */
+export function syncServiceEndorsementLine(input: EndorsementInput): string | null {
+  if (input.connectorKind !== 'sync_service') return null;
+  const { context, other } = input;
+  if (
+    input.connectorProductId !== null &&
+    (input.connectorProductId === context.productId || input.connectorProductId === other.productId)
+  ) {
+    return null;
+  }
+  const offering = new Set(
+    [input.offeredBy?.id, input.connectorVendorId].filter((id): id is string => !!id),
+  );
+  const vendorNames: string[] = [];
+  const productNames: string[] = [];
+  const seenVendors = new Set<string>();
+  for (const endpoint of [context, other]) {
+    const vendor = endpoint.vendor;
+    if (!vendor) {
+      productNames.push(endpoint.productName);
+      continue;
+    }
+    if (offering.has(vendor.id) || seenVendors.has(vendor.id)) continue;
+    seenVendors.add(vendor.id);
+    vendorNames.push(vendor.name);
+  }
+  const notEndorsed = notEndorsedSentence(vendorNames, productNames);
+  if (!notEndorsed) return null;
+  if (!input.offeredBy) return notEndorsed;
+  const offeredBy = $localize`:@@pair.mechanism.syncService.offeredBy:Offered by ${input.offeredBy.name}:vendor:.`;
+  return `${offeredBy} ${notEndorsed}`;
+}
+
+/** The second sentence, by how many endpoint vendors are named and how many are not on record. */
+function notEndorsedSentence(
+  vendors: readonly string[],
+  products: readonly string[],
+): string | null {
+  const [first, second] = vendors;
+  const [productA, productB] = products;
+  if (first !== undefined && second !== undefined) {
+    return $localize`:@@pair.mechanism.syncService.notEndorsed.twoVendors:Not offered or endorsed by ${first}:vendorA: or ${second}:vendorB:.`;
+  }
+  if (first !== undefined && productA !== undefined) {
+    return $localize`:@@pair.mechanism.syncService.notEndorsed.vendorAndProduct:Not offered or endorsed by ${first}:vendor: or the vendor of ${productA}:product:.`;
+  }
+  if (first !== undefined) {
+    return $localize`:@@pair.mechanism.syncService.notEndorsed.oneVendor:Not offered or endorsed by ${first}:vendor:.`;
+  }
+  if (productA !== undefined && productB !== undefined) {
+    return $localize`:@@pair.mechanism.syncService.notEndorsed.twoProducts:Not offered or endorsed by the vendors of ${productA}:productA: or ${productB}:productB:.`;
+  }
+  if (productA !== undefined) {
+    return $localize`:@@pair.mechanism.syncService.notEndorsed.oneProduct:Not offered or endorsed by the vendor of ${productA}:product:.`;
+  }
+  return null;
+}

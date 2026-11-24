@@ -2544,3 +2544,88 @@ describe('ProductsPairPage — the empty pair (AECI-1827, AECI-1835)', () => {
     expect(el.querySelector('[data-testid="pair-rail"]')).toBeTruthy();
   });
 });
+
+describe('ProductsPairPage: the Sync Service "Not offered or endorsed by" line (AECI-2043)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const rivets = {
+    id: '00000000-0000-4000-8000-0000000000c1',
+    name: 'Rivets',
+    slug: 'rivets',
+    logo_url: null,
+  };
+  const rivetsSync = {
+    id: '00000000-0000-4000-8000-0000000000c2',
+    name: 'Rivets Sync',
+    slug: 'rivets-sync',
+    logo_url: null,
+  };
+  const vendor = (n: string, name: string) => ({
+    id: `00000000-0000-4000-8000-0000000000${n}`,
+    name,
+    slug: name.toLowerCase(),
+    logo_url: null,
+  });
+
+  function pairWith(
+    connector_kind: 'sync_service' | 'integration_platform' | null,
+    arm: 'via' | 'powered_by_product' | 'native' = 'via',
+  ): ProductPairResponse {
+    const base = buildPair({
+      context_product: productListItem('procore', 'Procore', {
+        vendor: vendor('d1', 'Procore Technologies'),
+      }),
+      other_product: productListItem('acumatica', 'Acumatica', {
+        vendor: vendor('d2', 'Acumatica'),
+      }),
+    });
+    return {
+      ...base,
+      mechanisms: [
+        {
+          ...base.mechanisms[0]!,
+          built_by_vendor: rivets,
+          via: arm === 'via' ? rivetsSync : null,
+          powered_by_product: arm === 'powered_by_product' ? rivetsSync : null,
+          connector_vendor_id: arm === 'native' ? null : rivets.id,
+          connector_kind,
+        },
+      ],
+    };
+  }
+
+  const line = (el: HTMLElement) =>
+    el
+      .querySelector('[data-testid="pair-not-endorsed"]')
+      ?.textContent?.replace(/\s+/g, ' ')
+      .trim() ?? null;
+
+  it('shows the line on a Sync Service card, from either table, naming both endpoint vendors', () => {
+    for (const arm of ['via', 'powered_by_product'] as const) {
+      TestBed.resetTestingModule();
+      const { el } = setup(pairWith('sync_service', arm));
+      expect(line(el), arm).toBe(
+        'Offered by Rivets. Not offered or endorsed by Procore Technologies or Acumatica.',
+      );
+    }
+  });
+
+  it('shows no line on an Integration platform, an unclassified connector or a native card', () => {
+    for (const [kind, arm] of [
+      ['integration_platform', 'via'],
+      [null, 'via'],
+      [null, 'native'],
+    ] as const) {
+      TestBed.resetTestingModule();
+      const { el } = setup(pairWith(kind, arm));
+      expect(line(el), `${kind} ${arm}`).toBeNull();
+    }
+  });
+
+  it('shows no line when an older API leaves the kind out', () => {
+    const pair = pairWith('sync_service');
+    const { connector_kind: _dropped, ...rest } = pair.mechanisms[0]!;
+    const { el } = setup({ ...pair, mechanisms: [rest] });
+    expect(line(el)).toBeNull();
+  });
+});

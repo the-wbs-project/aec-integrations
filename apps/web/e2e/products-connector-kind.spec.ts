@@ -28,3 +28,18 @@ for (const { slug, label, kind } of CASES) {
     await expect(page.locator('aec-role-badge', { hasText: /^Connector$/ })).toHaveCount(0);
   });
 }
+
+// AECI-2043: one pair with two Sync Services (`fx-agave` and `fx-aardvark-sync`). The
+// cards order A to Z by the offering vendor, case folded, so "aardvark Systems" comes
+// before "Agave Inc.", and each card carries the "Not offered or endorsed by" line.
+// Neither endpoint has a vendor on record, so the line names the two products.
+test('a pair with two Sync Services: the order and the endorsement line (AECI-2043)', async ({
+  page,
+}) => {
+  await page.goto('/products/fx-procore/integrations/fx-viewpoint-vista');
+  const lines = page.locator('[data-testid="pair-not-endorsed"]');
+  await expect(lines).toHaveCount(2);
+  const tail = 'Not offered or endorsed by the vendors of Procore (fixture) or Viewpoint Vista.';
+  await expect(lines.nth(0)).toHaveText(`Offered by aardvark Systems (fixture). ${tail}`);
+  await expect(lines.nth(1)).toHaveText(`Offered by Agave Inc. (fixture). ${tail}`);
+});

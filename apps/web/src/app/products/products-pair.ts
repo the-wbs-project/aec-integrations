@@ -42,6 +42,7 @@ import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 
 import { AgreementBadge } from './agreement-badge';
 import { ClaimProvenance } from './claim-provenance';
+import { syncServiceEndorsementLine, type EndorsementEndpoint } from './connector-kind-labels';
 import { DIRECTION_ORDER, directionGlyph, directionHeading } from './pair-direction-labels';
 import type { PairPageData } from '../core/api/product-pairs';
 import { PairEmptyAlternatives } from './pair-empty-alternatives';
@@ -474,6 +475,11 @@ interface MechanismView {
   readonly hasClaims: boolean;
   /** AECI-1142 "At a glance" facts, or `null` when every fact is empty. */
   readonly glance: GlanceFacts | null;
+  /**
+   * AECI-2043 (ruling 12): "Offered by {vendor}. Not offered or endorsed by {A} or {B}."
+   * on a Sync Service card only, else `null` (`syncServiceEndorsementLine`).
+   */
+  readonly endorsementLine: string | null;
   /** The mechanism's corrections that point at something the card renders (§4.5.8). */
   readonly corrections: readonly FieldCorrection[];
   /** AECI-1238 (§11d.7): AECi hid the description while it checks it. */
@@ -1009,7 +1015,8 @@ function writePairViewCookie(mode: PairViewMode): void {
               }
             </div>
             <!-- Per-mechanism cards with the context-relative direction arrow, in the
-               API's order: integrations first, then evidenced pairs (ruling R1). Each is
+               API's order: integrations first, then evidenced pairs (ruling R1), then
+               Sync Service cards A to Z by the offering vendor (AECI-2043). Each is
                the shared card (ruling A7). Headings nest h2, h3, h4 (ruling 10). -->
             <div class="grid gap-8">
               @for (m of v.mechanisms; track m.id) {
@@ -1076,6 +1083,15 @@ function writePairViewCookie(mode: PairViewMode): void {
                       }}</aec-chip>
                     }
                   </header>
+
+                  <!-- AECI-2043 (ruling 12): a Sync Service card says who offers it and
+                     that the two endpoint vendors do not. Plain text, no link: the
+                     byline in At a glance already links the vendor. -->
+                  @if (m.endorsementLine) {
+                    <p class="text-sm text-(--text-secondary)" data-testid="pair-not-endorsed">
+                      {{ m.endorsementLine }}
+                    </p>
+                  }
 
                   <!-- The Stage 1 §4.4 "Offered by" / "Powered by" byline lives in the
                      At a glance strip's "How you get it" since AECI-1142, so the
@@ -1608,8 +1624,18 @@ export class ProductsPairPage {
       otherName: pair.other_product.vendor?.name ?? null,
       pairKey: canonicalPairIds(pair.context_product.id, pair.other_product.id).join(':'),
     };
+    // AECI-2043: the two endpoints, for the Sync Service card's endorsement line.
+    const endpoint = (p: ProductPairResponse['context_product']): EndorsementEndpoint => ({
+      productId: p.id,
+      productName: p.name,
+      vendor: p.vendor ? { id: p.vendor.id, name: p.vendor.name } : null,
+    });
+    const endpoints = {
+      context: endpoint(pair.context_product),
+      other: endpoint(pair.other_product),
+    };
     const mechanisms = pair.mechanisms.map((m) =>
-      this.toMechanismView(m, otherName, vendorNames, sideNames, owners),
+      this.toMechanismView(m, otherName, vendorNames, sideNames, owners, endpoints),
     );
     return {
       pair,
@@ -1645,7 +1671,9 @@ export class ProductsPairPage {
     vendorNames: PairVendorNames,
     sideNames: PairSideNames,
     owners: PairLinkOwners,
+    endpoints: { context: EndorsementEndpoint; other: EndorsementEndpoint },
   ): MechanismView {
+    const connector = m.via ?? m.powered_by_product;
     return {
       id: m.id,
       kindLabel: mechanismKindLabel(m.mechanism_kind),
@@ -1677,6 +1705,18 @@ export class ProductsPairPage {
       ),
       hasClaims: m.claims.length > 0,
       glance: this.glanceFacts(m, owners),
+      // `?? null`: the web never Zod-parses the pair response, so an older API Worker
+      // leaves `connector_kind` and `connector_vendor_id` absent.
+      endorsementLine: syncServiceEndorsementLine({
+        connectorKind: m.connector_kind ?? null,
+        connectorProductId: connector?.id ?? null,
+        connectorVendorId: m.connector_vendor_id ?? null,
+        offeredBy: m.built_by_vendor
+          ? { id: m.built_by_vendor.id, name: m.built_by_vendor.name }
+          : null,
+        context: endpoints.context,
+        other: endpoints.other,
+      }),
       corrections: correctionsInSlots(m.corrections, this.correctionSlots(m)),
       descriptionUnderReview: isUnderReview(m.under_review, 'description'),
       underReview: (m.under_review ?? [])

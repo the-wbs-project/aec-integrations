@@ -43,6 +43,7 @@ import { liveIntegrationSql } from '@aeci/shared/live-integration';
 import { endpointsVisibleSql, visibleProductSql } from '@aeci/shared/listing-visibility';
 import { compareText } from '@aeci/shared/text-sort';
 import type {
+  ConnectorKind,
   FieldCaption,
   FieldCorrection,
   AccountReview,
@@ -120,6 +121,7 @@ import {
 } from './company-facts';
 import { claimedProductExtra, claimStatusOf, isVendorClaimed } from './claimed-vendors';
 import { isConnectorPoweredEdge } from './connector-powered';
+import { orderPairMechanisms } from './pair-mechanism-order';
 import {
   productGroupCaptions,
   rowCaption,
@@ -200,6 +202,9 @@ const taxonomyLinkColumns = { id: true, name: true, slug: true } as const;
  */
 const pairConnectorProductConfig = {
   ...publicProductLinkConfig,
+  // AECI-2043: the role and the stored kind, for `ProductPairMechanism.connector_kind`
+  // (`connectorKindFor`). Never serialised as columns: the mapper keeps the kind only.
+  columns: { ...productLinkColumns, productRole: true, connectorKind: true },
   with: { productVendors: { with: { vendor: { columns: vendorLinkColumns } } } },
 } as const;
 const taxonomyLinkWithOrderColumns = { ...taxonomyLinkColumns, displayOrder: true } as const;
@@ -1627,6 +1632,14 @@ interface RawProductLink extends RawOwnedProductLink {
  *  connector vendor". */
 interface RawPairConnectorProduct extends RawProductLink {
   productVendors?: Array<{ isPrimary: boolean; vendor: RawVendorLink }>;
+  /** AECI-2043: read by {@link pairConnectorKind}. Optional for hand-built fixtures. */
+  productRole?: string | null;
+  connectorKind?: string | null;
+}
+
+/** The kind of the connector behind a pair mechanism, or `null` (AECI-2043). */
+function pairConnectorKind(connector: RawPairConnectorProduct | null): ConnectorKind | null {
+  return connector ? connectorKindFor(connector.productRole, connector.connectorKind) : null;
 }
 
 /** The connector's primary vendor id, or `null` (AECI-933). */
@@ -2587,6 +2600,8 @@ function toProductPairMechanism(
     via: null,
     // AECI-933: the owner of a curated-link click when no vendor built the row.
     connector_vendor_id: connectorVendorId(raw.poweredByProduct),
+    // AECI-2043: the connector's kind, for the "Not offered or endorsed by" line.
+    connector_kind: pairConnectorKind(raw.poweredByProduct),
     // AECI-1154: the owner's pricing page link. Owner-written only; promote never.
     pricing_url: publicPricingUrl(raw.pricingUrl),
     // Sort FIRST, then drop: ordering stays this mapper's job and is independent
@@ -2665,6 +2680,8 @@ function toProductPairMechanismFromEvidencedPair(
     via: toProductLink(raw.connectorProduct),
     // AECI-933: the same fact as the `integrations` arm, read from `via`'s product.
     connector_vendor_id: connectorVendorId(raw.connectorProduct),
+    // AECI-2043: the same fact as the `integrations` arm, read from `via`'s product.
+    connector_kind: pairConnectorKind(raw.connectorProduct),
     // AECI-1154: the owner edits it here too (AECI-1090). Promote never does.
     pricing_url: publicPricingUrl(raw.pricingUrl),
     // Same sort-then-drop as `toProductPairMechanism`; only the frame flag differs.
@@ -2763,14 +2780,17 @@ export function toProductPairResponse(
    *  AECI-1827 also the two products' own corrections, keyed by product id. */
   corrections: CorrectionsByEntity = NO_CORRECTIONS,
 ): ProductPairResponse {
-  const mechanisms = [
+  // AECI-2043 (ruling 14): every card keeps the read's order, integrations then
+  // evidenced pairs, each by name then id, except Sync Service cards, which move
+  // last, A to Z by the vendor that offers them (`orderPairMechanisms`).
+  const mechanisms = orderPairMechanisms([
     ...integrations.map((row) =>
       toProductPairMechanism(row, contextProduct.id, versions, corrections),
     ),
     ...evidencedPairs.map((row) =>
       toProductPairMechanismFromEvidencedPair(row, contextProduct.id, versions, corrections),
     ),
-  ];
+  ]);
   const claims = mechanisms.flatMap((m) => m.claims);
   return {
     context_product: toPairSubject(contextProduct, corrections),

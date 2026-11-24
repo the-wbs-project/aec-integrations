@@ -9,6 +9,7 @@ import {
   ProductLinkSchema,
   VendorLinkSchema,
 } from './common';
+import { ConnectorKindSchema } from './connector-kind-schema';
 import { FieldCaptionSchema, FieldCorrectionsSchema } from './field-captions';
 import { UnderReviewSchema } from './hidden-fields';
 import { ContextDirectionSchema, IntegrationMechanismKindSchema } from './integrations';
@@ -333,6 +334,17 @@ export const ProductPairMechanismSchema = z.object({
    * `.optional()` for SSR/API deploy skew: absent means `null`.
    */
   connector_vendor_id: z.string().uuid().nullable().optional(),
+  /**
+   * The kind of the connector product behind this mechanism (AECI-2043,
+   * `docs/STAGE_1_5_SPEC.md` §13.13): `powered_by_product`'s kind on an `integrations`
+   * row, `via`'s kind on a connector-evidenced pair, through `connectorKindFor`. `null`
+   * when there is no connector, or the connector is unclassified. Two readers: the
+   * pair page's "Not offered or endorsed by" line, which renders on `sync_service`
+   * only, and the card order, which puts Sync Service cards last, A to Z by the
+   * offering vendor (ruling 14 on AECI-2035). `.optional()` for SSR/API deploy skew:
+   * absent means `null`.
+   */
+  connector_kind: ConnectorKindSchema.nullable().optional(),
   /**
    * The owner's pricing page link (AECI-1154 / `STAGE_2_VENDOR_PORTAL_SPEC.md`
    * §6.17.11), from `integrations` or `connector_evidenced_pairs` alike. It feeds

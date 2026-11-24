@@ -667,7 +667,7 @@ The empty pair page is the first place this module ships. **Ruling 2026-11-14 (C
 - The mock-up orders by data objects in common, then shared categories, then product quality, then review count. That order must not ship (PLAN.md §7.3).
 - The "How these are ordered" disclosure is required. It must say the list is A to Z by name. The mock-up's wording must not be copied.
 - The same text goes on the "How ranking works" help page before the code ships (PLAN.md §8.3). Since AECI-1894 (the legal agent's verdict of 2026-11-20, ranking page version 1.2) the disclosure carries the page's search sentence and its three sentences about plans, word for word, in place of the absolute "Plan or license status has no effect on who appears or the order.". The legal agent's second pass that day changed the disclosure's heading "No paid places" to "No paid positions" and its sentence "No vendor pays for a place here." to "No vendor pays for a position in this list.".
-- Existing orders stay as they are. That covers the pair page's own list, which keeps integrations first, then evidenced pairs.
+- Existing orders stay as they are. That covers the pair page's own list, which keeps integrations first, then evidenced pairs. Since AECI-2043 (ruling 14 on AECI-2035) a Sync Service's cards come after both, A to Z by the offering vendor (§13.13).
 - "Confirmed by both companies" is a label on a card or row only. There is no filter or sort on it.
 - The ordering is algorithmic. No pay-for-placement, ever. The legal verdict for the ordered lists is `none`.
 
@@ -2799,8 +2799,44 @@ variant is a whole message with its own id. Callers resolve the kind with `conne
   counts keep the data role.
 
 **Local data.** `apps/api/seed/connector-fixtures.sql` sets the MindCloud fixture to
-`integration_platform` and the Agave fixture to `sync_service`. Every other fixture connector
-stays NULL.
+`integration_platform` and the Agave fixture to `sync_service`. Since AECI-2043 a second Sync
+Service, `fx-aardvark-sync` (vendor "aardvark Systems (fixture)"), shares the
+`fx-procore` and `fx-viewpoint-vista` pair with Agave, so that pair page shows two Sync Service
+cards. Every other fixture connector stays NULL.
+
+**The pair page (AECI-2043, 2026-11-24).** Chris ruled on 2026-11-24 (AECI-2035):
+
+> **Ruling 12.** Every Sync Service pair page says it is not offered or endorsed by the two
+> endpoint vendors.
+>
+> **Ruling 14.** Two Sync Services on one pair order A to Z by vendor.
+
+- **The payload.** `ProductPairMechanism.connector_kind` carries the kind of the card's
+  connector (`powered_by_product` or `via`) on both arms of the pair read (`API_CONTRACTS.md`).
+- **The line.** Every card whose connector is a Sync Service shows one plain sentence under its
+  heading, for example "Offered by Rivets. Not offered or endorsed by Procore Technologies or
+  Acumatica." The offering vendor is the card's "Offered by" vendor, `built_by_vendor`.
+  `syncServiceEndorsementLine` in `connector-kind-labels.ts` builds it:
+  - one vendor behind both endpoints is named once;
+  - an endpoint with no vendor on record reads "the vendor of {product}";
+  - an unknown offering vendor drops the "Offered by" sentence;
+  - an endpoint vendor that offers the card, or owns the Sync Service, is left out;
+  - no line when the Sync Service is itself an endpoint, or no endpoint vendor is left to name.
+  It never shows on a native card, an Integration platform or an unclassified connector.
+- **The order.** The read's order stays for every other card: integrations A to Z by name then id,
+  then evidenced pairs the same way (ruling R1). Sync Service cards from either table come last,
+  A to Z by the offering vendor's name, case folded, an unknown vendor last, then id
+  (`apps/api/src/lib/pair-mechanism-order.ts`). The kind is admin-set and a vendor cannot rename
+  itself, so no plan moves a card. `on-page-ordering-firewall.spec.ts` covers it under
+  `pair-page-mechanisms`. `how-ranking-works` 1.2 states the rule (edited in place: 1.2 is
+  provisional).
+- **Not on endpoint pages.** The "Via {name}" lane groups an endpoint's rows by connector. Its
+  connector is a bare `ProductLink` with no kind, and the sentence would repeat on every row of a
+  group. The lane keeps no line for now. Adding one needs the kind on
+  `ProductIntegrationItem` and a group-level wording Chris has not ruled on.
+- **Legal impact: text.** The line applies the Terms of Service sentence "we are not affiliated
+  with, endorsed by, or acting on behalf of the vendors we list" to a card. No `/legal` page
+  changes. The ranking page gains the order rule.
 
 ### Operating notes (moved from CLAUDE.md, 2026-09-23)
 

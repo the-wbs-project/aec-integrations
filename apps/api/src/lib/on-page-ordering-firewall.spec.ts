@@ -12,7 +12,9 @@
  *
  *  1. Every NEW on-page list is A to Z by name, with id as the tie-break.
  *  2. The via-lane groups and the powered-hub groups keep their count order.
- *  3. The pair page keeps integrations first, then evidenced pairs.
+ *  3. The pair page keeps integrations first, then evidenced pairs. Since AECI-2043
+ *     (ruling 14 on AECI-2035) a Sync Service's cards come after both, A to Z by the
+ *     offering vendor, id on a tie.
  *  4. "Confirmed by both companies" is a row label only, never a filter or a sort.
  *
  * Six blocks:
@@ -168,7 +170,8 @@ const SURFACES: readonly Surface[] = [
     key: 'pair-page-mechanisms',
     status: 'covered',
     spec: 'api',
-    order: 'Integrations A to Z by name then id, then evidenced pairs A to Z by name then id',
+    order:
+      'Integrations A to Z by name then id, then evidenced pairs A to Z by name then id; Sync Service cards from either table last, A to Z by the offering vendor case folded, an unknown vendor last, then id (AECI-2043, ruling 14)',
   },
   {
     key: 'pair-page-claims',
@@ -723,15 +726,29 @@ const PAIR_EVIDENCED: ReadonlyArray<[n: number, name: string, connector: number]
   [61, 'bravo', 4],
   [62, 'Bravo', 5],
 ];
-/** Today's order, written out: integrations A to Z then id, then evidenced pairs. */
-const PAIR_ORDER = [11, 12, 13, 10, 61, 62, 60].map(u);
+/**
+ * Two Sync Service cards (AECI-2043, ruling 14): connectors 6 and 7 are `sync_service`.
+ * Their names would put 65 first. The offering vendors put 66 first: Acme Software
+ * before Globex.
+ */
+const PAIR_SYNC_SERVICE: ReadonlyArray<
+  [n: number, name: string, connector: number, vendor: string]
+> = [
+  [65, 'Alpha sync', 6, GLOBEX],
+  [66, 'Zed sync', 7, ACME],
+];
+/**
+ * Today's order, written out: integrations A to Z then id, then evidenced pairs, then
+ * the Sync Service cards A to Z by the offering vendor.
+ */
+const PAIR_ORDER = [11, 12, 13, 10, 61, 62, 60, 66, 65].map(u);
 /**
  * What each paid world loads. `rows` sort last (or first) in their table. `claims`
  * sort last (or first) inside their mechanism. Of the two tied "Logs" claims only 103
  * is listed, so in either world it carries more votes than 102.
  */
-const PAIR_LAST = { rows: [10, 13, 60, 62], claims: [100, 103, 105, 106, 107, 109] };
-const PAIR_FIRST = { rows: [11, 12, 61], claims: [101, 104, 108] };
+const PAIR_LAST = { rows: [10, 13, 60, 62, 65], claims: [100, 103, 105, 106, 107, 109, 110] };
+const PAIR_FIRST = { rows: [11, 12, 61, 66], claims: [101, 104, 108, 111] };
 
 /** The AECi seed: claim id, row, data object. */
 const PAIR_CLAIMS: ReadonlyArray<[id: number, row: number, object: number]> = [
@@ -745,6 +762,8 @@ const PAIR_CLAIMS: ReadonlyArray<[id: number, row: number, object: number]> = [
   [107, 60, 71],
   [108, 61, 72],
   [109, 62, 72],
+  [110, 65, 71],
+  [111, 66, 72],
 ];
 
 async function seedPair(db: Db, world: World, renameLast = false) {
@@ -758,8 +777,20 @@ async function seedPair(db: Db, world: World, renameLast = false) {
       productRole: 'connector' as const,
       promotionStatus: 'promoted' as const,
     })),
+    ...[6, 7].map((n) => ({
+      id: u(n),
+      slug: `sync-service-${n}`,
+      name: `Sync Service ${n}`,
+      productRole: 'connector' as const,
+      connectorKind: 'sync_service',
+      promotionStatus: 'promoted' as const,
+    })),
   ]);
   await seedTwoVendors(db);
+  // The Sync Service order input (AECI-2043): renamed, Acme's card sorts after Globex's.
+  if (renameLast) {
+    await db.update(vendors).set({ companyName: 'Zebra Software' }).where(eq(vendors.id, ACME));
+  }
   await db.insert(productVendors).values([
     { productId: u(1), vendorId: ACME, isPrimary: true },
     { productId: u(2), vendorId: GLOBEX, isPrimary: true },
@@ -791,6 +822,17 @@ async function seedPair(db: Db, world: World, renameLast = false) {
       connectorProductId: u(connector),
       productAId: a!,
       productBId: b!,
+      direction: 'a_to_b',
+    })),
+  );
+  await db.insert(connectorEvidencedPairs).values(
+    PAIR_SYNC_SERVICE.map(([n, name, connector, vendor]) => ({
+      id: u(n),
+      name,
+      connectorProductId: u(connector),
+      productAId: a!,
+      productBId: b!,
+      builtByVendorId: vendor,
       direction: 'a_to_b',
     })),
   );
@@ -1002,6 +1044,8 @@ describe('on-page ordering firewall: the pair page', () => {
     async () => {
       const renamed = await pairWorld('free', true);
       expect(renamed.mechanisms[0]).toBe(u(10));
+      // The offering vendor's name is the Sync Service order input (AECI-2043).
+      expect(renamed.mechanisms.slice(-2)).toEqual([u(65), u(66)]);
     },
     DB_TIMEOUT,
   );
@@ -1481,6 +1525,7 @@ const PUBLIC_READ_LIB = [
   'product-extensions',
   'field-hides',
   'listing-hide',
+  'pair-mechanism-order',
 ];
 
 interface OrderSite {
@@ -1565,6 +1610,11 @@ const ORDER_SITES: readonly OrderSite[] = [
     file: 'apps/api/src/lib/sitemap-build.ts',
     count: 4,
     allowed: 'sitemap URL order by id or key; a crawl feed, not an on-page list',
+  },
+  {
+    file: 'apps/api/src/lib/pair-mechanism-order.ts',
+    count: 1,
+    registered: ['pair-page-mechanisms'],
   },
   {
     file: 'apps/api/src/lib/pair-redirect.ts',

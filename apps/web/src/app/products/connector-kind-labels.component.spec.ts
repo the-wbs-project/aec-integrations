@@ -16,8 +16,113 @@ import {
   poweredEmptyLead,
   poweredHeading,
   poweredNavLabel,
+  syncServiceEndorsementLine,
+  type EndorsementInput,
 } from './connector-kind-labels';
 import { RoleBadge } from './role-badge';
+
+describe('the Sync Service "Not offered or endorsed by" line (AECI-2043)', () => {
+  const PROCORE_TECH = { id: 'v-procore', name: 'Procore Technologies' };
+  const ACUMATICA = { id: 'v-acumatica', name: 'Acumatica' };
+  const RIVETS = { id: 'v-rivets', name: 'Rivets' };
+  const base: EndorsementInput = {
+    connectorKind: 'sync_service',
+    connectorProductId: 'p-rivets-sync',
+    connectorVendorId: RIVETS.id,
+    offeredBy: RIVETS,
+    context: { productId: 'p-procore', productName: 'Procore', vendor: PROCORE_TECH },
+    other: { productId: 'p-acumatica', productName: 'Acumatica', vendor: ACUMATICA },
+  };
+
+  it('names the offering vendor and both endpoint vendors', () => {
+    expect(syncServiceEndorsementLine(base)).toBe(
+      'Offered by Rivets. Not offered or endorsed by Procore Technologies or Acumatica.',
+    );
+  });
+
+  it('renders for a Sync Service only: never on native, Integration platform or unclassified cards', () => {
+    expect(
+      syncServiceEndorsementLine({ ...base, connectorKind: 'integration_platform' }),
+    ).toBeNull();
+    expect(syncServiceEndorsementLine({ ...base, connectorKind: null })).toBeNull();
+    // A native card: no connector, no kind.
+    expect(
+      syncServiceEndorsementLine({
+        ...base,
+        connectorKind: null,
+        connectorProductId: null,
+        connectorVendorId: null,
+      }),
+    ).toBeNull();
+  });
+
+  it('names a vendor once when both endpoint products come from it', () => {
+    const line = syncServiceEndorsementLine({
+      ...base,
+      other: { productId: 'p-procore-pay', productName: 'Procore Pay', vendor: PROCORE_TECH },
+    });
+    expect(line).toBe('Offered by Rivets. Not offered or endorsed by Procore Technologies.');
+  });
+
+  it('names the product when an endpoint has no vendor on record', () => {
+    expect(
+      syncServiceEndorsementLine({
+        ...base,
+        other: { productId: 'p-acumatica', productName: 'Acumatica', vendor: null },
+      }),
+    ).toBe(
+      'Offered by Rivets. Not offered or endorsed by Procore Technologies or the vendor of Acumatica.',
+    );
+    expect(
+      syncServiceEndorsementLine({
+        ...base,
+        context: { productId: 'p-procore', productName: 'Procore', vendor: null },
+        other: { productId: 'p-acumatica', productName: 'Acumatica', vendor: null },
+      }),
+    ).toBe('Offered by Rivets. Not offered or endorsed by the vendors of Procore or Acumatica.');
+  });
+
+  it('leaves out the "Offered by" sentence when the offering vendor is unknown', () => {
+    expect(syncServiceEndorsementLine({ ...base, offeredBy: null })).toBe(
+      'Not offered or endorsed by Procore Technologies or Acumatica.',
+    );
+  });
+
+  it('never says the offering vendor does not offer it', () => {
+    // An endpoint from the vendor that offers the card, or from the Sync Service's vendor.
+    expect(
+      syncServiceEndorsementLine({
+        ...base,
+        offeredBy: PROCORE_TECH,
+        connectorVendorId: PROCORE_TECH.id,
+      }),
+    ).toBe('Offered by Procore Technologies. Not offered or endorsed by Acumatica.');
+    expect(
+      syncServiceEndorsementLine({
+        ...base,
+        offeredBy: null,
+        connectorVendorId: ACUMATICA.id,
+      }),
+    ).toBe('Not offered or endorsed by Procore Technologies.');
+    // Both endpoints from the offering vendor: no one to name, so no line.
+    expect(
+      syncServiceEndorsementLine({
+        ...base,
+        offeredBy: PROCORE_TECH,
+        other: { productId: 'p-procore-pay', productName: 'Procore Pay', vendor: PROCORE_TECH },
+      }),
+    ).toBeNull();
+  });
+
+  it('has no line when the Sync Service is itself one of the two endpoints', () => {
+    expect(
+      syncServiceEndorsementLine({
+        ...base,
+        other: { productId: 'p-rivets-sync', productName: 'Rivets Sync', vendor: RIVETS },
+      }),
+    ).toBeNull();
+  });
+});
 
 describe('connector kind labels (AECI-2037)', () => {
   it('names each kind, and a blank kind reads Connector', () => {

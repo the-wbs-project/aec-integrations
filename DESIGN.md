@@ -1058,7 +1058,7 @@ This section describes components, not page layouts. The home, the browse lists,
 
 Ruling R3 (AECI-1734, 2026-11-14, "A") sets the default for the long list. Decision 20 reads "The 58-integration list is grouped by category by default". The size at which a list counts as long, and the one-list mode in pages of 12, belong to AECI-1783.
 
-**Order (R1, 2026-11-14).** Chris, by Slack, on AECI-1732: "Maintain orders as they are. If its a new feature a to z". Existing orders stay. Every new on-page list is A to Z by name, with the id as the tie-break, through the collation rule in `CLAUDE.md`. The via-lane groups and the powered-hub groups keep their count order. The pair page list keeps integrations first, then evidenced pairs. In the grouped list, the groups run A to Z by category name with the id as the tie-break (AECI-1783). "Confirmed by both companies" is a label only. No filter and no sort reads it. The mock-up's "Most evidence first" sort cannot ship (`PLAN.md` §7.3).
+**Order (R1, 2026-11-14).** Chris, by Slack, on AECI-1732: "Maintain orders as they are. If its a new feature a to z". Existing orders stay. Every new on-page list is A to Z by name, with the id as the tie-break, through the collation rule in `CLAUDE.md`. The via-lane groups and the powered-hub groups keep their count order. The pair page list keeps integrations first, then evidenced pairs, and since AECI-2043 Sync Service cards come last, A to Z by the offering vendor. In the grouped list, the groups run A to Z by category name with the id as the tie-break (AECI-1783). "Confirmed by both companies" is a label only. No filter and no sort reads it. The mock-up's "Most evidence first" sort cannot ship (`PLAN.md` §7.3).
 
 ### Buttons
 
