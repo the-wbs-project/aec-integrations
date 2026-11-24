@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page } from '@playwright/test';
+import { axeOptOut, expect, test, type Page } from './fixtures';
 import { untilHydrated } from './hydration';
 import { expectNoSidewaysScroll } from './no-sideways-scroll';
 
@@ -595,6 +595,9 @@ test.describe('mobile menu on short and zoomed screens', () => {
 // chunk is found by a string only the mobile body carries.
 test.describe('mobile menu with its body chunk held (390px)', () => {
   test.use({ viewport: { width: 390, height: 844 } });
+  test.beforeEach(() => {
+    axeOptOut('The test holds back a lazy chunk, so the app never becomes stable to scan.');
+  });
 
   async function holdMobileChunk(page: Page, mode: 'slow' | 'abort') {
     const seen = { chunk: false };
@@ -921,6 +924,7 @@ test.describe('primary navigation menu (1280px)', () => {
     page,
   }) => {
     test.setTimeout(60_000);
+    axeOptOut('The test holds back a lazy chunk, so the app never becomes stable to scan.');
     const seen = await holdPanelChunk(page, 'slow');
     await page.goto(ROUTE);
     await openWhileHeld(page, seen);
@@ -934,6 +938,7 @@ test.describe('primary navigation menu (1280px)', () => {
 
   test('with the panel chunk slowed, Enter on a panel link navigates', async ({ page }) => {
     test.setTimeout(60_000);
+    axeOptOut('The test holds back a lazy chunk, so the app never becomes stable to scan.');
     const seen = await holdPanelChunk(page, 'slow');
     await page.goto(ROUTE);
     await openWhileHeld(page, seen);
@@ -945,6 +950,7 @@ test.describe('primary navigation menu (1280px)', () => {
   test('with the panel chunk blocked, the server-rendered links still navigate', async ({
     page,
   }) => {
+    axeOptOut('The test holds back a lazy chunk, so the app never becomes stable to scan.');
     const seen = await holdPanelChunk(page, 'abort');
     await page.goto(ROUTE);
     await openWhileHeld(page, seen);

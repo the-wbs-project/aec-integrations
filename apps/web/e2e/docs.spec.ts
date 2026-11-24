@@ -13,7 +13,7 @@
  * proves the real routes render, link together and stay accessible.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 import { expectNoSidewaysScroll } from './no-sideways-scroll';
 

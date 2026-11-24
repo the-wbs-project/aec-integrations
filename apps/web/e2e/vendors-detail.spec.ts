@@ -19,7 +19,7 @@
  * shell block at the end reads the seeded fixtures and skips when they are missing.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type APIRequestContext } from '@playwright/test';
+import { expect, test, type APIRequestContext } from './fixtures';
 
 /** The label a sighted reader sees: the element's text without its `.sr-only` parts. */
 const visibleLabel = (el: Element): string => {

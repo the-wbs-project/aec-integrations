@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './fixtures';
 
 /**
  * The portal Reviews tab (AECI-1179, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.16), on

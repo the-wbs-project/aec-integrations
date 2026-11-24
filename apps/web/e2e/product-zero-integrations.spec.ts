@@ -9,7 +9,7 @@
  * has no such product. The local seed (`apps/api/seed/catalog.sql`) gives `autocad` no
  * integrations, a vendor (Autodesk) and no integrations page link.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 const SLUG = 'autocad';
 const SESSION_COOKIE = 'sb-local-auth-token=base64-eyJhY2Nlc3NfdG9rZW4iOiJmYWtlIn0';

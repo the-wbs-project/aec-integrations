@@ -8,7 +8,7 @@
  * in a fresh CI environment that has no seed rows yet.
  */
 import { TRADE_PUBLISH_MIN_PRODUCTS } from '@aeci/shared';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 test.describe('GET /sitemap.xml', () => {
   test('is served as XML with the sitemap cache headers', async ({ request }) => {

@@ -19,7 +19,7 @@
  * `PLAYWRIGHT_BASE_URL=http://localhost:<web port> pnpm --filter web exec playwright test admin-review-updates`.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 import { mintSessionCookies } from './auth-session';
 

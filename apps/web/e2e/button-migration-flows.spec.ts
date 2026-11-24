@@ -9,7 +9,7 @@
  *
  * Paths are `baseURL`-relative: never hardcode a port.
  */
-import { expect, test, type Locator } from '@playwright/test';
+import { expect, test, type Locator } from './fixtures';
 
 import { untilHydrated } from './hydration';
 

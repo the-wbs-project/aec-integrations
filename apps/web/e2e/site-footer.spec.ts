@@ -5,7 +5,7 @@
  * rendered result, which a class assertion in the component spec cannot: a
  * focused footer link draws a 3px Bone ring at a 3px offset.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 import { waitForHydrationSettle } from './console-capture';
 

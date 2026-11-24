@@ -15,7 +15,7 @@
  * seed (`apps/api/seed/catalog.sql`) gives `revit` the `updated` form and `bluebeam-revu`
  * the `until` form and a removal (AECI-1628).
  */
-import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test';
+import { expect, test, type APIRequestContext, type APIResponse } from './fixtures';
 
 const SESSION_COOKIE =
   'sb-local-auth-token=base64-eyJhY2Nlc3NfdG9rZW4iOiJmYWtlIn0; aeci_pair_view=basic';

@@ -17,7 +17,7 @@
  * hero's mark, and an unclaimed vendor (`autodesk`) shows its logo only at 32px beside the
  * note. Its own two tests inject the logo the same way.
  */
-import { expect, test, type APIRequestContext } from '@playwright/test';
+import { expect, test, type APIRequestContext } from './fixtures';
 
 import { untilHydrated } from './hydration';
 

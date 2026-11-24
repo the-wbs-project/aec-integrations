@@ -1,4 +1,4 @@
-import { expect, test, type APIResponse } from '@playwright/test';
+import { expect, test, type APIResponse } from './fixtures';
 import { E2E_BASE_URL as BASE_URL } from './base-url';
 
 const BASE_HOSTNAME = new URL(BASE_URL).hostname;

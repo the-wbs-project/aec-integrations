@@ -18,7 +18,7 @@
  * A new form component gets one route in `INERT_FORM_ROUTES` (or `SEARCH_FORM_ROUTES`
  * for a no-JS GET search form). A new page that reuses a listed component needs none.
  */
-import { expect, test, type BrowserContext, type Page } from '@playwright/test';
+import { axeOptOut, expect, test, type BrowserContext, type Page } from './fixtures';
 
 import { untilHydrated } from './hydration';
 
@@ -238,6 +238,7 @@ test.describe('forms before hydration (AECI-1919)', () => {
       page,
       baseURL,
     }) => {
+      axeOptOut('The test ends on a stub page it serves itself to catch the form request.');
       const guard = await guardRequests(page, new URL(baseURL!).origin);
       await page.goto(route.path);
       await expectFormShapes(page, route.path);

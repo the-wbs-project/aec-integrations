@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext } from '@playwright/test';
+import { expect, test, type APIRequestContext } from './fixtures';
 import { untilHydrated } from './hydration';
 
 // AECI-1839: with `<base href="/">` a bare `href="#main"` resolved to `/#main`, so the skip

@@ -10,7 +10,7 @@
  * is in `src/design-tokens.guard.spec.ts`. Paths are `baseURL`-relative: never
  * hardcode a port.
  */
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './fixtures';
 
 const PATHS = [
   '/',

@@ -28,7 +28,7 @@
  * `./base-url`; never write a `localhost:8788` literal (AECI-1449).
  */
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 import { untilHydrated } from './hydration';
 import { expectNoSidewaysScroll } from './no-sideways-scroll';

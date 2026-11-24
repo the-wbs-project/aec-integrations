@@ -21,7 +21,7 @@
  * `page.route` (the API Worker auth-enforces them for real).
  */
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type BrowserContext, type Page } from '@playwright/test';
+import { expect, test, type BrowserContext, type Page } from './fixtures';
 import { E2E_BASE_URL as BASE_URL } from './base-url';
 
 const WCAG_AA_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];

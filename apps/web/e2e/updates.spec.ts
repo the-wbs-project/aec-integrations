@@ -11,7 +11,7 @@
  * states are covered hermetically in `updates.component.spec.ts`.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 import {
   attachConsoleCapture,

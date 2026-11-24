@@ -16,7 +16,7 @@
  * self-skips when the dev DB has not seeded `fixture-procore`, so the file
  * stays green pre-seed.
  */
-import { expect, request as playwrightRequest, test } from '@playwright/test';
+import { expect, request as playwrightRequest, test } from './fixtures';
 import { E2E_BASE_URL as BASE_URL } from './base-url';
 
 const PRODUCT_SLUG = 'fixture-procore';

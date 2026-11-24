@@ -22,7 +22,7 @@
  * present (seeded automatically by `dev:bound` -> `db:seed:local`).
  */
 import AxeBuilder from '@axe-core/playwright';
-import { expect, request as playwrightRequest, test } from '@playwright/test';
+import { expect, request as playwrightRequest, test } from './fixtures';
 import {
   attachConsoleCapture,
   expectConsoleClean,

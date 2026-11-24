@@ -19,7 +19,7 @@
  * operator's worklist — a queue that reads empty because it was drained by a
  * stranger is indistinguishable from one that was worked.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 const LIST_PATH = '/admin/reindex';
 

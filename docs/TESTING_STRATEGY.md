@@ -529,8 +529,12 @@ Four rules keep the suite cheap:
 
 ### 7.4 Pattern
 
+Import `test` from `./fixtures`, never from `@playwright/test`. The fixture carries the nightly
+axe sweep (§8.2), and `scripts/e2e-axe-sweep.test.mjs` fails a spec that skips it. Everything
+else `@playwright/test` exports comes through `./fixtures` unchanged.
+
 ```typescript
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test('user can search and find a product', async ({ page }) => {
   await page.goto('/');
@@ -766,11 +770,54 @@ real session, so its persistent load-status region is asserted in `account.compo
 
 **Phase 3.12 implementation (AECI-145).** `/search` axe coverage (zero WCAG-AA violations) ships in `apps/web/e2e/search.spec.ts` — against the graceful-degradation shell that renders in CI, where Algolia is absent. The `/products` listing + facet sidebar is covered by `products-index.spec.ts` (`tags wcag2a/2aa/21a/21aa`); the facet-interaction states add no new always-on surface beyond what those axe runs already scan.
 
+**The e2e axe sweep (AECI-1876, nightly only).** The list above is the scans someone wrote. Most of
+them measure a default render, which is how the post-submit states of AECI-829 went unseen. The sweep
+closes that gap. With the env flag `AECI_E2E_AXE=1`, every e2e test that uses the `page` fixture ends
+with one axe scan of the state it left the page in: after a submit, an open menu, a client navigation.
+
+- **The fixture.** Every spec in `apps/web/e2e/` imports `test` from `./fixtures`, not from
+  `@playwright/test`. `fixtures.ts` re-exports everything else unchanged and overrides `page`. With the
+  flag unset, the override hands the page through and does nothing else, so the PR e2e job is
+  unchanged. With it set, the override watches the console and runs `sweepAfterTest()` from
+  `e2e/axe-sweep.ts` after the test body. `scripts/e2e-axe-sweep.test.mjs` fails a spec that
+  imports `test` from `@playwright/test`, so a new spec cannot skip the sweep by accident.
+- **The flag.** Only the exact value `1` turns it on. `playwright.e2e-axe.config.ts` sets it, and
+  `pnpm test:e2e:axe` runs that config. The default `playwright.config.ts` and `deploy.yml` never
+  set it, and the same test pins that.
+- **Before the scan.** The sweep waits for the page's `load`, then for app stability
+  (`untilAppStable`, §14.3a), then for every `aria-busy="true"` region to clear, then for finite
+  animations and transitions to finish. A scan mid-fade reads a part-transparent colour and reports a
+  contrast failure no reader sees. A test that emulated forced colours gets the default back first:
+  the contrast rule does not apply under forced colours. Every other emulated setting stays.
+- **Hydration voids a scan.** An `NG0500` or `NG0602` logged during the test fails it. A page that
+  hydrated wrong is not the page a reader gets.
+- **Not scanned.** A test that failed or skipped already has its answer. A closed page, a page that
+  is not HTML (`/sitemap.xml`), and a test with JavaScript off are recorded as not scanned, with the
+  reason. axe runs as a script in the page, so it cannot run with JavaScript off. A test that never
+  asks for `page` (an API-only test using `request`) has nothing to scan.
+- **Opting out.** A test whose end state is not a page a reader can reach calls
+  `axeOptOut(reason)` in its body or a `beforeEach`. Examples: a stub page the test served itself, a
+  chunk it held back so the app never becomes stable. The reason is a literal string, and
+  `scripts/e2e-axe-sweep.test.mjs` lists every call in `OPT_OUTS`, so adding one shows in the diff.
+- **Excluded DOM.** Not ours to judge, as in the scans above: the dev-only concept switcher, the
+  Turnstile iframe, and 1Password's injected nodes (`EXCLUDED_DOM` in `axe-sweep.ts`).
+- **Known failures.** A violation we cannot fix yet goes in `e2e/axe-known-failures.ts`, by rule and
+  page path, with its Linear issue. It is the sweep's form of `knownFailure()` (§8.4), keyed by page
+  because one cause often ends many tests on one page. A listed violation does not fail the test, and
+  the test carries the `known-failure` annotation. A test that ends on a listed page where the rule now
+  passes fails, so the entry comes off. `scripts/a11y-known-failures.test.mjs` requires a literal
+  `'AECI-<n>'` on every entry.
+- **What it found on landing (2026-11-24).** Two gate failures, both on dev-only pages, both filed
+  under AECI-1069 and listed: AECI-2059 (`/_demo/spartan`, `aria-prohibited-attr` on the demo dialog
+  host, 20 tests) and AECI-2060 (`/preview/vendor-detail`, tertiary text on Bone, 3 tests).
+
 ### 8.3 Severity threshold
 
 Block PR merge on any `serious` or `critical` violations. Warn (but don't block) on `moderate`. Ignore `minor`.
 
 The Phase 2 success-path suite (AECI-65, above) is stricter: it asserts **zero violations at WCAG-AA** (tags `wcag2a` / `wcag2aa` / `wcag21a` / `wcag21aa`) on every page type — any such violation fails the run. Those tags do not include WCAG 2.2. The one 2.2 rule gated today is `target-size`, on the product-detail `#integrations` section at 1280px and 375px (AECI-1079). See `ACCESSIBILITY_AUDIT.md` §6.
+
+The nightly e2e axe sweep (§8.2, AECI-1876) gates on the same four tags: any violation fails the test, whatever its impact. It runs one axe pass with three more tags on top, `wcag22aa`, `best-practice` and `experimental`. A rule with none of the four gate tags is **report only**. So is any rule tagged `experimental`, because the gate tags alone never turn experimental rules on. Report-only findings go to the run summary, grouped by rule, and never fail the run. `target-size` on the product-detail `#integrations` section is dropped from the report, because AECI-1079 already gates it there.
 
 Some violations are unfixable in third-party code; maintain an explicit allowlist with documented reason for each.
 
@@ -820,8 +867,8 @@ AECI-1682 will read it for the dated record.
 | `generatedAt`, `commitSha`, `trigger`, `runUrl` | When, which commit, `nightly` or `manual`, and the Actions run |
 | `status` | Playwright's overall result |
 | `totals` | `passed`, `failed`, `skipped`, `expectedFailures` |
-| `tests[]` | `title`, `surfaceId`, `route`, `outcome`, and `knownFailure` (the issue ID or `null`) |
-| `axe.violationsByImpact` | `null` until AECI-1876 adds the axe sweep |
+| `tests[]` | `title`, `surfaceId`, `route`, `file`, `outcome`, `knownFailure` (the issue ID or `null`), and `axe` (the sweep's verdict or `null`) |
+| `axe` | The e2e axe sweep's results, or `null` for a run with no sweep. See §8.4.2 |
 
 **Adding a check.** Write a new spec in `e2e-a11y/` that loops over `SURFACES`. Add the
 `surface` and `route` annotations to each test, as `surfaces.spec.ts` does, so the summary can name the
@@ -916,6 +963,38 @@ Two places are Chromium-only. Chromium makes a scroll container with no focusabl
 its own. `candidateTabStops` predicts that by default, and `keyboardFocusableScrollers: false` turns it off
 for another engine. Safari on macOS skips links on Tab unless "Press Tab to highlight each item" is on, so
 check how Playwright's WebKit build behaves before trusting a WebKit walk.
+
+#### 8.4.2 The e2e axe sweep lane (AECI-1876)
+
+The nightly runs a second Playwright lane next to `e2e-a11y/`: the whole e2e suite with the axe sweep
+on (§8.2). It runs from `apps/web/playwright.e2e-axe.config.ts`, the default config plus the flag and
+the reporters. CI splits it into four shards. Run it locally against `pnpm dev:agent`:
+
+```bash
+AECI_WEB_PORT=8790 PLAYWRIGHT_BASE_URL=http://localhost:8790 pnpm test:e2e:axe
+```
+
+Use the web port `dev:agent` printed in place of `8790`. A full local run took about 10 minutes with
+the default workers.
+
+Each lane writes its own summary with the same reporter: `a11y-nightly-summary.json` for `e2e-a11y/`
+and `a11y-e2e-axe-summary.json` for the sweep. The workflow's `report` job merges them into the one
+`a11y-nightly-summary.json` the alert reads (`scripts/a11y-nightly-merge-summary.mjs`). The merge
+adds `parts`, which names each lane file and whether it was found. A missing part makes the merged
+`status` `failed`. A test row names its spec in `file`. Without a `route` annotation, `route` is the
+path the sweep scanned.
+
+| `axe` field | Meaning |
+|---|---|
+| `violationsByImpact` | Gate violations, one per test and rule, by impact. Known failures count |
+| `scans` | `scanned`, `optedOut`, `notScanned` |
+| `optOuts[]` | `title` and `reason` of each opted-out test |
+| `gate` | The gate tags, and the rules that failed a test: `id`, `impact`, `help`, `helpUrl`, `tests`, `nodes`, `paths` (up to 10) |
+| `knownFailures[]` | `issue`, `rule`, and `tests`, from `e2e/axe-known-failures.ts` |
+| `reportOnly` | The report-only tags, and their findings grouped by rule, in the same shape as `gate` |
+
+The merge also writes the totals, the gate rules, the known failures and the report-only rules to
+the run's job summary. A known failure in the sweep passes, so it is not in `totals.expectedFailures`.
 
 ---
 

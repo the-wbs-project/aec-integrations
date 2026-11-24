@@ -8,7 +8,7 @@
  * the Stage 1 `mailto:` contact path, the footer link in, and a clean axe pass.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 import {
   attachConsoleCapture,

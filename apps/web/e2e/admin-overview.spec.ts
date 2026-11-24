@@ -25,7 +25,7 @@
  *     401 redirects to `/auth/login` instead, AECI-954).
  *     Same posture the AECI-203 / AECI-205 admin specs already document.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 const OVERVIEW_PATH = '/admin/overview';
 const ADMIN_ROOT = '/admin';

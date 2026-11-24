@@ -25,7 +25,7 @@
  * `PLAYWRIGHT_BASE_URL`), never a hardcoded 8788.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 import { mintSessionCookies } from './auth-session';
 

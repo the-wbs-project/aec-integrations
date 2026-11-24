@@ -30,7 +30,7 @@
 import { gunzipSync } from 'node:zlib';
 
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page, type Request } from '@playwright/test';
+import { expect, test, type Page, type Request } from './fixtures';
 
 import { untilHydrated } from './hydration';
 

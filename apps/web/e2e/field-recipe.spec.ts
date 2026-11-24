@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './fixtures';
 import { untilHydrated } from './hydration';
 
 // AECI-1764: the shared form-control recipe, asserted through computed style on a

@@ -21,7 +21,7 @@
  *     default-prevented on every later click once it took an early one, so
  *     `SectionNav` keeps its listener on the host (`section-nav.ts`).
  */
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 import {
   attachConsoleCapture,

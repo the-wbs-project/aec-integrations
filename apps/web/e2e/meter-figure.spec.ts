@@ -13,7 +13,7 @@
  * decorative and `labelledBy` meters, and the figure's printed text.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './fixtures';
 import { expectNoSidewaysScroll } from './no-sideways-scroll';
 
 const FOREST = 'rgb(30, 58, 47)';

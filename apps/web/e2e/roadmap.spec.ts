@@ -4,7 +4,7 @@
  * signup takes its white ground, as on the product and vendor pages.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 import { expectNoSidewaysScroll } from './no-sideways-scroll';
 

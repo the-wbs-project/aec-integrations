@@ -143,6 +143,27 @@ test('only failed tests are listed, and the title names their surfaces', () => {
   assert.ok(failingTable(s.failing).includes('Vendor \\| index'));
 });
 
+test('an e2e sweep test has no surface, so its spec file names it', () => {
+  const s = loadSummary(
+    writeSummary('sweep', {
+      ...SUMMARY,
+      tests: [
+        {
+          title: 'home > renders',
+          surfaceId: null,
+          route: '/',
+          file: 'e2e/home.spec.ts',
+          outcome: 'failed',
+          knownFailure: null,
+          axe: 'scanned',
+        },
+      ],
+    }),
+  );
+  assert.equal(issueTitle(s), 'Accessibility nightly failed on main: e2e/home.spec.ts');
+  assert.ok(failingTable(s.failing).includes('| `e2e/home.spec.ts` | `/` | home > renders |'));
+});
+
 test('a missing or unreadable summary is still an alert, with a reason', () => {
   const missing = loadSummary(join(dir, 'nope.json'));
   assert.equal(missing.found, false);

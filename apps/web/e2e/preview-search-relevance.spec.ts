@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 // AECI-286. The `/preview/search-relevance` lab (preview routes are 404'd on the
 // public tiers — zero user-facing risk) ranks curated AEC fixtures under the

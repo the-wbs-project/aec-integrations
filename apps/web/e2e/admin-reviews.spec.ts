@@ -15,7 +15,7 @@
  * `review-queue.component.spec.ts`; the live axe pass is a dev-time check (see
  * the AECI-205 plan). This matches the AECI-203 precedent for the admin shell.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 const ADMIN_REVIEWS_PATH = '/admin/reviews';
 

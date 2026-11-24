@@ -17,12 +17,7 @@
  * `geo;desc="eu"`, because `wrangler dev` fills `request.cf` from the machine's real
  * location and a held region rightly sends nothing.
  */
-import {
-  expect,
-  request as playwrightRequest,
-  test,
-  type APIRequestContext,
-} from '@playwright/test';
+import { expect, request as playwrightRequest, test, type APIRequestContext } from './fixtures';
 
 import { E2E_BASE_URL, E2E_WEB_PORT } from './base-url';
 

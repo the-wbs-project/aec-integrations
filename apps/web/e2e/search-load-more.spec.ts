@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './fixtures';
 
 import { routeFakeAlgolia } from './fake-algolia';
 import { untilHydrated } from './hydration';

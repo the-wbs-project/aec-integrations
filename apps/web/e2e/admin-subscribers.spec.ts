@@ -20,7 +20,7 @@
  * addresses people gave to the operator. A cached response here would put the
  * whole mailing list in a shared cache.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 const ADMIN_SUBSCRIBERS_PATH = '/admin/subscribers';
 

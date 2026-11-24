@@ -19,7 +19,7 @@
  * leak, and this route is the first admin surface to render aggregate figures
  * that would be worth leaking.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 const ADMIN_TRAFFIC_PATH = '/admin/traffic';
 

@@ -13,7 +13,7 @@
  *  - The same for "Integrations it powers" on a connector with more than 20 pairs.
  *  - Every pair link of both lists is in the raw server HTML.
  */
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Page } from './fixtures';
 
 import { untilHydrated } from './hydration';
 import { expectNoSidewaysScroll } from './no-sideways-scroll';

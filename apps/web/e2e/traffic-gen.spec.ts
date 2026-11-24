@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 /**
  * AECI-66 / Phase 2.20 — telemetry metric verification traffic generator.

@@ -21,7 +21,7 @@
  * tags at all — the reason the connector tables still need none
  * (`CACHE_STRATEGY.md` §4).
  */
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 const LIST_PATH = '/admin/connectors';
 const DETAIL_PATH = '/admin/connectors/fx-cat-mindcloud';

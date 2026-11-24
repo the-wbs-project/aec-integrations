@@ -18,7 +18,7 @@
  * when the fixture is not seeded, like `product-reviews.spec.ts`.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 const SLUG = 'dynamo-for-revit';
 const PATH = `/products/${SLUG}`;

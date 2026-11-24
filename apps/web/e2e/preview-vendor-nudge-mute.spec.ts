@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 /**
  * AECI-1204 — the daily reminder email switch on the vendor Messages page, driven

@@ -22,7 +22,7 @@
  *
  * Paths are `baseURL`-relative: never hardcode a port.
  */
-import { expect, test, type Browser, type Page } from '@playwright/test';
+import { expect, test, type Browser, type Page } from './fixtures';
 
 const STYLESHEET = /\/styles-[^/]+\.css(?:\?|$)/;
 

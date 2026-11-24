@@ -7,7 +7,7 @@
  * Paths are `baseURL`-relative: never hardcode a port.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 import { untilHydrated } from './hydration';
 

@@ -10,7 +10,7 @@
  * `/legal/*` 404s with NOT_FOUND_TTL + `Cache-Tag: route:404`.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './fixtures';
 
 import {
   attachConsoleCapture,

@@ -13,7 +13,7 @@
  * removal of either, and every "Loading products…" line added, until the page
  * has settled. A removal and re-insert of the same node still counts.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 import { untilHydrated } from './hydration';
 

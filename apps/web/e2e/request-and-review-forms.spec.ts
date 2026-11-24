@@ -17,7 +17,7 @@
  * uses, and the seed product.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type BrowserContext, type Page } from '@playwright/test';
+import { expect, test, type BrowserContext, type Page } from './fixtures';
 
 import { expectNoSidewaysScroll } from './no-sideways-scroll';
 

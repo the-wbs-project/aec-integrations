@@ -1,10 +1,19 @@
 # AEC Integrations — the accessibility nightly (AECI-1875, epic AECI-1874).
 #
-# WHAT. Runs the Playwright suite in apps/web/e2e-a11y/ (config
-#   apps/web/playwright.a11y-nightly.config.ts) against a local dev:bound, once a
-#   night. It is separate from the PR e2e job in deploy.yml, which never sees
-#   e2e-a11y/. Every surface in apps/web/e2e-a11y/surfaces.ts is visited. The
-#   checks come from the AECI-1874 sub-issues. docs/TESTING_STRATEGY.md §8.4.
+# WHAT. Two Playwright lanes against a local dev:bound, once a night. Both are
+#   separate from the PR e2e job in deploy.yml.
+#   1. `suite`: the suite in apps/web/e2e-a11y/ (config
+#      apps/web/playwright.a11y-nightly.config.ts). Every surface in
+#      apps/web/e2e-a11y/surfaces.ts is visited. The checks come from the
+#      AECI-1874 sub-issues. docs/TESTING_STRATEGY.md §8.4.
+#   2. `e2e-axe` (AECI-1876): the whole e2e suite with the axe sweep on (config
+#      apps/web/playwright.e2e-axe.config.ts, flag AECI_E2E_AXE=1), in
+#      E2E_AXE_SHARDS shards. Every test that uses `page` ends with an axe scan.
+#      WCAG 2.0/2.1 A and AA fail the test. wcag22aa, best-practice and
+#      experimental are report only. docs/TESTING_STRATEGY.md §8.2 and §8.3.
+#   `report` merges the lanes' summaries into one a11y-nightly-summary.json
+#   (scripts/a11y-nightly-merge-summary.mjs), writes the axe findings by rule to
+#   the job summary, and posts the commit status.
 #
 # TRIGGERS.
 #   1. schedule, 05:40 UTC daily. Runs against main HEAD. Skips when that commit
@@ -17,9 +26,10 @@
 #      skips, never alerts.
 #
 # THE RESULT LIVES ON THE COMMIT. Each run posts a commit status, context
-#   `a11y-nightly`: `pending` first, then `success`, `failure`, or `error` when
-#   cancelled. The description ends `(nightly)` or `(manual)`. Same rule as
-#   lighthouse.yml. Only statuses posted by github-actions[bot] count.
+#   `a11y-nightly`: `pending` first (from `suite`), then `success`, `failure`,
+#   or `error` when cancelled (from `report`, over both lanes). The description
+#   ends `(nightly)` or `(manual)`. Same rule as lighthouse.yml. Only statuses
+#   posted by github-actions[bot] count.
 #
 # ALERT. On a SCHEDULED run only, the `alert` job runs scripts/a11y-nightly-alert.mjs:
 #   - red run: comment on the open Linear issue labelled `a11y-nightly-regression`,
@@ -59,6 +69,9 @@ env:
   NODE_VERSION: '24'
   PNPM_VERSION: '10.33.0'
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  # The `e2e-axe` matrix must list exactly 1..E2E_AXE_SHARDS, and the job name
+  # must say /N. scripts/a11y-nightly-workflow.test.mjs checks both.
+  E2E_AXE_SHARDS: '4'
 
 jobs:
   # ===========================================================================
@@ -133,7 +146,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
   # ===========================================================================
-  # Run the suite, then record the result on the commit
+  # The e2e-a11y suite. It posts the `pending` status; `report` posts the result.
   # ===========================================================================
   suite:
     name: Accessibility nightly suite
@@ -156,9 +169,9 @@ jobs:
           # This job's token can write commit statuses. Do not leave it in
           # .git/config, where `pnpm install` scripts could read it.
           persist-credentials: false
-      # `pending` first, so a run that dies before the last step leaves a
+      # `pending` first, so a run that dies before `report` posts leaves a
       # non-terminal status, which the nightly skip treats as "not run".
-      # GH_TOKEN reaches the two status steps only, never the whole job.
+      # GH_TOKEN reaches this step only, never the whole job.
       - name: Mark the a11y-nightly status pending
         continue-on-error: true
         env:
@@ -235,12 +248,12 @@ jobs:
             echo "::warning::SUPABASE_VENDOR_TEST_USER_EMAIL/PASSWORD not set. The vendor surfaces will skip."
           fi
           pnpm test:a11y:nightly
-      # The alert job reads the summary. AECI-1682 will read it for the dated record.
+      # `report` merges this with the e2e-axe shards' summaries.
       - name: Keep the test summary
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v6
         with:
-          name: a11y-nightly-summary
+          name: a11y-nightly-summary-suite
           path: apps/web/a11y-nightly-summary.json
           if-no-files-found: warn
           retention-days: 30
@@ -255,16 +268,192 @@ jobs:
       - name: dev:bound logs on failure
         if: failure()
         run: tail -200 dev-bound.log || true
-      # Runs on success, failure and cancellation, so every finished run leaves
-      # a terminal status. A cancelled run posts `error`, which the nightly skip
-      # does not treat as a result. A failure here turns the job red.
+  # ===========================================================================
+  # The e2e suite with the axe sweep on (AECI-1876), in shards
+  # ===========================================================================
+  # The same tests as the PR e2e job, run from playwright.e2e-axe.config.ts,
+  # which sets AECI_E2E_AXE=1. Each test that uses `page` ends with an axe scan.
+  # Same shape as deploy.yml's e2e-shard: every shard builds, boots its own
+  # dev:bound and local D1, and runs its slice. No status token here.
+  e2e-axe:
+    name: E2E with the axe sweep (shard ${{ matrix.shard }}/4)
+    needs: resolve
+    if: needs.resolve.outputs.measure == 'true'
+    runs-on: ubuntu-26.04
+    strategy:
+      # Every shard's findings land, even when one is red.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    # About 3 minutes of setup plus the tests. docs/CICD_PLAN.md §11a-quater has
+    # the measured time. A shard past 30 minutes is stuck, not slow.
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          persist-credentials: false
+      - name: Install pnpm
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @aeci/web build
+      - uses: actions/cache@v5
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ env.ImageOS }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Drop flaky Google Chrome apt source
+        run: sudo rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google-chrome.sources
+      - if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm --filter @aeci/web exec playwright install --with-deps chromium
+      - if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm --filter @aeci/web exec playwright install-deps chromium
+      - name: Write the .dev.vars files for `pnpm dev:bound`
+        env:
+          SUPABASE_ANON_KEY_VALUE: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          printf 'SUPABASE_URL="https://ktuhnlypztujpsseujzx.supabase.co"\n' > apps/api/.dev.vars
+          if [ -n "$SUPABASE_ANON_KEY_VALUE" ]; then
+            printf 'SUPABASE_URL="https://ktuhnlypztujpsseujzx.supabase.co"\nSUPABASE_ANON_KEY="%s"\n' "$SUPABASE_ANON_KEY_VALUE" > apps/web/.dev.vars
+          else
+            echo "::warning::SUPABASE_ANON_KEY not set. The signed-in e2e specs will skip."
+          fi
+      - name: Boot dev:bound (API + SSR) and wait for /api/health
+        run: |
+          nohup pnpm dev:bound > dev-bound.log 2>&1 &
+          for i in $(seq 1 90); do
+            if curl -fsS -o /dev/null --max-time 2 http://localhost:8788/api/health; then
+              echo "dev:bound healthy after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::dev:bound did not become healthy on :8788 within 90s"; tail -200 dev-bound.log; exit 1
+      # The same secrets as the PR e2e job. Unset, the signed-in specs skip green.
+      - name: E2E with the axe sweep (Playwright)
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:8788
+          SHARD: ${{ matrix.shard }}
+          A11Y_COMMIT_SHA: ${{ needs.resolve.outputs.sha }}
+          A11Y_TRIGGER: ${{ needs.resolve.outputs.trigger }}
+          SUPABASE_URL: https://ktuhnlypztujpsseujzx.supabase.co
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_TEST_USER_EMAIL: ${{ secrets.SUPABASE_TEST_USER_EMAIL }}
+          SUPABASE_TEST_USER_PASSWORD: ${{ secrets.SUPABASE_TEST_USER_PASSWORD }}
+          SUPABASE_VENDOR_TEST_USER_EMAIL: ${{ secrets.SUPABASE_VENDOR_TEST_USER_EMAIL }}
+          SUPABASE_VENDOR_TEST_USER_PASSWORD: ${{ secrets.SUPABASE_VENDOR_TEST_USER_PASSWORD }}
+        run: pnpm --filter @aeci/web exec playwright test -c playwright.e2e-axe.config.ts --shard="$SHARD/$E2E_AXE_SHARDS"
+      - name: Keep the test summary
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: a11y-nightly-summary-e2e-axe-${{ matrix.shard }}
+          path: apps/web/a11y-e2e-axe-summary.json
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Keep the Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: playwright-report-e2e-axe-${{ matrix.shard }}
+          path: apps/web/playwright-report-e2e-axe
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: dev:bound logs on failure
+        if: failure()
+        run: tail -200 dev-bound.log || true
+
+  # ===========================================================================
+  # Merge the summaries, then record the result on the commit
+  # ===========================================================================
+  # Runs on success, failure and cancellation, so every measured run leaves a
+  # terminal status. It holds a statuses:write token, so it runs no
+  # `pnpm install`: the merge script has no dependencies. Only the status step
+  # gets the token, as GH_TOKEN. Checkout, setup-node and download are pinned to
+  # the same full SHAs as in `alert`.
+  report:
+    name: Merge the summaries and record the result
+    needs: [resolve, suite, e2e-axe]
+    if: ${{ always() && needs.resolve.outputs.measure == 'true' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      statuses: write
+    outputs:
+      outcome: ${{ steps.outcome.outputs.outcome }}
+    env:
+      MEASURED_SHA: ${{ needs.resolve.outputs.sha }}
+      TRIGGER: ${{ needs.resolve.outputs.trigger }}
+      REPO: ${{ github.repository }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      # Decided first, from the lanes' results alone, so a failed merge or a
+      # failed status post cannot change what the alert reports.
+      - name: Decide the run's outcome
+        id: outcome
+        env:
+          SUITE_RESULT: ${{ needs.suite.result }}
+          E2E_AXE_RESULT: ${{ needs.e2e-axe.result }}
+        run: |
+          set -euo pipefail
+          case "$SUITE_RESULT/$E2E_AXE_RESULT" in
+            success/success) outcome=success ;;
+            cancelled/* | */cancelled) outcome=cancelled ;;
+            failure/* | */failure) outcome=failure ;;
+            *) outcome=cancelled ;;
+          esac
+          echo "suite=$SUITE_RESULT e2e-axe=$E2E_AXE_RESULT outcome=$outcome"
+          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+      # One folder per artifact, so the shards' same-named files do not collide.
+      - name: Fetch the lane summaries
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: a11y-nightly-summary-*
+          path: a11y-parts
+      # Every expected part is named, so a lane that wrote nothing shows as missing.
+      - name: Merge into a11y-nightly-summary.json
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          parts=(a11y-parts/a11y-nightly-summary-suite/a11y-nightly-summary.json)
+          for n in $(seq 1 "$E2E_AXE_SHARDS"); do
+            parts+=("a11y-parts/a11y-nightly-summary-e2e-axe-$n/a11y-e2e-axe-summary.json")
+          done
+          node scripts/a11y-nightly-merge-summary.mjs --out=a11y-nightly-summary.json \
+            --markdown="$GITHUB_STEP_SUMMARY" "${parts[@]}"
+      # The alert job reads this. AECI-1682 will read it for the dated record.
+      - name: Keep the merged summary
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: a11y-nightly-summary
+          path: a11y-nightly-summary.json
+          if-no-files-found: warn
+          retention-days: 30
+      # A cancelled run posts `error`, which the nightly skip does not treat as
+      # a result. A failure here turns the job red.
       - name: Record the a11y-nightly status on the commit
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
-          JOB_STATUS: ${{ job.status }}
+          OUTCOME: ${{ steps.outcome.outputs.outcome }}
         run: |
-          case "$JOB_STATUS" in
+          case "$OUTCOME" in
             success) state=success; description="Accessibility nightly passed ($TRIGGER)" ;;
             failure)
               state=failure
@@ -289,21 +478,21 @@ jobs:
   # Alert a human (scheduled runs only)
   # ===========================================================================
   # Not on workflow_dispatch: someone is already watching. Not on the skip path:
-  # `suite` is skipped then, which matches neither result below.
+  # `report` is skipped then, so its outcome matches neither result below.
   alert:
     name: Alert on the nightly result
-    needs: [resolve, suite]
+    needs: [resolve, report]
     if: >-
       ${{ !cancelled() && github.event_name == 'schedule' &&
       needs.resolve.outputs.measure == 'true' &&
-      (needs.suite.result == 'failure' || needs.suite.result == 'success') }}
+      (needs.report.outputs.outcome == 'failure' || needs.report.outputs.outcome == 'success') }}
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       contents: read
     env:
       MEASURED_SHA: ${{ needs.resolve.outputs.sha }}
-      OUTCOME: ${{ needs.suite.result }}
+      OUTCOME: ${{ needs.report.outputs.outcome }}
     steps:
       # Pinned to full commit SHAs, the same ones as lighthouse.yml: this job
       # holds a write-capable Linear key, so a moved tag must not swap the code
@@ -321,7 +510,7 @@ jobs:
       # Missing on a run that failed before the reporter wrote it. The script
       # then files the alert with "no test summary, see the run log".
       - name: Fetch the test summary
-        if: needs.suite.result == 'failure'
+        if: needs.report.outputs.outcome == 'failure'
         continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -341,10 +530,10 @@ jobs:
   # next scheduled run tests the same commit again and retries the alert.
   confirm-alert:
     name: Mark the nightly failure as alerted
-    needs: [resolve, suite, alert]
+    needs: [resolve, report, alert]
     if: >-
       ${{ !cancelled() && github.event_name == 'schedule' &&
-      needs.suite.result == 'failure' && needs.alert.result == 'success' }}
+      needs.report.outputs.outcome == 'failure' && needs.alert.result == 'success' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:

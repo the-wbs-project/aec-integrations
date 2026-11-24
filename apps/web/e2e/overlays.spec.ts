@@ -7,7 +7,7 @@
  * open. Paths are `baseURL`-relative: never hardcode a port.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { type Locator, type Page, expect, test } from '@playwright/test';
+import { type Locator, type Page, expect, test } from './fixtures';
 
 import { waitForHydrationSettle } from './console-capture';
 import { untilHydrated } from './hydration';

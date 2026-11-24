@@ -16,7 +16,7 @@
  *
  * Paths are `baseURL`-relative: never hardcode a port.
  */
-import { expect, test, type Browser } from '@playwright/test';
+import { expect, test, type Browser } from './fixtures';
 
 const FONT_FILE = /\.woff2(?:\?|$)/;
 

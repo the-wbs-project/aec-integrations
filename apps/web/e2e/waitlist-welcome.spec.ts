@@ -10,7 +10,7 @@
  * `waitlist-welcome.component.spec.ts` (hidden when the service says no).
  */
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 import { waitForHydrationSettle } from './console-capture';
 

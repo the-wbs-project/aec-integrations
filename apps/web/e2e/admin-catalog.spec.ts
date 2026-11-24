@@ -19,7 +19,7 @@
  * requirement: a cached admin response would serve one operator's view to the
  * next visitor on that URL.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 const ADMIN_CATALOG_PATH = '/admin/catalog';
 

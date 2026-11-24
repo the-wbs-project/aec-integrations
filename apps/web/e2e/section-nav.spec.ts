@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './fixtures';
 import { expectNoSidewaysScroll } from './no-sideways-scroll';
 
 import { untilHydrated } from './hydration';
