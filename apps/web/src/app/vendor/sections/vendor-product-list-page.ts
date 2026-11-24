@@ -78,7 +78,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
               <li>
                 <a
                   [routerLink]="[p.slug]"
-                  class="group/row flex min-h-16 items-center gap-4 px-4 py-3 text-(--text-primary)
+                  class="group/row flex min-h-16 flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 text-(--text-primary)
                     no-underline transition-colors hover:bg-(--surface-sunken) focus-visible:outline-3
                     focus-visible:-outline-offset-3 focus-visible:outline-(--accent-primary) sm:px-6"
                 >
@@ -88,7 +88,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
                     [name]="p.name"
                     size="sm"
                   />
-                  <span class="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+                  <span class="flex min-w-40 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
                     <span
                       class="min-w-0 font-semibold break-words group-hover/row:text-(--accent-primary)"
                       >{{ p.name }}</span
@@ -102,7 +102,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
                     row. The score waits on GET /api/vendor/checklist; until it lands
                     the column is empty rather than a guess.
                   -->
-                  <span class="flex shrink-0 items-center gap-3">
+                  <span class="ms-auto flex shrink-0 items-center gap-3">
                     @if (scores().get(p.id); as sc) {
                       <span
                         class="text-end text-t-12 text-(--text-secondary)"
