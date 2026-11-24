@@ -3,7 +3,8 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { HTTPS_URL_MAX_LENGTH, HttpsUrlSchema, isHttpsUrl } from './https-url';
+import { HttpsUrlSchema } from './https-url';
+import { HTTPS_URL_MAX_LENGTH, isHttpsUrl } from './https-url-rule';
 import {
   IntegrationLinkKindSchema,
   PairVendorLinksSchema,

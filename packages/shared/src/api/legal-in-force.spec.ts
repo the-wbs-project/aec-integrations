@@ -27,7 +27,7 @@ import {
   LEGAL_IN_FORCE_MAPS,
   type LegalInForceMaps,
 } from './legal-in-force';
-import { legalEffectiveAtMs } from './legal-versions';
+import { legalEffectiveAtMs } from './legal-moment';
 
 const DAY = '2027-03-31';
 const MOMENT = legalEffectiveAtMs(DAY);

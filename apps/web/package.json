@@ -21,6 +21,8 @@
     "legal:pdf": "node scripts/legal-pdf.mjs",
     "start": "ng serve",
     "build": "ng build",
+    "build:stats": "ng build --stats-json",
+    "check:zod-free-routes": "node scripts/check-zod-free-routes.mjs",
     "watch": "ng build --watch --configuration development",
     "serve:ssr": "node dist/server/server.mjs",
     "dev": "pnpm run build && wrangler dev --var COMMIT_SHA:$(git rev-parse HEAD) --var DEPLOYED_AT:$(date -u +%Y-%m-%dT%H:%M:%S.000Z)",

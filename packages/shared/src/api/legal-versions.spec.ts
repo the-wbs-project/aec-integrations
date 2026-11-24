@@ -7,10 +7,10 @@ import {
   hasForbiddenSummaryChar,
   legalDocumentAlwaysMaterial,
   legalDocumentMayBeExpedited,
-  legalEffectiveAtMs,
   legalPdfKey,
   legalVersionPagePath,
 } from './legal-versions';
+import { legalEffectiveAtMs } from './legal-moment';
 
 /** AECI-1688: the publish request the `/admin/legal` form sends. */
 describe('PublishLegalVersionRequestSchema', () => {

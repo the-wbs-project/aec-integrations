@@ -9354,7 +9354,8 @@ Ordered `accepted_at DESC, id DESC`, unpaginated. A vendor holds a handful of ro
 Billing tab shows a claim row's policy versions, and links a checkout or grant row's
 "Plans page {version}" to `/docs/vendors/plans/v<version>` (AECI-1619). **Never
 carries `ip` or `user_agent`.** Those are AECi's evidence, and only the admin read returns
-them. Source of truth: `packages/shared/src/api/agreements.ts`, handler
+them. Source of truth: `packages/shared/src/api/agreement-schemas.ts` (the Zod shapes; the
+version tables stay in the zod-free `agreements.ts`, AECI-2033), handler
 `apps/api/src/routes/vendor-billing-acceptances.ts`.
 
 Errors: `UNAUTHENTICATED` (401) · `FORBIDDEN` (403, the §6.14 guard cells, or a seat that

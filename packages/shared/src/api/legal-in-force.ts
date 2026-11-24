@@ -57,7 +57,7 @@ import {
   type LegalPublishableDocument,
   type LegalReaderDocument,
 } from './agreements';
-import { legalEffectiveAtMs } from './legal-versions';
+import { legalEffectiveAtMs } from './legal-moment';
 
 /** One `legal_versions` row as the rule reads it. `effectiveAt` is epoch ms. */
 export interface LegalPublishedLite {

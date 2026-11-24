@@ -4,9 +4,9 @@ import {
   CONTEST_VALUE_MAX_LENGTH,
   INTEGRATION_OFFERED_CONTEST_FIELDS,
   contestValueProblem,
-  isHttpUrl,
   type OfferedContestField,
 } from './integration-contests';
+import { isHttpUrl } from './https-url-rule';
 import { IntegrationMechanismKindSchema, type IntegrationMechanismKind } from './integrations';
 
 /**

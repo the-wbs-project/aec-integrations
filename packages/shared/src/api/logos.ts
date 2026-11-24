@@ -1,7 +1,8 @@
 import { z } from 'zod';
 
 import { AdminOverrideReasonSchema } from './admin-reason';
-import { HTTPS_URL_MAX_LENGTH, HttpsUrlSchema, isHttpsUrl } from './https-url';
+import { HttpsUrlSchema } from './https-url';
+import { HTTPS_URL_MAX_LENGTH, isHttpsUrl } from './https-url-rule';
 import { LogoPathSchema } from './logo-read';
 
 /**

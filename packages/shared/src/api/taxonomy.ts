@@ -3,8 +3,6 @@ import { z } from 'zod';
 import { LinkRefSchema } from './common';
 import { ProductListItemSchema } from './products';
 
-export { isPublishedTrade, TRADE_PUBLISH_MIN_PRODUCTS } from './trade-publish';
-
 /**
  * A taxonomy term (category / audience / phase / trade) with the counts of
  * products tagged with it and integrations reachable through those products.
@@ -17,7 +15,7 @@ export { isPublishedTrade, TRADE_PUBLISH_MIN_PRODUCTS } from './trade-publish';
  * required field would make every row written before this shipped fail
  * validation until the compute cron next rewrote it. Optional means the old
  * rows keep parsing and simply carry no integration count. Read it through
- * `taxonomyIntegrationCount()` below rather than `?? 0` at each call site.
+ * `taxonomyIntegrationCount()` (in `./taxonomy-count`) rather than `?? 0` at each call site.
  */
 export const TaxonomyTermWithCountSchema = LinkRefSchema.extend({
   description: z.string().nullable(),
@@ -29,19 +27,6 @@ export const TaxonomyTermWithCountSchema = LinkRefSchema.extend({
 export type TaxonomyTermWithCount = z.infer<typeof TaxonomyTermWithCountSchema>;
 
 /**
- * A term's integration count, or 0 when the payload predates the field.
- *
- * The one place the absent case is decided. Sorting a term list by integrations
- * (the taxonomy index toggle) needs a total order over a field that may be
- * missing, and treating "not carried" as 0 keeps such a term at the bottom of a
- * descending sort — the same place a genuinely unintegrated term lands, which is
- * the honest reading for a payload that never measured it.
- */
-export function taxonomyIntegrationCount(term: { integration_count?: number | undefined }): number {
-  return term.integration_count ?? 0;
-}
-
-/**
  * Full taxonomy fetch returned by `GET /api/taxonomy` — the lookup the SSR
  * Worker uses to render nav, footer, and the `/categories` flat list. All
  * four lists hydrate as `TaxonomyTermWithCount[]` so callers don't need a
@@ -49,7 +34,7 @@ export function taxonomyIntegrationCount(term: { integration_count?: number | un
  *
  * `trades` is the fourth facet (STAGE_1_SPEC.md §5.5a / AECI-541) and is **not
  * publication-gated here**: every term ships with its `product_count`,
- * including terms below the `TRADE_PUBLISH_MIN_PRODUCTS` floor exported above.
+ * including terms below the `TRADE_PUBLISH_MIN_PRODUCTS` floor (in `./trade-publish`).
  * Each surface applies the floor itself (`TRADES_VOCABULARY.md` §6) so the gate
  * is tunable without an API deploy.
  *

@@ -548,12 +548,13 @@ These live in `tsBase`, so they apply to `apps/api`, `apps/datatool`, and `packa
 
 ### Package-local guards
 
-Two rules are scoped to a single file rather than a tier, because the thing they protect is invisible at runtime.
+Three rules are scoped to named files rather than a tier, because the thing they protect is invisible at runtime.
 
 | Rule | Scope | Bans | Constraint |
 |---|---|---|---|
 | `no-restricted-imports` | `packages/shared/src/entitlements.ts` only (`packages/shared/eslint.config.mjs`) | `zod`, `zod/*`, and `./api/*` / `@aeci/shared/api*` | The capability registry ships in the lazy `/vendor` Angular route; one value import from an `api/*` module once dragged the whole schema set plus a 327 kB zod chunk into the initial graph (AECI-610 / `STAGE_2_PAID_TIERS_SPEC.md` §3.1, R11) |
 | `no-restricted-imports` | `packages/shared/src/version-diff.ts` only (same file) | same set | The version-diff engine ships in the lazy product-pair route **and** imports the capability registry, so it inherits the same obligation one hop further out; `api/product-pairs.ts` imports *from* it, so the dependency must stay one-way (AECI-304 / `STAGE_2_ATTESTATIONS_SPEC.md` §9.4) |
+| `no-restricted-imports` | the zod-free `api/*` modules in `ZOD_FREE_API_MODULES` (same file): `agreements.ts`, `https-url-rule.ts`, `legal-moment.ts`, `taxonomy-count.ts`, `trade-publish.ts` | `zod`, `zod/*`, every sibling `./*` except the other listed files, `../*`, `@aeci/shared*` | Public pages read these files. A schema module one import away keeps zod, and the page loads the 78 kB zod chunk while it hydrates (AECI-2033). `apps/web/scripts/check-zod-free-routes.mjs` checks the built routes |
 
 Two things about them generalize to any future file-scoped rule here:
 
