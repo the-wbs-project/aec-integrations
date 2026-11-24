@@ -1584,3 +1584,82 @@ describe('VendorDetail — provisioning a seat (AECI-740)', () => {
     expect(buttonByText(control as HTMLElement, 'Set entitlement')).toBeUndefined();
   });
 });
+
+describe('VendorDetail seat revoke focus (AECI-2112)', () => {
+  const OTHER_SEAT = '00000000-0000-4000-8000-000000000021';
+  const escape = (target: EventTarget) =>
+    target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  async function rerender(fixture: { detectChanges(): void }) {
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+  }
+  const reasonBox = (el: HTMLElement) =>
+    el.querySelector('textarea[id^="seat-revoke-reason-"]') as HTMLTextAreaElement;
+
+  it('Escape closes the confirm and returns focus to Remove seat', async () => {
+    const { el, fixture } = await setup(makeApiMock(makeVendor()));
+    buttonByText(el, 'Remove seat')!.click();
+    await rerender(fixture);
+    escape(reasonBox(el));
+    await rerender(fixture);
+    expect(reasonBox(el)).toBeNull();
+    expect(document.activeElement?.id).toBe(`seat-revoke-open-${SEAT_ID}`);
+  });
+
+  it('Escape does nothing while the revoke is in flight', async () => {
+    let resolve!: () => void;
+    const api = makeApiMock(makeVendor());
+    api.revokeSeat.mockReturnValue(new Promise<void>((r) => (resolve = r)));
+    const { el, fixture } = await setup(api);
+    buttonByText(el, 'Remove seat')!.click();
+    await rerender(fixture);
+    typeRevokeReason(el);
+    fixture.detectChanges();
+    buttonByText(el, 'Confirm removal')!.click();
+    await rerender(fixture);
+    escape(reasonBox(el));
+    await rerender(fixture);
+    expect(reasonBox(el)).not.toBeNull();
+    resolve();
+    await rerender(fixture);
+  });
+
+  it('after a removal, focus goes to the next seat, then to the Seats heading', async () => {
+    const { el, fixture } = await setup(
+      makeApiMock(
+        makeVendor({
+          seats: [makeSeat(), makeSeat({ user_id: OTHER_SEAT, display_name: 'Grace Hopper' })],
+        }),
+      ),
+    );
+    el.querySelector<HTMLButtonElement>(`#seat-revoke-open-${SEAT_ID}`)!.click();
+    await rerender(fixture);
+    typeRevokeReason(el);
+    fixture.detectChanges();
+    buttonByText(el, 'Confirm removal')!.click();
+    await rerender(fixture);
+    expect(document.activeElement?.id).toBe(`seat-revoke-open-${OTHER_SEAT}`);
+
+    el.querySelector<HTMLButtonElement>(`#seat-revoke-open-${OTHER_SEAT}`)!.click();
+    await rerender(fixture);
+    typeRevokeReason(el);
+    fixture.detectChanges();
+    buttonByText(el, 'Confirm removal')!.click();
+    await rerender(fixture);
+    expect(document.activeElement?.id).toBe('admin-vendor-seats');
+  });
+
+  it('a refused revoke moves focus to its message', async () => {
+    const api = makeApiMock(makeVendor());
+    api.revokeSeat.mockRejectedValueOnce({ status: 500 });
+    const { el, fixture } = await setup(api);
+    buttonByText(el, 'Remove seat')!.click();
+    await rerender(fixture);
+    typeRevokeReason(el);
+    fixture.detectChanges();
+    buttonByText(el, 'Confirm removal')!.click();
+    await rerender(fixture);
+    expect(document.activeElement?.id).toBe(`seat-revoke-failed-${SEAT_ID}`);
+  });
+});

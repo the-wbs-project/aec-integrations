@@ -34,9 +34,9 @@ import {
   VENDOR_FIELD_CLASS,
   VENDOR_FORM_CLASS,
   VENDOR_LOAD_FAILED_CLASS,
-  VENDOR_STANDALONE_LINK_CLASS,
   VENDOR_STATUS_LINE_CLASS,
 } from './vendor-console-classes';
+import { STANDALONE_LINK_CLASS } from '../../vendor/components/vendor-docs-link';
 
 /** Rows per fetch. The API caps a page at 100; a vendor owning more is told so. */
 export const INTEGRATIONS_PAGE_SIZE = 100;
@@ -90,7 +90,7 @@ export class VendorIntegrationsPanel {
   // AECI-2112: the console table recipe (mock-up 14) and the shared form classes.
   protected readonly t = CONSOLE_TABLE;
   protected readonly captionClass = CONSOLE_CAPTION_CLASS;
-  protected readonly linkClass = VENDOR_STANDALONE_LINK_CLASS;
+  protected readonly linkClass = STANDALONE_LINK_CLASS;
   protected readonly statusLineClass = VENDOR_STATUS_LINE_CLASS;
   protected readonly loadFailedClass = VENDOR_LOAD_FAILED_CLASS;
   protected readonly failedTextClass = VENDOR_FAILED_TEXT_CLASS;

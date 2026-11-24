@@ -222,14 +222,8 @@
   }
 
   <div [class]="actionsClass">
-    <!-- Hiding is the destructive confirm (the danger pattern); restoring puts it back. -->
-    <button
-      aecButton
-      compact
-      [variant]="mode() === 'hide' ? 'danger' : 'primary'"
-      type="submit"
-      [disabled]="pending()"
-    >
+    <!-- Primary, not danger: Restore undoes a hide (DESIGN.md §5 Buttons, ruled 2026-11-24). -->
+    <button aecButton compact type="submit" [disabled]="pending()">
       @if (mode() === 'hide') { @if (pending()) {
       <span i18n="@@admin.listingHide.action.hiding">Hiding…</span>
       } @else {

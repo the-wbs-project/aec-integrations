@@ -17,16 +17,6 @@ export const VENDOR_PANEL_CLASS = `relative ${CONSOLE_PANEL_CLASS}`;
 /** The stack of panels on a tab: 24px apart, under the tab row. */
 export const VENDOR_PANEL_STACK_CLASS = 'mt-6 grid gap-6';
 
-/**
- * The standalone-link role at 14px (`DESIGN.md` "The Link Treatment Rule"), for
- * "View page". It is `shared/view-public-link`'s recipe. That component's text is
- * "View public page", and the console's words are "View page", so the recipe is
- * named here once rather than copied per link. Swap it for the shared
- * `STANDALONE_LINK_CLASS` when that constant lands.
- */
-export const VENDOR_STANDALONE_LINK_CLASS =
-  'inline-flex min-h-11 items-center gap-2 rounded-mark text-t-14 font-semibold text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
-
 /** A link inside running text or a fact: the text's own ink, underlined. */
 export const VENDOR_INLINE_LINK_CLASS =
   'rounded-mark font-semibold text-(--text-primary) underline decoration-(--border-strong) underline-offset-4 hover:decoration-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';

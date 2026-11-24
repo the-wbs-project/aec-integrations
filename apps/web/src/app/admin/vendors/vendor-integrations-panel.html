@@ -92,7 +92,7 @@
               <aec-new-tab-icon />
             </a>
             } @if (!row.retired_at) {
-            <!-- The opener is a secondary button; the danger confirm is inside the form. -->
+            <!-- The opener is a secondary button. The confirm is primary: Restore undoes a retire. -->
             <button
               aecButton
               variant="secondary"
@@ -254,13 +254,7 @@
               </p>
               }
               <div [class]="actionsClass">
-                <button
-                  aecButton
-                  compact
-                  [variant]="formFor()!.mode === 'retire' ? 'danger' : 'primary'"
-                  type="submit"
-                  [disabled]="pending()"
-                >
+                <button aecButton compact type="submit" [disabled]="pending()">
                   @if (formFor()!.mode === 'retire') { @if (pending()) {
                   <span i18n="@@admin.vendors.integrations.retiring">Retiring…</span>
                   } @else {

@@ -216,8 +216,8 @@
   }
   <div [class]="c.actions">
     @if (confirming()) {
-    <!-- The danger confirm sits inside the form (the console's danger pattern). -->
-    <button #confirmButton aecButton variant="danger" compact type="submit" [disabled]="pending()">
+    <!-- Primary, not danger: Restore undoes a hide (DESIGN.md §5 Buttons, ruled 2026-11-24). -->
+    <button #confirmButton aecButton compact type="submit" [disabled]="pending()">
       @if (pending()) {
       <span i18n="@@admin.fieldHides.saving">Saving…</span>
       } @else {

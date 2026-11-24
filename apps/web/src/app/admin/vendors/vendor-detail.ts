@@ -85,9 +85,9 @@ import {
   VENDOR_LOAD_FAILED_CLASS,
   VENDOR_PANEL_CLASS,
   VENDOR_PANEL_STACK_CLASS,
-  VENDOR_STANDALONE_LINK_CLASS,
   VENDOR_STATUS_LINE_CLASS,
 } from './vendor-console-classes';
+import { STANDALONE_LINK_CLASS } from '../../vendor/components/vendor-docs-link';
 
 const AUDIT_PAGE_SIZE = 25;
 const PRODUCTS_PAGE_SIZE = 25;
@@ -216,7 +216,7 @@ export class VendorDetail {
   protected readonly captionClass = CONSOLE_CAPTION_CLASS;
   protected readonly factsClass = VENDOR_FACTS_CLASS;
   protected readonly factValueClass = VENDOR_FACT_VALUE_CLASS;
-  protected readonly standaloneLinkClass = VENDOR_STANDALONE_LINK_CLASS;
+  protected readonly standaloneLinkClass = STANDALONE_LINK_CLASS;
   protected readonly inlineLinkClass = VENDOR_INLINE_LINK_CLASS;
   protected readonly statusLineClass = VENDOR_STATUS_LINE_CLASS;
   protected readonly loadFailedClass = VENDOR_LOAD_FAILED_CLASS;
@@ -246,7 +246,12 @@ export class VendorDetail {
   private logoSavedPending = false;
 
   /** Called from the pencil's click handler only (NG0602: `open()` creates an effect). */
+  /** The dialog's editor is saving: its Close button waits, as Escape does inside
+   *  the editor (AECI-2112), so the save's confirmation is never dropped. */
+  protected readonly logoSaving = signal(false);
+
   protected openLogoDialog(): void {
+    this.logoSaving.set(false);
     this.logoDialogMessage.set('');
     this.logoSavedPending = false;
     this.logoDialog()?.open();

@@ -46,6 +46,7 @@ import {
   selector: 'aec-admin-logo-editor',
   imports: [AecButton, AecFormSubmit, LogoInput],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { '(keydown.escape)': 'onEscape($event)' },
   template: `
     <!-- AECI-2112: the console's form recipe (mock-up 14). The objection removal keeps
          its two steps: a secondary opener, then the Bone warning and the danger confirm. -->
@@ -267,6 +268,14 @@ export class AdminLogoEditor {
   readonly logoUrl = input<string | null>(null);
   readonly logoSaved = output<string | null>();
   readonly announce = output<string>();
+  /**
+   * Escape outside the objection step, while nothing is saving: the host closes the
+   * editor (the product row does; the vendor dialog closes on its own Escape).
+   */
+  readonly closeRequested = output<void>();
+  /** A save or an objection removal started or ended, so the host can hold its own
+   *  close paths while one is in flight (AECI-2112). */
+  readonly savingChange = output<boolean>();
   protected readonly draft = signal('');
   protected readonly saving = signal(false);
   protected readonly uploading = signal(false);
@@ -312,6 +321,16 @@ export class AdminLogoEditor {
   );
 
   constructor() {
+    // Skip the first, idle value: hosts start from "not saving".
+    let first = true;
+    effect(() => {
+      const saving = this.saving();
+      if (first) {
+        first = false;
+        return;
+      }
+      this.savingChange.emit(saving);
+    });
     effect(() => {
       const id = this.recordId();
       const value = this.logoUrl() ?? '';
@@ -425,6 +444,28 @@ export class AdminLogoEditor {
     this.objectionFailed.set(false);
     this.confirmingObjection.set(true);
     this.focusAfterRender(this.fieldId('objection-warning'));
+  }
+
+  /**
+   * Escape, from anywhere in the editor (AECI-2112).
+   * - While a save or a removal is in flight: nothing closes. The request still
+   *   commits and its `logoSaved` and announcement must reach the host, so the event
+   *   stops here and a host dialog never sees it either.
+   * - On the objection step: closes that step only, as its Cancel does.
+   * - Otherwise: asks the host to close the editor.
+   */
+  protected onEscape(event: Event): void {
+    if (this.saving()) {
+      event.stopPropagation();
+      event.preventDefault();
+      return;
+    }
+    if (this.confirmingObjection()) {
+      event.stopPropagation();
+      this.cancelObjection();
+      return;
+    }
+    this.closeRequested.emit();
   }
 
   /** Cancel closes the confirm and gives focus back to "Remove on objection". */

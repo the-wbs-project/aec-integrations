@@ -139,6 +139,7 @@
             variant="ghost"
             iconOnly
             brnDialogClose
+            [disabled]="logoSaving()"
             type="button"
             class="-me-3 -mt-2"
             i18n-aria-label="@@admin.logo.close"
@@ -153,6 +154,7 @@
             [recordId]="v.id"
             [logoUrl]="v.logo_url"
             (logoSaved)="onVendorLogoSaved($event)"
+            (savingChange)="logoSaving.set($event)"
             (announce)="logoDialogMessage.set($event)"
           />
         </div>

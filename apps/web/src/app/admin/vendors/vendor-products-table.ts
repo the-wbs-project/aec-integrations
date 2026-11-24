@@ -25,9 +25,9 @@ import { ListingHideForm, type ListingHideMode } from './listing-hide-form';
 import {
   VENDOR_FAILED_TEXT_CLASS,
   VENDOR_LOAD_FAILED_CLASS,
-  VENDOR_STANDALONE_LINK_CLASS,
   VENDOR_STATUS_LINE_CLASS,
 } from './vendor-console-classes';
+import { STANDALONE_LINK_CLASS } from '../../vendor/components/vendor-docs-link';
 
 /**
  * The Products tab on `/admin/vendors/:id` — the vendor's catalogue as a table
@@ -88,7 +88,7 @@ export class VendorProductsTable {
   // AECI-2112: the console table recipe (mock-up 14).
   protected readonly t = CONSOLE_TABLE;
   protected readonly captionClass = CONSOLE_CAPTION_CLASS;
-  protected readonly linkClass = VENDOR_STANDALONE_LINK_CLASS;
+  protected readonly linkClass = STANDALONE_LINK_CLASS;
   protected readonly statusLineClass = VENDOR_STATUS_LINE_CLASS;
   protected readonly loadFailedClass = VENDOR_LOAD_FAILED_CLASS;
   protected readonly failedTextClass = VENDOR_FAILED_TEXT_CLASS;
@@ -107,13 +107,29 @@ export class VendorProductsTable {
     return `product-logo-trigger-${row.id}`;
   }
 
+  /** The open editor is saving or removing a logo. Its close paths wait for it. */
+  protected readonly logoSaving = signal(false);
+
+  /**
+   * Edit logo opens the row's editor, or closes it. It never closes an editor whose
+   * save is in flight: the PATCH would still commit, but its `logoSaved` (the table
+   * reload) and its announcement would be lost with the editor (AECI-2112).
+   */
   protected toggleLogo(row: AdminVendorProductRow): void {
-    this.editingLogo.set(this.editingLogo() === row.id ? null : row.id);
+    if (this.editingLogo() === row.id) {
+      if (this.logoSaving()) return;
+      this.editingLogo.set(null);
+      return;
+    }
+    if (this.editingLogo() !== null && this.logoSaving()) return;
+    this.logoSaving.set(false);
+    this.editingLogo.set(row.id);
   }
 
-  /** Escape inside the editor closes it and gives focus back to Edit logo. */
+  /** The editor asked to close (Escape, never mid-save): close it and give focus
+   *  back to Edit logo. */
   protected closeLogo(row: AdminVendorProductRow): void {
-    if (this.editingLogo() !== row.id) return;
+    if (this.editingLogo() !== row.id || this.logoSaving()) return;
     this.editingLogo.set(null);
     afterNextRender(() => this.document.getElementById(this.logoTriggerId(row))?.focus(), {
       injector: this.injector,
