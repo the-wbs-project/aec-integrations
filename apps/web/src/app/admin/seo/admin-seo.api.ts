@@ -7,13 +7,18 @@
  * Worker's `requireAdmin()` decides who may read. Called only from
  * `afterNextRender` and user actions, never during SSR render.
  *
- * Both endpoints are reads. Neither writes an audit row or is rate limited.
+ * All three endpoints are reads. None writes an audit row or is rate limited.
  */
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
-import type { SeoQueueQuery, SeoQueueResponse, SeoTrendResponse } from '@aeci/shared';
+import type {
+  SeoFunnelResponse,
+  SeoQueueQuery,
+  SeoQueueResponse,
+  SeoTrendResponse,
+} from '@aeci/shared';
 
 @Injectable({ providedIn: 'root' })
 export class AdminSeoApi {
@@ -27,6 +32,12 @@ export class AdminSeoApi {
       if (value !== undefined) params = params.set(key, String(value));
     }
     return firstValueFrom(this.http.get<SeoQueueResponse>('/api/admin/seo/queue', { params }));
+  }
+
+  /** `GET /api/admin/seo/funnel`: each engine's funnel over the trailing 28 days
+   *  (Panel 3, AECI-823). Takes no parameters. */
+  funnel(): Promise<SeoFunnelResponse> {
+    return firstValueFrom(this.http.get<SeoFunnelResponse>('/api/admin/seo/funnel'));
   }
 
   /** `GET /api/admin/seo/trend?weeks=`: complete ISO weeks, newest first (Panel 2). */

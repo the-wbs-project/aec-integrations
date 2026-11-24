@@ -1,5 +1,6 @@
 import { Component, computed, signal } from '@angular/core';
 
+import { SeoFunnelPanel } from './seo-funnel-panel';
 import { SeoQueuePanel } from './seo-queue-panel';
 import { SeoTrendPanel } from './seo-trend-panel';
 
@@ -7,8 +8,8 @@ import { SeoTrendPanel } from './seo-trend-panel';
  * `/admin/seo`, the search console (AECI-822, `docs/ADMIN_PANEL_SPEC.md` §5.24).
  *
  * Panel 1, "Do this now", is the work list. Panel 2, "Am I keeping up?", is the
- * week-over-week record. Panel 3 belongs to AECI-823 and is absent until then,
- * not stubbed: a placeholder panel reads as broken.
+ * week-over-week record. Panel 3, "Is it working?", is each engine's search
+ * funnel (AECI-823).
  *
  * The gate and the nav SSR through `adminSummaryResolver` on the parent
  * `/admin` route, like every sibling screen. Each panel fetches its own endpoint
@@ -23,7 +24,7 @@ import { SeoTrendPanel } from './seo-trend-panel';
  */
 @Component({
   selector: 'aec-seo-page',
-  imports: [SeoQueuePanel, SeoTrendPanel],
+  imports: [SeoQueuePanel, SeoTrendPanel, SeoFunnelPanel],
   host: { class: 'aec-charts block' },
   template: `
     <section aria-labelledby="admin-seo-heading" class="space-y-12">
@@ -39,7 +40,8 @@ import { SeoTrendPanel } from './seo-trend-panel';
           class="mt-1 max-w-[62ch] text-sm text-pretty text-(--text-secondary)"
           i18n="@@admin.seo.subheading"
         >
-          SEO work that is undone, then whether the backlog is shrinking. All times UTC.
+          SEO work that is undone, then whether the backlog is shrinking, then whether crawling
+          turns into impressions and clicks. All times UTC unless a figure says Pacific.
         </p>
       </div>
 
@@ -55,6 +57,7 @@ import { SeoTrendPanel } from './seo-trend-panel';
 
       <aec-seo-queue-panel (announce)="announce($event)" />
       <aec-seo-trend-panel />
+      <aec-seo-funnel-panel />
     </section>
   `,
 })

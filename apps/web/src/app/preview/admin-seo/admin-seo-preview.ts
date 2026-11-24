@@ -3,6 +3,8 @@ import { Component, Injectable } from '@angular/core';
 import type {
   AdminNote,
   SeoEngine,
+  SeoFunnelEngine,
+  SeoFunnelResponse,
   SeoQueueItem,
   SeoQueueQuery,
   SeoQueueResponse,
@@ -11,6 +13,7 @@ import type {
 } from '@aeci/shared';
 
 import { AdminSeoApi } from '../../admin/seo/admin-seo.api';
+import { SeoFunnelPanel } from '../../admin/seo/seo-funnel-panel';
 import { SeoPage } from '../../admin/seo/seo-page';
 import { SeoQueuePanel } from '../../admin/seo/seo-queue-panel';
 import { SeoTrendPanel } from '../../admin/seo/seo-trend-panel';
@@ -27,6 +30,12 @@ import { SeoTrendPanel } from '../../admin/seo/seo-trend-panel';
  * published and an open cohort. Below it, a gallery renders the states one
  * screen cannot show at once: every lane empty, no public site address, and
  * each panel's failed load.
+ *
+ * Panel 3 (AECI-823) on the main screen is today's real shape: Google with all
+ * four stages, and Bing with its D1 stages only, because the Bing lane is off
+ * until AECI-2075. The gallery adds Google with no ingest data beside Bing with
+ * every stage it can have, and the funnel loading. Bing never has an
+ * "Impressed" stage or a position (§5.24.7).
  */
 const GENERATED = '2027-01-12T09:00:00.000Z';
 const BASE = 'https://www.aecintegrations.com';
@@ -149,6 +158,201 @@ class PreviewAdminSeoApi extends AdminSeoApi {
 
   override async trend(): Promise<SeoTrendResponse> {
     return { generated_at: GENERATED, weeks: TREND_WEEKS, notes: QUEUE_NOTES };
+  }
+
+  override async funnel(): Promise<SeoFunnelResponse> {
+    return funnelResponse(
+      [GOOGLE_FULL, BING_D1_ONLY],
+      [
+        ...FUNNEL_NOTES,
+        {
+          code: 'indexed_is_impression_lower_bound',
+          severity: 'info',
+          message: 'Google indexed is a lower bound.',
+        },
+        {
+          code: 'search_ingest_absent',
+          severity: 'info',
+          message: 'No bing ingest data.',
+          params: { engine: 'bing' },
+        },
+      ],
+    );
+  }
+}
+
+// ─── Panel 3 fakes (AECI-823) ────────────────────────────────────────────────
+
+const FUNNEL_DAY = '2027-01-11';
+const CATALOG = {
+  stage: 'catalog',
+  count: 1532,
+  rate: null,
+  measure: 'measured',
+  source: 'd1',
+} as const;
+
+const FUNNEL_NOTES: AdminNote[] = QUEUE_NOTES;
+
+const GOOGLE_WINDOW = {
+  from: '2026-12-08',
+  to: '2027-01-04',
+  timezone: 'America/Los_Angeles' as const,
+  days: 28,
+  days_recorded: 28,
+};
+
+const BASELINE_REFERENCE = {
+  clicks: 41,
+  impressions: 15900,
+  ctr: 0.0026,
+  position_avg: 31.9,
+  window_end: '2026-09-05',
+  window_months: 3,
+  taken_on: '2026-09-09',
+  impressions_rounded: true,
+};
+
+const GOOGLE_FULL: SeoFunnelEngine = {
+  engine: 'google',
+  scope: 'www_page',
+  search_window: GOOGLE_WINDOW,
+  stages: [
+    CATALOG,
+    { stage: 'crawled', count: 1064, rate: 0.6945, measure: 'measured', source: 'd1' },
+    {
+      stage: 'impressed',
+      count: 380,
+      rate: 0.248,
+      measure: 'lower_bound',
+      source: 'search_console',
+      as_of: GOOGLE_WINDOW.to,
+    },
+    {
+      stage: 'clicked',
+      count: 21,
+      rate: 0.0034,
+      measure: 'measured',
+      source: 'search_console',
+      impressions: 6240,
+      position_avg: 34.1,
+    },
+  ],
+  baseline: {
+    scope: 'property',
+    current: {
+      clicks: 23,
+      impressions: 6910,
+      ctr: 0.0033,
+      position_avg: 33.2,
+      window: GOOGLE_WINDOW,
+    },
+    reference: BASELINE_REFERENCE,
+  },
+};
+
+const BING_D1_ONLY: SeoFunnelEngine = {
+  engine: 'bing',
+  scope: 'www',
+  search_window: null,
+  stages: [
+    CATALOG,
+    { stage: 'crawled', count: 1418, rate: 0.9256, measure: 'measured', source: 'd1' },
+  ],
+  baseline: null,
+};
+
+const GOOGLE_D1_ONLY: SeoFunnelEngine = {
+  engine: 'google',
+  scope: 'www_page',
+  search_window: null,
+  stages: [
+    CATALOG,
+    { stage: 'crawled', count: 1064, rate: 0.6945, measure: 'measured', source: 'd1' },
+  ],
+  baseline: { scope: 'property', current: null, reference: BASELINE_REFERENCE },
+};
+
+const BING_WINDOW = { ...GOOGLE_WINDOW, days_recorded: 17 };
+
+const BING_FULL: SeoFunnelEngine = {
+  engine: 'bing',
+  scope: 'www',
+  search_window: BING_WINDOW,
+  stages: [
+    CATALOG,
+    { stage: 'crawled', count: 1418, rate: 0.9256, measure: 'measured', source: 'd1' },
+    {
+      stage: 'indexed',
+      count: 1236,
+      rate: 0.8068,
+      measure: 'engine_reported',
+      source: 'bing_webmaster',
+      as_of: '2027-01-09',
+    },
+    {
+      stage: 'clicked',
+      count: 17,
+      rate: 0.0043,
+      measure: 'measured',
+      source: 'bing_webmaster',
+      impressions: 3950,
+    },
+  ],
+  baseline: null,
+};
+
+function funnelResponse(engines: SeoFunnelEngine[], notes: AdminNote[]): SeoFunnelResponse {
+  return {
+    generated_at: GENERATED,
+    day: FUNNEL_DAY,
+    crawl_window: {
+      from: '2026-12-15T00:00:00.000Z',
+      to: '2027-01-12T00:00:00.000Z',
+      timezone: 'UTC',
+      days: 28,
+    },
+    engines,
+    notes,
+  };
+}
+
+// eslint-disable-next-line @angular-eslint/use-injectable-provided-in -- component-provided preview fake
+@Injectable()
+class SwappedFunnelAdminSeoApi extends AdminSeoApi {
+  override async funnel(): Promise<SeoFunnelResponse> {
+    return funnelResponse(
+      [GOOGLE_D1_ONLY, BING_FULL],
+      [
+        ...FUNNEL_NOTES,
+        {
+          code: 'search_ingest_absent',
+          severity: 'info',
+          message: 'No google ingest data.',
+          params: { engine: 'google' },
+        },
+        {
+          code: 'search_window_incomplete',
+          severity: 'warn',
+          message: 'Bing window incomplete.',
+          params: {
+            engine: 'bing',
+            days_recorded: BING_WINDOW.days_recorded,
+            days: BING_WINDOW.days,
+            from: BING_WINDOW.from,
+            to: BING_WINDOW.to,
+          },
+        },
+      ],
+    );
+  }
+}
+
+// eslint-disable-next-line @angular-eslint/use-injectable-provided-in -- component-provided preview fake
+@Injectable()
+class LoadingAdminSeoApi extends AdminSeoApi {
+  override funnel(): Promise<SeoFunnelResponse> {
+    return new Promise(() => undefined);
   }
 }
 
@@ -309,6 +513,10 @@ class FailingAdminSeoApi extends AdminSeoApi {
   override async trend(): Promise<SeoTrendResponse> {
     throw new Error('preview: failed load');
   }
+
+  override async funnel(): Promise<SeoFunnelResponse> {
+    throw new Error('preview: failed load');
+  }
 }
 
 @Component({
@@ -329,20 +537,44 @@ class UnsetQueueState {}
 
 @Component({
   selector: 'app-admin-seo-preview-failed',
-  imports: [SeoQueuePanel, SeoTrendPanel],
+  imports: [SeoQueuePanel, SeoTrendPanel, SeoFunnelPanel],
   providers: [{ provide: AdminSeoApi, useClass: FailingAdminSeoApi }],
   template: `
-    <div class="grid gap-10 lg:grid-cols-2">
+    <div class="grid gap-10 lg:grid-cols-3">
       <aec-seo-queue-panel idPrefix="preview-failed" />
       <aec-seo-trend-panel idPrefix="preview-failed" />
+      <aec-seo-funnel-panel idPrefix="preview-failed" />
     </div>
   `,
 })
 class FailedState {}
 
 @Component({
+  selector: 'app-admin-seo-preview-funnel-swapped',
+  imports: [SeoFunnelPanel],
+  providers: [{ provide: AdminSeoApi, useClass: SwappedFunnelAdminSeoApi }],
+  template: `<aec-seo-funnel-panel idPrefix="preview-swapped" />`,
+})
+class SwappedFunnelState {}
+
+@Component({
+  selector: 'app-admin-seo-preview-funnel-loading',
+  imports: [SeoFunnelPanel],
+  providers: [{ provide: AdminSeoApi, useClass: LoadingAdminSeoApi }],
+  template: `<aec-seo-funnel-panel idPrefix="preview-loading" />`,
+})
+class LoadingFunnelState {}
+
+@Component({
   selector: 'app-admin-seo-preview',
-  imports: [SeoPage, EmptyQueueState, UnsetQueueState, FailedState],
+  imports: [
+    SeoPage,
+    EmptyQueueState,
+    UnsetQueueState,
+    SwappedFunnelState,
+    LoadingFunnelState,
+    FailedState,
+  ],
   providers: [{ provide: AdminSeoApi, useClass: PreviewAdminSeoApi }],
   host: { class: 'aec-charts block' },
   template: `
@@ -361,6 +593,8 @@ class FailedState {}
       <div class="mt-8 space-y-14">
         <app-admin-seo-preview-empty />
         <app-admin-seo-preview-unset />
+        <app-admin-seo-preview-funnel-swapped />
+        <app-admin-seo-preview-funnel-loading />
         <app-admin-seo-preview-failed />
       </div>
     </div>

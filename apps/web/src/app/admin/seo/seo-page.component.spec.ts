@@ -10,7 +10,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { SeoQueueResponse, SeoTrendResponse } from '@aeci/shared';
+import type { SeoFunnelResponse, SeoQueueResponse, SeoTrendResponse } from '@aeci/shared';
 
 import { AdminSeoApi } from './admin-seo.api';
 import { SeoPage } from './seo-page';
@@ -55,6 +55,14 @@ const QUEUE: SeoQueueResponse = {
 
 const TREND: SeoTrendResponse = { generated_at: QUEUE.generated_at, weeks: [], notes: [] };
 
+const FUNNEL: SeoFunnelResponse = {
+  generated_at: QUEUE.generated_at,
+  day: '2027-01-11',
+  crawl_window: QUEUE.window,
+  engines: [],
+  notes: [],
+};
+
 function settle(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve));
 }
@@ -74,7 +82,11 @@ describe('SeoPage live region', () => {
         provideRouter([]),
         {
           provide: AdminSeoApi,
-          useValue: { queue: vi.fn(async () => QUEUE), trend: vi.fn(async () => TREND) },
+          useValue: {
+            queue: vi.fn(async () => QUEUE),
+            trend: vi.fn(async () => TREND),
+            funnel: vi.fn(async () => FUNNEL),
+          },
         },
       ],
     });
