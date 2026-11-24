@@ -766,6 +766,21 @@ stubbed Supabase config (`addInitScript` plus `page.route`) and asserts the "Che
 run axe on the swapped-in state, the first axe scans of a post-submit view. `/account` needs a
 real session, so its persistent load-status region is asserted in `account.component.spec.ts`.
 
+**Announcements are now a nightly check (AECI-1880).** The accessibility nightly records what changes
+in the places a screen reader speaks from, while a test takes an action: every live region's text,
+with its politeness, and every focus move, with the focused element's name and description. Each
+status message and form error in checklist §2 is asserted to be heard exactly once, through the
+channel the page promises, at the politeness it promises. §8.4.4 has the method and the flows.
+**This proves the DOM changed. It does not prove a screen reader spoke.** A screen reader can still
+drop, merge or reorder what the page gave it. Real speech is AECI-1886 (NVDA) and AECI-1887
+(VoiceOver), and the manual pass in `docs/a11y-manual-testing-checklist.md` stays as it is. Three PR
+specs moved their hand-rolled live-region checks onto the same recorder:
+`preview-vendor-integration-detail.spec.ts` (three portal writes, each heard once and politely),
+`preview-vendor-portal-nav.spec.ts` (the one polite channel after a section change), and the two
+read-only tests of `vendor-dashboard.spec.ts` (one polite channel on every section). That spec's two
+write tests keep their own checks. They save through the real vendor API, whose post-commit hooks
+are not stubbed, so they were not run locally to verify a change.
+
 **Phase 2 implementation (AECI-65).** `apps/web/e2e/phase2-a11y.spec.ts` runs axe against every live Phase 2 page type — product/vendor/integration index+detail, the **product-PAIR page** (added by AECI-303), category/audience/phase browse, the three flat taxonomy indexes (`/categories`, `/audiences`, `/phases`), and the 404 — in the **light theme** (14 URLs; the dark pass was removed in AECI-226), plus the open state of the header's Browse menu (AECI-1774; it replaced the AECI-155 taxonomy flyouts), for 15 axe assertions in total. Detail pages run against committed fixtures (`apps/api/seed/phase2-fixtures.sql`, seeded into the local D1 by `dev:bound`); they self-skip if the fixtures aren't seeded so the suite never wedges CI. Both the header (incl. the Browse menu) and the **footer** are in scope: the footer's former `.exclude('aec-site-footer')` carve-out covered dark-theme contrast debt only, and AECI-226 removed it after verifying the footer is WCAG-AA clean in the (now sole) light theme.
 
 **Phase 3.12 implementation (AECI-145).** `/search` axe coverage (zero WCAG-AA violations) ships in `apps/web/e2e/search.spec.ts` — against the graceful-degradation shell that renders in CI, where Algolia is absent. The `/products` listing + facet sidebar is covered by `products-index.spec.ts` (`tags wcag2a/2aa/21a/21aa`); the facet-interaction states add no new always-on surface beyond what those axe runs already scan.
@@ -995,6 +1010,94 @@ path the sweep scanned.
 
 The merge also writes the totals, the gate rules, the known failures and the report-only rules to
 the run's job summary. A known failure in the sweep passes, so it is not in `totals.expectedFailures`.
+
+#### 8.4.4 Announcements and form errors (AECI-1880)
+
+These checks script the announcement items of `docs/a11y-manual-testing-checklist.md` §2: "Dynamic
+updates … are announced", and every "Surface-specific" line that names an announcement. They cover
+WCAG 4.1.3 and 3.3.1. axe cannot see this class: the message exists only after an action.
+
+**The recorder** is `e2e-a11y/support/announcements.ts`. It imports only `@playwright/test`, so `e2e/`
+specs use it too.
+
+| Export | What it does |
+|---|---|
+| `recordAnnouncements(page)` | Start recording on the current document. Call it after the hydration gate, right before the action |
+| `recordAnnouncementsFromLoad(page)` | Start recording on the next document, once its HTML is parsed. For a message that appears on arrival |
+| `rec.settle({ quietMs?, timeoutMs? })`, `rec.read()`, `rec.clear()` | The ordered record. `settle` waits until nothing new has arrived for `quietMs` (1 s) |
+| `heard(record)`, `heardMatching(record, text)` | What a screen reader is expected to speak, by the model below |
+| `expectHeardOnce(record, text, via)` | Heard exactly once, through `via`: `'focus'`, `'polite'` or `'assertive'` |
+| `expectNotHeard(record, text)` | Never heard |
+| `liveRegions(page)` | Every live region now, with its politeness and whether it is `sr-only`. Reads only |
+
+A record entry is either `live` or `focus`. A `live` entry is a text change in an element with
+`aria-live`, `role="status"`, `role="alert"` or `role="log"`. It carries the politeness, whether the
+region is hidden, and whether the region was inserted with its text already in it. A `focus` entry is a
+focus move. It carries the focused element's name and its `aria-describedby` text, read one frame
+after the move, when the browser has updated the accessibility tree. An option or radio with no
+description of its own takes its group's.
+
+**The model** (`heard`). A hidden region, `aria-live="off"` and an empty text are silent. A polite region
+inserted already filled is silent, as AECI-1858 found with VoiceOver. An inserted `role="alert"` is
+spoken. Every focus move is spoken, as its name and description. So a field error that is `role="alert"`
+on a field the submit also focuses is heard twice: once as the alert and once in the field's
+description. **The record proves the DOM changed. It does not prove a screen reader spoke.**
+
+**The flows.** `announcements-public.spec.ts` runs signed out. `announcements-signed-in.spec.ts` signs in
+per surface with `prepareSurface` and skips without a session.
+
+| Flow | Asserts |
+|---|---|
+| Login: link sent | "Check your email" heard once, by focus |
+| Login: send failed | The error heard once, assertive |
+| Login: bad email | Field wiring, focus on the field, its error heard once by focus |
+| `/updates`: joined, already on the list, failed | Heard once: by focus, then polite, then polite |
+| Mailing-list band on the product page: joined, bad email | Polite once. Field wiring and its error heard once by focus |
+| Home with `?ref=waitlist` | The welcome heard once, polite |
+| `/claims/confirm`: sent, failed | "Claim sent" by focus. The error once, by focus |
+| `/search`: a query, a query with no match | The count once, polite. "0 results" once, polite |
+| Vendor portal preview: a Yes on an integration | Heard once from the shell's one channel, polite, never assertive. Still one channel after |
+| Product claim form: empty submit | The name and email errors wired, focus on the name, only its error heard |
+| Review submission: sent, empty submit | "Review received" by focus. The rating and title errors wired, focus in the first rating, only its error heard |
+| Account: display name saved | Heard once, polite |
+| Account: delete dialog | Focus moves in on open and back to the trigger on Escape. Never confirmed |
+| `/admin/reviews` and `/admin/requests`: failed load, then Try again | The failure once, assertive. Loading and the empty queue once each, polite |
+| Vendor portal: a section change | One polite channel, the same node after, nothing assertive |
+
+"Form errors" means `aria-invalid="true"` on each failing field, an `aria-describedby` that names a
+visible error, and focus on the first failing field. The Products dropdown count in checklist §2 is not
+here: `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.11 replaced the dropdown with a link (AECI-2062).
+
+**No real sends.** `.dev.vars` holds live Supabase and Resend keys. Every test calls `blockWrites`
+(`support/announcement-flows.ts`) first, which aborts every request that is not a read, then stubs the
+one write it answers. No write reaches the network, the local API included. The account delete and any
+ban are never confirmed. The admin tests stub only the queue's list read.
+
+**Pages outside the manifest.** `/updates`, `/claims/confirm`, `/search`, the product claim form and
+`/preview/vendor-dashboard` are not in `surfaces.ts`. Adding them would widen the manual pass of
+checklist §1 and put them under the keyboard suite. The flows that need them name their route, with
+`flowAnnotations`, so the summary still names the page.
+
+**Known failures on landing (2026-11-24).**
+
+| Issue | What the record shows | Tests |
+|---|---|---|
+| AECI-1859 | Field errors are `role="alert"`, and the submit focuses the field they describe. One error is heard twice. On a form with several, every error is spoken, not the focused field's | Login bad email, band bad email, claim form, review empty submit |
+| AECI-1858 | "Display name updated." is a `role="status"` inserted with its text already in it. Never heard | Account display name saved |
+| AECI-2079 | The claim-confirm error is `role="alert"` and takes focus. Heard twice | `/claims/confirm` failed |
+| AECI-2080 | The waitlist welcome is added after hydration with no live region. Never heard | Home with `?ref=waitlist` |
+| AECI-2082 | The admin queues' loading and empty text are plain paragraphs, and Try again is removed while focused. Never heard | Try again on both queues |
+
+The signed-in flows ran with real test-user sessions, minted by `prepareSurface`. The failed-load
+alert on both queues, review sent, the delete dialog and the real vendor portal pass.
+
+**Run it** with the rest of the nightly, or alone:
+
+```bash
+pnpm --filter @aeci/web exec playwright test -c playwright.a11y-nightly.config.ts announcements --workers=1
+```
+
+Set `AECI_WEB_PORT` and `PLAYWRIGHT_BASE_URL` to the port `dev:agent` printed, as for §8.4.
 
 ---
 

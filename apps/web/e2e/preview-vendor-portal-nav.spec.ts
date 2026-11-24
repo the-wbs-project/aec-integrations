@@ -1,4 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
+import { liveRegions } from '../e2e-a11y/support/announcements';
 import { expect, test } from './fixtures';
 
 /**
@@ -88,7 +89,9 @@ test.describe('vendor portal nav (preview)', () => {
         'aria-current',
         'page',
       );
-      await expect(page.locator('[role="status"].sr-only')).toHaveCount(1);
+      // AECI-1880: one sr-only channel, still polite after the section swap.
+      const channel = (await liveRegions(page)).filter((r) => r.srOnly && r.role === 'status');
+      expect(channel.map((r) => r.politeness)).toEqual(['polite']);
     });
   });
 

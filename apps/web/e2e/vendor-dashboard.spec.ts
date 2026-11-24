@@ -48,6 +48,7 @@ import {
 } from './console-capture';
 import { mintSessionCookies } from './auth-session';
 import { E2E_BASE_URL as BASE_URL } from './base-url';
+import { liveRegions } from '../e2e-a11y/support/announcements';
 
 /**
  * The portal's single polite announcement region (AECI-631 /
@@ -62,6 +63,11 @@ import { E2E_BASE_URL as BASE_URL } from './base-url';
  * something the shipped tree cannot honour, and counting the `sr-only` one
  * asserts exactly the invariant §6.3 states.
  */
+/** AECI-1880: the shell's channel, from the shared recorder's census. */
+async function channels(page: Page) {
+  return (await liveRegions(page)).filter((r) => r.srOnly && r.role === 'status');
+}
+
 /**
  * A portal nav entry. Every entry is a `routerLink` anchor since §6.11 retired
  * the Products dropdown.
@@ -141,13 +147,12 @@ test.describe('vendor dashboard — authed /vendor (AECI-522)', () => {
       // `GET /api/vendor/integrations` had resolved, so a message fired before
       // then had nowhere to land.
       const region = page.locator(ANNOUNCER);
-      await expect(region).toHaveCount(1);
       await expect(region).toBeAttached();
 
-      // Polite, never assertive: a background revalidation is not an interruption
-      // (§6.3). `role="status"` implies `aria-live="polite"`, so the assertion
-      // that matters is that nothing has overridden it upward.
-      await expect(region).not.toHaveAttribute('aria-live', 'assertive');
+      // Exactly one channel, and polite, never assertive: a background
+      // revalidation is not an interruption (§6.3). The census reads the
+      // effective politeness, so an override upward fails here.
+      expect((await channels(page)).map((r) => r.politeness)).toEqual(['polite']);
 
       // sr-only is what satisfies the no-layout-shift rule — an announcement
       // occupies no space, so it can never move a control out from under a
@@ -163,7 +168,7 @@ test.describe('vendor dashboard — authed /vendor (AECI-522)', () => {
       // none of the four conditional `role="status"` paragraphs (§6.5) render
       // until a save succeeds or a form finds a conflict. A second one here means
       // someone added a region rather than announcing through the channel.
-      await expect(page.locator('[role="status"]')).toHaveCount(1);
+      expect((await liveRegions(page)).filter((r) => r.role === 'status')).toHaveLength(1);
 
       // The region is in the shell, so it survives every section navigation. A
       // region that lived in a section would be destroyed mid-announcement when
@@ -173,7 +178,8 @@ test.describe('vendor dashboard — authed /vendor (AECI-522)', () => {
       // guards is unchanged by that move.
       for (const name of ['Profile', 'Products', 'Messages', 'Seats', 'Vendor Overview']) {
         await section(page, name).click();
-        await expect(page.locator(ANNOUNCER)).toHaveCount(1);
+        await expect(section(page, name)).toHaveAttribute('aria-current', 'page');
+        expect(await channels(page), `one channel on ${name}`).toHaveLength(1);
       }
     });
     expectConsoleClean(capture, 'GET /vendor, then each portal section');
@@ -234,7 +240,7 @@ test.describe('vendor dashboard — authed /vendor (AECI-522)', () => {
     // region moving is exactly the kind of change that invalidates a prior pass.
     // Assert it is here (and singular) before analyzing, so a run that silently
     // lost the region cannot report a clean pass over a surface without one.
-    await expect(page.locator(ANNOUNCER)).toHaveCount(1);
+    expect((await channels(page)).map((r) => r.politeness)).toEqual(['polite']);
 
     const results = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
