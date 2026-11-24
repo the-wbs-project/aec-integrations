@@ -114,9 +114,9 @@ describe('LicenseReleaseQueue', () => {
     });
     expect(text(el.querySelector('h2'))).toBe('Early-unassign requests');
     const group = el.querySelector('[role="group"]')!;
-    expect(group.getAttribute('aria-labelledby')).toBe('admin-license-releases-heading');
-    const card = el.querySelector('article')!;
-    expect(text(card.querySelector('h3'))).toBe('Summit Coordination');
+    expect(group.getAttribute('aria-labelledby')).toBe('admin-license-releases-status-label');
+    const card = el.querySelector<HTMLElement>('tbody[data-license-release]')!;
+    expect(text(card.querySelector('th[scope="row"]'))).toBe('Summit Coordination');
     expect(text(card)).toContain('Summit BIM');
     expect(text(card)).toContain('Term ends Jun 30, 2027');
     expect(text(card)).toContain('We retired this product.');
@@ -137,7 +137,7 @@ describe('LicenseReleaseQueue', () => {
     await confirm(fixture, el);
     expect(decide).toHaveBeenCalledWith(row().id, { action: 'approve' });
     expect(decrement).toHaveBeenCalledWith('requests');
-    expect(el.querySelectorAll('article')).toHaveLength(0);
+    expect(el.querySelectorAll('tbody[data-license-release]')).toHaveLength(0);
     expect(live(el)).toContain('Subscription freed from Summit Coordination');
   });
 
@@ -200,8 +200,8 @@ describe('LicenseReleaseQueue', () => {
     expect(action(el, 'approve').disabled).toBe(true);
     expect(action(el, 'decline').disabled).toBe(false);
     expect(el.querySelector('[data-testid="license-release-moved"]')).not.toBeNull();
-    expect(text(el.querySelector('article'))).toContain('No end date');
-    expect(text(el.querySelector('article'))).not.toContain('Monthly');
+    expect(text(el.querySelector('tbody[data-license-release]'))).toContain('No end date');
+    expect(text(el.querySelector('tbody[data-license-release]'))).not.toContain('Monthly');
   });
 
   it('reads a Stripe license with no end as monthly, and any other source as no end date', async () => {
@@ -216,7 +216,7 @@ describe('LicenseReleaseQueue', () => {
       row({ id: 'r-stripe', license: term('stripe') }),
       row({ id: 'r-comp', license: term('complimentary') }),
     ]);
-    const cards = [...el.querySelectorAll('article')].map((a) => text(a));
+    const cards = [...el.querySelectorAll('tbody[data-license-release]')].map((a) => text(a));
     expect(cards[0]).toContain('Monthly, renews until cancelled');
     expect(cards[1]).toContain('No end date');
     expect(cards[1]).not.toContain('Monthly');
@@ -226,8 +226,8 @@ describe('LicenseReleaseQueue', () => {
     const { fixture, el, api } = await setup([
       row({ status: 'declined', decision_note: 'Not yet.', product: null }),
     ]);
-    const card = el.querySelector('article')!;
-    expect(text(card.querySelector('h3'))).toBe('A product no longer on record');
+    const card = el.querySelector<HTMLElement>('tbody[data-license-release]')!;
+    expect(text(card.querySelector('th[scope="row"]'))).toBe('A product no longer on record');
     expect(text(card.querySelector('[data-testid="license-release-outcome"]'))).toBe(
       'Declined. Reason: Not yet.',
     );
