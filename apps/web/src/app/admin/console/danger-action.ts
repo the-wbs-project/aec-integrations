@@ -63,6 +63,7 @@ let nextId = 0;
     <form
       [id]="ids.form"
       [hidden]="!open()"
+      method="dialog"
       novalidate
       class="mt-4 grid max-w-[36rem] gap-4 border-t border-(--border-default) pt-4"
       (submit)="submit($event)"

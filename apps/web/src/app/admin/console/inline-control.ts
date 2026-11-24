@@ -75,6 +75,7 @@ let nextId = 0;
     <form
       [id]="ids.form"
       [hidden]="!open()"
+      method="dialog"
       novalidate
       class="col-span-full grid max-w-[32rem] gap-2 pb-4 pt-2"
       (submit)="submit($event)"
