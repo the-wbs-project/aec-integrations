@@ -231,7 +231,7 @@ export class VendorDetail {
     { key: 'products', label: $localize`:@@admin.vendors.tab.products:Products` },
     // AECI-1046: the vendor-held integrations it owns, and the admin retire/restore.
     { key: 'integrations', label: $localize`:@@admin.vendors.tab.integrations:Integrations` },
-    { key: 'audit', label: $localize`:@@admin.vendors.tab.audit:Audit Trail` },
+    { key: 'audit', label: $localize`:@@admin.vendors.tab.audit:Audit trail` },
   ];
 
   /** `undefined` clears the param, which is what keeps the default tab's URL

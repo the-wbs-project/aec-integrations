@@ -219,6 +219,10 @@ describe('console pieces (AECI-1813)', () => {
       expect(CONSOLE_TABLE.region).not.toMatch(/\b(shadow|rounded|bg-)/);
       expect(CONSOLE_TABLE.head).toContain('text-t-13');
       expect(CONSOLE_TABLE.num).toContain('tabular-nums');
+      // Two alignments in one list would be decided by stylesheet order.
+      for (const classes of Object.values(CONSOLE_TABLE)) {
+        expect(classes.includes('text-start') && classes.includes('text-end')).toBe(false);
+      }
     });
   });
 });

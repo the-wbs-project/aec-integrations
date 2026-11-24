@@ -437,7 +437,7 @@ describe('VendorDetail', () => {
         'Billing',
         'Products',
         'Integrations',
-        'Audit Trail',
+        'Audit trail',
       ]);
       const current = links.filter((a) => a.getAttribute('aria-current') === 'page');
       expect(current).toHaveLength(1);
@@ -750,7 +750,7 @@ describe('VendorDetail', () => {
       // it is an href rather than a `routerLink`: an in-app navigation cannot
       // meaningfully open a second tab.
       const { el } = await setup(makeApiMock(makeVendor()));
-      const link = [...el.querySelectorAll('a')].find((a) => a.textContent?.includes('View Page'));
+      const link = [...el.querySelectorAll('a')].find((a) => a.textContent?.includes('View page'));
       expect(link?.getAttribute('href')).toBe('/vendors/autodesk');
       expect(link?.getAttribute('target')).toBe('_blank');
       // Without `noopener` the new browsing context gets a handle on this one.

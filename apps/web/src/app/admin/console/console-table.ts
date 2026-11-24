@@ -50,7 +50,9 @@
  * border rule into the base layer.
  */
 
-const CELL = 'px-3 py-2 text-start align-middle border-b border-(--border-default)';
+// No alignment in the shared part: `text-start` and `text-end` in one class list
+// would be decided by stylesheet order, not by which comes last.
+const CELL = 'px-3 py-2 align-middle border-b border-(--border-default)';
 
 export const CONSOLE_TABLE = {
   /** The scroll region around the table. */
@@ -78,13 +80,13 @@ export const CONSOLE_TABLE = {
   /** The detail content: pinned to the region's start edge, never wider than it. */
   detailInner: 'sticky start-0 w-[calc(100cqw-24px)] max-w-full md:w-[calc(100cqw-68px)]',
   /** A body cell. */
-  cell: CELL,
+  cell: `${CELL} text-start`,
   /** The identity cell, a `th scope="row"`. */
-  rowHead: `${CELL} font-semibold`,
+  rowHead: `${CELL} text-start font-semibold`,
   /** A number cell. */
   num: `${CELL} text-end tabular-nums lining-nums whitespace-nowrap`,
   /** A cell that must not wrap (a date). */
-  nowrap: `${CELL} whitespace-nowrap`,
+  nowrap: `${CELL} text-start whitespace-nowrap`,
   /** The last cell, holding the row's direct actions. */
   act: 'px-3 py-0 text-end align-middle whitespace-nowrap border-b border-(--border-default)',
   /** The leading cell, holding the row's one 44px disclosure. */
