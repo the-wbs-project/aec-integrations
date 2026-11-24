@@ -112,8 +112,17 @@ test.describe('/admin/review-responses — approve and reject as an admin (AECI-
     const queue = page.locator('section[aria-labelledby="admin-replies-heading"]');
     await expect(heading).toBeVisible();
 
-    const approveCard = page.locator('article', { hasText: APPROVE_BODY });
-    const rejectCard = page.locator('article', { hasText: REJECT_BODY });
+    // AECI-2102: one table row per reply. Each disclosure opens its detail row.
+    const approveRecord = page.locator('tbody[data-testid="reply-record"]', {
+      hasText: APPROVE_BODY,
+    });
+    const rejectRecord = page.locator('tbody[data-testid="reply-record"]', {
+      hasText: REJECT_BODY,
+    });
+    await page.locator(`button[aria-controls="reply-${APPROVE_ID}-detail"]`).click();
+    await page.locator(`button[aria-controls="reply-${REJECT_ID}-detail"]`).click();
+    const approveCard = page.locator(`[id="reply-${APPROVE_ID}-detail"]`);
+    const rejectCard = page.locator(`[id="reply-${REJECT_ID}-detail"]`);
     await expect(approveCard).toBeVisible();
     await expect(rejectCard).toBeVisible();
 
@@ -127,7 +136,7 @@ test.describe('/admin/review-responses — approve and reject as an admin (AECI-
     // Approve: one click, the row leaves, the outcome is announced.
     await approveCard.getByRole('button', { name: 'Approve', exact: true }).click();
     await expect(queue.getByRole('status')).toContainText('Reply approved');
-    await expect(approveCard).toHaveCount(0);
+    await expect(approveRecord).toHaveCount(0);
 
     // Reject: the reason is required, then the row leaves.
     await rejectCard.getByRole('button', { name: 'Reject', exact: true }).click();
@@ -143,13 +152,12 @@ test.describe('/admin/review-responses — approve and reject as an admin (AECI-
     ).toEqual([]);
     await rejectCard.getByRole('button', { name: 'Confirm rejection' }).click();
     await expect(queue.getByRole('status')).toContainText('Reply rejected');
-    await expect(rejectCard).toHaveCount(0);
+    await expect(rejectRecord).toHaveCount(0);
 
     // The decisions landed: each reply is on its new tab.
     await page.getByRole('button', { name: 'Published', exact: true }).click();
-    await expect(page.locator('article', { hasText: APPROVE_BODY })).toBeVisible();
+    await expect(approveRecord).toHaveCount(1);
     await page.getByRole('button', { name: 'Rejected', exact: true }).click();
-    const rejected = page.locator('article', { hasText: REJECT_BODY });
-    await expect(rejected).toContainText('A reply may not be a sales pitch');
+    await expect(rejectRecord).toContainText('A reply may not be a sales pitch');
   });
 });
