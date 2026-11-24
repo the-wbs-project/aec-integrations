@@ -2,15 +2,5 @@
 # Guard: src/field-label.guard.spec.ts. Rules: src/guard-allowlists/shrink-only.harness.ts.
 # One line per file: its path from src/app and its count. A count only goes down.
 # Lower your line when you fix some. Delete it when the file reaches zero. Never add a line.
-admin/vendors/ban-term-licenses-control.html 1
-admin/vendors/grant-licenses-control.html 15
-admin/vendors/license-bulk-actions.html 3
-admin/vendors/license-grant-actions.ts 1
-admin/vendors/license-row-actions.html 4
-admin/vendors/provision-seat-control.html 2
-admin/vendors/return-records-control.html 2
-admin/vendors/suspension-cost-log.html 6
-admin/vendors/suspension-terminate.html 1
-admin/vendors/vendor-suspension-section.html 6
 vendor/components/vendor-contest-form.ts 3
 vendor/components/vendor-license-assign.ts 1

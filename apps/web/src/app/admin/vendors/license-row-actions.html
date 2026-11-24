@@ -1,3 +1,7 @@
+<!-- AECI-2124: in the Actions cell of the console table. The openers are compact secondary
+     buttons. A form opens in their place, in the cell, with no box of its own: Extend and
+     Change reference save with primary, Revoke confirms with danger (it ends the
+     subscription now, drops its product to Free and emails every seat). -->
 @if (!anyAction()) {
 <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
 <span class="sr-only" i18n="@@admin.vendors.licenseActions.none"
@@ -7,10 +11,12 @@
 <div #triggers class="flex flex-wrap justify-end gap-2">
   @if (actions().extend) {
   <button
+    aecButton
+    variant="secondary"
+    compact
     type="button"
     data-mode="extend"
     (click)="open('extend')"
-    class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-3 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
   >
     @if (openEnded()) {
     <span i18n="@@admin.vendors.licenseActions.setEnd">Set end date</span>
@@ -20,20 +26,24 @@
   </button>
   } @if (actions().reference) {
   <button
+    aecButton
+    variant="secondary"
+    compact
     type="button"
     data-mode="reference"
     (click)="open('reference')"
-    class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-3 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
     i18n="@@admin.vendors.licenseActions.reference"
   >
     Change reference
   </button>
   } @if (actions().revoke) {
   <button
+    aecButton
+    variant="secondary"
+    compact
     type="button"
     data-mode="revoke"
     (click)="open('revoke')"
-    class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-3 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
     i18n="@@admin.vendors.licenseActions.revoke"
   >
     Revoke
@@ -41,13 +51,19 @@
   }
 </div>
 } @else {
-<div class="ms-auto w-80 rounded-(--radius-md) bg-(--surface-sunken) p-3 text-start">
+<div
+  class="ms-auto grid w-80 max-w-full gap-3 whitespace-normal text-start"
+  [attr.aria-busy]="pending() ? 'true' : null"
+>
   @switch (mode()) { @case ('extend') {
-  <form method="dialog" novalidate (aecSubmit)="submitExtend()">
-    <label
-      [attr.for]="idPrefix() + '-license-end'"
-      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-    >
+  <form
+    method="dialog"
+    novalidate
+    class="grid gap-2"
+    (aecSubmit)="submitExtend()"
+    (keydown.escape)="onEscape($event)"
+  >
+    <label [attr.for]="idPrefix() + '-license-end'" [class]="labelClass">
       @if (openEnded()) {
       <span i18n="@@admin.vendors.licenseActions.end.labelSet">End date</span>
       } @else {
@@ -56,7 +72,7 @@
     </label>
     <p
       [id]="idPrefix() + '-license-end-help'"
-      class="mt-1 text-xs text-(--text-secondary)"
+      [class]="hintClass"
       i18n="@@admin.vendors.licenseActions.end.help"
     >
       Must be after the current end date, or after today when there is none. Nothing else on the
@@ -72,23 +88,15 @@
       [attr.aria-invalid]="endTooEarly() ? 'true' : null"
       [value]="endsAt()"
       (input)="onEndInput($event)"
-      class="mt-2 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)"
+      [class]="inputClass"
     />
     @if (endTooEarly()) {
-    <p
-      class="mt-2 text-sm font-medium text-(--text-primary)"
-      role="alert"
-      i18n="@@admin.vendors.licenseActions.end.tooEarly"
-    >
+    <p [class]="errorClass" role="alert" i18n="@@admin.vendors.licenseActions.end.tooEarly">
       Pick a date after the current end date.
     </p>
     }
-    <div class="mt-3 flex flex-wrap gap-2">
-      <button
-        type="submit"
-        [disabled]="pending() || !canExtend()"
-        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-4 py-1.5 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-      >
+    <div [class]="actionsClass" class="mt-2">
+      <button aecButton compact type="submit" [disabled]="pending() || !canExtend()">
         @if (pending()) {
         <span i18n="@@admin.vendors.licenseActions.working">Working…</span>
         } @else {
@@ -96,10 +104,11 @@
         }
       </button>
       <button
+        aecButton
+        variant="ghost"
         type="button"
         (click)="close()"
         [disabled]="pending()"
-        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-1.5 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
         i18n="@@admin.vendors.licenseActions.cancel"
       >
         Cancel
@@ -107,10 +116,16 @@
     </div>
   </form>
   } @case ('reference') {
-  <form method="dialog" novalidate (aecSubmit)="submitReference()">
+  <form
+    method="dialog"
+    novalidate
+    class="grid gap-2"
+    (aecSubmit)="submitReference()"
+    (keydown.escape)="onEscape($event)"
+  >
     <label
       [attr.for]="idPrefix() + '-license-reference'"
-      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      [class]="labelClass"
       i18n="@@admin.vendors.licenseActions.referenceField.label"
     >
       Invoice or PO reference
@@ -124,14 +139,10 @@
       [disabled]="pending()"
       [value]="reference()"
       (input)="onReferenceInput($event)"
-      class="mt-2 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)"
+      [class]="inputClass"
     />
-    <div class="mt-3 flex flex-wrap gap-2">
-      <button
-        type="submit"
-        [disabled]="pending() || !canReference()"
-        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-4 py-1.5 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-      >
+    <div [class]="actionsClass" class="mt-2">
+      <button aecButton compact type="submit" [disabled]="pending() || !canReference()">
         @if (pending()) {
         <span i18n="@@admin.vendors.licenseActions.working">Working…</span>
         } @else {
@@ -139,10 +150,11 @@
         }
       </button>
       <button
+        aecButton
+        variant="ghost"
         type="button"
         (click)="close()"
         [disabled]="pending()"
-        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-1.5 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
         i18n="@@admin.vendors.licenseActions.cancel"
       >
         Cancel
@@ -150,96 +162,102 @@
     </div>
   </form>
   } @case ('revoke') {
-  <form method="dialog" novalidate (aecSubmit)="submitRevoke()">
-    @if (productName(); as product) {
-    <p
-      class="text-sm text-(--text-primary)"
-      i18n="@@admin.vendors.licenseActions.revoke.confirmProduct"
-    >
-      Revoke this subscription? It ends now and {{ product }} drops to the Free plan. Its text stays
-      live, the vendor loses the edit right on its Managed fields, and every seat is emailed.
-      Nothing is refunded or deleted, and there is no undo on this screen.
-    </p>
-    } @else {
-    <p class="text-sm text-(--text-primary)" i18n="@@admin.vendors.licenseActions.revoke.confirm">
-      Revoke this subscription? It ends now. It is not on a product, so no product changes plan and
-      no email is sent. Nothing is refunded, and there is no undo on this screen.
-    </p>
-    }
-    <!-- Paid Tiers spec section 5.2: a license revoke, a seat revoke and a ban are
-         three separate actions. -->
-    <p
-      class="mt-1 text-sm text-(--text-primary)"
-      data-testid="license-revoke-not-seat"
-      i18n="@@admin.vendors.licenseActions.revoke.notSeatRevoke"
-    >
-      Seats and logins stay. This is not a seat revoke or a ban.
-    </p>
-    <label
-      [attr.for]="idPrefix() + '-license-reason'"
-      class="mt-3 block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-      i18n="@@admin.vendors.licenseActions.revoke.reasonLabel"
-    >
-      Reason shown to the vendor (required)
-    </label>
-    <p
-      [id]="idPrefix() + '-license-reason-help'"
-      class="mt-1 text-xs text-(--text-secondary)"
-      i18n="@@admin.vendors.licenseActions.revoke.reasonHelp"
-    >
-      The vendor's seats read this in their portal messages. It is recorded in the audit trail with
-      your name.
-    </p>
-    <textarea
-      #reasonInput
-      #firstField
-      [id]="idPrefix() + '-license-reason'"
-      rows="2"
-      [attr.maxlength]="reasonMax"
-      required
-      [disabled]="pending()"
-      [attr.aria-describedby]="
-        reasonError()
-          ? idPrefix() + '-license-reason-help ' + idPrefix() + '-license-reason-error'
-          : idPrefix() + '-license-reason-help'
-      "
-      [attr.aria-invalid]="reasonError() ? 'true' : null"
-      [value]="reason()"
-      (input)="onReasonInput($event)"
-      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-    ></textarea>
-    @if (reasonError()) {
-    <p
-      [id]="idPrefix() + '-license-reason-error'"
-      role="alert"
-      class="mt-2 text-sm font-medium text-(--text-primary)"
-      i18n="@@admin.vendors.licenseActions.revoke.reasonRequired"
-    >
-      Enter a reason for the vendor. Its seats read it in their portal messages.
-    </p>
-    }
-    <label
-      [attr.for]="idPrefix() + '-license-note'"
-      class="mt-3 block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-      i18n="@@admin.vendors.licenseActions.revoke.noteLabel"
-    >
-      Internal note (optional, never shown to the vendor)
-    </label>
-    <textarea
-      [id]="idPrefix() + '-license-note'"
-      rows="2"
-      [attr.maxlength]="reasonMax"
-      [disabled]="pending()"
-      [value]="internalNote()"
-      (input)="onNoteInput($event)"
-      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-    ></textarea>
-    <div class="mt-3 flex flex-wrap gap-2">
-      <button
-        type="submit"
-        [disabled]="pending()"
-        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-4 py-1.5 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+  <form
+    method="dialog"
+    novalidate
+    class="grid gap-4"
+    (aecSubmit)="submitRevoke()"
+    (keydown.escape)="onEscape($event)"
+  >
+    <div [class]="noticeClass" class="grid gap-2">
+      @if (productName(); as product) {
+      <p i18n="@@admin.vendors.licenseActions.revoke.confirmProduct">
+        Revoke this subscription? It ends now and {{ product }} drops to the Free plan. Its text
+        stays live, the vendor loses the edit right on its Managed fields, and every seat is
+        emailed. Nothing is refunded or deleted, and there is no undo on this screen.
+      </p>
+      } @else {
+      <p i18n="@@admin.vendors.licenseActions.revoke.confirm">
+        Revoke this subscription? It ends now. It is not on a product, so no product changes plan
+        and no email is sent. Nothing is refunded, and there is no undo on this screen.
+      </p>
+      }
+      <!-- Paid Tiers spec section 5.2: a license revoke, a seat revoke and a ban are
+           three separate actions. -->
+      <p
+        data-testid="license-revoke-not-seat"
+        i18n="@@admin.vendors.licenseActions.revoke.notSeatRevoke"
       >
+        Seats and logins stay. This is not a seat revoke or a ban.
+      </p>
+    </div>
+    <div [class]="fieldClass">
+      <label
+        [attr.for]="idPrefix() + '-license-reason'"
+        [class]="labelClass"
+        i18n="@@admin.vendors.licenseActions.revoke.reasonLabel"
+      >
+        Reason shown to the vendor (required)
+      </label>
+      <p
+        [id]="idPrefix() + '-license-reason-help'"
+        [class]="hintClass"
+        i18n="@@admin.vendors.licenseActions.revoke.reasonHelp"
+      >
+        The vendor's seats read this in their portal messages. It is recorded in the audit trail
+        with your name.
+      </p>
+      <textarea
+        #reasonInput
+        #firstField
+        [id]="idPrefix() + '-license-reason'"
+        rows="2"
+        [attr.maxlength]="reasonMax"
+        required
+        [disabled]="pending()"
+        [attr.aria-describedby]="
+          reasonError()
+            ? idPrefix() + '-license-reason-help ' + idPrefix() + '-license-reason-error'
+            : idPrefix() + '-license-reason-help'
+        "
+        [attr.aria-invalid]="reasonError() ? 'true' : null"
+        [value]="reason()"
+        (input)="onReasonInput($event)"
+        [class]="inputClass"
+        class="min-h-20 resize-y"
+      ></textarea>
+      @if (reasonError()) {
+      <p
+        [id]="idPrefix() + '-license-reason-error'"
+        role="alert"
+        [class]="errorClass"
+        i18n="@@admin.vendors.licenseActions.revoke.reasonRequired"
+      >
+        Enter a reason for the vendor. Its seats read it in their portal messages.
+      </p>
+      }
+    </div>
+    <div [class]="fieldClass">
+      <label
+        [attr.for]="idPrefix() + '-license-note'"
+        [class]="labelClass"
+        i18n="@@admin.vendors.licenseActions.revoke.noteLabel"
+      >
+        Internal note (optional, never shown to the vendor)
+      </label>
+      <textarea
+        [id]="idPrefix() + '-license-note'"
+        rows="2"
+        [attr.maxlength]="reasonMax"
+        [disabled]="pending()"
+        [value]="internalNote()"
+        (input)="onNoteInput($event)"
+        [class]="inputClass"
+        class="min-h-20 resize-y"
+      ></textarea>
+    </div>
+    <div [class]="actionsClass">
+      <button aecButton variant="danger" compact type="submit" [disabled]="pending()">
         @if (pending()) {
         <span i18n="@@admin.vendors.licenseActions.working">Working…</span>
         } @else {
@@ -247,10 +265,11 @@
         }
       </button>
       <button
+        aecButton
+        variant="ghost"
         type="button"
         (click)="close()"
         [disabled]="pending()"
-        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-1.5 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
         i18n="@@admin.vendors.licenseActions.cancel"
       >
         Cancel
@@ -258,9 +277,7 @@
     </div>
   </form>
   } } @if (failedMessage()) {
-  <p #failedAlert tabindex="-1" class="mt-3 text-sm font-medium text-(--text-primary)" role="alert">
-    {{ failedMessage() }}
-  </p>
+  <p #failedAlert tabindex="-1" [class]="failedClass" role="alert">{{ failedMessage() }}</p>
   }
 </div>
 }
