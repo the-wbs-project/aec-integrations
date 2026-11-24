@@ -2387,7 +2387,7 @@ textarea:-webkit-autofill:focus {
 @keyframes aec-wheel-in {
   from {
     opacity: 0;
-    transform: scale(0.96) rotate(-6deg);
+    transform: scale(0.96);
   }
   to {
     opacity: 1;

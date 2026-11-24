@@ -109,6 +109,9 @@
   to 28px at 69. The build (2026-11-24) makes the ring count depend only on the count and
   the width: one ring up to 18 at 1024, the number of 40px tiles one ring holds, so a
   one-ring tile there is 40px or more and two rings start at 19.
+  Phones never take a second ring: the build treats every stage under 336px as a phone,
+  so a stacked hero at 416 to 431px (a 320px stage) holds 27 on one ring, then dots. The
+  build's entrance fades and scales only; the mock-up's -6deg turn is dropped.
 
   FINDINGS for the build:
   1. The cut-offs depend on the width, not only the count. At 1024 the panel is 400px,

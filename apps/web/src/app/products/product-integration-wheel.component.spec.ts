@@ -136,13 +136,13 @@ describe('ProductIntegrationWheel: the server render', () => {
   });
 
   it('lays the first slide out for every width: tiles by fit, dots past it', () => {
-    // 40 products: dots on the four phone bands, two rings from 320.
+    // 40 products: dots on the five phone bands, two rings from 336.
     expect(modes(setup(buildProduct({ integrations_as_source: partners(40) })).root)).toEqual([
       'dots',
       'dots',
       'dots',
       'dots',
-      'two',
+      'dots',
       'two',
       'two',
       'two',
@@ -153,14 +153,14 @@ describe('ProductIntegrationWheel: the server render', () => {
       Array(8).fill('one'),
     );
     TestBed.resetTestingModule();
-    // 24 products: one ring on the 294px phone, dots on the narrower ones, two rings from
-    // 320, where the phone rule ends.
+    // 24 products: one ring on the 294 and 320 phone bands, dots on the narrower ones, two
+    // rings from 336, where the phone rule ends.
     expect(modes(setup(buildProduct({ integrations_as_source: partners(24) })).root)).toEqual([
       'dots',
       'dots',
       'dots',
       'one',
-      'two',
+      'one',
       'two',
       'two',
       'two',
@@ -536,6 +536,28 @@ describe('ProductIntegrationWheel: a card opened by a touch hold (WCAG 1.4.13)',
     expect(click.defaultPrevented).toBe(true);
     // A press outside the card and its tile closes it.
     document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(card()).toBeNull();
+  });
+
+  it('a key after a hold ends it, so an Enter with no click before it is not swallowed', async () => {
+    const { fixture, el } = setup(buildProduct({ integrations_as_source: partners(4) }));
+    await hold(fixture, tiles(el)[0]!);
+    expect(card()).not.toBeNull();
+    // Android often fires no click after a long press, so `held` is still set here.
+    tiles(el)[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true, button: 1 });
+    const spy = vi.spyOn(click, 'stopImmediatePropagation');
+    tiles(el)[0]!.dispatchEvent(click);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('closes on a resize', async () => {
+    const { fixture, el } = setup(buildProduct({ integrations_as_source: partners(4) }));
+    await hold(fixture, tiles(el)[0]!);
+    expect(card()).not.toBeNull();
+    window.dispatchEvent(new Event('resize'));
     fixture.detectChanges();
     await fixture.whenStable();
     expect(card()).toBeNull();

@@ -48,9 +48,12 @@ function cutOffs(d: number) {
 describe('the wheel cut-offs (the "All" slide)', () => {
   it.each([
     [476, { one: 20, two: 69, dotsFrom: 70 }],
+    [400, { one: 20, two: 55, dotsFrom: 56 }],
     [336, { one: 18, two: 43, dotsFrom: 44 }],
     [294, { one: 25, two: 0, dotsFrom: 26 }],
     [279, { one: 23, two: 0, dotsFrom: 24 }],
+    [320, { one: 27, two: 0, dotsFrom: 28 }],
+    [260, { one: 21, two: 0, dotsFrom: 22 }],
     [224, { one: 18, two: 0, dotsFrom: 19 }],
   ])('at a %ipx stage', (d, expected) => {
     expect(cutOffs(d)).toEqual(expected);
@@ -277,11 +280,19 @@ describe('the bands', () => {
     expect(wheelBandFor(476)).toBe(476);
   });
 
-  it('every rule boundary is a band edge: names at 260, the phone rule at 320', () => {
+  it('every rule boundary is a band edge: names at 260, the phone rule at 336', () => {
     expect(WHEEL_BANDS).toContain(260);
-    expect(WHEEL_BANDS).toContain(320);
-    expect(isPhoneStage(319)).toBe(true);
-    expect(isPhoneStage(320)).toBe(false);
+    expect(WHEEL_BANDS).toContain(336);
+    expect(isPhoneStage(335)).toBe(true);
+    expect(isPhoneStage(336)).toBe(false);
+  });
+
+  it('a phone never takes two rings (Chris: "Phones: keep the circle, no second ring")', () => {
+    for (const d of WHEEL_BANDS.filter(isPhoneStage)) {
+      for (let n = 1; n <= 120; n++) expect(wheelMode(n, d), `${n} at ${d}`).not.toBe('two');
+    }
+    // The 320 band is reached only by a stacked hero on 416 to 431px phones.
+    expect(isPhoneStage(320)).toBe(true);
   });
 });
 
@@ -324,7 +335,6 @@ describe('ring count and tiles or dots depend only on the slide and the width', 
 
   it('the one-ring limit per band', () => {
     expect(WHEEL_BANDS.filter((d) => !isPhoneStage(d)).map((d) => [d, oneRingMax(d)])).toEqual([
-      [320, 17],
       [336, 18],
       [400, 20],
       [476, 20],

@@ -683,6 +683,9 @@ export class ProductIntegrationWheel {
   }
 
   protected onRingKey(event: KeyboardEvent): void {
+    // A key ends a touch hold: Android often fires no click after a long press, so a
+    // later Enter's click must not be swallowed.
+    this.held = false;
     const count = this.slide().products.length;
     if (count === 0) return;
     let next: number;
@@ -779,11 +782,15 @@ export class ProductIntegrationWheel {
     const view = this.doc.defaultView;
     const press = (event: PointerEvent) => this.onDocumentPointerDown(event);
     const scroll = () => this.onScroll();
+    // A resize can change the band, and a card must not sit over a slide now drawn as dots.
+    const resize = () => this.hideCard();
     this.doc.addEventListener('pointerdown', press, true);
     view?.addEventListener('scroll', scroll, { passive: true });
+    view?.addEventListener('resize', resize);
     this.stopListening = () => {
       this.doc.removeEventListener('pointerdown', press, true);
       view?.removeEventListener('scroll', scroll);
+      view?.removeEventListener('resize', resize);
       this.stopListening = null;
     };
   }
@@ -811,6 +818,8 @@ export class ProductIntegrationWheel {
    * a card opened by hover or focus.
    */
   private onDocumentPointerDown(event: PointerEvent): void {
+    // A new press anywhere ends a touch hold, so its click is never swallowed later.
+    this.held = false;
     const card = this.card();
     if (!card) return;
     const target = event.target as Node | null;

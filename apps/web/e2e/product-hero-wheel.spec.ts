@@ -42,8 +42,9 @@ const wheel = (page: Page) => page.getByTestId('product-hero-wheel');
 const tiles = (page: Page) => page.getByTestId('product-hero-wheel-tile');
 
 /**
- * The wheel is hydrated and laid out at the measured width. `data-live` is set only by
- * the hydrated component (`afterNextRender`), so it is the hydration gate here.
+ * The wheel is hydrated. `data-live` is set only by the hydrated component
+ * (`afterNextRender`), so it is the hydration gate here. The layout itself is the
+ * server's: the browser keeps the same width bands.
  */
 async function live(page: Page): Promise<void> {
   await expect(wheel(page)).toHaveAttribute('data-live', '', { timeout: 15_000 });

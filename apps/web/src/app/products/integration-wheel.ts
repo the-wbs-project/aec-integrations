@@ -157,8 +157,12 @@ export const TILE_MIN_DESKTOP = 28;
 export const TILE_MIN_PHONE = 24;
 /** Desktop: no slide puts more than this on one ring (`oneRingMax`). */
 export const ONE_RING_MAX = 20;
-/** A stage narrower than this is a phone: one ring, never two. */
-const PHONE_BELOW = 320;
+/**
+ * A stage narrower than this is a phone: one ring, never two (Chris: "Phones: keep the
+ * circle, no second ring"). 336 is the narrowest side-by-side stage (the 400px panel at
+ * 1024), so every narrower stage is a stacked hero on a phone.
+ */
+const PHONE_BELOW = 336;
 /** Names under the tiles on slides of this many products or fewer. */
 export const NAMES_MAX = 8;
 /** No names under the tiles on a stage narrower than this: they run into the hub. */
@@ -416,7 +420,7 @@ export function layoutSlide(model: WheelModel, index: number, d: number): WheelL
  * The server cannot know the width, so it writes every band and CSS picks one by
  * container query (`styles.css`, `.aec-wheel`). Hydration lays nothing out again: the
  * browser uses the same bands, so names, ring count and tiles or dots never change at
- * hydration. Each boundary is a rule: 260 (names under tiles), 320 (a phone below it, one
+ * hydration. Each boundary is a rule: 260 (names under tiles), 336 (a phone below it, one
  * ring only). The rest are the stages the mock-up measured: 224, 279 and 294 at 320, 375
  * and 390, 336 at 1024, 476 from 1280 and every width from 768. 400 splits the wide
  * tablet range and is where the dots grow to 6px.
