@@ -55,6 +55,14 @@ Run each surface with **(a) keyboard only**, then **(b) VoiceOver**, then **(c) 
 - [ ] Dynamic updates (toasts, live counts, async results) are announced via an appropriate live region.
 - [ ] Reading order via the rotor/element list is sensible; no orphaned or duplicated announcements.
 
+> **Automated nightly in Chrome (AECI-1880, `TESTING_STRATEGY.md` §8.4.4).** For the announcements this
+> section and "Surface-specific" below name, the nightly now records the page while it acts: the login
+> sent and error states, review submission, the account save, the subscribe forms, the waitlist
+> welcome, claim confirm, search counts, the vendor portal's one channel, and the admin queues' empty,
+> loading and error states. Each must be heard exactly once at the promised politeness. Form errors
+> must be tied to their field with focus on the first. It reads the DOM, not speech, so it cannot tell
+> whether VoiceOver or NVDA spoke the message. The manual pass above keeps its full scope and cadence.
+
 **Surface-specific:**
 - [ ] **Home** — trust band, stats, search entry, and section headings announce; the waitlist welcome banner (if `?ref=waitlist`) is announced and dismissible by keyboard.
 - [ ] **Product detail** — rating/review summary, tabs/sections, and external links announce state + destination.

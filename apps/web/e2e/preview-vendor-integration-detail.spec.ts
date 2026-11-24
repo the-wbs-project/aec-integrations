@@ -1,4 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
+import { expectHeardOnce, recordAnnouncements } from '../e2e-a11y/support/announcements';
 import { expect, test, type Locator, type Page } from './fixtures';
 
 /**
@@ -20,7 +21,8 @@ import { expect, test, type Locator, type Page } from './fixtures';
 const LIST = '/preview/vendor-dashboard/products/summit-model-coordination/integrations';
 const PROCORE = '00000000-0000-4000-8000-000000005310';
 const OWNED = '00000000-0000-4000-8000-00000000531c';
-const ANNOUNCER = '[role="status"].sr-only';
+/** The announcement recorder waits this long for quiet. Short: the preview API answers in memory. */
+const QUIET = { quietMs: 500 };
 
 /** Click until the state it should produce is observable: a click between SSR
  *  paint and hydration is dropped (see `preview-vendor-portal-nav.spec.ts`). */
@@ -109,13 +111,15 @@ test.describe('integration detail page (preview)', () => {
 
   test('Yes saves at once and announces; No asks for a reason', async ({ page }) => {
     await openPage(page, PROCORE);
+    // AECI-1880: the shell's channel speaks the save once, politely.
+    const rec = await recordAnnouncements(page);
     // An answered row reads as text with a Change link (AECI-1246), so the saved
     // Yes shows as the answer, not as a pressed toggle.
     await clickUntil(page.getByTestId('yes-models'), () =>
       expect(page.getByTestId('answer-models')).toContainText('Yes', { timeout: 1_000 }),
     );
     await expect(page.getByTestId('change-models')).toBeFocused();
-    await expect(page.locator(ANNOUNCER)).toContainText('Models: you said this is right.');
+    expectHeardOnce(await rec.settle(QUIET), 'Models: you said this is right.', 'polite');
 
     await page.getByTestId('no-documents').click();
     await expect(page.getByTestId('answer-form')).toBeVisible();
@@ -138,11 +142,12 @@ test.describe('integration detail page (preview)', () => {
     await page.getByTestId('answer-save').click();
     await expect(page.getByTestId('change-box-models')).toBeVisible();
 
+    const rec = await recordAnnouncements(page);
     await page.getByTestId('change-box-cancel-models').click();
     await expect(page.getByTestId('change-box-models')).toBeHidden();
     await expect(rows).toHaveCount(before);
     await expect(page.getByTestId('yes-models')).toBeVisible();
-    await expect(page.locator(ANNOUNCER)).toContainText('your change is canceled');
+    expectHeardOnce(await rec.settle(QUIET), 'your change is canceled', 'polite');
   });
 
   test('a row the caller added deletes after a confirm, and is axe clean there (AECI-1245)', async ({
@@ -160,10 +165,11 @@ test.describe('integration detail page (preview)', () => {
     await expect(page.getByTestId('delete-rfis')).toBeFocused();
 
     await page.getByTestId('delete-rfis').click();
+    const rec = await recordAnnouncements(page);
     await page.getByTestId('delete-yes-rfis').click();
     await expect(page.getByTestId('data-row-rfis')).toHaveCount(0);
     await expect(page.locator('#data-shared-heading')).toBeFocused();
-    await expect(page.locator(ANNOUNCER)).toContainText('the row you added is deleted');
+    expectHeardOnce(await rec.settle(QUIET), 'the row you added is deleted', 'polite');
   });
 
   test('the owner’s page is axe clean with an editor and the request form open', async ({
