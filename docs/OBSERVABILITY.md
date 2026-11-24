@@ -221,6 +221,36 @@ and neither feeds a dashboard. PostHog stays the alerting and metrics plane (ADR
 - **Most reads carry no region.** Drizzle reads through `.raw()`, which returns no `meta`, so `sql_duration_ms` and `served_by_region` appear on the finish line for `run`, `all` and `batch` only. Traces carry them for every call.
 - **Unknown.** We have not seen a stalled request in traces yet. We do not know whether a cancelled request keeps its spans or its console lines. Check this at the next stall.
 
+### Not a pipe: on-demand profiling of a deployed Worker (2026-11-24)
+
+Cloudflare can capture a CPU or heap profile of a deployed Worker on request. Use it when a
+deployed Worker burns CPU or memory and traces show no slow I/O call. It is a debugging tool,
+not a record: nothing is captured unless someone asks, and nothing reaches PostHog. Source:
+[Profiling in production](https://developers.cloudflare.com/workers/observability/profiling-in-production/),
+announced 2026-10-09.
+
+| | |
+|---|---|
+| Captures | `cpu` (default): a V8 sample every 1 ms. `heap`: a stack trace per 512 kB allocated during the window. Allocations only, not retained memory, so it is not a heap snapshot |
+| Window | `duration_ms` from 1000 to 50000 |
+| Target | A live, already-loaded isolate of `latest-deployed` or a version UUID. It starts no isolate and sends no request, so the Worker needs real traffic during the capture |
+| Output | gzip-compressed pprof. Open it with `go tool pprof -http=:0 file.pprof.gz`, or upload it to the dashboard flamegraph |
+| Auth | An API token with **Workers Scripts Read**, or the **Content Read-Only** Workers role |
+| Limits | Rate limited (HTTP 429, honour `Retry-After`). Local `wrangler dev` uses DevTools instead (press `D`, then the Profiler tab) |
+
+Three ways to capture. The dashboard path is Workers & Pages → the Worker → Observability →
+"Flamegraph" → Capture Profile. The `cf` CLI (not wrangler) runs
+`cf workers versions profile latest-deployed --worker aeci-api --duration-ms 10000 --profile-type cpu > api-cpu.pprof`.
+The API is a `POST` to
+`/client/v4/accounts/{account_id}/workers/workers/{worker}/versions/latest-deployed/profile`
+with a JSON body such as `{"duration_ms":10000,"profile_type":"cpu"}`.
+
+- **Source maps: the API Worker has them, the SSR Worker likely does not.** Wrangler 4.150+ uploads maps by default, and we run 4.151. A dry run of `aeci-api` emits `index.js.map` (about 14 MB, under the 60 MiB limit), so its frames should read as source. The SSR Worker ships Angular's hidden maps, which carry no `sourceMappingURL` comment, and wrangler skips maps it cannot resolve. Expect minified `aeci-web` frames until that is checked on a real profile. Maps uploaded to Cloudflare are never served. The only public-leak path is a `.map` in `dist/browser`, which `scripts/ci/posthog-sourcemaps.sh` deletes before deploy.
+- **Low-traffic tiers are hard to profile.** Staging and demo may have no loaded isolate. The API then answers "No recent executions were found". Send traffic during the capture.
+- **We have not confirmed that `CF_READONLY_API_TOKEN` carries Workers Scripts Read.** It reads Workers Observability. Try it once before an incident needs it.
+- **A profile holds code locations, not request data.** It carries no URLs, headers or IPs, so it does not touch the invocation-log rule above.
+- **A capture is an operator action.** It is a billed account call. Run it only when someone asked for one.
+
 ## Custom metric catalogue (Phase 2 §14)
 
 ~50 `aeci.*` metrics. Every one is emitted to **both** vendors from the same call

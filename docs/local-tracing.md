@@ -435,6 +435,8 @@ collector actually misbehaves.
 
 Deployed tiers also run Cloudflare Workers traces since 2026-11-03, a separate record from this local
 store. `docs/OBSERVABILITY.md` §Not a pipe: production traces and D1 query logs.
+For CPU or memory on a deployed Worker, capture an on-demand profile instead.
+`docs/OBSERVABILITY.md` §Not a pipe: on-demand profiling of a deployed Worker.
 
 They are complementary, not alternatives. Do not add local-trace assumptions to a PostHog
 dashboard, and do not expect a local span to explain deployed behaviour.
