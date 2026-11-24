@@ -15,7 +15,13 @@ import {
 
 import type { VendorBillingLicense, VendorBillingProduct } from '@aeci/shared';
 
-import { FIELD_INPUT_CLASS } from '../../shared/form-field/form-field-classes';
+import { AecButton } from '../../shared/button/button';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { AecIcon } from '../../shared/icon/icon';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
@@ -56,10 +62,11 @@ import { licenseActionErrorMessage, licenseActionIsStale } from './vendor-licens
   selector: 'aec-vendor-license-assign',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
+  imports: [AecButton, AecIcon],
   template: `
     @if (products().length === 0) {
       <p
-        class="max-w-[16rem] text-start text-xs text-(--text-secondary)"
+        class="max-w-[16rem] text-start text-t-13 text-(--text-secondary)"
         data-testid="license-assign-empty"
         i18n="@@vendor.billing.assign.none"
       >
@@ -68,13 +75,10 @@ import { licenseActionErrorMessage, licenseActionIsStale } from './vendor-licens
     } @else if (!confirming()) {
       <div class="flex flex-wrap items-end justify-end gap-2 text-start">
         <div class="min-w-[12rem]">
-          <label
-            [for]="id('product')"
-            class="block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"
-            i18n="@@vendor.billing.assign.product"
+          <label [for]="id('product')" [class]="labelClass" i18n="@@vendor.billing.assign.product"
             >Product</label
           >
-          <div class="relative mt-1">
+          <div class="relative mt-2">
             <select
               [id]="id('product')"
               [class]="selectClass"
@@ -88,24 +92,20 @@ import { licenseActionErrorMessage, licenseActionIsStale } from './vendor-licens
                 </option>
               }
             </select>
-            <svg
-              class="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-(--text-secondary)"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
+            <span
+              class="pointer-events-none absolute end-3 top-1/2 inline-flex -translate-y-1/2 text-(--text-secondary)"
               aria-hidden="true"
             >
-              <path d="m6 9 6 6 6-6" />
-            </svg>
+              <aec-icon name="chevron-down" decorative [size]="4" />
+            </span>
           </div>
         </div>
         <button
           #trigger
+          aecButton
+          variant="secondary"
+          compact
           type="button"
-          [class]="secondaryClass"
           (click)="openConfirm()"
           data-testid="license-assign-trigger"
         >
@@ -117,21 +117,22 @@ import { licenseActionErrorMessage, licenseActionIsStale } from './vendor-licens
         role="group"
         [attr.aria-labelledby]="id('title')"
         [attr.aria-describedby]="id('body')"
-        class="max-w-[22rem] rounded-(--radius-md) border border-(--border-strong) bg-(--surface-sunken) p-3 text-start"
+        class="ms-auto max-w-[22rem] rounded-panel border border-(--border-strong) bg-(--surface-sunken) p-4 text-start"
         (keydown.escape)="onEscape($event)"
         data-testid="license-assign-confirm"
       >
-        <p [id]="id('title')" class="text-sm font-semibold text-(--text-primary)">
+        <p [id]="id('title')" class="text-t-14 font-semibold text-(--text-primary)">
           {{ confirmTitle() }}
         </p>
-        <p [id]="id('body')" class="mt-1 text-xs leading-relaxed text-(--text-secondary)">
+        <p [id]="id('body')" class="mt-1 text-t-13 leading-[1.6] text-(--text-secondary)">
           {{ confirmBody() }}
         </p>
-        <div class="mt-3 flex flex-wrap gap-2">
+        <div class="mt-4 flex flex-wrap gap-2">
           <button
             #confirm
+            aecButton
+            compact
             type="button"
-            [class]="primaryClass"
             [disabled]="busy()"
             [attr.aria-busy]="busy() ? 'true' : null"
             (click)="assign()"
@@ -144,8 +145,10 @@ import { licenseActionErrorMessage, licenseActionIsStale } from './vendor-licens
             }
           </button>
           <button
+            aecButton
+            variant="secondary"
+            compact
             type="button"
-            [class]="secondaryClass"
             [disabled]="busy()"
             (click)="cancelConfirm()"
             i18n="@@vendor.billing.assign.cancel"
@@ -158,7 +161,7 @@ import { licenseActionErrorMessage, licenseActionIsStale } from './vendor-licens
     @if (notice(); as message) {
       <p
         role="alert"
-        class="mt-2 max-w-[22rem] text-start text-xs font-medium text-(--text-primary)"
+        [class]="errorClass + ' mt-2 ms-auto max-w-[22rem] text-start'"
         data-testid="license-assign-error"
       >
         {{ message }}
@@ -273,9 +276,7 @@ export class VendorLicenseAssign {
     return `vendor-license-assign-${this.license().id}-${key}`;
   }
 
-  protected readonly selectClass = `${FIELD_INPUT_CLASS} cursor-pointer appearance-none pe-9`;
-  protected readonly primaryClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) bg-(--accent-primary) px-4 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
-  protected readonly secondaryClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
+  protected readonly selectClass = `${FIELD_INPUT_CLASS} cursor-pointer appearance-none pe-10`;
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly errorClass = FIELD_ERROR_CLASS;
 }

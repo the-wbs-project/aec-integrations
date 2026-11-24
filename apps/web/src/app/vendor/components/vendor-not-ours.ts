@@ -33,9 +33,10 @@ import {
   FIELD_LABEL_CLASS,
 } from '../../shared/form-field/form-field-classes';
 import { AecIcon } from '../../shared/icon/icon';
-import { FORM_PANEL, NESTED_SAVE_BAR } from '../integration-detail/integration-detail-styles';
+import { FORM_PANEL } from '../integration-detail/integration-detail-styles';
+import { PORTAL_NESTED_SAVE_BAR_CLASS } from '../shared/portal-form';
 import { PORTAL_SAVE_BUTTON_CLASS } from '../shared/portal-form';
-import { KeepClearOfSaveBar } from '../integration-detail/keep-clear-of-save-bar';
+import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
 
 /**
  * The caller's newest "not ours" on one row (AECI-1225): an `owner` contest it filed
@@ -430,6 +431,6 @@ export class VendorNotOurs {
   protected readonly hintClass = FIELD_HINT_CLASS;
   /** A form nested in a row (part 1's nested save bar, AECI-1811). */
   protected readonly panelClass = FORM_PANEL;
-  protected readonly saveBarClass = NESTED_SAVE_BAR;
+  protected readonly saveBarClass = PORTAL_NESTED_SAVE_BAR_CLASS;
   protected readonly saveButtonClass = PORTAL_SAVE_BUTTON_CLASS;
 }

@@ -51,9 +51,11 @@ import {
   PORTAL_FORM_CLASS,
   PORTAL_FORM_GRID_CLASS,
   PORTAL_FORM_SPAN_CLASS,
+  PORTAL_NESTED_SAVE_BAR_CLASS,
   PORTAL_SAVE_BUTTON_CLASS,
   PORTAL_SAVE_STATUS_CLASS,
 } from '../shared/portal-form';
+import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
 
 /** What a save told the host. `changed: false` is the server's 200 no-op. */
 export interface CatalogueMappingSaved {
@@ -115,10 +117,11 @@ export function catalogueSaveErrorMessage(err: unknown): string {
  */
 @Component({
   selector: 'aec-vendor-connector-mapping-form',
-  imports: [AecButton, AecFormSubmit, AecSelect, ProductCombobox],
+  imports: [AecButton, AecFormSubmit, AecSelect, KeepClearOfSaveBar, ProductCombobox],
   host: { class: 'block' },
   template: `
     <form
+      aecKeepClearOfSaveBar
       method="dialog"
       novalidate
       [class]="formClass"
@@ -434,8 +437,7 @@ export class VendorConnectorMappingForm {
    * card, see `vendor-integration-edit-form.ts`). Same sticky foot, hairline, order
    * and wrap, and the `aec-portal-save-bar` marker `PORTAL_FORM_CLASS` reads.
    */
-  protected readonly saveBarClass =
-    'aec-portal-save-bar sticky bottom-0 z-10 mt-8 flex flex-wrap items-center justify-end gap-x-6 gap-y-3 border-t bg-(--surface-base) py-4';
+  protected readonly saveBarClass = PORTAL_NESTED_SAVE_BAR_CLASS;
   protected readonly saveStatusClass = PORTAL_SAVE_STATUS_CLASS;
   protected readonly saveButtonClass = PORTAL_SAVE_BUTTON_CLASS;
   protected readonly labelClass = FIELD_LABEL_CLASS;

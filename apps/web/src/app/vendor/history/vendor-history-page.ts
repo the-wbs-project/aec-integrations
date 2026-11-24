@@ -12,6 +12,7 @@ import { AecCard } from '../../shared/card/card';
 import { AecIcon } from '../../shared/icon/icon';
 import { VendorDocsLink } from '../components/vendor-docs-link';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
+import { SEGMENTED_CLASS, segmentClass } from '../shared/portal-segmented';
 import { VendorApi, vendorHistoryCsvUrl } from '../vendor-api';
 
 import { VendorHistoryFollowUp } from './vendor-history-follow-up';
@@ -455,19 +456,6 @@ export class VendorHistoryPage {
   /** One filter toggle: Forest when pressed, with a tick, so the state is not
    *  colour alone. */
   protected segmentClass(pressed: boolean): string {
-    return pressed ? `${SEGMENT_BASE} ${SEGMENT_PRESSED}` : `${SEGMENT_BASE} ${SEGMENT_RESTING}`;
+    return segmentClass(pressed);
   }
 }
-
-/**
- * The segmented pressed-toggle recipe (DESIGN.md §5 "Segmented control"), the same
- * whole class names as `vendor-integrations-section.ts`'s status toggles. Kept as
- * a copy here because `vendor/shared/*` is not this slice's to edit. The cleanup
- * slice can lift both into one shared constant.
- */
-const SEGMENTED_CLASS =
-  'aec-field-control inline-flex max-w-full flex-wrap gap-1 border bg-(--surface-base) p-[3px]';
-const SEGMENT_BASE =
-  'aec-view-toggle-btn inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-mark px-4 text-t-14 font-semibold transition-colors duration-fast ease-standard focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
-const SEGMENT_PRESSED = 'bg-(--accent-primary) text-(--surface-base)';
-const SEGMENT_RESTING = 'text-(--text-primary) hover:bg-(--surface-sunken)';

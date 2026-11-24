@@ -20,7 +20,7 @@ import { AecButton } from '../../shared/button/button';
 import { AecCard } from '../../shared/card/card';
 import { AecIcon } from '../../shared/icon/icon';
 import { formatDay } from '../integration-detail/integration-detail-model';
-import { SEGMENTED_CLASS, segmentClass } from '../integration-detail/integration-detail-styles';
+import { SEGMENTED_CLASS, segmentClass } from '../shared/portal-segmented';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';

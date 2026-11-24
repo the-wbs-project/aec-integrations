@@ -2,8 +2,4 @@
 # Guard: src/inline-icon-svg.guard.spec.ts. Rules: src/guard-allowlists/shrink-only.harness.ts.
 # One line per file: its path from src/app and its count. A count only goes down.
 # Lower your line when you fix some. Delete it when the file reaches zero. Never add a line.
-vendor/components/vendor-billing-licenses.ts 1
 vendor/components/vendor-contest-form.ts 2
-vendor/components/vendor-license-actions.ts 2
-vendor/components/vendor-license-assign.ts 1
-vendor/sections/vendor-billing-section.ts 1

@@ -522,6 +522,8 @@ A **session-scoped "N new" count** on the notifications disclosure. Nothing more
 > | `vendor-product-form.ts:195` | the vendor's own save succeeded | **kept, then moved to the channel by AECI-1810**: the same, and the facet editor's save does the same |
 > | `vendor-add-claim-form.ts:218` | the lane the vendor is composing already exists | **keep** — feedback on the vendor's own input, and the channel never announces this |
 > | `vendor-attestation-control.ts` divergence notice | two owned slots record different details | **REMOVED (2026-08-19)** |
+> | `vendor-billing-section.ts` accepted-grant notice | an owner accepted a waiting grant on the Billing tab | **role removed by AECI-1812 (2026-11-25)**: plain text, focused after the re-read as before, and its title and lines go once through `VendorPortalAnnouncer`. The stale refusal on the same element stays `role="alert"` |
+> | `vendor-billing-unused-warning.ts` warning text | the quantity typed on the buy form or in the Add subscriptions dialog would leave subscriptions unused | **keep** (AECI-1812). Feedback on the owner's own typing, beside the field, always in the DOM so a changed count is heard. The channel never announces it. Inside the modal Add dialog the shell's region is hidden from assistive tech anyway |
 >
 > **Both `vendor-add-claim-form.ts` and `vendor-attestation-control.ts` were retired by AECI-1156
 > (2026-09-28), see `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.** Their successor, `integration-shared-data.ts`,
@@ -562,6 +564,8 @@ The entitlement flip, the session count and the hoist all shipped; the three as-
 > | `vendor-add-claim-form.ts:218` | the lane being composed already exists | **Integrations** | **keep** |
 > | `vendor-attestation-control.ts` divergence notice | two owned slots record different details | **Integrations** | **role removed 2026-08-19** |
 > | `vendor-seat-invite-form.ts` "Invite sent to" line | an invite was sent from the Invite dialog | Seats | **keep** (AECI-1812). The dialog is modal, and the CDK hides everything outside it from assistive tech while it is open, the shell's live region included. The announcer would say nothing, so this line stays beside the control just used. The roster's own result line moved to the channel in the same issue |
+> | `vendor-billing-section.ts` accepted-grant notice | an owner accepted a waiting grant | Billing | **role removed** (AECI-1812 part 2). Plain text, and the same words go once through `VendorPortalAnnouncer`. A stale refusal keeps `role="alert"` |
+> | `vendor-billing-unused-warning.ts` warning text | a typed quantity would leave subscriptions unused | Billing | **keep** (AECI-1812 part 2). It answers the owner's own typing beside the field and is never a result; the channel never says it |
 >
 > **Both Integrations-tab rows are retired by AECI-1156** (2026-09-28, see the note in §6.3 above and
 > `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17): this finding's file names are history, not current locations.

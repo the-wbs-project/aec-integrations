@@ -35,20 +35,12 @@ export const INPUT = FIELD_INPUT_CLASS;
  * is white so the nested save bar (below) sits on the same ground. It carries
  * `PORTAL_FORM_CLASS` whole: that class is scroll margins only, no layout, and it
  * keeps a control focused by Tab clear of the sticky bar (WCAG 2.4.11). Every form
- * that renders `NESTED_SAVE_BAR` binds this panel.
+ * that renders `PORTAL_NESTED_SAVE_BAR_CLASS` (`vendor/shared/portal-form.ts`) binds this panel.
  */
 export const FORM_PANEL = `rounded-panel border border-(--border-default) bg-(--surface-base) p-4 ${PORTAL_FORM_CLASS}`;
 
 /** A read-only note inside a row (a company's note, a reason): the sunken panel. */
 export const NOTE_PANEL = 'rounded-panel bg-(--surface-sunken) px-4 py-3';
-
-/**
- * The save bar of a form nested in a row: part 1's `saveBarClass`
- * (`components/vendor-integration-edit-form.ts`), the same string, so the two read
- * alike. It does not pull out over a card's padding, because the form is not the card.
- */
-export const NESTED_SAVE_BAR =
-  'aec-portal-save-bar sticky bottom-0 z-10 mt-8 flex flex-wrap items-center justify-end gap-x-6 gap-y-3 border-t bg-(--surface-base) py-4';
 
 /** The nested save bar's status line, at the start. Plain text, never a live region. */
 export const NESTED_SAVE_STATUS = PORTAL_SAVE_STATUS_CLASS;
@@ -77,22 +69,3 @@ export const STATUS_CHIP_ICON: Record<Tone, AecIconName | null> = {
   attention: 'exclamation',
   neutral: null,
 };
-
-/**
- * The portal's own toggles on the site's segmented control (DESIGN.md §5 "Segmented
- * control"; the Cards/Table toggle's recipe): a 44px framed track with the field
- * edge, 36px segments, the pressed one solid Forest with white text and a tick.
- * The track wraps. `aec-view-toggle-btn` maps the pressed segment to `Highlight` in
- * forced colours. Kept in behaviour on every portal list (ruled 2026-11-24).
- */
-export const SEGMENTED_CLASS =
-  'aec-field-control inline-flex max-w-full flex-wrap gap-1 border bg-(--surface-base) p-[3px]';
-const SEGMENT_BASE =
-  'aec-view-toggle-btn inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-mark px-4 text-t-14 font-semibold transition-colors duration-fast ease-standard focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-60';
-const SEGMENT_PRESSED = 'bg-(--accent-primary) text-(--surface-base)';
-const SEGMENT_RESTING = 'text-(--text-primary) hover:bg-(--surface-sunken)';
-
-/** One segment: Forest when pressed. The caller adds a tick, so the state is not colour alone. */
-export function segmentClass(pressed: boolean): string {
-  return pressed ? `${SEGMENT_BASE} ${SEGMENT_PRESSED}` : `${SEGMENT_BASE} ${SEGMENT_RESTING}`;
-}

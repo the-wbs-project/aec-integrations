@@ -12,7 +12,10 @@ import { untilAppStable } from './hydration';
  * session is needed.
  *
  * The forms: add a row, the answer ("No") form, the request form, the protest to
- * AECi on a declined request, and "Not ours?".
+ * AECi on a declined request, and "Not ours?". Since AECI-1812 also the integrations
+ * list's forms, which took `aecKeepClearOfSaveBar`: "Add an integration" step 2, "Ask
+ * us to add it", the owner edit form, the connector catalogue's match form, and "Add a
+ * product".
  *
  * Every request off the local stack is answered here: PostHog with an empty 200, the
  * rest aborted. Nothing is submitted.
@@ -134,6 +137,49 @@ const FORMS: readonly {
     url: UNCLAIMED,
     steps: [{ trigger: '[data-testid="not-ours"]', shows: '[data-testid="not-ours-form"]' }],
     form: '[data-testid="not-ours-form"]',
+  },
+  // AECI-1812: the integrations list's forms took `aecKeepClearOfSaveBar` too.
+  {
+    name: 'add an integration (step 2)',
+    url: `${PRODUCTS}/summit-model-coordination/integrations?create=open&counterpart=procore`,
+    steps: [],
+    form: '[data-testid="create-form"]',
+  },
+  {
+    name: 'ask us to add a product',
+    url: `${PRODUCTS}/summit-model-coordination/integrations?create=open`,
+    steps: [
+      { trigger: '[data-testid="create-ask-us"]', shows: '[data-testid="product-request-form"]' },
+    ],
+    form: '[data-testid="product-request-form"]',
+  },
+  {
+    name: 'the owner edit form',
+    url: `${PRODUCTS}/summit-model-coordination/integrations`,
+    steps: [
+      {
+        trigger: '[data-testid="edit-owned-integration"]',
+        shows: 'aec-vendor-integration-edit-form form',
+      },
+    ],
+    form: 'aec-vendor-integration-edit-form form',
+  },
+  {
+    name: 'add a product',
+    url: `${PRODUCTS}?create=open`,
+    steps: [],
+    form: '[data-testid="product-create-form"]',
+  },
+  {
+    name: 'the connector match form',
+    url: `${PRODUCTS}/agave/catalogue?fixture=connector-seat`,
+    steps: [
+      {
+        trigger: 'role=button[name="Edit the match for Procore"]',
+        shows: 'form[aria-label^="Edit the match"]',
+      },
+    ],
+    form: 'form[aria-label^="Edit the match"]',
   },
 ];
 

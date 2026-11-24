@@ -21,6 +21,9 @@ import type {
   VendorPendingGrant,
 } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
+import { AecCard } from '../../shared/card/card';
+import { AecIcon } from '../../shared/icon/icon';
 import { formatTermDate } from '../../shared/term-date/format-term-date';
 import { acceptanceHref, plansSnapshotHref } from '../components/vendor-agreement-href';
 import { VendorBillingEmailForm } from '../components/vendor-billing-email-form';
@@ -31,12 +34,19 @@ import {
   VendorBillingStripeWatch,
   liveLicenseCount,
 } from '../components/vendor-billing-stripe-watch';
+import {
+  BILLING_LINK_CLASS,
+  BILLING_TABLE_CELL_CLASS,
+  BILLING_TABLE_HEAD_CLASS,
+  BILLING_TABLE_REGION_CLASS,
+} from '../components/vendor-billing-styles';
 import { VendorBillingSummary } from '../components/vendor-billing-summary';
 import { VendorDocsLink } from '../components/vendor-docs-link';
 import { VendorLicenseActions } from '../components/vendor-license-actions';
 import { VendorLicenseAssign } from '../components/vendor-license-assign';
 import { VendorPendingGrantCard } from '../components/vendor-pending-grant-card';
 import { focusIsLost } from '../focus-is-lost';
+import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 /** One acceptance row, with its labels and its link built once. */
@@ -164,11 +174,23 @@ function documentLabel(document: string): string {
  * An accept or a stale refusal re-reads billing, which removes that grant's card, so
  * the outcome lives in {@link grantNotice} above the card and takes focus, as the
  * stale handling of the licenses table does. A member seat gets no line about pending
- * grants: the billing read is owner-only.
+ * grants: the billing read is owner-only. Since AECI-1812 an accepted notice is plain
+ * text, and its words go once through `VendorPortalAnnouncer`, the shell's one live
+ * region. A stale refusal stays `role="alert"`.
+ *
+ * ── LAYOUT (AECI-1812) ──────────────────────────────────────────────────────
+ * The portal's design language (mock-up 13 has no Billing page): the waiting grants,
+ * the billing details (email and legal name in one card) and Pay by card are white
+ * cards in the left column, "At a glance" is a card in the right one. The two tables
+ * scroll sideways inside their own labelled regions, so the page never does. Every
+ * sentence keeps its place: nothing moved around checkout or acceptance.
  */
 @Component({
   selector: 'aec-vendor-billing-section',
   imports: [
+    AecButton,
+    AecCard,
+    AecIcon,
     RouterLink,
     VendorBillingEmailForm,
     VendorBillingLegalNameForm,
@@ -184,15 +206,10 @@ function documentLabel(document: string): string {
   template: `
     <div [class]="topGridClass()">
       <div>
-        <h2
-          class="font-display text-xl font-semibold text-(--text-primary)"
-          i18n="@@vendor.section.billing"
-        >
-          Billing
-        </h2>
+        <h2 i18n="@@vendor.section.billing">Billing</h2>
         @if (!isOwner()) {
           <p
-            class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
+            class="mt-2 max-w-[32rem] text-t-14 leading-[1.6] text-pretty text-(--text-secondary)"
             data-testid="billing-owners-only"
             i18n="@@vendor.billing.ownersOnly"
           >
@@ -201,7 +218,7 @@ function documentLabel(document: string): string {
           </p>
         } @else {
           <p
-            class="mt-1 text-sm leading-relaxed text-(--text-secondary)"
+            class="mt-2 max-w-[32rem] text-t-14 leading-[1.6] text-pretty text-(--text-secondary)"
             i18n="@@vendor.billing.intro"
           >
             Your company's Managed subscriptions are held here. Put each one on a product to move
@@ -209,18 +226,18 @@ function documentLabel(document: string): string {
           </p>
           @if (billing()?.stripe_checkout_available && billing()?.billing_account) {
             <p
-              class="mt-1 text-sm leading-relaxed text-(--text-secondary)"
+              class="mt-1 max-w-[32rem] text-t-14 leading-[1.6] text-pretty text-(--text-secondary)"
               data-testid="billing-intro-card"
               i18n="@@vendor.billing.intro.card"
             >
               You can pay for subscriptions by card below, through Stripe.
             </p>
           }
-          <p class="mt-1"><aec-vendor-docs-link page="billing" /></p>
+          <p class="mt-2"><aec-vendor-docs-link page="billing" /></p>
 
           @if (stripeNotice(); as notice) {
             <div
-              class="mt-4 flex items-start justify-between gap-4 rounded-(--radius-md) border border-(--border-default) p-4 text-sm"
+              class="mt-6 flex items-start justify-between gap-4 rounded-panel border border-(--border-default) p-6 text-t-14"
               [class]="
                 notice.kind === 'cancelled' ? 'bg-(--surface-raised)' : 'bg-(--accent-primary-soft)'
               "
@@ -295,8 +312,10 @@ function documentLabel(document: string): string {
                 </p>
                 @if (noticeKey() === 'timeout') {
                   <button
+                    aecButton
+                    variant="secondary"
+                    compact
                     type="button"
-                    [class]="retryClass"
                     data-testid="billing-checkout-notice-retry"
                     (click)="watch.retry()"
                     i18n="@@vendor.billing.notice.timeout.retry"
@@ -306,41 +325,35 @@ function documentLabel(document: string): string {
                 }
               </div>
               <button
+                aecButton
+                variant="ghost"
+                iconOnly
                 type="button"
-                class="-me-1 -mt-1 inline-flex size-11 shrink-0 items-center justify-center rounded-(--radius-sm) text-(--text-secondary) transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                [class]="'-me-2 -mt-2'"
                 i18n-aria-label="@@vendor.billing.notice.dismiss"
                 aria-label="Dismiss"
                 data-testid="billing-checkout-notice-dismiss"
                 (click)="watch.dismiss()"
               >
-                <svg
-                  class="size-5"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M18 6 6 18M6 6l12 12" />
-                </svg>
+                <aec-icon name="x" decorative />
               </button>
             </div>
           }
 
           @if (loading()) {
-            <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@vendor.billing.loading">
+            <p class="mt-6 text-t-14 text-(--text-secondary)" i18n="@@vendor.billing.loading">
               Loading billing…
             </p>
           } @else if (failed() && !billing()) {
-            <div class="mt-4 flex flex-wrap items-center gap-3">
-              <p class="text-sm text-(--text-primary)" i18n="@@vendor.billing.error">
+            <div class="mt-6 flex flex-wrap items-center gap-4">
+              <p class="text-t-14 text-(--text-primary)" i18n="@@vendor.billing.error">
                 Could not load billing.
               </p>
               <button
+                aecButton
+                variant="secondary"
+                compact
                 type="button"
-                [class]="retryClass"
                 (click)="retry()"
                 i18n="@@vendor.billing.retry"
               >
@@ -352,8 +365,8 @@ function documentLabel(document: string): string {
               <div
                 #grantNoticeEl
                 tabindex="-1"
-                [attr.role]="notice.kind === 'stale' ? 'alert' : 'status'"
-                class="mt-4 rounded-(--radius-md) border border-(--border-default) p-4 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                [attr.role]="notice.kind === 'stale' ? 'alert' : null"
+                class="mt-6 rounded-panel border border-(--border-default) p-6 text-t-14 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
                 [class]="
                   notice.kind === 'stale' ? 'bg-(--surface-raised)' : 'bg-(--accent-primary-soft)'
                 "
@@ -367,26 +380,25 @@ function documentLabel(document: string): string {
             }
             @if (b.pending_grants.length > 0) {
               <section
-                class="mt-6 rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) p-5"
+                aecCard
+                [class]="'mt-6 p-6'"
                 aria-labelledby="vendor-billing-grants-heading"
                 data-testid="pending-grants"
               >
-                <h3
-                  id="vendor-billing-grants-heading"
-                  class="font-label text-sm font-semibold text-(--text-primary)"
-                  i18n="@@vendor.billing.grantPending.heading"
-                >
+                <h3 id="vendor-billing-grants-heading" i18n="@@vendor.billing.grantPending.heading">
                   Subscriptions waiting for you
                 </h3>
                 <p
-                  class="mt-1 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+                  class="mt-2 max-w-[32rem] text-t-14 leading-[1.6] text-pretty text-(--text-secondary)"
                   i18n="@@vendor.billing.grantPending.intro"
                 >
                   AEC Integrations granted your company these subscriptions. Each one starts only
                   when an owner accepts the Managed plan agreement for it. Until then, nothing
                   changes on your listings.
                 </p>
-                <div class="mt-5 divide-y border-t pt-5">
+                <div
+                  class="mt-6 divide-y divide-(--border-default) border-t border-(--border-default) pt-6"
+                >
                   @for (grant of b.pending_grants; track grant.id) {
                     <aec-vendor-pending-grant-card
                       [grant]="grant"
@@ -398,36 +410,39 @@ function documentLabel(document: string): string {
                 </div>
               </section>
             }
-            <section class="mt-6" aria-labelledby="vendor-billing-email-heading">
-              <h3
-                id="vendor-billing-email-heading"
-                class="font-label text-sm font-semibold text-(--text-primary)"
-                i18n="@@vendor.billing.email.heading"
+            <!-- AECI-1812: the billing email and the legal name share one white card,
+                 split by a hairline. -->
+            <div aecCard [class]="'mt-6 p-6'" data-testid="billing-details">
+              <section aria-labelledby="vendor-billing-email-heading">
+                <h3 id="vendor-billing-email-heading" i18n="@@vendor.billing.email.heading">
+                  Billing email
+                </h3>
+                <div class="mt-4">
+                  @if (b.billing_account; as account) {
+                    <aec-vendor-billing-email-form [current]="account.billing_email" />
+                  } @else {
+                    <p class="text-t-14 text-(--text-secondary)" i18n="@@vendor.billing.noAccount">
+                      Your company has no billing account yet. Contact AEC Integrations to set one
+                      up.
+                    </p>
+                  }
+                </div>
+              </section>
+              <section
+                class="mt-6 border-t border-(--border-default) pt-6"
+                aria-labelledby="vendor-billing-legal-name-heading"
               >
-                Billing email
-              </h3>
-              <div class="mt-2">
-                @if (b.billing_account; as account) {
-                  <aec-vendor-billing-email-form [current]="account.billing_email" />
-                } @else {
-                  <p class="text-sm text-(--text-secondary)" i18n="@@vendor.billing.noAccount">
-                    Your company has no billing account yet. Contact AEC Integrations to set one up.
-                  </p>
-                }
-              </div>
-            </section>
-            <section class="mt-6" aria-labelledby="vendor-billing-legal-name-heading">
-              <h3
-                id="vendor-billing-legal-name-heading"
-                class="font-label text-sm font-semibold text-(--text-primary)"
-                i18n="@@vendor.billing.legalName.heading"
-              >
-                Company legal name
-              </h3>
-              <div class="mt-2">
-                <aec-vendor-billing-legal-name-form [current]="b.legal_name" />
-              </div>
-            </section>
+                <h3
+                  id="vendor-billing-legal-name-heading"
+                  i18n="@@vendor.billing.legalName.heading"
+                >
+                  Company legal name
+                </h3>
+                <div class="mt-4">
+                  <aec-vendor-billing-legal-name-form [current]="b.legal_name" />
+                </div>
+              </section>
+            </div>
             @if (b.stripe_checkout_available && b.billing_account) {
               <aec-vendor-billing-stripe-panel class="mt-6" [billing]="b" />
             }
@@ -444,12 +459,8 @@ function documentLabel(document: string): string {
     </div>
 
     @if (isOwner() && !loading() && billing(); as b) {
-      <section class="mt-8" aria-labelledby="vendor-billing-licenses-heading">
-        <h3
-          id="vendor-billing-licenses-heading"
-          class="font-label text-sm font-semibold text-(--text-primary)"
-          i18n="@@vendor.billing.licenses.heading"
-        >
+      <section class="mt-12" aria-labelledby="vendor-billing-licenses-heading">
+        <h3 id="vendor-billing-licenses-heading" i18n="@@vendor.billing.licenses.heading">
           Subscriptions
         </h3>
         @if (staleNotice(); as message) {
@@ -457,13 +468,13 @@ function documentLabel(document: string): string {
             #staleNoticeEl
             role="alert"
             tabindex="-1"
-            class="mt-2 text-sm font-medium text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            class="mt-2 rounded-mark text-t-14 font-semibold text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
             data-testid="billing-stale-notice"
           >
             {{ message }}
           </p>
         }
-        <div class="mt-3">
+        <div class="mt-4">
           <aec-vendor-billing-licenses
             [licenses]="b.licenses"
             [truncated]="b.licenses_truncated"
@@ -486,25 +497,34 @@ function documentLabel(document: string): string {
         </div>
       </section>
 
-      <section class="mt-8" aria-labelledby="vendor-billing-agreements-heading">
-        <h3
-          id="vendor-billing-agreements-heading"
-          class="font-label text-sm font-semibold text-(--text-primary)"
-          i18n="@@vendor.billing.agreements.heading"
-        >
+      <section class="mt-12" aria-labelledby="vendor-billing-agreements-heading">
+        <h3 id="vendor-billing-agreements-heading" i18n="@@vendor.billing.agreements.heading">
           Agreements
         </h3>
-        <p class="mt-1 text-sm text-(--text-secondary)" i18n="@@vendor.billing.agreements.intro">
+        <p class="mt-2 text-t-14 text-(--text-secondary)" i18n="@@vendor.billing.agreements.intro">
           These are the agreements your company accepted.
         </p>
         @if (acceptanceRows().length === 0) {
-          <p class="mt-3 text-sm text-(--text-secondary)" i18n="@@vendor.billing.agreements.empty">
+          <p
+            class="mt-4 text-t-14 text-(--text-secondary)"
+            i18n="@@vendor.billing.agreements.empty"
+          >
             No agreements accepted yet.
           </p>
         } @else {
-          <div class="mt-3 overflow-x-auto">
-            <table class="w-full min-w-[48rem] table-fixed border-collapse text-sm">
-              <caption class="sr-only" i18n="@@vendor.billing.agreements.caption">
+          <div
+            [class]="regionClass + ' mt-4'"
+            role="region"
+            tabindex="0"
+            aria-labelledby="vendor-billing-agreements-caption"
+            data-testid="agreements-region"
+          >
+            <table class="w-full min-w-[48rem] table-fixed border-collapse text-start text-sm">
+              <caption
+                id="vendor-billing-agreements-caption"
+                class="sr-only"
+                i18n="@@vendor.billing.agreements.caption"
+              >
                 Accepted agreements
               </caption>
               <colgroup>
@@ -515,7 +535,7 @@ function documentLabel(document: string): string {
                 <col class="w-[24%]" />
               </colgroup>
               <thead>
-                <tr class="border-b border-(--border-default) text-(--text-secondary)">
+                <tr>
                   <th scope="col" [class]="thClass" i18n="@@vendor.billing.agreements.col.doc">
                     Document
                   </th>
@@ -535,22 +555,22 @@ function documentLabel(document: string): string {
               </thead>
               <tbody>
                 @for (row of acceptanceRows(); track row.acceptance.id) {
-                  <tr
-                    class="border-b border-(--border-default) last:border-0"
-                    data-testid="acceptance-row"
-                  >
-                    <th scope="row" class="py-3 pe-4 text-start font-normal text-(--text-primary)">
+                  <tr data-testid="acceptance-row">
+                    <th
+                      scope="row"
+                      [class]="cellClass + ' text-start font-normal text-(--text-primary)'"
+                    >
                       {{ row.documentLabel }}
                       @if (row.grantLabel; as grantLabel) {
                         <span
-                          class="block text-xs text-(--text-secondary)"
+                          class="mt-1 block text-t-13 text-(--text-secondary)"
                           data-testid="acceptance-grant"
                           >{{ grantLabel }}</span
                         >
                       }
                       @if (row.policiesLabel; as policies) {
                         <span
-                          class="block text-xs text-(--text-secondary)"
+                          class="mt-1 block text-t-13 text-(--text-secondary)"
                           data-testid="acceptance-policies"
                           >{{ policies }}</span
                         >
@@ -559,38 +579,34 @@ function documentLabel(document: string): string {
                         @if (plans.href; as plansHref) {
                           <a
                             [routerLink]="plansHref"
-                            class="block w-fit text-xs text-(--accent-primary) underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                            [class]="linkClass + ' mt-1 block w-fit text-t-13'"
                             data-testid="acceptance-plans-page"
                             >{{ plans.label }}</a
                           >
                         } @else {
                           <span
-                            class="block text-xs text-(--text-secondary)"
+                            class="mt-1 block text-t-13 text-(--text-secondary)"
                             data-testid="acceptance-plans-page"
                             >{{ plans.label }}</span
                           >
                         }
                       }
                     </th>
-                    <td class="py-3 pe-4 tabular-nums">
+                    <td [class]="cellClass + ' tabular-nums'">
                       @if (row.href; as href) {
-                        <a
-                          [routerLink]="href"
-                          class="text-(--accent-primary) underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                          >{{ row.acceptance.version }}</a
-                        >
+                        <a [routerLink]="href" [class]="linkClass">{{ row.acceptance.version }}</a>
                       } @else {
                         <span class="text-(--text-secondary)">{{ row.acceptance.version }}</span>
                       }
                     </td>
-                    <td class="py-3 pe-4 tabular-nums text-(--text-secondary)">
+                    <td [class]="cellClass + ' tabular-nums text-(--text-secondary)'">
                       {{ row.acceptedLabel }}
                     </td>
-                    <td class="py-3 pe-4 text-(--text-secondary) [overflow-wrap:anywhere]">
+                    <td [class]="cellClass + ' text-(--text-secondary) [overflow-wrap:anywhere]'">
                       {{ row.acceptance.email }}
                     </td>
                     <td
-                      class="py-3 text-(--text-secondary) [overflow-wrap:anywhere]"
+                      [class]="cellClass + ' text-(--text-secondary) [overflow-wrap:anywhere]'"
                       data-testid="acceptance-signer"
                     >
                       @if (row.acceptance.signer_name) {
@@ -620,6 +636,7 @@ export class VendorBillingSection {
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly document = inject(DOCUMENT);
   private readonly router = inject(Router);
+  private readonly announcer = inject(VendorPortalAnnouncer);
   protected readonly watch = inject(VendorBillingStripeWatch);
   protected readonly stripeNotice = this.watch.notice;
   /** The banner's copy key: the phases of a checkout and an add share their lines. */
@@ -675,12 +692,13 @@ export class VendorBillingSection {
    *  note and the loading line keep the full width. */
   protected readonly topGridClass = computed(() =>
     this.isOwner() && !this.loading() && this.billing()
-      ? 'grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start lg:gap-10'
+      ? 'grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start lg:gap-12'
       : 'block',
   );
-  protected readonly thClass = 'py-2 pe-4 text-start font-label font-semibold';
-  protected readonly retryClass =
-    'rounded-(--radius-sm) border border-(--border-default) px-3 py-1.5 text-sm font-label text-(--text-primary) transition-colors hover:bg-(--surface-raised) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  protected readonly regionClass = BILLING_TABLE_REGION_CLASS;
+  protected readonly thClass = BILLING_TABLE_HEAD_CLASS;
+  protected readonly cellClass = BILLING_TABLE_CELL_CLASS;
+  protected readonly linkClass = BILLING_LINK_CLASS;
 
   constructor() {
     afterNextRender(() => {
@@ -755,13 +773,13 @@ export class VendorBillingSection {
           : $localize`:@@vendor.billing.grantPending.done.licensedUnnamed:A product already had a subscription, so its new one is in the pool.`,
       );
     }
-    this.grantNotice.set({
-      kind: 'accepted',
-      title: $localize`:@@vendor.billing.grantPending.done.title:Subscriptions accepted`,
-      lines,
-    });
+    const title = $localize`:@@vendor.billing.grantPending.done.title:Subscriptions accepted`;
+    this.grantNotice.set({ kind: 'accepted', title, lines });
     this.staleNotice.set(null);
     await Promise.all([this.store.reload('billing'), this.store.revalidate(['entitlement'])]);
+    // AECI-1812: the notice is plain text now. The shell's one live region says the
+    // same words once (STAGE_2_REALTIME_SPEC.md §6.3), as the Proposed products tab does.
+    this.announcer.announce([title, ...lines].join(' '));
     this.focusAfterReRead(this.grantNoticeEl);
   }
 

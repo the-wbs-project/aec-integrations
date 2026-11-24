@@ -3,4 +3,3 @@
 # One line per file: its path from src/app and its count. A count only goes down.
 # Lower your line when you fix some. Delete it when the file reaches zero. Never add a line.
 vendor/components/vendor-contest-form.ts 3
-vendor/components/vendor-license-assign.ts 1

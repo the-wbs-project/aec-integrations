@@ -34,15 +34,16 @@ import {
 } from '@aeci/shared/entitlements';
 
 import { legalPath } from '../../legal/legal-manifest';
+import { AecButton } from '../../shared/button/button';
+import { AecCard } from '../../shared/card/card';
 import {
-  BUTTON_PRIMARY_CLASS,
-  BUTTON_SECONDARY_CLASS,
   CHOICE_CARD_CLASS,
   CHOICE_INPUT_CLASS,
   FIELD_ERROR_CLASS,
   FIELD_HINT_CLASS,
   FIELD_INPUT_CLASS,
   FIELD_LABEL_CLASS,
+  FIELD_LABEL_TYPE_CLASS,
 } from '../../shared/form-field/form-field-classes';
 import { formatTermDate } from '../../shared/term-date/format-term-date';
 import { VendorApi } from '../vendor-api';
@@ -56,6 +57,7 @@ import {
 } from './vendor-billing-stripe-errors';
 import { VendorBillingStripeWatch, liveLicenseCount } from './vendor-billing-stripe-watch';
 import { isReplayedEvent } from '../../core/event-replay';
+import { BILLING_LINK_CLASS } from './vendor-billing-styles';
 import { VendorBillingUnusedWarning } from './vendor-billing-unused-warning';
 
 /** Per-license price in cents, by interval. Display only: Stripe bills from its own
@@ -117,10 +119,20 @@ function parseQuantity(text: string): number | null {
  *
  * The card statement reads THE WBS PROJECT, the account descriptor: subscription
  * Checkout takes no descriptor suffix (ruling R3). The copy says exactly that.
+ *
+ * ── LOOK (AECI-1812) ────────────────────────────────────────────────────────
+ * The panel is the shared white card. "Continue to Stripe" is the page's one primary
+ * button and keeps its place after the disclosure, the liability cap and the agreement
+ * note. Its disabled and busy guards are unchanged. "Add subscriptions" and "Manage
+ * billing in Stripe" open something, so they are secondary. The dialog is the shared
+ * dialog surface (`aec-dialog`). Nothing here renders inside a Stripe page or element:
+ * Checkout and the Customer Portal are full-page redirects.
  */
 @Component({
   selector: 'aec-vendor-billing-stripe-panel',
   imports: [
+    AecButton,
+    AecCard,
     RouterLink,
     BrnDialog,
     BrnDialogClose,
@@ -131,23 +143,18 @@ function parseQuantity(text: string): number | null {
   ],
   template: `
     <section
-      class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-5"
+      aecCard
+      [class]="'p-6'"
       aria-labelledby="vendor-billing-stripe-heading"
       data-testid="billing-stripe-panel"
     >
       @if (billing().stripe; as sub) {
-        <h3
-          id="vendor-billing-stripe-heading"
-          class="font-label text-sm font-semibold text-(--text-primary)"
-          i18n="@@vendor.billing.stripe.sub.heading"
-        >
+        <h3 id="vendor-billing-stripe-heading" i18n="@@vendor.billing.stripe.sub.heading">
           Your Stripe plan
         </h3>
-        <dl class="mt-2 grid gap-x-8 gap-y-2 text-sm sm:grid-cols-3">
+        <dl class="mt-4 grid gap-x-8 gap-y-4 text-t-14 sm:grid-cols-3">
           <div>
-            <dt class="text-(--text-secondary)" i18n="@@vendor.billing.stripe.sub.licenses">
-              Subscriptions
-            </dt>
+            <dt [class]="dtClass" i18n="@@vendor.billing.stripe.sub.licenses">Subscriptions</dt>
             <dd
               class="font-semibold text-(--text-primary) tabular-nums"
               data-testid="stripe-quantity"
@@ -156,16 +163,14 @@ function parseQuantity(text: string): number | null {
             </dd>
           </div>
           <div>
-            <dt class="text-(--text-secondary)" i18n="@@vendor.billing.stripe.sub.interval">
-              Billing
-            </dt>
+            <dt [class]="dtClass" i18n="@@vendor.billing.stripe.sub.interval">Billing</dt>
             <dd class="font-semibold text-(--text-primary)" data-testid="stripe-interval">
               {{ billedLabel() }}
             </dd>
           </div>
           @if (periodEndLabel(); as end) {
             <div>
-              <dt class="text-(--text-secondary)">
+              <dt [class]="dtClass">
                 @if (sub.cancel_at_period_end) {
                   <ng-container i18n="@@vendor.billing.stripe.sub.ends">Ends</ng-container>
                 } @else {
@@ -178,7 +183,7 @@ function parseQuantity(text: string): number | null {
         </dl>
         @if (sub.cancel_at_period_end) {
           <p
-            class="mt-3 text-sm text-(--text-primary)"
+            class="mt-4 max-w-[32rem] text-t-14 leading-[1.6] text-(--text-primary)"
             data-testid="stripe-cancelling"
             i18n="@@vendor.billing.stripe.sub.cancelling"
           >
@@ -188,7 +193,7 @@ function parseQuantity(text: string): number | null {
         }
         @if (!sub.synced) {
           <p
-            class="mt-3 text-xs text-(--text-secondary)"
+            class="mt-4 max-w-[32rem] text-xs text-(--text-secondary)"
             data-testid="stripe-unsynced"
             i18n="@@vendor.billing.stripe.sub.unsynced"
           >
@@ -196,10 +201,11 @@ function parseQuantity(text: string): number | null {
             hold.
           </p>
         }
-        <div class="mt-4 flex flex-wrap gap-3">
+        <div class="mt-6 flex flex-wrap gap-3">
           <button
+            aecButton
+            variant="secondary"
             type="button"
-            [class]="primaryClass"
             data-testid="stripe-add-open"
             (click)="openAdd()"
             i18n="@@vendor.billing.stripe.add.open"
@@ -207,8 +213,9 @@ function parseQuantity(text: string): number | null {
             Add subscriptions
           </button>
           <button
+            aecButton
+            variant="secondary"
             type="button"
-            [class]="secondaryClass"
             [disabled]="busy() === 'portal'"
             [attr.aria-busy]="busy() === 'portal'"
             data-testid="stripe-portal"
@@ -225,7 +232,7 @@ function parseQuantity(text: string): number | null {
             }
           </button>
         </div>
-        <p [class]="hintClass + ' mt-3'" i18n="@@vendor.billing.stripe.portal.hint">
+        <p [class]="hintClass + ' mt-4'" i18n="@@vendor.billing.stripe.portal.hint">
           Stripe holds your card, invoices and receipts. Card statements read THE WBS PROJECT.
         </p>
         @if (panelError(); as message) {
@@ -233,7 +240,7 @@ function parseQuantity(text: string): number | null {
             #panelErrorEl
             role="alert"
             tabindex="-1"
-            [class]="errorClass + ' mt-3 ' + focusRingClass"
+            [class]="errorClass + ' mt-4 ' + focusRingClass"
             data-testid="stripe-error"
           >
             {{ message }}
@@ -245,14 +252,14 @@ function parseQuantity(text: string): number | null {
             <form
               method="dialog"
               novalidate
-              class="max-h-[85vh] w-[min(92vw,30rem)] overflow-y-auto rounded-(--radius-lg) border border-(--border-default) bg-(--surface-base) p-6 text-(--text-primary) md:p-8"
+              class="aec-dialog max-h-[85vh] w-[min(92vw,30rem)] overflow-y-auto p-6 md:p-8"
               data-testid="stripe-add-dialog"
               (submit)="add($event)"
             >
               <h2
                 brnDialogTitle
                 tabindex="-1"
-                class="font-display text-xl font-semibold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                class="rounded-mark focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
                 i18n="@@vendor.billing.stripe.add.heading"
               >
                 Add subscriptions
@@ -260,13 +267,14 @@ function parseQuantity(text: string): number | null {
               <p
                 brnDialogDescription
                 class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
+                data-testid="stripe-add-intro"
                 i18n="@@vendor.billing.stripe.add.intro"
               >
                 New subscriptions join your Stripe plan and are billed on the same schedule, at
                 {{ unitPriceLabel() }}. Stripe charges your card now for the rest of the current
                 period, pro-rated, plus tax where applicable.
               </p>
-              <div class="mt-6 space-y-1.5">
+              <div class="mt-6 space-y-2">
                 <label
                   for="vendor-billing-add-quantity"
                   [class]="labelClass"
@@ -324,16 +332,17 @@ function parseQuantity(text: string): number | null {
               />
               <div class="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
                 <button
+                  aecButton
+                  variant="secondary"
                   brnDialogClose
                   type="button"
-                  [class]="secondaryClass"
                   i18n="@@vendor.billing.stripe.add.cancel"
                 >
                   Cancel
                 </button>
                 <button
+                  aecButton
                   type="submit"
-                  [class]="primaryClass"
                   [disabled]="busy() === 'add'"
                   [attr.aria-busy]="busy() === 'add'"
                   data-testid="stripe-add-submit"
@@ -351,26 +360,22 @@ function parseQuantity(text: string): number | null {
           </ng-template>
         </brn-dialog>
       } @else {
-        <h3
-          id="vendor-billing-stripe-heading"
-          class="font-label text-sm font-semibold text-(--text-primary)"
-          i18n="@@vendor.billing.stripe.buy.heading"
-        >
+        <h3 id="vendor-billing-stripe-heading" i18n="@@vendor.billing.stripe.buy.heading">
           Pay by card
         </h3>
         <p
-          class="mt-1 text-sm leading-relaxed text-(--text-secondary)"
+          class="mt-2 max-w-[32rem] text-t-14 leading-[1.6] text-(--text-secondary)"
           i18n="@@vendor.billing.stripe.buy.intro"
         >
           If you want subscriptions of your own, you can pay for them by card through Stripe. Each
           subscription puts one product on Managed.
         </p>
-        <form method="dialog" novalidate class="mt-4 space-y-6" (submit)="checkout($event)">
-          <fieldset>
-            <legend [class]="labelClass" i18n="@@vendor.billing.stripe.interval.legend">
+        <form method="dialog" novalidate class="mt-6 space-y-6" (submit)="checkout($event)">
+          <fieldset class="mx-0 min-w-0 border-0 p-0">
+            <legend [class]="labelClass + ' p-0'" i18n="@@vendor.billing.stripe.interval.legend">
               Billing period
             </legend>
-            <div class="mt-1.5 grid gap-2 sm:grid-cols-2">
+            <div class="mt-2 grid max-w-[32rem] gap-2 sm:grid-cols-2">
               <label [class]="choiceClass" data-testid="stripe-interval-year">
                 <input
                   type="radio"
@@ -406,7 +411,7 @@ function parseQuantity(text: string): number | null {
             </div>
           </fieldset>
 
-          <div class="space-y-1.5">
+          <div class="space-y-2">
             <label
               for="vendor-billing-buy-quantity"
               [class]="labelClass"
@@ -454,7 +459,7 @@ function parseQuantity(text: string): number | null {
 
           <!-- AECI-1625: the signer's title, recorded with the acceptance. An invited seat
                has no claim to take it from, so the form asks every buyer. -->
-          <div class="space-y-1.5">
+          <div class="space-y-2">
             <label
               for="vendor-billing-buy-title"
               [class]="labelClass"
@@ -500,7 +505,7 @@ function parseQuantity(text: string): number | null {
 
           @if (disclosure(); as text) {
             <p
-              class="max-w-prose text-sm leading-relaxed text-(--text-primary)"
+              class="max-w-[32rem] text-t-14 leading-[1.6] text-(--text-primary)"
               data-testid="stripe-disclosure"
             >
               {{ text }}
@@ -509,7 +514,7 @@ function parseQuantity(text: string): number | null {
 
           <!-- AECI-1617 (counsel Q15): the same words as custom_text.submit on Stripe's page. -->
           <p
-            class="max-w-prose text-sm leading-relaxed text-(--text-primary)"
+            class="max-w-[32rem] text-t-14 leading-[1.6] text-(--text-primary)"
             data-testid="stripe-cap"
             i18n="@@vendor.billing.stripe.cap"
           >
@@ -517,22 +522,17 @@ function parseQuantity(text: string): number | null {
             this product's subscription in the twelve months before a claim, or $100, with the
             exceptions stated there. We are not liable for lost profits, lost business, or any
             indirect or consequential loss. See
-            <a
-              [routerLink]="agreementHref"
-              class="text-(--accent-primary) underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              >"Limit of liability"</a
-            >
+            <a [routerLink]="agreementHref" [class]="linkClass">"Limit of liability"</a>
             in the agreement.
           </p>
 
-          <p class="text-sm leading-relaxed text-(--text-secondary)">
+          <p
+            class="max-w-[32rem] text-t-14 leading-[1.6] text-(--text-secondary)"
+            data-testid="stripe-agreement"
+          >
             <ng-container i18n="@@vendor.billing.stripe.agreement">
               On the Stripe page you accept the
-              <a
-                [routerLink]="agreementHref"
-                class="text-(--accent-primary) underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                >Managed plan agreement</a
-              >
+              <a [routerLink]="agreementHref" [class]="linkClass">Managed plan agreement</a>
               for these subscriptions.
             </ng-container>
             {{ ' ' }}
@@ -566,8 +566,8 @@ function parseQuantity(text: string): number | null {
           }
 
           <button
+            aecButton
             type="submit"
-            [class]="primaryClass"
             [disabled]="busy() === 'checkout'"
             [attr.aria-busy]="busy() === 'checkout'"
             data-testid="stripe-checkout"
@@ -584,16 +584,18 @@ function parseQuantity(text: string): number | null {
           </button>
         </form>
         @if (billing().stripe_customer) {
-          <div class="mt-6 border-t border-(--border-default) pt-4" data-testid="stripe-past">
+          <div class="mt-6 border-t border-(--border-default) pt-6" data-testid="stripe-past">
             <p
-              class="text-sm leading-relaxed text-(--text-secondary)"
+              class="text-t-14 leading-[1.6] text-(--text-secondary)"
               i18n="@@vendor.billing.stripe.past.intro"
             >
               Your past card invoices and receipts are in Stripe.
             </p>
             <button
+              aecButton
+              variant="secondary"
               type="button"
-              [class]="secondaryClass + ' mt-3'"
+              [class]="'mt-4'"
               [disabled]="busy() === 'portal'"
               [attr.aria-busy]="busy() === 'portal'"
               data-testid="stripe-portal"
@@ -978,9 +980,10 @@ export class VendorBillingStripePanel {
   protected readonly hintClass = FIELD_HINT_CLASS;
   protected readonly errorClass = FIELD_ERROR_CLASS;
   protected readonly focusRingClass =
-    'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+    'rounded-mark focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
   protected readonly choiceClass = CHOICE_CARD_CLASS;
   protected readonly choiceInputClass = CHOICE_INPUT_CLASS;
-  protected readonly primaryClass = BUTTON_PRIMARY_CLASS;
-  protected readonly secondaryClass = BUTTON_SECONDARY_CLASS;
+  protected readonly linkClass = BILLING_LINK_CLASS;
+  /** A figure's label in "Your Stripe plan": the Label role. */
+  protected readonly dtClass = FIELD_LABEL_TYPE_CLASS;
 }
