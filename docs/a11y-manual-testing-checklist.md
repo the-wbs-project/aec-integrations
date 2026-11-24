@@ -39,6 +39,15 @@ Run each surface with **(a) keyboard only**, then **(b) VoiceOver**, then **(c) 
 - [ ] "Skip to content" works **on a non-home page** (`/products/{slug}`, a `/docs` article): Enter keeps the URL path and moves focus into `main`, with no page load (AECI-1839); landmarks (`header`/`nav`/`main`/`footer`) are reachable.
 - [ ] All actions (links, buttons, filters, form submit, menu) are operable without a pointer.
 
+> **Automated nightly in Chrome (AECI-1877, `TESTING_STRATEGY.md` §8.4.1).** On every surface in §1, the
+> accessibility nightly now checks: no keyboard trap, and Tab reaches the footer and closes the cycle;
+> the tab order against a reviewed snapshot; that Tab reaches every element a script predicts, and no
+> hidden one; the skip link puts focus in `main` with no page load; no Tab stop navigates or opens a popup;
+> every dialog, menu and dropdown opens by keyboard, keeps focus while open, closes on `Esc` and returns
+> focus to its trigger; and focus is not left on the page after a client navigation. It does not judge
+> whether the order matches reading order, check the focus indicator (AECI-1878), or run outside Chrome
+> (AECI-1885). The manual pass above keeps its full scope and cadence.
+
 **Screen reader (VoiceOver + NVDA, every surface):**
 - [ ] Page has a correct, unique title and a single logical `h1`; heading levels don't skip.
 - [ ] Images have meaningful `alt` (or are correctly empty/decorative); icon-only buttons have accessible names.

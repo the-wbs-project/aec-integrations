@@ -829,6 +829,94 @@ surface. Mint sessions with `personaCredentials()` and skip the same way. Add a 
 never to a spec. When you change the manifest, change the manual checklist §1 with it.
 `apps/web/e2e-a11y/README.md` is the short version.
 
+#### 8.4.1 Keyboard walkthroughs (AECI-1877)
+
+The keyboard checks script the "Keyboard-only (every surface)" block of
+`docs/a11y-manual-testing-checklist.md` §2. They cover WCAG 2.1.1, 2.1.2, 2.4.1, 2.4.3 and 3.2.1. The
+checks are defined once, in `e2e-a11y/support/keyboard-suite.ts`. Four thin specs run them, one per
+persona: `keyboard-public.spec.ts`, `keyboard-reviewer.spec.ts`, `keyboard-admin.spec.ts` and
+`keyboard-vendor.spec.ts`. Every surface in the manifest runs, public pages included (Chris, 2026-11-24).
+
+Each surface gets these tests:
+
+| Test | Checks |
+|---|---|
+| `tab walk` | Tab until focus is back on the first stop. The cycle must close, reach the footer, and move focus on every press (no trap). No stop may change the URL or open a dialog, menu or list. The order must match the committed snapshot. The candidate diff must be empty. The first stop is the skip link, and Enter on it puts focus inside `main` with no new document. |
+| `overlays` | Every popup trigger the walk met, checked as the table below says. |
+| `aria-haspopup names the popup it opens` | A trigger's `aria-haspopup` must match the role of the element its `aria-controls` names. `"true"` promises a menu. |
+| `overlay: <name>` | An overlay a fresh walk cannot reach, from `support/overlay-scenarios.ts`. Today that is the ban dialog on `/admin/reviews`. Its reject is stubbed, so the queue row stays and nothing is moderated. |
+| `after navigation` | Enter on the first in-app link in `main`. After the client navigation, focus is not on `body`. |
+
+**Real Tab presses only.** No test calls `el.focus()`. Every surface is loaded with `openSurface`, which
+waits for `untilAppStable` before the first press (§14.3). A walk that must reach a known stop again uses
+`tabTo`, which presses Tab until the probe key matches.
+
+**Overlays.** Triggers are found in the walk, not listed by hand: a combobox, an element with
+`aria-haspopup`, or one with `aria-expanded`. `classifyTrigger` in `support/overlay-check.ts` decides how
+each opens and what "keeps focus" means. A modal dialog must trap Tab and Shift+Tab. A non-modal popup
+passes when every Tab leaves focus inside it or closes it, so focus is never behind an open popup. Escape
+must close every kind and return focus to the trigger. A button whose panel opens in the flow of the page
+is an inline disclosure, and a native `<select>` draws its own list. Neither is checked. A trigger no rule
+covers fails the test, so a new kind of popup cannot pass unchecked. The site header's popups (search,
+the Browse menu, the account menu) are one component on every page, so they are checked on the first
+surface of each persona in the manifest, not on all of them. The vendor portal's Products dropdown
+in checklist §2 no longer exists: `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.11 replaced it with a plain link.
+
+**The snapshot.** `e2e-a11y/__snapshots__/chromium/keyboard-<surface id>.txt` holds one line per stop:
+the innermost landmark, the role and the accessible name. Relative times and dates are masked. The path
+is keyed by browser project, not OS (`snapshotPathTemplate` in the nightly config), so a snapshot written
+on a Mac is the one the Linux runner reads. A changed order is a behaviour change. Update it on purpose,
+and review the diff:
+
+```bash
+pnpm --filter @aeci/web exec playwright test -c playwright.a11y-nightly.config.ts keyboard --update-snapshots
+```
+
+The names come from the seed, so a seed change that adds a product or a facet value changes the listing
+snapshots too. The snapshots assume a freshly seeded D1, as CI has. A local stack restarted on the same D1
+seeds it again, and today that detaches the test user's review, so `/account` loses two stops (AECI-2068).
+Delete `apps/api/.wrangler/state/v3/d1` before a local run that must match. Three things keep a walk the same from run to run. `settleLazyContent` scrolls to the
+bottom until the page stops growing, so a listing's next page and every `@defer (on viewport)` block are
+in place before the walk. Each test has a fresh browser context, so the consent banner is always there.
+`fakeHeaderSearch` answers every Algolia query with the same rows.
+
+**The candidate diff** is the method in checklist §5. `collectElementFacts` reads every element that could
+be a Tab stop. `candidateTabStops` predicts the walk from those facts: focusable, not inert, not disabled,
+a `tabindex` that is absent or not negative, positive `tabindex` first, and one radio per group.
+`diffCandidates` reports stops predicted but never reached, stops reached but not predicted, and stops
+reached while hidden (inside `aria-hidden`, or with no box). The pure half is pinned by
+`support/tab-candidates.unit.spec.ts`. It runs in the plain Vitest runner (§4.3a), from
+`pnpm --filter @aeci/web test:unit`. Playwright ignores `*.unit.spec.ts`.
+
+**Writes are blocked.** The signed-in surfaces run as the shared test accounts, and they hold the account
+delete and ban dialogs. `guardWrites` aborts every request that is not a read, on any origin, so a stray
+Enter cannot delete the account, ban anyone, or sign the session out. The tests close the delete and ban
+dialogs with Escape and never confirm them. The one confirm they press, "Confirm rejection" on the way to
+the ban dialog, answers from a stub.
+
+**Known barriers.** `KNOWN_BARRIERS` in `keyboard-suite.ts` maps a check and a set of surfaces to a
+`knownFailure` call. Today it holds AECI-2058: the admin nav triggers say `aria-haspopup="true"` but open
+a list of links, so `aria-haspopup names the popup it opens` is a known failure on the admin surfaces.
+
+**For the next sub-issues.** AECI-1878 (focus ring) and AECI-1885 (Firefox and WebKit) reuse these
+exports from `e2e-a11y/support/`:
+
+| Export | File | What it does |
+|---|---|---|
+| `tabWalk(page, { key?, maxPresses?, until? })` | `tab-walk.ts` | Real Tab presses until the cycle closes. Returns the stops and how the walk ended. Asserts nothing |
+| `tabTo(page, key, options?)` | `tab-walk.ts` | Tab until the element with that probe key has focus |
+| `walkSnapshot(stops)`, `normalizeName(name)` | `tab-walk.ts` | The committed snapshot text |
+| `collectElementFacts(page)`, `focusFacts(page)`, `popupFacts`, `triggerFacts`, `haspopupFacts`, `locatorForKey` | `probe.ts` | Read the page. Never move focus |
+| `candidateTabStops(facts, { keyboardFocusableScrollers? })`, `diffCandidates(candidates, stops)` | `tab-candidates.ts` | The prediction and the diff. Pure |
+| `checkOverlay(page, trigger, plan)`, `classifyTrigger(stop)` | `overlay-check.ts` | Check 7 for one trigger |
+| `prepareSurface(context, surface, fixturesPresent)`, `openSurface(page, surface, { settle? })`, `phase2FixturesPresent()`, `surfaceAnnotations(surface)` | `surface-page.ts` | Session mint and skip, the hydration gate, the summary annotations |
+| `guardWrites(page)`, `fakeHeaderSearch(page)` | `page-guards.ts` | The routes every keyboard test installs |
+
+Two places are Chromium-only. Chromium makes a scroll container with no focusable content a Tab stop of
+its own. `candidateTabStops` predicts that by default, and `keyboardFocusableScrollers: false` turns it off
+for another engine. Safari on macOS skips links on Tab unless "Press Tab to highlight each item" is on, so
+check how Playwright's WebKit build behaves before trusting a WebKit walk.
+
 ---
 
 ## 9. Visual regression — Playwright + Chromatic

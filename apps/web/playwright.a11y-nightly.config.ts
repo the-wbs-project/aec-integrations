@@ -25,4 +25,9 @@ export default defineConfig({
   ...base,
   testDir: './e2e-a11y',
   reporter,
+  // AECI-1877: committed text snapshots (the keyboard tab orders). Keyed by the
+  // browser project, never by the OS, so a snapshot written on a Mac is the one
+  // the Linux runner compares against. Update with `--update-snapshots`, and
+  // review the diff: a changed tab order is a behaviour change.
+  snapshotPathTemplate: '{testDir}/__snapshots__/{projectName}/{arg}{ext}',
 });
