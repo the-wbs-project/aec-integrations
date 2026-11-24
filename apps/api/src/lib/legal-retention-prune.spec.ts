@@ -25,6 +25,7 @@ import {
   connectorPairs,
   connectorStubMappings,
   connectorStubs,
+  integrationFieldChallenges,
   integrations,
   licenseGrants,
   licenses,
@@ -38,6 +39,8 @@ import {
   termsAcceptances,
   vendorRequests,
   vendors,
+  workflowInstances,
+  workflowTransitions,
 } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { pruneAuditIds } from './acceptance-chain';
@@ -1942,5 +1945,453 @@ describe('metrics', () => {
       'outcome:skipped',
       'reason:litigation_hold',
     ]);
+  });
+});
+
+describe('the workflow tables, four years after the action (AECI-1913)', () => {
+  const OLD = shift(CUT.audit, -1);
+  const YOUNG = shift(CUT.audit, 1);
+
+  async function seedInstance(
+    id: string,
+    opts: {
+      type?: 'vendor_claim' | 'review_moderation' | 'correction_request' | 'reviewer_ban';
+      entityId?: string;
+      initiatedAt?: string;
+      completedAt?: string | null;
+      initiatedBy?: string | null;
+      transitions?: { id: string; createdAt: string; actorId?: string }[];
+    } = {},
+  ) {
+    await t.db.insert(workflowInstances).values({
+      id,
+      workflowType: opts.type ?? 'review_moderation',
+      entityId: opts.entityId ?? `e-${id}`,
+      currentState: 'submitted',
+      initiatedBy: opts.initiatedBy ?? null,
+      initiatedAt: opts.initiatedAt ?? OLD,
+      completedAt: opts.completedAt ?? null,
+    });
+    for (const tr of opts.transitions ?? []) {
+      await t.db.insert(workflowTransitions).values({
+        id: tr.id,
+        workflowId: id,
+        toState: 'next',
+        actorId: tr.actorId ?? null,
+        createdAt: tr.createdAt,
+      });
+    }
+  }
+  const instanceIds = async () =>
+    (await t.db.select({ id: workflowInstances.id }).from(workflowInstances))
+      .map((r) => r.id)
+      .sort();
+  const transitionIds = async () =>
+    (await t.db.select({ id: workflowTransitions.id }).from(workflowTransitions))
+      .map((r) => r.id)
+      .sort();
+  const table = (result: Awaited<ReturnType<typeof runLegalRetentionPrune>>, name: string) =>
+    result.tables.find((x) => x.table === name);
+
+  it('deletes an instance whose last action is past the cutoff, and its transitions cascade', async () => {
+    await seedInstance('wf-old', {
+      initiatedAt: shift(OLD, -30),
+      completedAt: OLD,
+      transitions: [
+        { id: 'tr-1', createdAt: shift(OLD, -30) },
+        { id: 'tr-2', createdAt: OLD },
+      ],
+    });
+
+    const result = await runLegalRetentionPrune(t.db, NOW);
+
+    expect(await instanceIds()).toEqual([]);
+    expect(await transitionIds()).toEqual([]);
+    expect(table(result, 'workflow_instances')).toEqual({
+      table: 'workflow_instances',
+      cutoff: CUT.audit,
+      rowsDeleted: 1,
+      truncated: false,
+    });
+    expect(table(result, 'workflow_transitions')).toEqual({
+      table: 'workflow_transitions',
+      cutoff: CUT.audit,
+      rowsDeleted: 2,
+      truncated: false,
+      cascadeRowsDeleted: 2,
+    });
+    const [run] = await pruneRows();
+    expect(run!.metadata).toMatchObject({
+      rowsDeleted: 3,
+      tables: [
+        { table: 'workflow_instances', cutoff: CUT.audit, rowsDeleted: 1 },
+        {
+          table: 'workflow_transitions',
+          cutoff: CUT.audit,
+          rowsDeleted: 2,
+          cascadeRowsDeleted: 2,
+        },
+      ],
+    });
+    // Not chained: no ids in the run record.
+    expect(JSON.stringify(run!.metadata)).not.toContain('wf-old');
+  });
+
+  it('deletes an open reviewer_ban instance whose only actions are old (it never completes)', async () => {
+    await seedInstance('wf-ban', {
+      type: 'reviewer_ban',
+      entityId: 'reader-x',
+      transitions: [{ id: 'tr-ban', createdAt: OLD }],
+    });
+
+    await runLegalRetentionPrune(t.db, NOW);
+
+    expect(await instanceIds()).toEqual([]);
+    expect(await transitionIds()).toEqual([]);
+  });
+
+  it('keeps an instance with a recent action, and deletes only its old transitions', async () => {
+    await seedInstance('wf-live', {
+      initiatedAt: shift(OLD, -10),
+      transitions: [
+        { id: 'tr-old', createdAt: shift(OLD, -10) },
+        { id: 'tr-edge', createdAt: CUT.audit },
+        { id: 'tr-young', createdAt: YOUNG },
+      ],
+    });
+    // A young instance by its completion alone stays whole.
+    await seedInstance('wf-completed-late', {
+      initiatedAt: OLD,
+      completedAt: YOUNG,
+      transitions: [{ id: 'tr-c-old', createdAt: OLD }],
+    });
+
+    const result = await runLegalRetentionPrune(t.db, NOW);
+
+    expect(await instanceIds()).toEqual(['wf-completed-late', 'wf-live']);
+    expect(await transitionIds()).toEqual(['tr-edge', 'tr-young']);
+    expect(table(result, 'workflow_instances')).toMatchObject({ rowsDeleted: 0 });
+    expect(table(result, 'workflow_transitions')).toEqual({
+      table: 'workflow_transitions',
+      cutoff: CUT.audit,
+      rowsDeleted: 2,
+      truncated: false,
+    });
+  });
+
+  it('keeps the instance of a request still open or in review while it names no actor', async () => {
+    await seedClaim('q-open', { status: 'open' });
+    await seedClaim('q-review', { status: 'in_review' });
+    await seedClaim('q-done', { status: 'rejected', resolvedAt: OLD });
+    for (const [id, entityId] of [
+      ['wf-open', 'q-open'],
+      ['wf-review', 'q-review'],
+      ['wf-done', 'q-done'],
+    ] as const) {
+      await seedInstance(id, {
+        type: 'vendor_claim',
+        entityId,
+        transitions: [{ id: `tr-${id}`, createdAt: OLD }],
+      });
+    }
+    // An open request's instance that names an actor is not kept.
+    await t.db.insert(profiles).values({ id: 'actor-1' });
+    await seedClaim('q-named', { status: 'open' });
+    await seedInstance('wf-named', {
+      type: 'vendor_claim',
+      entityId: 'q-named',
+      initiatedBy: 'actor-1',
+    });
+
+    await runLegalRetentionPrune(t.db, NOW);
+
+    // The reconciliation sweep retries an open request through its instance.
+    expect(await instanceIds()).toEqual(['wf-open', 'wf-review']);
+    expect(await transitionIds()).toEqual([]);
+  });
+
+  it('sets a contest’s workflow links to NULL and counts them', async () => {
+    await seedVendor('v-s', { claimEndedAt: null });
+    await t.db.insert(products).values([
+      { id: 'p-x', slug: 'p-x', name: 'p-x' },
+      { id: 'p-y', slug: 'p-y', name: 'p-y' },
+    ]);
+    await t.db.insert(integrations).values({
+      id: 'i-x',
+      sourceProductId: 'p-x',
+      targetProductId: 'p-y',
+    });
+    await seedInstance('wf-contest', { type: 'correction_request', entityId: 'fc-1' });
+    await seedInstance('wf-protest', { type: 'correction_request', entityId: 'fc-1' });
+    await seedInstance('wf-keep', {
+      type: 'correction_request',
+      entityId: 'fc-2',
+      initiatedAt: YOUNG,
+    });
+    await t.db.insert(integrationFieldChallenges).values([
+      {
+        id: 'fc-1',
+        integrationId: 'i-x',
+        field: 'name',
+        reason: 'Old contest',
+        submitterVendorId: 'v-s',
+        routedTo: 'aeci',
+        status: 'declined',
+        workflowId: 'wf-contest',
+        protestWorkflowId: 'wf-protest',
+      },
+      {
+        id: 'fc-2',
+        integrationId: 'i-x',
+        field: 'docs_url',
+        reason: 'New contest',
+        submitterVendorId: 'v-s',
+        routedTo: 'aeci',
+        status: 'open',
+        workflowId: 'wf-keep',
+      },
+    ]);
+
+    const result = await runLegalRetentionPrune(t.db, NOW);
+
+    const contests = await t.db
+      .select({
+        id: integrationFieldChallenges.id,
+        workflowId: integrationFieldChallenges.workflowId,
+        protestWorkflowId: integrationFieldChallenges.protestWorkflowId,
+      })
+      .from(integrationFieldChallenges)
+      .orderBy(integrationFieldChallenges.id);
+    expect(contests).toEqual([
+      { id: 'fc-1', workflowId: null, protestWorkflowId: null },
+      { id: 'fc-2', workflowId: 'wf-keep', protestWorkflowId: null },
+    ]);
+    expect(await instanceIds()).toEqual(['wf-keep']);
+    expect(table(result, 'workflow_instances')).toMatchObject({
+      rowsDeleted: 2,
+      contestLinksCleared: 1,
+    });
+    const [run] = await pruneRows();
+    expect(run!.metadata).toMatchObject({
+      tables: [{ table: 'workflow_instances', rowsDeleted: 2, contestLinksCleared: 1 }],
+    });
+  });
+
+  it('prunes the instance of an open contest and protest too: their writers re-create it', async () => {
+    await seedVendor('v-s', { claimEndedAt: null });
+    await t.db.insert(products).values([
+      { id: 'p-x', slug: 'p-x', name: 'p-x' },
+      { id: 'p-y', slug: 'p-y', name: 'p-y' },
+    ]);
+    await t.db
+      .insert(integrations)
+      .values({ id: 'i-x', sourceProductId: 'p-x', targetProductId: 'p-y' });
+    for (const id of ['wf-open-contest', 'wf-declined', 'wf-open-protest']) {
+      await seedInstance(id, {
+        type: 'correction_request',
+        entityId: 'fc',
+        transitions: [{ id: `tr-${id}`, createdAt: OLD }],
+      });
+    }
+    await t.db.insert(integrationFieldChallenges).values([
+      {
+        id: 'fc-open',
+        integrationId: 'i-x',
+        field: 'name',
+        reason: 'Still open',
+        submitterVendorId: 'v-s',
+        routedTo: 'owner',
+        status: 'open',
+        workflowId: 'wf-open-contest',
+      },
+      {
+        id: 'fc-protested',
+        integrationId: 'i-x',
+        field: 'docs_url',
+        reason: 'Declined, protest open',
+        submitterVendorId: 'v-s',
+        routedTo: 'owner',
+        status: 'declined',
+        workflowId: 'wf-declined',
+        protestStatus: 'open',
+        protestWorkflowId: 'wf-open-protest',
+      },
+    ]);
+
+    await runLegalRetentionPrune(t.db, NOW);
+
+    // Kept, they would hold the filer past four years. Every contest writer re-creates the
+    // instance instead (`lib/workflow-restore.ts`).
+    expect(await instanceIds()).toEqual([]);
+    expect(await transitionIds()).toEqual([]);
+    const links = await t.db
+      .select({
+        workflowId: integrationFieldChallenges.workflowId,
+        protestWorkflowId: integrationFieldChallenges.protestWorkflowId,
+      })
+      .from(integrationFieldChallenges);
+    expect(links).toEqual([
+      { workflowId: null, protestWorkflowId: null },
+      { workflowId: null, protestWorkflowId: null },
+    ]);
+  });
+
+  it('a global hold keeps every workflow row and reports the tables paused', async () => {
+    await seedInstance('wf-g', { transitions: [{ id: 'tr-g', createdAt: OLD }] });
+    await seedHold('global', null);
+
+    const result = await runLegalRetentionPrune(t.db, NOW);
+
+    expect(result).toMatchObject({ status: 'skipped', reason: 'litigation_hold' });
+    expect(result.tables.map((x) => x.table)).toEqual([...LEGAL_PRUNABLE]);
+    expect(table(result, 'workflow_instances')).toMatchObject({ paused: true });
+    expect(table(result, 'workflow_transitions')).toMatchObject({ paused: true });
+    expect(await instanceIds()).toEqual(['wf-g']);
+    expect(await transitionIds()).toEqual(['tr-g']);
+  });
+
+  it('a vendor hold keeps the held company’s workflows by every tie, and deletes the rest', async () => {
+    for (const v of ['v-a', 'v-b']) await seedVendor(v, { claimEndedAt: null });
+    for (const [p, v] of [
+      ['p-a', 'v-a'],
+      ['p-b', 'v-b'],
+      ['p-c', null],
+    ] as const) {
+      await t.db.insert(products).values({ id: p, slug: p, name: p });
+      if (v) await t.db.insert(productVendors).values({ productId: p, vendorId: v });
+    }
+    await t.db
+      .insert(profiles)
+      .values([
+        { id: 'seat-a', vendorId: 'v-a', role: 'vendor_admin' },
+        { id: 'seat-b', vendorId: 'v-b', role: 'vendor_admin' },
+        { id: 'reader-1' },
+      ]);
+    await t.db.insert(integrations).values([
+      { id: 'i-a', sourceProductId: 'p-c', targetProductId: 'p-a' },
+      { id: 'i-b', sourceProductId: 'p-b', targetProductId: 'p-c' },
+    ]);
+    for (const [id, product] of [
+      ['r-a', 'p-a'],
+      ['r-b', 'p-b'],
+    ] as const) {
+      await t.db.insert(reviews).values({
+        id,
+        productId: product,
+        reviewerId: 'reader-1',
+        ratingOverall: 4,
+        ratingOnboarding: 4,
+        title: 'Review',
+        body: 'Body',
+      });
+    }
+    await seedClaim('q-a', { status: 'rejected', targetType: 'vendor', targetId: 'v-a' });
+    await seedClaim('q-pa', { status: 'rejected', targetType: 'product', targetId: 'p-a' });
+    await seedClaim('q-b', { status: 'rejected', targetType: 'vendor', targetId: 'v-b' });
+    await t.db.insert(integrationFieldChallenges).values([
+      // About A's integration, submitted by B.
+      {
+        id: 'fc-a',
+        integrationId: 'i-a',
+        field: 'name',
+        reason: 'r',
+        submitterVendorId: 'v-b',
+        routedTo: 'aeci',
+        status: 'declined',
+      },
+      // Submitted by A about B's integration.
+      {
+        id: 'fc-sub-a',
+        integrationId: 'i-b',
+        field: 'name',
+        reason: 'r',
+        submitterVendorId: 'v-a',
+        routedTo: 'aeci',
+        status: 'declined',
+      },
+      {
+        id: 'fc-b',
+        integrationId: 'i-b',
+        field: 'docs_url',
+        reason: 'r',
+        submitterVendorId: 'v-b',
+        routedTo: 'aeci',
+        status: 'declined',
+      },
+    ]);
+    const held = [
+      ['wf-claim-a', 'vendor_claim', 'q-a'],
+      ['wf-claim-pa', 'vendor_claim', 'q-pa'],
+      ['wf-contest-a', 'correction_request', 'fc-a'],
+      ['wf-contest-sub-a', 'correction_request', 'fc-sub-a'],
+      ['wf-review-a', 'review_moderation', 'r-a'],
+      ['wf-ban-a', 'reviewer_ban', 'seat-a'],
+    ] as const;
+    const free = [
+      ['wf-claim-b', 'vendor_claim', 'q-b'],
+      ['wf-contest-b', 'correction_request', 'fc-b'],
+      ['wf-review-b', 'review_moderation', 'r-b'],
+      ['wf-ban-b', 'reviewer_ban', 'seat-b'],
+      ['wf-ban-reader', 'reviewer_ban', 'reader-1'],
+    ] as const;
+    for (const [id, type, entityId] of [...held, ...free]) {
+      await seedInstance(id, { type, entityId, transitions: [{ id: `tr-${id}`, createdAt: OLD }] });
+    }
+    // Started by A's seat, and moved by A's seat, about nothing of A's.
+    await seedInstance('wf-init-a', { entityId: 'r-b', initiatedBy: 'seat-a' });
+    await seedInstance('wf-actor-a', {
+      entityId: 'r-b',
+      transitions: [{ id: 'tr-actor-a', createdAt: OLD, actorId: 'seat-a' }],
+    });
+    await seedHold('vendor', 'v-a');
+
+    const result = await runLegalRetentionPrune(t.db, NOW);
+
+    const keptIds = [...held.map(([id]) => id), 'wf-init-a', 'wf-actor-a'].sort();
+    expect(await instanceIds()).toEqual(keptIds);
+    expect(await transitionIds()).toEqual([...held.map(([id]) => `tr-${id}`), 'tr-actor-a'].sort());
+    expect(table(result, 'workflow_instances')).toMatchObject({ rowsDeleted: free.length });
+    expect(result).toMatchObject({ status: 'pruned', vendorHolds: 1 });
+  });
+
+  it('a transition written after planning on a planned instance aborts the batch; the replan keeps it', async () => {
+    await seedInstance('wf-race', { transitions: [{ id: 'tr-race-old', createdAt: OLD }] });
+    const batch = t.db.batch.bind(t.db);
+    const spy = vi.spyOn(t.db, 'batch').mockImplementationOnce(async (stmts) => {
+      await t.db.insert(workflowTransitions).values({
+        id: 'tr-race-new',
+        workflowId: 'wf-race',
+        toState: 'approved',
+        createdAt: '2034-06-15T02:59:00.000Z',
+      });
+      return batch(stmts);
+    });
+
+    const error = await runLegalRetentionPrune(t.db, NOW).catch((e: unknown) => e);
+
+    expect(isLegalRetentionRaceError(error)).toBe(true);
+    spy.mockRestore();
+    expect(await instanceIds()).toEqual(['wf-race']);
+    expect(await pruneRows()).toEqual([]);
+
+    // The replan sees the new action: the instance stays, its old transition goes.
+    await runLegalRetentionPruneWithReplan(t.db, NOW);
+    expect(await instanceIds()).toEqual(['wf-race']);
+    expect(await transitionIds()).toEqual(['tr-race-new']);
+  });
+
+  it('caps instances per run and reports truncated; the next run continues', async () => {
+    for (let i = 0; i <= LEGAL_RETENTION_IDS_PER_TABLE; i += 1) {
+      await seedInstance(`wf-${String(i).padStart(3, '0')}`);
+    }
+
+    const first = await runLegalRetentionPrune(t.db, NOW);
+    expect(table(first, 'workflow_instances')).toMatchObject({
+      rowsDeleted: LEGAL_RETENTION_IDS_PER_TABLE,
+      truncated: true,
+    });
+    const second = await runLegalRetentionPrune(t.db, NOW);
+    expect(table(second, 'workflow_instances')).toMatchObject({ rowsDeleted: 1, truncated: false });
+    expect(await instanceIds()).toEqual([]);
   });
 });

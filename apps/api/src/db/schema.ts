@@ -1602,6 +1602,12 @@ export const vendorRequests = sqliteTable(
     index('vendor_requests_status_idx').on(t.status),
     index('vendor_requests_target_idx').on(t.targetType, t.targetId),
     index('vendor_requests_created_at_idx').on(t.createdAt),
+    /** The Linear webhook's fallback lookup when the workflow instance is gone (AECI-1913:
+     *  the legal retention prune deletes it four years after its last action). PARTIAL,
+     *  so unlinked requests never widen it. */
+    index('vendor_requests_linear_issue_idx')
+      .on(t.linearIssueId)
+      .where(sql`"linear_issue_id" IS NOT NULL`),
     check('vendor_requests_kind_check', sql`"kind" IN ('claim', 'correction')`),
     check('vendor_requests_target_type_check', sql`"target_type" IN ('product', 'vendor')`),
     check(

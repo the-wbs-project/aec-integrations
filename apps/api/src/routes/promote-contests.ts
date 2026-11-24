@@ -47,7 +47,7 @@ import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { and, eq, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { integrationFieldChallenges, workflowInstances } from '../db/schema';
+import { integrationFieldChallenges } from '../db/schema';
 import { workflowTransitionInsert, type BatchStmt } from '../lib/audit';
 import { ONE_ROW } from '../lib/integration-claims';
 import {
@@ -59,6 +59,7 @@ import {
   type ContestAnchor,
   type ContestRow,
 } from '../lib/integration-contests';
+import { contestWorkflowStmts } from '../lib/workflow-restore';
 
 /** The audit action for a contest moved from one anchor table to the other. */
 export const CONTEST_REANCHORED_ACTION = 'integration.contest.reanchored';
@@ -145,22 +146,14 @@ function withdrawWorkflowStatements(
   entry: { reason: string; metadata: Record<string, unknown> },
   now: string,
 ): BatchStmt[] {
-  const workflowId = contest.workflowId ?? crypto.randomUUID();
-  const instance = contest.workflowId
-    ? db
-        .update(workflowInstances)
-        .set({ currentState: 'withdrawn', completedAt: now, finalOutcome: 'cancelled' })
-        .where(eq(workflowInstances.id, workflowId))
-    : db.insert(workflowInstances).values({
-        id: workflowId,
-        workflowType: 'correction_request',
-        entityId: contest.id,
-        currentState: 'withdrawn',
-        completedAt: now,
-        finalOutcome: 'cancelled',
-      });
+  // AECI-1913: a pruned instance is re-created and relinked (`lib/workflow-restore.ts`).
+  const { workflowId, stmts } = contestWorkflowStmts(db, contest, 'contest', now, {
+    currentState: 'withdrawn',
+    completedAt: now,
+    finalOutcome: 'cancelled',
+  });
   return [
-    instance,
+    ...stmts,
     workflowTransitionInsert(db, {
       workflowId,
       fromState: 'open',

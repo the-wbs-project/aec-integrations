@@ -1605,6 +1605,8 @@ create table vendor_requests (
 create index vendor_requests_status_idx     on vendor_requests(status);
 create index vendor_requests_target_idx     on vendor_requests(target_type, target_id);
 create index vendor_requests_created_at_idx on vendor_requests(created_at desc);
+-- AECI-1913 (migration 0129): the Linear webhook's fallback when the workflow instance was pruned.
+create index vendor_requests_linear_issue_idx on vendor_requests(linear_issue_id) where linear_issue_id is not null;
 ```
 
 **`admin_notes` is an ANNOTATION, not a decision (AECI-739).** Four things about
@@ -1797,7 +1799,7 @@ Multi-step process tracking with approval gates.
 
 ```sql
 create table workflow_instances (
-  id text primary key not null, -- application-generated UUID (crypto.randomUUID())
+  id text primary key not null, -- application-generated; restores may use a deterministic text id
   workflow_type text not null check (workflow_type in ('vendor_claim', 'review_moderation', 'correction_request', 'reviewer_ban')),
   entity_id text not null, -- foreign key varies by workflow_type; not enforced at DB level
 
@@ -1844,6 +1846,15 @@ create table workflow_transitions (
 
 create index workflow_transitions_workflow_idx on workflow_transitions(workflow_id, created_at);
 ```
+
+**Retention for §8.2 and §8.3 (AECI-1913, ruling 51).** Both tables are part of the audit record
+and are deleted by the legal retention prune four years after the action (`STAGE_1_SPEC.md`
+§26.6). A transition goes once its `created_at` is past the cutoff. An instance goes once its
+latest action is past the cutoff, completed or not. Its latest action is the latest of
+`initiated_at`, `completed_at` and its newest transition. The instance delete cascades its
+transitions and sets `integration_field_challenges.workflow_id` and `.protest_workflow_id` to
+NULL (§8.7). A vendor hold keeps the company's instances by the workflow ties in §8.4
+"Whose row it is, for a hold". The instance of a request still `open` or `in_review` is kept while it names no actor (`initiated_by` is NULL, as on every request instance), because the reconciliation sweep retries a stuck request only through it. Its transitions still go. No other instance is kept. Writers re-create a missing instance in the batch that records its transition. The Linear webhook finds the request by its own `linear_issue_id`, and contest writers relink a new instance to the contest: a vendor or AECi decision, a retire or promote move that closes it, the reroute to AECi, the seat hand-back, and a protest reply or decision. These webhook and contest restores use a deterministic id (`restored-<kind>-<entity id>`), so a concurrent second restore collides on the primary key and its batch fails whole. Other workflow writers use their existing find-or-create logic. The Linear fallback reads the partial index `vendor_requests_linear_issue_idx` (migration `0129`).
 
 ### 8.4 `audit_log`
 
@@ -1895,7 +1906,8 @@ create index audit_log_vendor_idx on audit_log(vendor_id, created_at) where vend
 create index audit_log_product_idx on audit_log(product_id, created_at) where product_id is not null;
 ```
 
-> **Notation.** These three tables are **D1/SQLite**: ids are application-generated UUID `text`,
+> **Notation.** These three tables are **D1/SQLite**: ids are application-generated `text`
+> (usually UUIDs; restored workflow instances can use deterministic ids),
 > timestamps are ISO-8601 `text`, and JSON columns are `text` read through Drizzle's
 > `{ mode: 'json' }` — there is no `uuid`, `jsonb`, `timestamptz` or `gen_random_uuid()` in this
 > database, and SQLite indexes carry no `desc` in these definitions. Converted 2026-08-14 (AECI-587)
@@ -2000,6 +2012,17 @@ company V keeps an expired row only when the row is V's. `auditRowOfVendor` in
 | a `review` row of V's product | moderation of reviews of V's products |
 | a `vendor_request` row whose request targets V, or V's product | claims on V, including rejections, which name no vendor |
 | `actor_id` is a profile with `vendor_id = V` | what V's current seats did |
+
+**The workflow tables use the same ties (AECI-1913).** `workflowRowOfVendor` in the same file
+reads a `workflow_instances` row as V's when any of these holds. Its transitions follow it.
+
+| Tie | Reaches |
+|---|---|
+| `vendor_claim` or `correction_request` on a `vendor_requests` row that targets V or V's product | claims and corrections on V |
+| `correction_request` on an `integration_field_challenges` row V submitted or owns, or on V's integration or evidenced pair | field contests and protests about V |
+| `review_moderation` on a review of V's product | moderation of reviews of V's products |
+| `reviewer_ban` on a profile with `vendor_id = V` | bans of V's current seats |
+| `initiated_by`, or the `actor_id` of any of its transitions, is a profile with `vendor_id = V` | what V's current seats did |
 
 The ties read the tables as they are at the run. A row whose only link was an entity already
 deleted, or one a former seat wrote before `0063` with no vendor key, may not be reached: the

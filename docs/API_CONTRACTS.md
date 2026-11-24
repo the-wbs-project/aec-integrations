@@ -7771,7 +7771,7 @@ Worker writes corresponding `workflow_transitions` entries (see `STAGE_1_SPEC.md
 |---|---|
 | `not an issue state change` | Not an `Issue` `update`, or no `state` |
 | `unmapped state type: …` | A `state.type` outside the map |
-| `unknown issue` / `request not found` | No vendor-request workflow carries this issue id |
+| `unknown issue` / `request not found` | `unknown issue`: neither a vendor-request workflow nor a vendor request carries this issue id. `request not found`: the matching workflow names a request that no longer exists. When only the request carries the issue id (the legal retention prune deleted the instance, AECI-1913), the webhook applies a state change and re-creates the instance in the same batch, under the id `restored-request-<request id>`. A concurrent delivery that restored it first makes this batch fail with a `500`, and Linear redelivers it |
 | `already in sync` | The mapped status is the row's status. Our own push echoes back here |
 | `terminal` | The request is a claim that is already `resolved` or `rejected` (AECI-1421) |
 | `claim decided on site only` | The request is an undecided claim and the issue went to Done or Canceled (AECI-1421) |
