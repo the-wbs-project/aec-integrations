@@ -753,6 +753,27 @@ export type Env = {
    */
   GSC_SA_KEY_JSON?: string;
   /**
+   * Bing Webmaster Tools API key (AECI-821). Read by the Bing lane of the weekly
+   * search ingest (`lib/search-ingest-bing.ts`), which sends it as `?apikey=` on
+   * three read calls. The key is the user's, not the site's, and Bing offers no
+   * read-only scope, so it can also call BWT's write methods. It never appears in a
+   * log line, a `job_runs` detail or a metric attribute (`lib/bing-webmaster-api.ts`).
+   *
+   * **Production only, and recommended rather than required.** `promote-to-prod.yml`
+   * pushes it from the `BWT_API_KEY_PRODUCTION` GH secret, warn-and-skip when empty.
+   * Absent, the Bing lane is `skipped` with `aeci.search_ingest.run{engine:bing,
+   * outcome:skipped}` emitted, so a missing key is visible.
+   */
+  BWT_API_KEY?: string;
+  /**
+   * The site exactly as Bing Webmaster Tools registered it, e.g.
+   * `https://www.aecintegrations.com/` (AECI-821). A plain per-env var, not a secret.
+   * Unset on every tier until the operator reads it from BWT. Unset, or naming any
+   * host but `www.aecintegrations.com`, the Bing lane is `skipped` (`no_site_url`,
+   * `site_url_not_www`), because every `search.bing.www.*` key names the `www.` host.
+   */
+  BWT_SITE_URL?: string;
+  /**
    * The support inbox: the one recipient for every operator email the API Worker
    * sends (AECI-1220). It reaches:
    *

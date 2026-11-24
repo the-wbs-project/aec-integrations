@@ -156,6 +156,7 @@ import {
   SEARCH_INGEST_RUN_METRIC,
   searchIngestHadFailures,
 } from './lib/search-ingest';
+import { bingHeartbeatOutcome, runBingSearchIngest } from './lib/search-ingest-bing';
 import {
   runLicenseUnassignedReminderSweep,
   type UnassignedReminderResult,
@@ -3419,19 +3420,27 @@ function queueForJob(
 }
 
 /**
- * The weekly search ingest (AECI-820, `ADMIN_PANEL_SPEC.md` §5.24.10). Google
- * lane today, Bing (AECI-821) next.
+ * The weekly search ingest (AECI-820, AECI-821, `ADMIN_PANEL_SPEC.md` §5.24.10).
+ * Two lanes in one run: Google (`lib/search-ingest.ts`), then Bing
+ * (`lib/search-ingest-bing.ts`).
  *
- * `lib/search-ingest.ts` does the work and never throws on a Google failure. This
- * wrapper owns the heartbeat and the log lines. A D1 failure is the one throw: it
- * propagates, so the queue retries, and the retry is safe because every write is
- * an upsert.
+ * The lanes are independent. Neither reads the other's result, each has its own
+ * heartbeat point (`engine:google`, `engine:bing`) and its own outcome in `detail`,
+ * and each runs whatever the other did. Neither throws on an engine failure. A D1
+ * failure is the one throw: the other lane still runs, both heartbeats fire, and
+ * then the first error propagates, so the queue retries. The retry is safe because
+ * every write is an upsert.
  *
  * Heartbeat outcomes on `aeci.search_ingest.run`: `ok`, `partial` (at least one
- * call failed and the rest wrote), `skipped` (no `GSC_SA_KEY_JSON`, or not a
- * public env) and `failed` (Google refused the credential, or a D1 write threw).
- * Only `failed` is a failed `job_runs` row, so only it sends the cron-failure email. `partial` is
- * recorded per call and per key in `detail.google`.
+ * call failed and the rest wrote), `skipped`, and `failed` (the engine refused the
+ * credential, or a D1 write threw). The Bing lane adds `throttled`: every failed
+ * call was a `ThrottleUser` or `ThrottleHost`, which is routine. Google skips with
+ * no `GSC_SA_KEY_JSON` or off a public env. Bing skips with no `BWT_API_KEY`, no
+ * `BWT_SITE_URL`, or a site URL that is not the `www.` site.
+ *
+ * The run's `job_runs` outcome is `failed` when either lane failed, and
+ * `detail.reason` names the lane, so the cron-failure email says which. It is
+ * `skipped` only when both lanes skipped, and `ok` otherwise.
  */
 async function runSearchIngestJob(
   env: Env,
@@ -3440,52 +3449,105 @@ async function runSearchIngestJob(
 ): Promise<JobRunReport> {
   const req = cronRequest('/cron/search-ingest');
   const trigger = message?.trigger ?? 'cron';
-  let google: Awaited<ReturnType<typeof runGoogleSearchIngest>>;
+  const db = cronDb(env).db;
+  const heartbeat = (engine: 'google' | 'bing', outcome: string) =>
+    submitCount(ctx, env, req, SEARCH_INGEST_RUN_METRIC, 1, [
+      `trigger:${trigger}`,
+      `engine:${engine}`,
+      `outcome:${outcome}`,
+    ]);
+  const crashed = (engine: 'google' | 'bing', error: unknown) => {
+    // A D1 failure. The heartbeat still fires, so the liveness sweep sees the run.
+    heartbeat(engine, 'failed');
+    logToPosthog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.search_ingest.crashed',
+      source: 'search-ingest-cron',
+      reason: `${engine}: ${error instanceof Error ? error.message : String(error)}`,
+    });
+  };
+  let thrown: unknown;
+
+  // Google lane.
+  let google: Awaited<ReturnType<typeof runGoogleSearchIngest>> | undefined;
   try {
     google = await runGoogleSearchIngest({
-      db: cronDb(env).db,
+      db,
       serviceAccountJson: env.GSC_SA_KEY_JSON,
       indexNowKey: env.INDEXNOW_KEY,
       publicSiteUrl: env.PUBLIC_SITE_URL,
     });
   } catch (error) {
-    // A D1 failure. The heartbeat still fires, so the liveness sweep sees the run.
-    // Rethrow so the queue retries: every write is an upsert.
-    submitCount(ctx, env, req, SEARCH_INGEST_RUN_METRIC, 1, [
-      `trigger:${trigger}`,
-      'engine:google',
-      'outcome:failed',
-    ]);
-    logToPosthog(ctx, env, req, {
-      level: 'error',
-      message: 'aeci.search_ingest.crashed',
-      source: 'search-ingest-cron',
-      reason: error instanceof Error ? error.message : String(error),
-    });
-    throw error;
+    crashed('google', error);
+    thrown = error;
   }
-  const metricOutcome =
-    google.outcome === 'ok' && searchIngestHadFailures(google) ? 'partial' : google.outcome;
-  submitCount(ctx, env, req, SEARCH_INGEST_RUN_METRIC, 1, [
-    `trigger:${trigger}`,
-    'engine:google',
-    `outcome:${metricOutcome}`,
-  ]);
-  if (metricOutcome !== 'ok') {
-    const failedCalls = Object.entries(google.calls)
-      .filter(([, c]) => c.outcome !== 'ok')
-      .map(([name, c]) => `${name}=${c.outcome}`)
-      .join(' ');
-    logToPosthog(ctx, env, req, {
-      level: metricOutcome === 'failed' ? 'error' : 'warn',
-      message: `aeci.search_ingest.${metricOutcome}`,
-      source: 'search-ingest-cron',
-      reason: [google.reason, failedCalls].filter(Boolean).join(' '),
-    });
+  if (google) {
+    const metricOutcome =
+      google.outcome === 'ok' && searchIngestHadFailures(google) ? 'partial' : google.outcome;
+    heartbeat('google', metricOutcome);
+    if (metricOutcome !== 'ok') {
+      const failedCalls = Object.entries(google.calls)
+        .filter(([, c]) => c.outcome !== 'ok')
+        .map(([name, c]) => `${name}=${c.outcome}`)
+        .join(' ');
+      logToPosthog(ctx, env, req, {
+        level: metricOutcome === 'failed' ? 'error' : 'warn',
+        message: `aeci.search_ingest.${metricOutcome}`,
+        source: 'search-ingest-cron',
+        reason: [google.reason, failedCalls].filter(Boolean).join(' '),
+      });
+    }
   }
+
+  // Bing lane. Runs whatever the Google lane did.
+  let bing: Awaited<ReturnType<typeof runBingSearchIngest>> | undefined;
+  try {
+    bing = await runBingSearchIngest({
+      db,
+      apiKey: env.BWT_API_KEY,
+      siteUrl: env.BWT_SITE_URL,
+    });
+  } catch (error) {
+    crashed('bing', error);
+    thrown ??= error;
+  }
+  if (bing) {
+    const metricOutcome = bingHeartbeatOutcome(bing);
+    heartbeat('bing', metricOutcome);
+    if (metricOutcome !== 'ok') {
+      // The messages are the transport's own vocabulary. None holds the key.
+      const failedCalls = Object.entries(bing.calls)
+        .filter(([, c]) => c.outcome !== 'ok')
+        .map(([name, c]) => `${name}=${c.message ?? c.outcome}`)
+        .join(' ');
+      logToPosthog(ctx, env, req, {
+        level: metricOutcome === 'failed' ? 'error' : metricOutcome === 'partial' ? 'warn' : 'info',
+        message: `aeci.search_ingest.bing.${metricOutcome}`,
+        source: 'search-ingest-cron',
+        reason: [bing.reason, failedCalls].filter(Boolean).join(' '),
+      });
+    }
+  }
+
+  if (thrown !== undefined || !google || !bing) throw thrown;
+  const failedLanes = [
+    google.outcome === 'failed' ? `google: ${google.reason ?? 'failed'}` : null,
+    bing.outcome === 'failed' ? `bing: ${bing.reason ?? 'failed'}` : null,
+  ].filter((r): r is string => r !== null);
+  const outcome =
+    failedLanes.length > 0
+      ? 'failed'
+      : google.outcome === 'skipped' && bing.outcome === 'skipped'
+        ? 'skipped'
+        : 'ok';
   return {
-    outcome: google.outcome,
-    detail: { job: 'search-ingest', google },
+    outcome,
+    detail: {
+      job: 'search-ingest',
+      ...(failedLanes.length > 0 ? { reason: failedLanes.join('; ') } : {}),
+      google,
+      bing,
+    },
   };
 }
 

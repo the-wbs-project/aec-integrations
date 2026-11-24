@@ -1,6 +1,7 @@
 /**
  * The weekly search ingest, Google lane (AECI-820, `ADMIN_PANEL_SPEC.md` §5.24.8
- * and §5.24.10). Bing (AECI-821) joins as a second lane of the same run.
+ * and §5.24.10). Bing (AECI-821) is the second lane of the same run, in
+ * `./search-ingest-bing`. Neither lane reads the other's result.
  *
  * Pulls Search Analytics and the Sitemaps list for `sc-domain:aecintegrations.com`
  * and writes {@link SEARCH_INGEST_GOOGLE_METRIC_KEYS} into `metrics_daily`. It is
@@ -68,7 +69,7 @@
  * stays (`POST_LAUNCH_MONITORING.md` §2a).
  */
 
-import type { SearchIngestGoogleMetricKey } from '@aeci/shared';
+import type { SearchIngestGoogleMetricKey, SearchIngestMetricKey } from '@aeci/shared';
 
 import type { Db } from '../db/client';
 import { metricsDaily } from '../db/schema';
@@ -249,11 +250,12 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 const realSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-/** Upsert one `(day, metric)` row as `measured`. Throws on a D1 failure. */
-async function upsert(
+/** Upsert one `(day, metric)` row as `measured`. Throws on a D1 failure. Both
+ *  lanes write through it. */
+export async function upsertSearchMetric(
   db: Db,
   day: string,
-  metric: SearchIngestGoogleMetricKey,
+  metric: SearchIngestMetricKey,
   value: number,
   computedAt: string,
 ): Promise<void> {
@@ -381,17 +383,17 @@ export async function runGoogleSearchIngest(
       const clicks = toCount(row.clicks);
       const impressions = toCount(row.impressions);
       if (clicks !== null) {
-        await upsert(db, day, keys.clicks, clicks, computedAt);
+        await upsertSearchMetric(db, day, keys.clicks, clicks, computedAt);
         n++;
       }
       if (impressions !== null) {
-        await upsert(db, day, keys.impressions, impressions, computedAt);
+        await upsertSearchMetric(db, day, keys.impressions, impressions, computedAt);
         n++;
       }
       // Position means nothing on a day with no impressions: no row, not 0.
       const position = toCount(row.position);
       if (impressions !== null && impressions > 0 && position !== null) {
-        await upsert(db, day, keys.position, position, computedAt);
+        await upsertSearchMetric(db, day, keys.position, position, computedAt);
         n++;
       }
       if (scope === 'www' && (newestFinalDay === null || day > newestFinalDay)) {
@@ -450,14 +452,14 @@ export async function runGoogleSearchIngest(
         // An empty answer is "no data", never a stored 0.
         mark(pagesKeys, 'no_data');
       } else {
-        await upsert(db, rollingEnd, pagesKeys[0], impressed.size, computedAt);
+        await upsertSearchMetric(db, rollingEnd, pagesKeys[0], impressed.size, computedAt);
         n = 1;
         metrics[pagesKeys[0]] = 'written';
         try {
           const catalog = await (deps.catalogUrls ?? (() => catalogUrlSet(db)))();
           let inCatalog = 0;
           for (const url of impressed) if (catalog.has(url)) inCatalog++;
-          await upsert(db, rollingEnd, pagesKeys[1], inCatalog, computedAt);
+          await upsertSearchMetric(db, rollingEnd, pagesKeys[1], inCatalog, computedAt);
           n++;
           metrics[pagesKeys[1]] = 'written';
         } catch {
@@ -493,7 +495,7 @@ export async function runGoogleSearchIngest(
     } else {
       const distinct = new Set(queries.rows.map((r) => r.keys?.[0]).filter(Boolean));
       const n = distinct.size > 0 ? 1 : 0;
-      if (n > 0) await upsert(db, rollingEnd, queriesKey, distinct.size, computedAt);
+      if (n > 0) await upsertSearchMetric(db, rollingEnd, queriesKey, distinct.size, computedAt);
       calls.www_queries_28d = {
         outcome: 'ok',
         rows: queries.rows.length,
@@ -549,7 +551,7 @@ export async function runGoogleSearchIngest(
           metrics[key] = 'no_data';
           continue;
         }
-        await upsert(db, runDay, key, value, computedAt);
+        await upsertSearchMetric(db, runDay, key, value, computedAt);
         metrics[key] = 'written';
         n++;
       }

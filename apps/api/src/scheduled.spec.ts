@@ -144,6 +144,12 @@ vi.mock('./lib/search-ingest', async (importActual) => {
   const actual = await importActual<typeof import('./lib/search-ingest')>();
   return { ...actual, runGoogleSearchIngest: vi.fn(actual.runGoogleSearchIngest) };
 });
+// AECI-821. The real Bing lane by default: with no `BWT_API_KEY` it skips before any
+// call. Tests that need a Bing answer stub one run, or give it a key and a fetch stub.
+vi.mock('./lib/search-ingest-bing', async (importActual) => {
+  const actual = await importActual<typeof import('./lib/search-ingest-bing')>();
+  return { ...actual, runBingSearchIngest: vi.fn(actual.runBingSearchIngest) };
+});
 
 import { fetchWafFirewallEvents } from '@aeci/shared/cloudflare-analytics';
 
@@ -180,6 +186,7 @@ import { SNAPSHOT_WRITTEN_METRIC_KEYS } from './lib/metrics-snapshot';
 import { HOME_STATS_REFRESHED_KEY, runHomeStats } from './lib/home-stats';
 import { runGscInspectChunk } from './lib/gsc-inspect-job';
 import { runGoogleSearchIngest, type GoogleSearchIngestResult } from './lib/search-ingest';
+import { runBingSearchIngest, type BingSearchIngestResult } from './lib/search-ingest-bing';
 import { runReconciliationSweep } from './lib/reconciliation-sweep';
 import { normalizeJobMessage, queue, scheduled } from './scheduled';
 
@@ -3553,7 +3560,11 @@ describe('search_ingest: cron → reconcile queue → consumer (AECI-820)', () =
     expect(ack).toHaveBeenCalledTimes(1);
     const [row] = await jobRunRows();
     expect(row).toMatchObject({ job: 'search-ingest', outcome: 'ok' });
-    expect(row?.detail).toEqual({ job: 'search-ingest', google: googleResult() });
+    expect(row?.detail).toEqual({
+      job: 'search-ingest',
+      google: googleResult(),
+      bing: { outcome: 'skipped', reason: 'no_creds', calls: {}, metrics: {}, written: 0 },
+    });
     expect(submitCount).toHaveBeenCalledWith(
       ctx,
       expect.anything(),
@@ -3641,6 +3652,206 @@ describe('search_ingest: cron → reconcile queue → consumer (AECI-820)', () =
     expect(row?.detail).toMatchObject({
       job: 'search-ingest',
       google: { outcome: 'skipped', reason: 'no_creds' },
+      bing: { outcome: 'skipped', reason: 'no_creds' },
     });
+  });
+});
+
+describe('search_ingest: the Bing lane (AECI-821)', () => {
+  const KEY = 'eedecc1ea4ae341cc57365e075ebc8b6';
+  // No test here may reach Bing. A lane that is not stubbed hits this and fails.
+  beforeEach(() => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('no network in tests');
+      }),
+    );
+  });
+  afterEach(() => vi.unstubAllGlobals());
+  const googleOk = (): GoogleSearchIngestResult => ({
+    outcome: 'ok',
+    calls: { www_daily: { outcome: 'ok', rows: 1, written: 3 } },
+    metrics: {},
+    written: 3,
+  });
+  const bingResult = (over: Partial<BingSearchIngestResult> = {}): BingSearchIngestResult => ({
+    outcome: 'ok',
+    siteUrl: 'https://www.aecintegrations.com/',
+    window: { start: '2026-11-06', end: '2026-11-19' },
+    calls: {
+      traffic: { outcome: 'ok', rows: 14, written: 28 },
+      crawl: { outcome: 'ok', rows: 14, written: 42 },
+      feeds: { outcome: 'ok', rows: 1, written: 2 },
+    },
+    metrics: { 'search.bing.www.in_index': 'written' },
+    sitemap: null,
+    written: 72,
+    ...over,
+  });
+  const heartbeats = () =>
+    vi
+      .mocked(submitCount)
+      .mock.calls.filter((c) => c[3] === 'aeci.search_ingest.run')
+      .map((c) => c[5]);
+
+  it('records both lanes in one job_runs row, each with its own heartbeat point', async () => {
+    vi.mocked(runGoogleSearchIngest).mockResolvedValueOnce(googleOk());
+    vi.mocked(runBingSearchIngest).mockResolvedValueOnce(bingResult());
+    await scheduled(cronController(SEARCH_INGEST_CRON), makeEnv(), ctx);
+
+    const [row] = await jobRunRows();
+    expect(row).toMatchObject({ job: 'search-ingest', outcome: 'ok' });
+    expect(row?.detail).toEqual({ job: 'search-ingest', google: googleOk(), bing: bingResult() });
+    expect(heartbeats()).toEqual([
+      ['trigger:cron', 'engine:google', 'outcome:ok'],
+      ['trigger:cron', 'engine:bing', 'outcome:ok'],
+    ]);
+  });
+
+  it('passes the key and the site URL var to the Bing lane', async () => {
+    // Stubbed: a real lane with a key would call Bing.
+    vi.mocked(runBingSearchIngest).mockResolvedValueOnce(bingResult());
+    await scheduled(
+      cronController(SEARCH_INGEST_CRON),
+      makeEnv({ BWT_API_KEY: KEY, BWT_SITE_URL: 'https://www.aecintegrations.com/' } as never),
+      ctx,
+    );
+    expect(runBingSearchIngest).toHaveBeenCalledWith(
+      expect.objectContaining({ apiKey: KEY, siteUrl: 'https://www.aecintegrations.com/' }),
+    );
+  });
+
+  it('skips the Bing lane, not fails it, when BWT_SITE_URL is unset', async () => {
+    vi.mocked(runGoogleSearchIngest).mockResolvedValueOnce(googleOk());
+    await scheduled(
+      cronController(SEARCH_INGEST_CRON),
+      makeEnv({ BWT_API_KEY: KEY } as never),
+      ctx,
+    );
+    const [row] = await jobRunRows();
+    expect(row).toMatchObject({ job: 'search-ingest', outcome: 'ok' });
+    expect(row?.detail).toMatchObject({ bing: { outcome: 'skipped', reason: 'no_site_url' } });
+    expect(heartbeats()).toContainEqual(['trigger:cron', 'engine:bing', 'outcome:skipped']);
+  });
+
+  it('records a Bing throttle as routine: run ok, heartbeat throttled, info log', async () => {
+    vi.mocked(runGoogleSearchIngest).mockResolvedValueOnce(googleOk());
+    vi.mocked(runBingSearchIngest).mockResolvedValueOnce(
+      bingResult({
+        calls: {
+          traffic: { outcome: 'ok', rows: 14, written: 28 },
+          crawl: {
+            outcome: 'throttled',
+            message: 'bwt_ThrottleUser',
+            errorCode: 4,
+            rows: 0,
+            written: 0,
+          },
+        },
+      }),
+    );
+    await scheduled(cronController(SEARCH_INGEST_CRON), makeEnv(), ctx);
+
+    const [row] = await jobRunRows();
+    expect(row).toMatchObject({ job: 'search-ingest', outcome: 'ok' });
+    expect(heartbeats()).toContainEqual(['trigger:cron', 'engine:bing', 'outcome:throttled']);
+    expect(logToPosthog).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        level: 'info',
+        message: 'aeci.search_ingest.bing.throttled',
+        reason: 'crawl=bwt_ThrottleUser',
+      }),
+    );
+  });
+
+  it('fails the run when Bing refuses the key, and leaves the Google lane ok', async () => {
+    vi.mocked(runGoogleSearchIngest).mockResolvedValueOnce(googleOk());
+    vi.mocked(runBingSearchIngest).mockResolvedValueOnce(
+      bingResult({ outcome: 'failed', reason: 'bing_refused_credential', written: 0 }),
+    );
+    await scheduled(cronController(SEARCH_INGEST_CRON), makeEnv(), ctx);
+
+    const [row] = await jobRunRows();
+    expect(row).toMatchObject({ job: 'search-ingest', outcome: 'failed' });
+    expect(row?.detail).toMatchObject({
+      reason: 'bing: bing_refused_credential',
+      google: { outcome: 'ok' },
+      bing: { outcome: 'failed' },
+    });
+    expect(heartbeats()).toEqual([
+      ['trigger:cron', 'engine:google', 'outcome:ok'],
+      ['trigger:cron', 'engine:bing', 'outcome:failed'],
+    ]);
+  });
+
+  it('still runs the Bing lane when the Google lane throws, then rethrows for the retry', async () => {
+    vi.mocked(runGoogleSearchIngest).mockRejectedValueOnce(new Error('D1_ERROR'));
+    vi.mocked(runBingSearchIngest).mockResolvedValueOnce(bingResult());
+    const { batch, ack, retry } = makeBatch('search_ingest', 'aeci-reconcile-staging');
+
+    await queue(batch, makeEnv(), ctx);
+
+    expect(runBingSearchIngest).toHaveBeenCalledTimes(1);
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(ack).not.toHaveBeenCalled();
+    expect(heartbeats()).toEqual([
+      ['trigger:cron', 'engine:google', 'outcome:failed'],
+      ['trigger:cron', 'engine:bing', 'outcome:ok'],
+    ]);
+  });
+
+  it('still records the Google lane when the Bing lane throws', async () => {
+    vi.mocked(runGoogleSearchIngest).mockResolvedValueOnce(googleOk());
+    vi.mocked(runBingSearchIngest).mockRejectedValueOnce(new Error('D1_ERROR'));
+    const { batch, retry } = makeBatch('search_ingest', 'aeci-reconcile-staging');
+
+    await queue(batch, makeEnv(), ctx);
+
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(heartbeats()).toEqual([
+      ['trigger:cron', 'engine:google', 'outcome:ok'],
+      ['trigger:cron', 'engine:bing', 'outcome:failed'],
+    ]);
+  });
+
+  it('never puts the BWT key in a log line, the job_runs row or a metric tag', async () => {
+    // The real lane, with a network that quotes the request URL in its error.
+    const fetchStub = vi.fn(async (input: RequestInfo | URL) => {
+      throw new Error(`network connection lost: ${String(input)}`);
+    });
+    vi.stubGlobal('fetch', fetchStub);
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    try {
+      const run = scheduled(
+        cronController(SEARCH_INGEST_CRON),
+        makeEnv({
+          BWT_API_KEY: KEY,
+          BWT_SITE_URL: 'https://www.aecintegrations.com/',
+        } as never),
+        ctx,
+      );
+      await vi.runAllTimersAsync();
+      await run;
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+
+    // The lane really called Bing, with the key in the URL.
+    expect(fetchStub.mock.calls.some(([u]) => String(u).includes(`apikey=${KEY}`))).toBe(true);
+    const [row] = await jobRunRows();
+    expect(row?.detail).toMatchObject({ bing: { calls: { traffic: { outcome: 'transient' } } } });
+    expect(JSON.stringify(row)).not.toContain(KEY);
+    // The payloads only: the env argument holds the key by construction.
+    const logged = vi.mocked(logToPosthog).mock.calls.map((c) => c[3]);
+    expect(logged.some((l) => l.message === 'aeci.search_ingest.bing.partial')).toBe(true);
+    expect(JSON.stringify(logged)).not.toContain(KEY);
+    expect(JSON.stringify(logged)).toContain('apikey=REDACTED');
+    const tags = vi.mocked(submitCount).mock.calls.map((c) => [c[3], c[4], c[5]]);
+    expect(JSON.stringify(tags)).not.toContain(KEY);
   });
 });

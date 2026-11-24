@@ -152,6 +152,15 @@ LINEAR_API_KEY=
 # GSC_SA_KEY_JSON_PRODUCTION GH secret by promote-to-prod.yml.
 GSC_SA_KEY_JSON=
 
+# ─── Bing Webmaster Tools search ingest (AECI-821) ─────────────────────────
+# The BWT API key. The weekly search_ingest cron's Bing lane sends it as ?apikey=
+# to read traffic, crawl and sitemap figures into metrics_daily. Leave it EMPTY
+# locally: the key is user-wide and can call BWT write methods, and the lane also
+# needs the BWT_SITE_URL var, which no tier sets yet. Empty means the lane is
+# skipped. Production only, CI-pushed from the BWT_API_KEY_PRODUCTION GH secret by
+# promote-to-prod.yml.
+BWT_API_KEY=
+
 # ─── Linear webhook signing (AECI-212 / Phase 6.5) ─────────────────────────
 # HMAC-SHA256 signing secret for the inbound Linear webhook (POST /api/webhooks/
 # linear). Copy it from the webhook's settings in Linear (Settings > API >

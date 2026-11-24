@@ -1141,10 +1141,50 @@ export const SEARCH_INGEST_GOOGLE_METRIC_KEYS = [
 export type SearchIngestGoogleMetricKey = (typeof SEARCH_INGEST_GOOGLE_METRIC_KEYS)[number];
 
 /**
- * Every key the search ingest writes. Bing's keys (AECI-821, `search.bing.www.*`)
- * join as a second spread, so readers keep one list.
+ * The Bing half of the search ingest vocabulary (AECI-821, `ADMIN_PANEL_SPEC.md`
+ * §5.24.8 and §5.24.10). Written weekly by `lib/search-ingest-bing.ts`, never by the
+ * snapshot, for the reasons the Google list gives.
+ *
+ * `www` is the scope. Bing registers sites per host, and the lane runs only when
+ * the registered `BWT_SITE_URL` is the `www.aecintegrations.com` site, so every
+ * figure here is that host's. Bing reports no aggregation choice, so the scope has
+ * no second half.
+ *
+ * Every daily key is filed under the Pacific date of Bing's `Date` field, as the
+ * Google keys are. The two `sitemap_*` keys are a sample taken at the run, filed
+ * under the run's UTC day.
+ *
+ * Never sum a Bing key with a Google key. They are different indexes, and the
+ * Google indexed figure is a proxy.
  */
-export const SEARCH_INGEST_METRIC_KEYS = [...SEARCH_INGEST_GOOGLE_METRIC_KEYS] as const;
+export const SEARCH_INGEST_BING_METRIC_KEYS = [
+  /** Flow. Clicks on that Pacific day, from `GetRankAndTrafficStats`. Every
+   *  vertical, including Chat, since 2023-03-24. */
+  'search.bing.www.clicks',
+  /** Flow. Impressions on that Pacific day, from `GetRankAndTrafficStats`. */
+  'search.bing.www.impressions',
+  /** Bing's own index figure for that day, `InIndex` from `GetCrawlStats`, as
+   *  reported by Bing. Microsoft does not define it, so it is never called a true
+   *  count, and it is never compared like for like with the Google proxy. */
+  'search.bing.www.in_index',
+  /** Pages Bing crawled that day, `CrawledPages` from `GetCrawlStats`. */
+  'search.bing.www.crawled_pages',
+  /** Crawl errors Bing recorded that day, `CrawlErrors` from `GetCrawlStats`. */
+  'search.bing.www.crawl_errors',
+  /** URLs Bing counted in `https://www.aecintegrations.com/sitemap.xml`, `UrlCount`
+   *  from `GetFeeds`. A sample at the run. */
+  'search.bing.www.sitemap_urls',
+  /** Days from Bing's last crawl of that sitemap to the run, REAL. No row when Bing
+   *  reports no crawl. The date itself is in the run's `job_runs.detail`. */
+  'search.bing.www.sitemap_crawl_age_days',
+] as const;
+export type SearchIngestBingMetricKey = (typeof SEARCH_INGEST_BING_METRIC_KEYS)[number];
+
+/** Every key the search ingest writes: Google's, then Bing's. Readers keep one list. */
+export const SEARCH_INGEST_METRIC_KEYS = [
+  ...SEARCH_INGEST_GOOGLE_METRIC_KEYS,
+  ...SEARCH_INGEST_BING_METRIC_KEYS,
+] as const;
 export type SearchIngestMetricKey = (typeof SEARCH_INGEST_METRIC_KEYS)[number];
 
 /**

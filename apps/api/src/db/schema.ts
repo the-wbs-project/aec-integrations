@@ -4237,8 +4237,8 @@ export const metricsDaily = sqliteTable(
   {
     /** `YYYY-MM-DD`, UTC. Text, so it sorts lexically = chronologically and can be
      *  compared directly against `substr(created_at, 1, 10)` elsewhere. The search
-     *  ingest's daily and 28-day keys are the exception: their day is Google's
-     *  Pacific date (AECI-820, `SEARCH_INGEST_METRIC_KEYS`). */
+     *  ingest's daily and 28-day keys are the exception: their day is Google's or
+     *  Bing's Pacific date (AECI-820, AECI-821, `SEARCH_INGEST_METRIC_KEYS`). */
     day: text('day').notNull(),
     /** One of `ADMIN_SNAPSHOT_METRIC_KEYS` or, since AECI-820,
      *  `SEARCH_INGEST_METRIC_KEYS` (`@aeci/shared`). Deliberately NOT a
