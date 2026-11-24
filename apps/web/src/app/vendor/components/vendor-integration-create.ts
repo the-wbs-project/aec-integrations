@@ -77,6 +77,7 @@ import {
   FIELD_OPTIONAL_CLASS,
 } from '../../shared/form-field/form-field-classes';
 import { AecIcon } from '../../shared/icon/icon';
+import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
 
 /**
  * Render the form open on first paint. Provided ONLY by the dev preview
@@ -199,6 +200,7 @@ function emptyDraft(): Draft {
     AecButton,
     AecCard,
     AecIcon,
+    KeepClearOfSaveBar,
     LogoOrInitial,
     NewTabIcon,
     NgTemplateOutlet,
@@ -367,6 +369,7 @@ function emptyDraft(): Draft {
           } @else if (mode() === 'request') {
             <!-- AECI-1377: the request form swaps in for step 1. -->
             <form
+              aecKeepClearOfSaveBar
               method="dialog"
               [class]="formClass"
               novalidate
@@ -475,6 +478,7 @@ function emptyDraft(): Draft {
             </form>
           } @else if (counterpart(); as chosen) {
             <form
+              aecKeepClearOfSaveBar
               method="dialog"
               [class]="formClass"
               novalidate

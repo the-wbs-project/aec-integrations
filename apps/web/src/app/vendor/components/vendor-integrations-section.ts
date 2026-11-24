@@ -37,10 +37,8 @@ import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { integrationCanAuthor } from '../vendor-capabilities';
 import { VendorPortalStore } from '../vendor-portal-store';
 import {
-  SEGMENTED_CLASS,
   STATUS_CHIP_ICON,
   STATUS_CHIP_TONE,
-  segmentClass,
 } from '../integration-detail/integration-detail-styles';
 import { PORTAL_NOTICE_BODY_CLASS, PORTAL_NOTICE_CLASS } from '../shared/portal-notice';
 
@@ -59,6 +57,7 @@ import {
   statusOf,
   statusTallies,
 } from './vendor-integration-list-model';
+import { SEGMENTED_CLASS, segmentClass } from '../shared/portal-segmented';
 
 /**
  * The product's Integrations list (AECI-606, reshaped by AECI-1149 /
