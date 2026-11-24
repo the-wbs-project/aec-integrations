@@ -102,10 +102,11 @@ export function offersSyncServicePairCreate(product: SyncServiceTabProduct | nul
           >Integrations {{ product().name }} delivers</span
         >
       </h2>
-      <p class="max-w-prose text-sm text-(--text-secondary)" i18n="@@vendor.syncCreate.intro">
+      <p class="max-w-prose text-sm text-(--text-secondary)" i18n="@@vendor.syncCreate.intro.v2">
         You can add an integration that {{ product().name }} delivers between two products on the
         site. Neither product needs to be yours. The vendors of both products are told when you add
-        it, and they can tell us if something is wrong.
+        it. Either vendor can remove it from its product page, and then you cannot add it again.
+        They can also report that it is not offered, or that a data flow is wrong.
       </p>
 
       @if (result(); as done) {
@@ -589,6 +590,9 @@ export function syncServicePairErrorMessage(err: unknown): string {
         ? $localize`:@@vendor.syncCreate.error.onRecordRetired:This integration is already on record through your Sync Service, and it is retired. Restore it from the list below.`
         : $localize`:@@vendor.syncCreate.error.onRecord:This integration is already on record through your Sync Service. Look for it in the list below.`;
     }
+    // AECI-2042: a vendor of one of the two products removed this pair from its product.
+    case 'INTEGRATION_VETOED':
+      return $localize`:@@vendor.syncCreate.error.vetoed:A vendor of one of these products removed this integration from its product, so you cannot add it again. It returns only if that vendor withdraws the removal.`;
     case 'CONNECTOR_NOT_SYNC_SERVICE':
       return $localize`:@@vendor.syncCreate.error.notSync:Only a Sync Service can add the integrations it delivers. Contact AEC Integrations to add this one.`;
     case 'NOT_FOUND':

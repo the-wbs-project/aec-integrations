@@ -81,6 +81,8 @@ Choose **Restore integration** in Settings to put it back. It returns as it was.
 
 AEC Integrations can also retire an integration your company holds, to take a false or abusive listing off the public site. Your company and the company that makes the other product are told. The notice to your company includes the reason AEC Integrations gave, and you find it in **Messages**. Settings then says "Retired by AEC Integrations", with no Restore button, because only AEC Integrations can restore that retire. Nothing is deleted.
 
+On an integration a Sync Service delivers, the vendor of either product can also remove it from its product. That is not a retire, and **Restore** does not undo it. **Messages** says who removed it and why. Only that vendor can bring it back. See [For connector vendors](/docs/vendors/connector-vendors).
+
 ## If AEC Integrations changes something you hold
 
 AEC Integrations can change a record your company holds. When it does, you are told in **Messages** and the notice gives the reason. Other companies' notices do not carry the reason.

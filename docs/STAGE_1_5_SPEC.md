@@ -1875,6 +1875,13 @@ mid-flight will make a local decision about a cross-cutting contract.
 
 ### 13.5 Count invariants
 
+> **Liveness includes the endpoint veto (AECI-2042, 2026-11-24).** Both tables carry `vetoed_at`.
+> A row an endpoint vendor vetoed is not live, exactly as a retired row is not: every count, id
+> set and public read below that drops a retired row drops a vetoed one, through the same
+> predicates (`liveIntegrationOn` / `liveEvidencedPairOn`, `liveIntegrationSql` /
+> `liveEvidencedPairSql`). `vetoed-public-reads.spec.ts` covers the readers.
+> `STAGE_2_VENDOR_PORTAL_SPEC.md` §11e.2.
+
 - **The section count** is §13.3's: rows rendered across both lanes, delivered tier only.
 - **`integration_count` semantics do not change — and that is a requirement, not an observation.**
   It is endpoint-only and entirely unfiltered (`apps/api/src/lib/recompute-counts.ts`: "integrations

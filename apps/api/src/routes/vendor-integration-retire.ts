@@ -90,7 +90,11 @@ import { auditActorType } from '../lib/authz';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { openThreadsOnAnchor } from '../lib/claim-thread-lifecycle';
 import { isRetireRaceError, openContestsOn } from '../lib/integration-retire';
-import { integrationRetiredError, isLiveIntegration } from '../lib/live-integration';
+import {
+  integrationRetiredError,
+  integrationVetoedError,
+  isLiveIntegration,
+} from '../lib/live-integration';
 import {
   endpointVendorIds,
   locateRetireTarget,
@@ -156,6 +160,9 @@ async function refusalFor(
       'Claim this integration before retiring it.',
     );
   }
+  // AECI-2042: a vetoed row is not the owner's to bring back, retired or not. Asked
+  // before the retired-state answers, so the owner learns why.
+  if (mode === 'restore' && target.vetoedAt !== null) return integrationVetoedError();
   const live = isLiveIntegration(target);
   if (mode === 'retire' && !live) return integrationRetiredError();
   if (mode === 'restore' && live) {

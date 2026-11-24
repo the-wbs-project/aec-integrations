@@ -540,6 +540,8 @@ The rest of the table above is unchanged. Tests: `vendor-integration-edits-conne
 
 **Retire withdraws a claimed integration from the public site without deleting anything.** It is not a retraction (ADR 0030 governs deletes, and this is not one). The row, its claims and its attestations stay, so restore is lossless. Rulings of 2026-09-22 are marked.
 
+> **An endpoint veto is not a retire (AECI-2042, §11e.2).** A pair a Sync Service delivers can also leave the site through an endpoint vendor's veto (`vetoed_at`). Both restores here refuse a vetoed row with `409 INTEGRATION_VETOED`: the owner's always, the admin's until the veto is lifted. A retire leaves a veto in force. Retired implies vendor-held still holds; a veto needs no claim, and its invariant is the `vetoed_at_mismatch` check.
+
 **Connector-powered rows and evidenced pairs (AECI-1091 — 2026-09-23, the AECI-1040 carve-out and ruling D).** The owner retires and restores its claimed connector-powered rows, in either table, on any plan since ruling 14 (2026-11-09, AECI-1663). The `:id` may name an `integrations` row or a `connector_evidenced_pairs` row: the route reads `integrations` first and then the pair table (`lib/retire-target.ts`), as the claim and the edit do. What is built:
 
 | Rule | As built |
@@ -789,7 +791,7 @@ API: the gate, the context-product `404`, the duplicate `409` (and no `409` once
 
 #### 4.7.7 A Sync Service adds its own pairs (AECI-2040 — 2026-11-24)
 
-**Rulings 7 and 11 on AECI-2035 (Chris, 2026-11-24, final; legal impact `decision`, ruled, no counsel question).** A Sync Service may add its own pairs, published without review, even when the two endpoint products are owned by other vendors. Both endpoint vendors are told. Ruling 1 of 2026-09-23 (§4.7.1 "Never connector-powered") **stands** for Integration platforms and unclassified connectors. AECI-2042 adds the endpoint vendor's veto, which must also block a re-creation.
+**Rulings 7 and 11 on AECI-2035 (Chris, 2026-11-24, final; legal impact `decision`, ruled, no counsel question).** A Sync Service may add its own pairs, published without review, even when the two endpoint products are owned by other vendors. Both endpoint vendors are told. Ruling 1 of 2026-09-23 (§4.7.1 "Never connector-powered") **stands** for Integration platforms and unclassified connectors. AECI-2042 added the endpoint vendor's veto, which also blocks a re-creation (§11e.2).
 
 | Rule | As built |
 |---|---|
@@ -799,7 +801,7 @@ API: the gate, the context-product `404`, the duplicate `409` (and no `409` once
 | The endpoints | Any two listed products, `product_id` and `counterpart_product_id`. Neither needs to be the caller's, and an owned record does not block it. Neither may be the connector, and they must differ (`400`, and the table's CHECKs). Hidden, unpromoted or missing is `404`. |
 | Body | The nine fields of the owner edit on this table (`CONNECTOR_POWERED_EDIT_FIELDS`, §4.5.6), same caps and value rule (`integrationEditValueProblem`). `name` and `direction` are required. No `mechanism_kind`: the table has none, and sending it is a `400`. `direction` is framed against `product_id` and stored in the canonical A/B frame. |
 | What it writes | One `connector_evidenced_pairs` row in canonical order (`product_a_id < product_b_id`), `connector_product_id` = the Sync Service, `origin = 'vendor'`, `built_by_vendor_id` = caller, `claimed_at` = now, §13.9's maintenance transfer, and `vendor_edited_at` = now. The columns are migration 0049's; no schema change. |
-| Duplicates are refused | Unlike §4.7.2. The unique index on (connector, A, B) would refuse a second evidenced row anyway, so the route asks first: `findSyncServicePairBlock` (`lib/integration-twins.ts`) reads that key in `connector_evidenced_pairs`, held by anyone, and a strong match through the same connector in `integrations` (`powered_by_product_id` = the connector, either orientation, any owner). Live or retired: a retired pair is restored, never added again. `409 INTEGRATION_ALREADY_ON_RECORD`, with the row in `details`. **The AECI-2042 seam** is that function: the veto becomes a third block reason there and in `syncServicePairBlockWhere`. |
+| Duplicates are refused | Unlike §4.7.2. The unique index on (connector, A, B) would refuse a second evidenced row anyway, so the route asks first: `findSyncServicePairBlock` (`lib/integration-twins.ts`) reads that key in `connector_evidenced_pairs`, held by anyone, and a strong match through the same connector in `integrations` (`powered_by_product_id` = the connector, either orientation, any owner). Live or retired: a retired pair is restored, never added again. `409 INTEGRATION_ALREADY_ON_RECORD`, with the row in `details`. **Since AECI-2042** an endpoint veto in force on the pair key is a third block reason, `endpoint_veto`, checked first, answering `409 INTEGRATION_VETOED` (§11e.2). |
 | One batch | Three sentinels first (the connector is still the caller's listed Sync Service, both endpoints are still listed, nothing blocks the pair; `lib/sync-service-pair-create.ts`), the INSERT, the `integration.created` audit row (entity `connector_evidenced_pair`, `reason: 'sync-service-create'`, `connectorPowered: true`, `anchor: 'evidenced_pair'`), one `notification.sent` row per vendor of either endpoint other than the caller (ruling 11; registry `portal-sync-service-pair-create`, `kind: 'integration_create'`, so the feed shows it as a create), and three count recomputes: both endpoints and the connector (§12.5 option B). A sentinel that fires writes nothing, and the route answers the re-read's refusal, or `409 INTEGRATION_CHANGED_WHILE_SAVING`. |
 | After commit | By-id Algolia sync of the pair, the three products and their vendors. Purge `pair:{a}__{b}`, both endpoint `product:` tags, the connector's `product:` tag, `vendor:{caller}`, `index:products`, `taxonomy` and `sitemap`. Queue the pair and both endpoint URLs for re-crawl, under the vendor-recrawl rule of §4.7.1. `afterVendorWrite` re-sends the ownership record of every owned vendor the audit rows touch, the caller's `deliveredPairs[]` included (AECI-2047). |
 | Promote | The row is vendor-held, so promote never writes it: the §4b fence refuses an edge that addresses its id, and a curated push of the same pair through the same connector is skipped as `VENDOR_OWNED_TWIN` by the evidenced twin guard (`REVIEW_APP_PROMOTE_API.md` §4c). |
@@ -3528,6 +3530,8 @@ On the signed-in submit, the 201 and the on-screen receipt are unchanged, becaus
 
 ## 11b. Integration field contests (AECI-1008)
 
+> **Sync Service pairs (AECI-2042).** On a pair a Sync Service delivers, an endpoint vendor also has a veto, an existence report and a data flow report (§11e). Those live outside this table, because its `field` CHECK cannot change. The field contests below are unchanged on every row.
+
 **API half shipped 2026-09-18 (PR A). Portal half shipped 2026-09-18 (PR B), §11b.10. Admin queue shipped 2026-09-18 (PR C), §11b.11. The protest to AECi (AECI-1009) shipped 2026-09-22, §11b.12. Contests on connector-powered rows and evidenced pairs (AECI-1092) shipped 2026-09-23, §11b.13. The AECi email on an AECi-routed submit (AECI-1132) shipped 2026-09-24, §11b.8.** This section is the build contract. The code is `apps/api/src/routes/{vendor-contests,admin-contests}.ts`, `apps/api/src/lib/integration-contests.ts` and `packages/shared/src/api/integration-contests.ts`. The table is `integration_field_challenges`, migration `0043_needy_hobgoblin.sql`, rebuilt onto two anchors by `0050_rainy_puma.sql`.
 
 ### 11b.1 What a contest is
@@ -4489,6 +4493,106 @@ Tests: `admin-listing-hide.spec.ts` (cascade, lossless restore, the shared produ
 | Admin | A "Values under review" section beside Field corrections on `/admin/vendors/:id` (`ADMIN_PANEL_SPEC.md` §5.7). |
 
 Wire shapes and errors: `API_CONTRACTS.md` §4, §6.10 and §6.14. Table: `DATABASE_SCHEMA.md`. Notifications: `docs/NOTIFICATIONS.md`. Routes: `apps/api/src/routes/admin-field-hides.ts`. Read and clear rules: `apps/api/src/lib/field-hides.ts`. Tests: `admin-field-hides.spec.ts` and the public mask specs under `apps/api/src/`.
+
+---
+
+## 11e. An endpoint vendor's rights on a Sync Service pair (AECI-2042 — built 2026-11-24)
+
+**Built 2026-11-24, as ruled.** Chris ruled three rights for an endpoint vendor on a pair a Sync Service delivers (rulings 8, 9 and 10 on AECI-2035, 2026-11-24). The legal verdict was `decision`, ruled the same day, with no counsel question. A second ruling the same day settled the open detail: a veto takes effect the moment an endpoint vendor with a seat files it. AECi does not check it first.
+
+| Right | Who decides | Effect | Where it lives |
+|---|---|---|---|
+| Veto: "we do not authorise this integration on our product" | The endpoint vendor. Not judged. | The pair leaves every public surface at once. The Sync Service cannot restore it or add it again. | `sync_service_pair_vetoes`, and `vetoed_at` on the row |
+| Existence: "this does not exist or is no longer offered" | AECi | An accept retires the pair. Filing hides nothing. | `sync_service_pair_contests`, `kind = 'existence'` |
+| Data flow: "this one flow is wrong" | The owner of a claimed pair. AECi on an unclaimed pair. | An owner accept removes the flow or changes its direction. | `sync_service_pair_contests`, `kind = 'data_flow'` |
+
+Code: `apps/api/src/lib/sync-service-pair-rights.ts`, `lib/sync-service-veto-write.ts`, `lib/sync-service-pair-contests.ts`, `routes/vendor-sync-service-vetoes.ts`, `routes/vendor-pair-contests.ts`, `routes/admin-sync-service-vetoes.ts`, `routes/admin-pair-contests.ts`, `packages/shared/src/api/sync-service-pair-rights.ts`. Migration `0131_brown_banshee.sql` (two plain `CREATE TABLE`s and two plain `ADD COLUMN`s; no CHECK on an existing table changes).
+
+### 11e.1 Who may use the rights
+
+One gate for all three, `resolvePairRightTarget`, in this order:
+
+1. The `:id` names a row in `integrations` or `connector_evidenced_pairs`, and the caller's vendor holds one of its two endpoint products in `product_vendors`. Otherwise `404`, the same answer an unknown id gets.
+2. The row's connector is a Sync Service (`isSyncService`): a pair's `connector_product_id`, or an `integrations` row's `powered_by_product_id`. A native row, an Integration platform and a connector with a blank kind answer `403 SYNC_SERVICE_RIGHT_NOT_AVAILABLE`. Those rows keep the field contests of §11b.
+3. The caller is not the row's owner (`built_by_vendor_id`) and does not hold the connector product. Otherwise `403 SYNC_SERVICE_RIGHT_OWN_INTEGRATION`: the Sync Service has its own tools (retire, edit, flows).
+
+A seat is the whole remaining gate, on any plan. The rights ask for a fact on a public page to change, so this is §11b.2's named exception to `API_CONTRACTS.md` §6.14 for the same reason. Every write route is `requireVendor()` → `rateLimit('write')` → the handler. The reads are not rate-limited.
+
+A vendor with no seat keeps the email route. The operator steps for a veto that arrives by email are in `docs/runbooks/listing-submissions.md`.
+
+### 11e.2 The veto
+
+**Effect, in one batch** (`commitVetoChange`): the veto `INSERT`, the anchor row's `vetoed_at` recomputed from the table, the `integration.vetoed` audit row (entity type `sync_service_pair_veto`, `vendor_id` the vetoing vendor), one `notification.sent` row per recipient (`portal-sync-service-veto`), and the three `integration_count` recomputes (both endpoints and the connector). After commit, the retire's tail (`afterRetireCommit`): the by-id Algolia sync of the row, the three products and every vendor of them; a purge of `pair:{a}__{b}`, both endpoint `product:` tags, the connector's `product:` tag, `vendor:{owner}`, `index:products`, `taxonomy` and `sitemap`; the pair re-crawl.
+
+- **The reason is required** (1 to 1,000 characters). The owner reads it. The other endpoint vendors are told only that the pair was removed. Nothing public carries it.
+- **Who is told.** The owner, or, when no owner is on file, the vendors of the Sync Service product; and every other vendor of either endpoint. The vetoing vendor is not.
+- **One veto in force per vendor per pair key.** A second is `409 VETO_DUPLICATE`, backed by the partial unique index `sync_service_pair_vetoes_open_key`.
+- **A veto may be filed on a pair AECi seeded.** It needs no claim. A veto on a retired row is allowed too, so the owner cannot restore it later.
+- **`vetoed_at` is denormalised.** Each veto, withdraw and lift batch sets it to the earliest open veto's `filed_at`, or NULL when none is open, with a `SELECT` inside the `UPDATE`. So two vendors acting at once each leave the column true to the table. The 04:00 data-quality check `vetoed_at_mismatch` (severity `error`) reports a row whose column disagrees with the table.
+
+**Every reader drops a vetoed row.** `vetoed_at IS NULL` is part of liveness on both tables: `liveIntegrationOn` / `liveEvidencedPairOn` in `lib/live-integration.ts` and `liveIntegrationSql` / `liveEvidencedPairSql` in `@aeci/shared/live-integration`. Every count, id set and public read that drops a retired row drops a vetoed one through the same predicate (`STAGE_1_5_SPEC.md` §13.5). The deployed-database tools probe the column first (`ddlHasVetoedColumn`, a required fourth flag on `liveIntegrationSqlIf` / `liveEvidencedPairSqlIf`), and the retraction consumer's `.mjs` recount carries the literal `vetoed_at IS NULL`. `vetoed-public-reads.spec.ts` proves it reader by reader: the integrations list and its total, the sitemap, the pair page, its timeline, both endpoint pages and their `data_object_slugs`, the Sync Service's own page, the stored counts, `readPairCounterpartSlugs`, `resolveMovedPair`, the Algolia sync's delete arm, the Connectors section and the admin connector screens.
+
+**Veto and retire are separate.** A vetoed row is not retired by its owner.
+
+| Write | On a vetoed row |
+|---|---|
+| Owner restore (§4.6.1) | `409 INTEGRATION_VETOED`, asked before the retired-state answers, and held at commit by `vetoed_at IS NULL` in the restore `UPDATE` |
+| Admin restore (§4.6.4) | `409 INTEGRATION_VETOED` until the veto is lifted |
+| Owner or admin retire | Allowed. The veto stays in force |
+| Owner edit, flows, claims | Unchanged. The row is off the site, and the owner may keep it current for the day the veto ends |
+| Existence or data flow report | `409 INTEGRATION_VETOED`: the pair is not on the site |
+
+**Withdraw.** `POST /api/vendor/vetoes/:id/withdraw`, any seat of the vetoing vendor. Another vendor's veto is a `404`. The pair returns as it was when no other veto is in force and it is not retired. The veto row keeps its history (`ended_at`, `ended_how = 'withdrawn'`). An ended veto answers `409 VETO_NOT_IN_FORCE`.
+
+**Two vetoes.** When both endpoint vendors veto, both must end before the pair returns. Each withdraw answers `pair_public`, and the notice says which.
+
+**AECi's lift.** `POST /api/admin/vetoes/:id/lift`, `requireAdmin()` → `rateLimit('write')`, with a required note (`AdminLiftVetoSchema`). It exists for one case: a veto filed through a seat that should not have had it. A veto is not otherwise judged. The note goes to the vetoing vendor, the owner and the other endpoint vendors (`veto_lifted`), and to the audit row as `metadata.reason` with `reasonVisibility: 'vendor'`.
+
+**Re-creation is refused.** `POST /api/vendor/sync-service-pairs` (§4.7.7) answers `409 INTEGRATION_VETOED` while a veto is in force on the pair key: the AECI-2040 twin seam's third block reason, `endpoint_veto`, checked first in `findSyncServicePairBlock` and in `syncServicePairBlockWhere`. The veto row stores the pair key (connector, A, B) and its anchor columns are `ON DELETE SET NULL`, so the refusal holds after the vetoed row itself is deleted.
+
+**Promote never revives or duplicates a vetoed row** (`REVIEW_APP_PROMOTE_API.md` §4b and §4c). A vetoed row, in either table, is fenced like a vendor-held one: the edge is skipped with `REFUSED_VETOED_INTEGRATION` before the ownership fence, and the commit-time fence sentinels also abort on `vetoed_at IS NOT NULL`. Promote's twin guards treat a vetoed row as vendor-held (`promoteFencedIntegrationWhere`, `promoteFencedEvidencedPairWhere`), so a new upstream id for the same pair is skipped. A new row on a vetoed key whose row is gone is skipped with `REFUSED_VETOED_INTEGRATION` too (`findOpenVetoOnPairKey`), with a commit-time sentinel. Promote never writes `vetoed_at`.
+
+### 11e.3 The existence report (ruling 9)
+
+**Why a table of its own.** `integration_field_challenges.field` carries a CHECK over twelve field names (`DATABASE_SCHEMA.md` §8.7). Changing it recreates that table, a cascade child of both edge tables. "Does this exist" is about the whole row, not a field, and no stored value says it truthfully. So both reports live in `sync_service_pair_contests`, a new table with the field contests' states, routing and protest columns.
+
+- **It always routes to AECi**, like an `owner` contest. The pair stays public while it is open.
+- **AECi is told** by the `contest-submitted-alert` email to `SUPPORT_EMAIL`, after commit (§11b.8), with the subject `[AECi] Existence report: <integration>`.
+- **An accept needs a note and an https proof link** (`source_url`). Without either it answers `400 VALIDATION_FAILED` with `error.field` `note` or `sourceUrl`, and writes nothing.
+- **On a vendor-held row the accept retires the pair** through the admin retire batch (`planAdminRetire`, §4.6.4), with the note as the reason shown to the owner, in the same batch as the decision. `accept_mode = 'retired'`. Only an admin restores it.
+- **On an AECi-held row the admin retire is not available** (`409 INTEGRATION_NOT_VENDOR_HELD` would answer, because promote owns the row). The accept writes no catalog data (`accept_mode = 'upstream-only'`) and the operator retracts the pair in the review app (`docs/runbooks/catalog.md`). A row already retired records `'already-retired'`.
+- **A decline closes it** and changes nothing.
+
+### 11e.4 The data flow report (ruling 10)
+
+- **It names one flow**: a claim on the row (`claim_id`), a reason, and optionally the right direction in the pair's A/B frame. No proposed direction means "this flow should not be listed". A proposed direction equal to the current one is `422 CONTEST_NO_CHANGE`.
+- **Routing, frozen at submit.** To the owner when it maintains the flows: a claimed pair whose connector is a Sync Service with an owner on file (`ownerMaintainsFlows`, `STAGE_2_ATTESTATIONS_SPEC.md` §14.10). To AECi otherwise. The owner is told (`report_submitted`). An AECi-routed submit sends the AECi alert email.
+- **An owner accept writes the owner's answer in the same batch**, through the owner's own flow logic (`planOwnerFlowChange` and `commitOwnerFlowWrite` in `routes/vendor-owner-flows.ts`): the flow answered No (`accept_mode = 'flow-removed'`), or the old flow answered No and the proposed one confirmed (`'flow-redirected'`). A flow the owner answers No leaves every public reader (AECI-2039). The owner gate runs again at decision time.
+- **An AECi accept** (an unclaimed pair) writes nothing here (`'upstream-only'`): the review app holds those flows.
+- **The admin PATCH refuses an owner-routed report** with `409 CONTEST_ROUTED_TO_OWNER`. Anyone but the owner on the owner's decide route gets a `404`.
+
+### 11e.5 States, batches and the protest
+
+States are `open`, then `accepted`, `declined` or `withdrawn`, as in §11b.5. The submitter withdraws an open report. Every transition is one `db.batch`: the guarded `UPDATE … WHERE status = 'open'` and a `changes() = 0` sentinel, the audit row (`integration.pair_contest.submitted | withdrawn | accepted | declined`, entity type `sync_service_pair_contest`), and the `notification.sent` row for the other side (`portal-sync-service-pair-report`). A second open report of the same kind on the same target by the same vendor is `409 PAIR_CONTEST_DUPLICATE`, held at commit by a sentinel (a partial unique index cannot hold it, because two of its columns are NULL on most rows). These reports write no `workflow_instances` row: the field contests reuse `correction_request` because that type CHECK is closed, and a report needs no workflow to be decided.
+
+**A protest after a decline stays advice only (§11b.12).** The submitter of an owner-routed data flow report may ask AECi to review the owner's decline within 30 days, or after 30 to 60 days of silence, once per report (`pairProtestWindow` in `@aeci/shared`, the §11b.12.2 rule). A silence protest records the decline at day 30 in the same batch (§11b.12.3). AECi upholds or rejects it with a required note. Both vendors are told. It never writes the listing. **Narrower than §11b.12 in v1:** there is no owner reply step and no 90-day cooldown, and the portal sends a fixed sentence as the protest reason. Nothing about a report or a protest is public: `contest-protests.spec.ts` holds `sync_service_pair_contests` to the same allowlist as the contest table.
+
+**GDPR erasure.** `submitted_by`, `decided_by`, `protested_by` and `protest_decided_by` on the reports, and `filed_by` and `ended_by` on the vetoes, are `ON DELETE SET NULL` and nulled explicitly in the `DELETE /api/account` batch (`AUTH_AND_RLS.md` §8). The report and the veto survive: they are the vendor's record. A veto stays in force when the seat that filed it is erased.
+
+### 11e.6 The portal
+
+- **The endpoint vendor**, in the Connectors section of a product's Integrations tab (§6.13), under each delivered pair whose contest target carries `sync_service_rights` (`vendor-sync-service-rights.ts`): "Remove this integration from our product", "Report that it is not offered" and "Report a wrong data flow". The removal opens an inline form that says what happens before anything is sent: the pair leaves the public site at once, the Sync Service is told with the reason, nobody else can bring it back, and it can be withdrawn later. The form's own button is the confirm step. No browser dialog. The existence form says the pair stays listed while AECi checks. Outcomes go through the portal's one live region.
+- **Messages** (`vendor-pair-rights-list.ts`, beside Change requests): "Your removals" with Withdraw; "Removed from your integrations", the owner's view, marked "Removed by {vendor}" with the reason and no Restore; "Reports you sent" with Withdraw and the review request; "Data flow reports you received", the owner's inbox, with Accept and Decline.
+- **The notification archive** renders `kind: 'pair_right'` rows with a title per event and, for the owner's veto row and a lift, the reason.
+- **Not built in this change:** an `integrations`-table Sync Service row has the three rights in the API, but the portal offers them only on delivered pairs in the Connectors section, where every Sync Service pair on the site sits today.
+
+### 11e.7 Notifications
+
+Two portal entries, `portal-sync-service-veto` and `portal-sync-service-pair-report` (`docs/NOTIFICATIONS.md`). Both are `notification.sent` rows with `metadata.kind = 'pair_right'`, `event` one of `vetoed`, `veto_withdrawn`, `veto_lifted`, `report_submitted`, `report_withdrawn`, `report_accepted`, `report_declined`, `protest_filed`, `protest_decided`. No vendor is emailed. The AECi alert reuses `contest-submitted-alert`.
+
+### 11e.8 Copy changed in this build
+
+The Listing Accuracy Policy's "Contesting an integration detail" (1.0 draft, edited in place), `/methodology` "Integrations delivered through a connector", and the vendor help pages `requesting-changes-and-appeals.md`, `connector-vendors.md` and `owning-an-integration.md`. The AECI-2040 add form's intro now says either endpoint vendor can remove the pair from its product page and that the Sync Service cannot then add it again.
 
 ---
 

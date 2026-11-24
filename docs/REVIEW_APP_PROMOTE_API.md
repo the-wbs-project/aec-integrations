@@ -1480,6 +1480,24 @@ production pair is vendor-held and nothing changes on your side.
 
 You see the same `skipped[]` entry for a fenced evidenced pair as for a fenced integration.
 
+### 4b.1 A vetoed Sync Service pair is fenced too (AECI-2042, 2026-11-24)
+
+An endpoint vendor may veto a pair a Sync Service delivers (`STAGE_2_VENDOR_PORTAL_SPEC.md`
+§11e.2). The row's `vetoed_at` is set, and it leaves every public read. The veto needs no
+claim, so an AECi-seeded pair can be vetoed. Promote treats a vetoed row as vendor-held for
+this fence, and never writes `vetoed_at`:
+
+| Promote write | On a vetoed row or key | How |
+|---|---|---|
+| Any write to the vetoed row, by id, in either table (content, re-point, move, claims) | Skipped, `kind: "integration"`, reason `REFUSED_VETOED_INTEGRATION` ("integration was removed from the site by an endpoint vendor; promote writes nothing to a vetoed integration"), a `promote.blocked` audit row. Checked before the claim fence, so a claimed and vetoed row names the veto | `routes/promote.ts`, the located row's `vetoed_at` |
+| A veto filed between the plan read and the batch | The batch aborts; the job errors with `INTEGRATION_CLAIMED_DURING_PROMOTE`; a re-push skips the edge | `promoteClaimFenceSentinel` and `promoteEvidencedClaimFenceSentinel` also fire on `vetoed_at IS NOT NULL` |
+| A new upstream id for the same pair, through the same connector | Skipped as `VENDOR_OWNED_TWIN` (§4c): the twin guards count a vetoed row as vendor-held (`promoteFencedIntegrationWhere`, `promoteFencedEvidencedPairWhere`) | `lib/integration-twins.ts` |
+| A new row on a vetoed pair key whose vetoed row is gone | Skipped with `REFUSED_VETOED_INTEGRATION`, with a commit-time sentinel (`openVetoOnPairKeySentinel`) | The veto row keeps the pair key (its anchor FKs are SET NULL) |
+
+When the endpoint vendor withdraws its veto, or AECi lifts it, the next promote writes the
+row as before. Spec: `vendor-sync-service-vetoes.spec.ts`, "promote never revives, overwrites
+or duplicates a vetoed pair".
+
 ## 4c. Vendor-created integrations, and the `VENDOR_OWNED_TWIN` skip (AECI-1011)
 
 Vendors can **create** integrations in the AECi portal (`POST /api/vendor/integrations`,

@@ -1,0 +1,358 @@
+import { DatePipe } from '@angular/common';
+import { Component, afterNextRender, inject, signal } from '@angular/core';
+
+import type {
+  PairContest,
+  PairRightPair,
+  SyncServicePairVeto,
+  VendorPairContestsResponse,
+  VendorVetoesResponse,
+} from '@aeci/shared';
+
+import { VendorApi } from '../vendor-api';
+import { VendorPortalAnnouncer } from '../vendor-announcer';
+
+/**
+ * Removals and reports on Sync Service pairs, in Messages (AECI-2042,
+ * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11e.6). Two reads, `GET /api/vendor/vetoes` and
+ * `GET /api/vendor/pair-contests`, fetched once in the browser.
+ *
+ * - **Your removals**: the vetoes this company filed, each with Withdraw while in force.
+ * - **Removed from your integrations**: the owner's view. A pair a vendor removed is
+ *   marked "Removed by {vendor}" with its reason. There is no Restore: only that vendor's
+ *   withdraw, or AEC Integrations, ends it.
+ * - **Reports you sent**: existence and data flow reports, with Withdraw while open and,
+ *   after a decline, "Ask AEC Integrations to review it" (advice only).
+ * - **Reports you received**: data flow reports on the owner's pairs, with Accept and
+ *   Decline. An accept changes the flow on the public page.
+ *
+ * Writes are pessimistic and re-read both lists. Outcomes go through the portal's live
+ * region. The section hides itself when all four lists are empty.
+ */
+@Component({
+  selector: 'aec-vendor-pair-rights-list',
+  imports: [DatePipe],
+  host: { class: 'block' },
+  template: `
+    @if (hasAny()) {
+      <section class="space-y-4" aria-labelledby="pair-rights-heading">
+        <h3
+          id="pair-rights-heading"
+          class="font-display text-lg font-semibold text-(--text-primary)"
+          i18n="@@vendor.pairRights.heading"
+        >
+          Sync Service integrations on your products
+        </h3>
+
+        @if (vetoes().filed.length > 0) {
+          <div class="space-y-2" data-vetoes-filed>
+            <h4
+              class="text-sm font-semibold text-(--text-primary)"
+              i18n="@@vendor.pairRights.filed"
+            >
+              Your removals
+            </h4>
+            <ul class="m-0 list-none space-y-2 p-0">
+              @for (v of vetoes().filed; track v.id) {
+                <li class="rounded-(--radius-md) border border-(--border-default) p-3 text-sm">
+                  <p class="font-medium text-(--text-primary)">{{ pairName(v.pair) }}</p>
+                  @if (v.in_force) {
+                    <p class="text-(--text-secondary)" i18n="@@vendor.pairRights.filed.inForce">
+                      Off the public site since {{ v.filed_at | date: 'mediumDate' }}.
+                    </p>
+                    <button
+                      type="button"
+                      [class]="buttonClass"
+                      [disabled]="busy()"
+                      (click)="withdrawVeto(v)"
+                      i18n="@@vendor.pairRights.filed.withdraw"
+                    >
+                      Withdraw the removal
+                    </button>
+                  } @else {
+                    <p class="text-(--text-secondary)">{{ endedText(v) }}</p>
+                  }
+                </li>
+              }
+            </ul>
+          </div>
+        }
+
+        @if (vetoes().received.length > 0) {
+          <div class="space-y-2" data-vetoes-received>
+            <h4
+              class="text-sm font-semibold text-(--text-primary)"
+              i18n="@@vendor.pairRights.received"
+            >
+              Removed from your integrations
+            </h4>
+            <ul class="m-0 list-none space-y-2 p-0">
+              @for (v of vetoes().received; track v.id) {
+                <li class="rounded-(--radius-md) border border-(--border-default) p-3 text-sm">
+                  <p class="font-medium text-(--text-primary)">{{ pairName(v.pair) }}</p>
+                  @if (v.in_force) {
+                    <p class="text-(--text-primary)" i18n="@@vendor.pairRights.received.by">
+                      Removed by {{ v.vendor_name ?? unknownVendor }} on
+                      {{ v.filed_at | date: 'mediumDate' }}.
+                    </p>
+                    <p class="text-(--text-secondary)">{{ v.reason }}</p>
+                    <p
+                      class="text-(--text-secondary)"
+                      i18n="@@vendor.pairRights.received.noRestore"
+                    >
+                      Only {{ v.vendor_name ?? unknownVendor }} can bring it back. You cannot
+                      restore it.
+                    </p>
+                  } @else {
+                    <p class="text-(--text-secondary)">{{ endedText(v) }}</p>
+                  }
+                </li>
+              }
+            </ul>
+          </div>
+        }
+
+        @if (reports().submitted.length > 0) {
+          <div class="space-y-2" data-reports-submitted>
+            <h4
+              class="text-sm font-semibold text-(--text-primary)"
+              i18n="@@vendor.pairRights.submitted"
+            >
+              Reports you sent
+            </h4>
+            <ul class="m-0 list-none space-y-2 p-0">
+              @for (r of reports().submitted; track r.id) {
+                <li class="rounded-(--radius-md) border border-(--border-default) p-3 text-sm">
+                  <p class="font-medium text-(--text-primary)">{{ reportTitle(r) }}</p>
+                  <p class="text-(--text-secondary)">{{ statusText(r) }}</p>
+                  @if (r.decision_note) {
+                    <p class="text-(--text-secondary)">{{ r.decision_note }}</p>
+                  }
+                  @if (r.protest) {
+                    <p class="text-(--text-secondary)">{{ protestText(r) }}</p>
+                  }
+                  <div class="mt-2 flex flex-wrap gap-2">
+                    @if (r.status === 'open') {
+                      <button
+                        type="button"
+                        [class]="buttonClass"
+                        [disabled]="busy()"
+                        (click)="withdrawReport(r)"
+                        i18n="@@vendor.pairRights.submitted.withdraw"
+                      >
+                        Withdraw
+                      </button>
+                    }
+                    @if (r.protest_closes_at && !r.protest) {
+                      <button
+                        type="button"
+                        [class]="buttonClass"
+                        [disabled]="busy()"
+                        (click)="protest(r)"
+                        i18n="@@vendor.pairRights.submitted.protest"
+                      >
+                        Ask AEC Integrations to review it
+                      </button>
+                    }
+                  </div>
+                </li>
+              }
+            </ul>
+          </div>
+        }
+
+        @if (reports().received.length > 0) {
+          <div class="space-y-2" data-reports-received>
+            <h4
+              class="text-sm font-semibold text-(--text-primary)"
+              i18n="@@vendor.pairRights.inbox"
+            >
+              Data flow reports you received
+            </h4>
+            <ul class="m-0 list-none space-y-2 p-0">
+              @for (r of reports().received; track r.id) {
+                <li class="rounded-(--radius-md) border border-(--border-default) p-3 text-sm">
+                  <p class="font-medium text-(--text-primary)">{{ reportTitle(r) }}</p>
+                  <p class="text-(--text-secondary)" i18n="@@vendor.pairRights.inbox.from">
+                    From {{ r.submitter_name ?? unknownVendor }}: {{ r.reason }}
+                  </p>
+                  <p class="text-(--text-secondary)">{{ statusText(r) }}</p>
+                  @if (r.status === 'open') {
+                    <p class="text-(--text-secondary)" i18n="@@vendor.pairRights.inbox.acceptHelp">
+                      Accept changes the data flow on the public page as the report asks.
+                    </p>
+                    <div class="mt-2 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        [class]="buttonClass"
+                        [disabled]="busy()"
+                        (click)="decide(r, 'accept')"
+                        i18n="@@vendor.pairRights.inbox.accept"
+                      >
+                        Accept
+                      </button>
+                      <button
+                        type="button"
+                        [class]="buttonClass"
+                        [disabled]="busy()"
+                        (click)="decide(r, 'decline')"
+                        i18n="@@vendor.pairRights.inbox.decline"
+                      >
+                        Decline
+                      </button>
+                    </div>
+                  }
+                </li>
+              }
+            </ul>
+          </div>
+        }
+        @if (error()) {
+          <p role="alert" class="text-sm text-(--text-primary)">{{ error() }}</p>
+        }
+      </section>
+    }
+  `,
+})
+export class VendorPairRightsList {
+  private readonly api = inject(VendorApi);
+  private readonly announcer = inject(VendorPortalAnnouncer);
+
+  protected readonly vetoes = signal<VendorVetoesResponse>({ filed: [], received: [] });
+  protected readonly reports = signal<VendorPairContestsResponse>({ submitted: [], received: [] });
+  protected readonly busy = signal(false);
+  protected readonly error = signal<string | null>(null);
+
+  protected readonly unknownVendor = $localize`:@@vendor.pairRights.unknownVendor:a vendor`;
+  protected readonly buttonClass =
+    'rounded-(--radius-sm) border border-(--border-default) px-3 py-1.5 text-sm font-medium text-(--text-primary) transition-colors hover:border-(--border-strong) disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+
+  constructor() {
+    afterNextRender(() => void this.load());
+  }
+
+  protected hasAny(): boolean {
+    const v = this.vetoes();
+    const r = this.reports();
+    return v.filed.length + v.received.length + r.submitted.length + r.received.length > 0;
+  }
+
+  protected pairName(pair: PairRightPair): string {
+    if (pair.name) return pair.name;
+    const a = pair.product_a?.name ?? '';
+    const b = pair.product_b?.name ?? '';
+    return $localize`:@@vendor.pairRights.pairName:${a}:a: and ${b}:b:`;
+  }
+
+  protected endedText(v: SyncServicePairVeto): string {
+    return v.ended_how === 'lifted'
+      ? $localize`:@@vendor.pairRights.ended.lifted:AEC Integrations ended this removal: ${v.end_note ?? ''}:note:`
+      : $localize`:@@vendor.pairRights.ended.withdrawn:The removal was withdrawn.`;
+  }
+
+  protected reportTitle(r: PairContest): string {
+    const pair = this.pairName(r.pair);
+    if (r.kind === 'existence') {
+      return $localize`:@@vendor.pairRights.title.existence:${pair}:pair:: not offered`;
+    }
+    const flow = r.flow?.data_object_name ?? '';
+    return $localize`:@@vendor.pairRights.title.flow:${pair}:pair:: the ${flow}:flow: data flow`;
+  }
+
+  protected statusText(r: PairContest): string {
+    switch (r.status) {
+      case 'open':
+        return r.routed_to === 'owner'
+          ? $localize`:@@vendor.pairRights.status.withOwner:Open. With the Sync Service.`
+          : $localize`:@@vendor.pairRights.status.withAeci:Open. With AEC Integrations.`;
+      case 'accepted':
+        return $localize`:@@vendor.pairRights.status.accepted:Accepted.`;
+      case 'declined':
+        return $localize`:@@vendor.pairRights.status.declined:Declined. The listing stays as it is.`;
+      default:
+        return $localize`:@@vendor.pairRights.status.withdrawn:Withdrawn.`;
+    }
+  }
+
+  protected protestText(r: PairContest): string {
+    switch (r.protest?.status) {
+      case 'open':
+        return $localize`:@@vendor.pairRights.protest.open:With AEC Integrations for review.`;
+      case 'upheld':
+        return $localize`:@@vendor.pairRights.protest.upheld:AEC Integrations agrees with the report. This is advice: the Sync Service decides the listing.`;
+      case 'rejected':
+        return $localize`:@@vendor.pairRights.protest.rejected:AEC Integrations agrees with the Sync Service.`;
+      default:
+        return $localize`:@@vendor.pairRights.protest.withdrawn:The review was withdrawn.`;
+    }
+  }
+
+  protected withdrawVeto(v: SyncServicePairVeto): Promise<void> {
+    return this.write(async () => {
+      const res = await this.api.withdrawVeto(v.id);
+      this.announcer.announce(
+        res.pair_public
+          ? $localize`:@@vendor.pairRights.withdrawn.public:Removal withdrawn. The integration is back on the public site.`
+          : $localize`:@@vendor.pairRights.withdrawn.hidden:Removal withdrawn. The integration stays off the site while another removal or a retire is in place.`,
+      );
+    });
+  }
+
+  protected withdrawReport(r: PairContest): Promise<void> {
+    return this.write(async () => {
+      await this.api.withdrawPairContest(r.id);
+      this.announcer.announce($localize`:@@vendor.pairRights.report.withdrawn:Report withdrawn.`);
+    });
+  }
+
+  protected protest(r: PairContest): Promise<void> {
+    return this.write(async () => {
+      await this.api.protestPairContest(
+        r.id,
+        $localize`:@@vendor.pairRights.protest.defaultReason:Please review the owner's answer on this data flow.`,
+      );
+      this.announcer.announce(
+        $localize`:@@vendor.pairRights.protest.sent:Sent to AEC Integrations for review.`,
+      );
+    });
+  }
+
+  protected decide(r: PairContest, decision: 'accept' | 'decline'): Promise<void> {
+    return this.write(async () => {
+      await this.api.decidePairContest(r.id, { decision });
+      this.announcer.announce(
+        decision === 'accept'
+          ? $localize`:@@vendor.pairRights.decided.accept:Accepted. The data flow is changed on the public page.`
+          : $localize`:@@vendor.pairRights.decided.decline:Declined.`,
+      );
+    });
+  }
+
+  private async write(action: () => Promise<void>): Promise<void> {
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      await action();
+    } catch {
+      this.error.set(
+        $localize`:@@vendor.pairRights.err:That did not go through. It may have changed already. The list is reloaded.`,
+      );
+    } finally {
+      this.busy.set(false);
+      await this.load();
+    }
+  }
+
+  private async load(): Promise<void> {
+    try {
+      const [vetoes, reports] = await Promise.all([
+        this.api.listVetoes(),
+        this.api.listPairContests(),
+      ]);
+      this.vetoes.set(vetoes);
+      this.reports.set(reports);
+    } catch {
+      // A failed read leaves the section hidden. The rest of Messages still works.
+    }
+  }
+}

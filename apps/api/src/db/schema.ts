@@ -514,6 +514,17 @@ export const integrations = sqliteTable(
      * CHECK here would make drizzle-kit recreate the table).
      */
     retiredBy: text('retired_by'),
+    /**
+     * When an endpoint vendor's veto took this row off the public site (AECI-2042,
+     * ruling 8 on AECI-2035), or NULL while no veto is in force. Only on a row whose
+     * connector (`powered_by_product_id`) is a Sync Service. Denormalised from
+     * `sync_service_pair_vetoes`: the veto, withdraw and lift batches set it to the
+     * earliest open veto's `filed_at`, or NULL when none is open, in the same batch.
+     * Every public read filters it through `lib/live-integration.ts`, beside
+     * `retired_at`. Promote treats a vetoed row as vendor-held: it never writes it.
+     * A plain ADD COLUMN with no CHECK, so `integrations` is not recreated.
+     */
+    vetoedAt: text('vetoed_at'),
 
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -1138,6 +1149,163 @@ export const claimOwnerAnswers = sqliteTable(
       .on(t.claimId)
       .where(sql`"retracted_at" IS NULL`),
     index('claim_owner_answers_claim_idx').on(t.claimId, t.updatedAt),
+  ],
+);
+
+// ===========================================================================
+// Endpoint rights on a Sync Service pair (AECI-2042, rulings 8 to 10 on AECI-2035,
+// `STAGE_2_VENDOR_PORTAL_SPEC.md` §11e)
+// ===========================================================================
+
+// One row per veto an endpoint vendor files on a pair a Sync Service delivers. The pair
+// key (connector, A, B) is stored with it, so the veto keeps blocking a re-create of
+// the same pair even if the row it was filed on is later deleted: the anchor FKs are
+// SET NULL, not CASCADE. An open veto (`ended_at IS NULL`) hides the row through the
+// denormalised `vetoed_at` on the anchor. One open veto per vendor per pair key.
+export const syncServicePairVetoes = sqliteTable(
+  'sync_service_pair_vetoes',
+  {
+    id: uuidPk(),
+    integrationId: text('integration_id').references(() => integrations.id, {
+      onDelete: 'set null',
+    }),
+    evidencedPairId: text('evidenced_pair_id').references(() => connectorEvidencedPairs.id, {
+      onDelete: 'set null',
+    }),
+    connectorProductId: text('connector_product_id')
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    /** The pair key in canonical order: `product_a_id < product_b_id`. */
+    productAId: text('product_a_id')
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    productBId: text('product_b_id')
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    /** The vetoing endpoint vendor. SET NULL keeps the veto in force: only a withdraw
+     *  or an AECi lift ends one. */
+    vendorId: text('vendor_id').references(() => vendors.id, { onDelete: 'set null' }),
+    /** The vendor's name at filing, so the owner's notice survives a vendor delete. */
+    vendorName: text('vendor_name'),
+    reason: text('reason').notNull(),
+    filedBy: text('filed_by').references(() => profiles.id, { onDelete: 'set null' }),
+    filedAt: text('filed_at').notNull(),
+    /** NULL while in force. */
+    endedAt: text('ended_at'),
+    /** `withdrawn` (the vetoing vendor) or `lifted` (an AECi admin). */
+    endedHow: text('ended_how'),
+    endedBy: text('ended_by').references(() => profiles.id, { onDelete: 'set null' }),
+    /** The admin's required note on a lift. */
+    endNote: text('end_note'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    check(
+      'sync_service_pair_vetoes_anchor_check',
+      sql`("integration_id" IS NULL) OR ("evidenced_pair_id" IS NULL)`,
+    ),
+    check('sync_service_pair_vetoes_order_check', sql`"product_a_id" < "product_b_id"`),
+    check(
+      'sync_service_pair_vetoes_ended_how_check',
+      sql`"ended_how" IS NULL OR "ended_how" IN ('withdrawn', 'lifted')`,
+    ),
+    uniqueIndex('sync_service_pair_vetoes_open_key')
+      .on(t.connectorProductId, t.productAId, t.productBId, t.vendorId)
+      .where(sql`"ended_at" IS NULL`),
+    index('sync_service_pair_vetoes_key_idx').on(t.connectorProductId, t.productAId, t.productBId),
+    index('sync_service_pair_vetoes_integration_idx').on(t.integrationId),
+    index('sync_service_pair_vetoes_pair_idx').on(t.evidencedPairId),
+    index('sync_service_pair_vetoes_vendor_idx').on(t.vendorId, t.updatedAt),
+  ],
+);
+
+// The two contests an endpoint vendor files on a Sync Service pair that the field
+// contest table cannot hold without changing its `field` CHECK (a recreate):
+// `existence` ("this does not exist or is no longer offered", always decided by AECi,
+// ruling 9) and `data_flow` (one flow is wrong, decided by the owner of a claimed pair,
+// ruling 10). The decision and protest columns follow `integration_field_challenges`.
+// Nothing public reads this table.
+export const syncServicePairContests = sqliteTable(
+  'sync_service_pair_contests',
+  {
+    id: uuidPk(),
+    kind: text('kind').notNull(),
+    integrationId: text('integration_id').references(() => integrations.id, {
+      onDelete: 'cascade',
+    }),
+    evidencedPairId: text('evidenced_pair_id').references(() => connectorEvidencedPairs.id, {
+      onDelete: 'cascade',
+    }),
+    /** The flow a `data_flow` contest names. NULL on `existence`. */
+    claimId: text('claim_id').references(() => claims.id, { onDelete: 'cascade' }),
+    /** The flow's stored direction at submit (`a_to_b` | `b_to_a` | `both`). */
+    currentDirection: text('current_direction'),
+    /** The stored direction the submitter proposes, or NULL for "remove this flow". */
+    proposedDirection: text('proposed_direction'),
+    reason: text('reason').notNull(),
+    submitterVendorId: text('submitter_vendor_id')
+      .notNull()
+      .references(() => vendors.id, { onDelete: 'cascade' }),
+    submittedBy: text('submitted_by').references(() => profiles.id, { onDelete: 'set null' }),
+    /** Frozen at submit: `owner` or `aeci`. */
+    routedTo: text('routed_to').notNull(),
+    ownerVendorId: text('owner_vendor_id').references(() => vendors.id, { onDelete: 'set null' }),
+    status: text('status').notNull().default('open'),
+    decisionNote: text('decision_note'),
+    decidedBy: text('decided_by').references(() => profiles.id, { onDelete: 'set null' }),
+    decidedAt: text('decided_at'),
+    /** What an accept did: `retired`, `upstream-only`, `flow-removed`, `flow-redirected`. */
+    acceptMode: text('accept_mode'),
+    protestStatus: text('protest_status'),
+    protestBasis: text('protest_basis'),
+    protestReason: text('protest_reason'),
+    protestedBy: text('protested_by').references(() => profiles.id, { onDelete: 'set null' }),
+    protestedAt: text('protested_at'),
+    protestDecisionNote: text('protest_decision_note'),
+    protestDecidedBy: text('protest_decided_by').references(() => profiles.id, {
+      onDelete: 'set null',
+    }),
+    protestDecidedAt: text('protest_decided_at'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    check(
+      'sync_service_pair_contests_anchor_check',
+      sql`(("integration_id" IS NOT NULL) + ("evidenced_pair_id" IS NOT NULL)) = 1`,
+    ),
+    check('sync_service_pair_contests_kind_check', sql`"kind" IN ('existence', 'data_flow')`),
+    check(
+      'sync_service_pair_contests_claim_check',
+      sql`("kind" = 'data_flow') = ("claim_id" IS NOT NULL)`,
+    ),
+    check(
+      'sync_service_pair_contests_direction_check',
+      sql`"proposed_direction" IS NULL OR "proposed_direction" IN ('a_to_b', 'b_to_a', 'both')`,
+    ),
+    check('sync_service_pair_contests_routed_check', sql`"routed_to" IN ('owner', 'aeci')`),
+    check(
+      'sync_service_pair_contests_status_check',
+      sql`"status" IN ('open', 'accepted', 'declined', 'withdrawn')`,
+    ),
+    check(
+      'sync_service_pair_contests_protest_status_check',
+      sql`"protest_status" IS NULL OR "protest_status" IN ('open', 'upheld', 'rejected', 'withdrawn')`,
+    ),
+    check(
+      'sync_service_pair_contests_protest_basis_check',
+      sql`"protest_basis" IS NULL OR "protest_basis" IN ('declined', 'silence')`,
+    ),
+    // No partial unique index for "one open contest per submitter, kind and target":
+    // two of its columns are NULL on most rows, and SQLite treats NULLs as distinct.
+    // The submit batch's `pairContestDuplicateSentinel` holds the rule instead.
+    index('sync_service_pair_contests_integration_idx').on(t.integrationId),
+    index('sync_service_pair_contests_pair_idx').on(t.evidencedPairId),
+    index('sync_service_pair_contests_claim_idx').on(t.claimId),
+    index('sync_service_pair_contests_submitter_idx').on(t.submitterVendorId, t.updatedAt),
+    index('sync_service_pair_contests_owner_idx').on(t.ownerVendorId, t.updatedAt),
+    index('sync_service_pair_contests_status_idx').on(t.status, t.routedTo, t.createdAt),
   ],
 );
 
@@ -5923,6 +6091,11 @@ export const connectorEvidencedPairs = sqliteTable(
     /** Who retired the pair: `'owner'` or `'aeci'`. NULL while live. Enforced by
      *  the hand-written column CHECK in 0049. */
     retiredBy: text('retired_by'),
+    /** When an endpoint vendor's veto took the pair off the public site (AECI-2042),
+     *  or NULL. Same rule as `integrations.vetoed_at`: denormalised from
+     *  `sync_service_pair_vetoes`, filtered by `liveEvidencedPairWhere`, and a promote
+     *  fence. Plain ADD COLUMN, no CHECK. */
+    vetoedAt: text('vetoed_at'),
 
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -6427,6 +6600,9 @@ export const connectorPairsRelations = relations(connectorPairs, ({ one, many })
 
 export const schema = {
   healthCheck,
+  // AECI-2042. No relations entries: every read joins explicitly.
+  syncServicePairVetoes,
+  syncServicePairContests,
   vendorSuspensions,
   vendorAbuseCostEntries,
   vendorTerminationRefunds,

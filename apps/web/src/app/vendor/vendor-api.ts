@@ -116,6 +116,12 @@ import type {
   AddStripeLicensesResponse,
   AcceptLicenseGrantInput,
   AcceptLicenseGrantResponse,
+  VetoWriteResponse,
+  VendorVetoesResponse,
+  SubmitPairContestInput,
+  PairContestResponse,
+  VendorPairContestsResponse,
+  DecidePairContestInput,
 } from '@aeci/shared';
 
 /** The Reviews tab's filter set for {@link VendorApi.listReviews} (AECI-1179). */
@@ -1027,6 +1033,81 @@ export class VendorApi {
   createSyncServicePair(body: CreateSyncServicePairInput): Promise<CreateSyncServicePairResponse> {
     return firstValueFrom(
       this.http.post<CreateSyncServicePairResponse>('/api/vendor/sync-service-pairs', body),
+    );
+  }
+
+  // ── AECI-2042: an endpoint vendor's rights on a Sync Service pair ─────────
+
+  /** `POST /api/vendor/integrations/:id/veto` — take the pair off our product (201). */
+  fileVeto(integrationId: string, reason: string): Promise<VetoWriteResponse> {
+    return firstValueFrom(
+      this.http.post<VetoWriteResponse>(
+        `/api/vendor/integrations/${encodeURIComponent(integrationId)}/veto`,
+        { reason },
+      ),
+    );
+  }
+
+  /** `POST /api/vendor/vetoes/:id/withdraw` — the pair returns when no veto is left. */
+  withdrawVeto(vetoId: string): Promise<VetoWriteResponse> {
+    return firstValueFrom(
+      this.http.post<VetoWriteResponse>(
+        `/api/vendor/vetoes/${encodeURIComponent(vetoId)}/withdraw`,
+        {},
+      ),
+    );
+  }
+
+  /** `GET /api/vendor/vetoes` — vetoes filed, and vetoes on pairs this vendor owns. */
+  listVetoes(): Promise<VendorVetoesResponse> {
+    return firstValueFrom(this.http.get<VendorVetoesResponse>('/api/vendor/vetoes'));
+  }
+
+  /** `POST /api/vendor/integrations/:id/pair-contests` — an existence or data flow report. */
+  submitPairContest(
+    integrationId: string,
+    body: SubmitPairContestInput,
+  ): Promise<PairContestResponse> {
+    return firstValueFrom(
+      this.http.post<PairContestResponse>(
+        `/api/vendor/integrations/${encodeURIComponent(integrationId)}/pair-contests`,
+        body,
+      ),
+    );
+  }
+
+  /** `GET /api/vendor/pair-contests` — reports filed, and data flow reports received. */
+  listPairContests(): Promise<VendorPairContestsResponse> {
+    return firstValueFrom(this.http.get<VendorPairContestsResponse>('/api/vendor/pair-contests'));
+  }
+
+  /** `POST /api/vendor/pair-contests/:id/withdraw`. */
+  withdrawPairContest(id: string): Promise<PairContestResponse> {
+    return firstValueFrom(
+      this.http.post<PairContestResponse>(
+        `/api/vendor/pair-contests/${encodeURIComponent(id)}/withdraw`,
+        {},
+      ),
+    );
+  }
+
+  /** `POST /api/vendor/pair-contests/:id/decision` — the owner accepts or declines. */
+  decidePairContest(id: string, body: DecidePairContestInput): Promise<PairContestResponse> {
+    return firstValueFrom(
+      this.http.post<PairContestResponse>(
+        `/api/vendor/pair-contests/${encodeURIComponent(id)}/decision`,
+        body,
+      ),
+    );
+  }
+
+  /** `POST /api/vendor/pair-contests/:id/protest` — ask AECi to review a decline. */
+  protestPairContest(id: string, reason: string): Promise<PairContestResponse> {
+    return firstValueFrom(
+      this.http.post<PairContestResponse>(
+        `/api/vendor/pair-contests/${encodeURIComponent(id)}/protest`,
+        { reason },
+      ),
     );
   }
 

@@ -47,6 +47,18 @@ Updates about requests appear in the portal, so check the integration's page or 
 - **Declined.** The value on record stays. You see any note the decider added.
 - **Withdrawn.** You can withdraw your own open request at any time, from a confirmation step so it is not sent by accident. A request also closes as withdrawn if the integration is retired, and restoring it does not reopen the request. A request about **How you get it** closes as withdrawn if AEC Integrations finds the integration is delivered through a connector, because those integrations do not record how you get them. In both cases you get a notice in Messages saying why.
 
+## On an integration a Sync Service delivers
+
+A Sync Service sells and runs finished integrations between two other companies' products. If your product is at one end of one, you have three more choices. They sit under that integration in the **Connectors** section of your product's Integrations tab.
+
+- **Remove this integration from our product.** Use it when your company does not authorise the integration on your product. Nobody reviews it. A confirmation step says what happens, and asks for your reason. Once you confirm, the integration leaves the public site at once: the pair page, both product pages and the Sync Service's page. The Sync Service is told, with your reason. It cannot restore the integration or add it again. Only your company can bring it back: choose **Withdraw the removal** in **Messages**. If the other product's vendor removed it too, it returns only when both have withdrawn.
+- **Report that it is not offered.** Use it when the integration does not exist or is no longer sold. AEC Integrations decides. The integration stays listed while we check. If we confirm it, we take it off the site.
+- **Report a wrong data flow.** Choose one data flow, say what is right, and give your reason. Once the Sync Service has claimed the integration, it decides. Before then, AEC Integrations decides. If the Sync Service declines, you can ask AEC Integrations to review it within 30 days, as below. Our view is advice.
+
+You find every removal and report in **Messages**, under **Sync Service integrations on your products**. None of these choices appears on an integration through an integration platform, or one a company builds itself. Use **Request a change** there.
+
+A company with no vendor account can email [support@aecintegrations.com](mailto:support@aecintegrations.com) instead. We check that the sender speaks for the product's company, then take the integration off its product for it.
+
 ## When your integration is asked about
 
 Once your company has claimed an integration, requests about its details come to you on that integration's own page, under **Change requests**. You can also see them, across every product, in **Messages** under **Change requests** and then **Received**. Each one shows the value on record, the proposed value, and the reason.

@@ -178,6 +178,8 @@ export function escapeSqlLiteral(value: string): string {
  *  - `detach`          log-class; the column is NULLed, the row is never deleted.
  *  - `cascade-child`   a child of a row this lane deletes; deleted explicitly and
  *                      counted on that parent's tombstone.
+ *  - `fk-action`       handled by the FK's own action and never named in the plan
+ *                      (AECI-2042): CASCADE or SET NULL. Not counted on a tombstone.
  */
 export type FkOutcome =
   | 'refuse'
@@ -186,7 +188,8 @@ export type FkOutcome =
   | 'force-detach'
   | 'facet'
   | 'detach'
-  | 'cascade-child';
+  | 'cascade-child'
+  | 'fk-action';
 
 /** Every FK into `products`, keyed `table.column`. Pinned to the latest migration
  *  snapshot by `retract-product-fk-coverage.spec.ts`. */
@@ -218,6 +221,10 @@ export const PRODUCT_FK_HANDLING: Readonly<Record<string, FkOutcome>> = {
   // `license.unassigned` row, never left to the FK's SET NULL; a live one needs
   // `--force`. The license stays on its billing account. See the header.
   'licenses.assigned_product_id': 'force-detach',
+  // AECI-2042 (0131): a veto's pair key. A veto on a deleted product ends with it.
+  'sync_service_pair_vetoes.connector_product_id': 'fk-action',
+  'sync_service_pair_vetoes.product_a_id': 'fk-action',
+  'sync_service_pair_vetoes.product_b_id': 'fk-action',
 };
 
 /** Every FK into a table this lane DELETEs from (other than `products` itself),
@@ -230,6 +237,14 @@ export const CASCADE_CHILD_HANDLING: Readonly<Record<string, FkOutcome>> = {
   // AECI-2039 (0130): the owner's answers on a Sync Service pair's flows. Deleted
   // explicitly with the attestations, before the claims.
   'claim_owner_answers.claim_id': 'cascade-child',
+  // AECI-2042 (0131): Sync Service pair reports cascade with their edge or claim, and
+  // a veto's anchor is SET NULL, so the veto keeps blocking a re-create of the pair.
+  // Neither is counted on a tombstone. A follow-up may count the reports.
+  'sync_service_pair_contests.integration_id': 'fk-action',
+  'sync_service_pair_contests.evidenced_pair_id': 'fk-action',
+  'sync_service_pair_contests.claim_id': 'fk-action',
+  'sync_service_pair_vetoes.integration_id': 'fk-action',
+  'sync_service_pair_vetoes.evidenced_pair_id': 'fk-action',
   'integration_field_challenges.integration_id': 'cascade-child',
   // AECI-1092 (0050): a contest can sit on an evidenced pair. Deleted explicitly
   // before the pairs, and counted on the pair's tombstone, like the integrations arm.

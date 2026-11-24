@@ -144,7 +144,9 @@ import {
   anyVendorOwnedEvidencedTwin,
   anyVendorOwnedTwin,
   findStrongMatches,
+  findOpenVetoOnPairKey,
   findVendorHeldEvidencedTwin,
+  openVetoOnPairKeySentinel,
   VENDOR_OWNED_TWIN,
   vendorOwnedEvidencedTwinSentinel,
   vendorOwnedTwinSentinel,
@@ -758,6 +760,8 @@ type LocatedIntegrationRow = LocatedMaintenance & {
   poweredByProductId: string | null;
   /** The AECI-1005 ownership fence's input — see {@link claimFenceRefuses}. */
   claimedAt: string | null;
+  /** AECI-2042: an endpoint vendor's veto fences the row too. */
+  vetoedAt: string | null;
   /** AECI-1011: `'vendor'` fences the row too — see {@link claimFenceRefuses}. */
   origin: string;
   /** AECI-1011: the stored owner and kind, for the UPDATE twin guard. */
@@ -781,6 +785,8 @@ type LocatedEvidencedRow = LocatedMaintenance & {
    *  {@link claimFenceRefuses}. */
   claimedAt: string | null;
   origin: string;
+  /** AECI-2042: an endpoint veto fences the pair. */
+  vetoedAt: string | null;
 };
 
 /**
@@ -826,23 +832,26 @@ async function locateEdge(
       createdAt: integrations.createdAt,
       claimedAt: integrations.claimedAt,
       origin: integrations.origin,
+      vetoedAt: integrations.vetoedAt,
       builtByVendorId: integrations.builtByVendorId,
       mechanismKind: integrations.mechanismKind,
       pairClaimedAt: connectorEvidencedPairs.claimedAt,
       pairOrigin: connectorEvidencedPairs.origin,
+      pairVetoedAt: connectorEvidencedPairs.vetoedAt,
     })
     .from(integrations)
     .leftJoin(connectorEvidencedPairs, eq(connectorEvidencedPairs.id, integrations.id))
     .where(eq(integrations.id, supabaseId))
     .limit(1);
   if (intg) {
-    const { pairClaimedAt, pairOrigin, ...row } = intg;
+    const { pairClaimedAt, pairOrigin, pairVetoedAt, ...row } = intg;
     return {
       id: supabaseId,
       table: 'integrations',
       row: {
         ...row,
-        evidencedTwinVendorHeld: pairClaimedAt !== null || pairOrigin === 'vendor',
+        evidencedTwinVendorHeld:
+          pairClaimedAt !== null || pairOrigin === 'vendor' || (pairVetoedAt ?? null) !== null,
       },
     };
   }
@@ -858,6 +867,7 @@ async function locateEdge(
       createdAt: true,
       claimedAt: true,
       origin: true,
+      vetoedAt: true,
     },
     where: eq(connectorEvidencedPairs.id, supabaseId),
   });
@@ -1226,6 +1236,13 @@ const REFUSED_REVIEW_SIGNAL_INTEGRATION =
 // because the whole edge is refused, not one field of it.
 export const REFUSED_CLAIMED_INTEGRATION =
   'integration is claimed by its owner; promote writes nothing to a vendor-owned integration';
+
+// ─── Endpoint-veto fence (AECI-2042) ─────────────────────────────────────────
+// A row an endpoint vendor vetoed is fenced like a vendor-held one: promote writes
+// nothing to it (no content, no re-point, no move, no claims), so it can never revive
+// or overwrite it. Its own reason, so the review app can tell the two apart.
+export const REFUSED_VETOED_INTEGRATION =
+  'integration was removed from the site by an endpoint vendor; promote writes nothing to a vetoed integration';
 
 // ─── Cache purge (AECI-105) ──────────────────────────────────────────────────
 
@@ -3382,6 +3399,19 @@ export async function runPromoteIngest(
     // `promote.blocked` row is the same audit trail AECI-520 leaves for a blocked
     // vendor or product, and `catalogWrites` excludes it, so an all-fenced promote
     // still reports `wrote: false`.
+    // AECI-2042: a vetoed row, in either table, before the ownership fence, so the
+    // receipt names the veto even when the row is also claimed.
+    if (located && located.row.vetoedAt !== null) {
+      skipped.push({ ref: intg.ref, kind: 'integration', reason: REFUSED_VETOED_INTEGRATION });
+      audit({
+        actorType: 'system',
+        action: 'promote.blocked',
+        entityType: located.table === 'integrations' ? 'integration' : 'connector_evidenced_pair',
+        entityId: located.id,
+        metadata: { reason: REFUSED_VETOED_INTEGRATION },
+      });
+      continue;
+    }
     if (claimFenceRefuses(located)) {
       skipped.push({ ref: intg.ref, kind: 'integration', reason: REFUSED_CLAIMED_INTEGRATION });
       // AECI-1088: name the table the vendor-held row actually sits in. A fenced pair,
@@ -3511,6 +3541,22 @@ export async function runPromoteIngest(
           });
           continue;
         }
+        // AECI-2042: an endpoint veto in force on the key whose vetoed row is gone. A
+        // vetoed row still on the key is caught by the twin guard just above (it is
+        // fenced), so this is the deleted-row case. Skip, never revive.
+        const veto = await findOpenVetoOnPairKey(db, evidencedTwinCandidate);
+        if (veto) {
+          skipped.push({ ref: intg.ref, kind: 'integration', reason: REFUSED_VETOED_INTEGRATION });
+          audit({
+            actorType: 'system',
+            action: 'promote.blocked',
+            entityType: 'connector_evidenced_pair',
+            entityId: located?.id ?? veto.id,
+            metadata: { reason: REFUSED_VETOED_INTEGRATION, ref: intg.ref, vetoId: veto.id },
+          });
+          continue;
+        }
+        stmts.push(openVetoOnPairKeySentinel(db, evidencedTwinCandidate));
         // The commit-time half: a claim that lands on the key's holder between this
         // read and the batch aborts the whole promote with the twin race code, rather
         // than letting the write fail on the unique index.
@@ -3802,6 +3848,30 @@ export async function runPromoteIngest(
           },
         });
         continue;
+      }
+      // AECI-2042: an endpoint veto in force on the pair key, through this connector.
+      // A vetoed row is fenced above. This covers a key whose vetoed row is gone, so a
+      // new upstream id cannot bring the pair back. Never deletes or revives anything.
+      if (finalConnectorId !== null) {
+        const [vetoA, vetoB] = sourceId < targetId ? [sourceId, targetId] : [targetId, sourceId];
+        const vetoKey = {
+          connectorProductId: finalConnectorId,
+          productAId: vetoA,
+          productBId: vetoB,
+        };
+        const veto = await findOpenVetoOnPairKey(db, vetoKey);
+        if (veto) {
+          skipped.push({ ref: intg.ref, kind: 'integration', reason: REFUSED_VETOED_INTEGRATION });
+          audit({
+            actorType: 'system',
+            action: 'promote.blocked',
+            entityType: 'integration',
+            entityId: located?.id ?? veto.id,
+            metadata: { reason: REFUSED_VETOED_INTEGRATION, ref: intg.ref, vetoId: veto.id },
+          });
+          continue;
+        }
+        stmts.push(openVetoOnPairKeySentinel(db, vetoKey));
       }
       // The commit-time half: a vendor create (or claim) that lands between this
       // read and the batch aborts the whole promote, as the AECI-1005 fence does.

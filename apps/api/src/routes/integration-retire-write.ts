@@ -214,6 +214,9 @@ export function buildRetireBatch(db: Db, input: RetireBatchInput): RetireBatch {
         and(
           eq(integrations.id, integrationId),
           mode === 'retire' ? isNull(integrations.retiredAt) : isNotNull(integrations.retiredAt),
+          // AECI-2042: a veto that lands mid-restore aborts it. Both restores refuse a
+          // vetoed row up front; this holds the rule at commit.
+          mode === 'restore' ? isNull(integrations.vetoedAt) : undefined,
           input.guard,
         ),
       ),
@@ -489,6 +492,7 @@ export function buildPairRetireBatch(db: Db, input: PairRetireBatchInput): Retir
           mode === 'retire'
             ? isNull(connectorEvidencedPairs.retiredAt)
             : isNotNull(connectorEvidencedPairs.retiredAt),
+          mode === 'restore' ? isNull(connectorEvidencedPairs.vetoedAt) : undefined,
           input.guard,
         ),
       ),

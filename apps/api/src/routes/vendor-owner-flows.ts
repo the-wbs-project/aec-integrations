@@ -96,7 +96,7 @@ import {
 } from './vendor-shared';
 
 /** One answer change on one claim: the live row to retract, the stance to insert. */
-interface AnswerChange {
+export interface AnswerChange {
   readonly claimId: string;
   /** The live `claim_owner_answers` id to retract, or `null`. */
   readonly retractId: string | null;
@@ -105,7 +105,7 @@ interface AnswerChange {
 }
 
 /** What one write adds beyond the answer changes. */
-interface WriteExtras {
+export interface WriteExtras {
   /** A new claim row, for an added flow. */
   readonly newClaim?: {
     readonly id: string;
@@ -215,15 +215,39 @@ async function addedFlowNotifications(
 }
 
 /**
+ * What a caller outside this module adds to one owner flow write (AECI-2042): a data
+ * flow report accept rides the same batch. `prefix` runs first (the report's guarded
+ * UPDATE and its sentinel), `audits` join the batch's audit rows, and `onRace` gives the
+ * answer when any sentinel aborts it.
+ */
+export interface OwnerFlowWriteAddOn {
+  readonly prefix: readonly BatchStmt[];
+  readonly audits: readonly AuditLogEntry[];
+  readonly onRace: () => Promise<ApiError>;
+}
+
+/**
  * Commit one owner flow write and answer with the row's flows. Everything that can
  * fail was resolved by the caller, so the batch is the only remaining step.
  */
+export async function commitOwnerFlowWrite(
+  c: VendorContext,
+  db: Db,
+  target: OwnerFlowTarget,
+  changes: readonly AnswerChange[],
+  extras: WriteExtras = {},
+  addOn?: OwnerFlowWriteAddOn,
+): Promise<OwnerFlowsResponse> {
+  return commit(c, db, target, changes, extras, addOn);
+}
+
 async function commit(
   c: VendorContext,
   db: Db,
   target: OwnerFlowTarget,
   changes: readonly AnswerChange[],
   extras: WriteExtras = {},
+  addOn?: OwnerFlowWriteAddOn,
 ): Promise<OwnerFlowsResponse> {
   const session = c.get('auth');
   const vendorId = sessionVendorId(c);
@@ -232,8 +256,13 @@ async function commit(
   const slugs = await targetSlugs(db, target);
   const meta = { source: AUDIT_SOURCE, vendorId, integrationId: target.id, anchor: target.anchor };
 
-  const stmts: BatchStmt[] = [rowGuard(db, target, vendorId, now), ownerWriteSentinel(db)];
+  const stmts: BatchStmt[] = [
+    ...(addOn?.prefix ?? []),
+    rowGuard(db, target, vendorId, now),
+    ownerWriteSentinel(db),
+  ];
   const audits: AuditLogEntry[] = [
+    ...(addOn?.audits ?? []),
     {
       ...actor,
       action: 'integration.updated',
@@ -330,6 +359,7 @@ async function commit(
     await db.batch(stmts as BatchTuple);
   } catch (error) {
     if (!isOwnerWriteRaceError(error)) throw error;
+    if (addOn) throw await addOn.onRace();
     // Ask the gate again, so a race answers what the pre-check would have a moment later.
     await resolveOwnerFlowTarget(db, vendorId, target.id);
     throw new ApiError(
@@ -481,34 +511,46 @@ export function createChangeOwnerFlowHandler(
     const payload = await parseJsonBody(c, ChangeOwnerFlowSchema);
     const direction = claimDirectionFromContext(payload.direction, true);
     if (direction === claim.direction) return respond(c, await flowsBody(db, claim.target));
+    const plan = await planOwnerFlowChange(db, claim, direction);
+    const body = await commit(c, db, claim.target, plan.changes, plan.extras);
+    return respond(c, body);
+  };
+}
 
-    const term = await db.query.taxonomyDataObjects.findFirst({
-      columns: { id: true, slug: true, name: true },
-      where: (t, { eq: is }) => is(t.id, claim.dataObjectId),
-    });
-    if (!term) throw notFoundError('claim', { id: claim.id });
-    const removeOld: AnswerChange = {
-      claimId: claim.id,
-      retractId: await liveOwnerAnswerId(db, claim.id),
-      asserted: false,
+/**
+ * The answer changes that remove a flow (`direction = null`) or move it to a new
+ * direction, as the owner's own routes write them. Shared with the data flow report
+ * accept (AECI-2042), so an accepted report changes the flow exactly as the owner
+ * would have. A new direction is a different flow: the old one is answered No and the
+ * new one confirmed, never an `UPDATE` of `claims.direction`.
+ */
+export async function planOwnerFlowChange(
+  db: Db,
+  claim: { readonly id: string; readonly dataObjectId: string; readonly target: OwnerFlowTarget },
+  direction: ClaimDirection | null,
+): Promise<{ changes: AnswerChange[]; extras: WriteExtras }> {
+  const removeOld: AnswerChange = {
+    claimId: claim.id,
+    retractId: await liveOwnerAnswerId(db, claim.id),
+    asserted: false,
+  };
+  if (direction === null) return { changes: [removeOld], extras: {} };
+  const term = await db.query.taxonomyDataObjects.findFirst({
+    columns: { id: true, slug: true, name: true },
+    where: (t, { eq: is }) => is(t.id, claim.dataObjectId),
+  });
+  if (!term) throw notFoundError('claim', { id: claim.id });
+  const existing = await claimWithIdentity(db, claim.target, term.id, direction);
+  if (existing) {
+    const retractId = await liveOwnerAnswerId(db, existing.id);
+    return {
+      changes: [removeOld, { claimId: existing.id, retractId, asserted: true }],
+      extras: {},
     };
-    const existing = await claimWithIdentity(db, claim.target, term.id, direction);
-    if (existing) {
-      const retractId = await liveOwnerAnswerId(db, existing.id);
-      return respond(
-        c,
-        await commit(c, db, claim.target, [
-          removeOld,
-          { claimId: existing.id, retractId, asserted: true },
-        ]),
-      );
-    }
-    const claimId = crypto.randomUUID();
-    return respond(
-      c,
-      await commit(c, db, claim.target, [removeOld, { claimId, retractId: null, asserted: true }], {
-        newClaim: { id: claimId, dataObject: term, direction },
-      }),
-    );
+  }
+  const claimId = crypto.randomUUID();
+  return {
+    changes: [removeOld, { claimId, retractId: null, asserted: true }],
+    extras: { newClaim: { id: claimId, dataObject: term, direction } },
   };
 }

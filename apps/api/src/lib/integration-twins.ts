@@ -68,7 +68,12 @@
 import { and, eq, isNotNull, isNull, notInArray, or, sql, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { connectorEvidencedPairs, integrations, vendors } from '../db/schema';
+import {
+  connectorEvidencedPairs,
+  integrations,
+  syncServicePairVetoes,
+  vendors,
+} from '../db/schema';
 import { ONE_ROW } from './integration-claims';
 
 /** `skipped[].reason` for an insert promote refused because a vendor holds its twin.
@@ -102,6 +107,18 @@ export interface TwinCandidate {
 export const vendorHeldIntegrationWhere: SQL = or(
   isNotNull(integrations.claimedAt),
   eq(integrations.origin, 'vendor'),
+)!;
+
+/**
+ * Off-limits to promote (AECI-2042): vendor-held, OR vetoed by an endpoint vendor. A
+ * vetoed row is the endpoint vendor's withdrawal, so promote must not write it or
+ * twin it, the way it treats an owner's retired row. Used by promote's twin guards
+ * only. The admin retire and the other vendor-held readers keep
+ * {@link vendorHeldIntegrationWhere}: a veto does not make AECi's row a vendor's.
+ */
+export const promoteFencedIntegrationWhere: SQL = or(
+  vendorHeldIntegrationWhere,
+  isNotNull(integrations.vetoedAt),
 )!;
 
 /** The strong-match predicate over `integrations`, for {@link TwinCandidate}. */
@@ -169,7 +186,7 @@ export async function findStrongMatches(
   opts: { vendorHeldOnly?: boolean } = {},
 ): Promise<StrongMatchRow[]> {
   const where = opts.vendorHeldOnly
-    ? and(strongMatchWhere(candidate), vendorHeldIntegrationWhere)
+    ? and(strongMatchWhere(candidate), promoteFencedIntegrationWhere)
     : strongMatchWhere(candidate);
   return db
     .select({
@@ -209,7 +226,7 @@ export function vendorOwnedTwinSentinel(db: Db, candidate: TwinCandidate) {
     .select({
       guard: sql`CASE WHEN EXISTS (
         SELECT 1 FROM ${integrations}
-        WHERE ${strongMatchWhere(candidate)} AND ${vendorHeldIntegrationWhere}
+        WHERE ${strongMatchWhere(candidate)} AND ${promoteFencedIntegrationWhere}
       ) THEN json('vendor-owned-twin-during-promote') END`,
     })
     .from(ONE_ROW);
@@ -233,7 +250,7 @@ export async function anyVendorOwnedTwin(
     const hit = await db
       .select({ id: integrations.id })
       .from(integrations)
-      .where(and(strongMatchWhere(candidate), vendorHeldIntegrationWhere))
+      .where(and(strongMatchWhere(candidate), promoteFencedIntegrationWhere))
       .limit(1);
     if (hit.length > 0) return true;
   }
@@ -261,6 +278,12 @@ export const vendorHeldEvidencedPairWhere: SQL = or(
   eq(connectorEvidencedPairs.origin, 'vendor'),
 )!;
 
+/** {@link promoteFencedIntegrationWhere} on the second table (AECI-2042). */
+export const promoteFencedEvidencedPairWhere: SQL = or(
+  vendorHeldEvidencedPairWhere,
+  isNotNull(connectorEvidencedPairs.vetoedAt),
+)!;
+
 /** The unique index's key, `connector_evidenced_pairs_pair_idx`, and nothing else. */
 function evidencedKeyWhere(candidate: {
   readonly connectorProductId: string;
@@ -275,7 +298,7 @@ function evidencedKeyWhere(candidate: {
 }
 
 function evidencedTwinWhere(candidate: EvidencedTwinCandidate): SQL {
-  const clauses: SQL[] = [evidencedKeyWhere(candidate), vendorHeldEvidencedPairWhere];
+  const clauses: SQL[] = [evidencedKeyWhere(candidate), promoteFencedEvidencedPairWhere];
   if (candidate.excludeId !== undefined) {
     clauses.push(sql`${connectorEvidencedPairs.id} <> ${candidate.excludeId}`);
   }
@@ -368,8 +391,10 @@ export interface SyncServicePairCandidate {
   readonly productBId: string;
 }
 
-/** Why a Sync Service create is refused. AECI-2042 adds the endpoint veto here. */
-export type SyncServicePairBlockReason = 'evidenced_twin' | 'integration_twin';
+/** Why a Sync Service create is refused. `endpoint_veto` (AECI-2042): an endpoint
+ *  vendor's veto is in force on this pair key, whether or not the row it was filed on
+ *  still exists. Checked first, so the refusal says why. */
+export type SyncServicePairBlockReason = 'endpoint_veto' | 'evidenced_twin' | 'integration_twin';
 
 export interface SyncServicePairBlock {
   readonly reason: SyncServicePairBlockReason;
@@ -398,6 +423,29 @@ export async function findSyncServicePairBlock(
   db: Db,
   candidate: SyncServicePairCandidate,
 ): Promise<SyncServicePairBlock | null> {
+  // AECI-2042: a veto in force on the key. The veto row keeps the key after its anchor
+  // row is gone (SET NULL), so a retracted-then-re-added pair is still refused.
+  const [veto] = await db
+    .select({
+      id: syncServicePairVetoes.id,
+      integrationId: syncServicePairVetoes.integrationId,
+      evidencedPairId: syncServicePairVetoes.evidencedPairId,
+    })
+    .from(syncServicePairVetoes)
+    .where(openVetoOnPairKeyWhere(candidate))
+    .orderBy(syncServicePairVetoes.filedAt, syncServicePairVetoes.id)
+    .limit(1);
+  if (veto) {
+    return {
+      reason: 'endpoint_veto',
+      id: veto.integrationId ?? veto.evidencedPairId ?? veto.id,
+      anchor: veto.integrationId ? 'integration' : 'evidenced_pair',
+      builtByVendorId: null,
+      claimedAt: null,
+      retiredAt: null,
+    };
+  }
+
   const [pair] = await db
     .select({
       id: connectorEvidencedPairs.id,
@@ -429,7 +477,53 @@ export async function findSyncServicePairBlock(
 /** "Something blocks `candidate`", as one SQL predicate: the sentinel's half of
  *  {@link findSyncServicePairBlock}. */
 export function syncServicePairBlockWhere(candidate: SyncServicePairCandidate): SQL {
-  return sql`(EXISTS (SELECT 1 FROM ${connectorEvidencedPairs} WHERE ${evidencedKeyWhere(candidate)}) OR EXISTS (SELECT 1 FROM ${integrations} WHERE ${integrationTwinOfPairWhere(candidate)}))`;
+  return sql`(EXISTS (SELECT 1 FROM ${syncServicePairVetoes} WHERE ${openVetoOnPairKeyWhere(candidate)}) OR EXISTS (SELECT 1 FROM ${connectorEvidencedPairs} WHERE ${evidencedKeyWhere(candidate)}) OR EXISTS (SELECT 1 FROM ${integrations} WHERE ${integrationTwinOfPairWhere(candidate)}))`;
+}
+
+/**
+ * An endpoint veto in force on the pair key (AECI-2042). The re-create guard above and
+ * promote's two twin guards read it, so neither a Sync Service nor the review app can
+ * put a second row beside a vetoed pair, or a new row on its key after the vetoed row
+ * was deleted.
+ */
+export function openVetoOnPairKeyWhere(key: {
+  readonly connectorProductId: string;
+  readonly productAId: string;
+  readonly productBId: string;
+}): SQL {
+  return and(
+    eq(syncServicePairVetoes.connectorProductId, key.connectorProductId),
+    eq(syncServicePairVetoes.productAId, key.productAId),
+    eq(syncServicePairVetoes.productBId, key.productBId),
+    isNull(syncServicePairVetoes.endedAt),
+  )!;
+}
+
+/** The first open veto on the key, or `null`. Promote's guards call it. */
+export async function findOpenVetoOnPairKey(
+  db: Db,
+  key: Parameters<typeof openVetoOnPairKeyWhere>[0],
+): Promise<{ id: string } | null> {
+  const [row] = await db
+    .select({ id: syncServicePairVetoes.id })
+    .from(syncServicePairVetoes)
+    .where(openVetoOnPairKeyWhere(key))
+    .limit(1);
+  return row ?? null;
+}
+
+/** The commit-time half for promote: aborts the batch when a veto landed on the key
+ *  after the plan read. Raises the twin guards' token, so the job errors with
+ *  `VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE` and a re-push skips the write. */
+export function openVetoOnPairKeySentinel(
+  db: Db,
+  key: Parameters<typeof openVetoOnPairKeyWhere>[0],
+) {
+  return db
+    .select({
+      guard: sql`CASE WHEN EXISTS (SELECT 1 FROM ${syncServicePairVetoes} WHERE ${openVetoOnPairKeyWhere(key)}) THEN json('vendor-owned-twin-during-promote') END`,
+    })
+    .from(ONE_ROW);
 }
 
 /** The token {@link syncServicePairBlockSentinel} raises. */

@@ -85,6 +85,7 @@ import {
   or,
   sql,
   inArray,
+  type Column,
   type SQL,
 } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
@@ -113,6 +114,7 @@ import {
   vendors,
   vendorSuspensions,
   vendorTerminationRefunds,
+  syncServicePairVetoes,
 } from '../db/schema';
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -1111,6 +1113,48 @@ export async function checkRetiredIntegrationsUnclaimed(db: Db): Promise<CheckFi
 }
 
 /**
+ * An edge row whose `vetoed_at` disagrees with `sync_service_pair_vetoes` (AECI-2042).
+ * The veto, withdraw and lift batches keep the two in step, in the same batch, so any
+ * row here is a write that bypassed them: a row with `vetoed_at` set and no veto in
+ * force is hidden for no reason, and a row with a veto in force and `vetoed_at` NULL is
+ * on the public site against an endpoint vendor's veto. The same check on both tables.
+ * A veto does not need a vendor-held row (an endpoint vendor may veto an AECi-seeded
+ * pair), so this check, not `retired_integration_unclaimed`, is its invariant.
+ */
+export async function checkVetoedAtMismatch(db: Db): Promise<CheckFinding> {
+  const openOn = (column: Column, id: SQL | Column) =>
+    sql`EXISTS (SELECT 1 FROM ${syncServicePairVetoes} WHERE ${column} = ${id} AND ${syncServicePairVetoes.endedAt} IS NULL)`;
+  const rows = await db
+    .select({ id: integrations.id, name: integrations.name, vetoedAt: integrations.vetoedAt })
+    .from(integrations)
+    .where(
+      sql`(${integrations.vetoedAt} IS NOT NULL) <> ${openOn(syncServicePairVetoes.integrationId, integrations.id)}`,
+    )
+    .orderBy(asc(integrations.id));
+  const pairs = await db
+    .select({
+      id: connectorEvidencedPairs.id,
+      name: connectorEvidencedPairs.name,
+      vetoedAt: connectorEvidencedPairs.vetoedAt,
+    })
+    .from(connectorEvidencedPairs)
+    .where(
+      sql`(${connectorEvidencedPairs.vetoedAt} IS NOT NULL) <> ${openOn(syncServicePairVetoes.evidencedPairId, connectorEvidencedPairs.id)}`,
+    )
+    .orderBy(asc(connectorEvidencedPairs.id));
+  const line = (table: string, r: { id: string; name: string | null; vetoedAt: string | null }) =>
+    r.vetoedAt
+      ? `${r.name ?? '(unnamed)'} (${r.id}${table}) is hidden as vetoed, but no veto is in force`
+      : `${r.name ?? '(unnamed)'} (${r.id}${table}) has a veto in force, but is on the public site`;
+  return {
+    lines: [
+      ...rows.map((r) => line('', r)),
+      ...pairs.map((r) => line(', connector_evidenced_pairs', r)),
+    ],
+  };
+}
+
+/**
  * #15 — a vendor-created integration nobody holds a claim on (AECI-1011).
  *
  * A vendor create is born claimed. Two paths clear `claimed_at`: an AECi admin accept
@@ -1892,6 +1936,14 @@ export const CHECKS: CheckSpec[] = [
     label: 'Retired integrations that are not vendor-held',
     severity: 'error',
     run: ({ db }) => checkRetiredIntegrationsUnclaimed(db),
+  },
+  {
+    id: 'vetoed_at_mismatch',
+    label: 'Integrations whose veto marker disagrees with the vetoes in force',
+    // `error`: either a pair an endpoint vendor vetoed is public, or a pair is hidden
+    // with no veto behind it (AECI-2042). No seed vetoes a pair, so a seed is clean.
+    severity: 'error',
+    run: ({ db }) => checkVetoedAtMismatch(db),
   },
   {
     id: 'vendor_integration_unclaimed',

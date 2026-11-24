@@ -53,6 +53,7 @@ import { spawnSync } from 'node:child_process';
 import { DEFAULT_LOCALE, type AlgoliaEnv } from '@aeci/shared/algolia';
 import {
   ddlHasRetiredColumn,
+  ddlHasVetoedColumn,
   EVIDENCED_PAIRS_DDL_QUERY,
   evidencedPairsDdlOrThrow,
   INTEGRATIONS_DDL_QUERY,
@@ -118,21 +119,27 @@ export const VENDOR_IDS_SQL = vendorIdsSql();
  * and without the column no row of that table is retired.
  */
 export function integrationIdsSql(
-  columns: { integrations: boolean; evidencedPairs: boolean; productsHidden?: boolean } = {
+  columns: {
+    integrations: boolean;
+    evidencedPairs: boolean;
+    productsHidden?: boolean;
+    vetoed?: boolean;
+  } = {
     integrations: true,
     evidencedPairs: true,
     productsHidden: true,
+    vetoed: true,
   },
 ): string {
   return `SELECT i."id" AS id FROM "integrations" i
   WHERE i."source_product_id" IN (SELECT "id" FROM "products" WHERE "promotion_status" = 'promoted')
     AND i."target_product_id" IN (SELECT "id" FROM "products" WHERE "promotion_status" = 'promoted')
-    AND ${liveIntegrationSqlIf('i', columns.integrations, columns.productsHidden ?? true)}
+    AND ${liveIntegrationSqlIf('i', columns.integrations, columns.productsHidden ?? true, columns.vetoed ?? true)}
 UNION ALL
 SELECT cep."id" AS id FROM "connector_evidenced_pairs" cep
   WHERE cep."product_a_id" IN (SELECT "id" FROM "products" WHERE "promotion_status" = 'promoted')
     AND cep."product_b_id" IN (SELECT "id" FROM "products" WHERE "promotion_status" = 'promoted')
-    AND ${liveEvidencedPairSqlIf('cep', columns.evidencedPairs, columns.productsHidden ?? true)};`;
+    AND ${liveEvidencedPairSqlIf('cep', columns.evidencedPairs, columns.productsHidden ?? true, columns.vetoed ?? true)};`;
 }
 export const INTEGRATION_IDS_SQL = integrationIdsSql();
 
@@ -258,6 +265,7 @@ function wranglerPromotedIds(target: Target): PromotedIdProvider {
         target,
         integrationIdsSql({
           integrations: ddlHasRetiredColumn(integrationsDdlOrThrow(ddl[0]?.sql)),
+          vetoed: ddlHasVetoedColumn(integrationsDdlOrThrow(ddl[0]?.sql)),
           evidencedPairs: ddlHasRetiredColumn(evidencedPairsDdlOrThrow(pairsDdl[0]?.sql)),
           productsHidden: hiddenColumnOn(target, 'products'),
         }),

@@ -65,6 +65,12 @@ The two products' vendors cannot answer these rows. Their Integrations tab names
 
 Where your company does hold a product at one end and the connection later becomes connector-delivered, the integration keeps its own page. Its Integration links section stops offering your product's group, and your existing links no longer show on the public page. They still appear in your product's group there, and you can remove them.
 
+### When a product's vendor objects
+
+The vendor of either product can remove an integration your Sync Service delivers from its product. Nobody reviews that removal, and it takes effect at once. The integration leaves the public site and stops counting. You are told in **Messages**, with the vendor's name and reason, under **Removed from your integrations**. You cannot restore it, and you cannot add it again: the add form tells you so. AEC Integrations' catalog updates will not bring it back either. It returns only when that vendor withdraws the removal. Retiring it changes nothing about the removal.
+
+Either vendor can also report that the integration is not offered. AEC Integrations decides, and if we confirm it we retire the integration. And either vendor can report one wrong data flow. Once you have claimed the integration, those reports come to you in **Messages**, under **Data flow reports you received**. **Accept** changes the flow on the public page as the report asks. **Decline** leaves it. If you decline, the vendor can ask AEC Integrations to review it. Our view is advice, and you still decide the listing.
+
 ## Related
 
 - Previous: [Your change history](/docs/vendors/change-history).

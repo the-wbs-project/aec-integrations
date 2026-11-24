@@ -92,6 +92,15 @@ export async function listedEndpoints(
 
 /** The `409` for a pair already on record. `details` lets the portal open it. */
 export function alreadyOnRecordError(block: SyncServicePairBlock, vendorId: string): ApiError {
+  // AECI-2042: an endpoint vendor's veto is in force on this pair. It is not a
+  // duplicate to restore: only that vendor's withdraw or an AECi lift ends it.
+  if (block.reason === 'endpoint_veto') {
+    return new ApiError(
+      409,
+      ApiErrorCode.INTEGRATION_VETOED,
+      'A vendor of one of these products removed this integration from its product, so it cannot be added again. That vendor can withdraw the removal.',
+    );
+  }
   const details: SyncServicePairOnRecordDetails = {
     existing_id: block.id,
     anchor: block.anchor,

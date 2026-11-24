@@ -269,6 +269,19 @@ change them.
 
 A logo that is the vendor's own upload goes without an objection once its claim has ended. The daily job removes it within 14 days, and an operator can hold the job for at most 13 days (`ADMIN_PANEL_SPEC.md` §5.7).
 
+## 6b. A veto of a Sync Service integration that arrives by email
+
+*(Added 2026-11-24, AECI-2042.)* A vendor of a product at one end of a Sync Service integration has a veto (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11e.2). A vendor with a seat files it in the portal, and it takes effect at once. A vendor with no seat emails support@aecintegrations.com instead. There is no admin route that files a veto for a vendor, so the operator removes the integration with the admin retire.
+
+1. Check the sender speaks for the endpoint product's company, as for a claim (§4 above). A veto is not judged on its merits, so do not ask why. Only check who is asking.
+2. Check the integration is delivered by a Sync Service: its connector's kind reads **Sync Service** on `/admin/products/:id`. If it is not, the veto does not apply. Answer with the correction route in the Listing Accuracy Policy.
+3. Point the vendor at claiming its listing. With a seat it can veto, and later withdraw, by itself.
+4. **A vendor-held pair** (claimed, or added by the Sync Service): open the Sync Service vendor's **Integrations** tab on `/admin/vendors/:id` and choose **Retire** on the pair. Reason, shown to the Sync Service: "A vendor of {product} does not authorise this integration on its product." Internal note: the sender, the email date and the submission record. The pair leaves the site at once, and only an admin can restore it.
+5. **A pair AECi holds** (seeded by promote and not claimed): the admin retire refuses it with `409 INTEGRATION_NOT_VENDOR_HELD`. Reject the pair in the review app and push the retraction (`docs/runbooks/catalog.md`, "Retracting a product or vendor by hand" and the retraction consumer). Record the request on the submission.
+6. Reply to the sender by email. Say the integration is off the site. Say that once the company has a seat, it can file its own removal, and that only a removal filed by its seat can be withdrawn by the company itself.
+
+An admin retire is not a veto. The Sync Service's restore refuses it, and its re-add is refused because the retired pair is still on record. If the vendor later gets a seat and files a veto in the portal, restore the admin retire only after the veto is in force.
+
 ## 7. History
 
 The first inbound submission was NestFiles, on 2026-08-12. It was handled ad hoc, with no written

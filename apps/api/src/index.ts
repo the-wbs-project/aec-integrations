@@ -289,6 +289,28 @@ import {
 } from './routes/vendor-integration-retire';
 import { createCreateVendorIntegrationHandler } from './routes/vendor-integration-create';
 import { createCreateSyncServicePairHandler } from './routes/vendor-sync-service-pair-create';
+import {
+  createFileVetoHandler,
+  createListVendorVetoesHandler,
+  createWithdrawVetoHandler,
+} from './routes/vendor-sync-service-vetoes';
+import {
+  createDecidePairContestHandler,
+  createFilePairProtestHandler,
+  createListVendorPairContestsHandler,
+  createSubmitPairContestHandler,
+  createWithdrawPairContestHandler,
+  createWithdrawPairProtestHandler,
+} from './routes/vendor-pair-contests';
+import {
+  createAdminLiftVetoHandler,
+  createAdminListVetoesHandler,
+} from './routes/admin-sync-service-vetoes';
+import {
+  createAdminDecidePairContestHandler,
+  createAdminDecidePairProtestHandler,
+  createAdminListPairContestsHandler,
+} from './routes/admin-pair-contests';
 import { createPossibleDuplicatesHandler } from './routes/vendor-integration-duplicates';
 import {
   createDeleteIntegrationLinkHandler,
@@ -1139,6 +1161,28 @@ authAdmin.post(
   rateLimit('write'),
   createAdminRetireIntegrationHandler(),
 );
+// AECI-2042: endpoint vetoes on Sync Service pairs (the lift, with a required note) and
+// the existence and data flow reports AECi decides. Reads are not rate-limited.
+authAdmin.get('/api/admin/vetoes', requireAdmin(), createAdminListVetoesHandler());
+authAdmin.post(
+  '/api/admin/vetoes/:id/lift',
+  requireAdmin(),
+  rateLimit('write'),
+  createAdminLiftVetoHandler(),
+);
+authAdmin.get('/api/admin/pair-contests', requireAdmin(), createAdminListPairContestsHandler());
+authAdmin.patch(
+  '/api/admin/pair-contests/:id',
+  requireAdmin(),
+  rateLimit('write'),
+  createAdminDecidePairContestHandler(),
+);
+authAdmin.patch(
+  '/api/admin/pair-contests/:id/protest',
+  requireAdmin(),
+  rateLimit('write'),
+  createAdminDecidePairProtestHandler(),
+);
 authAdmin.post(
   '/api/admin/integrations/:id/restore',
   requireAdmin(),
@@ -1658,6 +1702,55 @@ authVendor.post(
   requireVendor(),
   rateLimit('write'),
   createCreateSyncServicePairHandler(),
+);
+// AECI-2042 (rulings 8 to 10 on AECI-2035, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11e): an
+// endpoint vendor's rights on a pair a Sync Service delivers. A SEAT IS THE WHOLE GATE.
+// Gate order on every write: `requireVendor()` → `rateLimit('write')` → in the handler,
+// an endpoint of the pair (else 404) → the connector is a Sync Service (else 403) → not
+// the owner (else 403). The two reads are never rate-limited.
+authVendor.post(
+  '/api/vendor/integrations/:id/veto',
+  requireVendor(),
+  rateLimit('write'),
+  createFileVetoHandler(),
+);
+authVendor.post(
+  '/api/vendor/vetoes/:id/withdraw',
+  requireVendor(),
+  rateLimit('write'),
+  createWithdrawVetoHandler(),
+);
+authVendor.get('/api/vendor/vetoes', requireVendor(), createListVendorVetoesHandler());
+authVendor.post(
+  '/api/vendor/integrations/:id/pair-contests',
+  requireVendor(),
+  rateLimit('write'),
+  createSubmitPairContestHandler(),
+);
+authVendor.get('/api/vendor/pair-contests', requireVendor(), createListVendorPairContestsHandler());
+authVendor.post(
+  '/api/vendor/pair-contests/:id/withdraw',
+  requireVendor(),
+  rateLimit('write'),
+  createWithdrawPairContestHandler(),
+);
+authVendor.post(
+  '/api/vendor/pair-contests/:id/decision',
+  requireVendor(),
+  rateLimit('write'),
+  createDecidePairContestHandler(),
+);
+authVendor.post(
+  '/api/vendor/pair-contests/:id/protest',
+  requireVendor(),
+  rateLimit('write'),
+  createFilePairProtestHandler(),
+);
+authVendor.post(
+  '/api/vendor/pair-contests/:id/protest/withdraw',
+  requireVendor(),
+  rateLimit('write'),
+  createWithdrawPairProtestHandler(),
 );
 // AECI-1377 (§4.7.6): ask AECi to add the other product of an integration. A seat is
 // the whole gate, as for the create above. Under /api/vendor/*, not /api/requests/*:

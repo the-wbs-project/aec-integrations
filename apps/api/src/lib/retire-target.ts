@@ -39,6 +39,8 @@ export interface RetireTarget {
   origin: string;
   retiredAt: string | null;
   retiredBy: string | null;
+  /** AECI-2042: an endpoint vendor's veto in force. A restore refuses it. */
+  vetoedAt: string | null;
 }
 
 export function retireTargetOf(located: LocatedRetireRow): RetireTarget {
@@ -53,6 +55,7 @@ export function retireTargetOf(located: LocatedRetireRow): RetireTarget {
       origin: row.origin,
       retiredAt: row.retiredAt,
       retiredBy: row.retiredBy,
+      vetoedAt: row.vetoedAt,
     };
   }
   const { pair } = located;
@@ -65,6 +68,7 @@ export function retireTargetOf(located: LocatedRetireRow): RetireTarget {
     origin: pair.origin,
     retiredAt: pair.retiredAt,
     retiredBy: pair.retiredBy,
+    vetoedAt: pair.vetoedAt,
   };
 }
 

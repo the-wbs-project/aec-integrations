@@ -30,6 +30,7 @@ export * from './integration-retire';
 export * from './integration-edits';
 export * from './integration-create';
 export * from './sync-service-pair-create';
+export * from './sync-service-pair-rights';
 export * from './integration-vendor-links';
 export * from './https-url';
 export * from './https-url-rule';

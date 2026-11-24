@@ -176,6 +176,12 @@ export const VENDOR_FK_HANDLING: Readonly<Record<string, VendorFkOutcome>> = {
   'claim_owner_answers.vendor_id': 'detach',
   'page_views.vendor_id': 'detach',
   'integration_vendor_links.vendor_id': 'fk-action',
+  // AECI-2042 (0131). A report the vendor filed goes with it (CASCADE, uncounted). A
+  // report routed to it as owner, and a veto it filed, are NULLed by SET NULL: the
+  // veto stays in force, because only a withdraw or an AECi lift ends one.
+  'sync_service_pair_contests.submitter_vendor_id': 'fk-action',
+  'sync_service_pair_contests.owner_vendor_id': 'fk-action',
+  'sync_service_pair_vetoes.vendor_id': 'fk-action',
 };
 
 /**

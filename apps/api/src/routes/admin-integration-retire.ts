@@ -55,6 +55,7 @@ import {
   type RetireIntegrationResponse,
   vendorVisibleReasonMetadata,
 } from '@aeci/shared';
+import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { compareText } from '@aeci/shared/text-sort';
 import { and, eq, isNotNull, or } from 'drizzle-orm';
 
@@ -71,13 +72,18 @@ import { pairPathFor } from '../lib/integration-contests';
 import { vendorHeldEvidencedPairWhere, vendorHeldIntegrationWhere } from '../lib/integration-twins';
 import { openThreadsOnAnchor } from '../lib/claim-thread-lifecycle';
 import { isRetireRaceError, openContestsOn } from '../lib/integration-retire';
-import { integrationRetiredError, isLiveIntegration } from '../lib/live-integration';
+import {
+  integrationRetiredError,
+  integrationVetoedError,
+  isLiveIntegration,
+} from '../lib/live-integration';
 import {
   endpointVendorIds,
   locateRetireTarget,
   relocateRetireTarget,
   retireSlugs,
   retireTargetOf,
+  type LocatedRetireRow,
   type RetireTarget,
 } from '../lib/retire-target';
 import {
@@ -99,7 +105,8 @@ export const ADMIN_RETIRE_AUDIT_SOURCE = 'admin-moderation';
  * the pre-check and the lost-race re-read. One ladder for both anchor tables.
  */
 export function adminRetireRefusal(
-  row: Pick<RetireTarget, 'claimedAt' | 'origin' | 'retiredAt' | 'retiredBy'>,
+  row: Pick<RetireTarget, 'claimedAt' | 'origin' | 'retiredAt' | 'retiredBy'> &
+    Partial<Pick<RetireTarget, 'vetoedAt'>>,
   mode: RetireMode,
 ): ApiError | null {
   if (!isVendorHeld(row)) {
@@ -109,6 +116,9 @@ export function adminRetireRefusal(
       'AEC Integrations maintains this integration, so it is changed or removed through the review app and promote, not here.',
     );
   }
+  // AECI-2042: an admin restore never undoes an endpoint veto. Lift the veto first
+  // (`POST /api/admin/vetoes/:id/lift`), which needs its own note.
+  if (mode === 'restore' && row.vetoedAt) return integrationVetoedError();
   const live = isLiveIntegration(row);
   if (mode === 'retire' && !live) return integrationRetiredError();
   if (mode === 'restore' && live) {
@@ -142,7 +152,6 @@ export function createAdminRestoreIntegrationHandler(
 
 function handlerFor(mode: RetireMode, dbFor: DbFactory): (c: VendorContext) => Promise<Response> {
   return async (c) => {
-    const session = c.get('auth');
     const integrationId = c.req.param('id');
     if (!integrationId) {
       throw new ApiError(400, 'VALIDATION_FAILED', 'Missing id', { field: 'id' });
@@ -157,6 +166,66 @@ function handlerFor(mode: RetireMode, dbFor: DbFactory): (c: VendorContext) => P
     const refusal = adminRetireRefusal(target, mode);
     if (refusal) throw refusal;
 
+    const plan = await planAdminRetire(c, db, located, mode, { reason, internalNote });
+    const { batch, now } = plan;
+
+    try {
+      await db.batch(batch.stmts as BatchTuple);
+    } catch (error) {
+      if (!isRetireRaceError(error)) throw error;
+      const current = await relocateRetireTarget(db, located);
+      if (!current) throw notFoundError('integration', { id: integrationId });
+      throw (
+        adminRetireRefusal(retireTargetOf(current), mode) ??
+        new ApiError(
+          409,
+          ApiErrorCode.INTEGRATION_CHANGED_WHILE_SAVING,
+          'This integration changed while you were saving. Reload and try again.',
+        )
+      );
+    }
+
+    afterAdminRetire(c, db, plan, integrationId, mode);
+
+    const body: RetireIntegrationResponse = {
+      integration: {
+        id: integrationId,
+        retired_at: batch.retiredAt,
+        retired_by: batch.retiredBy,
+        updated_at: now,
+      },
+      withdrawn_contest_ids: batch.withdrawnContestIds,
+    };
+    validateResponseInDev(c.env, () => RetireIntegrationResponseSchema.parse(body));
+    return json(body);
+  };
+}
+
+/** An admin retire or restore, planned and not yet run. */
+export interface AdminRetirePlan {
+  readonly batch: RetireBatch;
+  readonly owner: { id: string; slug: string } | null;
+  readonly slugs: Awaited<ReturnType<typeof retireSlugs>>;
+  readonly now: string;
+}
+
+/**
+ * Plan the admin retire or restore batch for a row the refusal ladder let through.
+ * Shared with the existence report accept (AECI-2042), which retires the pair in the
+ * same batch as its own decision, with the accept note as the reason.
+ */
+export async function planAdminRetire(
+  c: VendorContext,
+  db: Db,
+  located: LocatedRetireRow,
+  mode: RetireMode,
+  args: { reason: string; internalNote?: string | undefined },
+): Promise<AdminRetirePlan> {
+  const session = c.get('auth');
+  const target = retireTargetOf(located);
+  const integrationId = target.id;
+  const { reason, internalNote } = args;
+  {
     const [owner, ownerLicenses, endpointVendors, slugs, contests, threads] = await Promise.all([
       target.builtByVendorId
         ? db.query.vendors.findFirst({
@@ -218,48 +287,36 @@ function handlerFor(mode: RetireMode, dbFor: DbFactory): (c: VendorContext) => P
               mode === 'restore' ? eq(connectorEvidencedPairs.retiredBy, 'aeci') : undefined,
             )!,
           });
-
-    try {
-      await db.batch(batch.stmts as BatchTuple);
-    } catch (error) {
-      if (!isRetireRaceError(error)) throw error;
-      const current = await relocateRetireTarget(db, located);
-      if (!current) throw notFoundError('integration', { id: integrationId });
-      throw (
-        adminRetireRefusal(retireTargetOf(current), mode) ??
-        new ApiError(
-          409,
-          ApiErrorCode.INTEGRATION_CHANGED_WHILE_SAVING,
-          'This integration changed while you were saving. Reload and try again.',
-        )
-      );
-    }
-
-    afterRetireCommit(c, db, {
-      mode,
-      integrationId,
-      productIds: batch.productIds,
+    return {
+      batch,
       owner: owner ? { id: owner.id, slug: owner.slug } : null,
-      pairSlugs: slugs.pairSlugs,
-      connectorSlug: slugs.connectorSlug,
-      audits: batch.audits,
-      hookPrefix: 'admin',
-      syncFailureMessage: 'aeci.api.admin.retire_algolia_sync_failed',
-      origin: { auditSource: ADMIN_RETIRE_AUDIT_SOURCE, purgeSource: 'moderation' },
-    });
-
-    const body: RetireIntegrationResponse = {
-      integration: {
-        id: integrationId,
-        retired_at: batch.retiredAt,
-        retired_by: batch.retiredBy,
-        updated_at: now,
-      },
-      withdrawn_contest_ids: batch.withdrawnContestIds,
+      slugs,
+      now,
     };
-    validateResponseInDev(c.env, () => RetireIntegrationResponseSchema.parse(body));
-    return json(body);
-  };
+  }
+}
+
+/** The admin retire's post-commit tail. */
+export function afterAdminRetire(
+  c: VendorContext,
+  db: Db,
+  plan: AdminRetirePlan,
+  integrationId: string,
+  mode: RetireMode,
+  extraAudits: readonly AuditLogEntry[] = [],
+): void {
+  afterRetireCommit(c, db, {
+    mode,
+    integrationId,
+    productIds: plan.batch.productIds,
+    owner: plan.owner,
+    pairSlugs: plan.slugs.pairSlugs,
+    connectorSlug: plan.slugs.connectorSlug,
+    audits: [...plan.batch.audits, ...extraAudits],
+    hookPrefix: 'admin',
+    syncFailureMessage: 'aeci.api.admin.retire_algolia_sync_failed',
+    origin: { auditSource: ADMIN_RETIRE_AUDIT_SOURCE, purgeSource: 'moderation' },
+  });
 }
 
 // ─── GET /api/admin/vendors/:id/integrations ─────────────────────────────────

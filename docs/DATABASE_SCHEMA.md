@@ -502,6 +502,10 @@ create table integrations (
   origin text not null default 'aeci' check (origin in ('aeci', 'vendor')),
   retired_at text,
   retired_by text check (retired_by in ('owner', 'aeci')),
+  -- AECI-2042 (0131): an endpoint vendor's veto in force, denormalised from
+  -- sync_service_pair_vetoes (earliest open filed_at, else NULL). Part of liveness.
+  -- Plain ADD COLUMN, no CHECK.
+  vetoed_at text,
 
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -1009,6 +1013,68 @@ create index claim_owner_answers_claim_idx on claim_owner_answers(claim_id, upda
 - **When it counts** (`apps/api/src/lib/owner-flows.ts`): the connector product is a Sync Service, the anchor row is claimed, `vendor_id` is the row's `built_by_vendor_id` now, and the row is live. Readers append it to the claim's attestation list as an in-memory `source = 'owner'` entry. It is never written to `attestations`.
 - **A child of `claims`.** A recreate of `claims` would empty it too (`docs/migrations.md` §3.3a). `retract-product` deletes it explicitly before the claims; `retract-vendor` nulls `vendor_id`.
 - **Writers.** `routes/vendor-owner-flows.ts` only. Promote never writes it.
+  Since AECI-2042 a data flow report accept (`routes/vendor-pair-contests.ts`) writes it through the same logic, in the decision's batch.
+
+### 5a.2b `sync_service_pair_vetoes` and `sync_service_pair_contests` (AECI-2042, migration 0131)
+
+An endpoint vendor's rights on a pair a Sync Service delivers (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11e). Two plain `CREATE TABLE`s; the only change to existing tables is `vetoed_at` on `integrations` and `connector_evidenced_pairs`, two plain `ADD COLUMN`s. No CHECK on an existing table changes.
+
+```sql
+create table sync_service_pair_vetoes (
+  id text primary key,
+  integration_id text references integrations(id) on delete set null,
+  evidenced_pair_id text references connector_evidenced_pairs(id) on delete set null,
+  connector_product_id text not null references products(id) on delete cascade,
+  product_a_id text not null references products(id) on delete cascade,
+  product_b_id text not null references products(id) on delete cascade,
+  vendor_id text references vendors(id) on delete set null,
+  vendor_name text,
+  reason text not null,
+  filed_by text references profiles(id) on delete set null,
+  filed_at text not null,
+  ended_at text,
+  ended_how text,   -- 'withdrawn' | 'lifted'
+  ended_by text references profiles(id) on delete set null,
+  end_note text,
+  created_at text not null, updated_at text not null,
+  check ((integration_id is null) or (evidenced_pair_id is null)),
+  check (product_a_id < product_b_id),
+  check (ended_how is null or ended_how in ('withdrawn', 'lifted'))
+);
+create unique index sync_service_pair_vetoes_open_key
+  on sync_service_pair_vetoes(connector_product_id, product_a_id, product_b_id, vendor_id)
+  where ended_at is null;
+
+create table sync_service_pair_contests (
+  id text primary key,
+  kind text not null,                -- 'existence' | 'data_flow'
+  integration_id text references integrations(id) on delete cascade,
+  evidenced_pair_id text references connector_evidenced_pairs(id) on delete cascade,
+  claim_id text references claims(id) on delete cascade,   -- data_flow only
+  current_direction text, proposed_direction text,          -- the pair's A/B frame
+  reason text not null,
+  submitter_vendor_id text not null references vendors(id) on delete cascade,
+  submitted_by text references profiles(id) on delete set null,
+  routed_to text not null,           -- 'owner' | 'aeci', frozen at submit
+  owner_vendor_id text references vendors(id) on delete set null,
+  status text not null default 'open',
+  decision_note text, decided_by text references profiles(id) on delete set null, decided_at text,
+  accept_mode text,
+  protest_status text, protest_basis text, protest_reason text,
+  protested_by text references profiles(id) on delete set null, protested_at text,
+  protest_decision_note text, protest_decided_by text references profiles(id) on delete set null,
+  protest_decided_at text,
+  created_at text not null, updated_at text not null
+  -- CHECKs: exactly one anchor; kind; claim_id iff data_flow; proposed_direction;
+  -- routed_to; status; protest_status; protest_basis.
+);
+```
+
+- **Why the veto keeps the pair key.** Its anchor FKs are `SET NULL`, so a veto keeps refusing a re-create of the pair (by a Sync Service or by promote) after the row it was filed on is deleted.
+- **`vetoed_at` is the reader's column.** Every veto, withdraw and lift batch recomputes it from this table. Every count, id set and public read filters it through the live predicates (`lib/live-integration.ts`). The `vetoed_at_mismatch` data-quality check (severity `error`) reports a row that disagrees with the table.
+- **Why a reports table.** `integration_field_challenges.field` has a CHECK over twelve field names (§8.7). An existence or data flow report is not a field, and changing that CHECK recreates a cascade child of both edge tables. No partial unique index holds "one open report per submitter, kind and target", because two of its columns are NULL on most rows; the submit batch's sentinel holds it.
+- **Cascade.** `sync_service_pair_contests` is a cascade child of both edge tables and of `claims`; `sync_service_pair_vetoes` is a SET NULL child of both edge tables. `d1.spec.ts` pins both lists. Nothing references either table.
+- **Writers.** `routes/vendor-sync-service-vetoes.ts`, `routes/admin-sync-service-vetoes.ts` (through `lib/sync-service-veto-write.ts`), `routes/vendor-pair-contests.ts`, `routes/admin-pair-contests.ts`, and the `DELETE /api/account` erasure (the profile columns). Promote never writes them, nor `vetoed_at`. Nothing public reads them.
 
 ### 5a.3 `product_versions`
 
@@ -5432,6 +5498,7 @@ create table connector_evidenced_pairs (
   origin text not null default 'aeci' check (origin in ('aeci', 'vendor')),
   retired_at timestamptz,
   retired_by text check (retired_by in ('owner', 'aeci')),
+  vetoed_at timestamptz,  -- AECI-2042 (0131), as on integrations
   constraint connector_evidenced_pairs_canonical_order check (product_a_id < product_b_id),
   constraint connector_evidenced_pairs_distinct_connector
     check (connector_product_id <> product_a_id and connector_product_id <> product_b_id)

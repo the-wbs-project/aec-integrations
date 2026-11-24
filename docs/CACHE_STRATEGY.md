@@ -509,6 +509,8 @@ helper enqueues for all of them (`purgeTags` / `afterVendorWrite` in
   endpoint counts are recomputed inside the create batch for the same reason, and the
   pair and both product URLs are queued for re-crawl.
 
+- **An endpoint veto, its withdraw and its lift** (AECI-2042, `/api/vendor/integrations/:id/veto`, `/api/vendor/vetoes/:id/withdraw`, `/api/admin/vetoes/:id/lift`) → the evidenced-pair retire's tags, through the same `afterRetireCommit`: `pair:{min}__{max}`, both endpoint `product:` tags, the connector's `product:` tag, `vendor:{owner}`, `index:products`, `taxonomy` and `sitemap`. A report submit or withdraw purges nothing; an owner's data flow accept purges as an owner flow write does; an existence accept that retires purges as the admin retire does.
+
 - **A Sync Service's own pair** (`POST /api/vendor/sync-service-pairs`, AECI-2040) → the
   vendor create's tags plus the connector's `product:{slug}`: `pair:{min}__{max}`, both
   endpoint `product:` tags, the connector's `product:` tag, `vendor:{caller}`,

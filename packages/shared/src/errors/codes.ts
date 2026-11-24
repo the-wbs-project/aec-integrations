@@ -188,6 +188,29 @@ export const ApiErrorCode = {
   // the row so the portal can open it (claim or restore it instead).
   CONNECTOR_NOT_SYNC_SERVICE: 'CONNECTOR_NOT_SYNC_SERVICE',
   INTEGRATION_ALREADY_ON_RECORD: 'INTEGRATION_ALREADY_ON_RECORD',
+  // AECI-2042 (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11e): an endpoint vendor's rights on a
+  // Sync Service pair. `INTEGRATION_VETOED` (409) answers a restore, a re-create or a
+  // report on a row an endpoint vendor's veto took off the site. `SYNC_SERVICE_RIGHT_NOT_AVAILABLE`
+  // (403) answers a veto, existence report or data flow report on a row whose connector
+  // is not a Sync Service (a native row, an Integration platform, a blank kind).
+  // `SYNC_SERVICE_RIGHT_OWN_INTEGRATION` (403) answers the pair's owner or its Sync Service
+  // vendor trying to use an endpoint vendor's right. `VETO_DUPLICATE` (409): this vendor
+  // already has a veto in force on the pair. `VETO_NOT_IN_FORCE` (409): a withdraw or lift
+  // of a veto that already ended. `PAIR_CONTEST_DUPLICATE` (409): the vendor already has
+  // the same report open. `PAIR_CONTEST_NOT_OPEN` (409): a decision or withdraw on a
+  // closed report. `PAIR_CONTEST_CHANGED` (409): the pair or its owner changed while
+  // deciding. `PAIR_PROTEST_NOT_ALLOWED` (409): no protest basis, or one already filed.
+  // `PAIR_PROTEST_NOT_OPEN` (409): a decision or withdraw on a closed protest.
+  INTEGRATION_VETOED: 'INTEGRATION_VETOED',
+  SYNC_SERVICE_RIGHT_NOT_AVAILABLE: 'SYNC_SERVICE_RIGHT_NOT_AVAILABLE',
+  SYNC_SERVICE_RIGHT_OWN_INTEGRATION: 'SYNC_SERVICE_RIGHT_OWN_INTEGRATION',
+  VETO_DUPLICATE: 'VETO_DUPLICATE',
+  VETO_NOT_IN_FORCE: 'VETO_NOT_IN_FORCE',
+  PAIR_CONTEST_DUPLICATE: 'PAIR_CONTEST_DUPLICATE',
+  PAIR_CONTEST_NOT_OPEN: 'PAIR_CONTEST_NOT_OPEN',
+  PAIR_CONTEST_CHANGED: 'PAIR_CONTEST_CHANGED',
+  PAIR_PROTEST_NOT_ALLOWED: 'PAIR_PROTEST_NOT_ALLOWED',
+  PAIR_PROTEST_NOT_OPEN: 'PAIR_PROTEST_NOT_OPEN',
   // AECI-1237 admin field corrections (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5).
   // `FIELD_LOCKED_BY_AECI` (409) answers a vendor write that would change a field AECi
   // corrected and locked; `details.fields` names them. `FIELD_OVERRIDE_ACTIVE` (409)

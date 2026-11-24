@@ -2132,6 +2132,7 @@ export const VENDOR_PRODUCT_CONNECTORS_FIXTURE: Readonly<
             owner: { id: '00000000-0000-4000-8000-000000005540', name: 'Kroo' },
             is_owner: false,
             retired: false,
+            sync_service_rights: null,
           },
         ],
         reachable: [

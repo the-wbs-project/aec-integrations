@@ -512,8 +512,10 @@ const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 function rowWrites(src: string): { count: boolean; opaque: boolean } {
   const table = `(?:${rowTableNames(src).map(escapeRegExp).join('|')})`;
   const insertOrDelete = new RegExp(`\\.(?:insert|delete)\\(\\s*${table}\\s*\\)`);
+  // AECI-2042: an endpoint veto writes `vetoedAt`, which takes a row out of every count
+  // the way `retiredAt` does, so it is a count write too.
   const literalRetire = new RegExp(
-    `\\.update\\(\\s*${table}\\s*\\)\\s*\\.set\\(\\s*\\{[^}]*\\bretiredAt\\b`,
+    `\\.update\\(\\s*${table}\\s*\\)\\s*\\.set\\(\\s*\\{[^}]*\\b(?:retiredAt|vetoedAt)\\b`,
   );
   // A `.set(` whose argument is not an object literal: the scan cannot see its columns.
   const opaque = new RegExp(`\\.update\\(\\s*${table}\\s*\\)\\s*\\.set\\(\\s*[^\\s{]`);
@@ -532,6 +534,8 @@ const planChecks = (src: string) => [...src.matchAll(PLAN_CHECK)].map((m) => m[1
 
 /** Every file that adds, removes, retires or restores an integration row. */
 const COUNT_WRITERS = [
+  // AECI-2042: the endpoint veto's `vetoed_at` recompute. A seat is the gate, never a plan.
+  'lib/sync-service-pair-rights.ts',
   'routes/integration-retire-write.ts',
   'routes/promote.ts',
   'routes/vendor-integration-create.ts',
@@ -588,6 +592,7 @@ describe('on-page ordering firewall: the via-group and powered-hub counts', () =
     ).toBe(true);
     expect(rowWrites('db.update(integrations).set(patch)').opaque).toBe(true);
     expect(rowWrites('db.update(integrations).set({ retiredAt: now })').count).toBe(true);
+    expect(rowWrites('db.update(integrations).set({ vetoedAt: earliest })').count).toBe(true);
     expect(rowWrites(stripComments('// db.insert(integrations)')).count).toBe(false);
   });
 

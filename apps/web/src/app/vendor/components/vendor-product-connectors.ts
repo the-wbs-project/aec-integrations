@@ -16,6 +16,7 @@ import { LogoOrInitial } from '../../shared/logo-or-initial/logo-or-initial';
 import { VendorApi } from '../vendor-api';
 
 import { VendorContestForm } from './vendor-contest-form';
+import { VendorSyncServiceRights } from './vendor-sync-service-rights';
 
 type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
 
@@ -51,7 +52,7 @@ type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
  */
 @Component({
   selector: 'aec-vendor-product-connectors',
-  imports: [LogoOrInitial, VendorContestForm],
+  imports: [LogoOrInitial, VendorContestForm, VendorSyncServiceRights],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
@@ -145,6 +146,9 @@ type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
                         by {{ ownerName(target) }}.
                       </p>
                       <aec-vendor-contest-form [integration]="target" anchor="evidenced_pair" />
+                      <!-- AECI-2042: a Sync Service pair also carries the endpoint vendor's
+                           veto and its two reports. -->
+                      <aec-vendor-sync-service-rights [target]="target" (changed)="retry()" />
                     </div>
                   }
                 </div>

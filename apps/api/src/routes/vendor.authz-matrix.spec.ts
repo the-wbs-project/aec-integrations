@@ -179,6 +179,18 @@ import {
 import { createListDataObjectsHandler } from './vendor-data-objects';
 import { createCreateVendorIntegrationHandler } from './vendor-integration-create';
 import { createCreateSyncServicePairHandler } from './vendor-sync-service-pair-create';
+import {
+  createFileVetoHandler,
+  createListVendorVetoesHandler,
+  createWithdrawVetoHandler,
+} from './vendor-sync-service-vetoes';
+import {
+  createDecidePairContestHandler,
+  createFilePairProtestHandler,
+  createListVendorPairContestsHandler,
+  createSubmitPairContestHandler,
+  createWithdrawPairContestHandler,
+} from './vendor-pair-contests';
 import { createPossibleDuplicatesHandler } from './vendor-integration-duplicates';
 import { createUpdateVendorIntegrationHandler } from './vendor-integration-edits';
 import {
@@ -546,6 +558,43 @@ function makeApp() {
     requireVendor(guard),
     createCreateSyncServicePairHandler(t.factory),
   );
+  // AECI-2042 — seat only; the endpoint, Sync Service and owner checks are inside.
+  app.post(
+    '/api/vendor/integrations/:id/veto',
+    requireVendor(guard),
+    createFileVetoHandler(t.factory),
+  );
+  app.post(
+    '/api/vendor/vetoes/:id/withdraw',
+    requireVendor(guard),
+    createWithdrawVetoHandler(t.factory),
+  );
+  app.get('/api/vendor/vetoes', requireVendor(guard), createListVendorVetoesHandler(t.factory));
+  app.post(
+    '/api/vendor/integrations/:id/pair-contests',
+    requireVendor(guard),
+    createSubmitPairContestHandler(t.factory),
+  );
+  app.get(
+    '/api/vendor/pair-contests',
+    requireVendor(guard),
+    createListVendorPairContestsHandler(t.factory),
+  );
+  app.post(
+    '/api/vendor/pair-contests/:id/withdraw',
+    requireVendor(guard),
+    createWithdrawPairContestHandler(t.factory),
+  );
+  app.post(
+    '/api/vendor/pair-contests/:id/decision',
+    requireVendor(guard),
+    createDecidePairContestHandler(t.factory),
+  );
+  app.post(
+    '/api/vendor/pair-contests/:id/protest',
+    requireVendor(guard),
+    createFilePairProtestHandler(t.factory),
+  );
   // AECI-1377 — seat only; the context-product check is inside the handler.
   app.get(
     '/api/vendor/product-requests',
@@ -802,6 +851,36 @@ const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?:
     path: `/api/vendor/owned-flows/${uuid(992)}`,
     method: 'PATCH',
     body: { direction: 'both' },
+    ok: 404,
+  },
+  // AECI-2042 — seat only. An unknown row, veto or report is its 404, which proves the
+  // guard passed; the reads answer 200.
+  {
+    path: `/api/vendor/integrations/${uuid(994)}/veto`,
+    method: 'POST',
+    body: { reason: 'No.' },
+    ok: 404,
+  },
+  { path: `/api/vendor/vetoes/${uuid(995)}/withdraw`, method: 'POST', ok: 404 },
+  { path: '/api/vendor/vetoes', method: 'GET', ok: 200 },
+  {
+    path: `/api/vendor/integrations/${uuid(994)}/pair-contests`,
+    method: 'POST',
+    body: { kind: 'existence', reason: 'Gone.' },
+    ok: 404,
+  },
+  { path: '/api/vendor/pair-contests', method: 'GET', ok: 200 },
+  { path: `/api/vendor/pair-contests/${uuid(996)}/withdraw`, method: 'POST', ok: 404 },
+  {
+    path: `/api/vendor/pair-contests/${uuid(996)}/decision`,
+    method: 'POST',
+    body: { decision: 'decline' },
+    ok: 404,
+  },
+  {
+    path: `/api/vendor/pair-contests/${uuid(996)}/protest`,
+    method: 'POST',
+    body: { reason: 'Look again.' },
     ok: 404,
   },
   // AECI-1424 — owner seats only. VENDOR_A does not own its record: the 409.

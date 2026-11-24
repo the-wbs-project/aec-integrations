@@ -192,6 +192,14 @@ describe('MethodologyPage', () => {
       expect(text).toContain('no vendor can put its own links on one.');
     });
 
+    it("states a product vendor's three rights on a Sync Service integration (AECI-2042)", () => {
+      const text = setup().host.textContent ?? '';
+      expect(text).toContain('the vendor of either product can remove it from its product');
+      expect(text).toContain('The Sync Service cannot restore it or add it again.');
+      expect(text).toContain('It stays listed while we check');
+      expect(text).toContain('report one wrong data row');
+    });
+
     it('says a hide keeps the data and is not a finding (AECI-1238)', () => {
       const text = setup().host.textContent ?? '';
       expect(text).toContain('off the public site and out of search, but its data is kept');
