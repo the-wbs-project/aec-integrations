@@ -11,13 +11,11 @@ import {
 } from './guard-allowlists/class-binding.harness';
 import {
   MIN_FILES,
-  checkShrinkOnly,
   checkUnreadable,
   countPerFile,
   countSource,
   filesByFolder,
   portalAdminSources,
-  readAllowlist,
   readSource,
   stripComments,
 } from './guard-allowlists/shrink-only.harness';
@@ -77,10 +75,11 @@ function publicSources(): string[] {
 }
 
 /*
- * AECI-2083: the portal and admin labels, against a shrink-only allowlist
- * (`guard-allowlists/field-label.txt`, rules in `guard-allowlists/shrink-only.harness.ts`).
- * This block sits apart from the public guard on purpose, so parallel edits to either
- * merge cleanly.
+ * AECI-2083: the portal and admin labels. They were on a shrink-only allowlist
+ * (`guard-allowlists/field-label.txt`) until AECI-2132 converted the last offender,
+ * `vendor-contest-form.ts`, and deleted the emptied file. Both folders now hold zero,
+ * with no exceptions (the heading guard's pattern, AECI-1729). This block sits apart
+ * from the public guard on purpose, so parallel edits to either merge cleanly.
  *
  * The unit is the element: a `<label>` or `<legend>` whose own class sets type (a text
  * size, a font weight or `uppercase`) without being the Label role (`text-t-13` with
@@ -162,12 +161,12 @@ export function portalAdminLabelCount(rel: string, src: string): number {
  */
 const PORTAL_ADMIN_UNREADABLE: Record<string, string> = {};
 
-describe('portal and admin labels off the Label role only shrink (AECI-2083)', () => {
+describe('portal and admin labels are on the Label role (AECI-2083, AECI-2132)', () => {
   const files = portalAdminSources();
   const counts = countPerFile(files, portalAdminLabelCount);
 
-  it('matches guard-allowlists/field-label.txt', () => {
-    expect(checkShrinkOnly(counts, readAllowlist('field-label'))).toEqual([]);
+  it('finds none off the Label role in the portal or the console (no exceptions)', () => {
+    expect([...counts]).toEqual([]);
   });
 
   it('reads both folders, so it cannot pass on an empty scan', () => {
@@ -211,22 +210,18 @@ describe('portal and admin labels off the Label role only shrink (AECI-2083)', (
     expect(portalAdminLabelCount('admin/x.html', src)).toBe(1);
   });
 
-  it('fails on a new offender and on a stale entry', () => {
+  it('counts a new offender, so the no-exceptions check fails on it', () => {
     const rel = 'admin/x.html';
-    const offender = countSource(
-      portalAdminLabelCount,
-      rel,
-      `<label for="a" class="text-xs font-bold uppercase">A</label>`,
-    );
-    expect(checkShrinkOnly(offender, '')).toEqual([`${rel}: 1 found, 0 allowed (new offender)`]);
-    const fixed = countSource(
-      portalAdminLabelCount,
-      rel,
-      `<label for="a" class="sr-only">A</label>`,
-    );
-    expect(checkShrinkOnly(fixed, `${rel} 1`)).toEqual([
-      `${rel}: now 0, delete its line (stale entry)`,
-    ]);
+    expect([
+      ...countSource(
+        portalAdminLabelCount,
+        rel,
+        `<label for="a" class="text-xs font-bold uppercase">A</label>`,
+      ),
+    ]).toEqual([[rel, 1]]);
+    expect([
+      ...countSource(portalAdminLabelCount, rel, `<label for="a" class="sr-only">A</label>`),
+    ]).toEqual([]);
   });
 
   it('reads a member of an imported object whose property names a constant (AECI-1729)', () => {

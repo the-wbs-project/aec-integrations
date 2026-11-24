@@ -417,56 +417,7 @@ describe('VendorContestForm: the portal recipe (AECI-2132)', () => {
   });
 });
 
-describe('VendorContestForm: Escape and focus (AECI-2132)', () => {
-  function escape(fixture: ComponentFixture<unknown>, from: EventTarget): KeyboardEvent {
-    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
-    from.dispatchEvent(event);
-    fixture.detectChanges();
-    return event;
-  }
-
-  it('Escape closes the form, drops the draft and returns focus to the opener', async () => {
-    const fixture = await createForm();
-    document.body.appendChild(el(fixture));
-    await open(fixture);
-    await chooseField(fixture, 'maturity');
-    const control = valueControl(fixture);
-    control.focus();
-    escape(fixture, control);
-    await settle(fixture);
-
-    expect(el(fixture).querySelector('form')).toBeNull();
-    expect(trigger(fixture).getAttribute('aria-expanded')).toBe('false');
-    expect(document.activeElement).toBe(trigger(fixture));
-
-    await open(fixture);
-    const fieldSelect = el(fixture).querySelector(
-      'select[id$="-field"]',
-    ) as unknown as HTMLSelectElement;
-    expect(fieldSelect.value).toBe('');
-    el(fixture).remove();
-  });
-
-  it('Escape does nothing while the request is sending', async () => {
-    let resolve!: (v: unknown) => void;
-    api.submitContest.mockReturnValue(new Promise((r) => (resolve = r)));
-    const fixture = await createForm();
-    await open(fixture);
-    await chooseField(fixture, 'maturity');
-    await typeInto(fixture, valueControl(fixture), 'Beta');
-    await reason(fixture, 'It is still in beta.');
-    el(fixture).querySelector('form')!.dispatchEvent(new Event('submit'));
-    fixture.detectChanges();
-
-    escape(fixture, el(fixture).querySelector('form')!);
-    await settle(fixture);
-    expect(el(fixture).querySelector('form')).not.toBeNull();
-
-    resolve({ contest: { ...VENDOR_CONTESTS_FIXTURE.submitted[0]!, routed_to: 'aeci' } });
-    await settle(fixture);
-    expect(el(fixture).querySelector('form')).toBeNull();
-  });
-
+describe('VendorContestForm: focus (AECI-2132)', () => {
   it('a refused send moves focus to its alert, and the form stays open', async () => {
     api.submitContest.mockRejectedValue(apiError(409, 'CONTEST_DUPLICATE'));
     const fixture = await createForm();

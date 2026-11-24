@@ -23,12 +23,21 @@ admin/threads/thread-list.html 1
 admin/traffic/traffic.html 4
 admin/users/user-detail.html 1
 admin/vendors/vendor-detail.html 1
+# Kept: the status filter toggles (aria-pressed segments), kept by ruling 2026-11-24.
 vendor/components/vendor-integrations-section.ts 1
+# Kept: Release and Keep, menu items inside the actions popover.
 vendor/components/vendor-license-actions.ts 2
+# Kept: the email switch (role="switch", aria-checked).
 vendor/components/vendor-nudge-mute-toggle.ts 1
+# Kept: the kind filter toggles (aria-pressed segments), kept by ruling 2026-11-24.
 vendor/history/vendor-history-page.ts 1
+# Kept: the request filter toggles (ruling 2026-11-24) and a whole-row disclosure trigger.
 vendor/integration-detail/integration-change-requests.ts 2
+# Kept: the Yes and No answer toggles (aria-pressed segments that also open a form).
 vendor/integration-detail/integration-shared-data.ts 2
+# Kept: two text-link buttons that jump to an item on the page.
 vendor/integration-detail/vendor-integration-detail-page.ts 2
+# Kept: the tip trigger, a disclosure for its overlay panel.
 vendor/integration-detail/vendor-tip.ts 1
+# Kept: the status filter toggles (aria-pressed segments), kept by ruling 2026-11-24.
 vendor/sections/vendor-threads-page.ts 1

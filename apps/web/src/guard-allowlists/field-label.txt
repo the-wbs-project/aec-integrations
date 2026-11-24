@@ -1,4 +1,0 @@
-# AECI-2083 shrink-only allowlist: label and legend elements that set their own type instead of the Label role.
-# Guard: src/field-label.guard.spec.ts. Rules: src/guard-allowlists/shrink-only.harness.ts.
-# One line per file: its path from src/app and its count. A count only goes down.
-# Lower your line when you fix some. Delete it when the file reaches zero. Never add a line.

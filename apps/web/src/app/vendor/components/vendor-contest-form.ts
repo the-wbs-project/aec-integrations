@@ -135,12 +135,12 @@ interface SelectOption {
  * the shared recipe and the Label role, and a select's chevron is `aec-icon`. Send is
  * primary: a sent request can still be withdrawn from Messages.
  *
- * ── KEYBOARD ────────────────────────────────────────────────────────────────
- * Escape inside the form is Cancel: it closes, discards the draft and returns focus
- * to "Request a change". It does nothing while the request is sending. A refusal from
- * the server (or the schema) takes focus, so a keyboard user hears it and is not left
- * on the disabled Send button. A field error stays beside its field and takes no
- * focus.
+ * ── FOCUS ───────────────────────────────────────────────────────────────────
+ * No Escape handler, like the three sibling forms: one keystroke must not wipe a long
+ * draft (one behaviour per pattern). Cancel closes and returns focus to "Request a
+ * change". A refusal from the server (or the schema) takes focus, so a keyboard user
+ * hears it and is not left on the disabled Send button. A field error stays beside its
+ * field and takes no focus.
  */
 @Component({
   selector: 'aec-vendor-contest-form',
@@ -177,7 +177,6 @@ interface SelectOption {
           [class]="panelClass"
           novalidate
           (submit)="onSubmit($event)"
-          (keydown.escape)="onEscape($event)"
           [attr.aria-labelledby]="fieldId('title')"
           data-testid="contest-form"
         >
@@ -598,13 +597,6 @@ export class VendorContestForm {
     this.open.set(false);
     this.reset();
     this.trigger()?.nativeElement.focus();
-  }
-
-  /** Escape inside the open form is Cancel. Ignored while the request is sending. */
-  protected onEscape(event: Event): void {
-    if (this.submitting()) return;
-    event.stopPropagation();
-    this.close();
   }
 
   /** A refused send: show the sentence, then move focus to it once it renders, so
