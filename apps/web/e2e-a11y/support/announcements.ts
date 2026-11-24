@@ -103,31 +103,45 @@ export async function recordAnnouncements(page: Page): Promise<AnnouncementRecor
 }
 
 /**
- * Start recording on the next document this page loads, once its HTML is
- * parsed (`DOMContentLoaded`). For a message that appears on arrival, such as a
- * banner revealed after hydration. The regions in the server HTML are the
- * starting state, so only what the browser adds or changes afterwards counts.
- * Call before `page.goto`.
+ * Start recording on the next document this page loads, from the moment its HTML
+ * is parsed. For a message that appears on arrival, such as a banner revealed
+ * after hydration. The init script starts the recorder when the document's
+ * `readyState` leaves `loading`: the parser has finished, and no deferred or
+ * module script has run yet. So the regions in the server HTML are the starting
+ * state, and everything the app's scripts add or change counts. Each document
+ * gets its own token. The recorder holds the first one it reads, and a read from
+ * a later document (a reload, a full navigation) throws. Call before `page.goto`.
  */
 export async function recordAnnouncementsFromLoad(page: Page): Promise<AnnouncementRecorder> {
-  const token = 'from-load';
+  const options = JSON.stringify({ key: KEY, token: null });
   await page.addInitScript(
-    `document.addEventListener('DOMContentLoaded', () => (${installRecorder.toString()})(` +
-      `${JSON.stringify({ key: KEY, token })}), { once: true });`,
+    `(() => {
+      const start = () => (${installRecorder.toString()})(${options});
+      if (document.readyState !== 'loading') { start(); return; }
+      const onState = () => {
+        if (document.readyState === 'loading') return;
+        document.removeEventListener('readystatechange', onState);
+        start();
+      };
+      document.addEventListener('readystatechange', onState);
+    })();`,
   );
-  return recorderFor(page, token);
+  return recorderFor(page, null);
 }
 
-function recorderFor(page: Page, token: string): AnnouncementRecorder {
+/** `initialToken` is the document's, or `null` to hold the first one read. */
+function recorderFor(page: Page, initialToken: string | null): AnnouncementRecorder {
+  let token = initialToken;
   const read = async () => {
     const out = await page.evaluate(
       ({ key, token }) => {
         const rec = (window as unknown as Record<string, RecorderState | undefined>)[key];
-        if (!rec || rec.token !== token) return null;
-        return { entries: rec.entries, idleMs: performance.now() - rec.lastAt };
+        if (!rec || (token !== null && rec.token !== token)) return null;
+        return { token: rec.token, entries: rec.entries, idleMs: performance.now() - rec.lastAt };
       },
       { key: KEY, token },
     );
+    if (out && token === null) token = out.token;
     if (!out) {
       throw new Error(
         'The announcement recorder is gone: the page loaded a new document after it started. ' +
@@ -141,6 +155,7 @@ function recorderFor(page: Page, token: string): AnnouncementRecorder {
       return (await read()).entries;
     },
     async clear() {
+      await read();
       await page.evaluate(
         ({ key }) => {
           const rec = (window as unknown as Record<string, RecorderState | undefined>)[key];

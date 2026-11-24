@@ -6,6 +6,11 @@
  * message heard exactly once, through the channel the page promises, at the
  * politeness it promises. WCAG 4.1.3 and 3.3.1. `docs/TESTING_STRATEGY.md` §8.4.4.
  *
+ * A known-failure mark passes on any failure. So a flow with a known barrier is
+ * two tests: an unmarked one for everything that works today (the error wiring,
+ * the focus move, the stub being hit), and a marked one that holds only the
+ * hearing assertion. A broken error link then turns the unmarked test red.
+ *
  * No real sends. Every test blocks all writes first (`blockWrites`), then stubs
  * the one write it answers. The magic-link call to Supabase, the subscribe and
  * claim-confirm calls to the API, and the vendor portal's writes never leave the
@@ -30,6 +35,7 @@ import {
   liveRegions,
   recordAnnouncements,
   recordAnnouncementsFromLoad,
+  type Announcement,
 } from './support/announcements';
 import { openSurface, phase2FixturesPresent, surfaceAnnotations } from './support/surface-page';
 import { SURFACES, type A11ySurface } from './surfaces';
@@ -53,6 +59,45 @@ test.beforeAll(async () => {
   fixturesPresent = await phase2FixturesPresent();
 });
 
+/** What a field-error flow saw: the record, the focused field's error, and the writes. */
+interface FieldErrorRun {
+  readonly record: readonly Announcement[];
+  readonly error: string;
+  /** Calls that reached the write stub. An invalid submit makes none. */
+  readonly stubCalls: number;
+  readonly aborted: readonly string[];
+}
+
+// --- The on-load recorder itself ------------------------------------------------
+
+test.describe('Announcements: the on-load recorder', () => {
+  test(
+    'counts a message added before DOMContentLoaded, and refuses a read after a reload',
+    surfaceAnnotations(LOGIN),
+    async ({ page }) => {
+      await blockWrites(page);
+      // A stand-in for a banner the app inserts early: an alert added when the
+      // document is parsed, before DOMContentLoaded fires.
+      await page.addInitScript(() => {
+        document.addEventListener('DOMContentLoaded', () => {
+          const p = document.createElement('p');
+          p.setAttribute('role', 'alert');
+          p.textContent = 'AECI-1880 early message';
+          document.body.appendChild(p);
+        });
+      });
+      const rec = await recordAnnouncementsFromLoad(page);
+      await openSurface(page, LOGIN);
+      expectHeardOnce(await rec.read(), 'AECI-1880 early message', 'assertive');
+
+      await page.reload();
+      await expect(rec.read(), 'a read from the next document throws').rejects.toThrow(
+        /new document/,
+      );
+    },
+  );
+});
+
 // --- Login --------------------------------------------------------------------
 
 /** A stub Supabase config, as `e2e/auth-login.spec.ts` plants it. The server's own
@@ -68,6 +113,23 @@ async function stubSupabaseOtp(page: Page, status: number) {
     status,
     json: status === 200 ? {} : { code: 500, msg: 'stubbed failure' },
   });
+}
+
+/** Submit the login form with a bad email. Asserts the focus move and the wiring. */
+async function loginBadEmail(page: Page): Promise<FieldErrorRun> {
+  const { aborted } = await blockWrites(page);
+  const otp = await stubSupabaseOtp(page, 200);
+  await openSurface(page, LOGIN);
+  const submit = page.getByRole('button', { name: 'Email me a sign-in link' });
+  await expect(submit).toBeEnabled();
+  const email = page.locator('#login-email');
+  await email.fill('not-an-email');
+
+  const rec = await recordAnnouncements(page);
+  await submit.click();
+  await expect(email).toBeFocused();
+  const error = await expectFieldErrorWired(email, /valid email/);
+  return { record: await rec.settle(), error, stubCalls: otp.calls, aborted };
 }
 
 test.describe('Announcements: login', () => {
@@ -112,30 +174,22 @@ test.describe('Announcements: login', () => {
   );
 
   test(
-    'a bad email is tied to the field, focused, and heard once',
+    'a bad email is tied to the field, focuses it, and posts nothing',
     surfaceAnnotations(LOGIN),
     async ({ page }) => {
-      knownFailure(
-        'AECI-1859',
-        'the field error is role="alert" and the submit also focuses the field, whose description is the same error, so it is heard twice',
-      );
-      await blockWrites(page);
-      const otp = await stubSupabaseOtp(page, 200);
-      await openSurface(page, LOGIN);
-      const submit = page.getByRole('button', { name: 'Email me a sign-in link' });
-      await expect(submit).toBeEnabled();
-      const email = page.locator('#login-email');
-      await email.fill('not-an-email');
-
-      const rec = await recordAnnouncements(page);
-      await submit.click();
-      await expect(email).toBeFocused();
-      const error = await expectFieldErrorWired(email, /valid email/);
-      const record = await rec.settle();
-      expectHeardOnce(record, error, 'focus');
-      expect(otp.calls, 'an invalid email posts nothing').toBe(0);
+      const run = await loginBadEmail(page);
+      expect(run.stubCalls, `an invalid email posts nothing. Aborted: ${run.aborted}`).toBe(0);
     },
   );
+
+  test('a bad email is heard once', surfaceAnnotations(LOGIN), async ({ page }) => {
+    knownFailure(
+      'AECI-2079',
+      'the field error is role="alert" and the submit focuses the field it describes, so it is heard twice',
+    );
+    const run = await loginBadEmail(page);
+    expectHeardOnce(run.record, run.error, 'focus');
+  });
 });
 
 // --- Subscribe and waitlist -----------------------------------------------------
@@ -201,13 +255,24 @@ test.describe('Announcements: the mailing-list band', () => {
 
   async function openBand(page: Page, respond: { status: number; json?: unknown }) {
     test.skip(!fixturesPresent, 'phase2 fixtures not seeded, see the beforeAll warning');
-    await blockWrites(page);
+    const { aborted } = await blockWrites(page);
     const sub = await stubWrite(page, '**/api/subscribe', respond);
     await openSurface(page, PRODUCT);
     const email = page.locator('#mailing-list-email');
     await email.scrollIntoViewIfNeeded();
     await untilHydrated(subscribe(page));
-    return { sub, email };
+    return { sub, email, aborted };
+  }
+
+  /** Submit the band with a bad email. Asserts the focus move and the wiring. */
+  async function bandBadEmail(page: Page): Promise<FieldErrorRun> {
+    const { sub, email, aborted } = await openBand(page, { status: 201, json: { created: true } });
+    await email.fill('not-an-email');
+    const rec = await recordAnnouncements(page);
+    await subscribe(page).click();
+    await expect(email).toBeFocused();
+    const error = await expectFieldErrorWired(email, /valid email/);
+    return { record: await rec.settle(), error, stubCalls: sub.calls, aborted };
   }
 
   test(
@@ -227,27 +292,39 @@ test.describe('Announcements: the mailing-list band', () => {
   );
 
   test(
-    'a bad email is tied to the field, focused, and heard once',
+    'a bad email is tied to the field, focuses it, and posts nothing',
     surfaceAnnotations(PRODUCT),
     async ({ page }) => {
-      knownFailure(
-        'AECI-1859',
-        'the field error is role="alert" and the submit also focuses the field, whose description is the same error, so it is heard twice',
-      );
-      const { sub, email } = await openBand(page, { status: 201, json: { created: true } });
-      await email.fill('not-an-email');
-      const rec = await recordAnnouncements(page);
-      await subscribe(page).click();
-      await expect(email).toBeFocused();
-      const error = await expectFieldErrorWired(email, /valid email/);
-      expectHeardOnce(await rec.settle(), error, 'focus');
-      expect(sub.calls, 'an invalid email posts nothing').toBe(0);
+      const run = await bandBadEmail(page);
+      expect(run.stubCalls, `an invalid email posts nothing. Aborted: ${run.aborted}`).toBe(0);
     },
   );
+
+  test('a bad email is heard once', surfaceAnnotations(PRODUCT), async ({ page }) => {
+    knownFailure(
+      'AECI-2079',
+      'the field error is role="alert" and the submit focuses the field it describes, so it is heard twice',
+    );
+    const run = await bandBadEmail(page);
+    expectHeardOnce(run.record, run.error, 'focus');
+  });
 });
 
 test.describe('Announcements: the waitlist welcome', () => {
   const route = '/?ref=waitlist&token=e2e-token';
+  const welcome = "Thanks for waiting. Here's the directory.";
+
+  async function arrive(page: Page) {
+    await blockWrites(page);
+    const rec = await recordAnnouncementsFromLoad(page);
+    await openSurface(page, { ...HOME, route });
+    await expect(page.getByRole('region', { name: 'Waitlist welcome' })).toContainText(welcome);
+    return rec.settle();
+  }
+
+  test('the welcome banner shows on arrival', surfaceAnnotations(HOME), async ({ page }) => {
+    await arrive(page);
+  });
 
   test(
     'the welcome banner is announced once on arrival',
@@ -257,11 +334,7 @@ test.describe('Announcements: the waitlist welcome', () => {
         'AECI-2080',
         'the banner is added after hydration as a plain region, with no live region and no focus move',
       );
-      await blockWrites(page);
-      const rec = await recordAnnouncementsFromLoad(page);
-      await openSurface(page, { ...HOME, route });
-      await expect(page.getByRole('region', { name: 'Waitlist welcome' })).toBeVisible();
-      expectHeardOnce(await rec.settle(), "Thanks for waiting. Here's the directory.", 'polite');
+      expectHeardOnce(await arrive(page), welcome, 'polite');
     },
   );
 });
@@ -269,6 +342,7 @@ test.describe('Announcements: the waitlist welcome', () => {
 // --- Claim confirm --------------------------------------------------------------
 
 const CLAIM_CONFIRM = '/claims/confirm?token=e2e-token';
+const CONFIRM_ERROR = 'Something went wrong. Please try again.';
 
 test.describe('Announcements: claim confirm', () => {
   const confirm = (page: Page) => page.getByRole('button', { name: 'Confirm and send' });
@@ -279,6 +353,16 @@ test.describe('Announcements: claim confirm', () => {
     await openFlowPage(page, CLAIM_CONFIRM);
     await untilHydrated(confirm(page));
     return call;
+  }
+
+  /** Confirm against a failing stub. Asserts the stub was hit and the error took focus. */
+  async function failedConfirm(page: Page) {
+    const call = await openConfirm(page, { status: 500, json: { error: 'stubbed' } });
+    const rec = await recordAnnouncements(page);
+    await confirm(page).click();
+    await expect(page.getByText(CONFIRM_ERROR)).toBeFocused();
+    expect(call.calls).toBe(1);
+    return rec.settle();
   }
 
   test(
@@ -304,6 +388,14 @@ test.describe('Announcements: claim confirm', () => {
   );
 
   test(
+    'a failed confirm shows the error and moves focus to it',
+    flowAnnotations('claim-confirm', CLAIM_CONFIRM),
+    async ({ page }) => {
+      await failedConfirm(page);
+    },
+  );
+
+  test(
     'a failed confirm announces the error once',
     flowAnnotations('claim-confirm', CLAIM_CONFIRM),
     async ({ page }) => {
@@ -311,12 +403,7 @@ test.describe('Announcements: claim confirm', () => {
         'AECI-2079',
         'the error paragraph is role="alert" and also takes focus, so it is heard twice',
       );
-      const call = await openConfirm(page, { status: 500, json: { error: 'stubbed' } });
-      const rec = await recordAnnouncements(page);
-      await confirm(page).click();
-      await expect(page.getByText('Something went wrong. Please try again.')).toBeVisible();
-      expectHeardOnce(await rec.settle(), 'Something went wrong. Please try again.', 'focus');
-      expect(call.calls).toBe(1);
+      expectHeardOnce(await failedConfirm(page), CONFIRM_ERROR, 'focus');
     },
   );
 });
@@ -381,6 +468,9 @@ const PREVIEW_INTEGRATION =
   '/preview/vendor-dashboard/products/summit-model-coordination/integrations/00000000-0000-4000-8000-000000005310';
 
 test.describe('Announcements: vendor portal preview', () => {
+  const channels = async (page: Page) =>
+    (await liveRegions(page)).filter((r) => r.srOnly && r.role === 'status');
+
   test(
     'a write is announced once by the shell, politely, never as an alert',
     flowAnnotations('vendor-portal-preview', PREVIEW_INTEGRATION),
@@ -389,7 +479,7 @@ test.describe('Announcements: vendor portal preview', () => {
       await openFlowPage(page, PREVIEW_INTEGRATION);
       await expect(page.getByTestId('integration-title')).toBeVisible();
 
-      const channel = (await liveRegions(page)).filter((r) => r.srOnly && r.role === 'status');
+      const channel = await channels(page);
       expect(channel, 'the portal shell has exactly one announcement channel').toHaveLength(1);
       expect(channel[0]!.politeness).toBe('polite');
 
@@ -407,10 +497,39 @@ test.describe('Announcements: vendor portal preview', () => {
         assertive,
         `a portal write is never an alert. Record: ${describeRecord(record)}`,
       ).toEqual([]);
-      expect(
-        (await liveRegions(page)).filter((r) => r.srOnly && r.role === 'status'),
-        'still one channel after the write',
-      ).toHaveLength(1);
+      expect(await channels(page), 'still one channel after the write').toHaveLength(1);
+    },
+  );
+
+  test(
+    'with one section open, a write in another section is announced once by the shell',
+    flowAnnotations('vendor-portal-preview', PREVIEW_INTEGRATION),
+    async ({ page }) => {
+      await blockWrites(page);
+      await openFlowPage(page, PREVIEW_INTEGRATION);
+      await expect(page.getByTestId('integration-title')).toBeVisible();
+
+      // Open a change request in the Overview section and leave it open.
+      const request = page.getByTestId('request-name');
+      await untilHydrated(request);
+      await request.click();
+      const form = page.getByTestId('request-form');
+      await expect(form).toBeVisible();
+
+      // Then answer a row in the "Data that's shared" section.
+      const yes = page.getByTestId('yes-models');
+      await untilHydrated(yes);
+      const rec = await recordAnnouncements(page);
+      await yes.click();
+      await expect(page.getByTestId('answer-models')).toContainText('Yes');
+      const record = await rec.settle();
+      expectHeardOnce(record, 'Models: you said this is right.', 'polite');
+      const assertive = heard(record).filter(
+        (a) => a.channel === 'live' && a.politeness === 'assertive',
+      );
+      expect(assertive, `never an alert. Record: ${describeRecord(record)}`).toEqual([]);
+      await expect(form, 'the open form is still open').toBeVisible();
+      expect(await channels(page), 'still one channel').toHaveLength(1);
     },
   );
 });
@@ -420,34 +539,47 @@ test.describe('Announcements: vendor portal preview', () => {
 const CLAIM_FORM = `/products/fixture-procore/claim`;
 
 test.describe('Announcements: form errors on the claim form', () => {
+  /** Submit the empty claim form. Asserts focus on the first field and the wiring of two errors. */
+  async function emptyClaim(page: Page) {
+    test.skip(!fixturesPresent, 'phase2 fixtures not seeded, see the beforeAll warning');
+    const { aborted } = await blockWrites(page);
+    const claim = await stubWrite(page, '**/api/requests/claim', { status: 201, json: {} });
+    await openFlowPage(page, CLAIM_FORM);
+    const submit = page.locator('[data-testid="page-canvas"] form button[type="submit"]');
+    // The terms box gates the button (VENDOR_SIGNUP_PROCESS.md section 4).
+    await page.locator('#claim-terms').check();
+    await expect(submit).toBeEnabled();
+    await untilHydrated(submit);
+
+    const rec = await recordAnnouncements(page);
+    await submit.click();
+    const name = page.locator('#claim-name');
+    await expect(name).toBeFocused();
+    const nameError = await expectFieldErrorWired(name, /\S/);
+    const emailError = await expectFieldErrorWired(page.locator('#claim-email'), /\S/);
+    return { record: await rec.settle(), nameError, emailError, claim, aborted };
+  }
+
   test(
-    'a bad submit wires every error, focuses the first field, and speaks only its error',
+    'a bad submit wires the errors, focuses the first field, and posts nothing',
+    flowAnnotations('product-claim', CLAIM_FORM),
+    async ({ page }) => {
+      const run = await emptyClaim(page);
+      expect(run.claim.calls, `an invalid form posts nothing. Aborted: ${run.aborted}`).toBe(0);
+    },
+  );
+
+  test(
+    "a bad submit speaks only the focused field's error",
     flowAnnotations('product-claim', CLAIM_FORM),
     async ({ page }) => {
       knownFailure(
         'AECI-1859',
         'every field error is role="alert", so a submit that reveals several speaks them all, not the focused field\'s',
       );
-      test.skip(!fixturesPresent, 'phase2 fixtures not seeded, see the beforeAll warning');
-      await blockWrites(page);
-      const claim = await stubWrite(page, '**/api/requests/claim', { status: 201, json: {} });
-      await openFlowPage(page, CLAIM_FORM);
-      const submit = page.locator('[data-testid="page-canvas"] form button[type="submit"]');
-      // The terms box gates the button (VENDOR_SIGNUP_PROCESS.md section 4).
-      await page.locator('#claim-terms').check();
-      await expect(submit).toBeEnabled();
-      await untilHydrated(submit);
-
-      const rec = await recordAnnouncements(page);
-      await submit.click();
-      const name = page.locator('#claim-name');
-      await expect(name).toBeFocused();
-      const nameError = await expectFieldErrorWired(name, /\S/);
-      const emailError = await expectFieldErrorWired(page.locator('#claim-email'), /\S/);
-      const record = await rec.settle();
-      expectHeardOnce(record, nameError, 'focus');
-      expectNotHeard(record, emailError);
-      expect(claim.calls, 'an invalid form posts nothing').toBe(0);
+      const run = await emptyClaim(page);
+      expectHeardOnce(run.record, run.nameError, 'focus');
+      expectNotHeard(run.record, run.emailError);
     },
   );
 });

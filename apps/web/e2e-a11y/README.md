@@ -40,6 +40,8 @@ To add a check:
 3. A check that submits anything calls `blockWrites` from `support/announcement-flows.ts` first, then stubs
    the one write it answers. `.dev.vars` holds live keys.
 4. Mark a barrier you cannot fix yet with `knownFailure()`, never a bare `test.fail()`. `pnpm test:scripts` enforces it.
+   The mark passes on any failure, so keep it on a test that asserts only the barrier. Put the checks that
+   pass today in an unmarked test beside it, as `announcements-*.spec.ts` do.
 5. If you change `surfaces.ts`, change `docs/a11y-manual-testing-checklist.md` §1 with it.
 
 To update the tab-order snapshots after a deliberate change:
