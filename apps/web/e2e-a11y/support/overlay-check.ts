@@ -13,7 +13,7 @@
  * | `select`         | a select-only combobox           | Enter      | trigger       | Tab stays inside or closes it |
  * | `search`         | an editable combobox             | typing     | trigger       | Tab stays inside or closes it |
  * | `disclosure-nav` | a link with `aria-expanded`      | ArrowDown  | inside        | Tab stays inside or closes it |
- * | `popover`        | a button with `aria-expanded` whose panel floats over the page | Enter | either | not checked |
+ * | `popover`        | a button with `aria-expanded` whose panel floats over the page | Enter | either | Tab stays inside or closes it (the separate `popovers` test) |
  *
  * "Tab stays inside or closes it" is the rule for a non-modal popup: focus is
  * never behind a popup that is still open. Only a modal dialog must trap.
@@ -63,12 +63,19 @@ const SELECT: OverlayPlan = {
   focusOnOpen: 'trigger',
   containment: 'contain-or-close',
 };
+/**
+ * A popover as the overlays test checks it: opens, closes on Escape, returns
+ * focus. Containment is checked separately, by `POPOVER_CONTAINED` in the
+ * keyboard suite's `popovers` test, so a known popover barrier stays apart.
+ */
 export const POPOVER: OverlayPlan = {
   kind: 'popover',
   open: ['Enter'],
   focusOnOpen: 'either',
   containment: 'none',
 };
+/** A popover with the non-modal rule: after each Tab, focus is inside it or it has closed. */
+export const POPOVER_CONTAINED: OverlayPlan = { ...POPOVER, containment: 'contain-or-close' };
 
 /** Does this stop open something? A combobox, `aria-haspopup`, or `aria-expanded`. */
 export function isPopupTrigger(stop: TabStop): boolean {

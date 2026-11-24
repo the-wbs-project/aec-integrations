@@ -918,7 +918,8 @@ Each surface gets these tests:
 | Test | Checks |
 |---|---|
 | `tab walk` | Tab until focus is back on the first stop. The cycle must close, reach the footer, and move focus on every press (no trap). No stop may change the URL or open a dialog, menu or list. The order must match the committed snapshot. The candidate diff must be empty. The first stop is the skip link, and Enter on it puts focus inside `main` with no new document. |
-| `overlays` | Every popup trigger the walk met, checked as the table below says. |
+| `overlays` | Every popup trigger the walk met opens by keyboard, keeps focus as **Overlays** below says, closes on Escape and returns focus to its trigger. A popover's Tab rule is the next test. |
+| `popovers` | Every floating popover the walk met: after each Tab, focus is inside it or it has closed. Its own test, so a known popover barrier cannot hide the other overlays. |
 | `aria-haspopup names the popup it opens` | A trigger's `aria-haspopup` must match the role of the element its `aria-controls` names. `"true"` promises a menu. |
 | `overlay: <name>` | An overlay a fresh walk cannot reach, from `support/overlay-scenarios.ts`. Today that is the ban dialog on `/admin/reviews`. Its reject is stubbed, so the queue row stays and nothing is moderated. |
 | `after navigation` | Enter on the first in-app link in `main`. After the client navigation, focus is not on `body`. |
@@ -929,14 +930,23 @@ waits for `untilAppStable` before the first press (§14.3). A walk that must rea
 
 **Overlays.** Triggers are found in the walk, not listed by hand: a combobox, an element with
 `aria-haspopup`, or one with `aria-expanded`. `classifyTrigger` in `support/overlay-check.ts` decides how
-each opens and what "keeps focus" means. A modal dialog must trap Tab and Shift+Tab. A non-modal popup
-passes when every Tab leaves focus inside it or closes it, so focus is never behind an open popup. Escape
-must close every kind and return focus to the trigger. A button whose panel opens in the flow of the page
-is an inline disclosure, and a native `<select>` draws its own list. Neither is checked. A trigger no rule
-covers fails the test, so a new kind of popup cannot pass unchecked. The site header's popups (search,
-the Browse menu, the account menu) are one component on every page, so they are checked on the first
-surface of each persona in the manifest, not on all of them. The vendor portal's Products dropdown
-in checklist §2 no longer exists: `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.11 replaced it with a plain link.
+each opens, and its header table lists every kind. "Keeps focus while open" means one of two things. A
+modal dialog must trap Tab and Shift+Tab inside it. Every other popup (menu, select list, search
+suggestions, the Browse menu, a popover) passes when each Tab leaves focus inside it, or closes it within
+a second, so focus is never behind an open popup. Escape must close every kind and return focus to the
+trigger. A button whose panel opens in the flow of the page is an inline disclosure, and a native
+`<select>` draws its own list. Neither is checked. A trigger no rule covers fails the test, so a new kind
+of popup cannot pass unchecked.
+
+The site header's popups (search, the Browse menu, the account menu) are one component on every page.
+They are checked once per persona, on the first surface of that persona the run can reach
+(`headerOwnerFor` in `support/header-owner.ts`). A `phase2` surface is passed over when the fixtures are
+absent, so the check falls through to the next surface. A missing session skips every surface of the
+persona, and the skip count shows it. Each overlays test records `header-overlays: checked here` on the
+surface that ran it.
+
+The vendor portal has no Products dropdown to check. `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.11 made Products a
+plain link, and checklist §2 dropped that step (AECI-2062).
 
 **The snapshot.** `e2e-a11y/__snapshots__/chromium/keyboard-<surface id>.txt` holds one line per stop:
 the innermost landmark, the role and the accessible name. Relative times and dates are masked. The path
@@ -985,6 +995,7 @@ exports from `e2e-a11y/support/`:
 | `collectElementFacts(page)`, `focusFacts(page)`, `popupFacts`, `triggerFacts`, `haspopupFacts`, `locatorForKey` | `probe.ts` | Read the page. Never move focus |
 | `candidateTabStops(facts, { keyboardFocusableScrollers? })`, `diffCandidates(candidates, stops)` | `tab-candidates.ts` | The prediction and the diff. Pure |
 | `checkOverlay(page, trigger, plan)`, `classifyTrigger(stop)` | `overlay-check.ts` | Check 7 for one trigger |
+| `headerOwnerFor(persona, fixturesPresent)` | `header-owner.ts` | Which surface checks the site header's popups. Pure |
 | `prepareSurface(context, surface, fixturesPresent)`, `openSurface(page, surface, { settle? })`, `phase2FixturesPresent()`, `surfaceAnnotations(surface)` | `surface-page.ts` | Session mint and skip, the hydration gate, the summary annotations |
 | `guardWrites(page)`, `fakeHeaderSearch(page)` | `page-guards.ts` | The routes every keyboard test installs |
 

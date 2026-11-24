@@ -10,7 +10,8 @@
  *        reaches the footer (3), the candidate diff (4), the skip link (5), and
  *        nothing opens or navigates on focus (6). WCAG 2.1.1, 2.1.2, 2.4.1, 2.4.3, 3.2.1.
  *   7a   `overlays`: every popup trigger in the walk, by `./overlay-check.ts`. The
- *        site header's triggers only on the first surface of each persona.
+ *        site header's triggers once per persona (`headerOwnerFor`, `./header-owner.ts`).
+ *   7a'  `popovers`: the Tab rule for floating popovers, kept apart from 7a.
  *   7b   `aria-haspopup names the popup it opens`: the static role check (`./popup-roles.ts`).
  *   7c   one test per `OVERLAY_SCENARIOS` entry on the surface.
  *   8    `after navigation`: Enter on an in-page link, then focus is not on `body`.
@@ -25,11 +26,13 @@ import {
   classifyTrigger,
   describeStop,
   isPopupTrigger,
+  POPOVER_CONTAINED,
   probeFloatingPanel,
   type OverlayPlan,
 } from './overlay-check';
 import { OVERLAY_SCENARIOS } from './overlay-scenarios';
 import { fakeHeaderSearch, guardWrites } from './page-guards';
+import { headerOwnerFor } from './header-owner';
 import { haspopupMismatch } from './popup-roles';
 import { collectElementFacts, focusFacts, haspopupFacts } from './probe';
 import {
@@ -41,7 +44,12 @@ import {
 import { candidateTabStops, diffCandidates } from './tab-candidates';
 import { tabTo, tabWalk, walkSnapshot, type TabStop } from './tab-walk';
 
-export type KeyboardCheck = 'tab walk' | 'overlays' | 'aria-haspopup' | 'after navigation';
+export type KeyboardCheck =
+  | 'tab walk'
+  | 'overlays'
+  | 'popovers'
+  | 'aria-haspopup'
+  | 'after navigation';
 
 /**
  * A barrier the suite finds today, with its Linear issue. `applies` decides per
@@ -116,13 +124,6 @@ export function defineKeyboardSuite(
   include: (surface: A11ySurface) => boolean,
 ): void {
   const surfaces = SURFACES.filter(include);
-  // The site header is one component on every page, and its popups (search, the
-  // Browse menu, the account menu) differ only by who is signed in. They are
-  // checked on the first surface of each persona, not on all twenty-two.
-  const headerOwner = new Map<string, string>();
-  for (const surface of SURFACES) {
-    if (!headerOwner.has(surface.persona)) headerOwner.set(surface.persona, surface.id);
-  }
 
   test.describe(`a11y nightly keyboard: ${group}`, () => {
     let fixturesPresent = false;
@@ -215,7 +216,8 @@ export function defineKeyboardSuite(
           'overlays: open by keyboard, keep focus, close on Escape, return focus',
           surfaceAnnotations(surface),
           async ({ context, page }) => {
-            test.setTimeout(300_000);
+            // The slowest surface takes about 8 s on one quiet worker. 120 s leaves room for a busy runner.
+            test.setTimeout(120_000);
             await prepareSurface(context, surface, fixturesPresent);
             markKnownBarriers(surface, 'overlays');
             await load(page, surface);
@@ -243,7 +245,11 @@ export function defineKeyboardSuite(
             };
 
             const problems: string[] = [];
-            const checksHeader = headerOwner.get(surface.persona) === surface.id;
+            const checksHeader = headerOwnerFor(surface.persona, fixturesPresent) === surface.id;
+            test.info().annotations.push({
+              type: 'header-overlays',
+              description: checksHeader ? 'checked here' : 'checked on another surface',
+            });
             const triggers = first.stops.filter(
               (s) => isPopupTrigger(s) && (checksHeader || !s.inSiteHeader),
             );
@@ -305,6 +311,60 @@ export function defineKeyboardSuite(
                 }
               });
             }
+            expect(problems).toEqual([]);
+          },
+        );
+
+        test(
+          'popovers: Tab stays inside an open popover or closes it',
+          surfaceAnnotations(surface),
+          async ({ context, page }) => {
+            test.setTimeout(120_000);
+            await prepareSurface(context, surface, fixturesPresent);
+            markKnownBarriers(surface, 'popovers');
+            await load(page, surface);
+            const first = await tabWalk(page);
+            expect(first.end, 'the Tab cycle closes, so every trigger is known').toBe('closed');
+
+            // The overlays test checks a popover opens, closes on Escape and returns
+            // focus. This one checks the rule every other non-modal popup meets:
+            // after each Tab, focus is inside it or it has closed. It is its own
+            // test so a known popover barrier does not hide the other overlays.
+            const problems: string[] = [];
+            let checked = 0;
+            const candidates = first.stops.filter((s) => {
+              const found = isPopupTrigger(s) ? classifyTrigger(s) : null;
+              return !!found && 'probe' in found;
+            });
+            for (const trigger of candidates) {
+              const label = describeStop(trigger);
+              await test.step(label, async () => {
+                await openSurface(page, surface);
+                const again = await tabWalk(page, { until: sameStop(trigger, first.stops) });
+                if (again.end !== 'matched') {
+                  problems.push(`${label}: Tab did not reach it again`);
+                  return;
+                }
+                const stop = again.stops.at(-1)!;
+                const probed = await probeFloatingPanel(page, stop);
+                if ('notOverlay' in probed) return;
+                if (!(await tabTo(page, stop.key, { maxPresses: again.stops.length + 5 }))) {
+                  problems.push(`${label}: focus did not come back to it after the first open`);
+                  return;
+                }
+                checked++;
+                const result = await checkOverlay(page, stop, POPOVER_CONTAINED);
+                problems.push(...result.map((p) => `${label} (popover): ${p}`));
+                test.info().annotations.push({
+                  type: 'overlay',
+                  description: `popover containment ${label}: ${result.length === 0 ? 'pass' : 'fail'}`,
+                });
+              });
+            }
+            test.info().annotations.push({
+              type: 'popovers-checked',
+              description: String(checked),
+            });
             expect(problems).toEqual([]);
           },
         );

@@ -43,8 +43,8 @@ Run each surface with **(a) keyboard only**, then **(b) VoiceOver**, then **(c) 
 > accessibility nightly now checks: no keyboard trap, and Tab reaches the footer and closes the cycle;
 > the tab order against a reviewed snapshot; that Tab reaches every element a script predicts, and no
 > hidden one; the skip link puts focus in `main` with no page load; no Tab stop navigates or opens a popup;
-> every dialog, menu and dropdown opens by keyboard, keeps focus while open, closes on `Esc` and returns
-> focus to its trigger; and focus is not left on the page after a client navigation. It does not judge
+> every dialog, menu and dropdown opens by keyboard, closes on `Esc` and returns focus to its trigger,
+> a modal dialog traps `Tab` and `Shift+Tab`, and any other popup closes or keeps focus inside it on `Tab`; and focus is not left on the page after a client navigation. It does not judge
 > whether the order matches reading order, check the focus indicator (AECI-1878), or run outside Chrome
 > (AECI-1885). The manual pass above keeps its full scope and cadence.
 
