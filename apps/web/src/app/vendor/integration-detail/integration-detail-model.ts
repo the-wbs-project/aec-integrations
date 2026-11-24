@@ -339,6 +339,12 @@ export interface StatusContext {
   readonly now: string;
 }
 
+/** Whether the owner has claimed the row. From then on promote writes nothing to
+ *  it, its data rows included (§4.5.3). */
+export function isClaimed(integration: Pick<VendorIntegration, 'claimed_at'>): boolean {
+  return integration.claimed_at !== null;
+}
+
 /** Whether a claim is allowed here (§6.17.2, "You can claim this integration").
  *  A connector-powered row claims on the same terms: the seat is the whole gate
  *  (ruling 14, AECI-1663). */
@@ -460,10 +466,28 @@ export function statusExplain(key: IntegrationStatusKey, integration: VendorInte
     case 'waiting':
       return $localize`:@@vendor.im.status.explain.waiting:You asked for a correction and it is being reviewed. Nothing else needs you.`;
     case 'connector':
-      return $localize`:@@vendor.im.status.explain.connector:It runs through a connector service, so AEC Integrations keeps its data up to date.`;
+      return connectorExplain(integration);
     case 'up_to_date':
       return $localize`:@@vendor.im.status.explain.upToDate:Nothing needs you right now.`;
   }
+}
+
+/**
+ * The `connector` status tooltip. Until the owner claims the row, promote keeps it
+ * current. A claim ends that (§4.5.3: promote writes nothing to a claimed row), so
+ * the claimed sentence names who keeps the details instead.
+ */
+function connectorExplain(integration: VendorIntegration): string {
+  if (!isClaimed(integration)) {
+    return $localize`:@@vendor.im.status.explain.connector:It runs through a connector service, so AEC Integrations keeps its data up to date.`;
+  }
+  if (integration.is_owner) {
+    return $localize`:@@vendor.im.status.explain.connectorClaimed.mine:It runs through a connector service. Your company keeps its details up to date, and AEC Integrations no longer updates it.`;
+  }
+  const owner = integration.owner?.name;
+  return owner
+    ? $localize`:@@vendor.im.status.explain.connectorClaimed.other:It runs through a connector service. ${owner}:owner: keeps its details up to date, and AEC Integrations no longer updates it.`
+    : $localize`:@@vendor.im.status.explain.connectorClaimed.unnamed:It runs through a connector service. Its owner keeps its details up to date, and AEC Integrations no longer updates it.`;
 }
 
 /**

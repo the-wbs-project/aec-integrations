@@ -35,6 +35,7 @@ import {
   directionShort,
   disagreementItemId,
   formatDay,
+  isClaimed,
   myAnswer,
   myNote,
   noteAudience,
@@ -702,8 +703,12 @@ export class IntegrationSharedData {
     const i = this.integration();
     const a = i.context_product.name;
     const b = i.other_product.name;
-    return i.attestable
-      ? $localize`:@@vendor.im.data.tip:The types of data that move between ${a}:a: and ${b}:b:. Say whether each row is right. Only the badge your answer produces is public.`
+    if (i.attestable) {
+      return $localize`:@@vendor.im.data.tip:The types of data that move between ${a}:a: and ${b}:b:. Say whether each row is right. Only the badge your answer produces is public.`;
+    }
+    // A claim ends promote's upkeep of the rows (§4.5.3), so the sentence changes.
+    return isClaimed(i)
+      ? $localize`:@@vendor.im.data.tipConnectorClaimed:The types of data that move between ${a}:a: and ${b}:b:. AEC Integrations stopped updating this list when the integration was claimed.`
       : $localize`:@@vendor.im.data.tipConnector:The types of data that move between ${a}:a: and ${b}:b:. AEC Integrations keeps this list up to date.`;
   });
 
@@ -720,7 +725,17 @@ export class IntegrationSharedData {
       i.powered_by?.name ??
       i.mechanism_name ??
       $localize`:@@vendor.im.connector.fallback:a connector service`;
-    return $localize`:@@vendor.im.data.connectorNote:AEC Integrations keeps these up to date. They run through ${connector}:connector:, so neither company answers for them.`;
+    if (!isClaimed(i)) {
+      return $localize`:@@vendor.im.data.connectorNote:AEC Integrations keeps these up to date. They run through ${connector}:connector:, so neither company answers for them.`;
+    }
+    // Claimed: promote writes nothing to the row, its data rows included (§4.5.3).
+    if (i.is_owner) {
+      return $localize`:@@vendor.im.data.connectorNoteClaimed.mine:AEC Integrations stopped updating these when your company claimed this integration. They run through ${connector}:connector:, so neither product vendor can confirm them.`;
+    }
+    const owner = i.owner?.name;
+    return owner
+      ? $localize`:@@vendor.im.data.connectorNoteClaimed.other:AEC Integrations stopped updating these when ${owner}:owner: claimed this integration. They run through ${connector}:connector:, so neither product vendor can confirm them.`
+      : $localize`:@@vendor.im.data.connectorNoteClaimed.unnamed:AEC Integrations stopped updating these when this integration was claimed. They run through ${connector}:connector:, so neither product vendor can confirm them.`;
   });
 
   protected readonly columns = computed(() => {
@@ -924,7 +939,9 @@ export class IntegrationSharedData {
       lines.push(claimOutcomeLine(claim, this.integration().other_product.name));
     } else {
       lines.push(
-        $localize`:@@vendor.im.data.status.connector:AEC Integrations checks it. Neither company answers for it.`,
+        isClaimed(this.integration())
+          ? $localize`:@@vendor.im.data.status.connectorClaimed:AEC Integrations no longer updates it. Neither product vendor can confirm it.`
+          : $localize`:@@vendor.im.data.status.connector:AEC Integrations checks it. Neither company answers for it.`,
       );
     }
     return lines;
