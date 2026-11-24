@@ -165,13 +165,15 @@ describe('ReindexList', () => {
       makeRow({ id: 4, priority: 4 }),
     ]);
     const { el } = await setup(api);
-    const chips = bodyRows(el).map((r) => r.querySelectorAll('td')[0].querySelector('span')!);
+    const chips = bodyRows(el).map(
+      (r) => r.querySelectorAll('td')[0].querySelector('[data-tone]') as HTMLElement,
+    );
     expect(chips.map((c) => c.textContent?.trim())).toEqual(['1', '2', '3', '4']);
-    // Tier 1 carries the warm/emphatic treatment; 2 to 4 carry the neutral one.
-    expect(chips[0].className).toContain('bg-(--accent-warm)');
+    // AECI-2125: tier 1 carries the console's attention tone (`topPriority`); 2 to 4
+    // carry the neutral `priority` tone.
+    expect(chips[0].getAttribute('data-tone')).toBe('attention');
     for (const chip of chips.slice(1)) {
-      expect(chip.className).not.toContain('bg-(--accent-warm)');
-      expect(chip.className).toContain('border-(--border-default)');
+      expect(chip.getAttribute('data-tone')).toBe('neutral');
     }
   });
 

@@ -1,6 +1,8 @@
 import { DatePipe } from '@angular/common';
 import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
 
+import { AecButton } from '../../shared/button/button';
+import { AecCard } from '../../shared/card/card';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 
@@ -29,40 +31,37 @@ let nextId = 0;
  * puts it back with an error the reader can see. Success is announced through the
  * portal's one live region rather than a second region here.
  *
- * Anchor site: Shopify admin settings (the portal's anchor). A bordered settings
- * card, title and one-line description on the start edge, the switch on the end.
+ * Anchor site: Shopify admin settings (the portal's anchor). A settings card (the
+ * shared white card since AECI-1812), title and one-line description on the start
+ * edge, the switch on the end.
  *
  * Loads in `afterNextRender`, never during SSR: the portal renders per session.
  */
 @Component({
   selector: 'aec-vendor-nudge-mute-toggle',
-  imports: [DatePipe],
+  imports: [AecButton, AecCard, DatePipe],
   styles: [':host { display: block; }'],
   template: `
+    <!-- AECI-1812: the shared white card, the switch on the end edge. -->
     <section
-      class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-4 py-4"
+      aecCard
+      [class]="'p-6'"
       [attr.aria-busy]="state() === 'loading' ? 'true' : null"
       data-testid="nudge-mute"
     >
       <div class="flex items-start justify-between gap-6">
         <div class="min-w-0">
-          <h3
-            [id]="titleId"
-            class="font-label text-sm text-(--text-primary)"
-            i18n="@@vendor.nudgeMute.title"
-          >
-            Daily reminder email
-          </h3>
+          <h3 [id]="titleId" i18n="@@vendor.nudgeMute.title">Daily reminder email</h3>
           <p
             [id]="descriptionId"
-            class="mt-1 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+            class="mt-2 max-w-[30rem] text-sm leading-relaxed text-(--text-secondary)"
             i18n="@@vendor.nudgeMute.description"
           >
             One email a day listing the integration records that need an answer. It affects your
             seat only. Seat invites, claim decisions and plan notices still arrive.
           </p>
           @if (state() === 'ready') {
-            <p class="mt-2 text-xs text-(--text-secondary)" data-testid="nudge-mute-status">
+            <p class="mt-2 text-t-13 text-(--text-secondary)" data-testid="nudge-mute-status">
               @if (mutedAt(); as at) {
                 <span i18n="@@vendor.nudgeMute.status.off">Off since</span>
                 {{ at | date: 'mediumDate' }}
@@ -78,7 +77,7 @@ let nextId = 0;
                switch is shown until the saved state is known. -->
           <span
             aria-hidden="true"
-            class="mt-0.5 inline-block h-6 w-11 shrink-0 rounded-full bg-(--surface-sunken)"
+            class="mt-1 inline-block h-6 w-11 shrink-0 rounded-pill bg-(--surface-sunken)"
             data-testid="nudge-mute-placeholder"
           ></span>
         } @else if (state() === 'ready') {
@@ -90,26 +89,30 @@ let nextId = 0;
             [attr.aria-describedby]="descriptionId"
             [attr.aria-busy]="saving() ? 'true' : null"
             (click)="toggle()"
-            class="aec-switch relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full bg-(--text-tertiary) transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) aria-checked:bg-(--accent-primary) motion-reduce:transition-none"
+            class="aec-switch relative mt-1 inline-flex h-6 w-11 shrink-0 items-center rounded-pill bg-(--text-tertiary) transition-colors focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary) aria-checked:bg-(--accent-primary) motion-reduce:transition-none"
             data-testid="nudge-mute-switch"
           >
+            <!-- A 16px knob, 4px in from either end, so every offset is on the
+                 4-point scale (AECI-1812; it was 20px with a 2px inset). -->
             <span
               aria-hidden="true"
-              class="inline-block h-5 w-5 rounded-full bg-(--surface-base) transition-transform motion-reduce:transition-none"
-              [class]="emailOn() ? 'translate-x-5' : 'translate-x-0.5'"
+              class="inline-block size-4 rounded-pill bg-(--surface-base) transition-transform motion-reduce:transition-none"
+              [class]="emailOn() ? 'translate-x-6' : 'translate-x-1'"
             ></span>
           </button>
         }
       </div>
 
       @if (state() === 'failed') {
-        <div class="mt-3 flex flex-wrap items-center gap-3">
+        <div class="mt-4 flex flex-wrap items-center gap-4">
           <p class="text-sm text-(--text-primary)" i18n="@@vendor.nudgeMute.loadFailed">
             Could not load this setting.
           </p>
           <button
+            aecButton
+            variant="secondary"
+            compact
             type="button"
-            [class]="retryClass"
             (click)="load()"
             i18n="@@vendor.nudgeMute.retry"
           >
@@ -119,7 +122,7 @@ let nextId = 0;
       }
       @if (saveError()) {
         <p
-          class="mt-3 text-sm font-medium text-(--status-error)"
+          class="mt-4 text-sm font-semibold text-(--status-error)"
           role="alert"
           data-testid="nudge-mute-error"
           i18n="@@vendor.nudgeMute.saveFailed"
@@ -146,9 +149,6 @@ export class VendorNudgeMuteToggle {
 
   /** The switch reads "email me": ON when NOT muted. */
   protected readonly emailOn = computed(() => !this.muted());
-
-  protected readonly retryClass =
-    'rounded-(--radius-sm) border border-(--border-default) px-3 py-1.5 text-sm font-medium text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
   constructor() {
     afterNextRender(() => void this.load());

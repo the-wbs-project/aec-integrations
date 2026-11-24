@@ -76,6 +76,13 @@ describe('the portal layout and form helpers (AECI-1809)', () => {
     expect(PORTAL_FIELDSET_CLASS).toContain('[&+&]:border-t');
   });
 
+  it('floats the legend so it sits under the hairline, not on it', () => {
+    const parts = PORTAL_FIELDSET_CLASS.split(' ');
+    expect(parts).toContain('[&>legend]:float-start');
+    expect(parts).toContain('[&>legend]:w-full');
+    expect(parts).toContain('[&>legend+*]:clear-both');
+  });
+
   it('keeps every helper on the 4-point spacing scale (no half steps, no 5, 7, 9, 10, 11)', () => {
     const all = [PORTAL_FORM_GRID_CLASS, PORTAL_SAVE_BAR_CLASS, PORTAL_FIELDSET_CLASS];
     const step = /(?:^|:)-?(?:p|m|gap|space)[a-z]?(?:-[xy])?-([\d.]+)$/;

@@ -5,7 +5,14 @@ import { RouterLink } from '@angular/router';
 import type { AdminConnectorCatalogRow, ConnectorManagedBy } from '@aeci/shared';
 
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
+import { AecButton } from '../../shared/button/button';
+import { FIELD_INPUT_CLASS } from '../../shared/form-field/form-field-classes';
 import { AdminPaginator } from '../admin-paginator';
+import {
+  CONSOLE_CAPTION_CLASS,
+  CONSOLE_PANEL_CLASS,
+  CONSOLE_TABLE,
+} from '../console/console-table';
 import { AdminConnectorsApi } from './admin-connectors-api';
 import { isReplayedEvent } from '../../core/event-replay';
 
@@ -35,11 +42,17 @@ type ManagedFilter = 'any' | ConnectorManagedBy;
  */
 @Component({
   selector: 'aec-connector-list',
-  imports: [RouterLink, AdminPaginator, AecSelect, DatePipe],
+  imports: [RouterLink, AdminPaginator, AecButton, AecSelect, DatePipe],
   templateUrl: './connector-list.html',
 })
 export class ConnectorList {
   private readonly api = inject(AdminConnectorsApi);
+
+  // AECI-2125: the console recipe.
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly panelClass = CONSOLE_PANEL_CLASS;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
 
   protected readonly catalogs = signal<readonly AdminConnectorCatalogRow[]>([]);
   protected readonly total = signal(0);

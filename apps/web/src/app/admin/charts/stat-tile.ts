@@ -49,22 +49,32 @@ const NOT_MEASURED_LABEL = $localize`:@@admin.stat.notMeasured:Not measured`;
   selector: 'aec-stat-tile',
   imports: [ChartDataTable, SeriesSparkline],
   template: `
+    <!-- AECI-2125, mock-up 14: the Overview tile's look. A flat bordered panel,
+         the label at the Label role, the figure at 36px in Forest. -->
     <div
-      class="flex h-full flex-col gap-1 rounded-(--radius-lg) border border-(--border-default)
-        bg-(--surface-raised) p-4"
+      class="flex h-full flex-col gap-2 rounded-panel border border-(--border-default)
+        bg-(--surface-base) p-6"
     >
-      <p class="text-sm text-(--text-secondary)">{{ label() }}</p>
+      <p
+        class="text-t-13 font-semibold leading-[1.4] tracking-[0.01em] text-pretty
+          text-(--text-secondary)"
+      >
+        {{ label() }}
+      </p>
 
-      <p class="font-display text-3xl font-semibold tabular-nums text-(--text-primary)">
+      <p
+        class="font-display text-t-36 font-semibold leading-none tracking-[-0.01em] tabular-nums
+          lining-nums text-(--accent-primary)"
+      >
         {{ formattedValue() }}
       </p>
 
       @if (caveat()) {
-        <p class="text-xs leading-snug text-(--text-secondary)">{{ caveat() }}</p>
+        <p class="text-t-12 text-(--text-secondary)">{{ caveat() }}</p>
       }
 
       @if (delta(); as d) {
-        <p class="mt-0.5 flex items-baseline gap-1 text-xs text-(--text-secondary)">
+        <p class="flex items-baseline gap-1 text-t-12 text-(--text-secondary)">
           <span aria-hidden="true">{{ deltaGlyph() }}</span>
           <span aria-hidden="true" class="font-semibold tabular-nums text-(--text-primary)">{{
             deltaText()

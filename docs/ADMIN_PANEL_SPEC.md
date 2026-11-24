@@ -513,7 +513,7 @@ toggle and the honesty envelope are all live at `/admin/traffic`.
 
 ### 5.4 Audience — SHIPPED (AECI-586, 2026-08-13)
 
-Subscribers cumulative and net-new · unsubscribes and churn rate (`unsubscribed_at` is a soft delete, so churn is exactly computable) · UTM source/medium/campaign breakdown · signup geography · and the **feedback inbox** as a readable list. `feedback` is written by `POST /api/feedback` and had **no read surface anywhere in the product** before this unit.
+Subscribers cumulative and net-new · unsubscribes and churn rate (`unsubscribed_at` is a soft delete, so churn is exactly computable) · UTM source/medium/campaign breakdown · signup geography · and the **feedback inbox**, a console table since AECI-2125 (received, features they want, tools they use, contact). `feedback` is written by `POST /api/feedback` and had **no read surface anywhere in the product** before this unit.
 
 Renders empty states until signups begin (§3). Cheap to build alongside §5.3 and needed the day the first subscriber arrives.
 
@@ -529,7 +529,7 @@ Renders empty states until signups begin (§3). Cheap to build alongside §5.3 a
 
 Two smaller notes. The breakdowns group **signups inside the window**, matching `/traffic/breakdown`'s convention, with `window_totals.signups` alongside so a row's share needs no second request — and the NULL bucket is surfaced, since an organic signup with no `utm_source` is a real signup. And the section shipped the epic's only **schema change outside §7**: three `created_at` / `unsubscribed_at` indexes (§7.5), because the two lead-capture tables were the only ones in the schema with none.
 
-**How people found us (AECI-1063, 2026-10-29).** A section between the geography charts and the feedback inbox reads the `found_via` block of `GET /api/admin/audience` over the same window. It has two parts. A count table has one row per channel plus a "Not answered" row, and one column per form: claims, listings, subscribers, feedback, then the total. A details table lists the latest 100 follow-up answers for AI tools and search engines, newest first, with the date, form and channel. Each feedback card also shows "Found us via" when the submitter answered. The contract, the erasure rule and why the detail never reaches PostHog are in `ANALYTICS.md` §11b. The channel labels come from one helper, `shared/found-via/found-via-labels.ts`, which the form uses too.
+**How people found us (AECI-1063, 2026-10-29).** A section between the geography charts and the feedback inbox reads the `found_via` block of `GET /api/admin/audience` over the same window. It has two parts. A count table has one row per channel plus a "Not answered" row, and one column per form: claims, listings, subscribers, feedback, then the total. A details table lists the latest 100 follow-up answers for AI tools and search engines, newest first, with the date, form and channel. Each feedback row also shows "Found us via" in its Contact cell when the submitter answered. The contract, the erasure rule and why the detail never reaches PostHog are in `ANALYTICS.md` §11b. The channel labels come from one helper, `shared/found-via/found-via-labels.ts`, which the form uses too.
 
 #### 5.4a The subscriber roster — SHIPPED (AECI-859, 2026-09-11)
 

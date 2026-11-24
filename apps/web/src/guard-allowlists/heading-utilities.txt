@@ -2,35 +2,19 @@
 # Guard: src/heading-utilities.guard.spec.ts. Rules: src/guard-allowlists/shrink-only.harness.ts.
 # One line per file: its path from src/app and its count. A count only goes down.
 # Lower your line when you fix some. Delete it when the file reaches zero. Never add a line.
-admin/activity/activity-feed.html 1
-admin/audience/audience.html 9
 admin/audit/audit-log.html 1
-admin/catalog/catalog-coverage.html 8
-admin/connectors/connector-detail.html 6
-admin/connectors/connector-list.html 1
 admin/dmca/dmca-notices.html 2
 admin/email/email-activity.html 5
 admin/email/email-switches.html 5
 admin/legal/legal-acceptance-status.ts 2
 admin/legal/legal-versions.html 4
 admin/legal/litigation-holds.html 3
-admin/reindex/reindex-history.html 1
-admin/reindex/reindex-list.html 2
-admin/subscribers/subscriber-list.html 1
-admin/traffic/traffic.html 10
 admin/users/user-detail.html 7
 admin/users/user-list.html 1
 admin/vendors/billing-licenses-table.html 6
 vendor/components/vendor-billing-stripe-panel.ts 3
 vendor/components/vendor-billing-summary.ts 1
-vendor/components/vendor-contests-list.ts 1
 vendor/components/vendor-license-actions.ts 1
-vendor/components/vendor-nudge-mute-toggle.ts 1
 vendor/components/vendor-proposal-card.ts 1
-vendor/components/vendor-reviews-list.ts 1
-vendor/components/vendor-seat-invite-dialog.ts 1
-vendor/components/vendor-seat-roster.ts 2
 vendor/sections/vendor-billing-section.ts 6
-vendor/sections/vendor-messages-page.ts 2
 vendor/sections/vendor-proposals-section.ts 2
-vendor/sections/vendor-seats-page.ts 1

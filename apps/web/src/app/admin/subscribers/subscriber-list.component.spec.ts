@@ -188,7 +188,9 @@ describe('SubscriberList', () => {
   it('offers no control that could opt a subscriber out on their behalf', async () => {
     const { el } = await setup();
 
-    const labels = [...el.querySelectorAll('button')].map(
+    // The membership filter's toggles (`aria-pressed`) read "Unsubscribed" and act on
+    // the query, not on a person, so they are not what this guards against.
+    const labels = [...el.querySelectorAll('button:not([aria-pressed])')].map(
       (b) => b.textContent?.toLowerCase() ?? '',
     );
     expect(labels.some((l) => l.includes('unsubscribe') || l.includes('remove'))).toBe(false);
@@ -232,13 +234,17 @@ describe('SubscriberList — filtering and search', () => {
   it('sends the membership filter and returns to page one', async () => {
     const { el, api, fixture } = await setup();
 
-    el.querySelector<HTMLElement>('[id^="admin-subscribers-status"]');
-    // Drive the component rather than the Aria control: the filter's wiring is
-    // covered by `aec-select`'s own spec, and this asserts what reaches the API.
-    (fixture.componentInstance as unknown as { onStatusChange(v: string): void }).onStatusChange(
-      'unsubscribed',
-    );
+    // AECI-2125: Membership is the console's segmented filter. Press its option.
+    const group = el.querySelector<HTMLElement>(
+      '[role="group"][aria-labelledby="admin-subscribers-status-label"]',
+    )!;
+    const option = [...group.querySelectorAll<HTMLButtonElement>('button')].find(
+      (b) => b.textContent?.trim() === 'Unsubscribed',
+    )!;
+    expect(option.getAttribute('aria-pressed')).toBe('false');
+    option.click();
     await fixture.whenStable();
+    expect(option.getAttribute('aria-pressed')).toBe('true');
     await settle();
 
     expect(api.listSubscribers).toHaveBeenLastCalledWith(
