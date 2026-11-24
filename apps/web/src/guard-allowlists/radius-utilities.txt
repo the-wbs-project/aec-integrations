@@ -11,9 +11,6 @@ admin/catalog/catalog-coverage.html 11
 admin/charts/line-chart.ts 1
 admin/charts/stacked-series-chart.ts 1
 admin/charts/stat-tile.ts 1
-admin/claims/claim-account-conflict.ts 1
-admin/claims/claim-detail.html 14
-admin/claims/claim-queue.html 18
 admin/connectors/connector-detail.html 15
 admin/connectors/connector-list.html 4
 admin/connectors/managed-by-control.html 7
@@ -27,13 +24,7 @@ admin/legal/litigation-holds.html 4
 admin/legal/litigation-holds.ts 2
 admin/reindex/reindex-history.html 4
 admin/reindex/reindex-list.html 10
-admin/requests/license-release-queue.html 4
-admin/requests/license-release-queue.ts 2
-admin/requests/product-request-queue.ts 10
-admin/requests/request-queue.html 9
 admin/subscribers/subscriber-list.html 5
-admin/threads/thread-detail.html 3
-admin/threads/thread-list.html 2
 admin/traffic/traffic.html 14
 admin/users/user-detail.html 13
 admin/users/user-list.html 7
