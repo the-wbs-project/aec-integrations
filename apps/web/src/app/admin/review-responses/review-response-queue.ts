@@ -22,8 +22,29 @@ import {
 } from '@aeci/shared';
 
 import { AdminSummaryStore } from '../admin-summary.store';
+import { CONSOLE_LABEL_CLASS, CONSOLE_TABLE } from '../console/console-table';
+import { AdminDisclosureButton } from '../console/disclosure-button';
+import { adminStatusTone } from '../console/status-tones';
+import {
+  QUEUE_BODY_CLASS,
+  QUEUE_DETAIL_GRID_CLASS,
+  QUEUE_FACTS_CLASS,
+  QUEUE_FAILED_CLASS,
+  QUEUE_FILTER,
+  QUEUE_FORM_CLASS,
+  QUEUE_HELP_CLASS,
+  QUEUE_NOTICE_CLASS,
+} from '../reviews/queue-filter-classes';
 import { AdminReviewResponsesApi } from './admin-review-responses-api';
+import { AecButton } from '../../shared/button/button';
+import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { AecIcon } from '../../shared/icon/icon';
 
 /** One request covers a launch-scale backlog. The API caps `perPage` at 100; we
  *  load the max and say so when the server reports more. */
@@ -72,10 +93,17 @@ type DecisionWithoutVersion =
  * the count. A `409 REVIEW_RESPONSE_WRONG_STATE` does not either: someone else
  * moved the row first (another admin, or the vendor editing or withdrawing it),
  * and the next full visit re-seeds the count.
+ *
+ * ── THE TABLE (AECI-2102, mock-up 14) ───────────────────────────────────────
+ * One console table row per reply: product, vendor, author, last change and
+ * status. The review, the reply and the decision sit in the row's expanded
+ * detail. After a decision removes a row, focus moves to the disclosure of the
+ * row that took its place, or to the queue heading when none is left. A failed
+ * decision moves focus to the row's alert.
  */
 @Component({
   selector: 'aec-review-response-queue',
-  imports: [AecFormSubmit, DatePipe, RouterLink],
+  imports: [AdminDisclosureButton, AecButton, AecFormSubmit, AecIcon, Chip, DatePipe, RouterLink],
   templateUrl: './review-response-queue.html',
 })
 export class ReviewResponseQueue {
@@ -85,6 +113,24 @@ export class ReviewResponseQueue {
   private readonly injector = inject(Injector);
 
   protected readonly reasonMax = REVIEW_RESPONSE_REASON_MAX;
+
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly f = QUEUE_FILTER;
+  protected readonly labelClass = CONSOLE_LABEL_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  protected readonly errorClass = FIELD_ERROR_CLASS;
+  protected readonly noticeClass = QUEUE_NOTICE_CLASS;
+  protected readonly detailGridClass = QUEUE_DETAIL_GRID_CLASS;
+  protected readonly bodyClass = QUEUE_BODY_CLASS;
+  protected readonly factsClass = QUEUE_FACTS_CLASS;
+  protected readonly helpClass = QUEUE_HELP_CLASS;
+  protected readonly formClass = QUEUE_FORM_CLASS;
+  protected readonly failedClass = QUEUE_FAILED_CLASS;
+  /** The table's columns, for the detail cell's `colspan`. */
+  protected readonly columnCount = 6;
+  /** Ids of the rows whose detail is open. */
+  private readonly openIds = signal<ReadonlySet<string>>(new Set());
 
   /** The loaded replies, in server order (oldest first). */
   private readonly replies = signal<readonly AdminReviewResponse[]>([]);
@@ -160,6 +206,47 @@ export class ReviewResponseQueue {
   }
 
   // ── Display ──────────────────────────────────────────────────────────────
+
+  protected isOpen(id: string): boolean {
+    return this.openIds().has(id);
+  }
+
+  protected toggleRow(id: string): void {
+    this.openIds.update((ids) => {
+      const next = new Set(ids);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  /** The row's name, true open or closed: `aria-expanded` carries the state. */
+  protected rowLabel(r: AdminReviewResponse): string {
+    const vendor = r.vendor.name;
+    const product = r.product.name;
+    const review = r.review.title;
+    return $localize`:@@admin.replies.row.label:Reply from ${vendor}:vendor: on ${product}:product:, to the review ${review}:review:`;
+  }
+
+  /**
+   * The chip tone for a reply status. Exhaustive: a new status fails to compile.
+   * `published` is not in the console map yet: it takes `approved`, its closest
+   * word (live, as intended), until the map gains it.
+   */
+  protected statusTone(status: ReviewResponseStatus): ConsoleChipTone {
+    switch (status) {
+      case 'pending':
+        return adminStatusTone('pending');
+      case 'published':
+        return adminStatusTone('approved');
+      case 'rejected':
+        return adminStatusTone('rejected');
+      case 'withdrawn':
+        return adminStatusTone('withdrawn');
+      case 'removed':
+        return adminStatusTone('removed');
+    }
+  }
 
   protected statusLabel(status: ReviewResponseStatus): string {
     return this.statusOptions.find((o) => o.key === status)?.label ?? status;
@@ -313,11 +400,29 @@ export class ReviewResponseQueue {
     this.failedActionMessage.set(
       $localize`:@@admin.replies.action.failed:Something went wrong. Nothing was changed. Please try again.`,
     );
+    this.focusAfterRender(`reply-${id}-failed`);
   }
 
+  /** Drop a decided row, then move focus to the row that took its place, or to the
+   *  queue heading when none is left. */
   private removeRow(id: string): void {
+    const index = this.replies().findIndex((r) => r.id === id);
     this.replies.update((list) => list.filter((r) => r.id !== id));
     this.total.update((n) => Math.max(0, n - 1));
+    const rows = this.replies();
+    const next = rows.length > 0 ? rows[Math.min(Math.max(index, 0), rows.length - 1)] : null;
+    afterNextRender(
+      {
+        write: () => {
+          const host = this.host.nativeElement;
+          const target = next
+            ? host.querySelector<HTMLElement>(`[aria-controls="reply-${next.id}-detail"]`)
+            : host.querySelector<HTMLElement>('#admin-replies-heading');
+          target?.focus();
+        },
+      },
+      { injector: this.injector },
+    );
   }
 }
 
