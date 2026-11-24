@@ -679,7 +679,7 @@ A vendor-created row has no upstream record, by construction. §4.5.5's lanes al
 
 "Add an integration" at the top of the Integrations tab (`components/vendor-integration-create.ts`, mounted by `vendor-integrations-section.ts`). Not gated on `canWrite`: a seat is the whole gate. A disclosure opens a pessimistic form with four `<fieldset>`s. The first is the two products: your product and the other product. Your product is the tab's product, shown fixed in a shaded box with its logo and no way to change it, so an integration cannot land on the wrong product (Chris, 2026-10-15). The box locks on the tab's product id alone. Until the portal's product list holds that id, the box shows a placeholder and the submit is blocked, never a fallback to another product. A `<select>` of the vendor's products appears only where the page names no product, which today is the single-page preview concept. The other product is picked with the shared type-ahead `aec-product-combobox` (AECI-1244) over the public `GET /api/products?search=&sort=name`. It searches as the vendor types, lists matches A to Z, and leaves out your own product. The chosen product then shows with its logo, vendor and a Change button. The other three are the owner edit's groups (`EDIT_GROUPS`, the same labels and value rule). The type picker offers `OWNER_EDITABLE_MECHANISM_KINDS` only.
 
-**A likely duplicate shows before the create (AECI-1953).** When the vendor picks the other product, the form calls the pre-check GET (§4.7.1). While it loads, the products fieldset reads "Checking for integrations already on record…", and the fields stay usable. A bordered list card then shows at the top of step 2, as wide as the fields. Its heading reads "Already on record for these two products", with the count beside it ("4 integrations"). One muted line follows: "If one of them is yours, use it instead of adding a copy." Each match is one row: the name, a muted status line under it, and one action on the right in the portal's row-action style (`ROW_ACTION`). A narrow column wraps the action under the text. An own match never repeats the company's name.
+**A likely duplicate shows before the create (AECI-1953).** When the vendor picks the other product, the form calls the pre-check GET (§4.7.1). While it loads, the products fieldset reads "Checking for integrations already on record…", and the fields stay usable. A bordered list card then shows at the top of step 2, as wide as the fields. Its heading reads "Already on record for these two products", with the count beside it ("4 integrations"). One muted line follows: "If one of them is yours, use it instead of adding a copy." Each match is one row: the name, a muted status line under it, and one action on the right in the portal's row-link style (Forest text, 600, the role radius; `rowActionClass` in `vendor-integration-create.ts`). A narrow column wraps the action under the text. An own match never repeats the company's name.
 
 | Match | Status line | Action |
 |---|---|---|
@@ -2237,8 +2237,8 @@ The §8.9 seat maintains its own connector catalogue (`STAGE_2_SPEC.md` §8.9(1)
 > (§6.17.5), `integration-change-requests.ts` + `integration-request-form.ts` (§6.17.6),
 > `integration-settings.ts` (§6.17.7), `vendor-tip.ts` (the §6.17.9 tooltip), `integration-detail-model.ts`
 > (status, copy and pure functions), `integration-detail-state.ts` (the page-scoped store) and
-> `integration-detail-styles.ts` (`ID_STYLES`, the component-scoped coloured borders `DESIGN.md`
-> "Vendor portal" needs). The list row and its status filter moved into
+> `integration-detail-styles.ts` (the shared class strings and the status chip maps; its
+> component-scoped borders went with AECI-1811 part 2). The list row and its status filter moved into
 > `vendor/components/vendor-integration-list-model.ts`. Five deviations from this section, each ruled
 > during the build rather than reopening it:
 >
@@ -2352,7 +2352,7 @@ The pill never carries meaning by colour alone. `disagreement` keeps the red ton
 - **Focus.** Choosing a nav item moves keyboard focus to the section's heading (`tabindex="-1"`, no visible outline on programmatic focus). Scroll-spy never moves focus.
 - **Clearance.** Every jump target (section headings, data rows, change request items, Overview rows) declares `scroll-mt-*` equal to the sticky bar's height plus a gap. Never `ViewportScroller.setOffset()`.
 
-**"Things that need you".** A callout under the title block. Each item is one sentence and one link that jumps to its target and focuses it. Before a jump into Change requests the page clears that section's search and sets its filter to All, so the target is on the page. With nothing in either list the heading reads "Nothing needs you right now".
+**"Things that need you".** A white card under the title block, its items one list divided by hairlines (AECI-1811). Each item is one sentence and one link that jumps to its target and focuses it. Before a jump into Change requests the page clears that section's search and sets its filter to All, so the target is on the page. With nothing in either list the heading reads "Nothing needs you right now".
 
 Items, derived from the wire only, never re-derived agreement:
 
@@ -2536,7 +2536,7 @@ One list of everything open between the two companies and AEC Integrations about
 
 #### 6.17.7 Settings (AECI-1149)
 
-Retire and restore, from §4.6, rendered as one bordered danger area. No new route or rule.
+Retire and restore, from §4.6, rendered as one panel with the default edge: a secondary "Retire integration" opener and a danger "Yes, retire it" confirm (AECI-1811). No new route or rule.
 
 | Caller and row | Content |
 | -- | -- |
