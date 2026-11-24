@@ -22,8 +22,9 @@ import { AecButton } from '../../shared/button/button';
 
 import { ALERT, ID_STYLES } from './integration-detail-styles';
 
-/** The settings panel. Retiring can be undone with Restore, so this is a plain
- *  bordered panel with a primary confirm, not a danger zone (DESIGN.md §5 Buttons). */
+/** The settings panel: the default edge. "Yes, retire it" is the danger button, because
+ *  a retire closes other companies' open requests and row threads and Restore reopens
+ *  none (§4.6.1, DESIGN.md §5 Buttons). The opener stays secondary. */
 const PANEL = 'rounded-panel border border-(--border-default) p-4 text-sm';
 
 /**
@@ -62,6 +63,7 @@ const PANEL = 'rounded-panel border border-(--border-default) p-4 text-sm';
               >
               <button
                 aecButton
+                variant="danger"
                 compact
                 #confirm
                 type="button"

@@ -35,6 +35,7 @@ import {
 import { AecIcon } from '../../shared/icon/icon';
 import { FORM_PANEL, NESTED_SAVE_BAR } from '../integration-detail/integration-detail-styles';
 import { PORTAL_SAVE_BUTTON_CLASS } from '../shared/portal-form';
+import { KeepClearOfSaveBar } from '../integration-detail/keep-clear-of-save-bar';
 
 /**
  * The caller's newest "not ours" on one row (AECI-1225): an `owner` contest it filed
@@ -87,7 +88,7 @@ export function selfDisclaimStands(contest: VendorContest | null): boolean {
  */
 @Component({
   selector: 'aec-vendor-not-ours',
-  imports: [AecButton, AecIcon],
+  imports: [KeepClearOfSaveBar, AecButton, AecIcon],
   styles: [':host { display: block; }'],
   template: `
     @switch (contest()?.status) {
@@ -155,6 +156,7 @@ export function selfDisclaimStands(contest: VendorContest | null): boolean {
 
     @if (open()) {
       <form
+        aecKeepClearOfSaveBar
         method="dialog"
         [id]="fieldId('panel')"
         class="mt-2 max-w-2xl space-y-6"

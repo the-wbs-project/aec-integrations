@@ -36,6 +36,7 @@ import {
   NESTED_SAVE_BAR,
 } from '../integration-detail/integration-detail-styles';
 import { PORTAL_SAVE_BUTTON_CLASS } from '../shared/portal-form';
+import { KeepClearOfSaveBar } from '../integration-detail/keep-clear-of-save-bar';
 
 type Side = 'submitted' | 'received';
 type Busy = 'file' | 'reply' | 'withdraw' | null;
@@ -66,7 +67,15 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
  */
 @Component({
   selector: 'aec-vendor-contest-protest',
-  imports: [AecButton, AecFormSubmit, Chip, DatePipe, NgTemplateOutlet, RouterLink],
+  imports: [
+    KeepClearOfSaveBar,
+    AecButton,
+    AecFormSubmit,
+    Chip,
+    DatePipe,
+    NgTemplateOutlet,
+    RouterLink,
+  ],
   styles: [':host { display: block; }'],
   template: `
     @let c = contest();
@@ -262,6 +271,7 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
           </button>
         } @else {
           <form
+            aecKeepClearOfSaveBar
             method="dialog"
             [id]="ids.form"
             class="mt-2 max-w-prose space-y-2"

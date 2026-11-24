@@ -38,6 +38,7 @@ import {
 } from './integration-detail-styles';
 import { VendorTip } from './vendor-tip';
 import { isReplayedEvent } from '../../core/event-replay';
+import { KeepClearOfSaveBar } from './keep-clear-of-save-bar';
 
 let nextId = 0;
 
@@ -68,10 +69,11 @@ type WrongKind = 'not-shared' | 'direction' | 'other';
  */
 @Component({
   selector: 'aec-integration-answer-form',
-  imports: [AecButton, VendorTip],
+  imports: [KeepClearOfSaveBar, AecButton, VendorTip],
   styles: [ID_STYLES],
   template: `
     <form
+      aecKeepClearOfSaveBar
       method="dialog"
       [class]="panel"
       class="space-y-4 text-sm"

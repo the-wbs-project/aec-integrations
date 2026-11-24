@@ -50,6 +50,7 @@ import {
   NESTED_SAVE_BAR,
 } from './integration-detail-styles';
 import { isReplayedEvent } from '../../core/event-replay';
+import { KeepClearOfSaveBar } from './keep-clear-of-save-bar';
 
 /** The owner picker's value for "neither company". Never a UUID. `null` on the wire. */
 const NO_OWNER = 'none';
@@ -96,10 +97,11 @@ interface FieldOption {
  */
 @Component({
   selector: 'aec-integration-request-form',
-  imports: [AecButton],
+  imports: [KeepClearOfSaveBar, AecButton],
   styles: [ID_STYLES],
   template: `
     <form
+      aecKeepClearOfSaveBar
       method="dialog"
       id="change-requests-form"
       tabindex="-1"

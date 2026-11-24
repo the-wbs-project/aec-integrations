@@ -69,6 +69,7 @@ import {
 } from './integration-detail-styles';
 import { VendorTip } from './vendor-tip';
 import { isReplayedEvent } from '../../core/event-replay';
+import { KeepClearOfSaveBar } from './keep-clear-of-save-bar';
 
 /**
  * "Data that's shared" (AECI-1151, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.4).
@@ -99,7 +100,14 @@ import { isReplayedEvent } from '../../core/event-replay';
  */
 @Component({
   selector: 'aec-integration-shared-data',
-  imports: [AecButton, AecIcon, VendorTip, VendorDocsLink, IntegrationAnswerForm],
+  imports: [
+    KeepClearOfSaveBar,
+    AecButton,
+    AecIcon,
+    VendorTip,
+    VendorDocsLink,
+    IntegrationAnswerForm,
+  ],
   styles: [ID_STYLES],
   template: `
     @let i = integration();
@@ -131,6 +139,7 @@ import { isReplayedEvent } from '../../core/event-replay';
     <div id="data-shared-add">
       @if (state.addingRow() && canAdd()) {
         <form
+          aecKeepClearOfSaveBar
           method="dialog"
           [class]="panel"
           class="mt-4 space-y-6 text-sm"

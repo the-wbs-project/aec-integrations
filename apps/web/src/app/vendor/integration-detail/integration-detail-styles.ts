@@ -5,7 +5,7 @@ import {
 } from '../../shared/form-field/form-field-classes';
 import type { ChipTone } from '../../shared/chip/chip';
 import type { AecIconName } from '../../shared/icon/icon-registry';
-import { PORTAL_SAVE_STATUS_CLASS } from '../shared/portal-form';
+import { PORTAL_FORM_CLASS, PORTAL_SAVE_STATUS_CLASS } from '../shared/portal-form';
 
 import type { Tone } from './integration-detail-model';
 
@@ -32,9 +32,12 @@ export const INPUT = FIELD_INPUT_CLASS;
 
 /**
  * A form nested inside a row or a section: a white panel with the default edge. It
- * is white so the nested save bar (below) sits on the same ground.
+ * is white so the nested save bar (below) sits on the same ground. It carries
+ * `PORTAL_FORM_CLASS` whole: that class is scroll margins only, no layout, and it
+ * keeps a control focused by Tab clear of the sticky bar (WCAG 2.4.11). Every form
+ * that renders `NESTED_SAVE_BAR` binds this panel.
  */
-export const FORM_PANEL = 'rounded-panel border border-(--border-default) bg-(--surface-base) p-4';
+export const FORM_PANEL = `rounded-panel border border-(--border-default) bg-(--surface-base) p-4 ${PORTAL_FORM_CLASS}`;
 
 /** A read-only note inside a row (a company's note, a reason): the sunken panel. */
 export const NOTE_PANEL = 'rounded-panel bg-(--surface-sunken) px-4 py-3';
