@@ -338,7 +338,9 @@ interface NeedsRow {
             >
             <span class="block text-t-13 text-(--text-secondary)">{{ row.body }}</span>
           </span>
-          <aec-chip density="dense" [tone]="chipTone(row.tone)">{{ row.pill }}</aec-chip>
+          <aec-chip density="dense" [tone]="chipTone(row.tone)" [icon]="chipIcon(row.tone)">{{
+            row.pill
+          }}</aec-chip>
         </span>
         <span class="flex shrink-0 self-center text-(--text-tertiary)">
           <aec-icon name="chevron-right" decorative [size]="4" [mirrorRtl]="true" />
@@ -528,6 +530,16 @@ export class VendorOverviewSection {
       default:
         return 'sunken';
     }
+  }
+
+  /**
+   * Work with a clock on it carries the "!" mark, as on the Integrations list
+   * (AECI-1811, `STATUS_CHIP_ICON.attention`), so the two strong-edged chips read
+   * the same on both pages. The conflict row already has its warning icon. The
+   * chip draws the mark decorative, so the chip's words carry the state.
+   */
+  protected chipIcon(tone: NeedsRow['tone']): AecIconName | null {
+    return tone === 'attention' ? 'exclamation' : null;
   }
 
   protected rowIcon(icon: NeedsRow['icon']): AecIconName {

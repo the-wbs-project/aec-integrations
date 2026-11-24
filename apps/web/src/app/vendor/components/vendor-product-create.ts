@@ -309,8 +309,9 @@ export type ProductCreateNotice = { kind: 'notOwned' } | { kind: 'text'; text: s
 
             <!--
               The save bar. Its status slot holds the form-level alert, which stays
-              role="alert" (it reports a refused submit, not a status). The DOM order
-              is the old one: the alert, then Add product, then Cancel.
+              role="alert" (it reports a refused submit, not a status). The alert now
+              comes first in the bar, ahead of Add product and Cancel. Before AECI-1810
+              it came after Cancel.
             -->
             <div [class]="saveBarClass">
               <div [class]="saveStatusClass">

@@ -95,8 +95,7 @@ export interface ChecklistRow {
         @for (seg of segments(); track $index) {
           <span
             [class]="
-              'h-1.5 flex-1 rounded-full ' +
-              (seg ? 'bg-(--accent-primary)' : 'bg-(--border-default)')
+              'h-2 flex-1 rounded-full ' + (seg ? 'bg-(--accent-primary)' : 'bg-(--border-default)')
             "
           ></span>
         }

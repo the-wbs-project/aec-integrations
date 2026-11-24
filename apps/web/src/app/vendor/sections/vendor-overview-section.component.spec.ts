@@ -92,6 +92,17 @@ describe('VendorOverviewSection — the new design language (AECI-1810)', () => 
       expect(row.querySelector('aec-chip [data-density="dense"]')).not.toBeNull();
     }
     expect(cards[0]!.classList.contains('aec-card')).toBe(true);
+    // A chip with a clock on it (strong edge) carries the "!" mark, as on the
+    // Integrations list. A quiet (sunken) chip carries none.
+    const strong = el.querySelectorAll('[data-item] .aec-chip[data-tone="strong"]');
+    expect(strong.length).toBeGreaterThan(0);
+    for (const chip of strong) {
+      expect(chip.hasAttribute('data-icon')).toBe(true);
+      expect(chip.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+    }
+    for (const chip of el.querySelectorAll('[data-item] .aec-chip[data-tone="sunken"]')) {
+      expect(chip.hasAttribute('data-icon')).toBe(false);
+    }
     // No row is its own bordered box any more.
     expect(el.querySelector('[data-item].rounded-\\(--radius-md\\)')).toBeNull();
   });
