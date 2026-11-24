@@ -14,6 +14,10 @@ import { LineChart } from '../charts/line-chart';
 import { StackedSeriesChart } from '../charts/stacked-series-chart';
 import { StatTile } from '../charts/stat-tile';
 import { AdminNotes } from '../admin-notes';
+import { AecButton } from '../../shared/button/button';
+import { AecIcon } from '../../shared/icon/icon';
+import { CONSOLE_FILTER } from '../console/console-filter';
+import { CONSOLE_CAPTION_CLASS, CONSOLE_PANEL_CLASS } from '../console/console-table';
 import { AdminTrafficApi } from './admin-traffic-api';
 import { dayKeyParts, formatInstant, formatThousands, type DisplayZone } from '../charts/format';
 import type { ChartCategory, ChartSeries } from '../charts/chart-types';
@@ -71,7 +75,15 @@ const BREAKDOWN_ROWS = 8;
  */
 @Component({
   selector: 'aec-admin-traffic',
-  imports: [AdminNotes, HorizontalBarChart, LineChart, StackedSeriesChart, StatTile],
+  imports: [
+    AdminNotes,
+    AecButton,
+    AecIcon,
+    HorizontalBarChart,
+    LineChart,
+    StackedSeriesChart,
+    StatTile,
+  ],
   templateUrl: './traffic.html',
   host: { class: 'aec-charts block' },
 })
@@ -88,6 +100,14 @@ export class AdminTraffic {
   protected readonly excludeInternal = signal(false);
 
   protected readonly rangeOptions = RANGE_OPTIONS;
+
+  // ── Console recipe (AECI-2125) ─────────────────────────────────────────────
+
+  protected readonly f = CONSOLE_FILTER;
+  protected readonly panelClass = CONSOLE_PANEL_CLASS;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  /** A short note under a panel heading: 13px secondary. */
+  protected readonly noteClass = 'text-t-13 text-(--text-secondary)';
 
   protected readonly populationOptions: ReadonlyArray<{
     key: AdminTrafficPopulation;

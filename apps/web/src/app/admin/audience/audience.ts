@@ -18,6 +18,17 @@ import { StackedSeriesChart } from '../charts/stacked-series-chart';
 import { StatTile } from '../charts/stat-tile';
 import { AdminNotes } from '../admin-notes';
 import { AdminPaginator } from '../admin-paginator';
+import { AecButton } from '../../shared/button/button';
+import { Chip } from '../../shared/chip/chip';
+import { AecIcon } from '../../shared/icon/icon';
+import { CONSOLE_FILTER } from '../console/console-filter';
+import {
+  CONSOLE_CAPTION_CLASS,
+  CONSOLE_LABEL_CLASS,
+  CONSOLE_PANEL_CLASS,
+  CONSOLE_TABLE,
+} from '../console/console-table';
+import { adminStatusTone } from '../console/status-tones';
 import { AdminAudienceApi } from './admin-audience-api';
 import {
   dayKeyParts,
@@ -102,6 +113,9 @@ const MONTHS = [
   imports: [
     AdminNotes,
     AdminPaginator,
+    AecButton,
+    AecIcon,
+    Chip,
     HorizontalBarChart,
     LineChart,
     StackedSeriesChart,
@@ -125,10 +139,28 @@ export class AdminAudience {
   protected readonly rangeOptions = RANGE_OPTIONS;
   protected readonly feedbackPerPage = FEEDBACK_PER_PAGE;
 
+  // ── Console recipe (AECI-2125) ─────────────────────────────────────────────
+
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly f = CONSOLE_FILTER;
+  protected readonly panelClass = CONSOLE_PANEL_CLASS;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly labelClass = CONSOLE_LABEL_CLASS;
+  protected readonly tone = adminStatusTone;
+  /** A short note under a panel heading: 13px secondary. */
+  protected readonly noteClass = 'text-t-13 text-(--text-secondary)';
+  /** A panel's own heading under a section `h3`: 16px at 600 in the body face. */
+  protected readonly subheadClass = 'text-t-16 font-semibold text-(--text-primary)';
+  /** A panel's one figure, as the stat tiles draw it. */
+  protected readonly figureClass =
+    'font-display text-t-36 font-semibold leading-none tracking-[-0.01em] tabular-nums lining-nums text-(--accent-primary)';
+
   // ── Load state ─────────────────────────────────────────────────────────────
 
   protected readonly loading = signal(true);
   protected readonly loadFailed = signal(false);
+  /** A feedback page change in flight: the paginator is `aria-busy` meanwhile. */
+  protected readonly feedbackLoading = signal(false);
 
   private readonly bundle = signal<AdminAudienceResponse | null>(null);
   private readonly inbox = signal<AdminFeedbackResponse | null>(null);
@@ -173,12 +205,15 @@ export class AdminAudience {
   /** Only the inbox — a page change must not re-run the aggregates, which do not
    *  depend on it. */
   private async loadFeedback(): Promise<void> {
+    this.feedbackLoading.set(true);
     try {
       this.inbox.set(
         await this.api.feedback({ page: this.feedbackPage(), perPage: FEEDBACK_PER_PAGE }),
       );
     } catch {
       this.loadFailed.set(true);
+    } finally {
+      this.feedbackLoading.set(false);
     }
   }
 
@@ -403,10 +438,6 @@ export class AdminAudience {
   );
   /** The channel label, shared with the form. `null` reads "Not answered". */
   protected readonly foundViaLabel = foundViaLabel;
-  protected readonly foundViaHeadStart =
-    'py-2 pe-4 text-start text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)';
-  protected readonly foundViaHeadEnd =
-    'py-2 ps-4 text-end text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)';
   private readonly foundViaFormLabels: Record<AdminFoundViaForm, string> = {
     claim: $localize`:@@admin.audience.foundVia.form.claim:Claim`,
     listing: $localize`:@@admin.audience.foundVia.form.listing:Listing request`,

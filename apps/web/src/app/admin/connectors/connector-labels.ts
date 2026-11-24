@@ -1,3 +1,8 @@
+import type { ConnectorMappingStatus } from '@aeci/shared';
+
+import type { ConsoleChipTone } from '../../shared/chip/chip';
+import { adminStatusTone } from '../console/status-tones';
+
 /**
  * `connector_stub_mappings.status` and `.confidence` in words, shared by the
  * triage table and the AECI-724 edit control so a status reads the same in the
@@ -30,5 +35,28 @@ export function mappingConfidenceLabel(confidence: string | null): string {
       return $localize`:@@admin.connectors.confidence.high:High`;
     default:
       return $localize`:@@admin.connectors.confidence.none:Not set`;
+  }
+}
+
+/**
+ * The console chip tone for a mapping status (AECI-2125). Exhaustive, so a new
+ * status is a compile error here rather than a silent default.
+ */
+export function mappingStatusTone(status: ConnectorMappingStatus): ConsoleChipTone {
+  switch (status) {
+    case 'mapped':
+      return adminStatusTone('matched');
+    case 'ruled_out':
+      return adminStatusTone('ruledOut');
+    case 'out_of_scope':
+      return adminStatusTone('outOfScope');
+    case 'no_record':
+      return adminStatusTone('noRecord');
+    case 'ambiguous_parked':
+      return adminStatusTone('parkedAsAmbiguous');
+    default: {
+      const unhandled: never = status;
+      return unhandled;
+    }
   }
 }

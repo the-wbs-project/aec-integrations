@@ -2,35 +2,30 @@
 # Guard: src/native-button.guard.spec.ts. Rules: src/guard-allowlists/shrink-only.harness.ts.
 # One line per file: its path from src/app and its count. A count only goes down.
 # Lower your line when you fix some. Delete it when the file reaches zero. Never add a line.
-admin/activity/activity-feed.html 3
+admin/activity/activity-feed.html 2
 admin/admin-nav-dropdown.ts 1
-admin/audience/audience.html 4
+admin/audience/audience.html 3
 admin/audit/audit-log.html 3
 admin/audit/audit-trail.html 2
-admin/catalog/additions-table.ts 1
-admin/catalog/catalog-coverage.html 1
 admin/claims/claim-queue.html 1
-admin/connectors/connector-detail.html 7
-admin/connectors/connector-list.html 3
-admin/connectors/managed-by-control.html 6
-admin/connectors/mapping-edit-control.html 4
+admin/connectors/connector-detail.html 2
+admin/connectors/managed-by-control.html 1
 admin/contests/contest-queue.html 4
 admin/dmca/dmca-notices.html 10
 admin/email/email-activity.html 7
 admin/email/email-switches.html 5
 admin/legal/legal-versions.html 7
 admin/legal/litigation-holds.html 7
-admin/reindex/reindex-history.html 4
-admin/reindex/reindex-list.html 7
+admin/reindex/reindex-list.html 1
 admin/requests/license-release-queue.html 1
 admin/requests/product-request-queue.ts 1
 admin/requests/request-queue.html 1
 admin/review-responses/review-response-queue.html 1
 admin/review-updates/review-update-queue.html 1
 admin/reviews/review-queue.html 2
-admin/subscribers/subscriber-list.html 3
+admin/subscribers/subscriber-list.html 1
 admin/threads/thread-list.html 1
-admin/traffic/traffic.html 5
+admin/traffic/traffic.html 4
 admin/users/user-detail.html 6
 admin/users/user-list.html 3
 admin/vendors/ban-term-licenses-control.html 3
