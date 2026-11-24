@@ -367,11 +367,19 @@ test.describe('product hero integrations wheel (AECI-2018)', () => {
   });
 
   // Every layout-shift source on the page counts after the wheel hydrates, not only the
-  // wheel's. The seed's
-  // products cover the boundaries: 7 products (one ring, names under the tiles), 14 (one
-  // ring), 21 and 24 (one ring on a wide phone, two from 320) and 25 (dots on a narrow
-  // phone, one ring at 294, two from 320). 360 and 430 are the widths where a server band
-  // and a measured layout used to disagree.
+  // wheel's. The seed's products cover the boundaries: 7 products (one ring, names under
+  // the tiles), 14 (one ring), 21 and 24 (one ring on a phone, two from 336) and 25 (dots
+  // on a narrow phone, one ring at 294). 360 and 430 are the widths where a server band and
+  // a measured layout used to disagree.
+  //
+  // The web fonts are blocked here, and that is the one thing excluded. When a web font
+  // arrives, every line of text on the page re-measures: the header nav, the hero name, the
+  // consent banner and the wheel's text alike, on a page with no wheel too. AECI-1892 keeps
+  // that swap still with size-matched fallback faces built on Georgia and Arial, which
+  // Linux CI does not have, so there the swap moves text (seen at about 300ms in run
+  // 45347285193). That is the font-loading spec's subject, and it skips on Linux for the
+  // same reason. With no web font the text never swaps, so any shift left is layout: the
+  // server bands, hydration, the names space, the title row.
   const SHIFT_SLUGS = [
     'fx-procore',
     LONG,
@@ -383,9 +391,10 @@ test.describe('product hero integrations wheel (AECI-2018)', () => {
     test(`no layout shift anywhere on the page at ${width}px`, async ({ page }) => {
       // Five page loads, each waiting for the network to settle.
       test.setTimeout(120_000);
+      await page.route(/\.woff2(\?|$)/, (route) => route.abort());
       await page.setViewportSize({ width, height: 900 });
       await page.addInitScript(() => {
-        type Entry = { t: number; value: number; sources: string[]; inStage: boolean };
+        type Entry = { t: number; value: number; sources: string[]; inWheel: boolean };
         const w = window as unknown as { __entries: Entry[]; __hydratedAt: number | null };
         w.__entries = [];
         w.__hydratedAt = null;
@@ -412,9 +421,9 @@ test.describe('product hero integrations wheel (AECI-2018)', () => {
                   ? `${n.tagName}.${String(n.className).slice(0, 40)}`
                   : String(n?.textContent ?? n).slice(0, 40),
               ),
-              inStage: nodes.some((n) => {
+              inWheel: nodes.some((n) => {
                 const el = n instanceof Element ? n : (n?.parentElement ?? null);
-                return !!el?.closest('.aec-wheel-stage');
+                return !!el?.closest('.aec-wheel');
               }),
             });
           }
@@ -427,7 +436,7 @@ test.describe('product hero integrations wheel (AECI-2018)', () => {
         await page.waitForTimeout(600);
         const { entries, hydratedAt } = await page.evaluate(() => {
           const w = window as unknown as {
-            __entries: { t: number; value: number; sources: string[]; inStage: boolean }[];
+            __entries: { t: number; value: number; sources: string[]; inWheel: boolean }[];
             __hydratedAt: number | null;
           };
           return { entries: w.__entries, hydratedAt: w.__hydratedAt };
@@ -440,11 +449,13 @@ test.describe('product hero integrations wheel (AECI-2018)', () => {
           after.reduce((sum, e) => sum + e.value, 0),
           `${slug} after hydration: ${describe(after).join('; ')}`,
         ).toBeLessThan(0.001);
-        // Before it, the wheel's own nodes never move inside the panel. The page's
-        // existing first-paint shift of the hero text on narrow phones (seen on pages with
-        // no wheel too) is reported, not failed here.
+        // At any time, before hydration or after, no node of the wheel moves on its own:
+        // a shift whose sources include the wheel's title, stage, tiles or lines fails. A
+        // shift of the hero above it that carries the whole panel down (AECI-2054, the
+        // first-paint hero text shift on narrow phones, seen on pages with no wheel too)
+        // names the panel, not the wheel's nodes, and is reported, not failed here.
         expect(
-          entries.filter((e) => e.inStage),
+          entries.filter((e) => e.inWheel),
           `${slug}: ${describe(entries).join('; ')}`,
         ).toEqual([]);
         test.info().annotations.push({

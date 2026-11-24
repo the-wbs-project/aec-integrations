@@ -262,6 +262,7 @@ const LONG_PRESS = 450;
                 <a
                   class="aec-wheel-tile"
                   data-testid="product-hero-wheel-tile"
+                  [attr.aria-label]="t.name"
                   [routerLink]="['/products', p.slug, 'integrations', t.slug]"
                   [attr.tabindex]="live() ? (i === active() ? 0 : -1) : null"
                   [attr.aria-describedby]="card()?.index === i ? 'aec-wheel-card' : null"
@@ -283,7 +284,10 @@ const LONG_PRESS = 450;
                     [claimStatus]="'wheel'"
                     size="tile"
                   />
-                  <span class="aec-wheel-label">{{ t.name }}</span>
+                  <!-- The visible name under the tile. The link's name is its aria-label,
+                       so this text is hidden from assistive tech, and not rendered at all
+                       where names are off (find-in-page and text-fragment links skip it). -->
+                  <span class="aec-wheel-label" aria-hidden="true">{{ t.name }}</span>
                 </a>
               </li>
             }

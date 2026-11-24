@@ -1894,15 +1894,12 @@ textarea:-webkit-autofill:focus {
   outline: 3px solid var(--focus-ring-on-brand);
   outline-offset: 3px;
 }
-/* A tile's name: read by a screen reader always, shown under the tile on a slide of
-   eight or fewer (the `data-n` rules). */
+/* A tile's name under it, on a slide of eight or fewer (the `data-n` rules). Otherwise
+   it is not rendered at all: the link's name is its `aria-label`. A clipped visually
+   hidden label would still be found by find-in-page and by a `#:~:text=` link, which
+   would land on the hero instead of the product's card in the Integrations list. */
 .aec-wheel-label {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
+  display: none;
 }
 
 /* The centre: the page's own product on a tile slide, the count on a dots slide. */
@@ -2013,6 +2010,7 @@ textarea:-webkit-autofill:focus {
     display: block;
   }
   .aec-wheel[data-n0] .aec-wheel-label {
+    display: block;
     position: absolute;
     top: calc(100% + 0.375rem);
     left: 50%;
@@ -2058,6 +2056,7 @@ textarea:-webkit-autofill:focus {
     display: block;
   }
   .aec-wheel[data-n1] .aec-wheel-label {
+    display: block;
     position: absolute;
     top: calc(100% + 0.375rem);
     left: 50%;
@@ -2103,6 +2102,7 @@ textarea:-webkit-autofill:focus {
     display: block;
   }
   .aec-wheel[data-n2] .aec-wheel-label {
+    display: block;
     position: absolute;
     top: calc(100% + 0.375rem);
     left: 50%;
@@ -2148,6 +2148,7 @@ textarea:-webkit-autofill:focus {
     display: block;
   }
   .aec-wheel[data-n3] .aec-wheel-label {
+    display: block;
     position: absolute;
     top: calc(100% + 0.375rem);
     left: 50%;
@@ -2193,6 +2194,7 @@ textarea:-webkit-autofill:focus {
     display: block;
   }
   .aec-wheel[data-n4] .aec-wheel-label {
+    display: block;
     position: absolute;
     top: calc(100% + 0.375rem);
     left: 50%;
@@ -2238,6 +2240,7 @@ textarea:-webkit-autofill:focus {
     display: block;
   }
   .aec-wheel[data-n5] .aec-wheel-label {
+    display: block;
     position: absolute;
     top: calc(100% + 0.375rem);
     left: 50%;
@@ -2283,6 +2286,7 @@ textarea:-webkit-autofill:focus {
     display: block;
   }
   .aec-wheel[data-n6] .aec-wheel-label {
+    display: block;
     position: absolute;
     top: calc(100% + 0.375rem);
     left: 50%;
@@ -2328,6 +2332,7 @@ textarea:-webkit-autofill:focus {
     display: block;
   }
   .aec-wheel[data-n7] .aec-wheel-label {
+    display: block;
     position: absolute;
     top: calc(100% + 0.375rem);
     left: 50%;
