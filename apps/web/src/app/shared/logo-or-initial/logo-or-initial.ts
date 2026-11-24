@@ -227,8 +227,8 @@ export class LogoOrInitial {
   );
 
   /** The frame a rounded logo and its initial tile share, so the tile never looks
-   *  lesser (AECI-1769). The border colour is `--border-default` from the unlayered
-   *  `*` rule in `styles.css`, which beats any border-colour utility. A person's photo
+   *  lesser (AECI-1769). The border colour is `--border-default`, the `@layer base`
+   *  default in `styles.css`. A person's photo
    *  stays unframed, as shipped (AECI-850). */
   private readonly frameClass = computed(() =>
     this.shape() === 'circle' ? '' : 'border bg-(--surface-raised)',

@@ -237,8 +237,8 @@ export class SiteHeader {
    * The pill's surface on Forest (clash 29): the 10% Bone wash with the strong
    * 4.01:1 edge (a wash alone is 1.33:1), the 16% wash on hover, Bone ink, and
    * secondary ink for the placeholder (6.00:1). The edge is the unlayered
-   * `aec-on-brand-edge` class, because a `border-(--x)` utility loses to the
-   * global `*` rule.
+   * `aec-on-brand-edge` class, written while a `border-(--x)` utility lost to the
+   * then-unlayered global `*` rule (fixed in AECI-2088).
    */
   protected readonly pillField =
     'rounded-pill border aec-on-brand-edge bg-(--surface-on-brand-wash) px-4 text-t-16 text-(--text-on-brand) transition-colors hover:bg-(--surface-on-brand-wash-hover) aec-on-brand-placeholder';
