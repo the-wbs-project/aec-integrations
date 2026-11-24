@@ -61,8 +61,7 @@ export const CONSOLE_TABLE = {
   /** The visually hidden caption. */
   caption: 'sr-only text-start',
   /** A header cell. */
-  head:
-    'whitespace-nowrap px-3 py-2 text-start align-bottom text-t-13 font-semibold leading-[1.4] tracking-[0.01em] text-(--text-secondary) border-t border-b border-t-(--border-default) border-b-(--border-strong)',
+  head: 'whitespace-nowrap px-3 py-2 text-start align-bottom text-t-13 font-semibold leading-[1.4] tracking-[0.01em] text-(--text-secondary) border-t border-b border-t-(--border-default) border-b-(--border-strong)',
   /** A header cell over a number column. */
   headNum:
     'whitespace-nowrap px-3 py-2 text-end align-bottom text-t-13 font-semibold leading-[1.4] tracking-[0.01em] text-(--text-secondary) border-t border-b border-t-(--border-default) border-b-(--border-strong)',

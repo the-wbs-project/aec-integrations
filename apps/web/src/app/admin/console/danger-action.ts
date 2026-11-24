@@ -159,7 +159,10 @@ export class AdminDangerAction {
   }
 
   protected describedBy(): string | null {
-    const ids = [this.reasonHelp() ? this.ids.help : null, this.shownError() ? this.ids.error : null];
+    const ids = [
+      this.reasonHelp() ? this.ids.help : null,
+      this.shownError() ? this.ids.error : null,
+    ];
     return ids.filter(Boolean).join(' ') || null;
   }
 

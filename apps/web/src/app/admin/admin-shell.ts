@@ -7,6 +7,7 @@ import { map } from 'rxjs';
 import type { AdminSummaryResponse } from '@aeci/shared';
 
 import { NotFound } from '../not-found/not-found';
+import { BAND_WRAP_CLASS } from '../shared/band-wrap';
 import { AdminBreadcrumb } from './admin-breadcrumb';
 import { AdminNavDropdown } from './admin-nav-dropdown';
 import {
@@ -108,9 +109,12 @@ const NAV_ENTRIES: readonly AdminNavEntry[] = ADMIN_NAV_GROUPS.map((group, index
     @if (s === null) {
       <aec-not-found />
     } @else {
-      <section class="mx-auto w-full max-w-7xl px-6 py-10 md:px-8">
+      <!-- AECI-1813: the 1328px page wrap the header and footer sit on, 48px above
+           and 96px below the content (32 and 64 below md). The h1 takes the global
+           heading size (the Unlayered-Heading Rule). -->
+      <section [class]="wrapClass" class="pb-16 pt-8 md:pb-24 md:pt-12">
         <header class="mb-8">
-          <h1 class="text-2xl font-bold text-(--text-primary)" i18n="@@admin.shell.title">Admin</h1>
+          <h1 class="text-(--text-primary)" i18n="@@admin.shell.title">Admin</h1>
 
           <!-- AECI-1855: a persistent section row. A pressed link keeps focus after it
                navigates (core/route-focus.ts, data-route-focus-keep). -->
@@ -169,6 +173,7 @@ export class AdminShell {
    *  only consumer: the header offers one "Admin portal" door and never
    *  restates these screens. */
   protected readonly navEntries = NAV_ENTRIES;
+  protected readonly wrapClass = BAND_WRAP_CLASS;
   protected readonly itemClass = ADMIN_NAV_ITEM_CLASS;
   protected readonly itemActiveClass = ADMIN_NAV_ITEM_ACTIVE_CLASS;
 

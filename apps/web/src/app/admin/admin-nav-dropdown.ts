@@ -80,58 +80,108 @@ import {
       <span>{{ group().heading }}</span>
 
       @if (groupTotal(); as total) {
-        <span
-          class="inline-flex min-w-5 items-center justify-center rounded-full bg-(--accent-primary) px-1.5 py-0.5 text-xs font-bold text-(--surface-base)"
-          aria-hidden="true"
-          >{{ total }}</span
-        >
+        <span [class]="countClass" aria-hidden="true">{{ total }}</span>
         <span class="sr-only" i18n="@@admin.nav.pendingTotal"
           >{{ total }} items awaiting action</span
         >
       }
     </button>
 
+    <!-- The panel is the shared popover: white, a hairline, 12px corners and the
+         menu shadow. In flow, not an overlay, because the row does not scroll. -->
     <div
       [id]="panelId()"
       [hidden]="!isOpen()"
-      class="absolute top-full z-50 pt-1"
-      [class.start-0]="align() === 'start'"
-      [class.end-0]="align() === 'end'"
+      class="absolute top-full z-40 pt-1"
+      [class]="panelEdgeClass()"
     >
-      <ul
-        [attr.aria-label]="group().heading"
-        class="m-0 flex w-56 list-none flex-col gap-0.5 rounded-md border border-(--border-default) bg-(--surface-raised) p-2 shadow-lg"
-      >
-        @for (item of group().items; track item.path) {
-          <li>
-            <!-- A pressed link closes the panel, as the Browse menu's do, so it never stays
-                 open over the new page. Its focus is then lost to the hidden panel and
-                 RouteFocus moves it to the page h1 (AECI-1855). -->
-            <a
-              [routerLink]="item.path"
-              routerLinkActive="bg-(--surface-sunken) text-(--accent-primary)"
-              ariaCurrentWhenActive="page"
-              (click)="close()"
-              class="flex items-center justify-between gap-3 rounded-(--radius-sm) px-3 py-1.5 text-sm font-normal text-(--text-primary) no-underline transition-colors hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      <div class="aec-popover p-2" [class]="menuWidthClass()">
+        @for (column of columns(); track column.id; let first = $first) {
+          <div class="min-w-0">
+            @if (column.heading) {
+              <p
+                [id]="column.id"
+                class="px-3 pb-1 pt-2 text-t-12 font-semibold uppercase leading-[1.4] tracking-[0.08em] text-(--text-secondary)"
+                [class]="first ? '' : 'max-md:mt-3'"
+              >
+                {{ column.heading }}
+              </p>
+            }
+            <ul
+              class="m-0 flex list-none flex-col p-0"
+              [attr.aria-labelledby]="column.heading ? column.id : null"
+              [attr.aria-label]="column.heading ? null : group().heading"
             >
-              <span>{{ item.label }}</span>
-              @if (queueCount(item.badge); as n) {
-                <span
-                  class="inline-flex min-w-5 items-center justify-center rounded-full bg-(--accent-primary) px-1.5 py-0.5 text-xs font-bold text-(--surface-base)"
-                  aria-hidden="true"
-                  >{{ n }}</span
-                >
-                <span class="sr-only" i18n="@@admin.nav.pendingItem">{{ n }} awaiting action</span>
+              @for (item of column.items; track item.path) {
+                <li>
+                  <!-- A pressed link closes the panel, as the Browse menu's do, so it never
+                       stays open over the new page. Its focus is then lost to the hidden
+                       panel and RouteFocus moves it to the page h1 (AECI-1855). -->
+                  <a
+                    [routerLink]="item.path"
+                    routerLinkActive="bg-(--surface-sunken) font-semibold text-(--accent-primary)"
+                    ariaCurrentWhenActive="page"
+                    (click)="close()"
+                    class="flex min-h-10 items-center justify-between gap-3 rounded-mark px-3 py-2 text-t-14 font-normal text-(--text-primary) no-underline transition-colors duration-fast hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-0"
+                  >
+                    <span>{{ item.label }}</span>
+                    @if (queueCount(item.badge); as n) {
+                      <span [class]="countClass" aria-hidden="true">{{ n }}</span>
+                      <span class="sr-only" i18n="@@admin.nav.pendingItem"
+                        >{{ n }} awaiting action</span
+                      >
+                    }
+                  </a>
+                </li>
               }
-            </a>
-          </li>
+            </ul>
+          </div>
         }
-      </ul>
+      </div>
     </div>
   `,
 })
 export class AdminNavDropdown extends NavDisclosure {
   readonly group = input.required<AdminNavGroup>();
+
+  /**
+   * Leaving the category closes it after 260ms, the public Browse menu's grace
+   * (ruled 2026-11-24), so the pointer can cross the gap to the panel (WCAG
+   * 1.4.13 "hoverable"). A pressed link still closes it at once.
+   */
+  protected override readonly closeGraceMs = 260;
+
+  /**
+   * The count pill: the chip's `count` tone (`shared/chip`), written out here
+   * because it sits inside a link or a button and is not a chip of its own.
+   * Forced colours draw its edge, since the Forest fill drops out there.
+   */
+  protected readonly countClass =
+    'inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-pill bg-(--accent-primary) px-2 text-t-13 font-semibold leading-none tabular-nums text-(--surface-base) forced-colors:border forced-colors:border-[CanvasText]';
+
+  /** The panel's columns: the group's labelled ones, or one unlabelled list. */
+  protected readonly columns = computed(
+    () =>
+      this.group().columns ?? [
+        { id: `${this.group().id}-list`, heading: '', items: this.group().items },
+      ],
+  );
+
+  /** One column is 16rem. Two are 34rem from md, and one stacked column below
+   *  md, kept inside a phone's viewport. */
+  protected readonly menuWidthClass = computed(() =>
+    this.columns().length > 1
+      ? 'grid w-[min(18rem,calc(100vw-48px))] gap-x-4 md:w-[34rem] md:grid-cols-2'
+      : 'w-64',
+  );
+
+  /** `end` hangs the panel from the trigger's end edge, which the last category
+   *  needs on a phone. From md a two-column panel has room to the right of its
+   *  trigger, so it hangs from the start like the others. */
+  protected readonly panelEdgeClass = computed(() => {
+    if (this.align() === 'start') return 'start-0';
+    return this.columns().length > 1 ? 'end-0 md:start-0 md:end-auto' : 'end-0';
+  });
 
   /** Shared with the collapsed single-screen links, so the row stays one row. */
   protected readonly triggerClass = ADMIN_NAV_TRIGGER_CLASS;

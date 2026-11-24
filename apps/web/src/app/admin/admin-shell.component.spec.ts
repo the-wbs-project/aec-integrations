@@ -186,7 +186,9 @@ describe('AdminShell', () => {
 
     it('keeps the three existing Operations queues reachable and unchanged', () => {
       const root = render({ pending_reviews: 4 });
-      const operations = root.querySelector('ul[aria-label="Operations"]')!;
+      // AECI-1813: the Operations panel is two labelled columns, so the panel,
+      // not one list, holds every entry.
+      const operations = root.querySelector('#admin-nav-operations-panel')!;
       expect(operations.textContent).toContain('Review queue');
       expect(operations.textContent).toContain('Requests');
       expect(operations.textContent).toContain('Users');
@@ -436,9 +438,28 @@ describe('AdminShell', () => {
       expect(nav.getAttribute('aria-label')).toBeTruthy();
       // The row list is named by the landmark it sits in; each PANEL list names
       // itself, so a screen reader entering one knows which category it opened.
+      // A labelled column names its list with `aria-labelledby` (AECI-1813).
       for (const ul of nav.querySelectorAll('[id$="-panel"] ul')) {
-        expect(ul.getAttribute('aria-label')).toBeTruthy();
+        const labelledBy = ul.getAttribute('aria-labelledby');
+        const name = labelledBy
+          ? root.querySelector(`#${labelledBy}`)?.textContent?.trim()
+          : ul.getAttribute('aria-label');
+        expect(name).toBeTruthy();
       }
+    });
+
+    it('splits Operations into two labelled columns, Queues and Accounts and site', () => {
+      const root = render({ pending_reviews: 3 });
+      const panel = root.querySelector('#admin-nav-operations-panel')!;
+      const lists = [...panel.querySelectorAll('ul')];
+      const names = lists.map((ul) =>
+        root.querySelector(`#${ul.getAttribute('aria-labelledby')}`)?.textContent?.trim(),
+      );
+      expect(names).toEqual(['Queues', 'Accounts and site']);
+      expect(lists[0]!.textContent).toContain('Review queue');
+      expect(lists[0]!.textContent).toContain('Re-index queue');
+      expect(lists[1]!.textContent).toContain('Vendors');
+      expect(lists[1]!.textContent).toContain('Audit log');
     });
 
     it('wires each trigger to the panel it controls', () => {

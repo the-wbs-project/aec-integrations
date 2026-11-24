@@ -2,6 +2,8 @@ import { Component, computed, input } from '@angular/core';
 
 import type { AdminNote, AdminNoteCode } from '@aeci/shared';
 
+import { Chip } from '../shared/chip/chip';
+
 /**
  * AECI-576 / Phase 8.3 P1.2 — the operator console's **honesty envelope**,
  * rendered. Every admin-panel response carries an `AdminNote[]` naming the biases
@@ -28,13 +30,13 @@ import type { AdminNote, AdminNoteCode } from '@aeci/shared';
  * so the same caveat read differently depending on which screen you were on.
  * Add a string HERE, once. There is nowhere else to add it.
  *
- * `warn` notes take the Bone/Clay treatment already used by the requests queue's
- * duplicate + domain-mismatch chips (the console inherits the queues' visual
- * language — §9.10, no new anchor site); `info` notes stay quiet. Severity is
- * carried by a "Note"/"Caveat" chip, never by colour alone.
+ * `warn` notes take the chip's `attention` tone and `info` notes its `neutral`
+ * tone (AECI-1813, `admin/console/status-tones.ts`). Severity is carried by a
+ * "Note"/"Caveat" chip, never by colour alone.
  */
 @Component({
   selector: 'aec-admin-notes',
+  imports: [Chip],
   template: `
     @let items = rendered();
     @if (items.length > 0) {
@@ -42,31 +44,26 @@ import type { AdminNote, AdminNoteCode } from '@aeci/shared';
            <main> trips axe's landmark-complementary-is-top-level, and these
            caveats belong to the numbers below them, not beside them. The list
            carries the accessible name instead. -->
-      <div class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4">
+      <!-- AECI-1813: a flat bordered panel. The severity is a dense chip on the
+           console tones: Caveat is attention, Note is neutral. The word carries
+           the severity, so colour is never the only signal. -->
+      <div class="rounded-panel border border-(--border-default) bg-(--surface-base) p-4">
         <ul
           role="list"
-          class="space-y-2"
+          class="space-y-3"
           i18n-aria-label="@@admin.notes.aria"
           aria-label="How to read these numbers"
         >
           @for (n of items; track n.key) {
-            <li class="flex gap-2 text-xs leading-relaxed">
-              <span
-                class="mt-0.5 inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[0.6875rem]
-                  font-bold"
-                [class]="
-                  n.warn
-                    ? 'bg-(--accent-warm) text-(--accent-secondary-deep)'
-                    : 'bg-(--surface-sunken) text-(--text-secondary)'
-                "
-              >
+            <li class="flex items-start gap-3 text-t-14">
+              <aec-chip density="dense" class="shrink-0" [tone]="n.warn ? 'attention' : 'neutral'">
                 @if (n.warn) {
                   <ng-container i18n="@@admin.notes.severity.warn">Caveat</ng-container>
                 } @else {
                   <ng-container i18n="@@admin.notes.severity.info">Note</ng-container>
                 }
-              </span>
-              <span class="text-(--text-secondary)">{{ n.text }}</span>
+              </aec-chip>
+              <span class="min-w-0 text-(--text-secondary)">{{ n.text }}</span>
             </li>
           }
         </ul>
