@@ -161,7 +161,7 @@ interface FieldConfig {
       -->
       <div [class]="noteClass">
         <p
-          class="max-w-prose text-xs leading-relaxed text-(--text-secondary)"
+          class="max-w-[52ch] text-xs leading-relaxed text-(--text-secondary)"
           i18n="@@vendor.profile.identityHint"
         >
           Your company name and the address of your public listing are on record with AEC
@@ -209,7 +209,7 @@ interface FieldConfig {
         -->
         <div [class]="noteClass">
           <p
-            class="max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+            class="max-w-[52ch] text-sm leading-relaxed text-(--text-secondary)"
             i18n="@@vendor.profile.readOnly"
           >
             This seat cannot edit the company profile right now. Everything below stays published

@@ -131,7 +131,7 @@ interface FieldConfig {
           there is no context here the request does not already have.
         -->
         <p
-          class="mt-2 max-w-prose text-xs leading-relaxed text-(--text-secondary)"
+          class="mt-2 max-w-[52ch] text-xs leading-relaxed text-(--text-secondary)"
           i18n="@@vendor.product.renameHint"
         >
           To change the product name,
@@ -177,7 +177,7 @@ interface FieldConfig {
         -->
         <div [class]="noteClass">
           <p
-            class="max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+            class="max-w-[52ch] text-sm leading-relaxed text-(--text-secondary)"
             i18n="@@vendor.product.readOnly"
           >
             This seat cannot edit this product right now. The product stays published exactly as it
@@ -194,7 +194,7 @@ interface FieldConfig {
           <span class="flex shrink-0 text-(--text-secondary)"
             ><aec-icon name="lock" decorative [size]="4"
           /></span>
-          <div class="max-w-prose text-sm leading-relaxed">
+          <div class="max-w-[52ch] text-sm leading-relaxed">
             <p class="font-semibold text-(--text-primary)">{{ lockedNotice() }}</p>
             <p class="mt-1 text-(--text-secondary)" i18n="@@vendor.product.locked.correction">
               Spot something wrong in one of them?
