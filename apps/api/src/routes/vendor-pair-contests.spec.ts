@@ -444,3 +444,58 @@ describe('a protest after a decline stays advice only (§11b.12)', () => {
     expect(res.body.contest.protest.basis).toBe('silence');
   });
 });
+
+// ─── The gate holds at commit (AECI-2042 review blocker 2) ───────────────────
+//
+// `resolvePairRightTarget` and the routing read run before the batch. A change landing
+// between them and the commit must abort the report, not file it on stale facts.
+
+/** Run `statement` once, just before the next `db.batch` commits. */
+function raceBeforeBatch(statement: string, ...params: unknown[]): void {
+  type BatchFn = (s: unknown[]) => Promise<unknown[]>;
+  const holder = t.db as unknown as { batch: BatchFn };
+  const realBatch = holder.batch.bind(t.db) as BatchFn;
+  holder.batch = async (stmts) => {
+    holder.batch = realBatch;
+    t.raw.prepare(statement).run(...params);
+    return realBatch(stmts);
+  };
+}
+
+describe('a report re-checks the gate at commit (AECI-2042 review)', () => {
+  it.each([
+    [
+      'the caller lost its endpoint',
+      'DELETE FROM product_vendors WHERE vendor_id = ?',
+      [ACUMATICA],
+    ],
+    [
+      'the owner changed, so the routing read is stale',
+      'UPDATE connector_evidenced_pairs SET built_by_vendor_id = ? WHERE id = ?',
+      [NOBODY, PAIR],
+    ],
+    [
+      'the pair was retired',
+      "UPDATE connector_evidenced_pairs SET retired_at = '2026-11-25T00:00:00.000Z' WHERE id = ?",
+      [PAIR],
+    ],
+    [
+      'the connector is no longer a Sync Service',
+      "UPDATE products SET connector_kind = 'integration_platform' WHERE id = ?",
+      [S_SYNC],
+    ],
+  ])('%s: 409 PAIR_CONTEST_CHANGED, nothing written', async (_label, statement, params) => {
+    raceBeforeBatch(statement, ...params);
+    const res = await flow();
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('PAIR_CONTEST_CHANGED');
+    expect(await t.db.select().from(syncServicePairContests)).toEqual([]);
+  });
+
+  it('a duplicate that won the race still answers PAIR_CONTEST_DUPLICATE', async () => {
+    expect((await existence()).status).toBe(201);
+    const again = await existence();
+    expect(again.status).toBe(409);
+    expect(again.body.error.code).toBe('PAIR_CONTEST_DUPLICATE');
+  });
+});

@@ -10,6 +10,8 @@
  * had it (a seat granted in error, a company that no longer makes the endpoint product).
  * The note is required and goes to the vetoing vendor and the owner. When more than one
  * vendor vetoed the pair, a lift ends only this one: the pair returns when none is left.
+ * The lift recomputes `vetoed_at` on every row on the veto's pair key, so every row the
+ * veto hid comes back together, including after the row it was filed on is gone.
  *
  * `requireAdmin()` → `rateLimit('write')` on the lift. One batch, the same as the vendor
  * withdraw's (`commitVetoChange`), with the admin as actor and the vendor that filed it
@@ -40,12 +42,11 @@ import { auditActorType } from '../lib/authz';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import {
   isVetoRaceError,
-  locatePairRightTarget,
-  vetoAnchorOf,
   VETO_ENTITY_TYPE,
+  vetoKeyOf,
+  vetoNoticeTarget,
   vetoRowChangedSentinel,
   vetoWireRows,
-  type PairRightTarget,
 } from '../lib/sync-service-pair-rights';
 import { commitVetoChange, vetoWriteBody } from '../lib/sync-service-veto-write';
 import { parseJsonBody, type VendorContext } from './vendor-shared';
@@ -151,9 +152,10 @@ export function createAdminLiftVetoHandler(
         reasonVisibility: 'vendor',
       },
     };
-    const anchor = vetoAnchorOf(row);
-    const target = anchor ? await locatePairRightTarget(db, anchor.id) : null;
-    if (!target || target.connectorProductId === null) {
+    // The anchor, or another row on the veto's key when the anchor is gone. The
+    // recompute is keyed on the veto row's own key either way.
+    const target = await vetoNoticeTarget(db, row);
+    if (!target) {
       try {
         await db.batch([update, vetoRowChangedSentinel(db), auditInsert(db, audit)] as BatchTuple);
       } catch (error) {
@@ -164,7 +166,8 @@ export function createAdminLiftVetoHandler(
       }
     } else {
       await commitVetoChange(c, db, {
-        target: target as PairRightTarget,
+        key: vetoKeyOf(row),
+        target,
         vetoId,
         rowWrite: [update, vetoRowChangedSentinel(db)],
         audit,
@@ -175,6 +178,8 @@ export function createAdminLiftVetoHandler(
         ownerReason: note,
         now,
         stamp: (entry) => entry,
+        changedError: () =>
+          new ApiError(409, ApiErrorCode.VETO_NOT_IN_FORCE, 'This veto has already ended.'),
         origin: { auditSource: ADMIN_VETO_AUDIT_SOURCE, purgeSource: 'moderation' },
         hookPrefix: 'admin-veto-lift',
       });

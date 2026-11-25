@@ -18,16 +18,20 @@
  * public.
  *
  * ── ONE BATCH ───────────────────────────────────────────────────────────────
- * The veto INSERT (or the guarded withdraw UPDATE and its `changes()` sentinel), the
- * anchor's `vetoed_at` recomputed from the table, the `integration.vetoed` /
+ * The gate sentinel and the veto INSERT (or the guarded withdraw UPDATE and its
+ * `changes()` sentinel), `vetoed_at` recomputed from the table on every row on the pair
+ * key in both tables, the `integration.vetoed` /
  * `integration.veto_withdrawn` audit row, one `notification.sent` row per owner and
  * other endpoint vendor, and the three `integration_count` recomputes (both endpoints
  * and the connector). A second veto by the same vendor trips the open-veto unique
- * index and answers `409 VETO_DUPLICATE` with nothing written.
+ * index and answers `409 VETO_DUPLICATE` with nothing written. A row, connector, owner
+ * or seat change between the gate and the commit trips `pairRightTargetSentinel` and
+ * answers `409 VETO_PAIR_CHANGED` with nothing written.
  *
- * After commit, the retire's tail (`afterRetireCommit`): by-id Algolia sync of the row,
- * the three products and every vendor of them; purge `pair:`, both endpoint `product:`
- * tags, the connector's `product:` tag, `vendor:{owner}`, `index:products`, `taxonomy`
+ * After commit, the retire's tail (`afterRetireCommit`): by-id Algolia sync of every row
+ * on the key, the three products and every vendor of them; purge `pair:`, both endpoint
+ * `product:` tags, the connector's `product:` tag, `vendor:{owner}` of every row's
+ * owner, `index:products`, `taxonomy`
  * and `sitemap`; queue the pair re-crawl.
  */
 
@@ -50,14 +54,16 @@ import { auditActorType } from '../lib/authz';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import {
   isVetoRaceError,
-  locatePairRightTarget,
+  pairKeyOf,
+  pairRightTargetSentinel,
   resolvePairRightTarget,
-  vetoAnchorOf,
   VETO_ENTITY_TYPE,
   vetoesOwnedByWhere,
+  vetoKeyOf,
+  vetoNoticeTarget,
+  vetoPairChangedError,
   vetoRowChangedSentinel,
   vetoWireRows,
-  type PairRightTarget,
 } from '../lib/sync-service-pair-rights';
 import { commitVetoChange, vetoWriteBody } from '../lib/sync-service-veto-write';
 import {
@@ -132,9 +138,13 @@ export function createFileVetoHandler(
       updatedAt: now,
     });
     await commitVetoChange(c, db, {
+      key: pairKeyOf(target),
       target,
       vetoId: id,
-      rowWrite: [insert],
+      // The gate again, at commit: the row still has this connector and these
+      // endpoints, the connector is still a Sync Service, the caller still holds an
+      // endpoint and is still not the owner. Otherwise nothing is written.
+      rowWrite: [pairRightTargetSentinel(db, target, vendorId), insert],
       audit: {
         actorId: session.userId,
         actorType: auditActorType(session),
@@ -155,6 +165,8 @@ export function createFileVetoHandler(
       ownerReason: reason,
       now,
       stamp: (entry) => vendorAuditEntry(c, entry),
+      // The INSERT carries no `changes()` sentinel, so a "changed" abort is the gate's.
+      changedError: vetoPairChangedError,
       hookPrefix: 'vendor-veto',
     });
     const body = await vetoWriteBody(db, id);
@@ -201,11 +213,12 @@ export function createWithdrawVetoHandler(
       afterState: { ended_at: now, ended_how: 'withdrawn' },
       metadata: { source: AUDIT_SOURCE, vendorId },
     };
-    const anchor = vetoAnchorOf(row);
-    const target = anchor ? await locatePairRightTarget(db, anchor.id) : null;
-    if (!target || target.connectorProductId === null) {
-      // The row the veto was filed on is gone. The veto still ends, so the pair key
-      // may be added again; there is no row to recompute and nobody to tell.
+    // The anchor, or another row on the veto's key when the anchor is gone. The
+    // recompute is keyed on the veto row's own key either way.
+    const target = await vetoNoticeTarget(db, row);
+    if (!target) {
+      // No row is on the key any more. The veto still ends, so the pair key may be
+      // added again; there is no row to recompute and nobody to tell.
       await db
         .batch([
           update,
@@ -220,7 +233,8 @@ export function createWithdrawVetoHandler(
         });
     } else {
       await commitVetoChange(c, db, {
-        target: target as PairRightTarget,
+        key: vetoKeyOf(row),
+        target,
         vetoId,
         rowWrite: [update, vetoRowChangedSentinel(db)],
         audit,
@@ -230,6 +244,8 @@ export function createWithdrawVetoHandler(
         ownerReason: null,
         now,
         stamp: (entry) => vendorAuditEntry(c, entry),
+        changedError: () =>
+          new ApiError(409, ApiErrorCode.VETO_NOT_IN_FORCE, 'This veto has already ended.'),
         hookPrefix: 'vendor-veto-withdraw',
       });
     }

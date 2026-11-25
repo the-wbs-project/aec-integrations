@@ -548,3 +548,43 @@ describe('PUT /api/admin/integrations/:id/owner', () => {
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
   });
 });
+
+// ─── The connector holder's authority holds at commit (AECI-2042 review) ──────
+
+/** Run `statement` once, just before the next `db.batch` commits. */
+function raceBeforeBatch(statement: string, ...params: unknown[]): void {
+  type BatchFn = (s: unknown[]) => Promise<unknown[]>;
+  const holder = t.db as unknown as { batch: BatchFn };
+  const realBatch = holder.batch.bind(t.db) as BatchFn;
+  holder.batch = async (stmts) => {
+    holder.batch = realBatch;
+    t.raw.prepare(statement).run(...params);
+    return realBatch(stmts);
+  };
+}
+
+describe('the connector holder’s owner request re-checks its authority at commit', () => {
+  it.each([
+    [
+      'the caller no longer holds the connector product',
+      'DELETE FROM product_vendors WHERE vendor_id = ? AND product_id = ?',
+      [VENDOR_R, P_SYNC],
+    ],
+    [
+      'the connector product is no longer a Sync Service',
+      "UPDATE products SET connector_kind = 'integration_platform' WHERE id = ?",
+      [P_SYNC],
+    ],
+    [
+      'the row moved to another connector',
+      'UPDATE integrations SET powered_by_product_id = ? WHERE id = ?',
+      [P_ZAP, ROW_POWERED],
+    ],
+  ])('%s: 409 CONTEST_INTEGRATION_CHANGED, nothing filed', async (_label, statement, params) => {
+    raceBeforeBatch(statement, ...params);
+    const res = await askOwner(AUTH_R, ROW_POWERED, VENDOR_R);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('CONTEST_INTEGRATION_CHANGED');
+    expect(await t.db.select().from(integrationFieldChallenges)).toEqual([]);
+  });
+});

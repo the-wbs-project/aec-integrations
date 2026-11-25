@@ -55,6 +55,7 @@ import {
 import {
   pairProducts,
   pairRightNotificationAudit,
+  pairRightTargetSentinel,
   pairSlugsOf,
   resolvePairRightTarget,
   type PairRightTarget,
@@ -249,6 +250,11 @@ export function createSubmitPairContestHandler(
         : []),
     ];
     const stmts: BatchStmt[] = [
+      // The gate again, at commit (AECI-2042 review): the row still has this connector
+      // and these endpoints, the connector is still a Sync Service, the caller still
+      // holds an endpoint and is not the owner, the owner and claim the routing read
+      // are unchanged, and the row is still live. Otherwise nothing is written.
+      pairRightTargetSentinel(db, target, vendorId, { ownerUnchanged: true, live: true }),
       db.insert(syncServicePairContests).values(row),
       pairContestDuplicateSentinel(db, row),
       ...audits.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))),
@@ -257,10 +263,19 @@ export function createSubmitPairContestHandler(
       await db.batch(stmts as BatchTuple);
     } catch (error) {
       if (!isPairContestRaceError(error)) throw error;
+      // Both sentinels raise the same error. Nothing was written, so a duplicate open
+      // now is the other submit that won; otherwise the gate tripped.
+      if (await openDuplicate(db, row)) {
+        throw new ApiError(
+          409,
+          ApiErrorCode.PAIR_CONTEST_DUPLICATE,
+          'Your company already has this report open on this integration.',
+        );
+      }
       throw new ApiError(
         409,
-        ApiErrorCode.PAIR_CONTEST_DUPLICATE,
-        'Your company already has this report open on this integration.',
+        ApiErrorCode.PAIR_CONTEST_CHANGED,
+        'This integration, or your company’s link to it, changed while you were sending. Nothing was sent. Reload and try again.',
       );
     }
     // Nothing public changes on a submit, so nothing is purged.

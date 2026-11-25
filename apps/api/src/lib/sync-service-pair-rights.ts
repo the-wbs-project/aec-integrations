@@ -25,12 +25,18 @@
  *
  * ── THE VETO ────────────────────────────────────────────────────────────────
  * A veto row lives in `sync_service_pair_vetoes` with the pair key (connector, A, B).
- * The anchor row's `vetoed_at` is denormalised from it by {@link vetoedAtRecompute},
- * which every veto, withdraw and lift batch runs after its own write: the earliest open
- * veto's `filed_at`, or NULL when none is open. A `SELECT` inside the UPDATE, so two
- * vendors vetoing or withdrawing at once each leave the column true to the table.
- * `vetoed_at` is part of liveness (`lib/live-integration.ts`), so every count, id set
- * and public read drops a vetoed row the way it drops a retired one.
+ * `vetoed_at` on EVERY row on that key, in both tables, is denormalised from it by
+ * {@link vetoedAtKeyRecompute}, which every veto, withdraw and lift batch runs after its
+ * own write: the earliest open veto on the key's `filed_at`, or NULL when none is open.
+ * A `SELECT` inside each UPDATE, so two vendors vetoing or withdrawing at once each leave
+ * the column true to the table. The anchor (the row the veto was filed on) only names
+ * the row for notices and lists; the key decides what is hidden. `vetoed_at` is part of
+ * liveness (`lib/live-integration.ts`), so every count, id set and public read drops a
+ * vetoed row the way it drops a retired one.
+ *
+ * The gate is read before the batch and asserted again inside it: the veto and the
+ * report INSERTs carry {@link pairRightTargetSentinel}, so a promote, an owner change or
+ * a lost seat that lands between the read and the batch aborts the write.
  *
  * Veto and retire are separate. A vetoed row is not retired by its owner: the owner's
  * restore and the admin restore both refuse it with `409 INTEGRATION_VETOED`, and a
@@ -231,44 +237,209 @@ export async function resolvePairRightTarget(
   return { target, heldEndpointIds };
 }
 
-// ─── Statements ──────────────────────────────────────────────────────────────
+// ─── The rows on a pair key (the review blocker on AECI-2042) ────────────────
+//
+// A veto is keyed to the pair, not to the row it was filed on. The same connector and
+// endpoint pair can sit in more than one row: one `connector_evidenced_pairs` row (its
+// unique index allows only one) beside one or more connector-powered `integrations`
+// rows. So the rule for `vetoed_at` is key-wide: EVERY row on the key carries the
+// earliest open veto's `filed_at`, or NULL when none is open. The anchor id only names
+// the row the vendor pressed the button on.
+//
+// The two frames differ. A pair is stored id-sorted (A < B). An `integrations` row is
+// source → target, so it is on the key in either order.
 
-/** The anchor column of a veto or report row for this target. */
-export function vetoAnchorColumn(anchor: PairRightAnchor) {
-  return anchor === 'integration'
-    ? syncServicePairVetoes.integrationId
-    : syncServicePairVetoes.evidencedPairId;
+/** `integrations` rows on the key: powered by its connector, its endpoints either way. */
+export function integrationsOnPairKeyWhere(key: PairKey): SQL {
+  return and(
+    eq(integrations.poweredByProductId, key.connectorProductId),
+    or(
+      and(
+        eq(integrations.sourceProductId, key.productAId),
+        eq(integrations.targetProductId, key.productBId),
+      ),
+      and(
+        eq(integrations.sourceProductId, key.productBId),
+        eq(integrations.targetProductId, key.productAId),
+      ),
+    ),
+  )!;
+}
+
+/** `connector_evidenced_pairs` rows on the key: at most one, by the unique index. */
+export function evidencedPairsOnPairKeyWhere(key: PairKey): SQL {
+  return and(
+    eq(connectorEvidencedPairs.connectorProductId, key.connectorProductId),
+    eq(connectorEvidencedPairs.productAId, key.productAId),
+    eq(connectorEvidencedPairs.productBId, key.productBId),
+  )!;
+}
+
+/** One row on a pair key, in either table. */
+export interface PairKeyRow {
+  readonly anchor: PairRightAnchor;
+  readonly id: string;
+  readonly builtByVendorId: string | null;
+  readonly retiredAt: string | null;
+}
+
+/** Every row on the key, both tables, evidenced first, then by id (BINARY). Two reads. */
+export async function rowsOnPairKey(db: Db, key: PairKey): Promise<PairKeyRow[]> {
+  const [pairs, ints] = await Promise.all([
+    db
+      .select({
+        id: connectorEvidencedPairs.id,
+        builtByVendorId: connectorEvidencedPairs.builtByVendorId,
+        retiredAt: connectorEvidencedPairs.retiredAt,
+      })
+      .from(connectorEvidencedPairs)
+      .where(evidencedPairsOnPairKeyWhere(key))
+      .orderBy(connectorEvidencedPairs.id),
+    db
+      .select({
+        id: integrations.id,
+        builtByVendorId: integrations.builtByVendorId,
+        retiredAt: integrations.retiredAt,
+      })
+      .from(integrations)
+      .where(integrationsOnPairKeyWhere(key))
+      .orderBy(integrations.id),
+  ]);
+  return [
+    ...pairs.map((r) => ({ anchor: 'evidenced_pair' as const, ...r })),
+    ...ints.map((r) => ({ anchor: 'integration' as const, ...r })),
+  ];
+}
+
+/** The key a veto row blocks. Never changes after filing. */
+export function vetoKeyOf(row: {
+  connectorProductId: string;
+  productAId: string;
+  productBId: string;
+}): PairKey {
+  return {
+    connectorProductId: row.connectorProductId,
+    productAId: row.productAId,
+    productBId: row.productBId,
+  };
 }
 
 /**
- * The denormalised `vetoed_at` and `updated_at` on the anchor row, from the veto table
- * as this batch leaves it. Place it AFTER the veto write. `updated_at` moves so the
- * owner's freshness cursor and the incremental Algolia sync see the change.
+ * The denormalised `vetoed_at` and `updated_at` on EVERY row on the key, in both tables,
+ * from the veto table as this batch leaves it. Place it AFTER the veto write. A
+ * `SELECT` inside each `UPDATE`, so two vendors acting at once each leave every row true
+ * to the table, and a row that reached the key between the route's reads and the batch
+ * is covered too (the predicate runs at commit). `updated_at` moves so the owner's
+ * freshness cursor and the incremental Algolia sync see the change.
+ *
+ * Every path that changes veto state runs it: the veto, the withdraw and the lift. It
+ * is keyed on the veto row's own key, so it still runs after the anchor row is deleted
+ * (the anchor FK is SET NULL and the veto survives on its key): the other rows on the
+ * key stay hidden while it is in force, and return when it ends.
  */
-export function vetoedAtRecompute(
-  db: Db,
-  target: Pick<PairRightTarget, 'anchor' | 'id'>,
-  now: string,
-): BatchStmt {
-  const column = vetoAnchorColumn(target.anchor);
+export function vetoedAtKeyRecompute(db: Db, key: PairKey, now: string): BatchStmt[] {
   const earliest = sql<
     string | null
-  >`(SELECT min(${syncServicePairVetoes.filedAt}) FROM ${syncServicePairVetoes} WHERE ${column} = ${target.id} AND ${syncServicePairVetoes.endedAt} IS NULL)`;
-  return target.anchor === 'integration'
-    ? db
-        .update(integrations)
-        .set({ vetoedAt: earliest, updatedAt: now })
-        .where(eq(integrations.id, target.id))
-    : db
-        .update(connectorEvidencedPairs)
-        .set({ vetoedAt: earliest, updatedAt: now })
-        .where(eq(connectorEvidencedPairs.id, target.id));
+  >`(SELECT min(${syncServicePairVetoes.filedAt}) FROM ${syncServicePairVetoes} WHERE ${openVetoOnKeyWhere(key)})`;
+  return [
+    db
+      .update(connectorEvidencedPairs)
+      .set({ vetoedAt: earliest, updatedAt: now })
+      .where(evidencedPairsOnPairKeyWhere(key)),
+    db
+      .update(integrations)
+      .set({ vetoedAt: earliest, updatedAt: now })
+      .where(integrationsOnPairKeyWhere(key)),
+  ];
 }
 
-/** The three counts a veto moves: both endpoints and the connector (§12.5 option B). */
-export function vetoCountRecomputes(db: Db, target: PairRightTarget): BatchStmt[] {
-  return [...new Set([target.productAId, target.productBId, target.connectorProductId])].map(
-    (productId) => integrationCountRecomputeStmt(db, productId),
+/** The three counts a veto moves: both endpoints and the connector (§12.5 option B).
+ *  Every row on the key touches the same three products, so these cover them all. */
+export function vetoCountRecomputes(db: Db, key: PairKey): BatchStmt[] {
+  return [...new Set([key.productAId, key.productBId, key.connectorProductId])].map((productId) =>
+    integrationCountRecomputeStmt(db, productId),
+  );
+}
+
+// ─── The commit-time gate (the second review blocker on AECI-2042) ───────────
+
+/** The token {@link pairRightTargetSentinel} raises. */
+export const PAIR_RIGHT_CHANGED_TOKEN = 'pair-right-changed';
+
+/**
+ * The commit-time half of {@link resolvePairRightTarget}. Pushed AHEAD of the veto
+ * INSERT or the report INSERT; ABORTS the batch, writing nothing, unless at commit:
+ *
+ *   (a) the anchor row still exists with the same connector and the same endpoints, in
+ *       the same frame, that the write is about to record;
+ *   (b) the connector product is still a Sync Service (role `connector` or `hybrid`,
+ *       kind `sync_service`), the rule `isSyncService` applies;
+ *   (c) the caller's vendor still holds at least one of the two endpoint products;
+ *   (d) the caller's vendor is still not the row's owner and does not hold the
+ *       connector product.
+ *
+ * `opts.ownerUnchanged` also requires the owner and the claimed state the route read
+ * (a report routes on them). `opts.live` also requires the row to be neither retired nor
+ * vetoed (a report asks about a pair on the site). Raises "malformed JSON", like every
+ * sentinel here; selects FROM `ONE_ROW`, so it runs exactly once.
+ */
+export function pairRightTargetSentinel(
+  db: Db,
+  target: PairRightTarget,
+  vendorId: string,
+  opts: { ownerUnchanged?: boolean; live?: boolean } = {},
+): BatchStmt {
+  const key = pairKeyOf(target);
+  const [sourceId, targetId] = target.sourceIsA
+    ? [target.productAId, target.productBId]
+    : [target.productBId, target.productAId];
+  const row =
+    target.anchor === 'integration'
+      ? {
+          table: integrations,
+          where: and(
+            eq(integrations.id, target.id),
+            eq(integrations.poweredByProductId, target.connectorProductId),
+            eq(integrations.sourceProductId, sourceId),
+            eq(integrations.targetProductId, targetId),
+          )!,
+          builtBy: integrations.builtByVendorId,
+          claimedAt: integrations.claimedAt,
+          retiredAt: integrations.retiredAt,
+          vetoedAt: integrations.vetoedAt,
+        }
+      : {
+          table: connectorEvidencedPairs,
+          where: and(eq(connectorEvidencedPairs.id, target.id), evidencedPairsOnPairKeyWhere(key))!,
+          builtBy: connectorEvidencedPairs.builtByVendorId,
+          claimedAt: connectorEvidencedPairs.claimedAt,
+          retiredAt: connectorEvidencedPairs.retiredAt,
+          vetoedAt: connectorEvidencedPairs.vetoedAt,
+        };
+  const extra: SQL[] = [];
+  if (opts.ownerUnchanged) {
+    extra.push(sql`ifnull(${row.builtBy}, '') = ${target.builtByVendorId ?? ''}`);
+    extra.push(sql`(${row.claimedAt} IS NULL) = ${target.claimedAt === null ? 1 : 0}`);
+  }
+  if (opts.live) extra.push(sql`${row.retiredAt} IS NULL AND ${row.vetoedAt} IS NULL`);
+  const extraSql = extra.length ? sql` AND ${sql.join(extra, sql` AND `)}` : sql``;
+  return db
+    .select({
+      guard: sql`CASE WHEN NOT EXISTS (SELECT 1 FROM ${row.table} WHERE ${row.where} AND (${row.builtBy} IS NULL OR ${row.builtBy} <> ${vendorId})${extraSql})
+        OR NOT EXISTS (SELECT 1 FROM ${products} WHERE ${products.id} = ${target.connectorProductId} AND ${products.productRole} IN ('connector', 'hybrid') AND ${products.connectorKind} = 'sync_service')
+        OR NOT EXISTS (SELECT 1 FROM ${productVendors} WHERE ${productVendors.vendorId} = ${vendorId} AND ${productVendors.productId} IN (${target.productAId}, ${target.productBId}))
+        OR EXISTS (SELECT 1 FROM ${productVendors} WHERE ${productVendors.vendorId} = ${vendorId} AND ${productVendors.productId} = ${target.connectorProductId})
+        THEN json(${PAIR_RIGHT_CHANGED_TOKEN}) END`,
+    })
+    .from(ONE_ROW);
+}
+
+/** The `409` a veto answers when {@link pairRightTargetSentinel} aborted it. */
+export function vetoPairChangedError(): ApiError {
+  return new ApiError(
+    409,
+    ApiErrorCode.VETO_PAIR_CHANGED,
+    'This integration, or your company’s link to it, changed while you were sending. Nothing was saved. Reload and try again.',
   );
 }
 
@@ -365,12 +536,14 @@ export function pairRightNotificationAudit(
 }
 
 /** Who hears about a veto on this row. The owner, or when no owner is on file the
- *  vendors of the Sync Service product; and every other endpoint vendor. The acting
+ *  vendors of the Sync Service product; the owner of every other row on the key, whose
+ *  row the veto hid too (`keyOwners`); and every other endpoint vendor. The acting
  *  vendor is never told. Sorted by id (an id ordering stays BINARY). */
 export async function vetoAudience(
   db: Db,
   target: PairRightTarget,
   actingVendorId: string | null,
+  keyOwners: readonly (string | null)[] = [],
 ): Promise<{ owners: string[]; endpoints: string[] }> {
   const rows = await db
     .select({ vendorId: productVendors.vendorId, productId: productVendors.productId })
@@ -387,6 +560,7 @@ export async function vetoAudience(
   else {
     for (const r of rows) if (r.productId === target.connectorProductId) owners.add(r.vendorId);
   }
+  for (const owner of keyOwners) if (owner) owners.add(owner);
   const endpoints = new Set<string>();
   for (const r of rows) {
     if (r.productId === target.connectorProductId) continue;
@@ -422,27 +596,21 @@ export function pairSlugsOf(
   return a && b ? [a, b] : null;
 }
 
-/** Is the anchor row on the public site now (live: not retired, not vetoed, no hidden
- *  endpoint)? `false` when it is gone. */
-export async function anchorIsPublic(
-  db: Db,
-  anchor: PairRightAnchor | null,
-  id: string | null,
-): Promise<boolean> {
-  if (!anchor || !id) return false;
-  const rows =
-    anchor === 'integration'
-      ? await db
-          .select({ id: integrations.id })
-          .from(integrations)
-          .where(and(eq(integrations.id, id), liveIntegrationWhere))
-          .limit(1)
-      : await db
-          .select({ id: connectorEvidencedPairs.id })
-          .from(connectorEvidencedPairs)
-          .where(and(eq(connectorEvidencedPairs.id, id), liveEvidencedPairWhere))
-          .limit(1);
-  return rows.length > 0;
+/** Is any row on the key on the public site now? A veto's `pair_public`: the key is
+ *  what a veto hides and what a withdraw or lift brings back. */
+export async function pairKeyIsPublic(db: Db, key: PairKey): Promise<boolean> {
+  const [pair] = await db
+    .select({ id: connectorEvidencedPairs.id })
+    .from(connectorEvidencedPairs)
+    .where(and(evidencedPairsOnPairKeyWhere(key), liveEvidencedPairWhere))
+    .limit(1);
+  if (pair) return true;
+  const [row] = await db
+    .select({ id: integrations.id })
+    .from(integrations)
+    .where(and(integrationsOnPairKeyWhere(key), liveIntegrationWhere))
+    .limit(1);
+  return row !== undefined;
 }
 
 type VetoRow = typeof syncServicePairVetoes.$inferSelect;
@@ -544,18 +712,37 @@ export async function vendorName(db: Db, vendorId: string | null): Promise<strin
   return row?.companyName ?? null;
 }
 
-/** The anchor of a veto row as a target-shaped key, for the recompute after a withdraw
- *  or lift. `null` when the row it was filed on is gone. */
+/** The row a veto was filed on. `null` when it is gone (the anchor FK is SET NULL). */
 export function vetoAnchorOf(row: VetoRow): { anchor: PairRightAnchor; id: string } | null {
   if (row.integrationId) return { anchor: 'integration', id: row.integrationId };
   if (row.evidencedPairId) return { anchor: 'evidenced_pair', id: row.evidencedPairId };
   return null;
 }
 
-/** Vetoes this vendor filed, or vetoes on pairs it owns: the vendor list's two sides. */
+/**
+ * The row a withdraw or lift names in its notices: the veto's anchor, or, when that
+ * row is gone, the first row still on the veto's key. `null` when no row is on the key:
+ * there is nothing to recompute and nobody to tell.
+ */
+export async function vetoNoticeTarget(db: Db, row: VetoRow): Promise<PairRightTarget | null> {
+  const anchor = vetoAnchorOf(row);
+  const located = anchor ? await locatePairRightTarget(db, anchor.id) : null;
+  if (located && located.connectorProductId !== null) return located as PairRightTarget;
+  const [first] = await rowsOnPairKey(db, vetoKeyOf(row));
+  if (!first) return null;
+  const other = await locatePairRightTarget(db, first.id);
+  return other && other.connectorProductId !== null ? (other as PairRightTarget) : null;
+}
+
+/**
+ * Vetoes on a pair key where this vendor owns a row: the owner's side of the vendor
+ * list. Key-wide, like the hiding: an owner whose row on the key was hidden sees the
+ * veto, whichever row it was filed on, and after that row is deleted.
+ */
 export function vetoesOwnedByWhere(vendorId: string): SQL {
+  const v = syncServicePairVetoes;
   return or(
-    sql`${syncServicePairVetoes.integrationId} IN (SELECT ${integrations.id} FROM ${integrations} WHERE ${integrations.builtByVendorId} = ${vendorId})`,
-    sql`${syncServicePairVetoes.evidencedPairId} IN (SELECT ${connectorEvidencedPairs.id} FROM ${connectorEvidencedPairs} WHERE ${connectorEvidencedPairs.builtByVendorId} = ${vendorId})`,
+    sql`EXISTS (SELECT 1 FROM ${connectorEvidencedPairs} WHERE ${connectorEvidencedPairs.builtByVendorId} = ${vendorId} AND ${connectorEvidencedPairs.connectorProductId} = ${v.connectorProductId} AND ${connectorEvidencedPairs.productAId} = ${v.productAId} AND ${connectorEvidencedPairs.productBId} = ${v.productBId})`,
+    sql`EXISTS (SELECT 1 FROM ${integrations} WHERE ${integrations.builtByVendorId} = ${vendorId} AND ${integrations.poweredByProductId} = ${v.connectorProductId} AND ((${integrations.sourceProductId} = ${v.productAId} AND ${integrations.targetProductId} = ${v.productBId}) OR (${integrations.sourceProductId} = ${v.productBId} AND ${integrations.targetProductId} = ${v.productAId})))`,
   )!;
 }

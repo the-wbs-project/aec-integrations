@@ -38,6 +38,7 @@ import {
   connectorEvidencedPairs,
   integrationFieldChallenges,
   integrations,
+  productVendors,
   products,
   vendors,
 } from '../db/schema';
@@ -981,6 +982,35 @@ export function contestIntegrationStateSentinel(
         OR EXISTS (SELECT 1 FROM ${table} WHERE "id" = ${anchor.id}
           AND (("claimed_at" IS NOT NULL) <> ${expected.claimed ? 1 : 0}
             OR ifnull("built_by_vendor_id", '') <> ${expected.ownerVendorId ?? ''}))
+        THEN json('contest-integration-changed') END`,
+    })
+    .from(ONE_ROW);
+}
+
+/**
+ * The commit-time half of the AECI-2045 connector-holder authority (AECI-2042 review).
+ * The vendor of a row's Sync Service connector product may file one `owner` contest
+ * naming itself. That authority is read before the batch, so this re-asserts it inside
+ * it: aborts unless the row still exists with `connectorProductId` as its connector
+ * (`powered_by_product_id`, or a pair's `connector_product_id`), that product is still a
+ * Sync Service (role `connector` or `hybrid`, kind `sync_service`), and the caller's
+ * vendor still holds it. Same `json()` abort as {@link contestIntegrationStateSentinel};
+ * the submit handler answers `409 CONTEST_INTEGRATION_CHANGED` for both.
+ */
+export function contestConnectorHolderSentinel(
+  db: Db,
+  anchor: ContestAnchor,
+  vendorId: string,
+  connectorProductId: string,
+) {
+  const table = anchorTableSql(anchor.kind);
+  const column = sql.raw(
+    anchor.kind === 'evidenced_pair' ? '"connector_product_id"' : '"powered_by_product_id"',
+  );
+  return db
+    .select({
+      guard: sql`CASE WHEN NOT EXISTS (SELECT 1 FROM ${table} WHERE "id" = ${anchor.id} AND ${column} = ${connectorProductId})
+        OR NOT EXISTS (SELECT 1 FROM ${products} INNER JOIN ${productVendors} ON ${productVendors.productId} = ${products.id} AND ${productVendors.vendorId} = ${vendorId} WHERE ${products.id} = ${connectorProductId} AND ${products.productRole} IN ('connector', 'hybrid') AND ${products.connectorKind} = 'sync_service')
         THEN json('contest-integration-changed') END`,
     })
     .from(ONE_ROW);

@@ -1401,7 +1401,7 @@ export const NOTIFICATIONS = {
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11e',
     summary:
       'Tells the owner of a Sync Service pair, and the other endpoint vendors, that an endpoint vendor vetoed it, withdrew a veto, or that AECi lifted one (ruling 8 on AECI-2035). The veto row to the owner names the vendor and carries its reason.',
-    note: 'Not pausable: a portal row, not email. A lift also tells the vendor whose veto ended.',
+    note: 'Not pausable: a portal row, not email. A lift also tells the vendor whose veto ended. A veto is keyed to the pair, so the owner of every other row on the same connector and endpoint pair is told as an owner too.',
   },
   'portal-sync-service-pair-report': {
     channel: 'portal',

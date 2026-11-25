@@ -1483,7 +1483,9 @@ You see the same `skipped[]` entry for a fenced evidenced pair as for a fenced i
 ### 4b.1 A vetoed Sync Service pair is fenced too (AECI-2042, 2026-11-24)
 
 An endpoint vendor may veto a pair a Sync Service delivers (`STAGE_2_VENDOR_PORTAL_SPEC.md`
-§11e.2). The row's `vetoed_at` is set, and it leaves every public read. The veto needs no
+§11e.2). `vetoed_at` is set on every row on the vetoed pair key, in both tables, and they
+leave every public read. So the by-id fence below covers a second row on the key as well
+as the row the veto was filed on. The veto needs no
 claim, so an AECi-seeded pair can be vetoed. Promote treats a vetoed row as vendor-held for
 this fence, and never writes `vetoed_at`:
 

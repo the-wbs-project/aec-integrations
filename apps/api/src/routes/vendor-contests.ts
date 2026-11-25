@@ -149,6 +149,7 @@ import {
   type ContestRow,
   type ContestTarget,
   type IntegrationClaimedPredicate,
+  contestConnectorHolderSentinel,
   contestIntegrationStateSentinel,
   contestStillOpenSentinel,
   isContestRaceError,
@@ -593,6 +594,7 @@ export function createSubmitContestHandler(
       reason: payload.reason,
       pairSlugs,
       selfDisclaim,
+      connectorHolder,
     };
 
     // 7. Route and write, in one batch.
@@ -698,6 +700,9 @@ interface SubmitDraft {
   pairSlugs: readonly [string, string] | null;
   /** The row's named owner says the row is not its own (AECI-1225). */
   selfDisclaim: boolean;
+  /** AECI-2045: the caller passed only as the vendor of the row's Sync Service
+   *  connector product, asking to be recorded as the owner. Re-asserted at commit. */
+  connectorHolder?: boolean;
 }
 
 /**
@@ -827,6 +832,12 @@ async function planSubmit(
     // the caller. A claim or a promote re-point landing first aborts the batch.
     ...(draft.selfDisclaim
       ? [contestIntegrationStateSentinel(db, anchor, { claimed: false, ownerVendorId: vendorId })]
+      : []),
+    // AECI-2042 review: the connector holder's authority is read before the batch, so
+    // it is asserted again here. A connector change, a kind change or a lost seat on the
+    // connector product landing first aborts the batch.
+    ...(draft.connectorHolder && draft.target.poweredByProductId
+      ? [contestConnectorHolderSentinel(db, anchor, vendorId, draft.target.poweredByProductId)]
       : []),
     workflowTransitionInsert(db, transition),
     ...audits.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))),

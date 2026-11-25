@@ -35,6 +35,7 @@ import {
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import { NOTIFICATION_SENT_ACTION } from '../lib/attestation-notify';
+import { syncIndexTargets, type IndexTargetIds } from '../lib/algolia-sync';
 import type { AuthzVariables } from '../lib/authz';
 import { checkVetoedAtMismatch } from '../lib/data-quality';
 import { findSyncServicePairBlock } from '../lib/integration-twins';
@@ -215,7 +216,10 @@ beforeEach(async () => {
     },
   ]);
 });
-afterEach(() => t.dispose());
+afterEach(() => {
+  extraEnv = {};
+  t.dispose();
+});
 
 function app(auth: AuthzVariables['auth']) {
   const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
@@ -237,6 +241,9 @@ function app(auth: AuthzVariables['auth']) {
   return a;
 }
 
+/** Env a test adds to every call (the Algolia credentials, for the by-id sync). */
+let extraEnv: Partial<Env> = {};
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type JsonBody = Record<string, any>;
 
@@ -249,6 +256,7 @@ async function call(
   const send = vi.fn().mockResolvedValue(undefined);
   const env: Env = {
     ...TEST_ENV,
+    ...extraEnv,
     CACHE_PURGE_QUEUE: { send } as unknown as Env['CACHE_PURGE_QUEUE'],
   };
   const execCtx = fakeExecutionContext();
@@ -629,5 +637,239 @@ describe('promote never revives, overwrites or duplicates a vetoed pair', () => 
     const { response } = await ingest({ integrations: [seededEdge({ supabaseId: PAIR_SEEDED })] });
     expect(response.skipped).toEqual([]);
     expect((await pairRow(PAIR_SEEDED)).name).toBe('Renamed upstream');
+  });
+});
+
+// ─── Review blocker 1: a veto hides every row on its pair key ────────────────
+//
+// The veto row keeps the pair key (connector, A, B). The same key can sit in both
+// tables, and in more than one `integrations` row, so every row on it must leave the
+// site, and come back, together. `integrations` rows are source → target, so a row
+// stored B → A is on the key too.
+
+const DUP_REV = uuid(36); // integrations: Acumatica → Procore via S_SYNC, AECi-held
+const DUP_FWD = uuid(37); // integrations: Procore → Acumatica via S_SYNC, Nobody owns it
+const INT_TWIN = uuid(38); // integrations: InEight → Acumatica via S_SYNC, beside INT_SYNC
+
+const intRow = async (id: string) =>
+  (await t.db.query.integrations.findFirst({ where: eq(integrations.id, id) }))!;
+
+async function seedDuplicates(): Promise<void> {
+  await t.db.insert(integrations).values([
+    {
+      id: DUP_REV,
+      name: 'Acumatica to Procore (Rivets Sync)',
+      sourceProductId: P_ACUMATICA,
+      targetProductId: P_PROCORE,
+      poweredByProductId: S_SYNC,
+      mechanismKind: 'iPaaS',
+    },
+    {
+      id: DUP_FWD,
+      name: 'Procore to Acumatica (Rivets Sync, resold)',
+      sourceProductId: P_PROCORE,
+      targetProductId: P_ACUMATICA,
+      poweredByProductId: S_SYNC,
+      mechanismKind: 'iPaaS',
+      builtByVendorId: NOBODY,
+      claimedAt: CLAIMED_AT,
+      origin: 'vendor',
+    },
+    {
+      id: INT_TWIN,
+      name: 'InEight to Acumatica (Rivets Sync)',
+      sourceProductId: P_INEIGHT,
+      targetProductId: P_ACUMATICA,
+      poweredByProductId: S_SYNC,
+      mechanismKind: 'iPaaS',
+    },
+  ]);
+}
+
+describe('a veto hides every row on its pair key (review blocker 1)', () => {
+  beforeEach(seedDuplicates);
+
+  it('hides the pair in both tables and both orientations, and a withdraw brings all back', async () => {
+    const filed = await veto(PAIR);
+    expect(filed.status).toBe(201);
+    expect((await pairRow(PAIR)).vetoedAt).not.toBeNull();
+    expect((await intRow(DUP_REV)).vetoedAt).not.toBeNull();
+    expect((await intRow(DUP_FWD)).vetoedAt).not.toBeNull();
+    // A row on another key is untouched.
+    expect((await intRow(INT_TWIN)).vetoedAt).toBeNull();
+    expect((await checkVetoedAtMismatch(t.db)).lines).toEqual([]);
+    // Procore counts none of the three: PAIR_SEEDED, PAIR_PLATFORM, PAIR_BLANK and
+    // INT_NATIVE are left.
+    expect(await countOf(P_PROCORE)).toBe(4);
+
+    const back = await withdraw(filed.body.veto.id);
+    expect(back.status).toBe(200);
+    expect(back.body.pair_public).toBe(true);
+    expect((await pairRow(PAIR)).vetoedAt).toBeNull();
+    expect((await intRow(DUP_REV)).vetoedAt).toBeNull();
+    expect((await intRow(DUP_FWD)).vetoedAt).toBeNull();
+    expect(await countOf(P_PROCORE)).toBe(7);
+  });
+
+  it('two integrations rows on one key: a veto on one hides both, and a lift brings both back', async () => {
+    const filed = await veto(INT_SYNC, AUTH_ACUMATICA);
+    expect(filed.status).toBe(201);
+    expect((await intRow(INT_SYNC)).vetoedAt).not.toBeNull();
+    expect((await intRow(INT_TWIN)).vetoedAt).not.toBeNull();
+    const lifted = await call(AUTH_ADMIN, `/api/admin/vetoes/${filed.body.veto.id}/lift`, 'POST', {
+      note: 'Filed through a seat granted in error.',
+    });
+    expect(lifted.status).toBe(200);
+    expect((await intRow(INT_SYNC)).vetoedAt).toBeNull();
+    expect((await intRow(INT_TWIN)).vetoedAt).toBeNull();
+  });
+
+  it('both endpoint vendors veto: every row stays hidden until both have ended', async () => {
+    const a = await veto(PAIR, AUTH_PROCORE);
+    const b = await veto(DUP_REV, AUTH_ACUMATICA);
+    expect(b.status).toBe(201);
+    const first = await withdraw(a.body.veto.id, AUTH_PROCORE);
+    expect(first.body.pair_public).toBe(false);
+    for (const id of [DUP_REV, DUP_FWD]) expect((await intRow(id)).vetoedAt).not.toBeNull();
+    // The column is the earliest veto still in force: the second one now.
+    expect((await pairRow(PAIR)).vetoedAt).toBe(b.body.veto.filed_at);
+    const second = await withdraw(b.body.veto.id, AUTH_ACUMATICA);
+    expect(second.body.pair_public).toBe(true);
+    for (const id of [DUP_REV, DUP_FWD]) expect((await intRow(id)).vetoedAt).toBeNull();
+    expect((await pairRow(PAIR)).vetoedAt).toBeNull();
+    expect((await checkVetoedAtMismatch(t.db)).lines).toEqual([]);
+  });
+
+  it('after the vetoed row is deleted, the other rows stay hidden, and a withdraw brings them back', async () => {
+    const filed = await veto(PAIR);
+    await t.db.delete(connectorEvidencedPairs).where(eq(connectorEvidencedPairs.id, PAIR));
+    expect((await intRow(DUP_REV)).vetoedAt).not.toBeNull();
+    expect((await checkVetoedAtMismatch(t.db)).lines).toEqual([]);
+    const back = await withdraw(filed.body.veto.id);
+    expect(back.status).toBe(200);
+    expect(back.body.pair_public).toBe(true);
+    expect((await intRow(DUP_REV)).vetoedAt).toBeNull();
+    expect((await intRow(DUP_FWD)).vetoedAt).toBeNull();
+  });
+
+  it('the owner of another row on the key is told, and sees the veto in its list', async () => {
+    await veto(PAIR);
+    const told = (await notices()).find((n) => n.vendorId === NOBODY);
+    expect(told?.metadata).toMatchObject({ event: 'vetoed', reason: 'We never authorised this.' });
+    const list = await call(AUTH_NOBODY, '/api/vendor/vetoes', 'GET');
+    expect(list.body.received).toHaveLength(1);
+  });
+
+  it('syncs and purges every row on the key, not only the anchor', async () => {
+    extraEnv = { ENV: 'staging', ALGOLIA_APP_ID: 'TESTAPP', ALGOLIA_ADMIN_KEY: 'test-admin-key' };
+    vi.mocked(syncIndexTargets).mockClear();
+    const res = await veto(PAIR);
+    const targets = vi.mocked(syncIndexTargets).mock.calls[0]![4] as IndexTargetIds;
+    expect([...targets.integrations].sort()).toEqual([PAIR, DUP_REV, DUP_FWD].sort());
+    expect(targets.vendors).toEqual(expect.arrayContaining([RIVETS, NOBODY]));
+    expect(purgedTags(res.send)).toEqual(
+      expect.arrayContaining(['vendor:rivets', 'vendor:nobody']),
+    );
+  });
+
+  it('the data-quality check reports a second row on a vetoed key left on the site', async () => {
+    await veto(PAIR);
+    await t.db.update(integrations).set({ vetoedAt: null }).where(eq(integrations.id, DUP_REV));
+    const { lines } = await checkVetoedAtMismatch(t.db);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain(DUP_REV);
+  });
+
+  it('no restore brings back a duplicate row while the veto is in force', async () => {
+    await veto(PAIR);
+    const res = await call(AUTH_ADMIN, `/api/admin/integrations/${DUP_FWD}/restore`, 'POST', {
+      reason: 'Back.',
+    });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('INTEGRATION_VETOED');
+  });
+});
+
+// ─── Review blocker 2: the gate is asserted again inside the batch ────────────
+//
+// `resolvePairRightTarget` reads before the batch. Each case changes one fact between
+// that read and the commit, the way a promote, an AECi owner change or a seat removal
+// can, and the veto must write nothing.
+
+/** Run `statement` once, just before the next `db.batch` commits. */
+function raceBeforeBatch(statement: string, ...params: unknown[]): void {
+  type BatchFn = (s: unknown[]) => Promise<unknown[]>;
+  const holder = t.db as unknown as { batch: BatchFn };
+  const realBatch = holder.batch.bind(t.db) as BatchFn;
+  holder.batch = async (stmts) => {
+    holder.batch = realBatch;
+    t.raw.prepare(statement).run(...params);
+    return realBatch(stmts);
+  };
+}
+
+describe('the veto gate holds at commit (review blocker 2)', () => {
+  const nothingWritten = async () => {
+    expect(await t.db.select().from(syncServicePairVetoes)).toEqual([]);
+    expect(
+      await t.db.select().from(auditLog).where(eq(auditLog.action, 'integration.vetoed')),
+    ).toEqual([]);
+  };
+
+  it.each([
+    [
+      'the endpoints changed',
+      PAIR,
+      'UPDATE connector_evidenced_pairs SET product_a_id = ?, product_b_id = ? WHERE id = ?',
+      [P_ACUMATICA, P_INEIGHT, PAIR],
+    ],
+    [
+      'the connector changed',
+      PAIR_SEEDED,
+      'UPDATE connector_evidenced_pairs SET connector_product_id = ? WHERE id = ?',
+      [S_PLATFORM, PAIR_SEEDED],
+    ],
+    [
+      'the connector is no longer a Sync Service',
+      PAIR,
+      "UPDATE products SET connector_kind = 'integration_platform' WHERE id = ?",
+      [S_SYNC],
+    ],
+    [
+      'the caller lost its endpoint',
+      PAIR,
+      'DELETE FROM product_vendors WHERE vendor_id = ?',
+      [PROCORE],
+    ],
+    [
+      'the caller became the owner',
+      PAIR,
+      'UPDATE connector_evidenced_pairs SET built_by_vendor_id = ? WHERE id = ?',
+      [PROCORE, PAIR],
+    ],
+  ])('%s: 409 VETO_PAIR_CHANGED, nothing written', async (_label, id, statement, params) => {
+    raceBeforeBatch(statement, ...params);
+    const res = await veto(id);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('VETO_PAIR_CHANGED');
+    await nothingWritten();
+    expect((await pairRow(id)).vetoedAt).toBeNull();
+  });
+
+  it('an `integrations` row whose endpoint changed is refused too', async () => {
+    raceBeforeBatch(
+      'UPDATE integrations SET source_product_id = ? WHERE id = ?',
+      P_PROCORE,
+      INT_SYNC,
+    );
+    const res = await veto(INT_SYNC, AUTH_ACUMATICA);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('VETO_PAIR_CHANGED');
+    await nothingWritten();
+  });
+
+  it('with nothing changed the same veto goes through', async () => {
+    raceBeforeBatch('UPDATE products SET name = name WHERE id = ?', S_SYNC);
+    expect((await veto(PAIR)).status).toBe(201);
   });
 });

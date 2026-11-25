@@ -200,16 +200,20 @@ export const ApiErrorCode = {
   // `SYNC_SERVICE_RIGHT_OWN_INTEGRATION` (403) answers the pair's owner or its Sync Service
   // vendor trying to use an endpoint vendor's right. `VETO_DUPLICATE` (409): this vendor
   // already has a veto in force on the pair. `VETO_NOT_IN_FORCE` (409): a withdraw or lift
-  // of a veto that already ended. `PAIR_CONTEST_DUPLICATE` (409): the vendor already has
+  // of a veto that already ended. `VETO_PAIR_CHANGED` (409): the row, its connector, its
+  // owner or the caller's hold on an endpoint changed between the gate and the commit,
+  // so nothing was written. `PAIR_CONTEST_DUPLICATE` (409): the vendor already has
   // the same report open. `PAIR_CONTEST_NOT_OPEN` (409): a decision or withdraw on a
   // closed report. `PAIR_CONTEST_CHANGED` (409): the pair or its owner changed while
-  // deciding. `PAIR_PROTEST_NOT_ALLOWED` (409): no protest basis, or one already filed.
+  // deciding, or while a report was being filed. `PAIR_PROTEST_NOT_ALLOWED` (409): no
+  // protest basis, or one already filed.
   // `PAIR_PROTEST_NOT_OPEN` (409): a decision or withdraw on a closed protest.
   INTEGRATION_VETOED: 'INTEGRATION_VETOED',
   SYNC_SERVICE_RIGHT_NOT_AVAILABLE: 'SYNC_SERVICE_RIGHT_NOT_AVAILABLE',
   SYNC_SERVICE_RIGHT_OWN_INTEGRATION: 'SYNC_SERVICE_RIGHT_OWN_INTEGRATION',
   VETO_DUPLICATE: 'VETO_DUPLICATE',
   VETO_NOT_IN_FORCE: 'VETO_NOT_IN_FORCE',
+  VETO_PAIR_CHANGED: 'VETO_PAIR_CHANGED',
   PAIR_CONTEST_DUPLICATE: 'PAIR_CONTEST_DUPLICATE',
   PAIR_CONTEST_NOT_OPEN: 'PAIR_CONTEST_NOT_OPEN',
   PAIR_CONTEST_CHANGED: 'PAIR_CONTEST_CHANGED',

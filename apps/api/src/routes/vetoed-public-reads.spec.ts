@@ -13,6 +13,10 @@
  *
  * Beside each vetoed row sits a live row that must stay, so a predicate that empties
  * everything instead of dropping one row fails.
+ *
+ * Each vetoed key also carries a second row the veto was NOT filed on, in
+ * `integrations`, stored the other way round (the review blocker on AECI-2042): a veto
+ * is keyed to the pair, so every reader must drop every row on the key.
  */
 
 import { IntegrationsListResponseSchema } from '@aeci/shared';
@@ -75,6 +79,9 @@ const VETOED = u(21); // procore ↔ sage via S_SYNC, vetoed by Procore
 const VETOED_ALONE = u(22); // procore ↔ okta via S_SYNC, vetoed, the pair's only edge
 const INT_VETOED = u(23); // integrations: sage → ineight via S_SYNC, vetoed by Sage
 const INT_LIVE = u(24); // integrations: sage → ineight, native, live
+const DUP_INT = u(25); // integrations: sage → procore via S_SYNC, on VETOED's key
+const DUP_INT_TWIN = u(26); // integrations: ineight → sage via S_SYNC, on INT_VETOED's key
+const DUPS = [DUP_INT, DUP_INT_TWIN];
 const CATALOG = u(30);
 const DO_RFIS = u(40);
 const DO_INVOICES = u(41);
@@ -218,6 +225,22 @@ beforeEach(async () => {
       targetProductId: P_INEIGHT,
       mechanismKind: 'native',
     },
+    {
+      id: DUP_INT,
+      name: 'Duplicate sync row',
+      sourceProductId: P_SAGE,
+      targetProductId: P_PROCORE,
+      poweredByProductId: S_SYNC,
+      mechanismKind: 'iPaaS',
+    },
+    {
+      id: DUP_INT_TWIN,
+      name: 'Twin sync row',
+      sourceProductId: P_INEIGHT,
+      targetProductId: P_SAGE,
+      poweredByProductId: S_SYNC,
+      mechanismKind: 'iPaaS',
+    },
   ]);
   await t.db.insert(taxonomyDataObjects).values([
     { id: DO_RFIS, slug: 'rfis', name: 'RFIs', displayOrder: 1 },
@@ -267,11 +290,13 @@ describe('a vetoed Sync Service pair renders on no public read (AECI-2042)', () 
     expect(pair.text).toContain(LIVE);
     expect(pair.text).not.toContain(VETOED);
     expect(pair.text).not.toContain('Vetoed pair');
+    expect(pair.text).not.toContain(DUP_INT);
     const alone = await get(path, '/api/products/procore/integrations/okta', handler);
     expect((alone.body as { mechanisms: unknown[] }).mechanisms).toEqual([]);
     const rows = await get(path, '/api/products/sage/integrations/ineight', handler);
     expect(rows.text).toContain(INT_LIVE);
     expect(rows.text).not.toContain(INT_VETOED);
+    expect(rows.text).not.toContain(DUP_INT_TWIN);
   });
 
   it('the pair timeline omits it', async () => {
@@ -282,6 +307,7 @@ describe('a vetoed Sync Service pair renders on no public read (AECI-2042)', () 
     );
     expect(status).toBe(200);
     expect(text).not.toContain(VETOED);
+    expect(text).not.toContain(DUP_INT);
   });
 
   it('both endpoint pages drop it from their lanes and its data objects from data_object_slugs', async () => {
@@ -292,6 +318,7 @@ describe('a vetoed Sync Service pair renders on no public read (AECI-2042)', () 
       expect(page.text).not.toContain(VETOED);
       expect(page.text).not.toContain(VETOED_ALONE);
       expect(page.text).not.toContain(INT_VETOED);
+      for (const dup of DUPS) expect(page.text).not.toContain(dup);
       expect(page.text).not.toContain('"invoices"');
     }
     const procore = await get('/api/products/:slug', '/api/products/procore', handler);
@@ -306,6 +333,7 @@ describe('a vetoed Sync Service pair renders on no public read (AECI-2042)', () 
     expect(page.text).not.toContain(VETOED);
     expect(page.text).not.toContain(VETOED_ALONE);
     expect(page.text).not.toContain(INT_VETOED);
+    for (const dup of DUPS) expect(page.text).not.toContain(dup);
     const other = await get('/api/products/:slug', '/api/products/agave-sync', handler);
     expect(other.text).toContain(LIVE);
   });
@@ -315,6 +343,7 @@ describe('a vetoed Sync Service pair renders on no public read (AECI-2042)', () 
       (await t.db.query.products.findFirst({ where: eq(products.id, id) }))!.integrationCount;
     expect(await count(P_PROCORE)).toBe(1); // LIVE only
     expect(await count(P_OKTA)).toBe(0);
+    expect(await count(P_INEIGHT)).toBe(1); // INT_LIVE only
     expect(await count(S_SYNC)).toBe(0);
   });
 
@@ -334,14 +363,14 @@ describe('a vetoed Sync Service pair renders on no public read (AECI-2042)', () 
   it('the Algolia sync deletes the vetoed records and keeps the live ones', async () => {
     const { requests } = await buildIntegrationRequests(t.db, {
       type: 'ids',
-      ids: [LIVE, VETOED, VETOED_ALONE, INT_VETOED, INT_LIVE],
+      ids: [LIVE, VETOED, VETOED_ALONE, INT_VETOED, INT_LIVE, ...DUPS],
     });
     const byAction = (action: string) =>
       requests
         .filter((r) => r.action === action)
         .map((r) => (r.body as { objectID: string }).objectID)
         .sort();
-    expect(byAction('deleteObject')).toEqual([INT_VETOED, VETOED, VETOED_ALONE].sort());
+    expect(byAction('deleteObject')).toEqual([INT_VETOED, VETOED, VETOED_ALONE, ...DUPS].sort());
     expect(byAction('updateObject')).toEqual([INT_LIVE, LIVE].sort());
   });
 
@@ -354,6 +383,7 @@ describe('a vetoed Sync Service pair renders on no public read (AECI-2042)', () 
     );
     expect(status).toBe(200);
     expect(text).not.toContain(VETOED);
+    expect(text).not.toContain(DUP_INT);
   });
 
   it('the admin connector screens count and list only live pairs', async () => {
@@ -376,7 +406,7 @@ describe('a vetoed Sync Service pair renders on no public read (AECI-2042)', () 
     expect((pairs.body as { total: number }).total).toBe(0);
   });
 
-  it('a withdraw puts the pair back on the pair page', async () => {
+  it('a withdraw puts every row on the key back on the pair page', async () => {
     const res = await request(
       'POST',
       '/api/vendor/vetoes/:id/withdraw',
@@ -391,5 +421,16 @@ describe('a vetoed Sync Service pair renders on no public read (AECI-2042)', () 
       createProductPairHandler(t.factory) as Handler,
     );
     expect(pair.text).toContain(VETOED);
+    expect(pair.text).toContain(DUP_INT);
+  });
+
+  it('the integrations list, the endpoint pages and the counts drop the duplicate too', async () => {
+    const count = async (id: string) =>
+      (await t.db.query.products.findFirst({ where: eq(products.id, id) }))!.integrationCount;
+    expect(await count(P_SAGE)).toBe(2); // LIVE and INT_LIVE
+    const rows = await t.db
+      .select({ id: integrations.id, vetoedAt: integrations.vetoedAt })
+      .from(integrations);
+    for (const dup of DUPS) expect(rows.find((r) => r.id === dup)?.vetoedAt).not.toBeNull();
   });
 });
