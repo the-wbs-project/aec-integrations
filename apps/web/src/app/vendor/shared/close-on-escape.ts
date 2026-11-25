@@ -31,10 +31,11 @@ import { Directive, input, output } from '@angular/core';
  *   a tooltip or a picker takes the first Escape, and only the next one closes the form;
  * - it comes from a combobox whose popup is open (`role="combobox"` with
  *   `aria-expanded="true"`), for a combobox that closes its popup without marking the
- *   event handled.
+ *   event handled;
+ * - it comes from a native `<select>` whose option list is open (`:open`). Chromium
+ *   still sends that Escape to the page, unmarked, as it closes the list.
  *
- * A native `<select>`'s open option list never sends Escape to the page at all, so it
- * needs no rule here. When the form acts on Escape (or swallows it while busy), it
+ * When the form acts on Escape (or swallows it while busy), it
  * stops propagation and marks the event handled, so a parent row, panel or dialog with
  * its own Escape does not also close.
  */
@@ -52,7 +53,7 @@ export class CloseOnEscape {
     if (event.key !== 'Escape' && event.key !== 'Esc') return;
     if (event.isComposing || event.keyCode === 229) return;
     if (event.defaultPrevented) return;
-    if (fromOpenCombobox(event.target)) return;
+    if (fromOpenPopup(event.target)) return;
     // The form owns this Escape now, busy or not: a parent must not close around it.
     event.stopPropagation();
     event.preventDefault();
@@ -61,9 +62,19 @@ export class CloseOnEscape {
   }
 }
 
-function fromOpenCombobox(target: EventTarget | null): boolean {
+function fromOpenPopup(target: EventTarget | null): boolean {
   if (typeof Element === 'undefined' || !(target instanceof Element)) return false;
-  return (
-    target.getAttribute('role') === 'combobox' && target.getAttribute('aria-expanded') === 'true'
-  );
+  if (target.getAttribute('role') === 'combobox' && target.getAttribute('aria-expanded') === 'true')
+    return true;
+  return target.tagName === 'SELECT' && matchesOpen(target);
+}
+
+/** `:open` on a native select whose option list is showing. A browser without the
+ *  pseudo-class throws on it, and then the select is treated as closed. */
+function matchesOpen(el: Element): boolean {
+  try {
+    return el.matches(':open');
+  } catch {
+    return false;
+  }
 }

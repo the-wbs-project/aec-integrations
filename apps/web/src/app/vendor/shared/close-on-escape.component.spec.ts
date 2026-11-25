@@ -112,6 +112,19 @@ describe('CloseOnEscape (AECI-2133)', () => {
     expect(host.parentKeys).toEqual(['Escape']);
   });
 
+  it('ignores an Escape from a native select whose list is open (Chromium still sends it)', () => {
+    const { host, el } = render();
+    const select = document.createElement('select') as unknown as HTMLElement;
+    el.querySelector('form')!.appendChild(select);
+    let open = true;
+    select.matches = ((q: string) => (q === ':open' ? open : false)) as typeof select.matches;
+    press(select);
+    expect(host.cancels).toBe(0);
+    open = false;
+    press(select);
+    expect(host.cancels).toBe(1);
+  });
+
   it('ignores an Escape from a combobox whose popup is open, and acts once it is closed', () => {
     const { fixture, host, el } = render();
     host.comboOpen.set(true);
