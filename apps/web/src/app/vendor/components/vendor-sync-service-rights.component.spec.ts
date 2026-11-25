@@ -108,6 +108,9 @@ describe('VendorSyncServiceRights', () => {
     const text = el(fixture).textContent ?? '';
     expect(text).toContain('off the public site at once');
     expect(text).toContain('Rivets is told, with your reason');
+    expect(text).toContain('Rivets cannot bring it back or add it again');
+    expect(text).toContain('You can withdraw the removal later');
+    expect(text).not.toContain('Nobody else');
     expect(api['fileVeto']).not.toHaveBeenCalled();
 
     buttonByText(fixture, 'Remove it from our product').click();

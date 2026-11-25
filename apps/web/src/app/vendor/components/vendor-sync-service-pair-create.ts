@@ -670,7 +670,7 @@ export function syncServicePairErrorMessage(err: unknown): string {
     }
     // AECI-2042: a vendor of one of the two products removed this pair from its product.
     case 'INTEGRATION_VETOED':
-      return $localize`:@@vendor.syncCreate.error.vetoed:A vendor of one of these products removed this integration from its product, so you cannot add it again. It returns only if that vendor withdraws the removal.`;
+      return $localize`:@@vendor.syncCreate.error.vetoed.v2:A vendor of one of these products removed this integration from its product, so you cannot add it again. It returns if that vendor withdraws the removal. AEC Integrations can also end a removal in a few cases the Listing Accuracy Policy sets out.`;
     case 'CONNECTOR_NOT_SYNC_SERVICE':
       return $localize`:@@vendor.syncCreate.error.notSync:Only a Sync Service can add the integrations it delivers. Contact AEC Integrations to add this one.`;
     case 'NOT_FOUND':

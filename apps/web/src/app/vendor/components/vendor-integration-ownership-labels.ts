@@ -104,7 +104,7 @@ export function retireErrorMessage(err: unknown): string {
       return $localize`:@@vendor.retire.error.retiredByAeci:AEC Integrations retired this integration, so only AEC Integrations can restore it. Reload to see its current state.`;
     // AECI-2042: an endpoint vendor removed it from its product. Not a retire.
     case 'INTEGRATION_VETOED':
-      return $localize`:@@vendor.retire.error.vetoed:A vendor of one of the two products removed this integration from its product. Only that vendor can bring it back. Messages says who and why.`;
+      return $localize`:@@vendor.retire.error.vetoed.v2:A vendor of one of the two products removed this integration from its product, so you cannot restore it. It returns if that vendor withdraws the removal. Messages says who and why.`;
     case 'INTEGRATION_NOT_OWNER':
       return $localize`:@@vendor.retire.error.notOwner:Only the company that owns this integration can retire or restore it.`;
     case 'INTEGRATION_CONNECTOR_POWERED':

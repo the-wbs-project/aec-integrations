@@ -17,7 +17,8 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
  *
  * - "Remove this integration from our product" opens an inline form that says what
  *   happens before anything is sent: the pair leaves every public page at once, the
- *   Sync Service is told with the reason, and only this company can bring it back. The
+ *   Sync Service is told with the reason, and the Sync Service cannot bring it back. This
+ *   company can withdraw the removal later. The
  *   form's own button is the confirm step. No browser dialog and no `BrnDialog`.
  * - "Report that it is not offered" goes to AEC Integrations. The pair stays listed.
  * - "Report a wrong data flow" names one flow and, optionally, the right direction.
@@ -87,12 +88,12 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
             >
               <p
                 class="max-w-prose text-sm text-(--text-primary)"
-                i18n="@@vendor.syncRights.veto.explain"
+                i18n="@@vendor.syncRights.veto.explain.v2"
               >
                 This takes the integration off the public site at once: the pair page, both product
                 pages and the {{ target().connector.name }} page. {{ ownerName() }} is told, with
-                your reason. Nobody else can bring it back. You can withdraw the removal later from
-                Change requests.
+                your reason. {{ ownerName() }} cannot bring it back or add it again. You can
+                withdraw the removal later from Change requests.
               </p>
               <label
                 [class]="labelClass"

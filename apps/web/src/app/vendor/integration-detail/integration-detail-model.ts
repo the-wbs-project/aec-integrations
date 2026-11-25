@@ -1415,7 +1415,7 @@ export function ownedStatusExplain(
       return $localize`:@@vendor.im.status.explain.readyToClaim:Your company is recorded as the owner. Claim it to edit its details yourself.`;
     case 'waiting': {
       const vendor = vetoVendor(rights);
-      return $localize`:@@vendor.im.owned.status.explain.removed:${vendor}:vendor: removed this integration from its product, so it is off the public site. Only ${vendor}:vendor: can bring it back. You cannot restore it.`;
+      return $localize`:@@vendor.im.owned.status.explain.removed.v2:${vendor}:vendor: removed this integration from its product, so it is off the public site. You cannot restore it. It returns if ${vendor}:vendor: withdraws the removal.`;
     }
     case 'up_to_date':
       return $localize`:@@vendor.im.status.explain.upToDate:Nothing needs you right now.`;

@@ -181,7 +181,7 @@ export function integrationVetoedError(): ApiError {
   return new ApiError(
     409,
     ApiErrorCode.INTEGRATION_VETOED,
-    'A vendor of one of the two products removed this integration from its product. It stays off the site until that vendor withdraws the removal.',
+    'A vendor of one of the two products removed this integration from its product. It stays off the site while that removal stands.',
   );
 }
 

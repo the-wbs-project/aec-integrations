@@ -105,10 +105,10 @@ import { VendorPortalAnnouncer } from '../vendor-announcer';
                     <p class="text-(--text-secondary)">{{ v.reason }}</p>
                     <p
                       class="text-(--text-secondary)"
-                      i18n="@@vendor.pairRights.received.noRestore"
+                      i18n="@@vendor.pairRights.received.noRestore.v2"
                     >
-                      Only {{ v.vendor_name ?? unknownVendor }} can bring it back. You cannot
-                      restore it.
+                      You cannot restore it. It returns if
+                      {{ v.vendor_name ?? unknownVendor }} withdraws the removal.
                     </p>
                   } @else {
                     <p class="text-(--text-secondary)">{{ endedText(v) }}</p>
