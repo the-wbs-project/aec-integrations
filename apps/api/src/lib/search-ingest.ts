@@ -57,7 +57,8 @@
  * (5xx, 429, a dropped connection) after the in-process retries ends the run `ok`
  * with `reason: 'token_transient'`, every key `failed` and nothing written. A D1 write
  * failure throws, so the queue retries the run, and the retry is safe because
- * every write is an upsert.
+ * every write is an upsert. No `catch` here wraps a write. The one `catch` covers
+ * the catalog URL read alone: a failed read marks only the catalog key `failed`.
  *
  * ─── The indexed count is a proxy, stated where it is computed ───────────────
  *
@@ -455,17 +456,23 @@ export async function runGoogleSearchIngest(
         await upsertSearchMetric(db, rollingEnd, pagesKeys[0], impressed.size, computedAt);
         n = 1;
         metrics[pagesKeys[0]] = 'written';
+        // Only the catalog read is caught. The upsert below sits outside the
+        // `try`, so a D1 write failure throws like every other write here and
+        // the queue retries the run.
+        let catalog: ReadonlySet<string> | null = null;
         try {
-          const catalog = await (deps.catalogUrls ?? (() => catalogUrlSet(db)))();
+          catalog = await (deps.catalogUrls ?? (() => catalogUrlSet(db)))();
+        } catch {
+          // The catalog read failed. The all-pages figure stands. The catalog figure
+          // is absent this week rather than guessed.
+          metrics[pagesKeys[1]] = 'failed';
+        }
+        if (catalog) {
           let inCatalog = 0;
           for (const url of impressed) if (catalog.has(url)) inCatalog++;
           await upsertSearchMetric(db, rollingEnd, pagesKeys[1], inCatalog, computedAt);
           n++;
           metrics[pagesKeys[1]] = 'written';
-        } catch {
-          // The catalog read failed. The all-pages figure stands. The catalog figure
-          // is absent this week rather than guessed.
-          metrics[pagesKeys[1]] = 'failed';
         }
       }
       calls.www_pages_28d = {

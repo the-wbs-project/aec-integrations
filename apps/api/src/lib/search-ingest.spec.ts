@@ -510,6 +510,33 @@ describe('runGoogleSearchIngest', () => {
     expect(result.metrics['search.google.www_page.catalog_pages_with_impressions_28d']).toBe(
       'failed',
     );
+    // The all-pages figure is in D1, the catalog figure is not, and the run went on.
+    expect(
+      await valueOf('2026-11-19', 'search.google.www_page.pages_with_impressions_28d'),
+    ).toMatchObject({ value: 3 });
+    expect(
+      await valueOf('2026-11-19', 'search.google.www_page.catalog_pages_with_impressions_28d'),
+    ).toBeUndefined();
+    expect(result.calls.www_pages_28d).toMatchObject({ outcome: 'ok', written: 1 });
+    expect(result.calls.www_queries_28d).toMatchObject({ outcome: 'ok' });
+  });
+
+  it('throws, and records nothing ok, when the catalog figure upsert fails in D1', async () => {
+    // The catalog read succeeds. Only the D1 write of the catalog key fails.
+    t.raw
+      .prepare(
+        `CREATE TRIGGER catalog_key_guard BEFORE INSERT ON metrics_daily
+         WHEN NEW.metric = 'search.google.www_page.catalog_pages_with_impressions_28d'
+         BEGIN SELECT RAISE(ABORT, 'd1 write failed'); END;`,
+      )
+      .run();
+    const fetchImpl = google();
+    await expect(runGoogleSearchIngest(deps(fetchImpl))).rejects.toThrow('d1 write failed');
+    expect(
+      await valueOf('2026-11-19', 'search.google.www_page.catalog_pages_with_impressions_28d'),
+    ).toBeUndefined();
+    // The run stopped at the throw: the later calls never ran.
+    expect(bodies(fetchImpl).map(callOf)).not.toContain('queries');
   });
 
   it('records no sitemap rows when Google lists no www sitemap', async () => {
