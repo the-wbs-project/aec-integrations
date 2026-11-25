@@ -55,6 +55,7 @@ import {
 } from './vendor-review-labels';
 import { VendorDocsLink } from './vendor-docs-link';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import { CloseOnEscape } from '../shared/close-on-escape';
 
 /** Reviews per page. Small: each row can open a form. */
 export const VENDOR_REVIEWS_PAGE_SIZE = 10;
@@ -101,6 +102,7 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
 @Component({
   selector: 'aec-vendor-reviews-list',
   imports: [
+    CloseOnEscape,
     AecButton,
     AecCard,
     AecFormSubmit,
@@ -459,6 +461,9 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
 
                     @if (isComposing(item)) {
                       <form
+                        aecCloseOnEscape
+                        [escapeBusy]="busy() !== null"
+                        (escapeCancel)="cancelCompose(item)"
                         method="dialog"
                         class="space-y-2"
                         novalidate

@@ -47,6 +47,7 @@ import {
 } from '../../shared/form-field/form-field-classes';
 import { AecIcon } from '../../shared/icon/icon';
 import { FORM_PANEL } from '../integration-detail/integration-detail-styles';
+import { CloseOnEscape } from '../shared/close-on-escape';
 import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
 import { PORTAL_NESTED_SAVE_BAR_CLASS, PORTAL_SAVE_BUTTON_CLASS } from '../shared/portal-form';
 
@@ -136,15 +137,16 @@ interface SelectOption {
  * primary: a sent request can still be withdrawn from Messages.
  *
  * ── FOCUS ───────────────────────────────────────────────────────────────────
- * No Escape handler, like the three sibling forms: one keystroke must not wipe a long
- * draft (one behaviour per pattern). Cancel closes and returns focus to "Request a
- * change". A refusal from the server (or the schema) takes focus, so a keyboard user
+ * Escape is Cancel, as in every portal nested form (`aecCloseOnEscape`, AECI-2133):
+ * both discard the draft, close, and return focus to "Request a change". Escape is
+ * ignored while the request sends, during an input-method composition, and when a
+ * control in the form already spent it. A refusal from the server (or the schema) takes focus, so a keyboard user
  * hears it and is not left on the disabled Send button. A field error stays beside its
  * field and takes no focus.
  */
 @Component({
   selector: 'aec-vendor-contest-form',
-  imports: [AecButton, AecIcon, KeepClearOfSaveBar, VendorDocsLink],
+  imports: [AecButton, AecIcon, CloseOnEscape, KeepClearOfSaveBar, VendorDocsLink],
   styles: [':host { display: block; }'],
   template: `
     <div class="border-t border-(--border-default) py-4">
@@ -171,6 +173,9 @@ interface SelectOption {
       @if (open()) {
         <form
           aecKeepClearOfSaveBar
+          aecCloseOnEscape
+          [escapeBusy]="submitting()"
+          (escapeCancel)="close()"
           method="dialog"
           [id]="fieldId('panel')"
           class="mt-4 space-y-6"
