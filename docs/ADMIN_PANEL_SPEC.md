@@ -2865,9 +2865,13 @@ shown.
   and 4 cover the same dates. A count filed under any other date covers other dates and is not
   read. Bing's stage 2 is a daily reading, not a sum, so it is the newest reading in the 28 dates
   ending on `day`.
-- **A short window says so.** When fewer than 28 of the window's dates hold a daily row, the
-  response carries the `search_window_incomplete` note, a `warn`. The click and impression totals
-  then cover fewer days than the window. This is normal in the ingest's first weeks.
+- **A short window says so.** The click and impression totals sum only the dates that hold both
+  a clicks row and an impressions row. The ingest stores the two as separate rows, and a field the
+  engine left out writes none, so a date can hold one without the other. A clicks row alone has no
+  denominator, and an impressions row alone is not a measured zero. With no such date the clicked
+  stage is omitted, never a 0% CTR. When fewer than 28 of the window's dates hold both, the
+  response carries the `search_window_incomplete` note, a `warn`, and `days_recorded` counts the
+  matched dates. This is normal in the ingest's first weeks.
 - **A stale series is no data.** A series whose newest date falls before the 28 dates ending on
   `day` is treated as absent.
 - **No silent omission.** An engine whose ingested stages are all omitted, for any reason, carries

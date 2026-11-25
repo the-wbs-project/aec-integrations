@@ -71,11 +71,61 @@ describe('sumSeries', () => {
     expect(sumSeries(rowsOf([['c', '2026-11-01', 1]]), keys, '2026-11-01', '2026-11-28')).toBe(
       null,
     );
-    expect(sumSeries(rowsOf([['i', '2026-11-01', 0]]), keys, '2026-11-01', '2026-11-28')).toEqual({
+    expect(
+      sumSeries(
+        rowsOf([
+          ['c', '2026-11-01', 0],
+          ['i', '2026-11-01', 0],
+        ]),
+        keys,
+        '2026-11-01',
+        '2026-11-28',
+      ),
+    ).toEqual({
       clicks: 0,
       impressions: 0,
       ctr: null,
       position_avg: null,
+    });
+  });
+
+  it('is null, never a measured 0% CTR, when the clicks series is missing from the window', () => {
+    const rows = rowsOf([
+      ['i', '2026-11-01', 100],
+      ['p', '2026-11-01', 10],
+      ['i', '2026-11-02', 200],
+      // A clicks row outside the window does not rescue it.
+      ['c', '2026-10-01', 5],
+    ]);
+    expect(sumSeries(rows, keys, '2026-11-01', '2026-11-28')).toBeNull();
+  });
+
+  it('is null when the impressions series is missing from the window', () => {
+    const rows = rowsOf([
+      ['c', '2026-11-01', 3],
+      ['c', '2026-11-02', 4],
+    ]);
+    expect(sumSeries(rows, keys, '2026-11-01', '2026-11-28')).toBeNull();
+  });
+
+  it('sums only the dates that hold both rows, whichever side is missing', () => {
+    const rows = rowsOf([
+      // Matched.
+      ['c', '2026-11-01', 2],
+      ['i', '2026-11-01', 100],
+      ['p', '2026-11-01', 10],
+      // Clicks with no impressions: no denominator, not summed.
+      ['c', '2026-11-02', 3],
+      // Impressions with no clicks: not a measured zero, not summed. Its
+      // position is not weighted in either.
+      ['i', '2026-11-03', 900],
+      ['p', '2026-11-03', 50],
+    ]);
+    expect(sumSeries(rows, keys, '2026-11-01', '2026-11-28')).toEqual({
+      clicks: 2,
+      impressions: 100,
+      ctr: 0.02,
+      position_avg: 10,
     });
   });
 });
@@ -221,6 +271,37 @@ describe('bingFunnel', () => {
     ]);
   });
 
+  it('drops a clicks-only date from the totals and from days_recorded', () => {
+    // The Bing ingest fixture's shape: Bing left `Impressions` out of one day, so
+    // that day stored three clicks and no impressions row.
+    const end = shiftDay(DAY, -6);
+    const rows = rowsOf([
+      ['search.bing.www.clicks', end, 2],
+      ['search.bing.www.impressions', end, 40],
+      ['search.bing.www.clicks', shiftDay(end, -1), 3],
+      ['search.bing.www.clicks', shiftDay(end, -2), 9],
+      ['search.bing.www.impressions', shiftDay(end, -2), 99],
+    ]);
+    const b = bingFunnel(rows, DAY, D1);
+    expect(b.search_window).toMatchObject({ to: end, days: 28, days_recorded: 2 });
+    expect(b.stages.find((s) => s.stage === 'clicked')).toEqual({
+      stage: 'clicked',
+      count: 11,
+      rate: 0.0791,
+      measure: 'measured',
+      source: 'bing_webmaster',
+      impressions: 139,
+    });
+  });
+
+  it('omits stage 4 when only impressions were stored, and records no matched day', () => {
+    const end = shiftDay(DAY, -6);
+    const rows = rowsOf([['search.bing.www.impressions', end, 40]]);
+    const b = bingFunnel(rows, DAY, D1);
+    expect(b.stages.map((s) => s.stage)).toEqual(['catalog', 'crawled']);
+    expect(b.search_window).toMatchObject({ to: end, days_recorded: 0 });
+  });
+
   it('keeps stage 2 when only the crawl call wrote, and omits stage 4', () => {
     const rows = rowsOf([['search.bing.www.in_index', shiftDay(DAY, -4), 300]]);
     expect(bingFunnel(rows, DAY, D1).stages.map((s) => s.stage)).toEqual([
@@ -344,6 +425,31 @@ describe('readSeoFunnel', () => {
     expect(body.notes.find((n) => n.code === 'search_window_incomplete')).toMatchObject({
       severity: 'warn',
       params: { engine: 'google', days_recorded: 14, days: 28, to: e0 },
+    });
+  });
+
+  it('counts only matched dates in days_recorded and the incomplete note', async () => {
+    // 28 impressions dates. The newest lacks its clicks row. One extra clicks row
+    // sits on the date after it, which holds no impressions row.
+    const end = shiftDay(DAY, -5);
+    const dates = Array.from({ length: 28 }, (_, i) => shiftDay(end, -i));
+    await t.db.insert(metricsDaily).values([
+      ...dates.map((d) => row(d, 'search.google.www_page.impressions', 100)),
+      ...dates.slice(1).map((d) => row(d, 'search.google.www_page.clicks', 1)),
+      // Outside the impressions dates but inside the 28 ending on `day`: the
+      // anchor stays on the newest impressions date, so this is out of window.
+      row(shiftDay(end, 1), 'search.google.www_page.clicks', 50),
+    ]);
+    const body = await readSeoFunnel(t.db, NOW);
+    const google = body.engines[0]!;
+    expect(google.search_window).toMatchObject({ to: end, days: 28, days_recorded: 27 });
+    expect(google.stages.find((s) => s.stage === 'clicked')).toMatchObject({
+      count: 27,
+      impressions: 2700,
+      rate: 0.01,
+    });
+    expect(body.notes.find((n) => n.code === 'search_window_incomplete')).toMatchObject({
+      params: { engine: 'google', days_recorded: 27, days: 28 },
     });
   });
 

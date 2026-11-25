@@ -387,7 +387,9 @@ describe('SeoFunnelPanel', () => {
     );
     // The count appears once, on the window line. The note does not repeat it,
     // and says Pacific like the window line does.
-    expect(text(b)).toContain('Some Pacific dates in this search window have no daily figures yet');
+    expect(text(b)).toContain(
+      'Some Pacific dates in this search window lack daily clicks or impressions',
+    );
     expect(text(b).match(/17 of 28/g)).toHaveLength(1);
   });
 

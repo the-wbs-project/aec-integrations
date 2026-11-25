@@ -35,8 +35,11 @@
  *
  * A series whose newest date is older than the 28 dates ending on `day` is stale.
  * It is treated as no data. An engine with no ingested stage at all, for this or
- * any other reason, carries `search_ingest_absent`. A click window with fewer
- * than 28 dates of daily rows carries `search_window_incomplete`. The
+ * any other reason, carries `search_ingest_absent`. The click totals sum only
+ * the dates that hold both a clicks row and an impressions row, because the
+ * ingest stores the two as separate rows and either can be missing on a date. A
+ * click window with fewer than 28 such dates carries `search_window_incomplete`,
+ * and `days_recorded` counts those dates. The
  * comparison treats the Pacific date and the UTC label as plain dates. They can
  * differ by one day at the edge, which the 28-day reach makes immaterial.
  */
@@ -154,25 +157,43 @@ function newestIngestedDay(
   return newest;
 }
 
-/** The 28 Pacific dates ending `end`, with how many of them hold `key`. */
-function pacificWindow(rows: FunnelRows, end: string, key: string): SeoPacificWindow {
+/**
+ * The dates in `[from, to]` that hold BOTH a clicks row and an impressions row.
+ * The ingest writes each field as its own row, and a field the engine left out
+ * writes none (`search-ingest-bing.ts`, `search-ingest.ts`). A clicks row with no
+ * impressions row has no denominator, and an impressions row with no clicks row
+ * is not a measured zero. So a window sums matched dates only.
+ */
+function matchedDays(rows: FunnelRows, keys: SeriesKeys, from: string, to: string): string[] {
+  const clicksByDay = rows.get(keys.clicks);
+  if (!clicksByDay) return [];
+  const days: string[] = [];
+  for (const d of rows.get(keys.impressions)?.keys() ?? []) {
+    if (d >= from && d <= to && clicksByDay.has(d)) days.push(d);
+  }
+  return days;
+}
+
+/** The 28 Pacific dates ending `end`, with how many of them hold both a clicks
+ *  and an impressions row of `keys`. */
+function pacificWindow(rows: FunnelRows, end: string, keys: SeriesKeys): SeoPacificWindow {
   const from = shiftDay(end, -(SEO_FUNNEL_WINDOW_DAYS - 1));
-  let recorded = 0;
-  for (const d of rows.get(key)?.keys() ?? []) if (d >= from && d <= end) recorded += 1;
   return {
     from,
     to: end,
     timezone: 'America/Los_Angeles',
     days: SEO_FUNNEL_WINDOW_DAYS,
-    days_recorded: recorded,
+    days_recorded: matchedDays(rows, keys, from, end).length,
   };
 }
 
 /**
- * Clicks, impressions, CTR and position over `[from, to]`, or null when no
- * impressions row falls inside it. CTR is summed clicks over summed impressions,
- * never a mean of daily ratios. Position is weighted by each day's impressions,
- * because the stored figure is already that day's impression-weighted average.
+ * Clicks, impressions, CTR and position over the dates in `[from, to]` that hold
+ * both a clicks and an impressions row, or null when no date does. A series
+ * with no row in the window is therefore absent, never a measured 0% CTR. CTR is
+ * summed clicks over summed impressions, never a mean of daily ratios. Position
+ * is weighted by each matched day's impressions, because the stored figure is
+ * already that day's impression-weighted average.
  */
 export function sumSeries(
   rows: FunnelRows,
@@ -180,29 +201,24 @@ export function sumSeries(
   from: string,
   to: string,
 ): SeoSearchTotals | null {
-  const inWindow = (d: string) => d >= from && d <= to;
-  const impressionsByDay = rows.get(keys.impressions) ?? new Map<string, number>();
-  let impressions = 0;
-  let any = false;
-  for (const [d, v] of impressionsByDay) {
-    if (!inWindow(d)) continue;
-    any = true;
-    impressions += v;
-  }
-  if (!any) return null;
+  const days = matchedDays(rows, keys, from, to);
+  if (days.length === 0) return null;
+  const clicksByDay = rows.get(keys.clicks)!;
+  const impressionsByDay = rows.get(keys.impressions)!;
+  const positionByDay = keys.position ? rows.get(keys.position) : undefined;
 
   let clicks = 0;
-  for (const [d, v] of rows.get(keys.clicks) ?? []) if (inWindow(d)) clicks += v;
-
+  let impressions = 0;
   let weighted = 0;
   let weight = 0;
-  if (keys.position) {
-    for (const [d, position] of rows.get(keys.position) ?? []) {
-      const dayImpressions = impressionsByDay.get(d);
-      if (!inWindow(d) || dayImpressions === undefined || dayImpressions <= 0) continue;
-      weighted += position * dayImpressions;
-      weight += dayImpressions;
-    }
+  for (const d of days) {
+    const dayImpressions = impressionsByDay.get(d)!;
+    clicks += clicksByDay.get(d)!;
+    impressions += dayImpressions;
+    const position = positionByDay?.get(d);
+    if (position === undefined || dayImpressions <= 0) continue;
+    weighted += position * dayImpressions;
+    weight += dayImpressions;
   }
 
   const c = whole(clicks);
@@ -274,7 +290,7 @@ export function googleFunnel(rows: FunnelRows, day: string, d1: D1Stages): SeoFu
   const end = newestIngestedDay(rows, [GOOGLE_WWW.impressions], day);
   let searchWindow: SeoPacificWindow | null = null;
   if (end !== null) {
-    searchWindow = pacificWindow(rows, end, GOOGLE_WWW.impressions);
+    searchWindow = pacificWindow(rows, end, GOOGLE_WWW);
     // Filed by the ingest under the 28-day window's own end date. A row under
     // any other date covers a different 28 days, so it is not read.
     const impressed = rows.get(GOOGLE_CATALOG_IMPRESSED)?.get(end);
@@ -296,7 +312,7 @@ export function googleFunnel(rows: FunnelRows, day: string, d1: D1Stages): SeoFu
   const propertyEnd = newestIngestedDay(rows, [GOOGLE_PROPERTY.impressions], day);
   let current: SeoFunnelBaseline['current'] = null;
   if (propertyEnd !== null) {
-    const window = pacificWindow(rows, propertyEnd, GOOGLE_PROPERTY.impressions);
+    const window = pacificWindow(rows, propertyEnd, GOOGLE_PROPERTY);
     const totals = sumSeries(rows, GOOGLE_PROPERTY, window.from, window.to);
     if (totals) current = { ...totals, window };
   }
@@ -331,7 +347,7 @@ export function bingFunnel(rows: FunnelRows, day: string, d1: D1Stages): SeoFunn
   const end = newestIngestedDay(rows, [BING_WWW.impressions], day);
   let searchWindow: SeoPacificWindow | null = null;
   if (end !== null) {
-    searchWindow = pacificWindow(rows, end, BING_WWW.impressions);
+    searchWindow = pacificWindow(rows, end, BING_WWW);
     const totals = sumSeries(rows, BING_WWW, searchWindow.from, searchWindow.to);
     if (totals) stages.push(clickedStage(totals, 'bing_webmaster', false));
   }
@@ -415,7 +431,7 @@ export async function readSeoFunnel(db: Db, now: Date): Promise<SeoFunnelRespons
       notes.push(
         note(
           'search_window_incomplete',
-          `Only ${w.days_recorded} of the ${w.days} ${e.engine} days from ${w.from} to ${w.to} hold daily figures, so the click totals cover fewer days than the window.`,
+          `Only ${w.days_recorded} of the ${w.days} ${e.engine} days from ${w.from} to ${w.to} hold both daily clicks and impressions, so the click totals cover fewer days than the window.`,
           {
             engine: e.engine,
             days_recorded: w.days_recorded,

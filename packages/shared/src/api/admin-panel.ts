@@ -130,7 +130,7 @@ export type AdminWindow = z.infer<typeof AdminWindowSchema>;
  * | `public_site_url_unset` | AECI-818. A `warn`: `PUBLIC_SITE_URL` is unset or unparseable, so no public URL can be built and the queue lists no lanes |
  * | `indexed_is_impression_lower_bound` | AECI-823. An `info`, gated on the Google `impressed` stage being present: it counts catalog pages with an impression in 28 days, a lower bound on indexed pages and not Google's index count |
  * | `search_ingest_absent` | AECI-823. An `info`, gated: one engine has no ingested stage in the funnel, whatever the reason, so only its two D1 stages show (`params.engine`) |
- * | `search_window_incomplete` | AECI-823. A `warn`, gated: an engine's 28-date click window holds daily rows for fewer dates than it spans, so its click and impression totals cover fewer days (`params.engine`, `days_recorded`, `days`, `from`, `to`) |
+ * | `search_window_incomplete` | AECI-823. A `warn`, gated: an engine's 28-date click window holds both daily clicks and impressions rows for fewer dates than it spans, so its click and impression totals cover fewer days (`params.engine`, `days_recorded`, `days`, `from`, `to`) |
  * | `stub_actions_never_fetched` | `params.never_fetched` of `params.total` stubs on this page carry `actions IS NULL`, which means the per-listing inventory has never been fetched — **not** that the listing has no actions. The inventory is ~73k actions across MindCloud alone and is fetched lazily, so most stubs carry null indefinitely (§9a.3) |
  */
 export const AdminNoteCodeSchema = z.enum([

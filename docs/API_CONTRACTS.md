@@ -5551,7 +5551,7 @@ the five codes the queue and the trend emit. AECI-823 added the funnel's three,
 | `crawler_label_includes_inspection_tool` | `info` | Every Google crawl figure, until the `Googlebot` label is split at ingest |
 | `indexed_is_impression_lower_bound` | `info` | The Google `impressed` stage is present in the funnel |
 | `search_ingest_absent` | `info` | An engine has no ingested stage in the funnel, whatever the reason, so only its two D1 stages show. `params.engine` names it |
-| `search_window_incomplete` | `warn` | An engine's click window holds daily impressions rows for fewer of its 28 dates than it spans, so clicks and impressions cover fewer days. `params`: `engine`, `days_recorded`, `days`, `from`, `to` |
+| `search_window_incomplete` | `warn` | Fewer of an engine's 28 click-window dates hold both a daily clicks row and a daily impressions row than the window spans, so clicks and impressions cover fewer days. `params`: `engine`, `days_recorded`, `days`, `from`, `to` |
 | `public_site_url_unset` | `warn` | `PUBLIC_SITE_URL` is unset or unparseable, so no URL can be built |
 
 ##### `GET /api/admin/seo/queue` (AECI-818, shipped)
@@ -5754,7 +5754,9 @@ Google's and Bing's Pacific day and the funnel does not re-cut them. The window 
 dates ending on the newest date that holds the engine's daily impressions row, within the 28 dates
 ending on `day`. It is anchored on that daily series alone. A run whose daily call failed but whose
 28-day page count was written does not move it forward. `days_recorded` counts the dates in it
-that hold a daily impressions row. Below 28 the engine carries `search_window_incomplete`. The
+that hold both a daily clicks row and a daily impressions row. The ingest stores the two as
+separate rows, and a field the engine left out writes no row. Below 28 the engine carries
+`search_window_incomplete`. The
 window is null when no daily impressions row is in reach. Bing's `indexed` stage is a daily reading,
 not a sum, so it is read from the 28 dates ending on `day` and can be present with a null window.
 A Sunday 22:00 UTC run asks Google for days up to three Pacific days back, a Thursday, so the
@@ -5770,17 +5772,20 @@ the engine reports without defining it. `source` is `d1`, `search_console` or `b
 | `catalog`, `crawled` | Always present, from D1 | Always present, from D1 |
 | `indexed` | Never | `search.bing.www.in_index`, the newest reading in the window. `as_of` is its date |
 | `impressed` | `search.google.www_page.catalog_pages_with_impressions_28d` filed on the window's end date. `as_of` is that date. A row on any other date covers other dates and is not read | Never |
-| `clicked` | Summed `www_page` clicks and impressions, with `position_avg` | Summed clicks and impressions. No `position_avg` |
+| `clicked` | Summed `www_page` clicks and impressions over the matched dates, with `position_avg` | Summed clicks and impressions over the matched dates. No `position_avg` |
 
 **Rates.** `crawled`, `indexed` and `impressed` divide by `catalog`. `clicked.rate` is CTR, the sum
-of clicks over the sum of impressions in the window, never a mean of daily ratios. `position_avg`
-weights each day's stored average by that day's impressions, one decimal, or null when no day in
-the window carried a position. Rates are rounded to four places, and are null when the denominator
+of clicks over the sum of impressions in the window, never a mean of daily ratios. Both sums cover
+only the matched dates, the dates that hold a clicks row and an impressions row. A clicks row with
+no impressions row has no denominator, and an impressions row with no clicks row is not a measured
+zero. With no matched date, `clicked` is omitted, never a 0% CTR. `position_avg`
+weights each matched day's stored average by that day's impressions, one decimal, or null when no
+matched day carried a position. Rates are rounded to four places, and are null when the denominator
 is 0. The two engines are never summed.
 
 **`baseline`** is Google's only, and is null for Bing. It is the table under the Google funnel,
-always shown (Chris, 2026-11-24). `current` sums `search.google.property.*` over that series' own
-28 Pacific dates, and is null when none falls in reach. `reference` is the AECI-799 baseline from
+always shown (Chris, 2026-11-24). `current` sums `search.google.property.*` over the matched dates in
+that series' own 28 Pacific dates, and is null when none falls in reach. `reference` is the AECI-799 baseline from
 `ANALYTICS_BASELINE.md`, a static figure: three months ending 2026-09-05. Both are the whole
 Domain property with no host filter, so they compare. Their windows differ, so they are not like
 for like.

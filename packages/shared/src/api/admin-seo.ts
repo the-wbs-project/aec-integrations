@@ -190,9 +190,10 @@ export const SeoPacificWindowSchema = z.object({
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   timezone: z.literal('America/Los_Angeles'),
   days: z.number().int().positive(),
-  /** How many of the `days` hold a daily impressions row. Fewer than `days`
-   *  means the ingest has not written the whole window, for example in its
-   *  first weeks. */
+  /** How many of the `days` hold both a daily clicks row and a daily
+   *  impressions row. The click totals cover these dates only. Fewer than
+   *  `days` means the ingest has not written the whole window, for example in
+   *  its first weeks, or the engine left one field out on some dates. */
   days_recorded: z.number().int().nonnegative(),
 });
 export type SeoPacificWindow = z.infer<typeof SeoPacificWindowSchema>;
