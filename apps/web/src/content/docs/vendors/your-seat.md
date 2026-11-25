@@ -3,7 +3,7 @@ title: Your seat
 description: Signing in to the vendor portal, inviting and removing colleagues, and what a seat lets you do on the Free and Managed plans.
 section: vendors
 order: 3
-last_updated: November 5, 2026
+last_updated: November 25, 2026
 ---
 
 A seat is one person's access to one vendor's account on AEC Integrations. Seats have no price and no limit on how many your company holds. What a seat can change depends partly on each product's plan, Free or Managed, set out below.
@@ -34,7 +34,7 @@ Owners invite from the **Seats** tab. Choose **Invite**, enter your colleague's 
 
 - An invitation expires after 14 days.
 - **Resend** sends it again. You can send each invitation up to four times, a few minutes apart.
-- **Revoke** cancels an invitation that has not been accepted.
+- **Revoke** cancels an invitation that has not been accepted. You confirm with **Revoke invite**. The link stops working, and inviting the same person again sends a new email that counts toward the day's 10.
 - Your company can send up to 10 invitations a day.
 
 Invited colleagues join as members. Members cannot invite others.
@@ -43,7 +43,7 @@ If your colleague's account already holds a seat at another company, the invite 
 
 ## Remove a colleague
 
-Owners remove a seat with **Remove** on the **Seats** tab. The person loses access to the vendor portal straight away. Their account stays, as an ordinary account that can still write reviews.
+Owners remove a seat with **Remove** on the **Seats** tab, then confirm with **Remove seat**. The person loses access to the vendor portal straight away. If you invite them again, they join as a member, even if they were an owner before. Their account stays, as an ordinary account that can still write reviews.
 
 You cannot remove your own seat from the portal. If you are leaving your company, ask an owner to remove you. If you are the last owner, contact us first so the account is not left without one.
 

@@ -564,7 +564,7 @@ describe('VendorSeatRoster — seat management (§11a)', () => {
 
     const question = q(fixture, `#vendor-invite-revoke-confirm-${invite.id}`)!;
     expect(question.textContent?.trim()).toBe(
-      "Revoke the invite to agency@example.com? The link stops working. A new invite sends a new email and counts toward today's limit.",
+      "Revoke the invite to agency@example.com? The link stops working. A new invite sends a new email and counts toward your daily invite limit.",
     );
     expect(document.activeElement).toBe(question);
     expect(buttonStartingWith(fixture, 'Revoke invite').getAttribute('data-variant')).toBe(

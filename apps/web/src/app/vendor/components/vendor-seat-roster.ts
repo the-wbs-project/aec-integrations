@@ -664,7 +664,7 @@ export class VendorSeatRoster {
   }
 
   protected revokeQuestion(invite: ManageableSeatInvite): string {
-    return $localize`:@@vendor.seats.revoke.confirm:Revoke the invite to ${invite.email}:email:? The link stops working. A new invite sends a new email and counts toward today's limit.`;
+    return $localize`:@@vendor.seats.revoke.confirm:Revoke the invite to ${invite.email}:email:? The link stops working. A new invite sends a new email and counts toward your daily invite limit.`;
   }
 
   /** Who a seat row names: the same fallback chain as its buttons' hidden names. */
