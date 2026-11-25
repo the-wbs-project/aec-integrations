@@ -285,6 +285,37 @@ describe('GET /api/admin/seo/trend', () => {
     ]);
   });
 
+  it('reads an age row left by an earlier run of the same day as "none"', async () => {
+    const at = (day: string, metric: string, value: number, computedAt: string) => ({
+      day,
+      metric,
+      value,
+      source: 'measured',
+      computedAt,
+    });
+    const first = '2026-11-23T00:15:00.000Z';
+    const rerun = '2026-11-23T02:00:00.000Z';
+    await t.db.insert(metricsDaily).values([
+      // Week of 2026-11-16: re-run after the tier cleared. Stale age row: "none".
+      at('2026-11-22', 'queue.reindex_pending', 0, rerun),
+      at('2026-11-22', 'queue.reindex_oldest_tier12_age_days', 6.1, first),
+      // Week of 2026-11-09: one run, equal stamps. The age is shown.
+      at('2026-11-15', 'queue.reindex_pending', 2, '2026-11-16T00:15:00.000Z'),
+      at('2026-11-15', 'queue.reindex_oldest_tier12_age_days', 1.2, '2026-11-16T00:15:00.000Z'),
+      // Week of 2026-11-02: an age row with no pending row in the week. Not recorded.
+      at('2026-11-08', 'queue.reindex_oldest_tier12_age_days', 3, '2026-11-09T00:15:00.000Z'),
+    ]);
+    const body = SeoTrendResponseSchema.parse(
+      await (await get('/api/admin/seo/trend?weeks=3')).json(),
+    );
+    expect(body.weeks.map((w) => w.lanes.reindex_oldest_tier12_age_days)).toEqual([
+      'none',
+      1.2,
+      null,
+    ]);
+    expect(body.weeks[0]?.lanes.reindex_pending).toBe(0);
+  });
+
   it('computes the cohort and the self-reported requests per week', async () => {
     // Two products published in the week of 2026-11-09, one crawled within 7 days.
     await t.db.insert(products).values([

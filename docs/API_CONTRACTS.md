@@ -5672,8 +5672,11 @@ missing key does not null the others.
 **`reindex_oldest_tier12_age_days` is the exception and never falls back.** The snapshot writes no
 row for it on a day with no tier-1 or tier-2 row, so a missing row is a value, not a gap. It is
 read on the latest day in the week with a `queue.reindex_pending` row. That day with no age row
-reads `"none"`. A week with no `queue.reindex_pending` row reads null, not recorded. So the field
-is a number, `"none"` or null.
+reads `"none"`. An age row whose `computed_at` differs from that day's `queue.reindex_pending` row
+also reads `"none"`. It was left by an earlier snapshot run of the same day, after the tier
+emptied, and a re-run deletes nothing. One run stamps every key it writes with the same instant,
+so equal stamps mean the same run. A week with no `queue.reindex_pending` row reads null, not
+recorded, even when an age row exists. So the field is a number, `"none"` or null.
 
 **`cohort`** is product and vendor pages whose publish anchor falls in the week, and how many
 had a verified fetch within `SEO_CRAWL_COHORT_DAYS` of it. A fetch is matched on

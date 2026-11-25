@@ -4329,7 +4329,7 @@ flows are readable through the timeseries endpoint today (the stocks await
 | `seo.uncrawled_urls_bing` | stock | the same for Bing | not backfilled |
 | `seo.pairs_without_reviews` | stock | catalog pair URLs where both endpoints have `products.review_count = 0` | not backfilled |
 | `queue.reindex_pending` | stock | `gsc_recrawl_queue`, every row: the same number as `pending_reindex` | not backfilled |
-| `queue.reindex_oldest_tier12_age_days` | stock, days, REAL | age at the sample instant of the oldest `gsc_recrawl_queue` row with `priority <= 2`, one decimal. **No row** on a day with no such row, because 0 would mean "a row queued just now". The run records that key as `absent`, which is neither a write nor a failure | not backfilled |
+| `queue.reindex_oldest_tier12_age_days` | stock, days, REAL | age at the sample instant of the oldest `gsc_recrawl_queue` row with `priority <= 2`, one decimal. **No row** on a day with no such row, because 0 would mean "a row queued just now". The run records that key as `absent`, which is neither a write nor a failure. A re-run of the same day after the tier emptied writes no age row and deletes none, so the earlier run's row survives. Readers keep the age row only when its `computed_at` equals the same day's `queue.reindex_pending` row, because one run stamps every key with one instant. Any other age row reads "none". The rule is `reindexAgeOnDay` in `lib/metrics-snapshot.ts`. No delete is done, because a scheduled `DELETE` must write a summary `audit_log` row (ADR 0022) | not backfilled |
 
 **The search console keys (AECI-818).** The eight rows above were specified by
 `ADMIN_PANEL_SPEC.md` §5.24.8 and are written by the 00:15 snapshot from the first run after

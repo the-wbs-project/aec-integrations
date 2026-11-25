@@ -308,6 +308,13 @@ const PRODUCERS: Record<SnapshotWrittenMetricKey, Producer> = {
     (await seoLanesFor(db, day, run)).pairsWithoutReviews.length,
   // `countAll` over the table, the same count `pending_reindex` reads.
   'queue.reindex_pending': (db) => countAll(db, gscRecrawlQueue),
+  // A stale same-day row can exist. A re-run for a day whose tier-1 and tier-2
+  // rows have since cleared writes no age row and leaves the earlier run's row in
+  // place, while it rewrites `queue.reindex_pending`. Every reader must go through
+  // {@link reindexAgeOnDay}, which keeps the age row only when its `computed_at`
+  // matches the pending row's. Nothing deletes the stale row: a scheduled DELETE
+  // must write a summary `audit_log` row in the same batch (ADR 0022), and the
+  // read-side rule makes the delete unnecessary.
   'queue.reindex_oldest_tier12_age_days': async (db, _day, run) =>
     (await reindexLaneFor(db, run)).oldestTier12AgeDays,
 
@@ -380,8 +387,42 @@ async function upsertMetric(
     });
 }
 
+/** A stored `metrics_daily` reading with its sample instant. */
+export interface StampedReading {
+  value: number;
+  computedAt: string;
+}
+
+/**
+ * `queue.reindex_oldest_tier12_age_days` for one day, read against the same
+ * day's `queue.reindex_pending` row. The one rule every reader of the age key
+ * uses, so two readers cannot disagree.
+ *
+ * One snapshot run stamps every key it writes with the single `now` it was given
+ * ({@link upsertMetric}). So an age row from the latest run carries the pending
+ * row's `computed_at`. An age row with any other stamp is left from an earlier
+ * run of the same day, after which the tier emptied (see the producer).
+ *
+ *   - No pending row: null, "Not recorded". Without it there is no proof the age
+ *     row belongs to the latest run.
+ *   - Pending row, no age row, or an age row with another stamp: `'none'`.
+ *   - Equal stamps: the age.
+ */
+export function reindexAgeOnDay(
+  pending: StampedReading | undefined,
+  age: StampedReading | undefined,
+): number | 'none' | null {
+  if (!pending) return null;
+  if (!age || age.computedAt !== pending.computedAt) return 'none';
+  return age.value;
+}
+
 /** Compute → upsert one metric. Never throws; a failure is reported as an
- *  outcome so the remaining metrics still write. */
+ *  outcome so the remaining metrics still write.
+ *
+ *  A null producer result writes nothing and deletes nothing. An earlier row for
+ *  the same `(day, metric)` therefore survives. For the one null-returning key,
+ *  readers use {@link reindexAgeOnDay} to tell that row from a current one. */
 async function snapshotOneMetric(
   db: Db,
   day: string,

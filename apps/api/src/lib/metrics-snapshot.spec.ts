@@ -42,6 +42,7 @@ import {
   emitMetricsRecheckMetrics,
   emitMetricsSnapshotMetrics,
   recheckWindow,
+  reindexAgeOnDay,
   runMetricsSnapshot,
   runMetricsSnapshotRecheck,
   summarizeRecheck,
@@ -412,6 +413,74 @@ describe('runMetricsSnapshot — the search console stocks (AECI-818)', () => {
     // Aged at the sample instant, NOW, three days after it was queued.
     expect(rows.get(ABSENT_ON_EMPTY_QUEUE)).toBe(3);
     expect(result.metrics.every((m) => m.status === 'written')).toBe(true);
+  });
+
+  it('stamps every key of one run with the same computed_at, so a stale age row is detectable', async () => {
+    const queued = {
+      url: 'https://x.test/a',
+      priority: 1,
+      reason: 'product.updated',
+      source: 'promote',
+      queuedAt: '2026-08-08T00:15:00.000Z',
+    };
+    await t.db.insert(gscRecrawlQueue).values(queued);
+    await runMetricsSnapshot(t.db, DAY, NOW);
+    const stamps = async () =>
+      new Map(
+        (
+          await t.db
+            .select({ metric: metricsDaily.metric, computedAt: metricsDaily.computedAt })
+            .from(metricsDaily)
+            .where(eq(metricsDaily.day, DAY))
+        ).map((r) => [r.metric, r.computedAt]),
+      );
+    const first = await stamps();
+    expect(new Set(first.values())).toEqual(new Set([NOW.toISOString()]));
+
+    // The tier clears, and the day is snapshotted again later.
+    await t.db.delete(gscRecrawlQueue);
+    const later = new Date(NOW.getTime() + 60 * 60_000);
+    await runMetricsSnapshot(t.db, DAY, later);
+    const second = await stamps();
+    // The age row survives from the first run. Every other key moved to the new stamp.
+    expect(second.get(ABSENT_ON_EMPTY_QUEUE)).toBe(NOW.toISOString());
+    expect(second.get('queue.reindex_pending')).toBe(later.toISOString());
+    expect(
+      [...second]
+        .filter(([k]) => k !== ABSENT_ON_EMPTY_QUEUE)
+        .every(([, v]) => v === later.toISOString()),
+    ).toBe(true);
+    // The shared reader rule reads it as "none".
+    const rows = await stored();
+    expect(
+      reindexAgeOnDay(
+        {
+          value: rows.get('queue.reindex_pending')!,
+          computedAt: second.get('queue.reindex_pending')!,
+        },
+        { value: rows.get(ABSENT_ON_EMPTY_QUEUE)!, computedAt: second.get(ABSENT_ON_EMPTY_QUEUE)! },
+      ),
+    ).toBe('none');
+  });
+});
+
+describe('reindexAgeOnDay', () => {
+  const at = (computedAt: string, value = 2.5) => ({ value, computedAt });
+  const T1 = '2026-08-11T00:15:00.000Z';
+  const T2 = '2026-08-11T01:15:00.000Z';
+
+  it('shows the age when both rows come from the same run', () => {
+    expect(reindexAgeOnDay(at(T1, 4), at(T1))).toBe(2.5);
+  });
+  it('reads "none" when the age row is older than the pending row', () => {
+    expect(reindexAgeOnDay(at(T2, 0), at(T1))).toBe('none');
+  });
+  it('reads "none" with a pending row and no age row', () => {
+    expect(reindexAgeOnDay(at(T1, 0), undefined)).toBe('none');
+  });
+  it('is not recorded without a pending row, even when an age row exists', () => {
+    expect(reindexAgeOnDay(undefined, at(T1))).toBeNull();
+    expect(reindexAgeOnDay(undefined, undefined)).toBeNull();
   });
 });
 

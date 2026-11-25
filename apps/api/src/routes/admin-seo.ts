@@ -42,6 +42,7 @@ import type { AuthzVariables } from '../lib/authz';
 import { listCatalogUrls } from '../lib/catalog-urls';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { publicSiteBase } from '../lib/public-urls';
+import { reindexAgeOnDay, type StampedReading } from '../lib/metrics-snapshot';
 import { readSeoFunnel } from '../lib/seo-funnel';
 import {
   EDGE_VERIFIED_SINCE,
@@ -199,7 +200,12 @@ export function createAdminSeoTrendHandler(
 
     const [stored, catalog, hits, requests] = await Promise.all([
       db
-        .select({ day: metricsDaily.day, metric: metricsDaily.metric, value: metricsDaily.value })
+        .select({
+          day: metricsDaily.day,
+          metric: metricsDaily.metric,
+          value: metricsDaily.value,
+          computedAt: metricsDaily.computedAt,
+        })
         .from(metricsDaily)
         .where(
           and(
@@ -213,8 +219,10 @@ export function createAdminSeoTrendHandler(
       readSelfReportedRequestsByDay(db, fromIso, toIso),
     ]);
 
-    const byKeyDay = new Map<string, number>();
-    for (const r of stored) byKeyDay.set(`${r.metric}|${r.day}`, r.value);
+    const byKeyDay = new Map<string, StampedReading>();
+    for (const r of stored) {
+      byKeyDay.set(`${r.metric}|${r.day}`, { value: r.value, computedAt: r.computedAt });
+    }
 
     const out: SeoTrendWeek[] = mondays.map((monday) => {
       const days = Array.from({ length: 7 }, (_, i) => shiftDay(monday, i));
@@ -226,7 +234,7 @@ export function createAdminSeoTrendHandler(
       const latestIn = (key: AdminSnapshotMetricKey): { day: string; value: number } | null => {
         for (let i = days.length - 1; i >= 0; i -= 1) {
           const v = byKeyDay.get(`${key}|${days[i]}`);
-          if (v !== undefined) return { day: days[i]!, value: v };
+          if (v !== undefined) return { day: days[i]!, value: v.value };
         }
         return null;
       };
@@ -236,11 +244,14 @@ export function createAdminSeoTrendHandler(
       // The oldest-age key writes NO row on a day with no tier-1 or tier-2 row, so
       // it must not fall back to an earlier day: a queue that empties on Friday
       // would still show Wednesday's age. It is read on the day the re-index depth
-      // was last sampled. That day with no age row is `'none'`.
+      // was last sampled. That day with no age row is `'none'`, and so is an age
+      // row left by an earlier run of the same day (`reindexAgeOnDay`).
       const sampled = latestIn(TREND_LANE_KEYS.reindex_pending);
       const age = sampled
-        ? (byKeyDay.get(`${TREND_LANE_KEYS.reindex_oldest_tier12_age_days}|${sampled.day}`) ??
-          'none')
+        ? reindexAgeOnDay(
+            byKeyDay.get(`${TREND_LANE_KEYS.reindex_pending}|${sampled.day}`),
+            byKeyDay.get(`${TREND_LANE_KEYS.reindex_oldest_tier12_age_days}|${sampled.day}`),
+          )
         : null;
 
       const lanes: SeoTrendLanes = {
