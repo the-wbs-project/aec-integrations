@@ -8,10 +8,15 @@ import { CloseOnEscape } from './close-on-escape';
   selector: 'aec-test-close-on-escape-host',
   imports: [CloseOnEscape],
   template: `
-    <div id="parent" (keydown)="parentKeys.push($any($event).key)">
+    <div id="parent">
       <form aecCloseOnEscape [escapeBusy]="busy()" (escapeCancel)="cancels = cancels + 1">
         <input id="field" />
-        <input id="combo" role="combobox" [attr.aria-expanded]="comboOpen() ? 'true' : 'false'" />
+        <input
+          id="combo"
+          role="combobox"
+          aria-controls="combo-list"
+          [attr.aria-expanded]="comboOpen() ? 'true' : 'false'"
+        />
         <button id="cancel" type="button" [disabled]="busy()">Cancel</button>
       </form>
     </div>
@@ -36,6 +41,9 @@ describe('CloseOnEscape (AECI-2133)', () => {
     const fixture = TestBed.createComponent(TestHost);
     fixture.detectChanges();
     const el = fixture.nativeElement as HTMLElement;
+    el.querySelector('#parent')!.addEventListener('keydown', (e) =>
+      fixture.componentInstance.parentKeys.push((e as KeyboardEvent).key),
+    );
     return { fixture, host: fixture.componentInstance, el };
   }
 
