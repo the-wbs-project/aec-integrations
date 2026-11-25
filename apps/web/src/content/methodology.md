@@ -1,6 +1,6 @@
 ---
 title: How we research listings
-last_updated: November 24, 2026
+last_updated: November 25, 2026
 ---
 
 AEC Integrations is an independent directory of the software integrations that architecture, engineering, and construction teams depend on. This page sets out how the catalog is built: what we list, where the data comes from, what confirmation does and does not mean here, and how to challenge anything on the site. It describes how the site works today, and the standards we hold ourselves to.
@@ -36,7 +36,7 @@ Every claim carries one of five states. The first column is the label the page s
 | Listed by AEC Integrations | AEC Integrations recorded this from public sources. Neither company has confirmed it yet. |
 | A company says no | The same state, but one of the companies has said it is not accurate. Nobody has confirmed it. The page does not name the company or give its reason. |
 | Confirmed by [company name] | One of the two companies has confirmed this claim. The other has not answered yet. |
-| Confirmed by [company name], which offers this integration | The integration runs through a Sync Service, and the company that offers it has confirmed this claim. It runs both sides of the integration, so it is the company that answers. |
+| Confirmed by [company name], which offers this integration | The integration runs through a Sync Service, and the company that offers it has confirmed this claim. It built and runs the integration, so it is the company that answers. |
 | Confirmed by both companies | Both companies have independently confirmed this claim. |
 | Companies disagree | The two companies disagree about this. We show both answers and do not take sides. |
 
@@ -82,7 +82,7 @@ A contest stays with whoever was deciding when it was sent. A contest is a reque
 
 **Integrations delivered through a connector.** Where a third-party connector product carries the data, the vendor that offers the integration can claim it, edit its details, retire and restore it, and decide contests on it. It cannot change how the integration is delivered. When the connector is a Sync Service, the vendor that offers the integration also maintains its data rows once it has claimed it: it confirms, adds, changes and removes them. When the connector is an integration platform, nobody confirms its data rows, and we keep the rows we recorded. A Sync Service can add the integrations it delivers, between any two products on the site, and the vendors of both products are told. No other vendor can add one of these integrations, and no vendor can put its own links on one. We record the rest, and the links stay as we recorded them. If a vendor added its own links before we recorded the integration as connector-delivered, those links are no longer shown. A vendor that thinks one is wrong can tell us through the correction route below.
 
-**When a product's vendor objects to a Sync Service integration.** On an integration a Sync Service delivers, the vendor of either product can remove it from its product. We do not review the removal. The integration leaves the site at once, and the Sync Service is told why. The Sync Service cannot restore it or add it again. Only the vendor that removed it can bring it back, by withdrawing the removal. If both vendors remove it, both must withdraw. Either vendor can also tell us the integration is not offered. It stays listed while we check, and if we confirm it, we take it off the site. And either vendor can report one wrong data row. The Sync Service decides that report once it has claimed the integration, and we decide it before then. Our review of a Sync Service's decision is advice. None of this applies to integrations through an integration platform, or to integrations a vendor builds itself.
+**When a product's vendor objects to a Sync Service integration.** On an integration a Sync Service delivers, the vendor of either product can remove it from its product. We do not review the removal. The integration leaves the site at once, and the Sync Service is told why. The Sync Service cannot restore it or add it again. Only the vendor that removed it can bring it back, by withdrawing the removal. If both vendors remove it, both must withdraw. We end a removal ourselves only in the cases the [Listing Accuracy Policy](/legal/listing-accuracy) names. Either vendor can also tell us the integration is not offered. It stays listed while we check, and if we confirm it, we take it off the site within five business days. And either vendor can report one wrong data row. The Sync Service decides that report once it has claimed the integration, and we decide it before then. Our review of a Sync Service's decision is advice. A correction request with a public source still applies to a data row. Once the Sync Service has claimed the integration, we act on it by taking the integration off the site. None of this applies to integrations through an integration platform, or to integrations a vendor builds itself.
 
 ## No pay-for-placement
 

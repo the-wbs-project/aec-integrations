@@ -195,8 +195,8 @@ export class ClaimProvenance {
       case 'owner_confirmed': {
         const name = this.offeredByName();
         return name
-          ? $localize`:@@pair.claim.provenance.closing.ownerConfirmed:${name}:vendor: offers this integration and runs both sides of it, so it confirms what moves.`
-          : $localize`:@@pair.claim.provenance.closing.ownerConfirmed.unattributed:The company that offers this integration runs both sides of it, so it confirms what moves.`;
+          ? $localize`:@@pair.claim.provenance.closing.ownerConfirmed.runs:${name}:vendor: offers and runs this integration, so it confirms what moves.`
+          : $localize`:@@pair.claim.provenance.closing.ownerConfirmed.runs.unattributed:The company that offers and runs this integration confirms what moves.`;
       }
       default: {
         if (this.syncService()) {

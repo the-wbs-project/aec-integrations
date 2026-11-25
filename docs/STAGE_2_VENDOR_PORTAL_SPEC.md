@@ -4590,7 +4590,7 @@ A vendor with no seat keeps the email route. The operator steps for a veto that 
 - **AECi is told** by the `contest-submitted-alert` email to `SUPPORT_EMAIL`, after commit (§11b.8), with the subject `[AECi] Existence report: <integration>`.
 - **An accept needs a note and an https proof link** (`source_url`). Without either it answers `400 VALIDATION_FAILED` with `error.field` `note` or `sourceUrl`, and writes nothing.
 - **On a vendor-held row the accept retires the pair** through the admin retire batch (`planAdminRetire`, §4.6.4), with the note as the reason shown to the owner, in the same batch as the decision. `accept_mode = 'retired'`. Only an admin restores it.
-- **On an AECi-held row the admin retire is not available** (`409 INTEGRATION_NOT_VENDOR_HELD` would answer, because promote owns the row). The accept writes no catalog data (`accept_mode = 'upstream-only'`) and the operator retracts the pair in the review app (`docs/runbooks/catalog.md`). A row already retired records `'already-retired'`.
+- **On an AECi-held row the admin retire is not available** (`409 INTEGRATION_NOT_VENDOR_HELD` would answer, because promote owns the row). The accept writes no catalog data (`accept_mode = 'upstream-only'`) and the operator retracts the pair in the review app (`docs/runbooks/catalog.md`). The retraction must take the pair off the public site within five business days of the accept, because the Listing Accuracy Policy promises it (legal read, 2026-11-25). Nothing in the code tracks that deadline. A row already retired records `'already-retired'`.
 - **A decline closes it** and changes nothing.
 
 ### 11e.4 The data flow report (ruling 10)

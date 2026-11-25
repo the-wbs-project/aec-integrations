@@ -3,7 +3,7 @@ title: Agreement states
 description: The six labels on each type of data on an integration page, what each one tells you, and how to act on it.
 section: trust
 order: 2
-last_updated: November 24, 2026
+last_updated: November 25, 2026
 ---
 
 On an integration page, each type of data carries a label. The label says which of the two companies at the ends of the integration has confirmed it. You see the labels in the Detailed view, which is the default. [Reading an integration page](/docs/getting-started/reading-an-integration-page) shows where they sit.
@@ -30,7 +30,7 @@ The confirming company stands behind it. The other company has said nothing eith
 
 ## Confirmed by (a company), which offers this integration
 
-The integration runs through a Sync Service. A Sync Service sells, runs and supports finished integrations between two other companies' products. The company that offers this one runs both sides of it, so it is the company that confirms what moves. It has confirmed this row.
+The integration runs through a Sync Service. A Sync Service sells, runs and supports finished integrations between two other companies' products. The company that offers this one built and runs it, so it is the company that confirms what moves. It has confirmed this row.
 
 It is one company's word, the company that sells the integration. The two companies at the ends have not been asked, because neither of them built it. When the company that offers the integration finds a row is wrong, it removes the row from the page instead of marking it disputed.
 

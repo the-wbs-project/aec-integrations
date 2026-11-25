@@ -1271,7 +1271,7 @@ Chris ruled on 2026-11-24, final: "Managed stays the rich-profile plan. A Sync S
 
 **The portal.** The plan panel reads the rule (`vendor-plan-panel.ts`): a Sync Service gets the ordinary panel with the price and the purchase path. The `catalogue` state and the overview's "Open the … catalog" link need a catalogue (`VendorProduct.has_connector_catalog`, `isCatalogueProduct`). An Integration platform with no catalogue gets `unavailable` (§8.1).
 
-**Legal and plan text.** The Managed plan agreement 1.1 draft ("What a subscription is and does") and the Plans page 1.3 ("Which products can hold a subscription") say which products can hold one, and which inclusions apply to a product that is not one of the two products in an integration.
+**Legal and plan text.** The Managed plan agreement 1.1 draft ("What a subscription is and does") and the Plans page 1.3 ("Which products can hold a subscription") say which products can hold one, and which inclusions apply to a product that is not one of the two products in an integration. Since the legal read of 2026-11-25 both say, in the same words, "A subscription already assigned to a product stays on it, and renews there as before, until you release it at renewal or it ends." (Plans page 1.4). That matches the table above: the webhook and the reconcile renew it on the product, and the release-at-renewal flag returns it to the pool. Neither document promises that we never reclassify a subscribed product. The admin kind change refuses it, but a promote that changes `product_role` does not.
 
 ---
 

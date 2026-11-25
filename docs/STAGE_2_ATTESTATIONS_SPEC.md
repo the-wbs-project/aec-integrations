@@ -3392,9 +3392,13 @@ an in-memory entry with `source = 'owner'` (`OWNER_ANSWER_SOURCE`, never stored)
 flow leaves the page. The owner can clear the answer to bring it back, or change the direction.
 
 **Public wording.** Badge: "Confirmed by {vendor}, which offers this integration", the vendor
-being the mechanism's `built_by_vendor`. Its accessible name adds "and runs both sides of it".
-The provenance popover adds "{vendor} confirms this" and closes "{vendor} offers this
-integration and runs both sides of it, so it confirms what moves." An unanswered flow on a Sync
+being the mechanism's `built_by_vendor`. Its accessible name is the same sentence with a full stop.
+The provenance popover adds "{vendor} confirms this" and closes "{vendor} offers and runs this
+integration, so it confirms what moves." (`@@pair.claim.provenance.closing.ownerConfirmed.runs`).
+The owner's flows panel opens "Your company offers and runs this integration, so you confirm
+what it moves." (`@@vendor.ownedFlows.intro.claimed.runs`). Until the legal read of 2026-11-25
+both said the Sync Service "runs both sides of it". That was wrong: a Sync Service built and
+runs the integration, not the two products at its ends. An unanswered flow on a Sync
 Service pair keeps "Listed by AEC Integrations", and its accessible name and closing line say
 that the company offering the integration has not confirmed it yet, never "Neither company".
 The owner's answer is not on the wire as an attestation row (`PairClaimAttestationSchema.source`

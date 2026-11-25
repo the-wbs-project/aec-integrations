@@ -190,8 +190,11 @@ describe('ClaimProvenance', () => {
     expect(popoverText).toContain('Rivets');
     expect(popoverText).toContain('confirms this');
     expect(popoverText).toContain(
-      'Rivets offers this integration and runs both sides of it, so it confirms what moves.',
+      'Rivets offers and runs this integration, so it confirms what moves.',
     );
+    // Legal read 2026-11-25: a Sync Service built and runs the integration. It does
+    // not run the two endpoint products, so the line never says "both sides".
+    expect(popoverText).not.toContain('both sides');
     expect(popoverText).not.toContain('Both companies');
   });
 

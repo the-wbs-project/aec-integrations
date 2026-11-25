@@ -56,7 +56,7 @@ export type OwnedFlowsRow = Pick<
  * reusing that component, which is bound to the endpoint vendor's detail-page state.
  * The same table, the same Yes and No toggles, the same rule: pressing the pressed
  * answer again clears it (the Same-Behavior Rule). What differs is what an answer
- * means. The owner runs both sides, so its Yes shows publicly as "Confirmed by
+ * means. The owner built and runs the integration, so its Yes shows publicly as "Confirmed by
  * {company}, which offers this integration", and its No removes the row from the
  * public page. There is no public "disputed" state: the owner maintains the listing.
  *
@@ -385,7 +385,7 @@ export class VendorOwnedFlows {
     if (!r.claimed_at) {
       return $localize`:@@vendor.ownedFlows.intro.unclaimed:AEC Integrations listed these. Claim this integration to confirm, change or remove them. Until then AEC Integrations keeps them.`;
     }
-    return $localize`:@@vendor.ownedFlows.intro.claimed:Your company offers this integration and runs both sides of it, so you confirm what it moves. A Yes shows your company as the confirmer on the public page. A No removes the row from it.`;
+    return $localize`:@@vendor.ownedFlows.intro.claimed.runs:Your company offers and runs this integration, so you confirm what it moves. A Yes shows your company as the confirmer on the public page. A No removes the row from it.`;
   });
 
   /** The data type vocabulary, names A to Z. */

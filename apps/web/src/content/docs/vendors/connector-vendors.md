@@ -3,7 +3,7 @@ title: For connector vendors
 description: The two kinds of connector product, the seat a company that makes one can have, how the Catalog tab works, and how integrations delivered through a connector are owned.
 section: vendors
 order: 15
-last_updated: November 24, 2026
+last_updated: November 25, 2026
 ---
 
 A connector product carries data between other products. This page is for the company that makes one. It also covers integrations delivered through a connector, which matter to the vendors at their ends too.
@@ -57,7 +57,7 @@ The integration goes live without review. Your company owns it and has claimed i
 
 ### The data rows on a Sync Service integration
 
-When the connector is a Sync Service, your company runs both sides of the integration, so it confirms the types of data it moves. Once you have claimed the integration, its card shows its rows under **Data that's shared**, on any plan:
+When the connector is a Sync Service, your company built and runs the integration, so it confirms the types of data it moves. Once you have claimed the integration, its card shows its rows under **Data that's shared**, on any plan:
 
 - **Yes** confirms a row. The public page then reads "Confirmed by (your company), which offers this integration".
 - **No** removes a row from the public page. It does not mark the row as disputed, because you maintain the listing.
@@ -73,9 +73,9 @@ Where your company does hold a product at one end and the connection later becom
 
 ### When a product's vendor objects
 
-The vendor of either product can remove an integration your Sync Service delivers from its product. Nobody reviews that removal, and it takes effect at once. The integration leaves the public site and stops counting. You are told in **Messages**, with the vendor's name and reason, under **Removed from your integrations**. You cannot restore it, and you cannot add it again: the add form tells you so. AEC Integrations' catalog updates will not bring it back either. It returns only when that vendor withdraws the removal. Retiring it changes nothing about the removal.
+The vendor of either product can remove an integration your Sync Service delivers from its product. Nobody reviews that removal, and it takes effect at once. The integration leaves the public site and stops counting. You are told in **Messages**, with the vendor's name and reason, under **Removed from your integrations**. You cannot restore it, and you cannot add it again: the add form tells you so. AEC Integrations' catalog updates will not bring it back either. It returns only when that vendor withdraws the removal, or when AEC Integrations ends it in one of the cases the [Listing Accuracy Policy](/legal/listing-accuracy) names. Retiring it changes nothing about the removal.
 
-Either vendor can also report that the integration is not offered. AEC Integrations decides, and if we confirm it we retire the integration. And either vendor can report one wrong data flow. Once you have claimed the integration, those reports come to you in **Messages**, under **Data flow reports you received**. **Accept** changes the flow on the public page as the report asks. **Decline** leaves it. If you decline, the vendor can ask AEC Integrations to review it. Our view is advice, and you still decide the listing.
+Either vendor can also report that the integration is not offered. AEC Integrations decides, and if we confirm it we take the integration off the site within five business days. And either vendor can report one wrong data flow. Once you have claimed the integration, those reports come to you in **Messages**, under **Data flow reports you received**. **Accept** changes the flow on the public page as the report asks. **Decline** leaves it. If you decline, the vendor can ask AEC Integrations to review it. Our view is advice, and you still decide the listing. A correction request under the [Listing Accuracy Policy](/legal/listing-accuracy) still applies to a data flow. If a public source shows the flow is wrong, we may take the integration off the site.
 
 ## Related
 

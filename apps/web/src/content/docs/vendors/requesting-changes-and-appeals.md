@@ -3,7 +3,7 @@ title: Requesting changes and appeals
 description: How to ask for a change to a detail on an integration your company does not own, what to do when one of yours is asked about, how to ask AEC Integrations to review an owner's decision, and what happens if we hide your listing or one of its details.
 section: vendors
 order: 9
-last_updated: November 24, 2026
+last_updated: November 25, 2026
 ---
 
 A change request is how a company asks to change one detail of an integration it does not own. An appeal is how it asks AEC Integrations to look again when the owner turns a request down. Both need a seat on your vendor account. Both work on the Free plan. So does an owner deciding a request, on any integration.
@@ -51,9 +51,9 @@ Updates about requests appear in the portal, so check the integration's page or 
 
 A Sync Service sells and runs finished integrations between two other companies' products. If your product is at one end of one, you have three more choices. They sit under that integration in the **Connectors** section of your product's Integrations tab.
 
-- **Remove this integration from our product.** Use it when your company does not authorise the integration on your product. Nobody reviews it. A confirmation step says what happens, and asks for your reason. Once you confirm, the integration leaves the public site at once: the pair page, both product pages and the Sync Service's page. The Sync Service is told, with your reason. It cannot restore the integration or add it again. Only your company can bring it back: choose **Withdraw the removal** in **Messages**. If the other product's vendor removed it too, it returns only when both have withdrawn.
-- **Report that it is not offered.** Use it when the integration does not exist or is no longer sold. AEC Integrations decides. The integration stays listed while we check. If we confirm it, we take it off the site.
-- **Report a wrong data flow.** Choose one data flow, say what is right, and give your reason. Once the Sync Service has claimed the integration, it decides. Before then, AEC Integrations decides. If the Sync Service declines, you can ask AEC Integrations to review it within 30 days, as below. Our view is advice.
+- **Remove this integration from our product.** Use it when your company does not authorise the integration on your product. Nobody reviews it. A confirmation step says what happens, and asks for your reason. Once you confirm, the integration leaves the public site at once: the pair page, both product pages and the Sync Service's page. The Sync Service is told, with your reason. It cannot restore the integration or add it again. Only your company can bring it back: choose **Withdraw the removal** in **Messages**. If the other product's vendor removed it too, it returns only when both have withdrawn. AEC Integrations can end a removal only in the cases the [Listing Accuracy Policy](/legal/listing-accuracy) names.
+- **Report that it is not offered.** Use it when the integration does not exist or is no longer sold. AEC Integrations decides. The integration stays listed while we check. If we confirm it, we take it off the site within five business days.
+- **Report a wrong data flow.** Choose one data flow, say what is right, and give your reason. Once the Sync Service has claimed the integration, it decides. Before then, AEC Integrations decides. If the Sync Service declines, you can ask AEC Integrations to review it within 30 days, as below. Our view is advice. If a public source shows the flow is wrong, you can still ask for a correction under the [Listing Accuracy Policy](/legal/listing-accuracy). Once the Sync Service has claimed the integration, we act on it by taking the integration off the site.
 
 You find every removal and report in **Messages**, under **Sync Service integrations on your products**. None of these choices appears on an integration through an integration platform, or one a company builds itself. Use **Request a change** there.
 
