@@ -80,6 +80,7 @@ Governing docs: `docs/LEGAL_IMPACT_REVIEW.md` for the verdict rule, `apps/web/sr
 | Q70 | Terms of Service | Three sentences changed since your colleagues' reviews: a wording check | Alexander Coffin | 2026-11-19 |
 | Q71 | Vendor Terms | Replacement wording for "No plan changes where you rank or appear" | Travis Russell | 2026-11-24 |
 | Q72 | Privacy Policy | Email consent in Canada and the United Kingdom for one unticked opt-in box | Alexander Coffin | 2026-11-24 |
+| Q73 | Listing Accuracy Policy | A vendor removing a third company's integration listing from its product, with no review by us | Kyle Usrey | 2026-11-26 |
 
 ## Questions and answers
 
@@ -1927,6 +1928,50 @@ name you; say what the emails are for; say the reader can withdraw; give your ma
 You've covered the first three. You haven't covered the fourth. So add the postal address and a link or email address next to the box, or link to a contact page. Also check how the emails work. Each one needs a working unsubscribe that stays live for 60 days, and you must act on an unsubscribe within 10 business days. CASL doesn't require a confirmation email, although sending one does no harm. UK. Regulation 22 requires consent to the UK GDPR standard: freely given, specific, informed and unambiguous. An unticked box that names you and says what the emails cover, with withdrawal available at any time, meets that. Your record helps show consent if the ICO asks. Regulation 23 covers the rest, since every email identifies you and gives a valid opt-out. Double opt-in isn't required. The UK GDPR does expect a privacy notice, so a link next to the box is sensible. One point in your favour: many readers will use firm addresses. Regulation 22 doesn't apply to corporate subscribers, so for them only regulation 23 matters (sole traders and some partnerships still count as individuals). The Data (Use and Access) Act 2025 raised PECR fines, which makes it worth getting this right, but it doesn't change this analysis.
 
 **What we did:** Our view holds in the UK and nearly holds in Canada. Nothing built yet. This completes Q56, whose follow-up got no reply. Build rules for the box, in every country: beside it sit our postal address and one other contact point, or a link to a contact page that has both, and a link to the Privacy Policy. Every email's unsubscribe link works for at least 60 days, and we act on it within 10 business days. No confirmation email is needed for Canada or the UK.
+
+Q73 is batch 8, asked on 2026-11-25 from AECI-2035, the Sync Services work.
+
+### Q73. A vendor removing a third company's integration listing from its product, with no review by us
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory of construction-industry software and the integrations between products. Florida law governs. This is one question, with one decision at the end.
+
+Some integrations between two products are built, sold and run by a third company. We call that company's product a Sync Service. The Sync Service is not either of the two products. It may list the integrations it delivers between any two products on our site, and we tell the vendors of both products when it does.
+
+We plan to give the vendor of either product a right to remove such an integration from its own product's listing. The integration may be real, and the listing may be accurate. Our Listing Accuracy Policy would say:
+
+"We do not review a removal. It takes effect when the vendor sends it, and the integration is taken off the public site at once. The Sync Service cannot restore the integration or add it again. The vendor that removed it can withdraw the removal. We may end a removal where it was sent from an account that should not have had access to that product, where the vendor's claim to that product ends or is suspended, or where the law requires it. We tell both vendors why."
+
+The same policy says elsewhere: "We will not remove an accurate listing simply because a vendor asks us to." The new section would be stated as an exception to that sentence.
+
+Three more facts. The policy is part of our Vendor Terms, which a company accepts when it claims its listing. A Sync Service that has claimed its listing has accepted them. A Sync Service that has not claimed its listing has no contract with us. Our Terms of Service say we have no obligation to list anything.
+
+Your colleagues advised us on November 4, 2026 that we need not remove an accurate listing at a vendor's request, that a neutral rule disclosed in advance and applied evenly is a justified basis for a ranking or listing outcome, and that our time limits and policies cannot bind a company that never accepted them.
+
+Our view: we are free to decide what our directory lists. A removal rule that is published, applies to every Sync Service alike and is triggered by the vendor whose product is named gives the Sync Service no claim against us, whether or not it has a contract with us. Taking an accurate integration off the site is an omission, not a false statement.
+
+Question: does this removal right expose us to a claim by the Sync Service, such as tortious interference or a deceptive-practice claim, and if so what must the policy say or what step must we add before a removal takes effect?
+
+**Answer (Kyle Usrey, 2026-11-26):**
+
+Yes, instant, unreviewed removal creates real litigation and cost exposure, even without a contract with the third company. While strong defenses may exist, a disgruntled third party can still sue, and claims under FDUTPA carry potential prevailing-party attorney's fees.
+
+Where Your Exposure Comes From
+
+Tortious Interference with a Business Relationship: Under Florida law, a plaintiff must show (1) an existing or identifiable business relationship, (2) your knowledge of it, (3) intentional and unjustified interference, and (4) damages. If the third company sells integrations to customers or partners, it can argue an automatic, unreviewed takedown (especially of an accurate listing) disrupts those relationships without justification. Defenses like business justification or Section 230 may help, but fact disputes often survive early dismissal.
+
+FDUTPA (Fla. Stat. § 501.201 et seq.): Businesses can sue other businesses under FDUTPA for unfair or deceptive acts or practices in trade or commerce that cause actual damages. If your site promises "open" or "independent" integration listings while silently allowing vendors to wipe out accurate third-party listings on demand, a claimant could frame that gap as unfair or misleading.
+
+What Your Policy Should Say
+
+No Right to Listing or Placement: State clearly that listing on the directory is discretionary, revocable, and confers no property, exclusivity, or continued-visibility rights.
+
+Vendor / Ecosystem Controls: Explicitly disclose that product vendors may control or request removal of listings associated with their products, ecosystems, or APIs, even if the listing is accurate or complies with general directory rules.
+
+No Guarantee of Accuracy or Neutrality: Clarify that the directory does not endorse, verify, or guarantee ongoing availability of third-party integrations, and may remove or hide content without prior notice or investigation.
+
+**What we did:** Our view was too confident. The removal right creates real exposure to a tortious interference or FDUTPA claim, even from a Sync Service with no contract with us. Not applied yet. Counsel gave three things the policy should say: a listing is discretionary and revocable and gives no right to stay visible; a product's vendor may remove a listing tied to its product even when it is accurate; and we do not guarantee that a third party's integration stays listed. The answer ran out of space before it reached the second half of the question, which asked what step to add before a removal takes effect. That half is re-asked as Q74. Counsel's "no guarantee of neutrality" is not adopted as worded, because the site's own promise is that it is independent. The disclosure of the vendor's removal right is what closes the gap counsel described. Chris's ruling on whether a removal stays instant is open, pending Q74.
 
 ## Chris's rulings
 
