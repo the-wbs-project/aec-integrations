@@ -119,6 +119,7 @@ export class VendorTip {
   readonly activate = output<void>();
 
   private readonly destroyRef = inject(DestroyRef);
+  private readonly document = inject(DOCUMENT);
   private readonly trigger = viewChild<ElementRef<HTMLButtonElement>>('trigger');
 
   protected readonly descId = `vendor-tip-${++nextId}`;
@@ -152,7 +153,7 @@ export class VendorTip {
   private closeTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
-    const document = inject(DOCUMENT);
+    const document = this.document;
     const onKeydown = (event: KeyboardEvent): void => this.onDocumentKeydown(event);
     afterNextRender(() => document.addEventListener('keydown', onKeydown, true));
     this.destroyRef.onDestroy(() => {
