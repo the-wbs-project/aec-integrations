@@ -154,6 +154,7 @@ import { runEntitlementExpirySweep } from './lib/entitlement-expiry';
 import {
   runGoogleSearchIngest,
   SEARCH_INGEST_RUN_METRIC,
+  searchIngestFailedKeys,
   searchIngestHadFailures,
 } from './lib/search-ingest';
 import { bingHeartbeatOutcome, runBingSearchIngest } from './lib/search-ingest-bing';
@@ -3490,11 +3491,20 @@ async function runSearchIngestJob(
         .filter(([, c]) => c.outcome !== 'ok')
         .map(([name, c]) => `${name}=${c.outcome}`)
         .join(' ');
+      // A key can fail under a call that succeeded (the catalog URL read), so the
+      // failed keys are named too.
+      const failedKeys = searchIngestFailedKeys(google);
       logToPosthog(ctx, env, req, {
         level: metricOutcome === 'failed' ? 'error' : 'warn',
         message: `aeci.search_ingest.${metricOutcome}`,
         source: 'search-ingest-cron',
-        reason: [google.reason, failedCalls].filter(Boolean).join(' '),
+        reason: [
+          google.reason,
+          failedCalls,
+          failedKeys.length > 0 ? `failed_keys=${failedKeys.join(',')}` : '',
+        ]
+          .filter(Boolean)
+          .join(' '),
       });
     }
   }

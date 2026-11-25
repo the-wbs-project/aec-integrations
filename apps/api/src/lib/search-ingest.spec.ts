@@ -519,6 +519,17 @@ describe('runGoogleSearchIngest', () => {
     ).toBeUndefined();
     expect(result.calls.www_pages_28d).toMatchObject({ outcome: 'ok', written: 1 });
     expect(result.calls.www_queries_28d).toMatchObject({ outcome: 'ok' });
+    // Every call is ok, yet the run is not healthy: the heartbeat reads partial,
+    // and the read error is kept for `/admin/system`.
+    expect(Object.values(result.calls).every((c) => c.outcome === 'ok')).toBe(true);
+    expect(searchIngestHadFailures(result)).toBe(true);
+    expect(result.calls.www_pages_28d?.catalogReadError).toBe('d1 down');
+  });
+
+  it('reports a clean run as healthy, with no catalog read error', async () => {
+    const result = await runGoogleSearchIngest(deps(google()));
+    expect(searchIngestHadFailures(result)).toBe(false);
+    expect(result.calls.www_pages_28d).not.toHaveProperty('catalogReadError');
   });
 
   it('throws, and records nothing ok, when the catalog figure upsert fails in D1', async () => {

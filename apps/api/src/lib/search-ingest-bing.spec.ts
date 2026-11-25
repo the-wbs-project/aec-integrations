@@ -535,6 +535,20 @@ describe('runBingSearchIngest', () => {
     expect(bingHeartbeatOutcome(result)).toBe('partial');
   });
 
+  it('reads a key that failed under calls that all succeeded as partial, as Google does', () => {
+    const ok = { outcome: 'ok' as const, rows: 1, written: 1 };
+    const calls = { traffic: ok, crawl: ok, feeds: ok };
+    expect(bingHeartbeatOutcome({ outcome: 'ok', calls, metrics: {}, written: 3 })).toBe('ok');
+    expect(
+      bingHeartbeatOutcome({
+        outcome: 'ok',
+        calls,
+        metrics: { 'search.bing.www.clicks': 'failed' },
+        written: 3,
+      }),
+    ).toBe('partial');
+  });
+
   it('fails only when every call refuses the credential', async () => {
     const refused = err400(3, 'InvalidApiKey');
     const all = await runBingSearchIngest(

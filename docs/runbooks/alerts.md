@@ -2440,6 +2440,7 @@ other calls still wrote. Read `detail.google.calls` for the failed call and its 
 | `rejected` | Another 4xx. The request shape is wrong | File an issue with the `job_runs` row. Google may have changed the API |
 | `auth` on one call only | Google refused that call but not the others | Check the service account's permission level on the property |
 | `token` is `transient` (`reason: token_transient`) | Google's token endpoint failed three times with a 5xx, a 429 or a dropped connection. Nothing was written | Nothing, unless it repeats. The next Sunday re-pulls 14 days |
+| Every call `ok`, `catalog_pages_with_impressions_28d` is `failed` | The catalog URL read failed. `calls.www_pages_28d.catalogReadError` holds its message. The all-pages figure was written, and the funnel's Google impressed stage is missing for the week | Read the message. A D1 error clears itself next week. Anything else, file an issue with the `job_runs` row |
 
 A key whose outcome is `failed` has no row for that week. The 28-day keys and the sitemap keys are
 one point a week, so a missed week is a missing point, never a zero. The daily keys recover on the

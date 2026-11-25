@@ -3709,6 +3709,36 @@ describe('search_ingest: the Bing lane (AECI-821)', () => {
     ]);
   });
 
+  it('reads partial when a key failed under calls that all succeeded, and keeps the reason', async () => {
+    const google: GoogleSearchIngestResult = {
+      outcome: 'ok',
+      calls: {
+        www_pages_28d: { outcome: 'ok', rows: 3, written: 1, catalogReadError: 'd1 down' },
+      },
+      metrics: {
+        'search.google.www_page.pages_with_impressions_28d': 'written',
+        'search.google.www_page.catalog_pages_with_impressions_28d': 'failed',
+      },
+      written: 1,
+    };
+    vi.mocked(runGoogleSearchIngest).mockResolvedValueOnce(google);
+    vi.mocked(runBingSearchIngest).mockResolvedValueOnce(
+      bingResult({ metrics: { 'search.bing.www.clicks': 'failed' } }),
+    );
+    await scheduled(cronController(SEARCH_INGEST_CRON), makeEnv(), ctx);
+
+    expect(heartbeats()).toEqual([
+      ['trigger:cron', 'engine:google', 'outcome:partial'],
+      ['trigger:cron', 'engine:bing', 'outcome:partial'],
+    ]);
+    const [row] = await jobRunRows();
+    // `partial` is not a job failure, and the read error reaches `/admin/system`.
+    expect(row).toMatchObject({ job: 'search-ingest', outcome: 'ok' });
+    expect(
+      (row?.detail as { google: GoogleSearchIngestResult }).google.calls.www_pages_28d,
+    ).toMatchObject({ catalogReadError: 'd1 down' });
+  });
+
   it('passes the key and the site URL var to the Bing lane', async () => {
     // Stubbed: a real lane with a key would call Bing.
     vi.mocked(runBingSearchIngest).mockResolvedValueOnce(bingResult());

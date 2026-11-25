@@ -132,7 +132,13 @@ export interface SearchIngestCallReport {
   written: number;
   /** The paged call stopped at {@link SEARCH_ANALYTICS_MAX_PAGES} with more rows left. */
   truncated?: boolean;
+  /** `www_pages_28d` only: why the catalog URL read failed, when it did. The
+   *  call itself succeeded, so `outcome` stays `ok`. Error message only, no stack. */
+  catalogReadError?: string;
 }
+
+/** The longest error message a call report keeps. */
+const ERROR_MESSAGE_MAX = 200;
 
 /** Per key: written, or why not. `no_data` means the call succeeded with nothing
  *  to store, e.g. no impressions, or no `www.` sitemap entry. */
@@ -449,6 +455,7 @@ export async function runGoogleSearchIngest(
         if (url && (toCount(row.impressions) ?? 0) > 0) impressed.add(url);
       }
       let n = 0;
+      let catalogReadError: string | undefined;
       if (impressed.size === 0) {
         // An empty answer is "no data", never a stored 0.
         mark(pagesKeys, 'no_data');
@@ -462,10 +469,16 @@ export async function runGoogleSearchIngest(
         let catalog: ReadonlySet<string> | null = null;
         try {
           catalog = await (deps.catalogUrls ?? (() => catalogUrlSet(db)))();
-        } catch {
+        } catch (error) {
           // The catalog read failed. The all-pages figure stands. The catalog figure
-          // is absent this week rather than guessed.
+          // is absent this week rather than guessed. The key reads `failed`, which
+          // turns the heartbeat `partial` (searchIngestHadFailures), and the
+          // message is kept on the call report for `/admin/system`.
           metrics[pagesKeys[1]] = 'failed';
+          catalogReadError = (error instanceof Error ? error.message : String(error)).slice(
+            0,
+            ERROR_MESSAGE_MAX,
+          );
         }
         if (catalog) {
           let inCatalog = 0;
@@ -480,6 +493,7 @@ export async function runGoogleSearchIngest(
         rows: pages.rows.length,
         written: n,
         ...(pages.truncated ? { truncated: true } : {}),
+        ...(catalogReadError !== undefined ? { catalogReadError } : {}),
       };
       written += n;
     }
@@ -584,9 +598,25 @@ export async function runGoogleSearchIngest(
   };
 }
 
-/** Whether any call failed, for the heartbeat's `partial` outcome. */
+/**
+ * Whether anything failed, for the heartbeat's `partial` outcome: a call, or a
+ * key whose call succeeded but which still could not be written. The catalog
+ * figure is that case: its call is `ok` when only the catalog URL read failed.
+ */
 export function searchIngestHadFailures(result: GoogleSearchIngestResult): boolean {
-  return Object.values(result.calls).some((c) => c.outcome !== 'ok');
+  return (
+    Object.values(result.calls).some((c) => c.outcome !== 'ok') ||
+    Object.values(result.metrics).some((m) => m === 'failed')
+  );
+}
+
+/** The keys whose outcome is `failed`, for the `partial` log line. */
+export function searchIngestFailedKeys(result: {
+  metrics: Partial<Record<string, SearchIngestKeyOutcome>>;
+}): string[] {
+  return Object.entries(result.metrics)
+    .filter(([, m]) => m === 'failed')
+    .map(([k]) => k);
 }
 
 /** Every Google key this module can write. A test pins it to the shared list. */

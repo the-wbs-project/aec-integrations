@@ -352,6 +352,9 @@ export function bingHeartbeatOutcome(
 ): 'ok' | 'partial' | 'throttled' | 'skipped' | 'failed' {
   if (result.outcome !== 'ok') return result.outcome;
   const bad = Object.values(result.calls).filter((c) => c.outcome !== 'ok');
-  if (bad.length === 0) return 'ok';
+  // The Google lane's rule: a key that failed under a call that succeeded is a
+  // failure too. No Bing path does that today, so this is a guard.
+  const keyFailedUnderOkCall = Object.values(result.metrics).some((m) => m === 'failed');
+  if (bad.length === 0) return keyFailedUnderOkCall ? 'partial' : 'ok';
   return bad.every((c) => c.outcome === 'throttled') ? 'throttled' : 'partial';
 }
