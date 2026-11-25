@@ -1112,3 +1112,58 @@ describe('deleting a row the caller added (AECI-1245)', () => {
     expect(q(fixture, 'delete-drawings')).not.toBeNull();
   });
 });
+
+describe('Escape is Cancel (AECI-2133)', () => {
+  const escape = () =>
+    new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+
+  it('closes the add-a-row form and focuses Add a row', async () => {
+    const api = makeApi([INTEGRATION_OWNED_CLAIMED]);
+    await setup(api, INTEGRATION_OWNED_CLAIMED);
+    const fixture = await mount(IntegrationSharedData, INTEGRATION_OWNED_CLAIMED);
+    el(fixture).querySelector<HTMLButtonElement>(testid('add-row'))!.click();
+    await settle(fixture);
+    const note = el(fixture).querySelector<HTMLTextAreaElement>('#data-shared-add-note')!;
+    note.value = 'A draft';
+    note.dispatchEvent(new Event('input'));
+    note.dispatchEvent(escape());
+    await settle(fixture);
+    expect(el(fixture).querySelector(testid('add-row-form'))).toBeNull();
+    expect(document.activeElement).toBe(el(fixture).querySelector(testid('add-row')));
+    expect(api.createClaim).not.toHaveBeenCalled();
+  });
+
+  it('closes the reason form and focuses the pressed No', async () => {
+    const api = makeApi([PROCORE]);
+    await setup(api, PROCORE);
+    const fixture = await mount(IntegrationSharedData, PROCORE);
+    el(fixture).querySelector<HTMLButtonElement>(testid('no-models'))!.click();
+    await settle(fixture);
+    el(fixture)
+      .querySelector<HTMLTextAreaElement>(`${testid('answer-form')} textarea`)!
+      .dispatchEvent(escape());
+    await settle(fixture);
+    expect(el(fixture).querySelector(testid('answer-form'))).toBeNull();
+    expect(document.activeElement).toBe(el(fixture).querySelector(testid('no-models')));
+    expect(api.upsertAttestation).not.toHaveBeenCalled();
+  });
+
+  it('closes only the reason form under Change, and the row keeps its toggles', async () => {
+    const api = makeApi([PROCORE]);
+    await setup(api, PROCORE);
+    const fixture = await mountLive();
+    el(fixture).querySelector<HTMLButtonElement>(testid('change-submittals'))!.click();
+    await settle(fixture);
+    el(fixture).querySelector<HTMLButtonElement>(testid('no-submittals'))!.click();
+    await settle(fixture);
+    el(fixture)
+      .querySelector<HTMLTextAreaElement>(`${testid('answer-form')} textarea`)!
+      .dispatchEvent(escape());
+    await settle(fixture);
+    expect(el(fixture).querySelector(testid('answer-form'))).toBeNull();
+    expect(el(fixture).querySelector(testid('yes-submittals'))).not.toBeNull();
+    expect(document.activeElement).toBe(el(fixture).querySelector(testid('no-submittals')));
+    expect(api.upsertAttestation).not.toHaveBeenCalled();
+    el(fixture).remove();
+  });
+});

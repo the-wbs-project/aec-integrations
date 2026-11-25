@@ -236,3 +236,43 @@ describe('a connector-powered row', () => {
     );
   });
 });
+
+describe('Escape is Cancel (AECI-2133)', () => {
+  const escape = () =>
+    new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+
+  it('closes a record link edit and focuses its pencil', async () => {
+    const api = makeApi([INTEGRATION_OWNED_CLAIMED]);
+    await setup(api, INTEGRATION_OWNED_CLAIMED);
+    const fixture = await mount(IntegrationLinksSection, INTEGRATION_OWNED_CLAIMED);
+    el(fixture).querySelector<HTMLButtonElement>(testid('edit-docs_url'))!.click();
+    await settle(fixture);
+    el(fixture)
+      .querySelector<HTMLInputElement>(`${testid('links-row-docs_url')} input`)!
+      .dispatchEvent(escape());
+    await settle(fixture);
+    expect(el(fixture).querySelector(`${testid('links-row-docs_url')} form`)).toBeNull();
+    expect(document.activeElement).toBe(el(fixture).querySelector(testid('edit-docs_url')));
+    expect(api.updateIntegration).not.toHaveBeenCalled();
+  });
+
+  it('closes a per-product link edit and focuses its pencil', async () => {
+    const api = makeApi([INTEGRATION_OWNED_CLAIMED]);
+    await setup(api, INTEGRATION_OWNED_CLAIMED);
+    const fixture = await mount(IntegrationLinksSection, INTEGRATION_OWNED_CLAIMED);
+    const slug = INTEGRATION_OWNED_CLAIMED.context_product.slug;
+    el(fixture)
+      .querySelector<HTMLButtonElement>(testid(`edit-side-${slug}-docs`))!
+      .click();
+    await settle(fixture);
+    el(fixture)
+      .querySelector<HTMLInputElement>(`${testid(`links-side-${slug}`)} input`)!
+      .dispatchEvent(escape());
+    await settle(fixture);
+    expect(el(fixture).querySelector(`${testid(`links-side-${slug}`)} form`)).toBeNull();
+    expect(document.activeElement).toBe(
+      el(fixture).querySelector(testid(`edit-side-${slug}-docs`)),
+    );
+    expect(api.putIntegrationLink).not.toHaveBeenCalled();
+  });
+});

@@ -726,8 +726,12 @@ function emptyDraft(): Draft {
             </form>
           } @else {
             <!-- Step 1 of 2: the locked product and the search. Nothing else shows. -->
-            <div class="space-y-6" data-testid="create-step-find">
-              aecCloseOnEscape (escapeCancel)="close()"
+            <div
+              aecCloseOnEscape
+              (escapeCancel)="close()"
+              class="space-y-6"
+              data-testid="create-step-find"
+            >
               <p
                 #focusTarget
                 id="vendor-create-step"

@@ -218,6 +218,39 @@ describe('VendorNotOurs', () => {
     expect(api.submitContest.mock.calls[0]![1]).toMatchObject({ proposed_value: OTHER.id });
   });
 
+  it('closes on Escape as Cancel does: the draft goes and focus returns to "Not ours?" (AECI-2133)', async () => {
+    const fixture = await create();
+    await openForm(fixture);
+    await typeReason(fixture, 'A long draft.');
+    el(fixture)
+      .querySelector('textarea')!
+      .dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+    await settle(fixture);
+    expect(el(fixture).querySelector('form')).toBeNull();
+    expect(api.submitContest).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(byTestId(fixture, 'not-ours'));
+    await openForm(fixture);
+    expect(el(fixture).querySelector<HTMLTextAreaElement>('textarea')!.value).toBe('');
+  });
+
+  it('ignores Escape while the request sends (AECI-2133)', async () => {
+    api.submitContest.mockReturnValue(new Promise(() => undefined));
+    const fixture = await create();
+    await openForm(fixture);
+    await typeReason(fixture, 'Not ours.');
+    await submit(fixture);
+    expect(api.submitContest).toHaveBeenCalled();
+    el(fixture)
+      .querySelector('textarea')!
+      .dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+    await settle(fixture);
+    expect(el(fixture).querySelector('form')).not.toBeNull();
+  });
+
   it('renders a refusal as an alert and keeps the form', async () => {
     api.submitContest.mockRejectedValue(apiError(403, 'CONTEST_OWN_INTEGRATION'));
     const fixture = await create();
