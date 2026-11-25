@@ -1768,7 +1768,9 @@ no company and no claim six years after it was given, and one of a deleted compa
 after its `vendor.deleted` row, which goes in the same batch as the last of them. Since AECI-1718 it
 also deletes a Terms of Service acceptance (`terms_acceptances`) six years after the account was
 deleted, dated by the account's `account.deleted` row, which goes in the same batch as the
-account's last Terms acceptance. It writes one `retention.pruned` row
+account's last Terms acceptance. Since AECI-1913 it also deletes workflow history four years after
+the action: a `workflow_transitions` row once it is four years old, and a `workflow_instances` row,
+with its transitions, once its latest action is. It writes one `retention.pruned` row
 per run with `metadata.source = 'legal-retention-prune'`, and lists the acceptance and grant ids in it.
 Nothing falls due before about 2030.
 
@@ -1781,10 +1783,12 @@ Nothing falls due before about 2030.
   the job, or a hold, reclaim or license landing mid-run. Nothing was deleted, no failure email
   went out, and the next night plans from scratch. `failed` is only ever a crash.
 - `aeci.legal_retention.rows_deleted{table}`: rows removed from `audit_log`,
-  `agreement_acceptances`, `license_grants` and `litigation_holds` (holds released four years
-  ago), every run, zeros included.
+  `agreement_acceptances`, `license_grants`, `litigation_holds` (holds released four years
+  ago), `terms_acceptances`, `workflow_instances` and `workflow_transitions` (cascaded rows
+  included), every run, zeros included.
 - `aeci.legal_retention.prune.truncated{table}`: the run stopped at its cap (10,000 audit rows, 200
-  acceptances, 200 grants). The next night continues.
+  acceptances, 200 grants, 200 Terms acceptances, 200 workflow instances, 200 direct workflow
+  transitions). The next night continues.
 
 **Skipped is expected while a global hold is open.** Check `/admin/legal` "Litigation holds". If no
 matter needs the hold any more, release it there (`docs/runbooks/legal.md` "Litigation hold

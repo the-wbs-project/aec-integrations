@@ -294,6 +294,90 @@ describe('POST /api/webhooks/linear — state → status mapping (corrections)',
   });
 });
 
+describe('POST /api/webhooks/linear — the instance was pruned (AECI-1913)', () => {
+  /** A linked request with no workflow instance: the legal retention prune deletes an
+   *  instance four years after its last action, and the request keeps the issue id. */
+  async function seedPrunedRequest(kind: 'claim' | 'correction', status = 'resolved') {
+    await t.db.insert(vendorRequests).values({
+      id: REQUEST_ID,
+      kind,
+      targetType: 'vendor',
+      targetId: 'tgt-1',
+      submitterEmail: 'submitter@vendor.com',
+      body: 'A seeded vendor request.',
+      status,
+      linearIssueId: ISSUE_ID,
+    });
+  }
+
+  it('resolves the request by its own issue id and re-creates the instance in the batch', async () => {
+    await seedPrunedRequest('correction');
+    const res = await post(issuePayload({ stateType: 'started', stateName: 'In Progress' }));
+
+    expect(res.status).toBe(200);
+    expect((await res.json()) as Rec).toMatchObject({ applied: true });
+    expect((await requestRow())!.status).toBe('in_review');
+
+    const instances = await t.db.select().from(workflowInstances);
+    expect(instances).toHaveLength(1);
+    expect(instances[0]).toMatchObject({
+      workflowType: 'correction_request',
+      entityId: REQUEST_ID,
+      linearIssueId: ISSUE_ID,
+      currentState: 'in_review',
+      completedAt: null,
+      finalOutcome: null,
+    });
+    const transitions = await allTransitions();
+    expect(transitions).toHaveLength(1);
+    expect(transitions[0]).toMatchObject({
+      workflowId: instances[0]!.id,
+      fromState: 'resolved',
+      toState: 'in_review',
+    });
+    expect(await allAudits()).toHaveLength(1);
+  });
+
+  it('re-creates a claim instance as vendor_claim', async () => {
+    await seedPrunedRequest('claim', 'open');
+    const res = await post(issuePayload({ stateType: 'started', stateName: 'In Progress' }));
+
+    expect((await res.json()) as Rec).toMatchObject({ applied: true });
+    const [instance] = await t.db.select().from(workflowInstances);
+    expect(instance).toMatchObject({ workflowType: 'vendor_claim', currentState: 'in_review' });
+  });
+
+  it('a concurrent delivery that restored the instance first fails this batch whole', async () => {
+    await seedPrunedRequest('correction');
+    const batch = t.db.batch.bind(t.db);
+    const spy = vi.spyOn(t.db, 'batch').mockImplementationOnce(async (stmts) => {
+      // The other delivery commits its restore between this one's read and its batch.
+      await t.db.insert(workflowInstances).values({
+        id: 'restored-request-' + REQUEST_ID,
+        workflowType: 'correction_request',
+        entityId: REQUEST_ID,
+        currentState: 'in_review',
+        linearIssueId: ISSUE_ID,
+      });
+      return batch(stmts);
+    });
+    const res = await post(issuePayload({ stateType: 'started', stateName: 'In Progress' }));
+    spy.mockRestore();
+
+    // Not acknowledged, so Linear redelivers it against the restored row.
+    expect(res.status).toBeGreaterThanOrEqual(500);
+    expect(await t.db.select().from(workflowInstances)).toHaveLength(1);
+    expect(await allTransitions()).toHaveLength(0);
+    expect((await requestRow())!.status).toBe('resolved');
+  });
+
+  it('still answers unknown issue when no request carries the id', async () => {
+    const res = await post(issuePayload());
+    expect((await res.json()) as Rec).toMatchObject({ applied: false, reason: 'unknown issue' });
+    await expectNoWrites();
+  });
+});
+
 describe('POST /api/webhooks/linear — no-ops', () => {
   it('is a no-op for an unknown issue id', async () => {
     await seed({ linearIssueId: 'some-other-issue' });

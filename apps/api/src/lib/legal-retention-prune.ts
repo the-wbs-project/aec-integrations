@@ -6,7 +6,9 @@
  *     the deletion only for that company's records; a global hold pauses it for every
  *     record (ruling 55, AECI-1970, counsel Q66). The audit record of an agreement
  *     acceptance, a Terms of Service acceptance, an account deletion or a company deletion
- *     is kept for as long as the acceptance record it belongs to.
+ *     is kept for as long as the acceptance record it belongs to. The workflow tables,
+ *     which record who moved a request and when, are part of that record (ruling 51,
+ *     AECI-1913).
  *   - **Agreement acceptance records:** kept while the company has a vendor account and
  *     for six years after it ends, or for five years after a granted subscription ends, if
  *     later, or longer while a legal hold requires it. A claim declined: six years after
@@ -54,6 +56,28 @@
  * from the keys read, because D1 reports no usable `meta.changes` for a batched write. The
  * bound-parameter count is the same whatever the chunk size. No `DELETE … LIMIT`, and no
  * `IN (…)` list sized by the chunk: the header of `./retention-prune` says why.
+ *
+ * ─── The workflow part (AECI-1913, ruling 51) ───────────────────────────────
+ *
+ * Four years after the action, the audit cutoff, under the same holds:
+ *
+ *   - **A `workflow_transitions` row** goes once its `created_at` is past the cutoff. Each
+ *     transition is one action, so it goes while its instance lives on.
+ *   - **A `workflow_instances` row** goes once its latest action (the latest of
+ *     `initiated_at`, `completed_at` and its newest transition) is past the cutoff,
+ *     completed or not: a `reviewer_ban` instance is reused for every ban and unban and
+ *     never completes, and every writer re-creates a missing instance (the Linear webhook
+ *     through the request's own `linear_issue_id`). The instance of a request still `open`
+ *     or `in_review` is kept while it names no actor, because the reconciliation sweep
+ *     needs it. A contest or protest instance is not kept: every contest writer
+ *     re-creates it (`./workflow-restore`). The FK cascade
+ *     removes its transitions, and `integration_field_challenges.workflow_id` and
+ *     `.protest_workflow_id` go to NULL, counted as `contestLinksCleared`.
+ *   - **A vendor hold** keeps the held company's instances, and their transitions, by the
+ *     ties of {@link workflowRowOfVendor}.
+ *
+ * No acceptance record names a workflow row, so none is kept longer. Not chained, so the
+ * run record carries counts, no ids.
  *
  * ─── The acceptance part ─────────────────────────────────────────────────────
  *
@@ -182,8 +206,11 @@ import {
   agreementAcceptances,
   auditLog,
   licenseGrants,
+  integrationFieldChallenges,
   litigationHolds,
   termsAcceptances,
+  workflowInstances,
+  workflowTransitions,
 } from '../db/schema';
 import {
   AGREEMENT_EVIDENCE_REMOVED_ACTION,
@@ -208,6 +235,8 @@ export const LEGAL_PRUNABLE = [
   'license_grants',
   'litigation_holds',
   'terms_acceptances',
+  'workflow_instances',
+  'workflow_transitions',
 ] as const;
 export type LegalPrunableTable = (typeof LEGAL_PRUNABLE)[number];
 
@@ -252,6 +281,13 @@ export interface LegalPrunedTable {
   /** `audit_log` only: the `litigation_hold.*` rows of holds released four years ago.
    *  Counted in `rowsDeleted` too. */
   holdAuditRowsDeleted?: number;
+  /** `workflow_instances` only: the field contests whose `workflow_id` or
+   *  `protest_workflow_id` named a deleted instance, set to NULL by the FK (AECI-1913). A
+   *  count of contest rows, not of instances. */
+  contestLinksCleared?: number;
+  /** `workflow_transitions` only: the transitions removed by the cascade from a deleted
+   *  instance. Counted in `rowsDeleted` too. */
+  cascadeRowsDeleted?: number;
 }
 
 export type LegalRetentionPruneResult =
@@ -308,6 +344,40 @@ export function legalCutoffs(now: Date): {
   };
 }
 
+/** The cutoff each table is pruned against. */
+function cutoffOf(table: LegalPrunableTable, cutoffs: ReturnType<typeof legalCutoffs>): string {
+  switch (table) {
+    case 'agreement_acceptances':
+    case 'terms_acceptances':
+      return cutoffs.acceptance;
+    case 'license_grants':
+      return cutoffs.grant;
+    default:
+      return cutoffs.audit;
+  }
+}
+
+/**
+ * Every table at zero, in {@link LEGAL_PRUNABLE} order: the report of a run that deleted
+ * nothing. `paused` marks the four-year tables a global hold stopped. One list, so a
+ * skipped run never drops a table from the zero-filled metric series.
+ */
+function zeroTables(cutoffs: ReturnType<typeof legalCutoffs>, paused = false): LegalPrunedTable[] {
+  const pausable = new Set<LegalPrunableTable>([
+    'audit_log',
+    'litigation_holds',
+    'workflow_instances',
+    'workflow_transitions',
+  ]);
+  return LEGAL_PRUNABLE.map((table) => ({
+    table,
+    cutoff: cutoffOf(table, cutoffs),
+    rowsDeleted: 0,
+    truncated: false,
+    ...(paused && pausable.has(table) ? { paused: true } : {}),
+  }));
+}
+
 // ---------------------------------------------------------------------------
 // Predicates. Raw SQL with fixed table aliases, so a correlated subquery can never
 // resolve a column against the wrong table. Every value is bound.
@@ -356,6 +426,78 @@ export function auditPrunePredicate(cutoff: string): SQL {
   ) as SQL;
 }
 
+// The company ties shared by `audit_log` ({@link auditRowOfVendor}) and the workflow tables
+// ({@link workflowRowOfVendor}). Each takes the company's id as an SQL expression.
+
+/** The ids of the company's products (`product_vendors`), as a subquery. */
+const productsOf = (vendorId: SQL) =>
+  sql`SELECT "ov_pv"."product_id" FROM "product_vendors" "ov_pv" WHERE "ov_pv"."vendor_id" = ${vendorId}`;
+
+/** An integration the company built, or with its product at either end or as `powered_by`. */
+const integrationOfVendor = (vendorId: SQL, integrationId: SQL) => sql`EXISTS (
+      SELECT 1 FROM "integrations" "ov_i"
+      WHERE "ov_i"."id" = ${integrationId}
+        AND ("ov_i"."built_by_vendor_id" = ${vendorId}
+          OR "ov_i"."source_product_id" IN (${productsOf(vendorId)})
+          OR "ov_i"."target_product_id" IN (${productsOf(vendorId)})
+          OR "ov_i"."powered_by_product_id" IN (${productsOf(vendorId)}))
+    )`;
+
+/** A connector-evidenced pair (Addendum B): the company built it, or owns either end or the
+ *  connector. */
+const evidencedPairOfVendor = (vendorId: SQL, pairId: SQL) => sql`EXISTS (
+      SELECT 1 FROM "connector_evidenced_pairs" "ov_e"
+      WHERE "ov_e"."id" = ${pairId}
+        AND ("ov_e"."built_by_vendor_id" = ${vendorId}
+          OR "ov_e"."connector_product_id" IN (${productsOf(vendorId)})
+          OR "ov_e"."product_a_id" IN (${productsOf(vendorId)})
+          OR "ov_e"."product_b_id" IN (${productsOf(vendorId)}))
+    )`;
+
+/** A connector catalog belongs to the company that owns its connector product. */
+const catalogOfVendor = (vendorId: SQL, catalogId: SQL) => sql`EXISTS (
+      SELECT 1 FROM "connector_catalogs" "ov_k"
+      WHERE "ov_k"."id" = ${catalogId}
+        AND "ov_k"."connector_product_id" IN (${productsOf(vendorId)})
+    )`;
+
+/** A reached connector pair (Addendum C): its catalog is the company's, or either stub is
+ *  mapped to one of the company's products. */
+const connectorPairOfVendor = (vendorId: SQL, pairId: SQL) => sql`EXISTS (
+      SELECT 1 FROM "connector_pairs" "ov_cp"
+      WHERE "ov_cp"."id" = ${pairId}
+        AND (${catalogOfVendor(vendorId, sql`"ov_cp"."catalog_id"`)}
+          OR EXISTS (
+            SELECT 1 FROM "connector_stub_mappings" "ov_m"
+            WHERE "ov_m"."stub_id" IN ("ov_cp"."stub_a_id", "ov_cp"."stub_b_id")
+              AND "ov_m"."product_id" IN (${productsOf(vendorId)})
+          ))
+    )`;
+
+/** A claim, by whichever of its three anchors is set. */
+const claimOfVendor = (vendorId: SQL, claimId: SQL) => sql`EXISTS (
+      SELECT 1 FROM "claims" "ov_c" WHERE "ov_c"."id" = ${claimId}
+        AND (${integrationOfVendor(vendorId, sql`"ov_c"."integration_id"`)}
+          OR ${evidencedPairOfVendor(vendorId, sql`"ov_c"."connector_evidenced_pair_id"`)}
+          OR ${connectorPairOfVendor(vendorId, sql`"ov_c"."connector_pair_id"`)})
+    )`;
+
+/** A `vendor_requests` row whose request targets the company, or one of its products (the
+ *  legacy product-target shape). */
+const vendorRequestOfVendor = (vendorId: SQL, requestId: SQL) => sql`EXISTS (
+          SELECT 1 FROM "vendor_requests" "ov_q" WHERE "ov_q"."id" = ${requestId}
+            AND (("ov_q"."target_type" = 'vendor' AND "ov_q"."target_id" = ${vendorId})
+              OR ("ov_q"."target_type" = 'product' AND "ov_q"."target_id" IN (${productsOf(vendorId)}))))`;
+
+/** A review of one of the company's products. */
+const reviewOfVendor = (vendorId: SQL, reviewId: SQL) => sql`EXISTS (
+          SELECT 1 FROM "reviews" "ov_r" WHERE "ov_r"."id" = ${reviewId}
+            AND "ov_r"."product_id" IN (${productsOf(vendorId)}))`;
+
+/** A profile that is one of the company's current seats (`profiles.vendor_id`). */
+const seatsOf = (vendorId: SQL) =>
+  sql`SELECT "ov_p"."id" FROM "profiles" "ov_p" WHERE "ov_p"."vendor_id" = ${vendorId}`;
+
 /**
  * True when the `audit_log` row of the enclosing statement belongs to the company `vendorId`
  * names (an SQL expression). Ruling 55 (AECI-1970, counsel Q66): a vendor hold pauses the
@@ -394,50 +536,6 @@ export function auditPrunePredicate(cutoff: string): SQL {
  * except the fixed action literals, so the bind count does not grow with the hold count.
  */
 export function auditRowOfVendor(vendorId: SQL): SQL {
-  const productsOf = sql`SELECT "ov_pv"."product_id" FROM "product_vendors" "ov_pv" WHERE "ov_pv"."vendor_id" = ${vendorId}`;
-  const integrationOfVendor = (integrationId: SQL) => sql`EXISTS (
-      SELECT 1 FROM "integrations" "ov_i"
-      WHERE "ov_i"."id" = ${integrationId}
-        AND ("ov_i"."built_by_vendor_id" = ${vendorId}
-          OR "ov_i"."source_product_id" IN (${productsOf})
-          OR "ov_i"."target_product_id" IN (${productsOf})
-          OR "ov_i"."powered_by_product_id" IN (${productsOf}))
-    )`;
-  // A connector-evidenced pair (Addendum B): the company built it, or owns either end or
-  // the connector.
-  const evidencedPairOfVendor = (pairId: SQL) => sql`EXISTS (
-      SELECT 1 FROM "connector_evidenced_pairs" "ov_e"
-      WHERE "ov_e"."id" = ${pairId}
-        AND ("ov_e"."built_by_vendor_id" = ${vendorId}
-          OR "ov_e"."connector_product_id" IN (${productsOf})
-          OR "ov_e"."product_a_id" IN (${productsOf})
-          OR "ov_e"."product_b_id" IN (${productsOf}))
-    )`;
-  // A connector catalog belongs to the company that owns its connector product.
-  const catalogOfVendor = (catalogId: SQL) => sql`EXISTS (
-      SELECT 1 FROM "connector_catalogs" "ov_k"
-      WHERE "ov_k"."id" = ${catalogId}
-        AND "ov_k"."connector_product_id" IN (${productsOf})
-    )`;
-  // A reached connector pair (Addendum C): its catalog is the company's, or either stub is
-  // mapped to one of the company's products.
-  const connectorPairOfVendor = (pairId: SQL) => sql`EXISTS (
-      SELECT 1 FROM "connector_pairs" "ov_cp"
-      WHERE "ov_cp"."id" = ${pairId}
-        AND (${catalogOfVendor(sql`"ov_cp"."catalog_id"`)}
-          OR EXISTS (
-            SELECT 1 FROM "connector_stub_mappings" "ov_m"
-            WHERE "ov_m"."stub_id" IN ("ov_cp"."stub_a_id", "ov_cp"."stub_b_id")
-              AND "ov_m"."product_id" IN (${productsOf})
-          ))
-    )`;
-  // A claim, by whichever of its three anchors is set.
-  const claimOfVendor = (claimId: SQL) => sql`EXISTS (
-      SELECT 1 FROM "claims" "ov_c" WHERE "ov_c"."id" = ${claimId}
-        AND (${integrationOfVendor(sql`"ov_c"."integration_id"`)}
-          OR ${evidencedPairOfVendor(sql`"ov_c"."connector_evidenced_pair_id"`)}
-          OR ${connectorPairOfVendor(sql`"ov_c"."connector_pair_id"`)})
-    )`;
   return sql`(
     "audit_log"."vendor_id" = ${vendorId}
     OR ("audit_log"."entity_type" IN ('vendor', 'vendor_entitlement') AND "audit_log"."entity_id" = ${vendorId})
@@ -445,25 +543,20 @@ export function auditRowOfVendor(vendorId: SQL): SQL {
           json_extract("audit_log"."metadata", '$.vendor_id') = ${vendorId}
           OR json_extract("audit_log"."metadata", '$.vendorId') = ${vendorId}
         ELSE 0 END)
-    OR "audit_log"."product_id" IN (${productsOf})
-    OR ("audit_log"."entity_type" = 'product' AND "audit_log"."entity_id" IN (${productsOf}))
-    OR ("audit_log"."entity_type" = 'integration' AND ${integrationOfVendor(sql`"audit_log"."entity_id"`)})
-    OR ("audit_log"."entity_type" = 'connector_evidenced_pair' AND ${evidencedPairOfVendor(sql`"audit_log"."entity_id"`)})
-    OR ("audit_log"."entity_type" = 'connector_pair' AND ${connectorPairOfVendor(sql`"audit_log"."entity_id"`)})
-    OR ("audit_log"."entity_type" = 'connector_catalog' AND ${catalogOfVendor(sql`"audit_log"."entity_id"`)})
-    OR ("audit_log"."entity_type" = 'claim' AND ${claimOfVendor(sql`"audit_log"."entity_id"`)})
+    OR "audit_log"."product_id" IN (${productsOf(vendorId)})
+    OR ("audit_log"."entity_type" = 'product' AND "audit_log"."entity_id" IN (${productsOf(vendorId)}))
+    OR ("audit_log"."entity_type" = 'integration' AND ${integrationOfVendor(vendorId, sql`"audit_log"."entity_id"`)})
+    OR ("audit_log"."entity_type" = 'connector_evidenced_pair' AND ${evidencedPairOfVendor(vendorId, sql`"audit_log"."entity_id"`)})
+    OR ("audit_log"."entity_type" = 'connector_pair' AND ${connectorPairOfVendor(vendorId, sql`"audit_log"."entity_id"`)})
+    OR ("audit_log"."entity_type" = 'connector_catalog' AND ${catalogOfVendor(vendorId, sql`"audit_log"."entity_id"`)})
+    OR ("audit_log"."entity_type" = 'claim' AND ${claimOfVendor(vendorId, sql`"audit_log"."entity_id"`)})
     OR ("audit_log"."entity_type" = 'attestation' AND EXISTS (
           SELECT 1 FROM "attestations" "ov_at"
           WHERE "ov_at"."id" = "audit_log"."entity_id"
-            AND ${claimOfVendor(sql`"ov_at"."claim_id"`)}))
-    OR ("audit_log"."entity_type" = 'review' AND EXISTS (
-          SELECT 1 FROM "reviews" "ov_r" WHERE "ov_r"."id" = "audit_log"."entity_id"
-            AND "ov_r"."product_id" IN (${productsOf})))
-    OR ("audit_log"."entity_type" = 'vendor_request' AND EXISTS (
-          SELECT 1 FROM "vendor_requests" "ov_q" WHERE "ov_q"."id" = "audit_log"."entity_id"
-            AND (("ov_q"."target_type" = 'vendor' AND "ov_q"."target_id" = ${vendorId})
-              OR ("ov_q"."target_type" = 'product' AND "ov_q"."target_id" IN (${productsOf})))))
-    OR "audit_log"."actor_id" IN (SELECT "ov_p"."id" FROM "profiles" "ov_p" WHERE "ov_p"."vendor_id" = ${vendorId})
+            AND ${claimOfVendor(vendorId, sql`"ov_at"."claim_id"`)}))
+    OR ("audit_log"."entity_type" = 'review' AND ${reviewOfVendor(vendorId, sql`"audit_log"."entity_id"`)})
+    OR ("audit_log"."entity_type" = 'vendor_request' AND ${vendorRequestOfVendor(vendorId, sql`"audit_log"."entity_id"`)})
+    OR "audit_log"."actor_id" IN (${seatsOf(vendorId)})
   )`;
 }
 
@@ -475,6 +568,131 @@ const AUDIT_ROW_UNDER_VENDOR_HOLD = sql`EXISTS (
     AND "lh_vh"."vendor_id" IS NOT NULL
     AND ${auditRowOfVendor(sql`"lh_vh"."vendor_id"`)}
 )`;
+
+/**
+ * True when the `workflow_instances` row of the enclosing statement belongs to the company
+ * `vendorId` names (an SQL expression), for a vendor hold (AECI-1913, ruling 51). The
+ * enclosing statement must read `workflow_instances` unaliased. `entity_id` carries no FK,
+ * so each type is read against the table it names (`DATABASE_SCHEMA.md` §8.2):
+ *
+ *   1. **A claim or correction on the company**: `vendor_claim` or `correction_request`
+ *      whose `entity_id` is a `vendor_requests` row targeting the company or its product.
+ *   2. **A field contest about the company**: `correction_request` whose `entity_id` is an
+ *      `integration_field_challenges` row the company submitted or owns, or whose
+ *      integration or evidenced pair is the company's.
+ *   3. **Moderation of a review of its product**: `review_moderation` on such a review.
+ *   4. **A ban of one of its current seats**: `reviewer_ban` on a profile of the company.
+ *   5. **What its current seats did**: `initiated_by`, or the `actor_id` of any of the
+ *      instance's transitions, is one of the company's current seats.
+ *
+ * These are the categories the Privacy Policy's hold sentence lists, and the same ties
+ * {@link auditRowOfVendor} reads. A transition belongs to the company when its instance
+ * does, so a held instance keeps all of its transitions. No bind except fixed literals.
+ */
+export function workflowRowOfVendor(vendorId: SQL): SQL {
+  const entity = sql`"workflow_instances"."entity_id"`;
+  return sql`(
+    ("workflow_instances"."workflow_type" IN ('vendor_claim', 'correction_request')
+      AND ${vendorRequestOfVendor(vendorId, entity)})
+    OR ("workflow_instances"."workflow_type" = 'correction_request' AND EXISTS (
+          SELECT 1 FROM "integration_field_challenges" "wv_fc"
+          WHERE "wv_fc"."id" = ${entity}
+            AND ("wv_fc"."submitter_vendor_id" = ${vendorId}
+              OR "wv_fc"."owner_vendor_id" = ${vendorId}
+              OR ${integrationOfVendor(vendorId, sql`"wv_fc"."integration_id"`)}
+              OR ${evidencedPairOfVendor(vendorId, sql`"wv_fc"."evidenced_pair_id"`)})))
+    OR ("workflow_instances"."workflow_type" = 'review_moderation'
+      AND ${reviewOfVendor(vendorId, entity)})
+    OR ("workflow_instances"."workflow_type" = 'reviewer_ban' AND ${entity} IN (${seatsOf(vendorId)}))
+    OR "workflow_instances"."initiated_by" IN (${seatsOf(vendorId)})
+    OR EXISTS (
+      SELECT 1 FROM "workflow_transitions" "wv_t"
+      WHERE "wv_t"."workflow_id" = "workflow_instances"."id"
+        AND "wv_t"."actor_id" IN (${seatsOf(vendorId)}))
+  )`;
+}
+
+/** True when an open vendor hold covers the `workflow_instances` row of the enclosing
+ *  statement. */
+const WORKFLOW_UNDER_VENDOR_HOLD = sql`EXISTS (
+  SELECT 1 FROM "litigation_holds" "lh_wh"
+  WHERE "lh_wh"."released_at" IS NULL
+    AND "lh_wh"."scope" = 'vendor'
+    AND "lh_wh"."vendor_id" IS NOT NULL
+    AND ${workflowRowOfVendor(sql`"lh_wh"."vendor_id"`)}
+)`;
+
+/**
+ * The latest action on the `workflow_instances` row of the enclosing statement: the latest
+ * of `initiated_at`, `completed_at` and its newest transition's `created_at`. ISO-8601
+ * text, so `max` orders it as time; `''` stands in for a missing value.
+ */
+const WORKFLOW_LAST_ACTION = sql`max(
+  "workflow_instances"."initiated_at",
+  COALESCE("workflow_instances"."completed_at", ''),
+  COALESCE((SELECT max("wl_t"."created_at") FROM "workflow_transitions" "wl_t"
+    WHERE "wl_t"."workflow_id" = "workflow_instances"."id"), '')
+)`;
+
+/**
+ * True when the `workflow_instances` row of the enclosing statement is the workflow of a
+ * request that is still `open` or `in_review`. Such an instance is kept, however old its
+ * last action: the request reconciliation sweep (`lib/reconciliation-sweep.ts`) retries a
+ * stuck open request only through its instance, and the Linear link-back writes the issue
+ * id onto it. Its transitions still go by their own date. Only an instance with no
+ * `initiated_by` is kept: a request instance never carries one (the submit is anonymous,
+ * `routes/requests.ts`), so what stays names no one, and its `initiated_at` is the
+ * request's own `created_at`, which the live request row holds anyway. An instance that
+ * did name an actor is pruned on schedule like any other.
+ */
+const WORKFLOW_OF_OPEN_REQUEST = sql`(
+  "workflow_instances"."workflow_type" IN ('vendor_claim', 'correction_request')
+  AND "workflow_instances"."initiated_by" IS NULL
+  AND EXISTS (
+    SELECT 1 FROM "vendor_requests" "wo_q"
+    WHERE "wo_q"."id" = "workflow_instances"."entity_id"
+      AND "wo_q"."status" IN ('open', 'in_review')
+  )
+)`;
+
+/**
+ * One `workflow_instances` row is due (AECI-1913, ruling 51): its latest action
+ * ({@link WORKFLOW_LAST_ACTION}) is before the four-year cutoff, no global hold is open, and
+ * no open vendor hold covers it, and it is not the workflow of an open request
+ * ({@link WORKFLOW_OF_OPEN_REQUEST}). Completed or not: a `reviewer_ban` instance is reused
+ * for every ban and unban and never completes. Every writer re-creates a missing instance,
+ * the Linear webhook through the request's own `linear_issue_id` and every contest writer
+ * through `./workflow-restore`.
+ * Deleting it cascades its transitions (all past the cutoff too) and sets the contest
+ * links (`integration_field_challenges.workflow_id`, `.protest_workflow_id`) to NULL. The
+ * enclosing statement must read `workflow_instances` unaliased.
+ */
+export function workflowInstancePrunePredicate(cutoff: string): SQL {
+  return sql`(
+    ${WORKFLOW_LAST_ACTION} < ${cutoff}
+    AND ${NO_GLOBAL_HOLD}
+    AND NOT ${WORKFLOW_UNDER_VENDOR_HOLD}
+    AND NOT ${WORKFLOW_OF_OPEN_REQUEST}
+  )`;
+}
+
+/**
+ * One `workflow_transitions` row is due (AECI-1913, ruling 51): it was written before the
+ * four-year cutoff, no global hold is open, and no open vendor hold covers its instance.
+ * Each transition is one action, so an old one goes while its instance lives on. The
+ * enclosing statement must read `workflow_transitions` unaliased.
+ */
+export function workflowTransitionPrunePredicate(cutoff: string): SQL {
+  return sql`(
+    "workflow_transitions"."created_at" < ${cutoff}
+    AND ${NO_GLOBAL_HOLD}
+    AND NOT EXISTS (
+      SELECT 1 FROM "workflow_instances"
+      WHERE "workflow_instances"."id" = "workflow_transitions"."workflow_id"
+        AND ${WORKFLOW_UNDER_VENDOR_HOLD}
+    )
+  )`;
+}
 
 /**
  * True when the vendor named by `vendorId` (an SQL expression) has an ended account, ended
@@ -923,12 +1141,6 @@ export async function runLegalRetentionPrune(
   now: Date,
 ): Promise<LegalRetentionPruneResult> {
   const cutoffs = legalCutoffs(now);
-  const zero = (table: LegalPrunableTable, cutoff: string): LegalPrunedTable => ({
-    table,
-    cutoff,
-    rowsDeleted: 0,
-    truncated: false,
-  });
 
   const holds = await db
     .select({
@@ -944,13 +1156,7 @@ export async function runLegalRetentionPrune(
     return {
       status: 'skipped',
       reason: 'litigation_hold',
-      tables: [
-        { ...zero('audit_log', cutoffs.audit), paused: true },
-        zero('agreement_acceptances', cutoffs.acceptance),
-        zero('license_grants', cutoffs.grant),
-        { ...zero('litigation_holds', cutoffs.audit), paused: true },
-        zero('terms_acceptances', cutoffs.acceptance),
-      ],
+      tables: zeroTables(cutoffs, true),
       rowsDeleted: 0,
       vendorHolds,
     };
@@ -1132,6 +1338,48 @@ export async function runLegalRetentionPrune(
   ) as SQL;
   const holdAudit = releasedHolds.ids.length > 0 ? await countAudit(holdAuditWhere) : 0;
 
+  // ── The workflow tables, four years after the action (AECI-1913) ─────────
+  // An instance whose latest action is past the cutoff goes whole: the FK cascade removes
+  // its transitions and sets its contest links to NULL. A transition past the cutoff on an
+  // instance that stays goes on its own. Both are counted here against the batch's state.
+  const instanceWhere = workflowInstancePrunePredicate(cutoffs.audit);
+  const transitionWhere = workflowTransitionPrunePredicate(cutoffs.audit);
+  const instances = await capIds(
+    db
+      .select({ id: workflowInstances.id })
+      .from(workflowInstances)
+      .where(instanceWhere)
+      .orderBy(asc(workflowInstances.initiatedAt), asc(workflowInstances.id))
+      .limit(LEGAL_RETENTION_IDS_PER_TABLE + 1),
+  );
+  const instanceIdCol = sql`"workflow_instances"."id"`;
+  const transitionIdCol = sql`"workflow_transitions"."id"`;
+  const cascadeWhere = inJsonList(sql`"workflow_transitions"."workflow_id"`, instances.ids);
+  const countRows = async (
+    table: typeof workflowTransitions | typeof integrationFieldChallenges,
+    where: SQL,
+  ) => {
+    const [row] = await db
+      .select({ n: sql<number>`count(*)` })
+      .from(table)
+      .where(where);
+    return Number(row?.n ?? 0);
+  };
+  const cascaded =
+    instances.ids.length > 0 ? await countRows(workflowTransitions, cascadeWhere) : 0;
+  const contestLinkWhere = sql`(${inJsonList(sql`"integration_field_challenges"."workflow_id"`, instances.ids)}
+    OR ${inJsonList(sql`"integration_field_challenges"."protest_workflow_id"`, instances.ids)})`;
+  const contestLinks =
+    instances.ids.length > 0 ? await countRows(integrationFieldChallenges, contestLinkWhere) : 0;
+  const transitions = await capIds(
+    db
+      .select({ id: workflowTransitions.id })
+      .from(workflowTransitions)
+      .where(and(transitionWhere, instances.ids.length > 0 ? sql`NOT ${cascadeWhere}` : undefined))
+      .orderBy(asc(workflowTransitions.createdAt), asc(workflowTransitions.id))
+      .limit(LEGAL_RETENTION_IDS_PER_TABLE + 1),
+  );
+
   const tables: LegalPrunedTable[] = [
     {
       table: 'audit_log',
@@ -1164,6 +1412,20 @@ export async function runLegalRetentionPrune(
       cutoff: cutoffs.acceptance,
       rowsDeleted: terms.ids.length,
       truncated: terms.truncated,
+    },
+    {
+      table: 'workflow_instances',
+      cutoff: cutoffs.audit,
+      rowsDeleted: instances.ids.length,
+      truncated: instances.truncated,
+      ...(contestLinks > 0 ? { contestLinksCleared: contestLinks } : {}),
+    },
+    {
+      table: 'workflow_transitions',
+      cutoff: cutoffs.audit,
+      rowsDeleted: transitions.ids.length + cascaded,
+      truncated: transitions.truncated,
+      ...(cascaded > 0 ? { cascadeRowsDeleted: cascaded } : {}),
     },
   ];
   const rowsDeleted = tables.reduce((sum, t) => sum + t.rowsDeleted, 0);
@@ -1306,6 +1568,45 @@ export async function runLegalRetentionPrune(
     if (holdAudit > 0) statements.push(db.delete(auditLog).where(holdAuditWhere));
     statements.push(db.delete(litigationHolds).where(holdRowsWhere));
   }
+  // The workflow tables (AECI-1913). Sentinels first: every planned row must still be due,
+  // and the planned instances must still have exactly the transitions counted for the
+  // cascade, or the audit row would name deletes that did not happen. The direct transition
+  // delete runs BEFORE the instance delete: its ids exclude the planned instances, so the
+  // cascade then removes exactly the counted rows. Neither touches `audit_log`, so the
+  // four-year count below is unaffected.
+  if (instances.ids.length > 0) {
+    const instanceRowsWhere = and(inJsonList(instanceIdCol, instances.ids), instanceWhere) as SQL;
+    statements.push(
+      abortWhen(
+        db,
+        sql`(SELECT count(*) FROM "workflow_instances" WHERE ${instanceRowsWhere}) <> ${instances.ids.length}`,
+      ),
+      abortWhen(
+        db,
+        sql`(SELECT count(*) FROM "workflow_transitions" WHERE ${cascadeWhere}) <> ${cascaded}`,
+      ),
+    );
+  }
+  if (transitions.ids.length > 0) {
+    const transitionRowsWhere = and(
+      inJsonList(transitionIdCol, transitions.ids),
+      transitionWhere,
+    ) as SQL;
+    statements.push(
+      abortWhen(
+        db,
+        sql`(SELECT count(*) FROM "workflow_transitions" WHERE ${transitionRowsWhere}) <> ${transitions.ids.length}`,
+      ),
+      db.delete(workflowTransitions).where(transitionRowsWhere),
+    );
+  }
+  if (instances.ids.length > 0) {
+    statements.push(
+      db
+        .delete(workflowInstances)
+        .where(and(inJsonList(instanceIdCol, instances.ids), instanceWhere)),
+    );
+  }
   if (audit.rowsDeleted > 0 && audit.last) {
     // The four-year chunks start at the first matching key and cover every key up to
     // `last`, so the rows matching the predicate up to it must be exactly the planned count.
@@ -1353,6 +1654,8 @@ export async function runLegalRetentionPrune(
           rowsDeleted: t.rowsDeleted,
           ...(t.companionRowsDeleted ? { companionRowsDeleted: t.companionRowsDeleted } : {}),
           ...(t.holdAuditRowsDeleted ? { holdAuditRowsDeleted: t.holdAuditRowsDeleted } : {}),
+          ...(t.contestLinksCleared ? { contestLinksCleared: t.contestLinksCleared } : {}),
+          ...(t.cascadeRowsDeleted ? { cascadeRowsDeleted: t.cascadeRowsDeleted } : {}),
           ...(idsFor[t.table] ? { ids: idsFor[t.table] } : {}),
         })),
     },
@@ -1390,27 +1693,10 @@ export async function runLegalRetentionPruneWithReplan(
     return result.status === 'pruned' ? { ...result, replanned: true } : result;
   } catch (error) {
     if (!isLegalRetentionRaceError(error)) throw error;
-    const cutoffs = legalCutoffs(now);
     return {
       status: 'skipped',
       reason: 'concurrent_run',
-      tables: [
-        { table: 'audit_log', cutoff: cutoffs.audit, rowsDeleted: 0, truncated: false },
-        {
-          table: 'agreement_acceptances',
-          cutoff: cutoffs.acceptance,
-          rowsDeleted: 0,
-          truncated: false,
-        },
-        { table: 'license_grants', cutoff: cutoffs.grant, rowsDeleted: 0, truncated: false },
-        { table: 'litigation_holds', cutoff: cutoffs.audit, rowsDeleted: 0, truncated: false },
-        {
-          table: 'terms_acceptances',
-          cutoff: cutoffs.acceptance,
-          rowsDeleted: 0,
-          truncated: false,
-        },
-      ],
+      tables: zeroTables(legalCutoffs(now)),
       rowsDeleted: 0,
       vendorHolds: 0,
     };
