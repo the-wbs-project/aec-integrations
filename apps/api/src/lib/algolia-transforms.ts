@@ -471,12 +471,20 @@ export function toAlgoliaIntegration(
   hidden: readonly string[] = [],
 ): AlgoliaIntegrationRecord {
   const mechanism_kind = toMechanismKind(row.mechanismKind, row.id);
+  // AECI-1939: the same orientation rule as `toAlgoliaEvidencedPair`. The record's
+  // `direction` is context-free ("one-way"), so a `b_to_a` row kept in stored order
+  // would name the RECEIVER as the source. Swapping here makes "source = sender" true
+  // on every one-way record, whichever table it came from. `both` and null keep the
+  // stored order.
+  const swapped = row.direction === 'b_to_a';
+  const source = swapped ? row.targetProduct : row.sourceProduct;
+  const target = swapped ? row.sourceProduct : row.targetProduct;
   return {
     objectID: row.id,
-    source_product_name: row.sourceProduct.name,
-    source_product_slug: row.sourceProduct.slug,
-    target_product_name: row.targetProduct.name,
-    target_product_slug: row.targetProduct.slug,
+    source_product_name: source.name,
+    source_product_slug: source.slug,
+    target_product_name: target.name,
+    target_product_slug: target.slug,
     mechanism_kind,
     mechanism_name: unlessHidden(hidden, 'mechanism_name', row.mechanismName),
     // Context-free — see the sibling transform above.

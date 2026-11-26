@@ -1,11 +1,15 @@
 /**
- * Shared, localized labels for integration `mechanism_kind` / `direction`
- * enums. Lifted out of the since-deleted `integrations/integration-card.ts`
+ * Shared, localized labels for integration `mechanism_kind` and context-relative
+ * direction. Lifted out of the since-deleted `integrations/integration-card.ts`
  * (AECI-142) so every surface that names a mechanism renders from ONE
- * `$localize` id set — the labels (and their `@@integrations.mechanism.*` /
- * `@@integrations.direction.*` ids) can't drift apart. The `/integrations`
- * table that motivated the extraction is gone (AECI-165). The `/search`
- * integration hit card and the product and pair page surfaces consume it now.
+ * `$localize` id set — the labels (and their `@@integrations.mechanism.*` ids)
+ * can't drift apart. The `/integrations` table that motivated the extraction is
+ * gone (AECI-165). The `/search` integration hit card and the product and pair
+ * page surfaces consume it now.
+ *
+ * AECI-1939 removed the context-free `directionLabel()` ("One-way" /
+ * "Bidirectional"). Its last caller, the `/search` integration card, now names
+ * both products with `pairFlowSentence()` (`products/pair-direction-labels.ts`).
  *
  * Pure functions, not a component or service: `$localize` is a global tagged
  * template available at runtime (SSR + browser + the Angular unit-test
@@ -62,44 +66,6 @@ export function viaConnectorLabel(connectorName: string | null): string {
   return connectorName === null
     ? $localize`:@@products.detail.integrations.via.unnamed:Via a connector`
     : $localize`:@@products.detail.integrations.via:Via ${connectorName}:CONNECTOR:`;
-}
-
-/**
- * Localized label for an integration `direction` on a **context-free** surface,
- * or `''` when absent/unknown.
- *
- * "How many ways", never "which way" — the callers are surfaces with no context
- * product to frame an arrow against: the home page's recent-integrations tile,
- * the `/search` integration card, and the powered hub's hubless pair rows. A
- * reader there has no way to tell endpoint A from endpoint B, so the two arrows
- * collapse into one honest bucket. Anything that DOES have a context uses
- * `contextDirectionLabel()` below instead.
- *
- * It accepts **both vocabularies on purpose**, and the two arrive from different
- * places rather than from a migration in progress (AECI-921):
- *
- *   - `a_to_b` / `b_to_a` / `both` — `IntegrationListItem.direction`, which
- *     carries the STORED value so context-aware consumers can frame it;
- *   - `one-way` / `bidirectional` — the Algolia integration record, where
- *     `direction` is a FACET and splitting one user-meaningful value into two
- *     that differ by an invisible endpoint ordering would be worse than the
- *     collapse.
- *
- * Both are live, neither is legacy, and narrowing this to one of them breaks a
- * shipped surface.
- */
-export function directionLabel(direction: string | null | undefined): string {
-  switch (direction) {
-    case 'a_to_b':
-    case 'b_to_a':
-    case 'one-way':
-      return $localize`:@@integrations.direction.oneWay:One-way`;
-    case 'both':
-    case 'bidirectional':
-      return $localize`:@@integrations.direction.bidirectional:Bidirectional`;
-    default:
-      return '';
-  }
 }
 
 /**

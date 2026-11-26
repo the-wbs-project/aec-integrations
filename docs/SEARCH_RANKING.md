@@ -254,12 +254,35 @@ The values below are quoted from `INDEX_SETTINGS` in `packages/shared/src/algoli
   > **`direction` on the record is `one-way | bidirectional`, and stays that way (AECI-921).** The
   > D1 column it comes from now stores `a_to_b | b_to_a | both`; both writers of this index —
   > `toAlgoliaIntegration` in the Worker and `buildIntegrationRecords` in `apps/datatool` — collapse
-  > it on the way out, and they must keep agreeing or the drift guard reports every integration
-  > record as stale forever. A facet is **context-free**: with no product to read the arrow
+  > it on the way out, and they must keep agreeing. The drift check (`apps/api/src/lib/algolia-drift.ts`)
+  > counts records only, so it cannot see two writers disagree about a field. The guard is
+  > `apps/api/src/lib/algolia-builder-parity.spec.ts`, which builds every integrations record
+  > through both writers and requires them equal (AECI-1939). A facet is **context-free**: with no product to read the arrow
   > against, `a_to_b` names nothing a searcher can act on, and carrying both arrows would show
   > "One-way" twice, split by an endpoint ordering the reader cannot see. `presentedDirection()`
   > in `packages/shared/src/integration-context.ts` is the single rule. (The integrations tab is
   > still hidden — `STAGE_1_SPEC.md` §7.5 — so this facet is not currently reachable in the UI.)
+- **Record shape** (`AlgoliaIntegrationRecordSchema`, `packages/shared/src/algolia-records.ts`):
+  `objectID`, `source_product_name`, `source_product_slug`, `target_product_name`,
+  `target_product_slug`, `mechanism_kind`, `mechanism_name`, `direction`, `description`,
+  `mechanism_rank`. The record carries no logo, vendor or stored-direction field.
+- **Orientation (AECI-1939): on a `one-way` record, `source_*` is the product that sends.** The
+  record's `direction` cannot say which way, so the endpoint order is where the flow lives. Both
+  row kinds follow one rule in both writers. A stored `b_to_a` row has its endpoints swapped on
+  the way out. `a_to_b`, `both` and null keep the stored order, and a `bidirectional` or null
+  record makes no claim about which end sends. For an `integrations` row that is
+  `toAlgoliaIntegration` and the integrations arm of `buildIntegrationRecords`. For a
+  connector-evidenced pair it is `toAlgoliaEvidencedPair` and the evidenced arm, which always
+  re-oriented the canonical pair. Before AECI-1939 an `integrations` row kept its stored order,
+  so a `b_to_a` row named the receiver as the source (prod: Amazon QuickSight and Amazon Redshift,
+  where Redshift sends). The searchable-attribute order above and the two product facets read
+  the same oriented fields. `objectID` and the `direction` vocabulary did not change. The
+  `/search` integration card draws `→` only on a one-way record, `⇄` on a bidirectional one and
+  a neutral `·` otherwise, and states the flow with `pairFlowSentence`.
+- **Rolling out an orientation change.** The 08:00 sync is watermarked on each row's
+  `updated_at`, so a writer change reaches only rows touched after it deploys. Existing records
+  change only after an `integrations` watermark reset in each environment (§1.2), or a full
+  datatool reindex.
 - **Custom ranking:** `desc(mechanism_rank)` — see §4 for what `mechanism_rank` encodes.
 - **Membership (AECI-1010):** an `integrations` row is in the index when both endpoints are
   promoted **and it is live**: `retired_at IS NULL`, and since AECI-1238 no endpoint or connector

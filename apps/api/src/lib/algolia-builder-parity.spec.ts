@@ -1,6 +1,6 @@
 /**
- * Builder parity for the two writers of the `products` and `vendors` indexes
- * (AECI-1038).
+ * Builder parity for the two writers of the `products`, `vendors` and
+ * `integrations` indexes (AECI-1038; integrations since AECI-1939).
  *
  * Two code paths build the same Algolia records. The nightly sync and the promote
  * hook use the Drizzle transforms in `./algolia-transforms`. The datatool full
@@ -23,13 +23,18 @@
  */
 
 import {
+  AlgoliaIntegrationRecordSchema,
   AlgoliaProductRecordSchema,
   AlgoliaVendorRecordSchema,
 } from '@aeci/shared/algolia-records';
 import { eq, inArray } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { buildProductRecords, buildVendorRecords } from '../../../datatool/src/algolia-reindex';
+import {
+  buildIntegrationRecords,
+  buildProductRecords,
+  buildVendorRecords,
+} from '../../../datatool/src/algolia-reindex';
 import {
   connectorEvidencedPairs,
   fieldHides,
@@ -51,10 +56,16 @@ import { makeTestDb, type TestDb } from '../test/d1';
 import { toFieldCorrections } from './field-captions';
 import { groupCorrections, vendorCorrectionsQuery } from './field-corrections';
 import {
+  algoliaEvidencedPairConfig,
+  algoliaIntegrationConfig,
   algoliaProductConfig,
   algoliaVendorConfig,
+  toAlgoliaEvidencedPair,
+  toAlgoliaIntegration,
   toAlgoliaProduct,
   toAlgoliaVendor,
+  type RawAlgoliaEvidencedPairRow,
+  type RawAlgoliaIntegrationRow,
   type RawAlgoliaProductRow,
   type RawAlgoliaVendorRow,
 } from './algolia-transforms';
@@ -95,6 +106,23 @@ async function transformProduct(id: string) {
     where: eq(products.id, id),
   })) as RawAlgoliaProductRow | undefined;
   return toAlgoliaProduct(row!);
+}
+
+/**
+ * The Worker's record for one `integrations` index object, from whichever table
+ * holds it. The datatool unions both tables, so the parity check must too.
+ */
+async function transformIntegrationRecord(id: string) {
+  const row = (await t.db.query.integrations.findFirst({
+    ...algoliaIntegrationConfig,
+    where: eq(integrations.id, id),
+  })) as RawAlgoliaIntegrationRow | undefined;
+  if (row) return toAlgoliaIntegration(row);
+  const pair = (await t.db.query.connectorEvidencedPairs.findFirst({
+    ...algoliaEvidencedPairConfig,
+    where: eq(connectorEvidencedPairs.id, id),
+  })) as RawAlgoliaEvidencedPairRow | undefined;
+  return toAlgoliaEvidencedPair(pair!);
 }
 
 /**
@@ -417,6 +445,41 @@ describe('Algolia builder parity: datatool full reindex vs Worker transform (AEC
     expect(byId.get(u(4))).toMatchObject({ headquarters: 'Boston, MA', founded_year: null });
     expect(byId.get(u(5))).toMatchObject({ headquarters: 'Denver, CO', founded_year: null });
   });
+
+  // AECI-1939: both writers orient every integrations record so source is the
+  // sender on a one-way record, for both row kinds. Stored: u(61) Procore → AutoCAD,
+  // u(62) the canonical pair A = Procore, B = AutoCAD.
+  it.each([
+    ['a_to_b', 'procore'],
+    ['b_to_a', 'autocad'],
+    ['both', 'procore'],
+    [null, 'procore'],
+  ] as const)(
+    'builds every integration record identically on both paths, stored %s',
+    async (direction, sourceSlug) => {
+      await seed();
+      await t.db
+        .update(integrations)
+        .set({ direction })
+        .where(eq(integrations.id, u(61)));
+      await t.db
+        .update(connectorEvidencedPairs)
+        .set({ direction })
+        .where(eq(connectorEvidencedPairs.id, u(62)));
+      const reindexed = await buildIntegrationRecords(asD1(t.raw));
+      expect(reindexed.map((r) => r.objectID).sort()).toEqual([u(61), u(62)]);
+
+      for (const record of reindexed) {
+        const transformed = await transformIntegrationRecord(record.objectID as string);
+        expect(record).toStrictEqual(transformed);
+        expect(() => AlgoliaIntegrationRecordSchema.parse(record)).not.toThrow();
+        // Asserted directly as well as through parity: both writers could regress
+        // together and still agree with each other.
+        expect(record.source_product_slug).toBe(sourceSlug);
+        expect(record.target_product_slug).toBe(sourceSlug === 'procore' ? 'autocad' : 'procore');
+      }
+    },
+  );
 
   it('builds every product record identically on both paths', async () => {
     await seed();

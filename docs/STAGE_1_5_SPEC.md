@@ -189,11 +189,15 @@ So a claim stored `a_to_b` reads as **"outbound"** on product A's pair page and 
 >
 > **One spelling survives, and only outside this section.** `one-way | bidirectional` is now a
 > **context-free presentation** vocabulary, used where a list has no context product to frame an
-> arrow against — the home page's recent-integrations tile, the Algolia `direction` facet, and the
-> `?direction=` filter on `GET /api/integrations`. `presentedDirection()` in `integration-context.ts`
-> is the only bridge to it and is deliberately lossy. So there are now **three** representations,
-> not two: **stored** (`a_to_b`…), **context-relative** (`outbound`…), and **context-free**
-> (`one-way`…). Keep all three distinct.
+> arrow against — the Algolia `direction` facet and the `?direction=` filter on
+> `GET /api/integrations`. `presentedDirection()` in `integration-context.ts` is the only bridge to
+> it and is deliberately lossy. So there are now **three** representations, not two: **stored**
+> (`a_to_b`…), **context-relative** (`outbound`…), and **context-free** (`one-way`…). Keep all
+> three distinct. Because the Algolia record keeps only the context-free spelling, its endpoint
+> order carries the flow: on a `one-way` record `source` is the sender, for both row kinds
+> (AECI-1939, `SEARCH_RANKING.md` §3.3). A card with no context product names both products
+> instead of printing "One-way": `pairFlowSentence()` (`products/pair-direction-labels.ts`) says
+> "{A} sends to {B}" or "{A} and {B} sync both ways".
 
 ### 3.3 Attestation shape
 

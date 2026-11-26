@@ -703,7 +703,9 @@ export const IntegrationListItemSchema = z.object({
                                         // NOT collapsed to one-way/bidirectional here: a consumer
                                         // that has a context product frames it itself (the powered
                                         // hub does), and the collapse would throw that away. A
-                                        // context-FREE renderer runs it through `directionLabel()`.
+                                        // context-FREE consumer frames it on `source` and names both
+                                        // products (`pairFlowSentence()`), or collapses it with
+                                        // `presentedDirection()` for a facet or filter.
   source: ProductLinkSchema,
   target: ProductLinkSchema,
   via: ProductLinkSchema.nullable().default(null), // the connector, on a connector-evidenced pair only (AECI-721)

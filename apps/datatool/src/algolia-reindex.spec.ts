@@ -204,6 +204,30 @@ describe('algolia reindex — record builders', () => {
     });
   });
 
+  // AECI-1939: source is the sender on every one-way record. The seed stores
+  // int-1 as Revit (source) to AutoCAD (target); only `b_to_a` flips them.
+  it.each([
+    ['a_to_b', 'one-way', 'revit', 'autocad'],
+    ['b_to_a', 'one-way', 'autocad', 'revit'],
+    ['both', 'bidirectional', 'revit', 'autocad'],
+    [null, null, 'revit', 'autocad'],
+  ] as const)(
+    'orients a stored %s integrations row so source is the sender',
+    async (stored, presented, sourceSlug, targetSlug) => {
+      h.raw.prepare("UPDATE integrations SET direction = ? WHERE id = 'int-1'").run(stored);
+      const [record] = await buildIntegrationRecords(h.db);
+      const nameOf = { revit: 'Revit', autocad: 'AutoCAD' };
+      expect(record).toMatchObject({
+        objectID: 'int-1',
+        direction: presented,
+        source_product_slug: sourceSlug,
+        source_product_name: nameOf[sourceSlug],
+        target_product_slug: targetSlug,
+        target_product_name: nameOf[targetSlug],
+      });
+    },
+  );
+
   it('excludes non-promoted entities (membership rule)', async () => {
     h.raw
       .prepare(

@@ -458,13 +458,17 @@ export async function buildVendorRecords(db: D1Database): Promise<Record<string,
  *
  * datatool keeps its own copy of the rule the API applies in `algolia-sync.ts` —
  * one `UNION ALL` here against two builder arms there, but the same membership
- * (both endpoints promoted) and the same records. The evidenced arm re-orients
- * the canonical pair and pins `mechanism_rank` to the connector-delivered weight;
- * see `toAlgoliaEvidencedPair` for why that is not `mechanismRank(null)`.
+ * (both endpoints promoted) and the same records. BOTH arms orient the pair by
+ * the stored direction, so `source` is the sender on every one-way record
+ * (AECI-1939): the integrations arm swaps a `b_to_a` row, the evidenced arm
+ * re-orients the canonical pair the same way. The evidenced arm also pins
+ * `mechanism_rank` to the connector-delivered weight; see `toAlgoliaEvidencedPair`
+ * for why that is not `mechanismRank(null)`. `algolia-builder-parity.spec.ts`
+ * (in `apps/api`) holds the two writers equal.
  *
  * A bulk reindex that emitted only `integrations` would DELETE nothing but would
- * leave the 19 migrated edges as orphan records the drift guard then reports
- * forever — this is a full-index rebuild, so a missing arm is a missing record.
+ * leave the 19 migrated edges out of the rebuilt index — this is a full-index
+ * rebuild, so a missing arm is a missing record.
  */
 export async function buildIntegrationRecords(db: D1Database): Promise<Record<string, unknown>[]> {
   const retiredColumn = await hasRetiredColumn(db);
@@ -482,16 +486,19 @@ export async function buildIntegrationRecords(db: D1Database): Promise<Record<st
          -- AECI-921: collapsed to the CONTEXT-FREE spelling the index facets on,
          -- exactly as the Worker's \`toAlgoliaIntegration\` does. The column now
          -- stores \`a_to_b\`/\`b_to_a\`/\`both\`; selecting it raw here would make the
-         -- two writers of this index disagree about the same attribute, which the
-         -- drift guard reports as every integration record being stale, forever.
+         -- two writers of this index disagree; \`algolia-builder-parity.spec.ts\` guards it.
          CASE i.direction
            WHEN 'a_to_b' THEN 'one-way'
            WHEN 'b_to_a' THEN 'one-way'
            WHEN 'both' THEN 'bidirectional'
          END AS direction,
          i.description,
-         sp.name AS source_product_name, sp.slug AS source_product_slug,
-         tp.name AS target_product_name, tp.slug AS target_product_slug,
+         -- AECI-1939: source = sender on a one-way record, as the evidenced arm and
+         -- \`toAlgoliaIntegration\` do. A stored \`b_to_a\` row swaps its endpoints.
+         CASE WHEN i.direction = 'b_to_a' THEN tp.name ELSE sp.name END AS source_product_name,
+         CASE WHEN i.direction = 'b_to_a' THEN tp.slug ELSE sp.slug END AS source_product_slug,
+         CASE WHEN i.direction = 'b_to_a' THEN sp.name ELSE tp.name END AS target_product_name,
+         CASE WHEN i.direction = 'b_to_a' THEN sp.slug ELSE tp.slug END AS target_product_slug,
          0 AS is_evidenced
        FROM integrations i
        JOIN products sp ON sp.id = i.source_product_id

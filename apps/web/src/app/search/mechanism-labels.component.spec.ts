@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import {
   contextDirectionLabel,
   directionFilterLabel,
-  directionLabel,
   mechanismDisplay,
   mechanismKindLabel,
 } from './mechanism-labels';
@@ -30,21 +29,6 @@ describe('mechanismKindLabel', () => {
     expect(mechanismKindLabel(null)).toBe('');
     expect(mechanismKindLabel(undefined)).toBe('');
     expect(mechanismKindLabel('mystery')).toBe('');
-  });
-});
-
-describe('directionLabel', () => {
-  it.each([
-    ['one-way', 'One-way'],
-    ['bidirectional', 'Bidirectional'],
-  ])('maps %s → %s', (direction, label) => {
-    expect(directionLabel(direction)).toBe(label);
-  });
-
-  it('returns empty string for null / undefined / unknown', () => {
-    expect(directionLabel(null)).toBe('');
-    expect(directionLabel(undefined)).toBe('');
-    expect(directionLabel('sideways')).toBe('');
   });
 });
 
