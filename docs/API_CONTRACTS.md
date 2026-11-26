@@ -553,6 +553,11 @@ export const ProductUsefulnessSchema = z.object({
 
 export const ProductDetailSchema = ProductListItemSchema.extend({
   description: z.string().nullable(),
+  // AECI-2198: the hero's one line. null = the hero shows the clamped first paragraph of
+  // `description`, and the meta ladder's rung 3 falls to `description`. Masked to null
+  // while AECi hides it (`under_review` names it). Detail only: never on a list item,
+  // an Algolia record, the JSON-LD or a ranking input.
+  summary: z.string().nullable(),
   website: z.string().url().nullable(),
   tool_integrations_url: z.string().url().nullable(),
   api_docs_url: z.string().url().nullable(),
@@ -9100,6 +9105,8 @@ export const VendorEntitlementBlockSchema = z.object({
   // `price` ({ managed_price_cents, message }, added 2026-10-08) was removed 2026-10-17 (AECI-1357).
 });
 
+// Each VendorProductSchema entry also carries `summary: string | null`
+// (AECI-2198), beside `description`.
 // Each VendorProductSchema entry also carries (AECI-1214):
 //   plan: VendorEntitlementBlockSchema,  // THIS product's plan, from its own license (AECI-1355)
 ```
@@ -9905,6 +9912,7 @@ export const VendorProposalSchema = z.object({
   product: z.object({
     name: z.string(),
     description_excerpt: z.string().nullable(),  // first 400 characters
+    summary: z.string().nullable(),              // AECI-2198: whole, an accept publishes it
     website: z.string().nullable(),
     product_role: z.string(),
   }),
@@ -9991,6 +9999,7 @@ one that cannot be accepted, and a product AECi never found.
 export const CreateVendorProductSchema = z.object({
   name: z.string().trim().min(1).max(200),
   description: z.string().trim().max(2000).optional(),
+  summary: ProductSummarySchema.optional(), // AECI-2198, see §7.2
   website: editableUrl.optional(),               // http:// or https:// only
   logo_url: LogoUrlSchema.optional(),            // an uploaded /api/logos/… path
   category_slugs: z.array(termSlug).max(10).optional(),
@@ -10531,7 +10540,7 @@ Errors: `VALIDATION_FAILED` (empty body, or a body whose only keys are non-allow
 
 An owner seat's 30-day election to blank the text the vendor wrote after Managed ends. Order of checks: ownership `404` first, then `requireSeatOwner()`, then the window. `POST` is `rateLimit('write')` after the guard. The `GET` has no limiter.
 
-`GET` returns `{ eligible_fields, closes_at, elected_at }` (`RemovalElectionResponseSchema`). `closes_at` is null when no window is open, and `eligible_fields` is then empty. `elected_at` is the latest election on the product either way. The fields are `description`, `usefulness`, `tool_integrations_url` and `api_docs_url`.
+`GET` returns `{ eligible_fields, closes_at, elected_at }` (`RemovalElectionResponseSchema`). `closes_at` is null when no window is open, and `eligible_fields` is then empty. `elected_at` is the latest election on the product either way. The fields are `description`, `summary` (AECI-2198), `usefulness`, `tool_integrations_url` and `api_docs_url`. A vendor-created product's summary qualifies when the create named it, as its description does.
 
 `POST` takes `{}` (strict) and blanks every eligible field in one batch. It writes a `product.authored_content_removed` audit row with before and after state. `usefulness_source` and `maintained_by` do not change. After commit it purges `product:{slug}`, `vendor:{slug}` and `index:products`, sends an ownership message with reason `vendor_edit`, and moves the freshness cursor. It returns `{ removed_fields, elected_at }`.
 
@@ -10550,6 +10559,7 @@ Edits one product the caller's vendor owns. `name`/`slug` are **not** editable �
 export const UpdateVendorProductSchema = z
   .object({
     description: longText.nullable().optional(),
+    summary: ProductSummarySchema.optional(), // AECI-2198, see §7.2
     website: editableUrl.nullable().optional(),
     tool_integrations_url: editableUrl.nullable().optional(),
     api_docs_url: editableUrl.nullable().optional(),
@@ -10589,7 +10599,7 @@ It is gated on its own **`product.usefulness.edit`** capability rather than `pro
 
 | Field | Capability | Plan |
 |---|---|---|
-| `description`, `website`, `logo_url` | `product.listing.edit` | every plan |
+| `description`, `summary`, `website`, `logo_url` | `product.listing.edit` | every plan |
 | `category_slugs` | `product.categories.edit` | every plan |
 | `tool_integrations_url`, `api_docs_url` | `product.edit` | Managed |
 | `trade_slugs`, `audience_slugs`, `phase_slugs` | `product.taxonomy.edit` | Managed |
@@ -11963,6 +11973,8 @@ When schemas don't specify, defaults apply:
 - Short text fields: max 200 chars
 - Long text fields: max 2000 chars
 - Identifiers and slugs: max 100 chars
+
+One field overrides them: `products.summary` (AECI-2198, `ProductSummarySchema` in `packages/shared/src/api/summary.ts`). Promote and both vendor routes trim it, collapse every run of whitespace, line breaks included, to one space, read an empty result as `null`, and refuse a result over **155** characters (`PRODUCT_SUMMARY_MAX`, the meta-description length) with `400 VALIDATION_FAILED`. It is never truncated. The cap is Zod-only: the column has no CHECK.
 
 ### 7.3 Numeric ranges
 

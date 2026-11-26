@@ -493,7 +493,11 @@ Every page sets:
      boilerplate that is byte-identical on every page.
   3. **The entity's own description**, truncated to ~155 chars — the pre-AECI-802 rule, now reached
      only by an entity with nothing to compose from. It is still unique text, and a composed
-     sentence there would only advertise the absence.
+     sentence there would only advertise the absence. **On a product it is
+     `summary ?? description`** (AECI-2198, ruling 3, 2026-11-26): the one-line summary
+     is at most 155 characters, so it fits whole. The composed sentence stays rung 2 above it. A
+     summary AECi hid while it checks it arrives masked to `null`, so the rung falls
+     back to `description`. `default_meta_description` reads both columns.
   4. `@@meta.defaultDescription`. Last resort, and now genuinely last.
 
   Four rules the ladder must keep:

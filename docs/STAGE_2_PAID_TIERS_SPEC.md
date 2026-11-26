@@ -1038,7 +1038,7 @@ Two capability ids are added. `unclaimed` stops being empty. *(Amended 2026-11-0
 | Capability | Fields | Tier |
 |---|---|---|
 | `profile.edit` | all company details | moves to `unclaimed`, so every seat holds it |
-| `product.listing.edit`, new | description, website, logo | `unclaimed`, so every seat holds it |
+| `product.listing.edit`, new | description, summary (AECI-2198), website, logo | `unclaimed`, so every seat holds it |
 | `product.categories.edit`, new | `category_slugs` | `unclaimed`, so every seat holds it |
 | `product.edit` | integrations page URL, API docs URL | `verified` |
 | `product.taxonomy.edit` | trades, audiences, phases | `verified` |
