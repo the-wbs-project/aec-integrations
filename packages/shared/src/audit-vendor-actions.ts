@@ -100,6 +100,12 @@ export const AUDIT_VENDOR_ACTIONS = {
   'integration.pair_contest.protest_withdrawn': { kind: 'vendor-edit', receipt: false },
   'integration.pair_contest.protest_upheld': { kind: 'aeci-override', receipt: false },
   'integration.pair_contest.protest_rejected': { kind: 'aeci-override', receipt: false },
+  // AECI-2192 (ruling 66): the Sync Service's objection to a removal. `vendor_id` is the
+  // objecting vendor. Not receipts, for the same D1 parameter cap: the owner's removed
+  // list shows the objection and its outcome.
+  'integration.veto_objection.filed': { kind: 'vendor-edit', receipt: false },
+  'integration.veto_objection.accepted': { kind: 'aeci-override', receipt: false },
+  'integration.veto_objection.declined': { kind: 'aeci-override', receipt: false },
   'integration.contest.lapsed': { kind: 'system', receipt: true },
   'integration.contest.rerouted': { kind: 'system', receipt: true },
   'integration.contest.seat_stamp_cleared': { kind: 'system', receipt: true },

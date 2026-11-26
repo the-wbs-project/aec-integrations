@@ -477,7 +477,10 @@ export function createIntegrationDetailHandler(
 
     if (!row) throw notFoundError('integration', { id });
 
-    if (row.retiredAt) {
+    // AECI-2192 (ruling 66, "the public sees nothing"): a row a vendor's removal took
+    // off the site answers exactly as a retired row does, the two slugs only. Before
+    // this, a vetoed row that was not also retired served its full detail here.
+    if (row.retiredAt || row.vetoedAt) {
       const retired: RetiredIntegrationDetail = {
         id: row.id,
         retired: true,

@@ -1110,6 +1110,38 @@ describe('VendorNotificationsList', () => {
     },
   );
 
+  it.each([
+    ['not_authorised', 'Trimble gave this reason: We have not authorised it for our product.'],
+    ['unrecognised', 'Trimble gave this reason: The vendor gave another reason.'],
+  ] as const)(
+    "states a removal's reason `%s` as the vendor's, not as a fact (ruling 66)",
+    async (code, line) => {
+      getNotifications.mockResolvedValue({
+        notifications: [
+          {
+            kind: 'pair_right',
+            id: '00000000-0000-4000-8000-00000000f001',
+            event: 'vetoed',
+            integration_id: '00000000-0000-4000-8000-00000000f002',
+            integration_name: 'Acumatica and Trimble Connect',
+            report_kind: null,
+            by_vendor_name: 'Trimble',
+            reason: 'It is not offered for our product',
+            reason_code: code,
+            end_reason: null,
+            pair_public: false,
+            pair_path: null,
+            created_at: '2026-11-21T09:30:00.000Z',
+          },
+        ],
+      });
+      const body = text(await create());
+      expect(body).toContain(line);
+      expect(body).not.toContain('Their reason');
+      expect(body).not.toContain('It is not offered for our product');
+    },
+  );
+
   it('renders and counts a `claim-denied` row (AECI-961)', async () => {
     // It used to be filtered out: the detector was ops-only, so a row reaching a
     // vendor would have had no title. It now carries a counterparty finding, and

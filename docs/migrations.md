@@ -341,6 +341,10 @@ snapshot's diff from its parent checked to equal the epic's original diff. The S
 byte-identical. `db:generate` reports no changes. No remote tier had applied the epic's migrations, so
 no `d1_migrations` row needed renaming.
 
+AECI-2192 (`0134_shocking_xorn` → `0135_shocking_xorn`, 2026-11-26): `main` took `0134_crawl_path_index`
+(AECI-818, one partial index on `page_views`). Disjoint sets again. `db:generate` on `main`'s `meta/` wrote a
+byte-identical body, so its snapshot was kept, the slug restored, and the body left untouched. No remote tier had applied it.
+
 ##### Reserved numbers
 
 **Settled — nothing is reserved.** `aeci-515` (Paid Tiers) generated `vendor_entitlements`

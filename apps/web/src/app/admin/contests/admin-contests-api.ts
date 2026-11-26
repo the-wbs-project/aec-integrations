@@ -27,6 +27,9 @@ import type {
   AdminVetoesResponse,
   PairContestResponse,
   VetoWriteResponse,
+  AdminDecideVetoObjectionInput,
+  RemovalEndReason,
+  VetoObjectionResponse,
 } from '@aeci/shared';
 
 @Injectable({ providedIn: 'root' })
@@ -99,12 +102,27 @@ export class AdminContestsApi {
     return firstValueFrom(this.http.get<AdminVetoesResponse>('/api/admin/vetoes'));
   }
 
-  /** `POST /api/admin/vetoes/:id/lift` — end a veto, with a required note. */
-  liftVeto(id: string, note: string): Promise<VetoWriteResponse> {
+  /** `POST /api/admin/vetoes/:id/lift` — end a veto, with a required end reason and
+   *  note (AECI-2192, ruling 66). */
+  liftVeto(id: string, endReason: RemovalEndReason, note: string): Promise<VetoWriteResponse> {
     return firstValueFrom(
       this.http.post<VetoWriteResponse>(`/api/admin/vetoes/${encodeURIComponent(id)}/lift`, {
+        end_reason: endReason,
         note,
       }),
+    );
+  }
+
+  /** `PATCH /api/admin/veto-objections/:id` — accept or decline an objection (AECI-2192). */
+  decideVetoObjection(
+    id: string,
+    body: AdminDecideVetoObjectionInput,
+  ): Promise<VetoObjectionResponse> {
+    return firstValueFrom(
+      this.http.patch<VetoObjectionResponse>(
+        `/api/admin/veto-objections/${encodeURIComponent(id)}`,
+        body,
+      ),
     );
   }
 }

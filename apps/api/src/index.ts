@@ -297,6 +297,7 @@ import { createCreateVendorIntegrationHandler } from './routes/vendor-integratio
 import { createCreateSyncServicePairHandler } from './routes/vendor-sync-service-pair-create';
 import {
   createFileVetoHandler,
+  createFileVetoObjectionHandler,
   createListVendorVetoesHandler,
   createWithdrawVetoHandler,
 } from './routes/vendor-sync-service-vetoes';
@@ -309,6 +310,7 @@ import {
   createWithdrawPairProtestHandler,
 } from './routes/vendor-pair-contests';
 import {
+  createAdminDecideVetoObjectionHandler,
   createAdminLiftVetoHandler,
   createAdminListVetoesHandler,
 } from './routes/admin-sync-service-vetoes';
@@ -1184,6 +1186,13 @@ authAdmin.post(
   rateLimit('write'),
   createAdminLiftVetoHandler(),
 );
+// AECI-2192 (ruling 66): AECi accepts or declines a Sync Service's objection to a removal.
+authAdmin.patch(
+  '/api/admin/veto-objections/:id',
+  requireAdmin(),
+  rateLimit('write'),
+  createAdminDecideVetoObjectionHandler(),
+);
 authAdmin.get('/api/admin/pair-contests', requireAdmin(), createAdminListPairContestsHandler());
 authAdmin.patch(
   '/api/admin/pair-contests/:id',
@@ -1740,6 +1749,14 @@ authVendor.post(
   createWithdrawVetoHandler(),
 );
 authVendor.get('/api/vendor/vetoes', requireVendor(), createListVendorVetoesHandler());
+// AECI-2192 (ruling 66): the Sync Service objects to a removal, on three grounds only.
+// The gate is the owner's list predicate (`vetoesOwnedByWhere`), not the endpoint gate.
+authVendor.post(
+  '/api/vendor/vetoes/:id/objections',
+  requireVendor(),
+  rateLimit('write'),
+  createFileVetoObjectionHandler(),
+);
 authVendor.post(
   '/api/vendor/integrations/:id/pair-contests',
   requireVendor(),

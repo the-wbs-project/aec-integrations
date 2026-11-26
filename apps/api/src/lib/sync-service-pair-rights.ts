@@ -47,15 +47,20 @@
 
 import {
   ApiErrorCode,
+  isRemovalEndReason,
   isSyncService,
+  removalReasonWireCode,
   orderedPairSlugs,
   type PairRightNotificationEvent,
   type PairRightPair,
   type PairContestKind,
+  type RemovalEndReason,
+  type RemovalReasonCode,
   type SyncServicePairVeto,
+  type VetoObjection,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import { and, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import {
@@ -64,6 +69,7 @@ import {
   productVendors,
   products,
   syncServicePairVetoes,
+  syncServiceVetoObjections,
   vendors,
 } from '../db/schema';
 import { ApiError, notFoundError } from '../errors';
@@ -508,6 +514,10 @@ export interface PairRightNotificationMetadata {
   reportKind: PairContestKind | null;
   byVendorName: string | null;
   reason: string | null;
+  /** AECI-2192: the removal's fixed reason, on a `vetoed` row to an owner. */
+  reasonCode?: RemovalReasonCode | null;
+  /** AECI-2192: why AECi ended the removal, on a `veto_lifted` row. */
+  endReason?: RemovalEndReason | null;
   pairPublic: boolean | null;
   pairSlugs: readonly [string, string] | null;
 }
@@ -632,6 +642,10 @@ export async function vetoWireRows(
   const keyJson = JSON.stringify(
     rows.map((r) => [r.connectorProductId, r.productAId, r.productBId]),
   );
+  const objections = await latestObjectionsFor(
+    db,
+    rows.map((r) => r.id),
+  );
   const [productRows, intRows, pairRows, openRows] = await Promise.all([
     db
       .select({ id: products.id, slug: products.slug, name: products.name })
@@ -690,16 +704,77 @@ export async function vetoWireRows(
       pair,
       vendor_id: r.vendorId,
       vendor_name: r.vendorName,
+      // A stored code outside today's list reads as `unrecognised`, never the old text.
+      reason_code: removalReasonWireCode(r.reasonCode),
       reason: r.reason,
       filed_at: r.filedAt,
       in_force: r.endedAt === null,
       ended_at: r.endedAt,
       ended_how: (r.endedHow as 'withdrawn' | 'lifted' | null) ?? null,
+      end_reason: isRemovalEndReason(r.endReason) ? r.endReason : null,
       end_note: r.endNote,
+      objection: objections.get(r.id) ?? null,
       other_vetoes_in_force: others,
       updated_at: r.updatedAt,
     };
   });
+}
+
+// ─── Objections (AECI-2192, ruling 66) ──────────────────────────────────────
+
+export type VetoObjectionRow = typeof syncServiceVetoObjections.$inferSelect;
+
+/** `audit_log.entity_type` of an objection row. */
+export const VETO_OBJECTION_ENTITY_TYPE = 'sync_service_veto_objection';
+
+export function objectionWire(row: VetoObjectionRow): VetoObjection {
+  return {
+    id: row.id,
+    ground: row.ground,
+    explanation: row.explanation,
+    source_url: row.sourceUrl,
+    vendor_name: row.vendorName,
+    status: row.status,
+    decision_note: row.decisionNote,
+    decided_at: row.decidedAt,
+    created_at: row.createdAt,
+  };
+}
+
+/** The newest objection per veto, for a list of vetoes. One read. */
+export async function latestObjectionsFor(
+  db: Db,
+  vetoIds: readonly string[],
+): Promise<Map<string, VetoObjection>> {
+  if (vetoIds.length === 0) return new Map();
+  const rows = await db
+    .select()
+    .from(syncServiceVetoObjections)
+    .where(
+      sql`${syncServiceVetoObjections.vetoId} IN (SELECT value FROM json_each(${JSON.stringify(vetoIds)}))`,
+    )
+    // Newest first, id as tie-breaker: timestamp and id orderings stay BINARY.
+    .orderBy(desc(syncServiceVetoObjections.createdAt), desc(syncServiceVetoObjections.id));
+  const byVeto = new Map<string, VetoObjection>();
+  for (const row of rows) if (!byVeto.has(row.vetoId)) byVeto.set(row.vetoId, objectionWire(row));
+  return byVeto;
+}
+
+/**
+ * Closes an open objection to this veto (`closed`), for the batch of any write that
+ * ends the veto another way: the vendor's withdraw, or an admin lift that is not the
+ * objection's accept. Matching no row is fine: most vetoes have none.
+ */
+export function closeOpenObjectionStmt(db: Db, vetoId: string, now: string): BatchStmt {
+  return db
+    .update(syncServiceVetoObjections)
+    .set({ status: 'closed', updatedAt: now })
+    .where(
+      and(
+        eq(syncServiceVetoObjections.vetoId, vetoId),
+        eq(syncServiceVetoObjections.status, 'open'),
+      ),
+    );
 }
 
 /** The vendor's name, for a snapshot. */
@@ -738,10 +813,16 @@ export async function vetoNoticeTarget(db: Db, row: VetoRow): Promise<PairRightT
  * Vetoes on a pair key where this vendor owns a row: the owner's side of the vendor
  * list. Key-wide, like the hiding: an owner whose row on the key was hidden sees the
  * veto, whichever row it was filed on, and after that row is deleted.
+ *
+ * Since AECI-2192 it also matches a vendor of the veto's connector product: the Sync
+ * Service itself. {@link vetoAudience} tells those vendors when a row has no owner on
+ * file, so the list shows what the notice named, and the Sync Service can object.
+ * The same predicate is the objection gate, at read and at commit.
  */
 export function vetoesOwnedByWhere(vendorId: string): SQL {
   const v = syncServicePairVetoes;
   return or(
+    sql`EXISTS (SELECT 1 FROM ${productVendors} WHERE ${productVendors.vendorId} = ${vendorId} AND ${productVendors.productId} = ${v.connectorProductId})`,
     sql`EXISTS (SELECT 1 FROM ${connectorEvidencedPairs} WHERE ${connectorEvidencedPairs.builtByVendorId} = ${vendorId} AND ${connectorEvidencedPairs.connectorProductId} = ${v.connectorProductId} AND ${connectorEvidencedPairs.productAId} = ${v.productAId} AND ${connectorEvidencedPairs.productBId} = ${v.productBId})`,
     sql`EXISTS (SELECT 1 FROM ${integrations} WHERE ${integrations.builtByVendorId} = ${vendorId} AND ${integrations.poweredByProductId} = ${v.connectorProductId} AND ((${integrations.sourceProductId} = ${v.productAId} AND ${integrations.targetProductId} = ${v.productBId}) OR (${integrations.sourceProductId} = ${v.productBId} AND ${integrations.targetProductId} = ${v.productAId})))`,
   )!;

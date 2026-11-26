@@ -13,7 +13,12 @@
  * retire's tail, over every row on the key.
  */
 
-import { ApiErrorCode, type VetoWriteResponse } from '@aeci/shared';
+import {
+  ApiErrorCode,
+  type RemovalEndReason,
+  type RemovalReasonCode,
+  type VetoWriteResponse,
+} from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { eq, inArray } from 'drizzle-orm';
 
@@ -80,13 +85,20 @@ export async function commitVetoChange(
     vetoId: string;
     rowWrite: BatchStmt[];
     audit: AuditLogEntry;
+    /** More audit rows for the same batch (an objection's decision row, AECI-2192). */
+    extraAudit?: readonly AuditLogEntry[];
     event: 'vetoed' | 'veto_withdrawn' | 'veto_lifted';
     actingVendorId: string | null;
     byVendorName: string | null;
     /** Extra recipients (a lift tells the vendor whose veto ended). */
     alsoTell?: readonly string[];
-    /** The reason the owner reads on a veto; the note on a lift. */
+    /** The note on a lift. Since AECI-2192 a veto passes `null` here and its fixed
+     *  `reasonCode` instead, so no free text reaches the Sync Service. */
     ownerReason: string | null;
+    /** AECI-2192: the removal's fixed reason, on a veto. Owners only. */
+    reasonCode?: RemovalReasonCode | null;
+    /** AECI-2192: why AECi ended the removal, on a lift. Everyone told. */
+    endReason?: RemovalEndReason | null;
     now: string;
     /** How the caller stamps its rows: `vendorAuditEntry` on a vendor route. */
     stamp: (entry: AuditLogEntry) => AuditLogEntry;
@@ -139,6 +151,10 @@ export async function commitVetoChange(
       // The veto's reason is the owner's to read. The other endpoint vendors get the
       // fact, not the text. A lift note goes to everyone it names.
       reason: args.event === 'veto_lifted' || r.owner ? args.ownerReason : null,
+      // The fixed reason goes to the Sync Service (the owners) with how to object
+      // (ruling 66). The other endpoint vendors get the fact only.
+      reasonCode: r.owner ? (args.reasonCode ?? null) : null,
+      endReason: args.event === 'veto_lifted' ? (args.endReason ?? null) : null,
       pairPublic,
       pairSlugs,
     }),
@@ -154,7 +170,7 @@ export async function commitVetoChange(
       keyRowIds: keyRows.map((r) => r.id),
     },
   };
-  const audits = [audit, ...notices];
+  const audits = [audit, ...(args.extraAudit ?? []), ...notices];
   const stmts: BatchStmt[] = [
     ...args.rowWrite,
     ...vetoedAtKeyRecompute(db, key, now),

@@ -195,9 +195,23 @@ describe('MethodologyPage', () => {
     it("states a product vendor's three rights on a Sync Service integration (AECI-2042)", () => {
       const text = setup().host.textContent ?? '';
       expect(text).toContain('the vendor of either product can remove it from its product');
-      expect(text).toContain('The Sync Service cannot restore it or add it again.');
+      expect(text).toContain('It cannot restore the integration or add it again.');
       expect(text).toContain('It stays listed while we check');
       expect(text).toContain('report one wrong data row');
+    });
+
+    it('states ruling 66: a fixed reason, notice, three grounds, no neutrality wording (AECI-2192)', () => {
+      const text = setup().host.textContent ?? '';
+      expect(text).toContain('even when the listing is accurate');
+      expect(text).toContain('choose its reason from a fixed list');
+      expect(text).toContain("with the vendor's reason and how to object");
+      expect(text).toContain('We answer an objection within five business days of receiving it.');
+      expect(text).toContain('it maintains the data rows and we cannot change one');
+      expect(text).toContain('on three grounds only');
+      expect(text).toContain('plainly false on its face');
+      expect(text).toContain('We tell both vendors why.');
+      expect(text).not.toContain('We do not review the removal');
+      expect(text.toLowerCase()).not.toContain('neutral');
     });
 
     it('says a hide keeps the data and is not a finding (AECI-1238)', () => {

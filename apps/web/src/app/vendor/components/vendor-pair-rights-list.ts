@@ -1,17 +1,29 @@
 import { DatePipe } from '@angular/common';
 import { Component, afterNextRender, computed, inject, input, output, signal } from '@angular/core';
 
-import type {
-  PairContest,
-  PairRightPair,
-  SyncServicePairVeto,
-  VendorPairContestsResponse,
-  VendorVetoesResponse,
+import {
+  OBJECTION_GROUNDS,
+  type ObjectionGround,
+  type PairContest,
+  type PairRightPair,
+  type SyncServicePairVeto,
+  type VendorPairContestsResponse,
+  type VendorVetoesResponse,
+  type VetoObjection,
 } from '@aeci/shared';
 
 import { AecButton } from '../../shared/button/button';
+import {
+  CHOICE_CARD_CLASS,
+  CHOICE_INPUT_CLASS,
+  FIELD_ERROR_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { CloseOnEscape } from '../shared/close-on-escape';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
+import { objectionGroundLabel, removalEndReasonLabel, removalReasonText } from './removal-labels';
 
 /**
  * Removals and reports on Sync Service pairs, in Messages (AECI-2042,
@@ -20,8 +32,13 @@ import { VendorPortalAnnouncer } from '../vendor-announcer';
  *
  * - **Your removals**: the vetoes this company filed, each with Withdraw while in force.
  * - **Removed from your integrations**: the owner's view. A pair a vendor removed is
- *   marked "Removed by {vendor}" with its reason. There is no Restore: only that vendor's
- *   withdraw, or AEC Integrations, ends it.
+ *   marked "Removed by {vendor}" with the date and time and its reason, phrased as the
+ *   vendor's statement, "{vendor} gave this reason" (since AECI-2192 the fixed reason's
+ *   label; an older removal's own words "in its own words"). There
+ *   is no Restore: only that vendor's withdraw, or AEC Integrations, ends it. "Object to
+ *   this removal" opens an inline form with the three grounds of ruling 66, a required
+ *   explanation and, for "plainly false", a required https link. An open or decided
+ *   objection shows its outcome and AECi's note.
  * - **Reports you sent**: existence and data flow reports, with Withdraw while open and,
  *   after a decline, "Ask AEC Integrations to review it" (advice only).
  * - **Reports you received**: data flow reports on the owner's pairs, with Accept and
@@ -37,7 +54,7 @@ import { VendorPortalAnnouncer } from '../vendor-announcer';
  */
 @Component({
   selector: 'aec-vendor-pair-rights-list',
-  imports: [AecButton, DatePipe],
+  imports: [AecButton, CloseOnEscape, DatePipe],
   host: { class: 'block' },
   template: `
     @if (hasAny()) {
@@ -64,6 +81,9 @@ import { VendorPortalAnnouncer } from '../vendor-announcer';
                   @if (v.in_force) {
                     <p class="text-(--text-secondary)" i18n="@@vendor.pairRights.filed.inForce">
                       Off the public site since {{ v.filed_at | date: 'mediumDate' }}.
+                    </p>
+                    <p class="text-(--text-secondary)" i18n="@@vendor.pairRights.filed.reason">
+                      Your reason: {{ reasonText(v) }}
                     </p>
                     <button
                       type="button"
@@ -98,18 +118,160 @@ import { VendorPortalAnnouncer } from '../vendor-announcer';
                 <li class="rounded-panel border border-(--border-default) p-3 text-sm">
                   <p class="font-medium text-(--text-primary)">{{ pairName(v.pair) }}</p>
                   @if (v.in_force) {
-                    <p class="text-(--text-primary)" i18n="@@vendor.pairRights.received.by">
+                    <p class="text-(--text-primary)" i18n="@@vendor.pairRights.received.by.v2">
                       Removed by {{ v.vendor_name ?? unknownVendor }} on
-                      {{ v.filed_at | date: 'mediumDate' }}.
+                      {{ v.filed_at | date: 'mediumDate' }} at {{ v.filed_at | date: 'shortTime' }}.
                     </p>
-                    <p class="text-(--text-secondary)">{{ v.reason }}</p>
+                    <p class="text-(--text-secondary)">
+                      @if (v.reason_code) {
+                        <span i18n="@@vendor.pairRights.received.reason.v2"
+                          >{{ v.vendor_name ?? unknownVendorStart }} gave this reason:
+                          {{ reasonText(v) }}</span
+                        >
+                      } @else {
+                        <span i18n="@@vendor.pairRights.received.reasonRecorded.v2"
+                          >{{ v.vendor_name ?? unknownVendorStart }} gave this reason, in its own
+                          words: {{ v.reason }}</span
+                        >
+                      }
+                    </p>
                     <p
                       class="text-(--text-secondary)"
-                      i18n="@@vendor.pairRights.received.noRestore.v2"
+                      i18n="@@vendor.pairRights.received.noRestore.v3"
                     >
-                      You cannot restore it. It returns if
-                      {{ v.vendor_name ?? unknownVendor }} withdraws the removal.
+                      The public page shows nothing about the removal. You cannot restore it. It
+                      returns if {{ v.vendor_name ?? unknownVendor }} withdraws the removal, or if
+                      AEC Integrations agrees with an objection.
                     </p>
+                    @if (v.objection; as o) {
+                      <p class="text-(--text-primary)" data-objection-status>
+                        {{ objectionStatusText(o) }}
+                      </p>
+                      @if (o.status !== 'open' && o.decision_note) {
+                        <p class="text-(--text-secondary)">{{ o.decision_note }}</p>
+                      }
+                    }
+                    @if (canObject(v)) {
+                      <button
+                        type="button"
+                        aecButton
+                        variant="secondary"
+                        compact
+                        class="mt-2"
+                        [attr.aria-expanded]="objectingId() === v.id"
+                        [attr.aria-controls]="'objection-form-' + v.id"
+                        (click)="toggleObjection(v)"
+                        i18n="@@vendor.pairRights.objection.trigger"
+                      >
+                        Object to this removal
+                      </button>
+                    }
+                    @if (objectingId() === v.id) {
+                      <form
+                        [id]="'objection-form-' + v.id"
+                        aecCloseOnEscape
+                        [escapeBusy]="busy()"
+                        (escapeCancel)="closeObjection()"
+                        method="dialog"
+                        novalidate
+                        class="mt-3 max-w-2xl space-y-4"
+                        (submit)="$event.preventDefault(); submitObjection(v)"
+                      >
+                        <p
+                          class="max-w-prose text-(--text-primary)"
+                          i18n="@@vendor.pairRights.objection.explain.v2"
+                        >
+                          AEC Integrations looks at an objection on three grounds only. We do not
+                          decide whether {{ v.vendor_name ?? unknownVendor }} should support the
+                          integration. We answer within five business days of receiving it. If we
+                          agree, the integration returns on every page, and we tell both companies
+                          why. If we do not agree, we tell you why. The integration stays off the
+                          site while we look.
+                        </p>
+                        <fieldset class="m-0 max-w-2xl space-y-2 border-0 p-0">
+                          <legend [class]="labelClass" i18n="@@vendor.pairRights.objection.ground">
+                            Your ground (required)
+                          </legend>
+                          @for (g of grounds; track g) {
+                            <label [class]="choiceCardClass">
+                              <input
+                                type="radio"
+                                [class]="choiceInputClass"
+                                [attr.name]="'objection-ground-' + v.id"
+                                [value]="g"
+                                [checked]="ground() === g"
+                                [attr.aria-invalid]="objectionError() && !ground() ? 'true' : null"
+                                (change)="ground.set(g)"
+                              />
+                              {{ groundLabel(g) }}
+                            </label>
+                          }
+                        </fieldset>
+                        <div class="space-y-2">
+                          <label
+                            [class]="labelClass"
+                            [for]="'objection-explain-' + v.id"
+                            i18n="@@vendor.pairRights.objection.explanationLabel"
+                            >What shows it (required)</label
+                          >
+                          <textarea
+                            [id]="'objection-explain-' + v.id"
+                            [class]="inputClass"
+                            class="min-h-24 resize-y py-3"
+                            rows="3"
+                            maxlength="2000"
+                            required
+                            [value]="explanation()"
+                            (input)="explanation.set(valueOf($event))"
+                          ></textarea>
+                        </div>
+                        @if (ground() === 'reason_plainly_false') {
+                          <div class="space-y-2">
+                            <label
+                              [class]="labelClass"
+                              [for]="'objection-link-' + v.id"
+                              i18n="@@vendor.pairRights.objection.linkLabel"
+                              >Link to their own public page that shows they support it
+                              (required)</label
+                            >
+                            <input
+                              [id]="'objection-link-' + v.id"
+                              type="url"
+                              inputmode="url"
+                              autocomplete="off"
+                              placeholder="https://"
+                              [class]="inputClass"
+                              [value]="sourceUrl()"
+                              (input)="sourceUrl.set(valueOf($event))"
+                            />
+                          </div>
+                        }
+                        @if (objectionError(); as message) {
+                          <p role="alert" [class]="errorClass">{{ message }}</p>
+                        }
+                        <div class="flex flex-wrap gap-2">
+                          <button
+                            type="submit"
+                            aecButton
+                            compact
+                            [disabled]="busy()"
+                            i18n="@@vendor.pairRights.objection.send"
+                          >
+                            Send the objection
+                          </button>
+                          <button
+                            type="button"
+                            aecButton
+                            variant="secondary"
+                            compact
+                            (click)="closeObjection()"
+                            i18n="@@vendor.pairRights.objection.cancel"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </form>
+                    }
                   } @else {
                     <p class="text-(--text-secondary)">{{ endedText(v) }}</p>
                   }
@@ -266,6 +428,8 @@ export class VendorPairRightsList {
   protected readonly error = signal<string | null>(null);
 
   protected readonly unknownVendor = $localize`:@@vendor.pairRights.unknownVendor:a vendor`;
+  /** The same, at the start of a sentence. */
+  protected readonly unknownVendorStart = $localize`:@@vendor.pairRights.unknownVendorStart:A vendor`;
 
   constructor() {
     afterNextRender(() => void this.load());
@@ -285,9 +449,116 @@ export class VendorPairRightsList {
   }
 
   protected endedText(v: SyncServicePairVeto): string {
+    if (v.ended_how === 'lifted' && v.end_reason) {
+      const why = removalEndReasonLabel(v.end_reason);
+      return $localize`:@@vendor.pairRights.ended.liftedWhy:AEC Integrations ended this removal. Why: ${why}:why:. ${v.end_note ?? ''}:note:`;
+    }
     return v.ended_how === 'lifted'
       ? $localize`:@@vendor.pairRights.ended.lifted:AEC Integrations ended this removal: ${v.end_note ?? ''}:note:`
       : $localize`:@@vendor.pairRights.ended.withdrawn:The removal was withdrawn.`;
+  }
+
+  // ── AECI-2192 (ruling 66): the reason and the objection ────────────────────
+
+  protected readonly reasonText = removalReasonText;
+  protected readonly groundLabel = objectionGroundLabel;
+  protected readonly grounds = OBJECTION_GROUNDS;
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly errorClass = FIELD_ERROR_CLASS;
+  protected readonly choiceCardClass = CHOICE_CARD_CLASS;
+  protected readonly choiceInputClass = CHOICE_INPUT_CLASS;
+
+  /** The removal whose objection form is open, if any. */
+  protected readonly objectingId = signal<string | null>(null);
+  protected readonly ground = signal<ObjectionGround | null>(null);
+  protected readonly explanation = signal('');
+  protected readonly sourceUrl = signal('');
+  protected readonly objectionError = signal<string | null>(null);
+
+  /** A form control's value, from its event. */
+  protected valueOf(event: Event): string {
+    return (event.target as HTMLInputElement | HTMLTextAreaElement).value;
+  }
+
+  /** One open objection per removal, and none once it ended. */
+  protected canObject(v: SyncServicePairVeto): boolean {
+    return v.in_force && v.objection?.status !== 'open';
+  }
+
+  protected objectionStatusText(o: VetoObjection): string {
+    const ground = objectionGroundLabel(o.ground);
+    switch (o.status) {
+      case 'open':
+        return $localize`:@@vendor.pairRights.objection.open:Your objection is with AEC Integrations. Ground: ${ground}:ground:.`;
+      case 'accepted':
+        return $localize`:@@vendor.pairRights.objection.accepted:AEC Integrations agreed with your objection. Ground: ${ground}:ground:.`;
+      case 'declined':
+        return $localize`:@@vendor.pairRights.objection.declined:AEC Integrations did not agree with your objection. The removal stands. Ground: ${ground}:ground:.`;
+      default:
+        return $localize`:@@vendor.pairRights.objection.closed:Your objection closed when the removal ended.`;
+    }
+  }
+
+  protected toggleObjection(v: SyncServicePairVeto): void {
+    if (this.objectingId() === v.id) return this.closeObjection();
+    this.ground.set(null);
+    this.explanation.set('');
+    this.sourceUrl.set('');
+    this.objectionError.set(null);
+    this.objectingId.set(v.id);
+  }
+
+  protected closeObjection(): void {
+    if (this.busy()) return;
+    this.objectingId.set(null);
+    this.objectionError.set(null);
+  }
+
+  protected async submitObjection(v: SyncServicePairVeto): Promise<void> {
+    const ground = this.ground();
+    const explanation = this.explanation().trim();
+    const link = this.sourceUrl().trim();
+    if (!ground) {
+      return this.objectionError.set(
+        $localize`:@@vendor.pairRights.objection.err.ground:Choose one of the three grounds.`,
+      );
+    }
+    if (!explanation) {
+      return this.objectionError.set(
+        $localize`:@@vendor.pairRights.objection.err.explanation:Say what shows it.`,
+      );
+    }
+    if (ground === 'reason_plainly_false' && !link.startsWith('https://')) {
+      return this.objectionError.set(
+        $localize`:@@vendor.pairRights.objection.err.link:Add an https link to their own public page.`,
+      );
+    }
+    this.busy.set(true);
+    this.objectionError.set(null);
+    try {
+      await this.api.fileVetoObjection(v.id, {
+        ground,
+        explanation,
+        ...(ground === 'reason_plainly_false' ? { source_url: link } : {}),
+      });
+      this.objectingId.set(null);
+      this.announcer.announce(
+        $localize`:@@vendor.pairRights.objection.sent.v2:Objection sent to AEC Integrations. We answer within five business days. The integration stays off the site while we look.`,
+      );
+    } catch (e) {
+      const code = (e as { error?: { error?: { code?: string } } }).error?.error?.code;
+      this.objectionError.set(
+        code === 'VETO_OBJECTION_DUPLICATE'
+          ? $localize`:@@vendor.pairRights.objection.err.duplicate:An objection to this removal is already with AEC Integrations.`
+          : code === 'VETO_NOT_IN_FORCE'
+            ? $localize`:@@vendor.pairRights.objection.err.ended:This removal has ended. The list is reloaded.`
+            : $localize`:@@vendor.pairRights.objection.err.generic:That did not go through. Try again.`,
+      );
+    } finally {
+      this.busy.set(false);
+      await this.load();
+    }
   }
 
   protected reportTitle(r: PairContest): string {
@@ -319,7 +590,7 @@ export class VendorPairRightsList {
       case 'open':
         return $localize`:@@vendor.pairRights.protest.open:With AEC Integrations for review.`;
       case 'upheld':
-        return $localize`:@@vendor.pairRights.protest.upheld:AEC Integrations agrees with the report. This is advice: the Sync Service decides the listing.`;
+        return $localize`:@@vendor.pairRights.protest.upheld.v2:AEC Integrations agrees with the report. This is advice. The Sync Service decides the listing of that data flow.`;
       case 'rejected':
         return $localize`:@@vendor.pairRights.protest.rejected:AEC Integrations agrees with the Sync Service.`;
       default:

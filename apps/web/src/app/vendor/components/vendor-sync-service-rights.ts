@@ -1,9 +1,20 @@
 import { Component, computed, inject, input, output, signal } from '@angular/core';
 
-import type { EvidencedPairContestTarget, PairFlowDirection } from '@aeci/shared';
+import {
+  REMOVAL_REASON_CODES,
+  type EvidencedPairContestTarget,
+  type PairFlowDirection,
+  type RemovalReasonCode,
+} from '@aeci/shared';
 
 import { AecButton } from '../../shared/button/button';
-import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
+import {
+  CHOICE_CARD_CLASS,
+  CHOICE_INPUT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { removalReasonLabel } from './removal-labels';
 import { VendorApi } from '../vendor-api';
 import { CloseOnEscape } from '../shared/close-on-escape';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
@@ -18,9 +29,12 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
  *
  * - "Remove this integration from our product" opens an inline form that says what
  *   happens before anything is sent: the pair leaves every public page at once, the
- *   Sync Service is told with the reason, and the Sync Service cannot bring it back. This
- *   company can withdraw the removal later. The
- *   form's own button is the confirm step. No browser dialog and no `BrnDialog`.
+ *   public page shows nothing about it, the Sync Service is told at once with the
+ *   reason, and the Sync Service cannot bring it back but can object to AEC
+ *   Integrations on three grounds. Since AECI-2192 (ruling 66) the reason is a required
+ *   choice from the fixed list (`REMOVAL_REASON_CODES`), not free text. This company
+ *   can withdraw the removal later. The form's own button is the confirm step. No
+ *   browser dialog and no `BrnDialog`.
  * - "Report that it is not offered" goes to AEC Integrations. The pair stays listed.
  * - "Report a wrong data flow" names one flow and, optionally, the right direction.
  *
@@ -92,28 +106,45 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
             >
               <p
                 class="max-w-prose text-sm text-(--text-primary)"
-                i18n="@@vendor.syncRights.veto.explain.v2"
+                i18n="@@vendor.syncRights.veto.explain.v3"
               >
                 This takes the integration off the public site at once: the pair page, both product
-                pages and the {{ target().connector.name }} page. {{ ownerName() }} is told, with
-                your reason. {{ ownerName() }} cannot bring it back or add it again. You can
-                withdraw the removal later from Change requests.
+                pages and the {{ target().connector.name }} page. The public page shows nothing
+                about the removal. {{ ownerName() }} is told at once, with the reason you pick and
+                the time. {{ ownerName() }} cannot bring it back or add it again.
               </p>
-              <label
-                [class]="labelClass"
-                for="veto-reason-{{ target().id }}"
-                i18n="@@vendor.syncRights.veto.reasonLabel"
-                >Why you do not authorise it (required)</label
+              <p
+                class="max-w-prose text-sm text-(--text-primary)"
+                i18n="@@vendor.syncRights.veto.objection.v2"
               >
-              <textarea
-                id="veto-reason-{{ target().id }}"
-                [class]="inputClass"
-                rows="3"
-                maxlength="1000"
-                required
-                [value]="reason()"
-                (input)="reason.set(valueOf($event))"
-              ></textarea>
+                {{ ownerName() }} can object to AEC Integrations on three grounds only: the removal
+                came from an account that should not have had access, it named the wrong product, or
+                its reason is plainly false on its face. We answer an objection within five business
+                days of receiving it. If we agree, the integration returns and we tell you why. You
+                can withdraw the removal later from Change requests.
+              </p>
+              <fieldset
+                class="m-0 max-w-2xl space-y-2 border-0 p-0"
+                [attr.aria-describedby]="error() ? 'veto-reason-error-' + target().id : null"
+              >
+                <legend [class]="labelClass" i18n="@@vendor.syncRights.veto.reasonLegend">
+                  Your reason (required)
+                </legend>
+                @for (code of reasonCodes; track code) {
+                  <label [class]="choiceCardClass">
+                    <input
+                      type="radio"
+                      [class]="choiceInputClass"
+                      [attr.name]="'veto-reason-' + target().id"
+                      [value]="code"
+                      [checked]="reasonCode() === code"
+                      [attr.aria-invalid]="error() && !reasonCode() ? 'true' : null"
+                      (change)="reasonCode.set(code)"
+                    />
+                    {{ reasonLabel(code) }}
+                  </label>
+                }
+              </fieldset>
               <div class="flex gap-2">
                 <button
                   type="submit"
@@ -291,7 +322,13 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
           }
         }
         @if (error()) {
-          <p role="alert" class="text-sm text-(--text-primary)">{{ error() }}</p>
+          <p
+            role="alert"
+            [id]="'veto-reason-error-' + target().id"
+            class="text-sm text-(--text-primary)"
+          >
+            {{ error() }}
+          </p>
         }
       </div>
     }
@@ -307,6 +344,12 @@ export class VendorSyncServiceRights {
 
   protected readonly panel = signal<Panel>('none');
   protected readonly reason = signal('');
+  /** The removal's fixed reason (AECI-2192, ruling 66). No free text. */
+  protected readonly reasonCode = signal<RemovalReasonCode | null>(null);
+  protected readonly reasonCodes = REMOVAL_REASON_CODES;
+  protected readonly reasonLabel = removalReasonLabel;
+  protected readonly choiceCardClass = CHOICE_CARD_CLASS;
+  protected readonly choiceInputClass = CHOICE_INPUT_CLASS;
   protected readonly claimId = signal<string | null>(null);
   protected readonly proposed = signal<string>('');
   protected readonly busy = signal(false);
@@ -342,6 +385,7 @@ export class VendorSyncServiceRights {
   protected open(panel: Panel): void {
     this.error.set(null);
     this.reason.set('');
+    this.reasonCode.set(null);
     this.proposed.set('');
     const rights = this.target().sync_service_rights;
     const first = rights?.flows.find((f) => !rights.open_flow_claim_ids.includes(f.claim_id));
@@ -355,10 +399,14 @@ export class VendorSyncServiceRights {
   }
 
   protected async submitVeto(): Promise<void> {
-    const reason = this.reason().trim();
-    if (!reason) return this.error.set(this.reasonRequired());
+    const code = this.reasonCode();
+    if (!code) {
+      return this.error.set(
+        $localize`:@@vendor.syncRights.veto.reasonCodeRequired:Choose a reason first.`,
+      );
+    }
     await this.run(async () => {
-      await this.api.fileVeto(this.target().id, reason);
+      await this.api.fileVeto(this.target().id, code);
       this.announcer.announce(
         $localize`:@@vendor.syncRights.veto.done:Removed from your product. It is off the public site now.`,
       );

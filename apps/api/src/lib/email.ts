@@ -3832,6 +3832,61 @@ export function sendPairContestSubmittedNotification(
 }
 
 /**
+ * Operator alert: a Sync Service objected to a vendor's removal of one of its
+ * integrations (AECI-2192, ruling 66 on AECI-2035, `STAGE_2_VENDOR_PORTAL_SPEC.md`
+ * §11e.2b). Same template id, inbox and timing as {@link sendPairContestSubmittedNotification}:
+ * after the batch commits, through `ctx.waitUntil`, never changing the `201`. It names
+ * the removal's fixed reason, the ground, the explanation and the link, so the
+ * operator can test the ground before opening the queue.
+ */
+export function sendVetoObjectionSubmittedNotification(
+  c: EmailContext,
+  opts: {
+    objectionId: string;
+    integrationName: string;
+    objectorVendorName: string;
+    removingVendorName: string;
+    removalReason: string;
+    ground: string;
+    explanation: string;
+    sourceUrl: string | null;
+    pairSlugs: readonly [string, string] | null;
+  },
+): Promise<EmailOutcome> {
+  const base = siteUrl(c.env);
+  const host = environmentHost(c.env);
+  const subject = `[AECi] Objection to a removal: ${opts.integrationName}`;
+  const intro = `${opts.objectorVendorName} objects to ${opts.removingVendorName}'s removal of this integration. AECi decides it, on the ground given only.`;
+  const introHtml = `${escapeHtml(opts.objectorVendorName)} objects to ${escapeHtml(opts.removingVendorName)}'s removal of <strong>${escapeHtml(opts.integrationName)}</strong>. AECi decides it, on the ground given only.`;
+  const rows: Array<[string, string]> = [
+    ['Integration', opts.integrationName],
+    ['Removed by', opts.removingVendorName],
+    ['Reason the vendor gave', opts.removalReason],
+    ['Objection from', opts.objectorVendorName],
+    ['Ground', opts.ground],
+    ['Explanation', opts.explanation],
+    ...(opts.sourceUrl ? ([['Link given', opts.sourceUrl]] as Array<[string, string]>) : []),
+    ['Objection id', opts.objectionId],
+  ];
+  if (host) rows.push(['Environment', host]);
+  const pair = opts.pairSlugs ? pairUrl(c.env, opts.pairSlugs[0], opts.pairSlugs[1]) : null;
+  const shared = (link: LinkTagger) => ({
+    preheader: intro,
+    heading: subject.replace('[AECi] ', ''),
+    table: pair ? [...rows, ['Pair page', link(pair)] as const] : rows,
+    ...(base
+      ? { cta: { label: 'Open the contest queue', url: link(`${base}/admin/contests`) } }
+      : {}),
+  });
+  return sendTransactionalEmail(c, {
+    to: c.env.SUPPORT_EMAIL ?? '',
+    template: 'contest-submitted-alert',
+    subject,
+    render: (link) => houseBody(shared(link), [intro], [introHtml]),
+  });
+}
+
+/**
  * Tell the support inbox a seat asked AECi to look at a private row thread
  * (AECI-1535, `STAGE_2_ATTESTATIONS_SPEC.md` §15.3). Modelled on
  * {@link sendContestSubmittedNotification}: house layout, `SUPPORT_EMAIL`. Sent once

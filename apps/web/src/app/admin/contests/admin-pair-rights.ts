@@ -1,21 +1,40 @@
 import { DatePipe } from '@angular/common';
-import { Component, afterNextRender, inject, signal } from '@angular/core';
+import { Component, LOCALE_ID, afterNextRender, inject, signal } from '@angular/core';
 
-import type { AdminVeto, PairContest, PairRightPair } from '@aeci/shared';
+import {
+  REMOVAL_END_REASONS,
+  type AdminVeto,
+  type PairContest,
+  type PairRightPair,
+  type RemovalEndReason,
+  type VetoObjection,
+} from '@aeci/shared';
 
 import { AecButton } from '../../shared/button/button';
+import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
 import {
+  objectionGroundLabel,
+  removalEndReasonLabel,
+  removalReasonText,
+} from '../../vendor/components/removal-labels';
+import {
+  CHOICE_CARD_CLASS,
+  CHOICE_INPUT_CLASS,
   FIELD_ERROR_CLASS,
   FIELD_HINT_CLASS,
   FIELD_INPUT_CLASS,
   FIELD_LABEL_CLASS,
 } from '../../shared/form-field/form-field-classes';
 import { AdminDangerAction } from '../console/danger-action';
+import { adminStatusTone } from '../console/status-tones';
 import { QUEUE_FORM_CLASS } from '../reviews/queue-classes';
 
 import { AdminContestsApi } from './admin-contests-api';
 
-type Form = { id: string; kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'rejected' } | null;
+type Form = {
+  id: string;
+  kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'rejected' | 'objAccept' | 'objDecline';
+} | null;
 
 /**
  * Sync Service pair reports and endpoint vetoes on `/admin/contests` (AECI-2042,
@@ -32,16 +51,21 @@ type Form = { id: string; kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'reje
  *   contests' Decline above.
  * - **Reviews of an owner's answer**: protests. Upheld or rejected, with a note. Advice
  *   only: nothing on the listing changes.
- * - **Removals in force**: endpoint vetoes. Not judged. "End this removal" exists for a
- *   veto filed through a seat that should not have had it, and needs a note. It is the
- *   shared danger form with a required reason.
+ * - **Removals in force**: endpoint vetoes, with "Reason the vendor gave" and the filed
+ *   time. Not checked when sent (ruling 66). An open objection from the Sync Service shows
+ *   its received date, its answer-by date (five business days, `objection_answer_due`), an
+ *   "Answer overdue" chip once that has passed, its ground, explanation and link, with Accept (ends the removal, required note) and
+ *   Decline (the removal stands, required note), both the shared danger form.
+ *   "End this removal" is a hand-built queue form because it carries a radio group: a
+ *   required end reason from the five of ruling 66 and a required note. A radio inside
+ *   the danger form's projected facts would submit it on Enter (`danger-action.ts`).
  *
  * The forms that stay hand-built (Accept, and the two protest answers) use the console
  * queue's form recipe and the shared field classes (`QUEUE_FORM_CLASS`, `FIELD_*`).
  */
 @Component({
   selector: 'aec-admin-pair-rights',
-  imports: [AdminDangerAction, AecButton, DatePipe],
+  imports: [AdminDangerAction, AecButton, Chip, DatePipe],
   host: { class: 'block' },
   template: `
     <section class="mt-10 space-y-6" aria-labelledby="admin-pair-rights-heading">
@@ -285,10 +309,11 @@ type Form = { id: string; kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'reje
         </h4>
         <p
           class="max-w-prose text-sm text-(--text-secondary)"
-          i18n="@@admin.pairRights.vetoes.explain"
+          i18n="@@admin.pairRights.vetoes.explain.v2"
         >
-          A vendor of an endpoint product removed these from its product. A removal is not reviewed.
-          End one only when it was filed through a seat that should not have had it.
+          A vendor of an endpoint product removed these from its product. A removal takes effect
+          when it is sent and is not checked first. End one only on one of the five grounds below.
+          Decide nothing else, and not whether the vendor should support the integration.
         </p>
         @if (vetoes().length === 0) {
           <p class="text-sm text-(--text-secondary)" i18n="@@admin.pairRights.vetoes.empty">
@@ -297,25 +322,192 @@ type Form = { id: string; kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'reje
         }
         <ul class="m-0 list-none space-y-3 p-0">
           @for (v of vetoes(); track v.id) {
-            <li class="rounded-panel border border-(--border-default) p-4 text-sm">
+            <li class="rounded-panel border border-(--border-default) p-4 text-sm" data-admin-veto>
               <p class="font-medium text-(--text-primary)">{{ pairName(v.pair) }}</p>
-              <p class="mb-2 text-(--text-secondary)" i18n="@@admin.pairRights.vetoes.by">
-                Removed by {{ v.vendor_name }} on {{ v.filed_at | date: 'mediumDate' }}:
-                {{ v.reason }}
+              <p class="text-(--text-secondary)" i18n="@@admin.pairRights.vetoes.by.v3">
+                Removed by {{ v.vendor_name }} on {{ v.filed_at | date: 'mediumDate' }} at
+                {{ v.filed_at | date: 'shortTime' }}.
               </p>
-              <aec-admin-danger-action
-                [openerLabel]="liftCopy.opener"
-                [confirmLabel]="liftCopy.confirm"
-                [busyLabel]="liftCopy.busy"
-                [reasonLabel]="liftCopy.label"
-                [reasonRequired]="liftCopy.required"
-                [maxLength]="noteMax"
-                [busy]="busy() && isOpen(v.id, 'lift')"
-                [error]="isOpen(v.id, 'lift') ? error() : null"
-                [open]="isOpen(v.id, 'lift')"
-                (openChange)="setOpen(v.id, 'lift', $event)"
-                (confirmed)="lift(v, $event)"
-              />
+              <p class="text-(--text-secondary)" i18n="@@admin.pairRights.vetoes.reasonGiven">
+                Reason the vendor gave: {{ reasonText(v) }}
+              </p>
+              @if (v.owner_name) {
+                <p class="text-(--text-secondary)" i18n="@@admin.pairRights.vetoes.owner">
+                  Owner: {{ v.owner_name }}
+                </p>
+              }
+              @if (v.objection?.status === 'open' && v.objection; as o) {
+                <div
+                  class="mt-3 space-y-1 border-t border-(--border-default) pt-3"
+                  data-admin-objection
+                >
+                  <p
+                    class="font-semibold text-(--text-primary)"
+                    i18n="@@admin.pairRights.objection.title"
+                  >
+                    Objection from {{ o.vendor_name }} on {{ o.created_at | date: 'mediumDate' }}
+                  </p>
+                  <p class="text-t-13 text-(--text-secondary)">
+                    <span class="block" i18n="@@admin.pairRights.objection.received"
+                      >Received {{ o.created_at | date: 'mediumDate' }}</span
+                    >
+                    @if (v.objection_answer_due; as due) {
+                      <span class="block" i18n="@@admin.pairRights.objection.answerDue"
+                        >Answer by {{ dueDay(due) }}</span
+                      >
+                    }
+                  </p>
+                  @if (answerOverdue(v)) {
+                    <aec-chip density="dense" [tone]="overdueTone" data-testid="objection-overdue"
+                      ><span i18n="@@admin.pairRights.objection.overdue"
+                        >Answer overdue</span
+                      ></aec-chip
+                    >
+                  }
+                  <p class="text-(--text-primary)" i18n="@@admin.pairRights.objection.ground">
+                    Ground: {{ groundLabel(o.ground) }}
+                  </p>
+                  <p class="text-(--text-secondary)">{{ o.explanation }}</p>
+                  @if (o.source_url) {
+                    <p class="text-(--text-secondary)">
+                      <span i18n="@@admin.pairRights.objection.link">Link given:</span>
+                      {{ ' ' }}
+                      <a
+                        class="underline"
+                        [href]="o.source_url"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        >{{ o.source_url }}</a
+                      >
+                    </p>
+                  }
+                  <p [class]="hintClass" i18n="@@admin.pairRights.objection.help">
+                    Accept only when the ground holds. An account: check the seat and its grant in
+                    the vendor's record. Wrong product: compare the removal's product with the
+                    integration's two products. Plainly false: the vendor's own public page must
+                    show it supports the integration.
+                  </p>
+                  <div class="mt-2 flex flex-wrap items-start gap-2">
+                    <aec-admin-danger-action
+                      class="min-w-0"
+                      [openerLabel]="objAcceptCopy.opener"
+                      [confirmLabel]="objAcceptCopy.confirm"
+                      [busyLabel]="objAcceptCopy.busy"
+                      [reasonLabel]="objAcceptCopy.label"
+                      [reasonRequired]="objAcceptCopy.required"
+                      [warning]="objAcceptCopy.warning"
+                      [maxLength]="noteMax"
+                      [busy]="busy() && isOpen(o.id, 'objAccept')"
+                      [error]="isOpen(o.id, 'objAccept') ? error() : null"
+                      [open]="isOpen(o.id, 'objAccept')"
+                      (openChange)="setOpen(o.id, 'objAccept', $event)"
+                      (confirmed)="decideObjection(o.id, 'accept', $event)"
+                    />
+                    <aec-admin-danger-action
+                      class="min-w-0"
+                      [openerLabel]="objDeclineCopy.opener"
+                      [confirmLabel]="objDeclineCopy.confirm"
+                      [busyLabel]="objDeclineCopy.busy"
+                      [reasonLabel]="objDeclineCopy.label"
+                      [reasonRequired]="objDeclineCopy.required"
+                      [maxLength]="noteMax"
+                      [busy]="busy() && isOpen(o.id, 'objDecline')"
+                      [error]="isOpen(o.id, 'objDecline') ? error() : null"
+                      [open]="isOpen(o.id, 'objDecline')"
+                      (openChange)="setOpen(o.id, 'objDecline', $event)"
+                      (confirmed)="decideObjection(o.id, 'decline', $event)"
+                    />
+                  </div>
+                </div>
+              } @else if (v.objection; as o) {
+                <p class="mt-2 text-(--text-secondary)">{{ objectionOutcome(o) }}</p>
+              }
+              <div class="mt-3">
+                <button
+                  type="button"
+                  aecButton
+                  variant="secondary"
+                  compact
+                  [attr.aria-expanded]="isOpen(v.id, 'lift')"
+                  [attr.aria-controls]="'lift-form-' + v.id"
+                  (click)="isOpen(v.id, 'lift') ? closeForm() : openForm(v.id, 'lift')"
+                  i18n="@@admin.pairRights.lift"
+                >
+                  End this removal
+                </button>
+                @if (isOpen(v.id, 'lift')) {
+                  <form
+                    [id]="'lift-form-' + v.id"
+                    method="dialog"
+                    novalidate
+                    [class]="formClass"
+                    class="mt-3"
+                    (submit)="$event.preventDefault(); lift(v)"
+                    (keydown.escape)="closeForm()"
+                  >
+                    <fieldset class="m-0 max-w-2xl space-y-2 border-0 p-0">
+                      <legend [class]="labelClass" i18n="@@admin.pairRights.lift.endReason">
+                        Why it ends (required)
+                      </legend>
+                      @for (r of endReasons; track r) {
+                        <label [class]="choiceCardClass">
+                          <input
+                            type="radio"
+                            [class]="choiceInputClass"
+                            [attr.name]="'end-reason-' + v.id"
+                            [value]="r"
+                            [checked]="endReason() === r"
+                            (change)="endReason.set(r)"
+                          />
+                          {{ endReasonLabel(r) }}
+                        </label>
+                      }
+                    </fieldset>
+                    <label
+                      [class]="labelClass"
+                      class="pt-2"
+                      [for]="'lift-note-' + v.id"
+                      i18n="@@admin.pairRights.noteLift"
+                      >Why it ends, shown to the vendors (required)</label
+                    >
+                    <textarea
+                      [id]="'lift-note-' + v.id"
+                      rows="3"
+                      [attr.maxlength]="noteMax"
+                      required
+                      [class]="inputClass"
+                      class="min-h-24 resize-y py-3"
+                      (input)="note.set(valueOf($event))"
+                    ></textarea>
+                    @if (error()) {
+                      <p role="alert" [class]="errorClass">{{ error() }}</p>
+                    }
+                    <div class="mt-2 flex flex-wrap gap-3">
+                      <button
+                        type="submit"
+                        aecButton
+                        variant="danger"
+                        compact
+                        [disabled]="busy()"
+                        i18n="@@admin.pairRights.lift.confirm"
+                      >
+                        End the removal
+                      </button>
+                      <button
+                        type="button"
+                        aecButton
+                        variant="ghost"
+                        compact
+                        [disabled]="busy()"
+                        (click)="closeForm()"
+                        i18n="@@admin.pairRights.cancel"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                }
+              </div>
             </li>
           }
         </ul>
@@ -330,6 +522,12 @@ type Form = { id: string; kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'reje
 })
 export class AdminPairRights {
   private readonly api = inject(AdminContestsApi);
+  private readonly locale = inject(LOCALE_ID);
+
+  /** An objection past its five business days is a missed policy clock: critical. */
+  protected readonly overdueTone: ConsoleChipTone = adminStatusTone('overdue');
+  /** The instant the lists were read, for the overdue marker. Set on each load. */
+  protected readonly readAt = signal(0);
 
   protected readonly reports = signal<readonly PairContest[]>([]);
   protected readonly protests = signal<readonly PairContest[]>([]);
@@ -359,14 +557,56 @@ export class AdminPairRights {
     busy: $localize`:@@admin.pairRights.declining:Declining…`,
   } as const;
 
-  /** "End this removal": the shared danger form with a required reason. */
-  protected readonly liftCopy = {
-    opener: $localize`:@@admin.pairRights.lift:End this removal`,
-    label: $localize`:@@admin.pairRights.noteLift:Why it ends, shown to the vendors (required)`,
+  // ── AECI-2192 (ruling 66): end reasons and objections ─────────────────────
+
+  protected readonly endReasons = REMOVAL_END_REASONS;
+  protected readonly endReason = signal<RemovalEndReason | null>(null);
+  protected readonly endReasonLabel = removalEndReasonLabel;
+  protected readonly groundLabel = objectionGroundLabel;
+  protected readonly reasonText = removalReasonText;
+  protected readonly choiceCardClass = CHOICE_CARD_CLASS;
+  protected readonly choiceInputClass = CHOICE_INPUT_CLASS;
+
+  /** Accept an objection: the shared danger form with a required note. */
+  protected readonly objAcceptCopy = {
+    opener: $localize`:@@admin.pairRights.objection.accept:Accept and end the removal`,
+    label: $localize`:@@admin.pairRights.objection.acceptLabel:Why the ground holds, shown to both vendors (required)`,
     required: $localize`:@@admin.pairRights.err.noteRequired:A note is required.`,
-    confirm: $localize`:@@admin.pairRights.lift.confirm:End the removal`,
+    warning: $localize`:@@admin.pairRights.objection.acceptWarning:This ends the removal now. Every listing of this integration returns to the public site, and both vendors are told why.`,
+    confirm: $localize`:@@admin.pairRights.objection.acceptConfirm:End the removal`,
     busy: $localize`:@@admin.pairRights.lifting:Ending…`,
   } as const;
+
+  /** Decline an objection: the removal stands. */
+  protected readonly objDeclineCopy = {
+    opener: $localize`:@@admin.pairRights.objection.decline:Decline`,
+    label: $localize`:@@admin.pairRights.objection.declineLabel:Why the ground does not hold, shown to the Sync Service (required)`,
+    required: $localize`:@@admin.pairRights.err.noteRequired:A note is required.`,
+    confirm: $localize`:@@admin.pairRights.objection.declineConfirm:Confirm decline`,
+    busy: $localize`:@@admin.pairRights.declining:Declining…`,
+  } as const;
+
+  protected objectionOutcome(o: VetoObjection): string {
+    const ground = objectionGroundLabel(o.ground);
+    return o.status === 'declined'
+      ? $localize`:@@admin.pairRights.objection.wasDeclined:An objection was declined (${ground}:ground:): ${o.decision_note ?? ''}:note:`
+      : $localize`:@@admin.pairRights.objection.wasClosed:An earlier objection (${ground}:ground:) is closed.`;
+  }
+
+  protected decideObjection(
+    id: string,
+    decision: 'accept' | 'decline',
+    note: string,
+  ): Promise<void> {
+    return this.write(async () => {
+      await this.api.decideVetoObjection(id, { decision, note });
+      this.status.set(
+        decision === 'accept'
+          ? $localize`:@@admin.pairRights.objection.accepted:Objection accepted. The removal ended and the integration is back on the site.`
+          : $localize`:@@admin.pairRights.objection.declined:Objection declined. The removal stands.`,
+      );
+    });
+  }
 
   constructor() {
     afterNextRender(() => void this.load());
@@ -397,6 +637,7 @@ export class AdminPairRights {
     if (this.busy()) return;
     this.note.set('');
     this.source.set('');
+    this.endReason.set(null);
     this.error.set(null);
     this.form.set({ id, kind });
   }
@@ -457,9 +698,19 @@ export class AdminPairRights {
     });
   }
 
-  protected lift(v: AdminVeto, note: string): Promise<void> {
+  protected lift(v: AdminVeto): Promise<void> {
+    const endReason = this.endReason();
+    const note = this.note().trim();
+    if (!endReason) {
+      this.error.set($localize`:@@admin.pairRights.err.endReason:Choose why the removal ends.`);
+      return Promise.resolve();
+    }
+    if (!note) {
+      this.error.set($localize`:@@admin.pairRights.err.noteRequired:A note is required.`);
+      return Promise.resolve();
+    }
     return this.write(async () => {
-      const res = await this.api.liftVeto(v.id, note);
+      const res = await this.api.liftVeto(v.id, endReason, note);
       this.status.set(
         res.pair_public
           ? $localize`:@@admin.pairRights.lifted.public:Removal ended. The integration is back on the site.`
@@ -487,6 +738,27 @@ export class AdminPairRights {
     }
   }
 
+  /** An open objection whose answer window has fully passed. */
+  protected answerOverdue(v: AdminVeto): boolean {
+    if (v.objection?.status !== 'open' || !v.objection_answer_due) return false;
+    const due = Date.parse(v.objection_answer_due);
+    return !Number.isNaN(due) && due < this.readAt();
+  }
+
+  /**
+   * The last business day of the answer window, as a date. The server's due instant is
+   * the moment the window has fully passed (`businessWindowEnd`), so the day shown is the
+   * New York date just before it, as on the value hides.
+   */
+  protected dueDay(iso: string): string {
+    const at = Date.parse(iso);
+    if (Number.isNaN(at)) return iso;
+    return new Intl.DateTimeFormat(this.locale, {
+      dateStyle: 'medium',
+      timeZone: 'America/New_York',
+    }).format(new Date(at - 1));
+  }
+
   private async load(): Promise<void> {
     try {
       const [reports, protests, vetoes] = await Promise.all([
@@ -497,6 +769,7 @@ export class AdminPairRights {
       this.reports.set(reports.data);
       this.protests.set(protests.data);
       this.vetoes.set(vetoes.data);
+      this.readAt.set(Date.now());
     } catch {
       this.error.set(
         $localize`:@@admin.pairRights.err.load:Could not load the Sync Service lists.`,

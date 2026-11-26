@@ -366,7 +366,9 @@ describe('an owned row (AECI-2045)', () => {
     );
     const needs = root.querySelector('[data-testid="integration-needs"]')!.textContent ?? '';
     expect(needs).toContain('Acumatica reported a problem with the Invoices data flow');
-    expect(needs).toContain('Trimble removed this integration from its product: Not certified');
+    expect(needs).toContain(
+      'Trimble removed this integration from its product. Trimble gave this reason: Not certified',
+    );
     expect(root.querySelector('#change-requests aec-vendor-pair-rights-list')).not.toBeNull();
   });
 

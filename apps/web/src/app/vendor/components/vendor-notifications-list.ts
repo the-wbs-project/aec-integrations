@@ -1,4 +1,5 @@
 import { fieldOverrideLabel } from './field-override-labels';
+import { removalEndReasonLabel, removalReasonLabel } from './removal-labels';
 import { DatePipe, formatDate } from '@angular/common';
 import {
   Component,
@@ -686,6 +687,8 @@ function pairRightTitle(notification: VendorPairRightNotification): string {
       return $localize`:@@vendor.pairRights.notify.protestFiled:AEC Integrations was asked to review your answer on a data flow`;
     case 'protest_decided':
       return $localize`:@@vendor.pairRights.notify.protestDecided:AEC Integrations answered a review of a data flow. Its answer is advice.`;
+    case 'objection_declined':
+      return $localize`:@@vendor.pairRights.notify.objectionDeclined:AEC Integrations did not agree with your objection. The removal stands.`;
   }
 }
 
@@ -772,9 +775,30 @@ function noteOf(
       // AECI-1548 (§15.10): why it closed. The messages stay readable by its link.
       return threadClosedNote(notification.closed_reason);
     case 'pair_right':
-      // AECI-2042: the veto reason to the owner, or the lift note. Nothing else carries text.
-      return notification.reason ? reasonSentence(notification.reason) : null;
+      return pairRightNote(notification);
   }
+}
+
+/**
+ * The note under a veto or report event (AECI-2042). Since AECI-2192 (ruling 66) a
+ * removal to the Sync Service carries the fixed reason and how to object, and an
+ * AECi end carries its ground and note. An older removal's own words still show.
+ */
+function pairRightNote(notification: VendorPairRightNotification): string | null {
+  if (notification.event === 'vetoed' && notification.reason_code) {
+    // The vendor's statement, not our finding (the legal agent's read of ruling 66).
+    const vendor =
+      notification.by_vendor_name ?? $localize`:@@vendor.pairRights.notify.someone:A vendor`;
+    const reason = removalReasonLabel(notification.reason_code);
+    return $localize`:@@vendor.pairRights.notify.vetoedNote.v2:${vendor}:vendor: gave this reason: ${reason}:reason:. The public page shows nothing about it. You can object to AEC Integrations, from Change requests, on three grounds only: the removal came from an account that should not have had access, it named the wrong product, or its reason is plainly false on its face.`;
+  }
+  if (notification.event === 'veto_lifted' && notification.end_reason) {
+    const why = removalEndReasonLabel(notification.end_reason);
+    const note = notification.reason ? ` ${reasonSentence(notification.reason)}` : '';
+    return $localize`:@@vendor.pairRights.notify.liftedNote:Why: ${why}:why:.` + note;
+  }
+  // The lift note, a declined objection's note, or an older removal's own words.
+  return notification.reason ? reasonSentence(notification.reason) : null;
 }
 
 /** One sentence on why a thread closed (AECI-1548, §15.10). No message text. */
