@@ -313,7 +313,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `INTEGRATION_ALREADY_CLAIMED` | 409 | The integration is already claimed. Also the answer to the loser of two racing claims, whose batch rolls back entirely |
 | `INTEGRATION_RETIRED` | 409 | `POST /api/vendor/integrations/:id/retire` or `POST /api/admin/integrations/:id/retire` (AECI-1046) on a row already retired, and any other vendor write on a retired row: a new data-flow claim, an attestation upsert, a contest submit (including one whose batch lost a race with the retire), the owner edit `PATCH /api/vendor/integrations/:id` (AECI-1006, including one whose batch lost that race), and a per-side link `PUT` or `DELETE` (AECI-1007). Withdrawing an attestation is still allowed (AECI-1010) |
 | `INTEGRATION_NOT_RETIRED` | 409 | `POST /api/vendor/integrations/:id/restore` or `POST /api/admin/integrations/:id/restore` on a live row (AECI-1010, AECI-1046) |
-| `VENDOR_SEATS_CHANGED` | 409 | `DELETE /api/admin/vendors/:id/seats/:userId`, `PATCH /api/admin/reviewers/:id`, or (after three attempts, AECI-1106) `DELETE /api/account` on a vendor seat whose batch lost a race with another seat write on the same vendor: a double-click, a seat provisioned mid-request, or two seats removed at once. Nothing was written. Reload and try again (AECI-989). Also `POST /api/admin/vendors/:id/return-to-aeci` (AECI-1415) when a seat landed, or a double-click already returned the records, between its read and its batch. Also the claim grant (`PATCH /api/admin/claims/:id`), the admin seat provision (`POST /api/admin/vendors/:id/seats`) and the invite accept (`POST /api/seat-invites/:token/accept`) when the seat grant's batch returned contests a seat lapse had moved to AECi, and another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Until AECI-1663 (ruling 14, 2026-11-09) a subscription revoke that ended the vendor's last live subscription between the read and the batch answered it too (`ownerEntitlementActiveSentinel`, now deleted). Nothing was written. Try again. The invite accept also returns it when the invite was revoked or spent between its read and its batch (`inviteSpentSentinel`, AECI-1374). Nothing was written, and a retry gets the ordinary `422 INVALID_STATE_TRANSITION`. The claim grant and the admin seat provision also return it when a last-seat ban committed between their read and their batch and left `vendor-banned` subscription flags the grant did not plan to clear (`vendorBannedFlagsRaceSentinel`, AECI-1374 E4.5). Nothing was written, and the retry clears the flags. Also `POST /api/admin/vendors/:id/suspension/terminate` and `/suspend` and `/stage-2` (AECI-1623). Terminate answers it when a seat or invite landed mid-request. The rest of this sentence is AECI-1589's, moved from the last-seat ban of `PATCH /api/admin/reviewers/:id`, which AECI-1623 refuses: Terminate answers it when a subscription was granted to the vendor between its read and its batch (`noLiveLicenseSentinel`): the termination would leave a live subscription on a banned vendor, so nothing is written. The same when a lapse or a Stripe cancel ended one of the vendor's subscriptions in that window (a `changedOneRowSentinel` after each subscription UPDATE). Reload and terminate again. Also `POST /api/admin/vendors/:id/licenses/ban-term` (AECI-1589) when a terminate committed between its seat read and its batch (`unbannedSeatExistsSentinel`). Nothing was granted. The same for the generic grant `POST /api/admin/vendors/:id/licenses` (AECI-1589, ruled 2026-11-03), whose sentinel runs with `allowNoSeats`: it aborts only when the vendor has seats and every one is now banned |
+| `VENDOR_SEATS_CHANGED` | 409 | `DELETE /api/admin/vendors/:id/seats/:userId`, `PATCH /api/admin/reviewers/:id`, or (after three attempts, AECI-1106) `DELETE /api/account` on a vendor seat whose batch lost a race with another seat write on the same vendor: a double-click, a seat provisioned mid-request, or two seats removed at once. Nothing was written. Reload and try again (AECI-989). A vendor-seat ban with `reject_pending: true` answers it only when the re-read finds the person's pending items unchanged. When they moved, it answers `BAN_PENDING_CHANGED` instead (AECI-1949). Also `POST /api/admin/vendors/:id/return-to-aeci` (AECI-1415) when a seat landed, or a double-click already returned the records, between its read and its batch. Also the claim grant (`PATCH /api/admin/claims/:id`), the admin seat provision (`POST /api/admin/vendors/:id/seats`) and the invite accept (`POST /api/seat-invites/:token/accept`) when the seat grant's batch returned contests a seat lapse had moved to AECi, and another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Until AECI-1663 (ruling 14, 2026-11-09) a subscription revoke that ended the vendor's last live subscription between the read and the batch answered it too (`ownerEntitlementActiveSentinel`, now deleted). Nothing was written. Try again. The invite accept also returns it when the invite was revoked or spent between its read and its batch (`inviteSpentSentinel`, AECI-1374). Nothing was written, and a retry gets the ordinary `422 INVALID_STATE_TRANSITION`. The claim grant and the admin seat provision also return it when a last-seat ban committed between their read and their batch and left `vendor-banned` subscription flags the grant did not plan to clear (`vendorBannedFlagsRaceSentinel`, AECI-1374 E4.5). Nothing was written, and the retry clears the flags. Also `POST /api/admin/vendors/:id/suspension/terminate` and `/suspend` and `/stage-2` (AECI-1623). Terminate answers it when a seat or invite landed mid-request. The rest of this sentence is AECI-1589's, moved from the last-seat ban of `PATCH /api/admin/reviewers/:id`, which AECI-1623 refuses: Terminate answers it when a subscription was granted to the vendor between its read and its batch (`noLiveLicenseSentinel`): the termination would leave a live subscription on a banned vendor, so nothing is written. The same when a lapse or a Stripe cancel ended one of the vendor's subscriptions in that window (a `changedOneRowSentinel` after each subscription UPDATE). Reload and terminate again. Also `POST /api/admin/vendors/:id/licenses/ban-term` (AECI-1589) when a terminate committed between its seat read and its batch (`unbannedSeatExistsSentinel`). Nothing was granted. The same for the generic grant `POST /api/admin/vendors/:id/licenses` (AECI-1589, ruled 2026-11-03), whose sentinel runs with `allowNoSeats`: it aborts only when the vendor has seats and every one is now banned |
 | ~~`ENTITLEMENT_CHANGED`~~ | 409 | **Retired 2026-10-17 (AECI-1358).** Removed from `ApiErrorCode` with its only raiser, the entitlement activate. Subscriptions replaced it, and no route raises a race code of this kind. |
 | `LICENSE_SOURCE_STRIPE` | 409 | `PATCH /api/admin/licenses/:id` (AECI-1371) `extend` or `reference` on a subscription whose `source` is `stripe`. Stripe owns that subscription's term and its invoice; change them in Stripe. Nothing was written. A `revoke` of a paid subscription (by card) is allowed |
 | `LICENSE_GRANT_CONFLICT` | 409 | `POST /api/admin/vendors/:id/licenses` (AECI-1370) with a `grant_id` whose subscriptions already exist but do not match this request: another quantity, source, end date, reference, start or billing account. Also the loser of two identical grants racing past the pre-read, whose batch trips the `licenses` primary key. Nothing was written. An exact repeat is a 200 replay, never this. Reopen the form, which mints a new `grant_id`. *Since AECI-1615 (2026-11-10)* the stored grant is the `license_grants` row, and a race trips its primary key. A `grant_id` whose subscriptions were written before AECI-1615 also answers this. Same for `POST /api/admin/vendors/:id/licenses/ban-term` |
@@ -372,6 +372,8 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `VENDOR_HAS_SEATS` | 409 | `POST /api/admin/vendors/:id/return-to-aeci` (AECI-1415) while the vendor holds any `vendor_admin` seat, banned or not. Revoke every seat first. Nothing was written |
 | `VENDOR_SUSPENDED` | 403 | Every `/api/vendor/*` call of a suspended vendor's seat, reads included (AECI-1623). `details` is `{ vendor_slug, vendor_name }`, so the portal can show the notice screen. The one route that does not answer it is `POST /api/vendor/billing/portal`. Also `409` on `POST /api/seat-invites/:token/accept` while the vendor is suspended: the invite survives a lift |
 | `VENDOR_LAST_SEAT_USE_SUSPEND` | 409 | `PATCH /api/admin/reviewers/:id` `ban` of the vendor's last unbanned seat (AECI-1623, ruled 2026-11-05). Nothing was written and no suspension started. Ending a vendor is Suspend then Terminate on `/admin/vendors/:id` |
+| `BAN_REJECT_TOO_MANY` | 422 | `PATCH /api/admin/reviewers/:id` `ban` with `reject_pending: true` when the person has more than `BAN_REJECT_MAX_ITEMS` (100) pending reviews, review updates and replies in total (AECI-1949). `details` is `{ reviews, review_updates, review_responses, max }`. Nothing was written, the ban included. Reject some from the queues filtered to the person, then ban again |
+| `BAN_PENDING_CHANGED` | 409 | `PATCH /api/admin/reviewers/:id` `ban` with `reject_pending: true` whose batch lost a race: one of the person's pending items was decided, edited or added between the read and the batch (AECI-1949). Nothing was written, the ban included. Reload the counts and confirm again |
 | `VENDOR_SUSPENSION_STATE` | 409 | `POST /api/admin/vendors/:id/suspend` when the vendor already has an open suspension, and `.../resend-notice`, `.../stage-2`, `.../cost-log`, `.../lift` and `.../terminate` when it has none (AECI-1623). Also stage 2 when it has already started, and `.../refunds/retry` when the vendor has no terminated suspension. Reload the page |
 | `VENDOR_SUSPENSION_WINDOW_OPEN` | 409 | `POST .../suspension/terminate` before the applicable stage has elapsed, or before its notice was confirmed sent, and `POST .../suspension/stage-2` before the stage 1 window has elapsed (AECI-1623). The window is 7 business days from the first confirmed send of that stage's notice. There is no early path. The message says what to wait for |
 | `VENDOR_TERMINATION_REFUND_CHANGED` | 409 | `POST .../suspension/terminate` when `expected_gross_cents` or `expected_cost_cents` no longer matches what the server computes from Stripe and the cost log (AECI-1623). Nothing was written. Reload and confirm the new numbers |
@@ -2525,12 +2527,16 @@ The header's caller is the shared `RoleStatus` probe (`apps/web/src/app/auth/rol
 export const ListPendingReviewsQuerySchema = PageQuerySchema.extend({
   status: ReviewStatusSchema.default('pending'),
   sort: z.enum(['created_at', 'queue_age']).default('queue_age'),
+  // AECI-1949: one person's reviews (`reviews.reviewer_id`, `reviews_reviewer_idx`).
+  // The name matches `/api/admin/dmca?account_id=`.
+  account_id: z.string().uuid().optional(),
 });
 
 export type AdminReview = Review & {
   status: 'pending' | 'approved' | 'rejected' | 'removed';
   toxicity_score: number | null;   // from the toxicity scorer (Claude), 0–100
   product: ProductRef;
+  reviewer_id?: string | null;     // AECI-1949: for the link to /admin/users/:id; null once erased
   reviewer_email: string | null;   // visible to admins only; null on anonymized reviews
   reviewer_firm: string | null;    // AECI-284: free-text firm, admin-only moderation context
   rejection_reason: string | null;
@@ -5018,6 +5024,7 @@ AdminUserDetail = {
     requests_by_email: number | null,                     // best effort — see below
     dmca_takedowns: number,                               // AECI-1665: removed or disabled copyright notices, less any restored after a counter-notice
     dmca_counter_notices: number,                         // AECI-1665: counter-notices this account filed
+    pending_moderation: { review_updates, review_responses }, // AECI-1949: see below
   },
   repeat_offender: boolean,
   about: {                             // AECI-1296, the onboarding answers
@@ -5062,6 +5069,12 @@ AdminUserDetail = {
 - **`repeat_offender`** is `counts.reviews.rejected >= REPEAT_OFFENDER_THRESHOLD`,
   computed server-side from the same shared constant the moderation queue uses, so
   the two surfaces cannot label the same person differently.
+- **`pending_moderation` (AECI-1949)** counts what a ban with `reject_pending` would reject
+  besides `reviews.pending`: pending updates to the person's own reviews, and pending vendor
+  replies they last wrote (`review_responses.author_profile_id`). It uses the predicates the
+  ban uses (`pendingModerationCountStatements` in `apps/api/src/lib/ban-reject-pending.ts`),
+  in the detail's first `db.batch`, so the form and the ban agree. It defaults to zeros for
+  deploy skew.
 - **No per-user page views, ever.** AECI-585 dropped `page_views.user_id` /
   `session_id` / `profile_role` and `ADMIN_PANEL_SPEC.md` §9 item 7 forbids
   visitor↔account correlation. There is no join column to reconstruct.
@@ -5162,12 +5175,27 @@ export const BanReviewerSchema = z.object({
   // (mirrors ModerateReviewSchema). Stored on `profiles.ban_reason`; cleared on unban.
   // Internal (AECI-1973): the banned person's 403 reads "Account suspended", never this.
   reason: z.string().max(500).optional(),
+  // AECI-1949: also reject the person's pending items in the ban's batch (below).
+  // Only valid with `ban`; sent with `unban` it is a 400 VALIDATION_FAILED on this field.
+  reject_pending: z.boolean().optional(),
+});
+
+export const BAN_REJECT_MAX_ITEMS = 100;
+export const BAN_REJECTION_REASON =
+  'Declined because the account that submitted it can no longer post on AEC Integrations.';
+
+export const BanRejectedCountsSchema = z.object({
+  reviews: z.number().int().min(0),
+  review_updates: z.number().int().min(0),
+  review_responses: z.number().int().min(0),
 });
 
 export const BanReviewerResponseSchema = z.object({
   reviewer_id: z.string().uuid(),
   banned_at: z.string().datetime().nullable(), // null after unban
   ban_reason: z.string().nullable(),
+  // AECI-1949: what the ban rejected. All zero without `reject_pending`. Optional for deploy skew.
+  rejected: BanRejectedCountsSchema.optional(),
 });
 export type BanReviewerResponse = z.infer<typeof BanReviewerResponseSchema>;
 ```
@@ -5260,10 +5288,42 @@ is still left, for example one created between the read and the batch: the ban a
 `409 VENDOR_SEATS_CHANGED` and writes nothing. A ban that leaves an unbanned seat revokes
 nothing. An unban restores no invite.
 
+**Reject pending (AECI-1949, 2026-11-26).** A ban with `reject_pending: true` also rejects the
+person's pending items in the ban's own `db.batch`, after the ban's statements
+(`apps/api/src/lib/ban-reject-pending.ts`). It works for a reviewer and for a vendor seat.
+
+- **What it rejects.** Pending reviews by `reviews.reviewer_id`. Pending updates to those
+  reviews, through the review. Pending vendor replies the person last wrote, by
+  `review_responses.author_profile_id`. These are the sets `GET /api/admin/users/:id` counts.
+- **The same writes as a manual reject.** Each item goes through the builder its own `PATCH`
+  uses (`apps/api/src/lib/review-moderation.ts`), with its own sentinel. It writes
+  `rejection_reason = BAN_REJECTION_REASON` and its normal audit action: `review.rejected`,
+  `review_update.rejected` or `review_response.rejected`. The actor is the admin.
+  `metadata.source` is `admin-ban`, `metadata.ban_audit_id` is the ban's audit row id, and
+  `metadata.rejection_reason` is the fixed reason. A review also completes its
+  `review_moderation` workflow with a transition. A reply also writes its usual
+  `portal-review-response` `notification.sent` row to the vendor.
+- **The cap.** Above `BAN_REJECT_MAX_ITEMS` (100) items in total the route answers
+  `422 BAN_REJECT_TOO_MANY` with `details: { reviews, review_updates, review_responses, max }`.
+  Nothing is written, the ban included.
+- **A lost race aborts everything.** Any item sentinel aborts the whole batch. The route then
+  re-reads the pending set. If it moved, the answer is `409 BAN_PENDING_CHANGED`. If not, a
+  vendor-seat ban answers `409 VENDOR_SEATS_CHANGED`, and a reviewer ban rethrows the error.
+- **Email.** No `review-rejected` email (ruling 1 of 2026-11-26). Each rejected update sends
+  `review-update-rejected` after commit, with the fixed reason and the manual reject's dedupe key
+  `review-update-decision:{id}` (ruling 1a). A failed send warns and is swallowed.
+- **No recompute, reindex or purge.** Nothing pending was ever public.
+- **Metric.** `aeci.moderation.ban_rejected`, one count per kind with at least one item
+  (`OBSERVABILITY.md`).
+- **Response.** `rejected` counts what was rejected, by kind. It is all zeros without
+  `reject_pending`.
+
 Errors: `NOT_FOUND` (unknown profile id); `INVALID_STATE_TRANSITION` (422) when
 banning an already-banned reviewer, unbanning one who isn't banned, or a concurrent
 flip; `FORBIDDEN` (403) when the target is an admin account or the acting admin
-themselves (a banned admin would lock themselves out of `requireAdmin()`).
+themselves (a banned admin would lock themselves out of `requireAdmin()`);
+`VALIDATION_FAILED` (400) for `reject_pending` with `unban`; `BAN_REJECT_TOO_MANY` (422) and
+`BAN_PENDING_CHANGED` (409) above.
 
 ---
 
@@ -5371,6 +5431,7 @@ export const ReviewResponseStatusSchema = z.enum([
 
 export const ListAdminReviewResponsesQuerySchema = PageQuerySchema.extend({
   status: ReviewResponseStatusSchema.default('pending'),
+  account_id: z.string().uuid().optional(), // AECI-1949: replies this seat last wrote (`author_profile_id`)
 });
 
 export const AdminReviewResponseSchema = z.object({
@@ -5380,6 +5441,7 @@ export const AdminReviewResponseSchema = z.object({
   rejection_reason: z.string().nullable(),
   vendor: z.object({ id: z.string().uuid(), slug: z.string(), name: z.string() }),
   vendor_owns_product: z.boolean(),          // false: the reply will not render even if approved
+  author_profile_id: z.string().uuid().nullable().optional(), // AECI-1949: the author seat; null once erased
   author_email: z.string().nullable(),       // the seat that last wrote it; null when erased or the GoTrue seam fails
   product: ProductLinkSchema,                // { id, slug, name }
   review: z.object({
@@ -5444,6 +5506,7 @@ The reviewer-update moderation queue (`STAGE_1_SPEC.md` §4.7a, `ADMIN_PANEL_SPE
 ```typescript
 export const ListAdminReviewUpdatesQuerySchema = PageQuerySchema.extend({
   status: z.enum(['pending', 'approved', 'rejected', 'removed']).default('pending'),
+  account_id: z.string().uuid().optional(), // AECI-1949: one reviewer's updates, through the review
 });
 
 export const AdminReviewUpdateSchema = z.object({
@@ -5454,6 +5517,7 @@ export const AdminReviewUpdateSchema = z.object({
   rating_onboarding: z.number().int().min(1).max(5).nullable(),
   rejection_reason: z.string().nullable(),
   toxicity_score: z.number().nullable(),     // null when unscored
+  reviewer_id: z.string().uuid().nullable().optional(), // AECI-1949: the review's author; null once erased
   reviewer_email: z.string().nullable(),     // null when anonymized or the GoTrue seam fails
   product: ProductLinkSchema,                // { id, slug, name, logo_url }
   review: z.object({                         // the original review, exactly as published

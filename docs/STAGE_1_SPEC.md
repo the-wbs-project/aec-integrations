@@ -1768,6 +1768,7 @@ Brand tokens validated against WCAG AA contrast ratios:
   - Their existing approved reviews remain visible but flagged internally
   - Cannot create new accounts with the same email (Supabase Auth enforces)
 - Bans are applied manually by admins via direct SQL or admin UI
+- A ban may also reject the person's pending reviews, review updates and vendor replies in the same write, with a fixed reason (AECI-1949, 2026-11-26). The admin chooses it on the ban form. `ADMIN_PANEL_SPEC.md` §5.8 owns the behaviour
 - "Repeat offender" pattern: if a user's third review is rejected, prompt admin to consider a ban
 
 ### 22.4 Review duplicate detection
