@@ -108,6 +108,44 @@ const PORTAL_NAV = new Set([
   'Reviews',
 ]);
 
+/**
+ * AECI-1885, first Linux run (2026-11-26, run 45788445186). Some findings depend on
+ * the OS as well as the engine: Linux fonts change the layout, and Linux draws the
+ * browser's own rings and boxes another way. An entry for one OS says so in its
+ * `applies`, so the other OS declares no test for it and a Mac run stays green.
+ */
+const ON_LINUX = process.platform === 'linux';
+
+/**
+ * Linux WebKit: the pages where the mailing-list band's "Email address" field ends
+ * under the consent banner after Tab (AECI-2195). WebKit does not scroll a text
+ * field that is already in the viewport, and on Linux the band sits lower.
+ */
+const LINUX_WEBKIT_BAND_UNDER_BANNER = new Set([
+  'product-detail',
+  'product-index',
+  'vendor-index',
+  'vendor-detail',
+  'integration-detail',
+  'product-pair',
+  'category-browse',
+  'audience-browse',
+  'phase-browse',
+  'audiences-index',
+  'phases-index',
+]);
+
+/** Linux WebKit: the pages whose native checkboxes draw a 1.59:1 edge (AECI-2228). */
+const LINUX_WEBKIT_PALE_CHECKBOXES = new Set([
+  'account',
+  'product-index',
+  'vendor-index',
+  'integration-index',
+  'category-browse',
+  'audience-browse',
+  'phase-browse',
+]);
+
 /** The surfaces where WebKit leaves a text field under the consent banner (AECI-2195). */
 const WEBKIT_FIELDS_UNDER_BANNER = new Set([
   'login',
@@ -224,6 +262,125 @@ export const KNOWN_FOCUS_BARRIERS: readonly FocusBarrier[] = [
       ),
   },
   {
+    // Linux Chromium draws the consent banner link's default `outline: auto` as
+    // a 1px ring, and on Linux the link wraps onto two lines, so its box is
+    // wide (1068 pixels needed, 760 drawn). A Mac draws it thicker on one line
+    // and passes. The cause is AECI-2197: the link has no ring of its own.
+    check: 'contrast',
+    issue: 'AECI-2197',
+    browsers: ['chromium'],
+    applies: () => ON_LINUX,
+    covers: ({ stop, detail }) =>
+      stop.role === 'link' &&
+      stop.landmark === 'page' &&
+      stop.name === 'Read our Privacy Policy' &&
+      / 1px auto /.test(detail),
+    mark: () =>
+      knownFailure(
+        'AECI-2197',
+        'Linux Chromium draws the default outline auto as a 1px ring round a wrapped link',
+      ),
+  },
+  {
+    // AECI-2097 in Linux Chromium: with Linux fonts the section nav also clips
+    // the ring of its last link, "Seats". A Mac measures it clean.
+    check: 'contrast',
+    issue: 'AECI-2097',
+    browsers: ['chromium'],
+    applies: (surface) => ON_LINUX && surface.id === 'vendor-products',
+    covers: ({ stop }) => stop.role === 'link' && stop.landmark === 'nav' && stop.name === 'Seats',
+    mark: () =>
+      knownFailure(
+        'AECI-2097',
+        'the vendor portal section nav clips the top and bottom of its links’ focus ring',
+      ),
+  },
+  {
+    // AECI-2100 in Linux Chromium: after Tab, "Your review" sits low enough
+    // that the centre of its visible strip is under the consent banner. A Mac
+    // leaves the centre clear, so it passed there (the issue's agent notes).
+    check: 'obscured',
+    issue: 'AECI-2100',
+    browsers: ['chromium'],
+    applies: (surface) => ON_LINUX && surface.id === 'review-submission',
+    covers: ({ stop, detail }) =>
+      stop.role === 'textbox' &&
+      stop.name === 'Your review' &&
+      detail.includes('in aec-consent-banner'),
+    mark: () =>
+      knownFailure(
+        'AECI-2100',
+        'after Tab the review text area sits under the consent banner, its centre covered on Linux',
+      ),
+  },
+  {
+    // The same text area in Linux WebKit: the banner and the length error that
+    // renders on blur leave too little of its ring to reach 3:1.
+    check: 'contrast',
+    issue: 'AECI-2100',
+    browsers: ['webkit'],
+    applies: (surface) => ON_LINUX && surface.id === 'review-submission',
+    covers: ({ stop }) => stop.role === 'textbox' && stop.name === 'Your review',
+    mark: () =>
+      knownFailure(
+        'AECI-2100',
+        'the consent banner covers part of the review text area and its ring',
+      ),
+  },
+  {
+    // AECI-2195 in Linux WebKit: the mailing-list band's field under the banner.
+    check: 'obscured',
+    issue: 'AECI-2195',
+    browsers: ['webkit'],
+    applies: (surface) => ON_LINUX && LINUX_WEBKIT_BAND_UNDER_BANNER.has(surface.id),
+    covers: ({ stop, detail }) =>
+      stop.role === 'textbox' &&
+      stop.name === 'Email address' &&
+      detail.includes('in aec-consent-banner'),
+    mark: () =>
+      knownFailure(
+        'AECI-2195',
+        'WebKit ignores the consent banner scroll margin for a text field, so it lands under the banner',
+      ),
+  },
+  {
+    // The same field: the banner covers part of its ring.
+    check: 'contrast',
+    issue: 'AECI-2195',
+    browsers: ['webkit'],
+    applies: (surface) => ON_LINUX && LINUX_WEBKIT_BAND_UNDER_BANNER.has(surface.id),
+    covers: ({ stop }) => stop.role === 'textbox' && stop.name === 'Email address',
+    mark: () =>
+      knownFailure('AECI-2195', 'the consent banner covers part of the field and its ring'),
+  },
+  {
+    // Linux WebKit, the account page: the "LinkedIn profile" field's centre is
+    // clear, but the banner covers part of its ring (inferred from the count:
+    // 359 changed pixels where its box needs 738).
+    check: 'contrast',
+    issue: 'AECI-2195',
+    browsers: ['webkit'],
+    applies: (surface) => ON_LINUX && surface.id === 'account',
+    covers: ({ stop }) => stop.role === 'textbox' && stop.name === 'LinkedIn profile',
+    mark: () =>
+      knownFailure('AECI-2195', 'the consent banner covers part of the field and its ring'),
+  },
+  {
+    // Linux WebKit draws an unchecked native checkbox with a pale grey edge,
+    // 1.59:1 on white. The Mac draws it darker and passes. The site sets only
+    // the checkbox's size and accent colour, so the edge is the browser's.
+    check: 'boundary',
+    issue: 'AECI-2228',
+    browsers: ['webkit'],
+    applies: (surface) => ON_LINUX && LINUX_WEBKIT_PALE_CHECKBOXES.has(surface.id),
+    covers: ({ stop, detail }) => stop.role === 'checkbox' && detail.includes('(drawn box)'),
+    mark: () =>
+      knownFailure(
+        'AECI-2228',
+        'Linux WebKit draws an unchecked native checkbox edge at 1.59:1 on white',
+      ),
+  },
+  {
     check: 'boundary',
     issue: 'AECI-2098',
     browsers: ['chromium', 'firefox', 'webkit'],
@@ -269,7 +426,9 @@ test.describe('a11y nightly focus ring', () => {
         surfaceAnnotations(surface),
         async ({ context, page }) => {
           // The longest surface takes under a minute on one quiet worker.
-          test.setTimeout(240_000);
+          // Linux WebKit takes pictures about five times slower than a Mac:
+          // the listing pages ran past 240 s on the first Linux run (AECI-1885).
+          test.setTimeout(test.info().project.name === 'webkit' ? 600_000 : 240_000);
           await prepareSurface(context, surface, fixturesPresent);
           await guardWrites(page);
           await fakeHeaderSearch(page);

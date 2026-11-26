@@ -4,8 +4,8 @@
  * Runs under `node --test` from root `pnpm test:scripts`.
  *
  * What must hold, or a lane drops out of the result without anyone seeing:
- *   1. The `suite`, `e2e-axe` and `cross-browser` matrices list exactly 1..SUITE_SHARDS,
- *      1..E2E_AXE_SHARDS and 1..CROSS_BROWSER_SHARDS, and each job name says /N (AECI-1874
+ *   1. The `suite` and `e2e-axe` matrices list exactly 1..SUITE_SHARDS and 1..E2E_AXE_SHARDS,
+ *      and `cross-browser` lists 1..FIREFOX_SHARDS and 1..WEBKIT_SHARDS, and each job name says /N (AECI-1874
  *      sharded `suite`). `suite` runs Chromium only. `cross-browser` runs the browsers in
  *      CROSS_BROWSERS from its own browser cache (AECI-1885).
  *   2. Every summary `report` merges is one a job uploads, under that name and file.
@@ -76,6 +76,21 @@ function crossBrowsers() {
   return match[1].split(' ');
 }
 
+/** A browser's shard count: FIREFOX_SHARDS, WEBKIT_SHARDS. */
+function browserShards(browser) {
+  return shardTotal(`${browser.toUpperCase()}_SHARDS`);
+}
+
+/** The env the parts check reads for the browser lane. */
+function crossEnv() {
+  return {
+    CROSS_BROWSERS: crossBrowsers().join(' '),
+    ...Object.fromEntries(
+      crossBrowsers().map((b) => [`${b.toUpperCase()}_SHARDS`, String(browserShards(b))]),
+    ),
+  };
+}
+
 const LANES = [
   { job: 'e2e-axe', total: 'E2E_AXE_SHARDS', config: 'playwright.e2e-axe.config.ts', project: '' },
   {
@@ -85,12 +100,6 @@ const LANES = [
     // AECI-1885: the nightly config also holds firefox and webkit. The suite
     // shards run Chromium only, once (ADR 0060 decision 3).
     project: '--project=chromium ',
-  },
-  {
-    job: 'cross-browser',
-    total: 'CROSS_BROWSER_SHARDS',
-    config: 'playwright.a11y-nightly.config.ts',
-    project: '--project="\\$BROWSER" ',
   },
 ];
 
@@ -113,16 +122,36 @@ for (const lane of LANES) {
   });
 }
 
+test('the cross-browser matrix lists each browser\'s shards 1..N, and its name and run say /N', () => {
+  const body = job('cross-browser');
+  const entries = [...body.matchAll(/- \{ browser: ([a-z]+), shard: (\d+), of: (\d+) \}/g)].map(
+    (m) => ({ browser: m[1], shard: Number(m[2]), of: Number(m[3]) }),
+  );
+  const want = crossBrowsers().flatMap((b) =>
+    Array.from({ length: browserShards(b) }, (_, i) => ({
+      browser: b,
+      shard: i + 1,
+      of: browserShards(b),
+    })),
+  );
+  assert.deepEqual(entries, want);
+  assert.equal(browserShards('webkit'), 6, 'WebKit runs six shards on Linux (first run, 2026-11-26)');
+  assert.match(
+    body,
+    /name: Accessibility nightly, \$\{\{ matrix\.browser \}\} \(shard \$\{\{ matrix\.shard \}\}\/\$\{\{ matrix\.of \}\}\)/,
+  );
+  assert.match(body, /SHARD_TOTAL: \$\{\{ matrix\.of \}\}/);
+  assert.match(
+    body,
+    /-c playwright\.a11y-nightly\.config\.ts --project="\$BROWSER" --shard="\$SHARD\/\$SHARD_TOTAL"/,
+  );
+  assert.match(body, /fail-fast: false/);
+});
+
 test('the cross-browser lane runs each listed browser, from its own browser cache (AECI-1885)', () => {
   const body = job('cross-browser');
   const browsers = crossBrowsers();
   assert.deepEqual(browsers, ['firefox', 'webkit']);
-  const match = body.match(/browser: \[([a-z,\s]+)\]/);
-  assert.ok(match, 'cross-browser has a browser matrix');
-  assert.deepEqual(
-    match[1].split(',').map((b) => b.trim()),
-    browsers,
-  );
   assert.match(body, /BROWSER: \$\{\{ matrix\.browser \}\}/);
   // ADR 0060: the shared `playwright-<os>-…` key holds Chromium alone. A job
   // that restored it could not launch Firefox or WebKit, so this key differs.
@@ -222,8 +251,7 @@ test('every summary report merges is one a lane uploads', () => {
     ...process.env,
     SUITE_SHARDS: String(shardTotal('SUITE_SHARDS')),
     E2E_AXE_SHARDS: String(shardTotal('E2E_AXE_SHARDS')),
-    CROSS_BROWSERS: crossBrowsers().join(' '),
-    CROSS_BROWSER_SHARDS: String(shardTotal('CROSS_BROWSER_SHARDS')),
+    ...crossEnv(),
     GITHUB_STEP_SUMMARY: stepSummary,
     GITHUB_OUTPUT: githubOutput,
   };
@@ -244,15 +272,15 @@ test('every summary report merges is one a lane uploads', () => {
       { length: shardTotal('E2E_AXE_SHARDS') },
       (_, i) => `a11y-parts/a11y-nightly-summary-e2e-axe-${i + 1}/a11y-e2e-axe-summary.json`,
     ),
-    // AECI-1885: three shards per browser, six parts.
+    // AECI-1885: each browser's shards, three for Firefox and six for WebKit.
     ...crossBrowsers().flatMap((b) =>
       Array.from(
-        { length: shardTotal('CROSS_BROWSER_SHARDS') },
+        { length: browserShards(b) },
         (_, i) => `a11y-parts/a11y-nightly-summary-${b}-${i + 1}/a11y-nightly-summary.json`,
       ),
     ),
   ];
-  assert.equal(expected.length, 18, 'eight suite, four sweep and six browser parts');
+  assert.equal(expected.length, 21, 'eight suite, four sweep and nine browser parts');
   assert.equal(readFileSync(githubOutput, 'utf8').trim(), `missing=${expected.length}`);
   assert.match(readFileSync(stepSummary, 'utf8'), /### Missing summaries/);
   for (const part of expected) assert.ok(readFileSync(stepSummary, 'utf8').includes(part), part);
@@ -333,9 +361,8 @@ test('the parts check finds a shard that uploaded no summary', () => {
   for (let n = 1; n <= axe; n++) {
     place(`a11y-parts/a11y-nightly-summary-e2e-axe-${n}/a11y-e2e-axe-summary.json`);
   }
-  const cross = shardTotal('CROSS_BROWSER_SHARDS');
   for (const b of crossBrowsers()) {
-    for (let n = 1; n <= cross; n++) {
+    for (let n = 1; n <= browserShards(b); n++) {
       if (!(b === 'webkit' && n === 2)) {
         place(`a11y-parts/a11y-nightly-summary-${b}-${n}/a11y-nightly-summary.json`);
       }
@@ -344,8 +371,7 @@ test('the parts check finds a shard that uploaded no summary', () => {
   const env = {
     SUITE_SHARDS: String(suite),
     E2E_AXE_SHARDS: String(axe),
-    CROSS_BROWSERS: crossBrowsers().join(' '),
-    CROSS_BROWSER_SHARDS: String(cross),
+    ...crossEnv(),
   };
   assert.equal(outputOf('Check every summary arrived', env, dir), 'missing=2');
   place('a11y-parts/a11y-nightly-summary-suite-3/a11y-nightly-summary.json');

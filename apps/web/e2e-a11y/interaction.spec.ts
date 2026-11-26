@@ -94,7 +94,7 @@ interface InteractionBarrier extends KnownProblem {
  * is a new finding and still fails.
  */
 const CLIPPED_PORTAL_RING =
-  /^contrast: nav link "(Vendor Overview|Profile|Products|Messages|Conversations|Changes|Product Overview|Categories|Trades|Audiences|Phases|Integrations|Reviews)" \(stop \d+\): \d+ of \d+ changed pixels reach 3:1, \d+ needed\. Best (\d+(?:\.\d+)?):1 \(outline 2px solid [^)]*\), offset 2px\)$/;
+  /^contrast: nav link "(Vendor Overview|Profile|Products|Messages|Conversations|Changes|Seats|Product Overview|Categories|Trades|Audiences|Phases|Integrations|Reviews)" \(stop \d+\): \d+ of \d+ changed pixels reach 3:1, \d+ needed\. Best (\d+(?:\.\d+)?):1 \(outline 2px solid [^)]*\), offset 2px\)$/;
 
 function isClippedPortalRing(problem: string): boolean {
   const m = problem.match(CLIPPED_PORTAL_RING);
@@ -126,6 +126,23 @@ export const KNOWN_INTERACTION_BARRIERS: readonly InteractionBarrier[] = [
       knownFailure(
         'AECI-2120',
         'a press on "Browse" dragged off and released leaves the Browse panel open',
+      ),
+  },
+  {
+    // AECI-1885, first Linux run: Linux Chromium draws the consent banner link's
+    // default `outline: auto` as a 1px ring round a link that wraps there, in
+    // forced colours too. A Mac passes. The cause is AECI-2197: no ring of its own.
+    issue: 'AECI-2197',
+    check: 'forced colours focus',
+    applies: () => process.platform === 'linux',
+    matches: (p) =>
+      /^contrast: page link "Read our Privacy Policy" \(stop \d+\): .* \(outline 1px auto [^)]*\), offset 1px\)$/.test(
+        p,
+      ),
+    mark: () =>
+      knownFailure(
+        'AECI-2197',
+        'Linux Chromium draws the default outline auto as a 1px ring round a wrapped link, in forced colours too',
       ),
   },
   {

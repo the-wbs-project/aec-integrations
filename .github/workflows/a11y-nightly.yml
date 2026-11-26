@@ -15,7 +15,7 @@
 #   3. `cross-browser` (AECI-1885, ADR 0060): the keyboard, focus ring and
 #      announcement suites in Playwright's own Firefox and WebKit builds, the
 #      `firefox` and `webkit` projects of the nightly config, in
-#      CROSS_BROWSER_SHARDS shards per browser. Playwright WebKit is not
+#      FIREFOX_SHARDS and WEBKIT_SHARDS shards. Playwright WebKit is not
 #      Safari. docs/TESTING_STRATEGY.md §8.4.10.
 #   `report` merges the lanes' summaries into one a11y-nightly-summary.json
 #   (scripts/a11y-nightly-merge-summary.mjs), writes the axe findings by rule and the
@@ -104,10 +104,14 @@ env:
   # The e2e-a11y suite (AECI-1874). docs/CICD_PLAN.md §11a-quater has the
   # measured per-shard times this count comes from.
   SUITE_SHARDS: '8'
-  # The Firefox and WebKit lane (AECI-1885, ADR 0060 layout B): this many shards
-  # per browser. The `cross-browser` matrix lists exactly these browsers.
+  # The Firefox and WebKit lane (AECI-1885, ADR 0060 layout B): the browsers,
+  # and how many shards each takes. The `cross-browser` matrix lists every
+  # browser's shards 1..N with `of: N`. WebKit has more: on the Linux runner its
+  # screenshots are about five times slower than on a Mac, and three shards ran
+  # past the 30-minute limit on the first run (docs/CICD_PLAN.md §11a-quater).
   CROSS_BROWSERS: 'firefox webkit'
-  CROSS_BROWSER_SHARDS: '3'
+  FIREFOX_SHARDS: '3'
+  WEBKIT_SHARDS: '6'
 
 jobs:
   # ===========================================================================
@@ -349,22 +353,32 @@ jobs:
   # Firefox or WebKit. The run picks the browser's project, which holds only
   # the three suites (`testMatch` in the nightly config). No status token.
   cross-browser:
-    name: Accessibility nightly, ${{ matrix.browser }} (shard ${{ matrix.shard }}/3)
+    name: Accessibility nightly, ${{ matrix.browser }} (shard ${{ matrix.shard }}/${{ matrix.of }})
     needs: resolve
     if: needs.resolve.outputs.measure == 'true'
     runs-on: ubuntu-26.04
     strategy:
       # Every shard's findings land, even when one is red.
       fail-fast: false
+      # One entry per shard. `of` must equal the browser's *_SHARDS above.
       matrix:
-        browser: [firefox, webkit]
-        shard: [1, 2, 3]
+        include:
+          - { browser: firefox, shard: 1, of: 3 }
+          - { browser: firefox, shard: 2, of: 3 }
+          - { browser: firefox, shard: 3, of: 3 }
+          - { browser: webkit, shard: 1, of: 6 }
+          - { browser: webkit, shard: 2, of: 6 }
+          - { browser: webkit, shard: 3, of: 6 }
+          - { browser: webkit, shard: 4, of: 6 }
+          - { browser: webkit, shard: 5, of: 6 }
+          - { browser: webkit, shard: 6, of: 6 }
     # docs/CICD_PLAN.md §11a-quater has the measured time per shard.
     timeout-minutes: 30
     permissions:
       contents: read
     env:
       BROWSER: ${{ matrix.browser }}
+      SHARD_TOTAL: ${{ matrix.of }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -430,7 +444,7 @@ jobs:
           if [ -z "$SUPABASE_VENDOR_TEST_USER_EMAIL" ] || [ -z "$SUPABASE_VENDOR_TEST_USER_PASSWORD" ]; then
             echo "::warning::SUPABASE_VENDOR_TEST_USER_EMAIL/PASSWORD not set. The vendor surfaces will skip."
           fi
-          pnpm --filter @aeci/web exec playwright test -c playwright.a11y-nightly.config.ts --project="$BROWSER" --shard="$SHARD/$CROSS_BROWSER_SHARDS"
+          pnpm --filter @aeci/web exec playwright test -c playwright.a11y-nightly.config.ts --project="$BROWSER" --shard="$SHARD/$SHARD_TOTAL"
       - name: Keep the test summary
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v6
@@ -717,7 +731,12 @@ jobs:
             echo "a11y-parts/a11y-nightly-summary-e2e-axe-$n/a11y-e2e-axe-summary.json" >> expected-parts.txt
           done
           for browser in $CROSS_BROWSERS; do
-            for n in $(seq 1 "$CROSS_BROWSER_SHARDS"); do
+            case "$browser" in
+              firefox) total="$FIREFOX_SHARDS" ;;
+              webkit) total="$WEBKIT_SHARDS" ;;
+              *) echo "::error::no shard count for $browser"; exit 1 ;;
+            esac
+            for n in $(seq 1 "$total"); do
               echo "a11y-parts/a11y-nightly-summary-$browser-$n/a11y-nightly-summary.json" >> expected-parts.txt
             done
           done
