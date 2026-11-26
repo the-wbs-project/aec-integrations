@@ -111,7 +111,7 @@ export class MethodologyPage {
   constructor() {
     this.meta.setStaticPageMeta({
       title: $localize`:@@meta.methodologyTitle:How we research listings · AEC Integrations`,
-      description: $localize`:@@meta.methodologyDescription:How AEC Integrations researches listings: what we list, where integration data comes from, what vendor confirmation means, and why position is never for sale.`,
+      description: $localize`:@@meta.methodologyDescription:How AEC Integrations researches listings: what we list, where integration data comes from, what vendor confirmation means, and why payment never changes the order of results.`,
       canonical: canonicalUrl('/methodology'),
     });
   }

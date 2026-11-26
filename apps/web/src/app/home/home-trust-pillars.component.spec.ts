@@ -46,6 +46,15 @@ describe('HomeTrustPillars', () => {
     expect(card.textContent).not.toContain('We will earn revenue');
   });
 
+  it('ties the rankings commitment to order, not to position (AECI-2233, ruling 68)', () => {
+    const text = setup().textContent ?? '';
+    expect(text).toContain(
+      'Payment never changes the order in which products are listed or returned in search.',
+    );
+    expect(text).not.toMatch(/influences position|not bought/i);
+    expect(text).toContain('never from changing the order of results.');
+  });
+
   it('is a static band — no rotation, no controls', () => {
     const h = setup();
     // All content present at once; no single-slide panel and no buttons to drive.
