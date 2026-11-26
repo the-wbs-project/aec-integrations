@@ -22,6 +22,7 @@ import {
   decideDelivery,
   digestDay,
   groupFindings,
+  loadOpenOwnerContestCounts,
   loadUnreadThreadCounts,
   NOTIFICATION_SENT_ACTION,
   NOTIFICATION_SUPPRESSION_DAYS,
@@ -40,6 +41,7 @@ import {
   claimThreadReads,
   claimThreads,
   claims,
+  integrationFieldChallenges,
   integrations,
   notificationPreferences,
   notificationSends,
@@ -1056,5 +1058,126 @@ describe('runAttestationNotifySweep — unread threads line (AECI-1537)', () => 
 
     await sweep([], { env: { ENV: 'demo' } });
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('runAttestationNotifySweep — open change requests line (AECI-1942)', () => {
+  const I_ONE = u(651);
+  const I_TWO = u(652);
+  let n = 0;
+
+  beforeEach(async () => {
+    n = 0;
+    await t.db.insert(products).values([
+      { id: u(661), slug: 'acme-app', name: 'Acme App' },
+      { id: u(662), slug: 'globex-app', name: 'Globex App' },
+    ]);
+    await t.db.insert(integrations).values([
+      { id: I_ONE, sourceProductId: u(661), targetProductId: u(662), builtByVendorId: ACME },
+      { id: I_TWO, sourceProductId: u(662), targetProductId: u(661), builtByVendorId: ACME },
+    ]);
+  });
+
+  async function contest(
+    over: Partial<typeof integrationFieldChallenges.$inferInsert> = {},
+  ): Promise<void> {
+    await t.db.insert(integrationFieldChallenges).values({
+      id: u(670 + ++n),
+      integrationId: I_ONE,
+      field: 'name',
+      currentValue: 'Acme for Globex',
+      proposedValue: 'Globex for Acme',
+      reason: 'The listing reads the other way.',
+      submitterVendorId: GLOBEX,
+      routedTo: 'owner',
+      ownerVendorId: ACME,
+      status: 'open',
+      createdAt: daysAgo(2),
+      updatedAt: daysAgo(2),
+      ...over,
+    });
+  }
+
+  function sentBodies(): Array<{ to: string; subject: string; text: string }> {
+    return fetchSpy.mock.calls.map((call) => JSON.parse(String((call[1] as RequestInit).body)));
+  }
+
+  describe('loadOpenOwnerContestCounts', () => {
+    it('counts open owner-routed contests per owner vendor', async () => {
+      await contest();
+      await contest({ integrationId: I_TWO, field: 'direction', currentValue: 'a_to_b' });
+      expect(Object.fromEntries(await loadOpenOwnerContestCounts(t.db as Db))).toEqual({
+        [ACME]: 2,
+      });
+    });
+
+    it('ignores a decided or withdrawn contest, and one routed to AECi', async () => {
+      await contest({ status: 'declined', decidedAt: daysAgo(1) });
+      await contest({ status: 'withdrawn' });
+      await contest({ routedTo: 'aeci', ownerVendorId: null, field: 'owner' });
+      // A seat lapse moved it to AECi (AECI-989): AECi answers it now.
+      await contest({ routedTo: 'aeci', ownerSeatLapsedAt: daysAgo(1), field: 'direction' });
+      expect((await loadOpenOwnerContestCounts(t.db as Db)).size).toBe(0);
+    });
+
+    it('still counts a contest past its 30-day window: the owner may answer late', async () => {
+      await contest({ createdAt: daysAgo(45), updatedAt: daysAgo(45) });
+      expect((await loadOpenOwnerContestCounts(t.db as Db)).get(ACME)).toBe(1);
+    });
+  });
+
+  it('sends a digest whose only content is the contest line, and writes no ledger row', async () => {
+    await contest();
+
+    const result = await sweep([]);
+
+    const sent = sentBodies();
+    expect(sent.map((m) => m.to)).toEqual(['acme@example.com']);
+    expect(sent[0].subject).toBe('1 change request is waiting for your answer');
+    expect(sent[0].text).toContain('Accept or decline each one under Change requests in Messages');
+    // It never quotes the request: the counter-party wrote it.
+    expect(sent[0].text).not.toContain('The listing reads the other way.');
+    expect(result).toMatchObject({ found: 0, digestsSent: 1 });
+    expect(await ledgerRows()).toHaveLength(0);
+    const keys = await t.db.select({ key: notificationSends.dedupeKey }).from(notificationSends);
+    expect(keys.map((k) => k.key)).toEqual([vendorDigestKey(ACME, ACME_SEAT, digestDay(NOW))]);
+  });
+
+  it('adds the line to a digest that also lists findings, in one email', async () => {
+    await contest();
+    await contest({ integrationId: I_TWO });
+
+    await sweep([finding({ vendorId: ACME })]);
+
+    const sent = sentBodies();
+    expect(sent.map((m) => m.to)).toEqual(['acme@example.com']);
+    expect(sent[0].subject).toBe('Procore confirmed RFIs with Revit');
+    expect(sent[0].text).toContain('2 change requests are waiting for your answer.');
+  });
+
+  it('tells only the owner, never the submitter', async () => {
+    await contest();
+    await sweep([]);
+    expect(sentBodies().map((m) => m.to)).not.toContain('globex@example.com');
+  });
+
+  it('sends nothing when no contest is open and nothing was found', async () => {
+    await contest({ status: 'accepted', decidedAt: daysAgo(1) });
+    await sweep([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('respects the nudge mute: a muted seat gets no contest-only digest', async () => {
+    await contest();
+    await mute(ACME_SEAT);
+    await sweep([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('sends once per seat per day: a same-day replay is a duplicate', async () => {
+    await contest();
+    await sweep([]);
+    await sweep([]);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 });

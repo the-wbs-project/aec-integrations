@@ -26,11 +26,13 @@ import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import { createModerateContestHandler } from '../routes/admin-contests';
 import { createFileContestProtestHandler } from '../routes/vendor-contest-protests';
-import { createDecideContestHandler } from '../routes/vendor-contests';
+import { createDecideContestHandler, createSubmitContestHandler } from '../routes/vendor-contests';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext } from '../test/helpers';
 import type { AuthzVariables } from './authz';
 import {
+  contestSubmittedOwnerKey,
+  emailContestSubmittedToOwner,
   emailProtestFiled,
   protestReminderKey,
   runProtestReplyReminderSweep,
@@ -199,8 +201,21 @@ function app(auth: AuthzVariables['auth']) {
     createDecideContestHandler(t.factory, { fetchSeatEmails }),
   );
   a.patch('/api/admin/contests/:id', createModerateContestHandler(t.factory, vi.fn()));
+  a.post(
+    '/api/vendor/integrations/:id/contests',
+    createSubmitContestHandler(
+      t.factory,
+      () => true,
+      undefined,
+      aeciAlert,
+      (c, db, row) => emailContestSubmittedToOwner(c, db, row, { fetchSeatEmails }),
+    ),
+  );
   return a;
 }
+
+/** The AECi alert seam, stubbed: its own spec covers it. */
+const aeciAlert = vi.fn(async () => 'sent' as const);
 
 async function call(
   auth: AuthzVariables['auth'],
@@ -246,6 +261,12 @@ function cronCtx() {
     req: { raw: new Request('https://aeci-api/cron/protest-reply-reminder') },
   };
 }
+
+const NAME_CONTEST = {
+  field: 'name',
+  proposed_value: 'Revit Connector for MicroStation',
+  reason: 'That is what the listing calls it.',
+};
 
 const PROTEST = {
   reason: 'The product page and the listing both use the longer name.',
@@ -359,6 +380,97 @@ describe('filing a protest (AECI-1205)', () => {
     );
     expect(status).toBe(409);
     expect(sent()).toEqual([]);
+  });
+});
+
+// ─── Submitting a contest (AECI-1942) ────────────────────────────────────────
+
+describe('submitting a contest (AECI-1942)', () => {
+  beforeEach(() => aeciAlert.mockClear());
+
+  const submittedRow = async () => {
+    const [row] = await t.db.select().from(integrationFieldChallenges);
+    return row!;
+  };
+
+  it('emails every owner seat the 30-day answer date on an owner-routed contest', async () => {
+    const status = await call(
+      seat(SEAT_A1, VENDOR_A),
+      'POST',
+      `/api/vendor/integrations/${I_MAIN}/contests`,
+      NAME_CONTEST,
+    );
+    expect(status).toBe(201);
+    const row = await submittedRow();
+    expect(row.routedTo).toBe('owner');
+
+    const by = formatDeadline(addContestDays(row.createdAt, 30));
+    const mail = sent();
+    expect(mail.map((m) => m.to).sort()).toEqual(['kim@bentley.com', 'sam@bentley.com']);
+    const first = mail.find((m) => m.to === 'sam@bentley.com')!;
+    expect(first.subject).toBe(`Answer by ${by}: change requested on ${NAME}`);
+    expect(first.text).toContain('Autodesk asked Bentley to change the "name" detail');
+    expect(first.text).toContain(`If you have not answered by ${by}, Autodesk may ask`);
+    expect(first.text).toContain(`Their reason: ${NAME_CONTEST.reason}`);
+    expect(first.text).toContain('Proposed value: Revit Connector for MicroStation');
+    expect(first.text).toContain('https://www.aecintegrations.com/vendor/bentley/messages');
+    // The submitter is not told, and AECi is not alerted: the owner decides.
+    expect(aeciAlert).not.toHaveBeenCalled();
+
+    const rows = await ledger('contest-submitted-owner');
+    expect(rows.map((r) => r.dedupeKey).sort()).toEqual(
+      [contestSubmittedOwnerKey(row.id, SEAT_B1), contestSubmittedOwnerKey(row.id, SEAT_B2)].sort(),
+    );
+    expect(rows.every((r) => r.outcome === 'sent')).toBe(true);
+  });
+
+  it('a replay of the same contest sends nothing and records duplicates', async () => {
+    await call(
+      seat(SEAT_A1, VENDOR_A),
+      'POST',
+      `/api/vendor/integrations/${I_MAIN}/contests`,
+      NAME_CONTEST,
+    );
+    expect(sent()).toHaveLength(2);
+    await emailContestSubmittedToOwner(cronCtx(), t.db as Db, await submittedRow(), {
+      fetchSeatEmails,
+    });
+    expect(sent()).toHaveLength(2);
+    const outcomes = (await ledger('contest-submitted-owner')).map((r) => r.outcome);
+    expect(outcomes.filter((o) => o === 'duplicate')).toHaveLength(2);
+  });
+
+  it('an AECi-routed contest emails no vendor seat', async () => {
+    const status = await call(
+      seat(SEAT_A1, VENDOR_A),
+      'POST',
+      `/api/vendor/integrations/${I_MAIN}/contests`,
+      { field: 'owner', proposed_value: VENDOR_A, reason: 'We built it, not Bentley.' },
+    );
+    expect(status).toBe(201);
+    expect((await submittedRow()).routedTo).toBe('aeci');
+    expect(aeciAlert).toHaveBeenCalledOnce();
+    expect(sent()).toEqual([]);
+    expect(await ledger('contest-submitted-owner')).toEqual([]);
+  });
+
+  it('a refused contest sends nothing', async () => {
+    const status = await call(
+      seat(SEAT_A1, VENDOR_A),
+      'POST',
+      `/api/vendor/integrations/${I_MAIN}/contests`,
+      { ...NAME_CONTEST, proposed_value: NAME },
+    );
+    expect(status).toBe(422);
+    expect(sent()).toEqual([]);
+  });
+
+  it('the sender ignores a row that is not routed to an owner', async () => {
+    await seedContest({ status: 'open', routedTo: 'aeci', ownerVendorId: null });
+    const [row] = await t.db.select().from(integrationFieldChallenges);
+    await emailContestSubmittedToOwner(cronCtx(), t.db as Db, row!, { fetchSeatEmails });
+    expect(sent()).toEqual([]);
+    expect(fetchSeatEmails).not.toHaveBeenCalled();
   });
 });
 

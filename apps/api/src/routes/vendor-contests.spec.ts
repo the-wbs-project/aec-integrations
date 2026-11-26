@@ -46,6 +46,7 @@ import {
   createDecideContestHandler,
   createListVendorContestsHandler,
   createSubmitContestHandler,
+  type NotifyContestOwner,
   type SendContestAlert,
   createWithdrawContestHandler,
 } from './vendor-contests';
@@ -89,6 +90,8 @@ let t: TestDb;
 let claimed = false;
 /** AECI-1132: the operator alert seam, captured rather than sent. */
 let alerts = vi.fn<SendContestAlert>();
+/** AECI-1942: the owner email seam, captured rather than sent. */
+let owners = vi.fn<NotifyContestOwner>();
 /** Spread over `TEST_ENV` in `call()`; the re-crawl plan gate sets it (AECI-1186). */
 let callEnv: Partial<Env> = {};
 
@@ -96,6 +99,7 @@ beforeEach(async () => {
   claimed = false;
   callEnv = {};
   alerts = vi.fn<SendContestAlert>().mockResolvedValue('sent');
+  owners = vi.fn<NotifyContestOwner>().mockResolvedValue(undefined);
   t = await makeTestDb();
   await t.db.insert(vendors).values([
     { id: VENDOR_A, slug: 'autodesk', companyName: 'Autodesk' },
@@ -145,7 +149,7 @@ function app(auth: AuthzVariables['auth']) {
   });
   a.post(
     '/api/vendor/integrations/:id/contests',
-    createSubmitContestHandler(t.factory, () => claimed, undefined, alerts),
+    createSubmitContestHandler(t.factory, () => claimed, undefined, alerts, owners),
   );
   a.get('/api/vendor/contests', createListVendorContestsHandler(t.factory));
   a.post('/api/vendor/contests/:id/withdraw', createWithdrawContestHandler(t.factory));
@@ -520,7 +524,7 @@ describe('POST /api/vendor/integrations/:id/contests', () => {
     expect(alerts.mock.calls[0]![1]).toMatchObject({ routeReason: 'owner-seat-lapsed' });
   });
 
-  it('sends no email when the contest routes to the owner', async () => {
+  it('sends AECi no email when the contest routes to the owner', async () => {
     claimed = true;
     const { body } = await submit(AUTH_A, I_MAIN, NAME_CONTEST);
     expect(body.contest.routed_to).toBe('owner');
@@ -539,6 +543,40 @@ describe('POST /api/vendor/integrations/:id/contests', () => {
     alerts.mockRejectedValue(new Error('resend down'));
     const { status } = await submit(AUTH_A, I_MAIN, NAME_CONTEST);
     expect(status).toBe(201);
+  });
+
+  // AECI-1942 (§11b.8): the owner's seats get the 30-day answer date by email.
+  it('emails the owner once, with the committed row, when the contest routes to it', async () => {
+    claimed = true;
+    const { status, body } = await submit(AUTH_A, I_MAIN, NAME_CONTEST);
+    expect(status).toBe(201);
+    expect(body.contest.routed_to).toBe('owner');
+    expect(owners).toHaveBeenCalledTimes(1);
+    const row = owners.mock.calls[0]![2];
+    expect(row).toMatchObject({
+      id: body.contest.id,
+      routedTo: 'owner',
+      ownerVendorId: VENDOR_B,
+      submitterVendorId: VENDOR_A,
+      field: 'name',
+    });
+    expect(await contestRows()).toHaveLength(1);
+  });
+
+  it('does not email the owner when the contest routes to AECi', async () => {
+    const { body } = await submit(AUTH_A, I_MAIN, NAME_CONTEST);
+    expect(body.contest.routed_to).toBe('aeci');
+    expect(alerts).toHaveBeenCalledTimes(1);
+    expect(owners).not.toHaveBeenCalled();
+  });
+
+  it('does not email the owner when the submit is refused', async () => {
+    claimed = true;
+    await submit(AUTH_A, I_MAIN, NAME_CONTEST);
+    owners.mockClear();
+    const dup = await submit(AUTH_A, I_MAIN, NAME_CONTEST);
+    expect(dup.status).toBe(409);
+    expect(owners).not.toHaveBeenCalled();
   });
 
   it('leaves the stamp NULL on every ordinary contest', async () => {

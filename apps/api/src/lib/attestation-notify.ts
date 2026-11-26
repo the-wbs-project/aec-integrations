@@ -8,8 +8,10 @@
  *   1. groups the due vendor findings by vendor, then by seat;
  *   2. sends ONE `attestation-digest` per unmuted seat per day, listing every due
  *      finding for that seat's vendor, plus one line counting the seat's unread
- *      private row threads (§15.8, AECI-1537). The thread line alone is enough to
- *      send; it writes no ledger row, since the portal has its own thread notices;
+ *      private row threads (§15.8, AECI-1537), and one line counting the open
+ *      change requests waiting for the vendor's answer (AECI-1942). Either line
+ *      alone is enough to send; neither writes a ledger row, since the portal has
+ *      its own thread and contest notices;
  *   3. sends ONE `attestation-ops-digest` per `SUPPORT_EMAIL` address per day,
  *      listing every due ops finding;
  *   4. records every due finding in `audit_log` (the ledger that is also the portal
@@ -120,6 +122,7 @@ import {
   claimThreadMessages,
   claimThreadReads,
   claimThreads,
+  integrationFieldChallenges,
   profiles,
   vendors,
 } from '../db/schema';
@@ -472,6 +475,34 @@ export async function loadUnreadThreadCounts(
   return out;
 }
 
+/**
+ * Open change requests per owner vendor (AECI-1942, §11b.8), as vendor id to count.
+ *
+ * A contest counts while it is `open` and routed to its owner, which is the vendor
+ * the row snapshot names. Those are the contests whose 30-day answer window runs
+ * against that vendor (§11b.12.3). A contest that moved to AECi (a seat lapse, an
+ * `owner` field) is AECi's to answer and does not count. A late contest still counts:
+ * the owner may answer it until the submitter protests.
+ *
+ * `integration_field_challenges_owner_idx` leads with `(owner_vendor_id, status)`.
+ */
+export async function loadOpenOwnerContestCounts(db: Db): Promise<Map<string, number>> {
+  const rows = await db
+    .select({ vendorId: integrationFieldChallenges.ownerVendorId, n: sql<number>`count(*)` })
+    .from(integrationFieldChallenges)
+    .where(
+      and(
+        eq(integrationFieldChallenges.status, 'open'),
+        eq(integrationFieldChallenges.routedTo, 'owner'),
+        isNotNull(integrationFieldChallenges.ownerVendorId),
+      ),
+    )
+    .groupBy(integrationFieldChallenges.ownerVendorId);
+  const out = new Map<string, number>();
+  for (const r of rows) if (r.vendorId) out.set(r.vendorId, Number(r.n));
+  return out;
+}
+
 async function loadVendorNames(db: Db, vendorIds: readonly string[]): Promise<Map<string, string>> {
   const names = new Map<string, string>();
   for (const batch of chunk([...new Set(vendorIds)], SEAT_LOOKUP_CHUNK)) {
@@ -544,7 +575,9 @@ export async function runAttestationNotifySweep(
   // unread thread still sends. A day with neither sends nothing. This is a read, so
   // it sits before the first send like every other.
   const unreadThreads = await loadUnreadThreadCounts(db);
-  if (found.length === 0 && unreadThreads.size === 0) return result;
+  // AECI-1942: the open change requests line rides it the same way.
+  const openContests = await loadOpenOwnerContestCounts(db);
+  if (found.length === 0 && unreadThreads.size === 0 && openContests.size === 0) return result;
 
   // Suppression first, then the cap, so a suppressed backlog cannot starve the
   // findings that are actually due.
@@ -582,12 +615,13 @@ export async function runAttestationNotifySweep(
   // ── Every read, and the lazy token create, BEFORE the first send. A throw here
   //    aborts the run with nothing sent and nothing recorded.
   // A vendor with no finding is in the run only for its seats' unread threads, and
-  // only those seats get a digest.
+  // only those seats get a digest. A vendor with open change requests (AECI-1942) is
+  // in the run for every seat, because the requests are the company's.
   const threadVendorIds = [...unreadThreads.values()].map((t) => t.vendorId);
-  const vendorIds = [...new Set([...byVendor.keys(), ...threadVendorIds])];
+  const vendorIds = [...new Set([...byVendor.keys(), ...openContests.keys(), ...threadVendorIds])];
   const seatsByVendor = await loadVendorSeats(db, vendorIds);
   for (const [vendorId, seats] of seatsByVendor) {
-    if (byVendor.has(vendorId)) continue;
+    if (byVendor.has(vendorId) || openContests.has(vendorId)) continue;
     seatsByVendor.set(
       vendorId,
       seats.filter((id) => unreadThreads.has(id)),
@@ -654,6 +688,7 @@ export async function runAttestationNotifySweep(
           vendorName: vendorNames.get(vendorId) ?? null,
           findings: digest,
           unreadThreads: unreadThreads.get(profileId)?.count ?? 0,
+          openContests: openContests.get(vendorId) ?? 0,
           muteToken: pref?.muteToken ?? null,
           dedupeKey: vendorDigestKey(vendorId, profileId, day),
         }),
