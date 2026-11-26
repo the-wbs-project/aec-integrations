@@ -66,6 +66,11 @@ export function welcomeNextPath(raw: string | null): string {
  * It announces the loading state, the form appearing (focus also moves to the
  * `h1`), the fields a software company is not asked, and audience count changes.
  *
+ * "How did you find AEC Integrations?" (AECI-2208, `docs/ANALYTICS.md` §11b) is
+ * the last About you question, inside the shared form. It is optional and never
+ * blocks Save, and its follow-up announcement uses this page's live region.
+ * Skip never sends it.
+ *
  * Auth and caching: the SSR Worker bounces a signed-out visitor to login
  * (`isWelcomePath`), and the route is `no-store` by the fail-closed classifier.
  * SSR paints the loading state only. The account read, and so every answer and
@@ -371,6 +376,7 @@ export class WelcomePage {
       company_size: patch.company_size ?? null,
       primary_role: patch.primary_role ?? null,
       audience_count: patch.audience_ids?.length ?? 0,
+      found_via: patch.found_via || null,
     });
     if ((await this.leave()) !== 'client') this.saving.set(false);
   }
@@ -391,6 +397,7 @@ export class WelcomePage {
         company_size: null,
         primary_role: null,
         audience_count: 0,
+        found_via: null,
       });
     } catch {
       // Leave anyway. See above.

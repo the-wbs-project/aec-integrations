@@ -148,6 +148,15 @@
           <dt [class]="c.label" i18n="@@admin.users.detail.audiences">Audiences</dt>
           <dd [class]="c.factValue">{{ a.audiences || '–' }}</dd>
         </div>
+        <!-- AECI-2208: the "How did you find us?" answer from About you. -->
+        <div class="col-span-full" data-testid="admin-user-found-via">
+          <dt [class]="c.label" i18n="@@admin.foundVia.label">Found us via</dt>
+          <dd [class]="c.factValue" class="min-w-0 break-words">
+            {{ a.foundVia }}@if (a.foundViaDetail) {
+            <span> · {{ a.foundViaDetail }}</span>
+            }
+          </dd>
+        </div>
       </dl>
     </section>
     }

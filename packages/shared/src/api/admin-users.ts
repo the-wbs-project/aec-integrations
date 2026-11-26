@@ -8,6 +8,7 @@ import {
   type SortOrder,
 } from './common';
 import { AdminAuditRowSchema } from './admin-vendors';
+import { StoredFoundViaSchema } from './found-via';
 import { OnboardingStateSchema } from './profile-details';
 import { VendorSeatInviteSchema } from './vendor';
 
@@ -350,6 +351,11 @@ export const AdminUserAboutSchema = z.object({
   /** Picked audience terms, A to Z by name. */
   audiences: LinkRefSchema.array(),
   onboarding: OnboardingStateSchema,
+  /** AECI-2208: the "How did you find AEC Integrations?" answer from About you,
+   *  shown as "Found us via". `null` when not answered. */
+  found_via: StoredFoundViaSchema,
+  /** AECI-2208: the follow-up answer, or `null`. */
+  found_via_detail: z.string().nullable(),
 });
 export type AdminUserAbout = z.infer<typeof AdminUserAboutSchema>;
 

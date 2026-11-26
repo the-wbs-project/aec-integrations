@@ -68,6 +68,7 @@ function emptyFoundVia(): AdminAudienceResponse['found_via'] {
       listings: 0,
       subscribers: 0,
       feedback: 0,
+      accounts: 0,
       total: 0,
     })),
     details: [],
@@ -458,7 +459,15 @@ describe('AdminAudience', () => {
       const head = [...s.querySelectorAll('[data-testid="found-via-counts"] thead th')].map((th) =>
         th.textContent?.trim(),
       );
-      expect(head).toEqual(['Channel', 'Claims', 'Listings', 'Subscribers', 'Feedback', 'Total']);
+      expect(head).toEqual([
+        'Channel',
+        'Claims',
+        'Listings',
+        'Subscribers',
+        'Feedback',
+        'Accounts',
+        'Total',
+      ]);
       const rows = [...s.querySelectorAll('[data-testid="found-via-counts"] tbody tr')];
       expect(rows).toHaveLength(FOUND_VIA.length + 1);
       expect(rows[0]!.querySelector('th')?.textContent?.trim()).toBe(
@@ -477,7 +486,8 @@ describe('AdminAudience', () => {
         listings: 1,
         subscribers: 4,
         feedback: 0,
-        total: 7,
+        accounts: 3,
+        total: 10,
       };
       found.details = [
         {
@@ -494,6 +504,13 @@ describe('AdminAudience', () => {
           detail: 'procore revit sync',
           created_at: '2026-08-11T10:00:00.000Z',
         },
+        {
+          form: 'account',
+          id: 'profile-1',
+          channel: 'ai_tool',
+          detail: 'reviews of procore integrations',
+          created_at: '2026-08-10T10:00:00.000Z',
+        },
       ];
       const { el } = await setup(
         makeApi({ audience: vi.fn(async () => emptyAudience({ found_via: found })) }),
@@ -506,10 +523,12 @@ describe('AdminAudience', () => {
         '1',
         '4',
         '0',
-        '7',
+        '3',
+        '10',
       ]);
       const details = [...s.querySelectorAll('[data-testid="found-via-details"] tbody tr')];
-      expect(details).toHaveLength(2);
+      expect(details).toHaveLength(3);
+      expect(details[2]!.textContent).toContain('Account');
       const first = [...details[0]!.querySelectorAll('td')].map((c) => c.textContent?.trim());
       expect(first.slice(1)).toEqual([
         'Mailing list',

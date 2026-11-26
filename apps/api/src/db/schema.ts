@@ -5027,6 +5027,13 @@ export const profileDetails = sqliteTable('profile_details', {
   onboardingCompletedAt: text('onboarding_completed_at'),
   /** Set when the user chose "Skip for now". */
   onboardingSkippedAt: text('onboarding_skipped_at'),
+  /** AECI-2208: the "How did you find AEC Integrations?" channel from About you
+   *  (`FoundViaSchema`, no CHECK), or null when not answered (`docs/ANALYTICS.md`
+   *  §11b). Audited by value in `profile.updated` (AECI-2208 ruling 1). */
+  foundVia: text('found_via'),
+  /** AECI-2208: the follow-up answer, at most 200 characters, only for a channel
+   *  that takes one. Never in an event, audit metadata or the PostHog Logs forward. */
+  foundViaDetail: text('found_via_detail'),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

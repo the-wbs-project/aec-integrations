@@ -73,6 +73,8 @@ function makeUser(over: Partial<AdminUserDetail> = {}): AdminUserDetail {
       linkedin_url: null,
       audiences: [],
       onboarding: 'pending',
+      found_via: null,
+      found_via_detail: null,
     },
     ...over,
   };
@@ -695,6 +697,8 @@ describe('UserDetail', () => {
             linkedin_url: 'https://www.linkedin.com/in/rita',
             audiences: [{ id: USER_ID, name: 'Estimator', slug: 'estimator' }],
             onboarding: 'completed',
+            found_via: 'ai_tool',
+            found_via_detail: 'best estimating integrations',
           },
         }),
       ),
@@ -706,9 +710,21 @@ describe('UserDetail', () => {
     expect(about.textContent).toContain('Turner Build');
     expect(about.textContent).toContain('Estimator');
     expect(about.textContent).toContain('Answered');
+    // AECI-2208: the About you answer, labelled as the claim detail labels it.
+    const found = about.querySelector('[data-testid="admin-user-found-via"]') as HTMLElement;
+    expect(found.textContent).toContain('Found us via');
+    expect(found.textContent).toContain('ChatGPT, Claude, Perplexity or another AI tool');
+    expect(found.textContent).toContain('best estimating integrations');
     const link = about.querySelector('a') as HTMLAnchorElement;
     expect(link.getAttribute('href')).toBe('https://www.linkedin.com/in/rita');
     expect(link.getAttribute('rel')).toBe('noopener nofollow');
+  });
+
+  it('shows "Not answered" for a user who left the found-via question blank', async () => {
+    const { el } = await setup();
+    const found = el.querySelector('[data-testid="admin-user-found-via"]') as HTMLElement;
+    expect(found.textContent).toContain('Not answered');
+    expect(found.textContent).not.toContain('·');
   });
 
   describe('audit trail (AECI-693)', () => {

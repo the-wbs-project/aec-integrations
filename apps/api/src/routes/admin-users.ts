@@ -52,6 +52,7 @@ import {
   AdminUsersListResponseSchema,
   ApiErrorCode,
   REPEAT_OFFENDER_THRESHOLD,
+  storedFoundVia,
   type AdminUserAuditScope,
   type AdminUserAuthAccount,
   type AdminUserCounts,
@@ -450,6 +451,8 @@ export function createAdminUserDetailHandler(
           linkedinUrl: profileDetails.linkedinUrl,
           onboardingCompletedAt: profileDetails.onboardingCompletedAt,
           onboardingSkippedAt: profileDetails.onboardingSkippedAt,
+          foundVia: profileDetails.foundVia,
+          foundViaDetail: profileDetails.foundViaDetail,
         })
         .from(profiles)
         .leftJoin(vendors, eq(vendors.id, profiles.vendorId))
@@ -599,6 +602,10 @@ export function createAdminUserDetailHandler(
           : profile.onboardingSkippedAt
             ? 'skipped'
             : 'pending',
+        // AECI-2208: the About you "How did you find us?" answer. An
+        // off-vocabulary value (no CHECK) reads as `null`.
+        found_via: storedFoundVia(profile.foundVia),
+        found_via_detail: profile.foundViaDetail,
       },
     };
 

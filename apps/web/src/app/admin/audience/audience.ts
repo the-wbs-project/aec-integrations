@@ -443,6 +443,7 @@ export class AdminAudience {
     listing: $localize`:@@admin.audience.foundVia.form.listing:Listing request`,
     subscriber: $localize`:@@admin.audience.foundVia.form.subscriber:Mailing list`,
     feedback: $localize`:@@admin.audience.foundVia.form.feedback:Feedback`,
+    account: $localize`:@@admin.audience.foundVia.form.account:Account`,
   };
   protected foundViaFormLabel(form: AdminFoundViaForm): string {
     return this.foundViaFormLabels[form];
