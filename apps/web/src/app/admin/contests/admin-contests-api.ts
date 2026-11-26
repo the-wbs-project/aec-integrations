@@ -21,11 +21,11 @@ import type {
   DecideContestProtestInput,
   ListAdminContestsQuery,
   ListAdminContestsResponse,
+  AdminPairContestResponse,
   AdminPairContestsResponse,
   AdminDecidePairContestInput,
   AdminDecidePairProtestInput,
   AdminVetoesResponse,
-  PairContestResponse,
   VetoWriteResponse,
   AdminDecideVetoObjectionInput,
   RemovalEndReason,
@@ -68,19 +68,28 @@ export class AdminContestsApi {
 
   // ── AECI-2042: Sync Service pair reports and endpoint vetoes ──────────────
 
-  /** `GET /api/admin/pair-contests` — open reports, or open protests. */
-  listPairContests(query: { protests?: boolean } = {}): Promise<AdminPairContestsResponse> {
-    const params = query.protests ? new HttpParams().set('protests', 'true') : new HttpParams();
+  /** `GET /api/admin/pair-contests` — open reports, open protests, or (AECI-2170) the
+   *  accepted existence reports with a listing AECi holds still to retract. */
+  listPairContests(
+    query: { protests?: boolean; retractions?: boolean } = {},
+  ): Promise<AdminPairContestsResponse> {
+    let params = new HttpParams();
+    if (query.protests) params = params.set('protests', 'true');
+    if (query.retractions) params = params.set('retractions', 'true');
     return firstValueFrom(
       this.http.get<AdminPairContestsResponse>('/api/admin/pair-contests', { params }),
     );
   }
 
-  /** `PATCH /api/admin/pair-contests/:id`. An existence accept on a vendor-held pair
-   *  retires it; it needs a note and a proof link. */
-  decidePairContest(id: string, input: AdminDecidePairContestInput): Promise<PairContestResponse> {
+  /** `PATCH /api/admin/pair-contests/:id`. An existence accept retires every listing of
+   *  the pair a vendor holds (AECI-2170); it needs a note and a proof link. Answers the
+   *  admin shape, with the pair's listings and the retract-by date. */
+  decidePairContest(
+    id: string,
+    input: AdminDecidePairContestInput,
+  ): Promise<AdminPairContestResponse> {
     return firstValueFrom(
-      this.http.patch<PairContestResponse>(
+      this.http.patch<AdminPairContestResponse>(
         `/api/admin/pair-contests/${encodeURIComponent(id)}`,
         input,
       ),
@@ -88,9 +97,12 @@ export class AdminContestsApi {
   }
 
   /** `PATCH /api/admin/pair-contests/:id/protest`. Advice only. */
-  decidePairProtest(id: string, input: AdminDecidePairProtestInput): Promise<PairContestResponse> {
+  decidePairProtest(
+    id: string,
+    input: AdminDecidePairProtestInput,
+  ): Promise<AdminPairContestResponse> {
     return firstValueFrom(
-      this.http.patch<PairContestResponse>(
+      this.http.patch<AdminPairContestResponse>(
         `/api/admin/pair-contests/${encodeURIComponent(id)}/protest`,
         input,
       ),

@@ -3,8 +3,10 @@ import { Component, LOCALE_ID, afterNextRender, inject, signal } from '@angular/
 
 import {
   REMOVAL_END_REASONS,
+  type AdminPairContest,
   type AdminVeto,
   type PairContest,
+  type PairKeyRowWire,
   type PairRightPair,
   type RemovalEndReason,
   type VetoObjection,
@@ -40,7 +42,7 @@ type Form = {
  * Sync Service pair reports and endpoint vetoes on `/admin/contests` (AECI-2042,
  * `ADMIN_PANEL_SPEC.md` §5.12, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11e).
  *
- * Three lists below the field contests, with the same one-decision-at-a-time,
+ * Four lists below the field contests, with the same one-decision-at-a-time,
  * pessimistic pattern:
  *
  * - **Reports AEC Integrations decides**: existence reports, and data flow reports on
@@ -49,6 +51,13 @@ type Form = {
  *   are the owner's and are listed read-only. Decline is the console's shared danger
  *   form (`aec-admin-danger-action`, AECI-2104), with an optional reason, as the field
  *   contests' Decline above.
+ *   AECI-2170: an existence accept acts on the whole pair key. Its form previews what
+ *   it does before Confirm: how many listings it retires and whose, and how many
+ *   AEC Integrations holds, which are retracted in the review app instead.
+ * - **To retract in the review app** (AECI-2170): accepted existence reports whose pair
+ *   still has a live listing AEC Integrations holds, with the retract-by date (five
+ *   business days) and an "Overdue" chip once it has passed. A pair drops off once the
+ *   retraction lands.
  * - **Reviews of an owner's answer**: protests. Upheld or rejected, with a note. Advice
  *   only: nothing on the listing changes.
  * - **Removals in force**: endpoint vetoes, with "Reason the vendor gave" and the filed
@@ -134,10 +143,53 @@ type Form = {
                     (keydown.escape)="closeForm()"
                   >
                     @if (r.kind === 'existence') {
-                      <p [class]="hintClass" i18n="@@admin.pairRights.accept.existenceHelp">
-                        On a vendor-held pair this retires it now. On a pair AEC Integrations holds,
-                        retract it in the review app.
-                      </p>
+                      @if (r.key_rows; as rows) {
+                        @let retire = toRetire(rows);
+                        @let retireCount = retire.length;
+                        @let retractCount = toRetract(rows).length;
+                        <div class="space-y-1 text-sm" data-admin-accept-preview>
+                          <p
+                            class="font-medium text-(--text-primary)"
+                            i18n="@@admin.pairRights.accept.retires"
+                          >
+                            {retireCount, plural,
+                              =0 {This retires no listings.}
+                              =1 {This retires 1 listing:}
+                              other {This retires {{ retireCount }} listings:}
+                            }
+                          </p>
+                          @if (retireCount > 0) {
+                            <ul class="m-0 list-disc space-y-0.5 ps-5 text-(--text-secondary)">
+                              @for (k of retire; track k.id) {
+                                <li data-admin-accept-retire>{{ keyRowLabel(r, k) }}</li>
+                              }
+                            </ul>
+                          }
+                          @if (retractCount > 0) {
+                            <p
+                              class="text-(--text-secondary)"
+                              data-admin-accept-upstream
+                              i18n="@@admin.pairRights.accept.upstream"
+                            >
+                              {retractCount, plural,
+                                =1 {
+                                  1 listing AEC Integrations holds. Retract it in the review app
+                                  within five business days.
+                                }
+                                other {
+                                  {{ retractCount }} listings AEC Integrations holds. Retract them
+                                  in the review app within five business days.
+                                }
+                              }
+                            </p>
+                          }
+                        </div>
+                      } @else {
+                        <p [class]="hintClass" i18n="@@admin.pairRights.accept.existenceHelp.v2">
+                          This retires every listing of this pair that a vendor holds. Retract the
+                          ones AEC Integrations holds in the review app.
+                        </p>
+                      }
                     }
                     <label
                       [class]="labelClass"
@@ -199,6 +251,63 @@ type Form = {
                   </form>
                 }
               }
+            </li>
+          }
+        </ul>
+      </div>
+
+      <div class="space-y-3" data-admin-retractions>
+        <h4
+          class="text-base font-semibold text-(--text-primary)"
+          i18n="@@admin.pairRights.retractions"
+        >
+          To retract in the review app
+        </h4>
+        <p
+          class="max-w-prose text-sm text-(--text-secondary)"
+          i18n="@@admin.pairRights.retractions.explain"
+        >
+          A confirmed not offered report retired the listings vendors hold. These listings AEC
+          Integrations holds are still on the site. Retract each in the review app by the date
+          shown.
+        </p>
+        @if (retractions().length === 0) {
+          <p class="text-sm text-(--text-secondary)" i18n="@@admin.pairRights.retractions.empty">
+            Nothing to retract.
+          </p>
+        }
+        <ul class="m-0 list-none space-y-3 p-0">
+          @for (r of retractions(); track r.id) {
+            <li
+              class="rounded-panel border border-(--border-default) p-4 text-sm"
+              data-admin-retraction
+            >
+              <p class="font-medium text-(--text-primary)">{{ pairName(r.pair) }}</p>
+              <p class="text-t-13 text-(--text-secondary)">
+                @if (r.decided_at; as decided) {
+                  <span class="block" i18n="@@admin.pairRights.retractions.accepted"
+                    >Accepted {{ decided | date: 'mediumDate' }}</span
+                  >
+                }
+                @if (r.retract_by; as due) {
+                  <span class="block" i18n="@@admin.pairRights.retractions.due"
+                    >Retract by {{ dueDay(due) }}</span
+                  >
+                }
+              </p>
+              @if (retractOverdue(r)) {
+                <aec-chip density="dense" [tone]="overdueTone" data-testid="retraction-overdue"
+                  ><span i18n="@@admin.pairRights.retractions.overdue">Overdue</span></aec-chip
+                >
+              }
+              <ul class="m-0 mt-2 list-disc space-y-0.5 ps-5 text-(--text-secondary)">
+                @for (k of toRetract(r.key_rows ?? []); track k.id) {
+                  <li data-admin-retraction-row>
+                    {{ k.name ?? pairName(r.pair) }}:
+                    <code class="text-t-13">{{ tableOf(k) }} {{ k.id }}</code>
+                  </li>
+                }
+              </ul>
             </li>
           }
         </ul>
@@ -529,8 +638,10 @@ export class AdminPairRights {
   /** The instant the lists were read, for the overdue marker. Set on each load. */
   protected readonly readAt = signal(0);
 
-  protected readonly reports = signal<readonly PairContest[]>([]);
-  protected readonly protests = signal<readonly PairContest[]>([]);
+  protected readonly reports = signal<readonly AdminPairContest[]>([]);
+  protected readonly protests = signal<readonly AdminPairContest[]>([]);
+  /** AECI-2170: accepted existence reports with an AECi-held listing still live. */
+  protected readonly retractions = signal<readonly AdminPairContest[]>([]);
   protected readonly vetoes = signal<readonly AdminVeto[]>([]);
   protected readonly form = signal<Form>(null);
   protected readonly note = signal('');
@@ -633,6 +744,38 @@ export class AdminPairRights {
       : $localize`:@@admin.pairRights.title.flow:Data flow ${r.flow?.data_object_name ?? ''}:flow: on ${pair}:pair:`;
   }
 
+  // ── AECI-2170: an existence accept acts on every listing of the pair ─────
+
+  /** The listings an accept retires now: held by a vendor, and live. */
+  protected toRetire(rows: readonly PairKeyRowWire[]): PairKeyRowWire[] {
+    return rows.filter((k) => k.held === 'vendor' && !k.retired);
+  }
+
+  /** The listings left to retract in the review app: held by AECi, and live. */
+  protected toRetract(rows: readonly PairKeyRowWire[]): PairKeyRowWire[] {
+    return rows.filter((k) => k.held === 'aeci' && !k.retired);
+  }
+
+  /** One listing an accept retires, named with its owner. */
+  protected keyRowLabel(r: AdminPairContest, k: PairKeyRowWire): string {
+    const name = k.name ?? this.pairName(r.pair);
+    return k.owner_name
+      ? $localize`:@@admin.pairRights.accept.retireRow:${name}:name:, held by ${k.owner_name}:owner:`
+      : $localize`:@@admin.pairRights.accept.retireRowNoOwner:${name}:name:, no owner on file`;
+  }
+
+  /** The table the review app looks the listing up in. A table name, not copy. */
+  protected tableOf(k: PairKeyRowWire): string {
+    return k.anchor === 'evidenced_pair' ? 'connector_evidenced_pairs' : 'integrations';
+  }
+
+  /** An accepted report whose retract-by instant has fully passed. */
+  protected retractOverdue(r: AdminPairContest): boolean {
+    if (!r.retract_by) return false;
+    const due = Date.parse(r.retract_by);
+    return !Number.isNaN(due) && due < this.readAt();
+  }
+
   protected openForm(id: string, kind: NonNullable<Form>['kind']): void {
     if (this.busy()) return;
     this.note.set('');
@@ -666,13 +809,28 @@ export class AdminPairRights {
       return Promise.resolve();
     }
     return this.write(async () => {
-      await this.api.decidePairContest(r.id, {
+      const res = await this.api.decidePairContest(r.id, {
         decision: 'accept',
         note,
         ...(this.source().trim() ? { source_url: this.source().trim() } : {}),
       });
-      this.status.set($localize`:@@admin.pairRights.done:Decided.`);
+      this.status.set(this.acceptedStatus(res.contest));
     });
+  }
+
+  /** What an accept did, read back from the report after the write (AECI-2170). */
+  private acceptedStatus(contest: AdminPairContest): string {
+    const rows = contest.key_rows;
+    if (contest.kind !== 'existence' || !rows) {
+      return $localize`:@@admin.pairRights.done:Decided.`;
+    }
+    const left = this.toRetract(rows);
+    if (left.length === 0) {
+      return $localize`:@@admin.pairRights.accepted.noneLeft:Accepted. Every listing of this pair is off the site.`;
+    }
+    const names = left.map((k) => `${this.tableOf(k)} ${k.id}`).join(', ');
+    const due = contest.retract_by ? this.dueDay(contest.retract_by) : '';
+    return $localize`:@@admin.pairRights.accepted.retract:Accepted. Retract in the review app by ${due}:due:. Listings: ${names}:rows:`;
   }
 
   protected decline(r: PairContest, reason: string): Promise<void> {
@@ -761,13 +919,15 @@ export class AdminPairRights {
 
   private async load(): Promise<void> {
     try {
-      const [reports, protests, vetoes] = await Promise.all([
+      const [reports, protests, retractions, vetoes] = await Promise.all([
         this.api.listPairContests(),
         this.api.listPairContests({ protests: true }),
+        this.api.listPairContests({ retractions: true }),
         this.api.listVetoes(),
       ]);
       this.reports.set(reports.data);
       this.protests.set(protests.data);
+      this.retractions.set(retractions.data);
       this.vetoes.set(vetoes.data);
       this.readAt.set(Date.now());
     } catch {

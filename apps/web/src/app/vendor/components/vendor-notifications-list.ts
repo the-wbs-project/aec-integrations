@@ -733,7 +733,12 @@ function noteOf(
             : $localize`:@@vendor.retire.notify.note.restored:It is back on the public site as it was before it was retired.`;
         // AECI-1159: the owner's row carries AECi's reason. Other rows carry none.
         const reason = notification.reason;
-        return reason ? `${note} ${reasonSentence(reason)}` : note;
+        const withReason = reason ? `${note} ${reasonSentence(reason)}` : note;
+        // AECI-2170: the owner's row says when the retire carried out a confirmed
+        // report that the integration is not offered.
+        if (!notification.existence_report_id) return withReason;
+        const report = $localize`:@@vendor.retire.notify.note.existenceReport:This followed a report that the integration is not offered.`;
+        return `${withReason} ${report}`;
       }
       return notification.event === 'retired'
         ? $localize`:@@vendor.retire.notify.note.retired:It is no longer shown on the public site. Nothing was deleted, and the owner can restore it.`

@@ -103,6 +103,12 @@ export const VendorIntegrationRetireNotificationSchema = z.object({
    * written before AECI-1159. Defaulted for deploy skew.
    */
   reason: z.string().nullable().default(null),
+  /**
+   * AECI-2170: on the OWNER's row of an AECi retire that carried out an accepted
+   * existence ("not offered") report, that report's id. `null` on every other row.
+   * Defaulted for deploy skew.
+   */
+  existence_report_id: z.string().uuid().nullable().default(null),
   pair_path: z.string().nullable(),
   created_at: z.string(),
 });

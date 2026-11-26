@@ -60,7 +60,7 @@ import {
   type VetoObjection,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import { and, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import {
@@ -73,6 +73,7 @@ import {
   vendors,
 } from '../db/schema';
 import { ApiError, notFoundError } from '../errors';
+import type { LocatedRetireRow } from './retire-target';
 import { NOTIFICATION_SENT_ACTION } from './attestation-notify';
 import type { BatchStmt } from './audit';
 import { ONE_ROW } from './integration-claims';
@@ -281,11 +282,15 @@ export function evidencedPairsOnPairKeyWhere(key: PairKey): SQL {
   )!;
 }
 
-/** One row on a pair key, in either table. */
+/** One row on a pair key, in either table. `claimedAt` and `origin` classify it
+ *  (`isVendorHeld`); `name` names it on the admin queue (AECI-2170). */
 export interface PairKeyRow {
   readonly anchor: PairRightAnchor;
   readonly id: string;
+  readonly name: string | null;
   readonly builtByVendorId: string | null;
+  readonly claimedAt: string | null;
+  readonly origin: string;
   readonly retiredAt: string | null;
 }
 
@@ -295,7 +300,10 @@ export async function rowsOnPairKey(db: Db, key: PairKey): Promise<PairKeyRow[]>
     db
       .select({
         id: connectorEvidencedPairs.id,
+        name: connectorEvidencedPairs.name,
         builtByVendorId: connectorEvidencedPairs.builtByVendorId,
+        claimedAt: connectorEvidencedPairs.claimedAt,
+        origin: connectorEvidencedPairs.origin,
         retiredAt: connectorEvidencedPairs.retiredAt,
       })
       .from(connectorEvidencedPairs)
@@ -304,7 +312,10 @@ export async function rowsOnPairKey(db: Db, key: PairKey): Promise<PairKeyRow[]>
     db
       .select({
         id: integrations.id,
+        name: integrations.name,
         builtByVendorId: integrations.builtByVendorId,
+        claimedAt: integrations.claimedAt,
+        origin: integrations.origin,
         retiredAt: integrations.retiredAt,
       })
       .from(integrations)
@@ -315,6 +326,121 @@ export async function rowsOnPairKey(db: Db, key: PairKey): Promise<PairKeyRow[]>
     ...pairs.map((r) => ({ anchor: 'evidenced_pair' as const, ...r })),
     ...ints.map((r) => ({ anchor: 'integration' as const, ...r })),
   ];
+}
+
+/** A key as one string, for maps. */
+export function pairKeyString(key: PairKey): string {
+  return `${key.connectorProductId}|${key.productAId}|${key.productBId}`;
+}
+
+/**
+ * Every row on each of several keys, both tables (AECI-2170: the admin queue names the
+ * rows on every existence report's key). Two reads for the whole list, never one per
+ * key. Each key's rows in the order {@link rowsOnPairKey} gives: evidenced first, then
+ * by id (BINARY).
+ */
+export async function rowsOnPairKeys(
+  db: Db,
+  keys: readonly PairKey[],
+): Promise<Map<string, PairKeyRow[]>> {
+  const byKey = new Map<string, PairKeyRow[]>();
+  if (keys.length === 0) return byKey;
+  const keyJson = JSON.stringify([...new Set(keys.map(pairKeyString))].map((k) => k.split('|')));
+  const inKeys = (expr: SQL) => sql`${expr} IN (SELECT value FROM json_each(${keyJson}))`;
+  // The connector narrows each read through its index first; the key match runs on the
+  // few rows each connector delivers, never on the whole table.
+  const connectorIds = [...new Set(keys.map((k) => k.connectorProductId))];
+  const p = connectorEvidencedPairs;
+  const i = integrations;
+  const [pairs, ints] = await Promise.all([
+    db
+      .select({
+        id: p.id,
+        name: p.name,
+        builtByVendorId: p.builtByVendorId,
+        claimedAt: p.claimedAt,
+        origin: p.origin,
+        retiredAt: p.retiredAt,
+        connectorProductId: p.connectorProductId,
+        productAId: p.productAId,
+        productBId: p.productBId,
+      })
+      .from(p)
+      .where(
+        and(
+          inArray(p.connectorProductId, connectorIds),
+          inKeys(sql`json_array(${p.connectorProductId}, ${p.productAId}, ${p.productBId})`),
+        ),
+      )
+      .orderBy(p.id),
+    db
+      .select({
+        id: i.id,
+        name: i.name,
+        builtByVendorId: i.builtByVendorId,
+        claimedAt: i.claimedAt,
+        origin: i.origin,
+        retiredAt: i.retiredAt,
+        connectorProductId: i.poweredByProductId,
+        sourceProductId: i.sourceProductId,
+        targetProductId: i.targetProductId,
+      })
+      .from(i)
+      .where(
+        and(
+          isNotNull(i.poweredByProductId),
+          inArray(i.poweredByProductId, connectorIds),
+          inKeys(
+            sql`json_array(${i.poweredByProductId}, min(${i.sourceProductId}, ${i.targetProductId}), max(${i.sourceProductId}, ${i.targetProductId}))`,
+          ),
+        ),
+      )
+      .orderBy(i.id),
+  ]);
+  const push = (key: string, row: PairKeyRow) => byKey.set(key, [...(byKey.get(key) ?? []), row]);
+  for (const r of pairs) {
+    push(pairKeyString(vetoKeyOf(r)), {
+      anchor: 'evidenced_pair',
+      id: r.id,
+      name: r.name,
+      builtByVendorId: r.builtByVendorId,
+      claimedAt: r.claimedAt,
+      origin: r.origin,
+      retiredAt: r.retiredAt,
+    });
+  }
+  for (const r of ints) {
+    const [a, b] = canonical(r.sourceProductId, r.targetProductId);
+    push(
+      pairKeyString({ connectorProductId: r.connectorProductId!, productAId: a, productBId: b }),
+      {
+        anchor: 'integration',
+        id: r.id,
+        name: r.name,
+        builtByVendorId: r.builtByVendorId,
+        claimedAt: r.claimedAt,
+        origin: r.origin,
+        retiredAt: r.retiredAt,
+      },
+    );
+  }
+  return byKey;
+}
+
+/**
+ * The pair key of a row the retire routes located (AECI-2170): the connector and the
+ * two endpoints id-sorted, the frame a veto uses. `null` for an `integrations` row no
+ * connector delivers, which is on no pair key.
+ */
+export function pairKeyOfLocated(located: LocatedRetireRow): PairKey | null {
+  if (located.anchor === 'evidenced_pair') {
+    const { pair } = located;
+    return vetoKeyOf(pair);
+  }
+  const { row } = located;
+  if (row.poweredByProductId === null) return null;
+  const [a, b] = canonical(row.sourceProductId, row.targetProductId);
+  return { connectorProductId: row.poweredByProductId, productAId: a, productBId: b };
 }
 
 /** The key a veto row blocks. Never changes after filing. */

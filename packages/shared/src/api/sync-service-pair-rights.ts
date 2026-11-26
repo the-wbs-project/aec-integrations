@@ -329,7 +329,7 @@ export const VendorPairContestsResponseSchema = z.object({
 });
 export type VendorPairContestsResponse = z.infer<typeof VendorPairContestsResponseSchema>;
 
-/** `GET /api/admin/pair-contests?status=&protests=`. */
+/** `GET /api/admin/pair-contests?status=&protests=&retractions=`. */
 export const ListAdminPairContestsQuerySchema = z.object({
   status: PairContestStatusSchema.default('open'),
   /** `true`: the open protests, whatever the report's status. */
@@ -337,9 +337,50 @@ export const ListAdminPairContestsQuerySchema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+  /** `true` (AECI-2170): accepted existence reports whose pair key still has a live
+   *  row AEC Integrations holds, for retraction in the review app. Ignores `status`. */
+  retractions: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
 });
-export const AdminPairContestsResponseSchema = z.object({ data: z.array(PairContestSchema) });
+
+/**
+ * One row on a report's pair key (AECI-2170), on the ADMIN wire only: the connector and
+ * both endpoints, either order, in both tables. `held` is who keeps the row: a vendor
+ * (claimed, or added by a vendor), or AEC Integrations (promote writes it). An existence
+ * accept retires every live vendor-held row; a live AECi-held row is retracted in the
+ * review app. Vendor reads never carry it, so no vendor learns who owns another row.
+ */
+export const PairKeyRowWireSchema = z.object({
+  id: z.string().uuid(),
+  anchor: z.enum(['integration', 'evidenced_pair']),
+  name: z.string().nullable(),
+  owner_vendor_id: z.string().uuid().nullable(),
+  owner_name: z.string().nullable(),
+  held: z.enum(['vendor', 'aeci']),
+  retired: z.boolean(),
+});
+export type PairKeyRowWire = z.infer<typeof PairKeyRowWireSchema>;
+
+/** A report on the admin queue: the vendor shape plus the pair key's rows (AECI-2170). */
+export const AdminPairContestSchema = PairContestSchema.extend({
+  /** Every row on the pair key, on an existence report. `null` on a data flow report,
+   *  and when the report's row is gone. */
+  key_rows: z.array(PairKeyRowWireSchema).nullable(),
+  /** On an accepted existence report with a live AECi-held row on its key: the moment
+   *  the five business days to retract it have passed (`businessWindowEnd`). `null`
+   *  otherwise. */
+  retract_by: z.string().nullable(),
+});
+export type AdminPairContest = z.infer<typeof AdminPairContestSchema>;
+
+export const AdminPairContestsResponseSchema = z.object({ data: z.array(AdminPairContestSchema) });
 export type AdminPairContestsResponse = z.infer<typeof AdminPairContestsResponseSchema>;
+
+/** `PATCH /api/admin/pair-contests/:id` answers the admin shape (AECI-2170). */
+export const AdminPairContestResponseSchema = z.object({ contest: AdminPairContestSchema });
+export type AdminPairContestResponse = z.infer<typeof AdminPairContestResponseSchema>;
 
 export const PairContestResponseSchema = z.object({ contest: PairContestSchema });
 export type PairContestResponse = z.infer<typeof PairContestResponseSchema>;

@@ -124,6 +124,9 @@ export interface RetireBatchInput {
    *  admin retire, and when the owner sells neither endpoint. */
   causeProductPlan?: VendorPlanSnapshot | null;
   pairSlugs: readonly [string, string] | null;
+  /** AECI-2170: the accepted existence report this retire carries out. Written on the
+   *  OWNER's notice beside the reason, so the portal can say why. Absent otherwise. */
+  existenceReportId?: string;
 }
 
 /**
@@ -158,12 +161,16 @@ export interface RetireBatch {
  * only metadata carrying the `reasonVisibility: 'vendor'` marker yields one.
  */
 function ownerNoticeReason(
-  input: Pick<RetireBatchInput, 'retiredBy' | 'owner' | 'metadata'>,
+  input: Pick<RetireBatchInput, 'retiredBy' | 'owner' | 'metadata' | 'existenceReportId'>,
   recipient: string,
-): Pick<RetireNotificationMetadata, 'reason' | 'reasonVisibility'> {
+): Pick<RetireNotificationMetadata, 'reason' | 'reasonVisibility' | 'existenceReportId'> {
   if (input.retiredBy !== 'aeci' || recipient !== input.owner.id) return {};
   const reason = vendorVisibleReason(input.metadata);
-  return reason ? { reason, reasonVisibility: REASON_VISIBILITY_VENDOR } : {};
+  return {
+    ...(reason ? { reason, reasonVisibility: REASON_VISIBILITY_VENDOR } : {}),
+    // AECI-2170: the owner learns the retire carried out an accepted existence report.
+    ...(input.existenceReportId ? { existenceReportId: input.existenceReportId } : {}),
+  };
 }
 
 export function buildRetireBatch(db: Db, input: RetireBatchInput): RetireBatch {

@@ -705,7 +705,8 @@ describe('ContestQueue', () => {
     const pairRights = el.querySelector('aec-admin-pair-rights') as HTMLElement;
     const headings = [...el.querySelectorAll('h3, h4')];
     expect(headings.filter((h) => !pairRights.contains(h))).toEqual([]);
-    expect(headings.map((h) => h.tagName)).toEqual(['H3', 'H4', 'H4', 'H4']);
+    // AECI-2170 adds "To retract in the review app": four h4 lists.
+    expect(headings.map((h) => h.tagName)).toEqual(['H3', 'H4', 'H4', 'H4', 'H4']);
     const region = el.querySelector('[role="region"]') as HTMLElement;
     expect(el.querySelector(`#${region.getAttribute('aria-labelledby')}`)?.tagName).toBe('CAPTION');
     expect(el.querySelectorAll('tbody th[scope="row"]')).toHaveLength(1);

@@ -18,13 +18,15 @@
  *     unclaimed pair's flows are curated upstream.
  *
  * ── WHAT AN ACCEPT DOES ─────────────────────────────────────────────────────
- *   - an AECi accept of `existence` on a vendor-held row RETIRES it through the admin
- *     retire batch, with the note as the reason and the proof link on the audit row
- *     (`accept_mode = 'retired'`). On an AECi-held row the admin retire is not
- *     available (promote owns it, §4.6.4), so the accept writes no catalog data and the
- *     operator retracts the pair upstream (`accept_mode = 'upstream-only'`,
- *     `docs/runbooks/catalog.md`). On a row already retired it records
- *     `'already-retired'`;
+ *   - an AECi accept of `existence` acts on the whole pair key (AECI-2170): every live
+ *     vendor-held row on it, both tables, whoever owns it, is RETIRED through the admin
+ *     retire batch in one batch, with the note as the reason and the proof link on each
+ *     audit row (`accept_mode = 'retired'`). A live AECi-held row is not written
+ *     (promote owns it, §4.6.4): the admin queue lists it for retraction in the review
+ *     app within five business days (`?retractions=true`). With no vendor-held row
+ *     live it records `'upstream-only'` when an AECi-held row is live, and
+ *     `'already-retired'` when nothing on the key is. {@link pairKeyUnchangedSentinel}
+ *     holds the key's rows at commit;
  *   - an owner accept of `data_flow` writes the owner's answer in the same batch, through
  *     the owner's own flow logic: the flow answered No (`'flow-removed'`), or moved to
  *     the proposed direction (`'flow-redirected'`);
@@ -41,7 +43,7 @@ import {
   type PairContestKind,
   type PairFlowDirection,
 } from '@aeci/shared';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, sql, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import {
@@ -54,7 +56,13 @@ import {
   vendors,
 } from '../db/schema';
 import type { BatchStmt } from './audit';
-import { ONE_ROW } from './integration-claims';
+import { isVendorHeld, ONE_ROW } from './integration-claims';
+import {
+  evidencedPairsOnPairKeyWhere,
+  integrationsOnPairKeyWhere,
+  type PairKey,
+  type PairKeyRow,
+} from './sync-service-pair-rights';
 
 export const PAIR_CONTEST_ENTITY_TYPE = 'sync_service_pair_contest';
 
@@ -67,6 +75,73 @@ export const PAIR_CONTEST_CHANGED_TOKEN = 'pair-contest-changed';
 export function pairContestChangedSentinel(db: Db): BatchStmt {
   return db
     .select({ guard: sql`CASE WHEN changes() = 0 THEN json(${PAIR_CONTEST_CHANGED_TOKEN}) END` })
+    .from(ONE_ROW);
+}
+
+/**
+ * The commit-time half of an existence accept's key read (AECI-2170). The accept reads
+ * every row on the pair key, both tables, and plans a retire for each vendor-held live
+ * row. This ABORTS the batch, writing nothing, unless at commit the rows on the key are
+ * exactly the rows read, each with the same owner, still vendor-held or AECi-held as it
+ * was, and still live or retired as it was. So a row that reached the key, left it, was
+ * claimed, changed owner or was retired between the read and the batch answers
+ * `409 PAIR_CONTEST_CHANGED`. Place it BEFORE the retire plans: it checks the rows as
+ * the accept read them, and each plan's own guard holds its row after.
+ *
+ * Raises the report token ("malformed JSON"), so `isPairContestRaceError` matches it.
+ * Selects FROM `ONE_ROW`, so it runs exactly once.
+ */
+export function pairKeyUnchangedSentinel(
+  db: Db,
+  key: PairKey,
+  snapshot: readonly PairKeyRow[],
+): BatchStmt {
+  const expected = JSON.stringify(
+    snapshot.map((r) => ({
+      id: r.id,
+      t: r.anchor === 'evidenced_pair' ? 'p' : 'i',
+      o: r.builtByVendorId ?? '',
+      h: isVendorHeld(r) ? 1 : 0,
+      l: r.retiredAt === null ? 1 : 0,
+    })),
+  );
+  const p = connectorEvidencedPairs;
+  const i = integrations;
+  const field = (name: string) => sql`json_extract(e.value, ${'$.' + name})`;
+  const matches = (
+    table: SQL,
+    cols: { id: SQL; owner: SQL; claimed: SQL; origin: SQL; retired: SQL },
+    onKey: SQL,
+  ) =>
+    sql`EXISTS (SELECT 1 FROM ${table} WHERE ${cols.id} = ${field('id')} AND ${onKey} AND ifnull(${cols.owner}, '') = ${field('o')} AND (${cols.claimed} IS NOT NULL OR ${cols.origin} = 'vendor') = ${field('h')} AND (${cols.retired} IS NULL) = ${field('l')})`;
+  const pairMatch = matches(
+    sql`${p}`,
+    {
+      id: sql`${p.id}`,
+      owner: sql`${p.builtByVendorId}`,
+      claimed: sql`${p.claimedAt}`,
+      origin: sql`${p.origin}`,
+      retired: sql`${p.retiredAt}`,
+    },
+    evidencedPairsOnPairKeyWhere(key),
+  );
+  const intMatch = matches(
+    sql`${i}`,
+    {
+      id: sql`${i.id}`,
+      owner: sql`${i.builtByVendorId}`,
+      claimed: sql`${i.claimedAt}`,
+      origin: sql`${i.origin}`,
+      retired: sql`${i.retiredAt}`,
+    },
+    integrationsOnPairKeyWhere(key),
+  );
+  const onKeyCount = sql`((SELECT count(*) FROM ${p} WHERE ${evidencedPairsOnPairKeyWhere(key)}) + (SELECT count(*) FROM ${i} WHERE ${integrationsOnPairKeyWhere(key)}))`;
+  const matched = sql`(SELECT count(*) FROM json_each(${expected}) AS e WHERE (${field('t')} = 'p' AND ${pairMatch}) OR (${field('t')} = 'i' AND ${intMatch}))`;
+  return db
+    .select({
+      guard: sql`CASE WHEN ${onKeyCount} <> ${snapshot.length} OR ${matched} <> ${snapshot.length} THEN json(${PAIR_CONTEST_CHANGED_TOKEN}) END`,
+    })
     .from(ONE_ROW);
 }
 

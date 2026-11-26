@@ -219,12 +219,21 @@ export async function planAdminRetire(
   db: Db,
   located: LocatedRetireRow,
   mode: RetireMode,
-  args: { reason: string; internalNote?: string | undefined },
+  args: {
+    reason: string;
+    internalNote?: string | undefined;
+    /** AECI-2170: `false` tells the owner only. An existence accept retires every row
+     *  on the pair key and tells the endpoint vendors once, on its first plan. */
+    notifyEndpointVendors?: boolean;
+    /** AECI-2170: the accepted existence report, written on the owner's notice. */
+    existenceReportId?: string;
+  },
 ): Promise<AdminRetirePlan> {
   const session = c.get('auth');
   const target = retireTargetOf(located);
   const integrationId = target.id;
   const { reason, internalNote } = args;
+  const notifyEndpoints = args.notifyEndpointVendors ?? true;
   {
     const [owner, ownerLicenses, endpointVendors, slugs, contests, threads] = await Promise.all([
       target.builtByVendorId
@@ -236,7 +245,7 @@ export async function planAdminRetire(
       // The owner's plan for the audit rows (AECI-1193), from its licenses
       // (AECI-1355), in the same wave.
       target.builtByVendorId ? loadVendorLicenses(db, target.builtByVendorId) : Promise.resolve([]),
-      endpointVendorIds(db, located),
+      notifyEndpoints ? endpointVendorIds(db, located) : Promise.resolve([]),
       retireSlugs(db, located),
       // Either anchor: a pair's contests sit on `evidenced_pair_id` (AECI-1092).
       mode === 'retire'
@@ -266,6 +275,7 @@ export async function planAdminRetire(
       ownerPlan: licensePlanSnapshot(ownerLicenses, now),
       pairSlugs: slugs.pairSlugs,
       threads,
+      ...(args.existenceReportId ? { existenceReportId: args.existenceReportId } : {}),
     };
     const batch: RetireBatch =
       located.anchor === 'integration'
@@ -313,6 +323,44 @@ export function afterAdminRetire(
     pairSlugs: plan.slugs.pairSlugs,
     connectorSlug: plan.slugs.connectorSlug,
     audits: [...plan.batch.audits, ...extraAudits],
+    hookPrefix: 'admin',
+    syncFailureMessage: 'aeci.api.admin.retire_algolia_sync_failed',
+    origin: { auditSource: ADMIN_RETIRE_AUDIT_SOURCE, purgeSource: 'moderation' },
+  });
+}
+
+/**
+ * The post-commit tail of several admin retires committed in ONE batch (AECI-2170: an
+ * existence accept retires every vendor-held row on the pair key). One tail over all
+ * of them, as the veto's key-wide tail does: one by-id Algolia sync of every row, both
+ * endpoints, the connector and every owner; one purge of the union of their tags; one
+ * re-crawl of the pair; one audit forward with every plan's rows and `extraAudits`.
+ * One tail per row would open one search sync and one purge each, against the Worker's
+ * connection limit, to purge the same pair and product tags again.
+ */
+export function afterAdminRetireMany(
+  c: VendorContext,
+  db: Db,
+  plans: readonly { plan: AdminRetirePlan; id: string }[],
+  mode: RetireMode,
+  extraAudits: readonly AuditLogEntry[] = [],
+): void {
+  const [first, ...rest] = plans;
+  if (!first) return;
+  const owners = plans
+    .map((p) => p.plan.owner)
+    .filter((o): o is { id: string; slug: string } => !!o);
+  afterRetireCommit(c, db, {
+    mode,
+    integrationId: first.id,
+    alsoIntegrationIds: rest.map((p) => p.id),
+    productIds: [...new Set(plans.flatMap((p) => p.plan.batch.productIds))],
+    owner: first.plan.owner,
+    alsoOwners: owners,
+    pairSlugs: first.plan.slugs.pairSlugs,
+    connectorSlug:
+      plans.map((p) => p.plan.slugs.connectorSlug).find((slug): slug is string => !!slug) ?? null,
+    audits: [...plans.flatMap((p) => p.plan.batch.audits), ...extraAudits],
     hookPrefix: 'admin',
     syncFailureMessage: 'aeci.api.admin.retire_algolia_sync_failed',
     origin: { auditSource: ADMIN_RETIRE_AUDIT_SOURCE, purgeSource: 'moderation' },
