@@ -77,7 +77,7 @@ import { vendorProductContext } from './vendor-product-context';
           [plan]="p.plan"
           [productRole]="p.product_role"
           [connectorKind]="p.connector_kind"
-          [hasConnectorCatalog]="p.has_connector_catalog"
+          [connectorCatalogManagedBy]="p.connector_catalog_managed_by"
           [billingLink]="billingLink()"
           [electionProductId]="store.me()?.seat_owner === true ? p.id : null"
           headingId="vendor-product-plan-h"

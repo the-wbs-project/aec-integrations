@@ -248,9 +248,10 @@ export class VendorDashboardPreview {
     // AECI-1083: open Products → Agave → Catalogue. This preset's catalogue is
     // vendor-managed, so every match has Edit.
     { key: 'connector-seat', label: 'Catalogue seat · connector' },
-    // AECI-1083: the same seat on a catalogue the AECi team still maintains, so the
-    // Catalogue tab is read-only. Same product slug, so the URL carries over.
-    { key: 'connector-seat-review', label: 'Catalogue seat · AECi-managed' },
+    // AECI-1083: the same seat on a catalogue the AECi team still maintains. Since
+    // AECI-2206 that product has no Catalog tab, and a typed …/catalogue URL shows the
+    // notice. Its plan panel is `unavailable`. Same product slug, so the URL carries over.
+    { key: 'connector-seat-review', label: 'Connector · AECi-managed catalog' },
     // Not an entitlement state: a catalog big enough to show how the product
     // list page (§6.11) reads at length. Two products cannot.
     { key: 'large-catalog', label: 'Active · 20 products' },

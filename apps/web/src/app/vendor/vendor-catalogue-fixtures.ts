@@ -16,6 +16,9 @@ import { VENDOR_ME_CONNECTOR_SEAT_FIXTURE } from './vendor-fixtures';
  * The same seat as {@link VENDOR_ME_CONNECTOR_SEAT_FIXTURE}, on a catalogue the
  * review lane still writes (`managed_by = 'review'`). A different product id and the
  * same slug, so `…/products/agave/catalogue` shows both states in the preview.
+ * Since AECI-2206 the product carries `connector_catalog_managed_by: 'review'`, so it
+ * has no Catalog tab, and the typed URL shows the notice instead of the read-only list.
+ * Its plan panel is `unavailable`: an Integration platform on Free with nothing to maintain.
  */
 export const VENDOR_ME_CONNECTOR_SEAT_REVIEW_FIXTURE: VendorMeResponse = {
   ...VENDOR_ME_CONNECTOR_SEAT_FIXTURE,
@@ -23,6 +26,8 @@ export const VENDOR_ME_CONNECTOR_SEAT_REVIEW_FIXTURE: VendorMeResponse = {
     {
       ...VENDOR_ME_CONNECTOR_SEAT_FIXTURE.products[0]!,
       id: '00000000-0000-4000-8000-000000005232',
+      // AECI-2206: AECi still maintains it, so the product has no Catalog tab.
+      connector_catalog_managed_by: 'review',
     },
   ],
 };

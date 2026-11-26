@@ -1086,13 +1086,19 @@ UI:
 | Who | Any admin, any catalogue | The seat of the vendor holding the catalogue's `connector`-role product |
 | Read | `GET /api/admin/connector-catalogs/:id/stubs` (triage filters, removed stubs, action inventory, raw `decided_by`, `notes`) | `GET /api/vendor/products/:id/connector-catalog` (no removed stubs, no `notes`, `decided_by` as a kind) |
 | Write | `PATCH /api/admin/connector-stub-mappings/:id`, stamps `aeci-operator`, echoes the admin row | `PATCH /api/vendor/connector-stub-mappings/:id`, stamps `vendor:{slug}`, echoes the vendor row (no `notes`, AECI-1127) |
-| Review-managed catalogue | No Edit control | Read-only, with a note that we maintain it ("the AECi team" until AECI-1262) |
+| Review-managed catalogue | No Edit control | No Catalog tab at all since AECI-2206 (2026-11-26). Before that, read-only, with a note that we maintain it ("the AECi team" until AECI-1262) |
 | Live | Reads on load | In the AECI-516 cursor as the `catalogue` scope |
 
 So an operator edit here shows up in an open seat tab within one poll, and a seat's edit shows up
 here as a `connector_mapping.updated` audit row with `audit_log.vendor_id` set and `decided_by =
 vendor:{slug}` on the row. The managed-by flip on this screen is what turns the seat's Edit
-controls on and off; the seat's tab re-reads when it moves. Neither screen can add a mapping to a
+controls on and off; the seat's tab re-reads when it moves. **Since AECI-2206 (2026-11-26) the
+flip to `vendor` is also what makes the Catalog tab appear for the vendor**, with the overview's
+catalog link and the plan panel's `catalogue` state. Before the handover the vendor's product has
+no Catalog tab. The tab appears on the vendor's next portal load, because it reads
+`VendorProduct.connector_catalog_managed_by` from `GET /api/vendor/me`, which the flip does not
+refetch. Flipping back to `review` leaves an open tab read-only until that next load
+(`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.16). Neither screen can add a mapping to a
 listing that has none (AECI-1126).
 
 **It does not decide publication.** The pairs view renders §13.7's *inputs* — both sides in our

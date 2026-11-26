@@ -11,7 +11,8 @@
  *     clauses. That route is AECI-724's and is deliberately not edited here; the
  *     lockstep between the two is pinned by `routes/vendor-connector-catalog.spec.ts`,
  *     which asserts that every row the read shows is one the PATCH accepts;
- *   - `VendorProduct.has_connector_catalog` (AECI-2044, {@link connectorCatalogProductIds}).
+ *   - `VendorProduct.has_connector_catalog` and `connector_catalog_managed_by` (AECI-2044,
+ *     AECI-2206, {@link connectorCatalogManagedBy}).
  *
  * The clauses: the catalogue's `connector_product_id` is held by the caller's vendor
  * through `product_vendors`, AND that product is `connector`-role. A vendor holding
@@ -27,6 +28,8 @@
  */
 
 import { and, eq, inArray } from 'drizzle-orm';
+
+import type { ConnectorManagedBy } from '@aeci/shared';
 
 import type { Db } from '../db/client';
 import { connectorCatalogs, productVendors, products } from '../db/schema';
@@ -44,14 +47,22 @@ export function ownedConnectorCatalogIds(db: Db, vendorId: string) {
 
 /**
  * The products whose catalogue the vendor may maintain, through the same predicate
- * (AECI-2044). `GET /api/vendor/me` and the product PATCH stamp
- * `VendorProduct.has_connector_catalog` from it, so the plan panel's `catalogue` state
- * and the overview link appear only where the Catalog tab has a catalogue to show.
+ * (AECI-2044), each with who maintains it now (`connector_catalogs.managed_by`,
+ * AECI-2206). `GET /api/vendor/me` and the product PATCH stamp
+ * `VendorProduct.has_connector_catalog` and `connector_catalog_managed_by` from it. The
+ * portal shows the Catalog tab, the overview link and the plan panel's `catalogue`
+ * state only where the catalogue has been handed to the vendor (`vendor`).
  */
-export async function connectorCatalogProductIds(db: Db, vendorId: string): Promise<Set<string>> {
+export async function connectorCatalogManagedBy(
+  db: Db,
+  vendorId: string,
+): Promise<Map<string, ConnectorManagedBy>> {
   const rows = await db
-    .select({ productId: connectorCatalogs.connectorProductId })
+    .select({
+      productId: connectorCatalogs.connectorProductId,
+      managedBy: connectorCatalogs.managedBy,
+    })
     .from(connectorCatalogs)
     .where(inArray(connectorCatalogs.id, ownedConnectorCatalogIds(db, vendorId)));
-  return new Set(rows.map((row) => row.productId));
+  return new Map(rows.map((row) => [row.productId, row.managedBy as ConnectorManagedBy]));
 }

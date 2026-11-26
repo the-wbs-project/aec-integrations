@@ -9115,7 +9115,17 @@ holds a connector catalogue for it that the vendor may maintain (`connectorCatal
 the Catalog tab's own predicate). Defaulted to `false` for deploy skew. `GET /api/vendor/me` and
 both `PATCH /api/vendor/products/:id` responses carry it. The portal shows the plan panel's
 `catalogue` state and the overview's catalogue link only for a product with it set that is not a
-Sync Service (`isCatalogueProduct`).
+Sync Service (`isCatalogueProduct`), and since AECI-2206 only when the next field is `vendor`.
+
+**`connector_catalog_managed_by` (AECI-2206).** Who maintains that catalogue:
+`'review' | 'vendor' | null` (`ConnectorManagedBySchema`, `connector_catalogs.managed_by`).
+`'review'` while AEC Integrations maintains it, `'vendor'` once an admin hands it over
+(`PATCH /api/admin/connector-catalogs/:id`, §6.10). `null` when `has_connector_catalog` is false,
+and always `null` off a `connector` product. Defaulted to `null` for deploy skew, which reads as no
+tab. Same predicate and same three responses as `has_connector_catalog`
+(`connectorCatalogManagedBy` in `lib/vendor-connector-catalog.ts`). The portal shows the Catalog
+tab (`showsCatalogTab`), the overview's catalog link and the plan panel's `catalogue` state only on
+`'vendor'` (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.16).
 
 **`hidden` (AECI-1238, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6).** `vendor.hidden` and each `VendorProduct`'s `hidden` are `{ at, kind, reason } | null` (`VendorListingHiddenSchema`). They are set while AECi has hidden the record from the public site. `kind` is `complaint_under_review`, `lawful_order` or `defunct`. `reason` is the vendor-visible reason. The internal note is never here. The portal shows a banner from it and keeps every edit working.
 
@@ -10754,7 +10764,7 @@ Rows: `connector_evidenced_pairs` with `connector_product_id = :id`, and `integr
 
 #### `GET /api/vendor/products/:id/connector-catalog`
 
-Stage 2.1 (AECI-1083, `STAGE_2_SPEC.md` §8.9(1), `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.16). The connector catalogue seat's own catalogue: the read behind the portal's Catalogue tab, whose edits go through the PATCH below. Zod in `packages/shared/src/api/vendor-connector-catalog.ts`, handler in `apps/api/src/routes/vendor-connector-catalog.ts`.
+Stage 2.1 (AECI-1083, `STAGE_2_SPEC.md` §8.9(1), `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.16). The connector catalogue seat's own catalogue: the read behind the portal's Catalogue tab, whose edits go through the PATCH below. Zod in `packages/shared/src/api/vendor-connector-catalog.ts`, handler in `apps/api/src/routes/vendor-connector-catalog.ts`. **Unchanged by AECI-2206:** it still answers for a `review`-managed catalogue. Since then the portal shows the tab only on a `vendor`-managed one, and only the tab's component calls this read, so the portal no longer reads a catalogue whose tab is hidden.
 
 | Gate | Success |
 |---|---|

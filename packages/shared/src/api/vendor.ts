@@ -8,6 +8,7 @@ import { LockedFieldsSchema } from './locked-fields';
 import { VendorListingHiddenSchema } from './listing-hides';
 import { ProductUsefulnessSchema } from './usefulness';
 import { ConnectorKindSchema } from './connector-kind-schema';
+import { ConnectorManagedBySchema } from './admin-connector-catalogs';
 import { COMPANY_SIZE_BANDS, FUNDING_STAGES, OWNERSHIP_TYPES } from './company-fact-vocabularies';
 
 /**
@@ -277,6 +278,12 @@ export const VendorProductSchema = z.object({
   // is the §8.9 catalogue-maintenance seat's (`isCatalogueProduct` in the portal).
   // Defaulted so an older payload still parses.
   has_connector_catalog: z.boolean().default(false),
+  // AECI-2206: who maintains that catalogue (`connector_catalogs.managed_by`): `review`
+  // while AEC Integrations does, `vendor` once it is handed to the vendor. `null` when
+  // `has_connector_catalog` is false. The portal shows the Catalog tab, the overview's
+  // catalog link and the plan panel's `catalogue` state only on `vendor`. Defaulted so
+  // an older payload still parses, and reads as no tab.
+  connector_catalog_managed_by: ConnectorManagedBySchema.nullable().default(null),
   integration_count: z.number().int().min(0),
   review_count: z.number().int().min(0),
   updated_at: z.string().datetime(),

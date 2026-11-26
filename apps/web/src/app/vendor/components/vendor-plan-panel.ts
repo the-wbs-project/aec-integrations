@@ -59,11 +59,14 @@ import { VendorRemovalElection } from './vendor-removal-election';
  *    never sold Managed, so it gets no offer, no price and no call to action. It
  *    holds the Free edits like any seat with no plan (ruling 2026-10-02, §13.3).
  *    Since AECI-2044 only a product that is an Integration platform (or has no
- *    kind) AND has a catalogue shows it (`isCatalogueProduct`). A Sync Service is
- *    an ordinary product here: it may buy Managed (ruling 6 on AECI-2035).
+ *    kind) AND has a catalogue shows it (`isCatalogueProduct`). Since AECI-2206 the
+ *    catalogue must also have been handed to the vendor (`managed_by = 'vendor'`).
+ *    A Sync Service is an ordinary product here: it may buy Managed (ruling 6 on
+ *    AECI-2035).
  *  - `unavailable` (AECI-2044): a product with no plan that cannot hold a
- *    subscription (an Integration platform, or a connector with no kind, and no
- *    catalogue). What Free includes, a plain line that Managed is not offered for
+ *    subscription (an Integration platform, or a connector with no kind, whose
+ *    catalogue is absent or still AECi-managed, AECI-2206). What Free includes, a
+ *    plain line that Managed is not offered for
  *    it, and no price or call to action. The API refuses the assign
  *    (`PRODUCT_NOT_SUBSCRIBABLE`), so the panel never offers it.
  *
@@ -297,8 +300,12 @@ export class VendorPlanPanel {
   readonly productRole = input<string | null>(null);
   /** The product's `connector_kind` (AECI-2036). Only a connector's kind matters here. */
   readonly connectorKind = input<string | null>(null);
-  /** `VendorProduct.has_connector_catalog`: the §8.9 seat's product has a catalogue. */
-  readonly hasConnectorCatalog = input(false);
+  /**
+   * `VendorProduct.connector_catalog_managed_by` (AECI-2206): `vendor` once the
+   * product's catalogue is handed to the vendor. Only then is it the §8.9 seat's
+   * product, and only then does the panel show the `catalogue` state.
+   */
+  readonly connectorCatalogManagedBy = input<string | null>(null);
   /** Unique per page, so two panels never share a heading id. */
   readonly headingId = input('vendor-plan-panel-h');
   /**
@@ -336,7 +343,7 @@ export class VendorPlanPanel {
     const product = {
       product_role: this.productRole(),
       connector_kind: this.connectorKind(),
-      has_connector_catalog: this.hasConnectorCatalog(),
+      connector_catalog_managed_by: this.connectorCatalogManagedBy(),
     };
     if (isCatalogueSeat(plan.status, [product])) return 'catalogue';
     const state = planState(plan, this.now());
