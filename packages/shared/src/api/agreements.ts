@@ -380,10 +380,10 @@ export const TERMS_CHANGE_BOX_LABEL = 'I have read and accept the updated Terms 
  * (`agreement_acceptances.plans_page_version`) and the SHA-256 of that version's snapshot
  * file (`plans_page_sha256`), so the record points at the page as it stood.
  */
-export const PLANS_PAGE_CURRENT_VERSION = '1.4';
+export const PLANS_PAGE_CURRENT_VERSION = '1.5';
 
 /** Every Plans version that was ever current, oldest first. The current one is last. */
-export const PLANS_PAGE_KNOWN_VERSIONS = ['1.0', '1.1', '1.2', '1.3', '1.4'] as const;
+export const PLANS_PAGE_KNOWN_VERSIONS = ['1.0', '1.1', '1.2', '1.3', '1.4', '1.5'] as const;
 
 /**
  * SHA-256 (lowercase hex) of each Plans version's snapshot file under
@@ -397,6 +397,7 @@ export const PLANS_PAGE_SHA256: Record<string, string> = {
   '1.2': '43b54841d2485bd9c28373297ed5bbbd20cba52390a59b286c68c78a127c1a94',
   '1.3': '77d287d2955f34d4da76d05c40d0c467d2111b37c96602b9cd0201af7f32100e',
   '1.4': '946f6a799e36451a9eacffe34cec32bdd17090f6f296a5750b9e5c628c8d5046',
+  '1.5': '521679dec809992c1ffb887c5e45b5481afeab66def47ffee3ba418e44c800df',
 };
 
 /** Whether `version` was ever a published Plans version. */

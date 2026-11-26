@@ -3,7 +3,7 @@ title: Your dashboard
 description: The vendor portal's tabs, what the Vendor Overview shows, each product's overview, and the banners you see when a Managed plan ends.
 section: vendors
 order: 4
-last_updated: November 24, 2026
+last_updated: November 26, 2026
 ---
 
 The vendor portal opens on your company's **Vendor Overview**. It shows what needs your attention across your company and every product, so you can start there each time you sign in.
@@ -78,7 +78,7 @@ The product's name at the top of each product page also carries its plan, "Free"
 
 If your Managed plan ends, a banner reads "Your Managed plan has ended" above the tabs on every page, with the date it ended. It stays until the plan is turned back on, and you cannot dismiss it. It lists:
 
-- **Still works.** Everything a Free plan includes: your listings stay published, you can edit your company details and each product's description, website, logo and categories, seats keep working, you can claim and add integrations, and you can answer data flows.
+- **Still works.** Everything a Free plan includes: your listings stay published, you can edit your company details and each product's description, summary, website, logo and categories, seats keep working, you can claim and add integrations, and you can answer data flows.
 - **Read-only now.** "How teams use it", the integrations page and API documentation links, and trades, audiences and phases. Ending a plan removes nothing, and readers still see it. For 30 days an owner seat can remove the text your company wrote on a product from its plan panel. Tags are not part of that.
 
 Account owners see a **Go to Billing** button. Other colleagues see **Talk to us about Managed**, which opens the contact page.
