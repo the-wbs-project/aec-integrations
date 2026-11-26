@@ -35,8 +35,9 @@ A change request is a request, not a change. While it is open, the public page k
 
 A request stays with whoever was deciding when you sent it, with a few exceptions. If the integration gets a new owner, its open requests move to AEC Integrations. They also move to us if nobody at the owner can sign in any more. Open requests can also move to us when an accepted change makes an integration delivered through a connector. You can follow yours on the integration's own page, under Change requests, or across every product in **Messages**, under **Change requests** and then **Submitted**. While it is open it shows "With the owner" or "With AEC Integrations".
 
-Updates about requests appear in the portal, so check the integration's page or **Messages**. [Notifications and messages](/docs/vendors/notifications-and-messages) lists every email we send. Three also come by email to every seat on your vendor account, because each carries a deadline:
+Updates about requests appear in the portal, so check the integration's page or **Messages**. [Notifications and messages](/docs/vendors/notifications-and-messages) lists every email we send. Four also come by email to every seat on your vendor account, because each carries a deadline:
 
+- a new request on an integration you own, with the date after which the sender may ask us to review it,
 - an owner's decline of your request, with the date your time to ask for a review ends,
 - a review request on an integration you own, with the date your reply is due, and
 - a reminder three days before that date, if you have not replied.
@@ -62,6 +63,8 @@ A company with no vendor account can email [support@aecintegrations.com](mailto:
 ## When your integration is asked about
 
 Once your company has claimed an integration, requests about its details come to you on that integration's own page, under **Change requests**. You can also see them, across every product, in **Messages** under **Change requests** and then **Received**. Each one shows the value on record, the proposed value, and the reason.
+
+Every seat on your vendor account gets an email when a request arrives. It gives the date 30 days on. If you have not answered by then, the sender may ask AEC Integrations to review it. You can still answer until it does. Until you answer, the daily reminder email counts your open requests, in one line such as "2 change requests are waiting for your answer".
 
 - **Accept** writes the proposed value to the public page straight away.
 - **Decline** leaves the value as it is. You can add a note, which the sender sees.

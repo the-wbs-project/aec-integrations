@@ -114,7 +114,11 @@ import {
   fieldsUnlockedSentinel,
   lockRaceRefusal,
 } from '../lib/field-overrides';
-import { emailOwnerDecline, type ProtestEmailDeps } from '../lib/contest-protest-emails';
+import {
+  emailContestSubmittedToOwner,
+  emailOwnerDecline,
+  type ProtestEmailDeps,
+} from '../lib/contest-protest-emails';
 import { sendContestSubmittedNotification, type ContestAlertRouteReason } from '../lib/email';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import {
@@ -435,6 +439,7 @@ export function createSubmitContestHandler(
   claimed: IntegrationClaimedPredicate = isIntegrationClaimed,
   anchorKind?: ContestAnchorKind,
   sendAlert: SendContestAlert = sendContestSubmittedNotification,
+  notifyOwner: NotifyContestOwner = emailContestSubmittedToOwner,
 ): (c: VendorContext) => Promise<Response> {
   return async (c) => {
     const vendorId = sessionVendorId(c);
@@ -617,12 +622,21 @@ export function createSubmitContestHandler(
     if (plan.row.routedTo === 'aeci') {
       c.executionCtx.waitUntil(alertAeciOfContest(c, db, plan.row, draft, claimed, sendAlert));
     }
+    // AECI-1942 (§11b.8): an owner-routed contest starts the owner's 30-day answer
+    // window, so its seats get an email beside the portal row. After the commit, so a
+    // lost race sends nothing.
+    if (plan.row.routedTo === 'owner' && plan.row.ownerVendorId) {
+      c.executionCtx.waitUntil(notifyOwner(c, db, plan.row));
+    }
     return echo(c, db, vendorId, plan.row, 201);
   };
 }
 
 /** The operator alert seam, injectable so a spec can capture what was sent. */
 export type SendContestAlert = typeof sendContestSubmittedNotification;
+
+/** The owner email seam (AECI-1942), injectable so a spec can capture the call. */
+export type NotifyContestOwner = (c: VendorContext, db: Db, row: ContestRow) => Promise<void>;
 
 /** Why the contest reached AECi (§11b.4), in the order `planSubmit` decides it. */
 function contestRouteReason(

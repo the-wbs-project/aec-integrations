@@ -523,6 +523,24 @@ export const NOTIFICATIONS = {
       "Tells the owner's seats a submitter asked AECi to review a contest, with the 14-day reply deadline.",
     note: 'Sent beside the portal-contest-protested row. The attestation nudge mute does not cover it: missing it costs the owner its reply. Always on: carries the 14-day reply deadline.',
   },
+  'contest-submitted-owner': {
+    channel: 'email',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/vendor/integrations/:id/contests (routes/vendor-contests.ts)',
+    },
+    envRule: 'production-external',
+    dedupe:
+      'One per seat per contest: key contest-submitted-owner:{contestId}:{profileId}. A contest is submitted once.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.8',
+    summary:
+      "Tells the owner's seats a vendor contested a field on its integration, and the date after which its silence counts as a decline.",
+    note: 'AECI-1942. Owner-routed submits only, sent beside the portal-contest-submitted row. The attestation nudge mute does not cover it: missing it can cost the owner the field. Always on: carries the 30-day answer date.',
+  },
   'contest-protest-reply-reminder': {
     channel: 'email',
     audience: 'external',
@@ -793,8 +811,8 @@ export const NOTIFICATIONS = {
     pausable: true,
     doc: 'docs/STAGE_2_ATTESTATIONS_SPEC.md §7.2',
     summary:
-      'Sends each unmuted vendor seat one daily digest of every due attestation finding for its vendor, plus a line counting its unread private row threads.',
-    note: 'Replaced four per-finding templates in AECI-1204. AECI-1537 added the thread line, "{N} conversations have new messages": open threads that still have their claim (AECI-1542), with a live message from the other company newer than the seat\'s read marker. The line alone is enough to send, and writes no portal row. A due finding gets its portal row when a seat was emailed or every seat was muted or refused by the tier policy. A failed or unconfigured send writes no row, so the next sweep retries it. metadata.emailedSeats says how many seats got it. Never lists a vendor finding on a connector-powered edge (AECI-705). Pausable: a nudge. A pause behaves like a mute: the portal row is still written.',
+      'Sends each unmuted vendor seat one daily digest of every due attestation finding for its vendor, plus a line counting its unread private row threads and a line counting the change requests waiting for its answer.',
+    note: 'Replaced four per-finding templates in AECI-1204. AECI-1537 added the thread line, "{N} conversations have new messages": open threads that still have their claim (AECI-1542), with a live message from the other company newer than the seat\'s read marker. The line alone is enough to send, and writes no portal row. AECI-1942 added the contest line, "{N} change requests are waiting for your answer": open owner-routed field contests whose owner is the seat\'s vendor. It follows the same rules as the thread line. A due finding gets its portal row when a seat was emailed or every seat was muted or refused by the tier policy. A failed or unconfigured send writes no row, so the next sweep retries it. metadata.emailedSeats says how many seats got it. Never lists a vendor finding on a connector-powered edge (AECI-705). Pausable: a nudge. A pause behaves like a mute: the portal row is still written.',
   },
   'attestation-ops-digest': {
     channel: 'email',
@@ -1162,7 +1180,7 @@ export const NOTIFICATIONS = {
     pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.8',
     summary: 'Tells the owner a vendor contested a field on its integration.',
-    note: 'Not pausable: a portal row, not email.',
+    note: 'Since AECI-1942 the contest-submitted-owner email carries it too, and the attestation-digest counts the open ones. Not pausable: a portal row, not email.',
   },
   'portal-contest-withdrawn': {
     channel: 'portal',

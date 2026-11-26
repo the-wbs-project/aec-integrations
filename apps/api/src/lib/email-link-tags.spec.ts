@@ -43,6 +43,7 @@ import {
   sendContestDeclinedProtestWindowEmail,
   sendContestProtestOpenedEmail,
   sendContestProtestReplyReminderEmail,
+  sendContestSubmittedOwnerEmail,
   sendClaimOwnerFallbackAlert,
   sendCronJobFailedAlert,
   sendLitigationHoldReminder,
@@ -459,6 +460,18 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         protestReason: 'No answer',
         replyDueAt: '2026-10-16T14:30:00.000Z',
         dedupeKey: 'contest-protest-opened:ct-1:t:p',
+      }),
+  },
+  'contest-submitted-owner': {
+    links: true,
+    send: (c) =>
+      sendContestSubmittedOwnerEmail(c, {
+        ...CONTEST,
+        ...SEAT,
+        submitterVendorName: 'Autodesk',
+        contestReason: 'It is one-way',
+        answerBy: '2026-10-16T14:30:00.000Z',
+        dedupeKey: 'contest-submitted-owner:ct-1:p',
       }),
   },
   'contest-protest-reply-reminder': {

@@ -64,6 +64,7 @@ const TABLE_ALLOWED = new Set([
   'routes/vendor-checklist.ts', // the checklist's open-owner-contest test, authenticated, existence only (AECI-1217)
   'routes/vendor-delivered-pairs.ts', // the caller's own open owner request id, authenticated (AECI-2045)
   'lib/vendor-snapshot.ts', // the operator-only daily snapshot's open-contest counts (AECI-1210)
+  'lib/attestation-notify.ts', // the vendor digest's open-owner-contest count, emailed to the owner's own seats (AECI-1942)
   'routes/vendor-connectors.ts', // the endpoint vendor's own open reports, authenticated (AECI-2042)
 ]);
 

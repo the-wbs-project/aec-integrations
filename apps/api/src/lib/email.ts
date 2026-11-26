@@ -1496,6 +1496,15 @@ export function unreadThreadsLine(n: number): string | null {
   return n === 1 ? '1 conversation has new messages' : `${n} conversations have new messages`;
 }
 
+/** The AECI-1942 digest line, "{N} change requests are waiting for your answer": open
+ *  owner-routed field contests on the seat's company. `null` at zero. */
+export function openContestsLine(n: number): string | null {
+  if (n <= 0) return null;
+  return n === 1
+    ? '1 change request is waiting for your answer'
+    : `${n} change requests are waiting for your answer`;
+}
+
 /**
  * The vendor nudge digest (`attestation-digest`, AECI-1204): every due finding for
  * one vendor, to one seat, once a day.
@@ -1513,6 +1522,10 @@ export function unreadThreadsLine(n: number): string | null {
  * - **Unread threads (AECI-1537, §15.8).** `unreadThreads` adds one line counting the
  *   seat's private row threads with a message it has not read. With no findings,
  *   that line is the subject and heading. It never quotes a message.
+ * - **Open change requests (AECI-1942, §11b.8).** `openContests` adds one line
+ *   counting the field contests other vendors filed on integrations the seat's
+ *   company owns, still open and waiting for its answer. With no findings it leads,
+ *   ahead of the thread line, because the 30-day answer window runs against it.
  */
 export function sendAttestationDigestEmail(
   c: EmailContext,
@@ -1523,6 +1536,8 @@ export function sendAttestationDigestEmail(
     findings: readonly AttestationDigestFinding[];
     /** Private row threads with a message this seat has not read (§15.8). */
     unreadThreads?: number;
+    /** Open owner-routed field contests waiting for this company (AECI-1942). */
+    openContests?: number;
     muteToken: string | null;
     dedupeKey: string;
   },
@@ -1531,6 +1546,7 @@ export function sendAttestationDigestEmail(
   const total = opts.findings.length;
   const threads = opts.unreadThreads ?? 0;
   const threadLine = unreadThreadsLine(threads);
+  const contestLine = openContestsLine(opts.openContests ?? 0);
   const listed = opts.findings.slice(0, DIGEST_LIST_LIMIT);
   const rest = total - listed.length;
   const portal = portalUrl(c.env);
@@ -1544,25 +1560,37 @@ export function sendAttestationDigestEmail(
       : null;
 
   const first = listed[0] ? digestItem(listed[0]) : null;
-  // A digest can carry the thread line alone (§15.8). It then leads with that line.
-  const threadsOnly = total === 0 && threadLine !== null;
-  const subject = threadsOnly
-    ? threadLine
+  // A digest can carry the contest line (AECI-1942) or the thread line (§15.8) with
+  // no finding. It then leads with the contest line when there is one, else the
+  // thread line.
+  const leadLine = total === 0 ? (contestLine ?? threadLine) : null;
+  const subject = leadLine
+    ? leadLine
     : total === 1 && first
       ? first.title
       : `${total} integration records for ${company} need a look`;
-  const heading = threadsOnly
-    ? threadLine
+  const heading = leadLine
+    ? leadLine
     : total === 1
       ? 'One integration record needs a look'
       : `${total} integration records need a look`;
-  const lead = threadsOnly
-    ? `The other company on an integration listed for ${company} has written to you. Read and reply in your vendor portal.`
-    : `Here is what we noticed on the integrations listed for ${company}. Each item says what we saw and what you can do about it.`;
+  const lead =
+    leadLine === null
+      ? `Here is what we noticed on the integrations listed for ${company}. Each item says what we saw and what you can do about it.`
+      : leadLine === contestLine
+        ? `Other vendors have asked ${company} to change details of integrations it maintains. Accept or decline each one under Change requests in Messages on your vendor portal.`
+        : `The other company on an integration listed for ${company} has written to you. Read and reply in your vendor portal.`;
+  const contestText =
+    contestLine && leadLine !== contestLine
+      ? `${contestLine}. Answer each one under Change requests in Messages on your vendor portal.`
+      : null;
   // The line never quotes a message: an email can be forwarded, and a thread is
   // private to the two companies (§15.3).
   const threadText =
-    threadLine && !threadsOnly ? `${threadLine}. Your vendor portal shows each one.` : null;
+    threadLine && leadLine !== threadLine
+      ? `${threadLine}. Your vendor portal shows each one.`
+      : null;
+  const extraTexts = [contestText, threadText].filter((t): t is string => t !== null);
 
   const sections = (link: LinkTagger) =>
     listed.map((f) => {
@@ -1584,7 +1612,7 @@ export function sendAttestationDigestEmail(
 
   // The mute page is an opt-out, so it is never tagged (`link-tag.ts`).
   const shared = (link: LinkTagger) => ({
-    preheader: threadsOnly ? threadLine : first && total === 1 ? first.title : lead,
+    preheader: leadLine ? leadLine : first && total === 1 ? first.title : lead,
     heading,
     sections: sections(link),
     ...(portal ? { cta: { label: 'Open your vendor portal', url: link(portal) } } : {}),
@@ -1605,11 +1633,11 @@ export function sendAttestationDigestEmail(
     render: (link) =>
       houseBody(
         shared(link),
-        [lead, ...(restText ? [restText] : []), ...(threadText ? [threadText] : [])],
+        [lead, ...(restText ? [restText] : []), ...extraTexts],
         [
           escapeHtml(lead),
           ...(restText ? [escapeHtml(restText)] : []),
-          ...(threadText ? [escapeHtml(threadText)] : []),
+          ...extraTexts.map((t) => escapeHtml(t)),
         ],
       ),
     ...(oneClick ? { headers } : {}),
@@ -4098,6 +4126,61 @@ export function sendContestProtestOpenedEmail(
         shared(link),
         [why, reply, PROTEST_IS_ADVICE],
         [escapeHtml(why), escapeHtml(reply), escapeHtml(PROTEST_IS_ADVICE)],
+      ),
+    dedupeKey: opts.dedupeKey,
+    entity: { type: 'integration_field_challenge', id: opts.contestId },
+  });
+}
+
+/**
+ * `contest-submitted-owner` (AECI-1942, §11b.8): the owner's seats learn that a vendor
+ * contested a field on their integration, and the date after which their silence
+ * counts as a decline that the submitter can ask AECi to review (30 days,
+ * §11b.12.3).
+ *
+ * Sent from the submit route after its batch commits, inside `waitUntil`, for an
+ * owner-routed contest only. The caller's key is
+ * `contest-submitted-owner:{contestId}:{profileId}`. A contest is submitted once, so
+ * the contest id is the event.
+ */
+export function sendContestSubmittedOwnerEmail(
+  c: EmailContext,
+  opts: ContestEmailFacts &
+    ContestSeatRecipient & {
+      submitterVendorName: string;
+      contestReason: string;
+      answerBy: string;
+      dedupeKey: string;
+    },
+): Promise<EmailOutcome> {
+  const company = opts.vendorName?.trim() || 'your company';
+  const field = contestFieldLabel(opts.field);
+  const by = formatDeadline(opts.answerBy);
+  const messages = vendorMessagesUrl(c.env, opts.vendorSlug);
+  const lead = `${opts.submitterVendorName} asked ${company} to change the "${field}" detail of ${opts.integrationName}. You maintain this integration, so you decide.`;
+  const answer = `Accept or decline it under Change requests in Messages on your vendor portal. If you have not answered by ${by}, ${opts.submitterVendorName} may ask AEC Integrations to review it. Until they do, you can still answer.`;
+  const quiet =
+    'The listing keeps the value on record while the request is open, and does not show that a request exists.';
+  const shared = (link: LinkTagger) => ({
+    preheader: `Answer by ${by}.`,
+    heading: `Change requested on ${opts.integrationName}`,
+    table: [
+      ...contestFactRows(c.env, opts, link),
+      ['Their reason', opts.contestReason, PLAIN] as const,
+      ['Answer by', by] as const,
+    ],
+    ...(messages ? { cta: { label: 'Answer in Messages', url: link(messages) } } : {}),
+    note: `You get this email because you hold a seat for ${company} on AEC Integrations.`,
+  });
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'contest-submitted-owner',
+    subject: `Answer by ${by}: change requested on ${opts.integrationName}`,
+    render: (link) =>
+      houseBody(
+        shared(link),
+        [lead, answer, quiet],
+        [escapeHtml(lead), escapeHtml(answer), escapeHtml(quiet)],
       ),
     dedupeKey: opts.dedupeKey,
     entity: { type: 'integration_field_challenge', id: opts.contestId },

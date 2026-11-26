@@ -2,8 +2,11 @@
  * The protest and decline emails (AECI-1205 / `STAGE_2_VENDOR_PORTAL_SPEC.md`
  * §11b.12.10).
  *
- * Three senders, all fire-and-forget after a committed write or from a cron:
+ * Four senders, all fire-and-forget after a committed write or from a cron:
  *
+ *   - {@link emailContestSubmittedToOwner} (AECI-1942, §11b.8): an owner-routed
+ *     contest was submitted. The owner vendor's seats get `contest-submitted-owner`
+ *     with the date after which their silence counts as a decline (30 days).
  *   - {@link emailProtestFiled}: a protest was filed. The owner vendor's seats get
  *     `contest-protest-opened` with the 14-day reply deadline, and `SUPPORT_EMAIL`
  *     gets `protest-submitted-alert`.
@@ -29,7 +32,7 @@
  * send failure to an outcome.
  */
 
-import type { ContestProtestBasis } from '@aeci/shared';
+import { addContestDays, CONTEST_OWNER_SILENCE_DAYS, type ContestProtestBasis } from '@aeci/shared';
 import { and, eq, gt, inArray, isNull, lte } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
@@ -40,6 +43,7 @@ import {
   sendContestDeclinedProtestWindowEmail,
   sendContestProtestOpenedEmail,
   sendContestProtestReplyReminderEmail,
+  sendContestSubmittedOwnerEmail,
   sendProtestSubmittedAlert,
   type ContestEmailFacts,
   type EmailContext,
@@ -76,6 +80,8 @@ export const protestReminderKey = (contestId: string, protestedAt: string, profi
   `contest-protest-reply-reminder:${contestId}:${protestedAt}:${profileId}`;
 export const declineWindowKey = (contestId: string, profileId: string) =>
   `contest-declined-protest-window:${contestId}:${profileId}`;
+export const contestSubmittedOwnerKey = (contestId: string, profileId: string) =>
+  `contest-submitted-owner:${contestId}:${profileId}`;
 
 // ─── Shared reads ────────────────────────────────────────────────────────────
 
@@ -137,6 +143,47 @@ function warn(c: EmailContext, message: string, error: unknown): void {
     });
   } catch {
     console.warn(`contest-protest-email: ${message}`);
+  }
+}
+
+// ─── Contest submitted to the owner ──────────────────────────────────────────
+
+/**
+ * Email the owner's seats about an owner-routed contest that just committed
+ * (AECI-1942). `row` is the contest as the submit batch wrote it. An AECi-routed
+ * contest has no owner to tell and sends nothing here; the route sends AECi its own
+ * alert. Never rejects.
+ */
+export async function emailContestSubmittedToOwner(
+  c: EmailContext,
+  db: Db,
+  row: ContestRow,
+  deps: ProtestEmailDeps = {},
+): Promise<void> {
+  try {
+    if (row.routedTo !== 'owner' || !row.ownerVendorId) return;
+    const ownerVendorId = row.ownerVendorId;
+    const { facts, vendors: named } = await loadContestEmailContext(db, row);
+    const owner = named.get(ownerVendorId);
+    const submitterName = named.get(row.submitterVendorId)?.name ?? 'A vendor';
+    const answerBy = addContestDays(row.createdAt, CONTEST_OWNER_SILENCE_DAYS);
+    const seats = await ownerSeats(db, c.env, ownerVendorId, deps);
+    // One connection at a time: sequential sends.
+    for (const seat of seats) {
+      await sendContestSubmittedOwnerEmail(c, {
+        ...facts,
+        to: seat.email,
+        vendorId: ownerVendorId,
+        vendorSlug: owner?.slug ?? null,
+        vendorName: owner?.name ?? null,
+        submitterVendorName: submitterName,
+        contestReason: row.reason,
+        answerBy,
+        dedupeKey: contestSubmittedOwnerKey(row.id, seat.profileId),
+      });
+    }
+  } catch (error) {
+    warn(c, `Contest owner email failed for ${row.id}`, error);
   }
 }
 

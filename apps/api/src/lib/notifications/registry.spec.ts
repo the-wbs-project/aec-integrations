@@ -56,8 +56,9 @@ const ENTRIES = Object.entries(NOTIFICATIONS) as Array<[string, NotificationEntr
  * AECI-1638 added `litigation-hold-reminder`: 98.
  * AECI-2040 added `portal-sync-service-pair-create`: 99.
  * AECI-2042 added `portal-sync-service-veto` and `portal-sync-service-pair-report`: 101.
+ * AECI-1942 added `contest-submitted-owner`: 102.
  */
-const EXPECTED_COUNT = 101;
+const EXPECTED_COUNT = 102;
 
 const sendsEmail = (e: NotificationEntry) => e.channel === 'email' || e.channel === 'email+portal';
 
@@ -114,7 +115,8 @@ describe('notification registry shape', () => {
       // `legal-terms-change`. AECI-1637 added `legal-account-change`. AECI-1638 added
       // `litigation-hold-reminder`. AECI-2040 added `portal-sync-service-pair-create`.
       // AECI-2042 added `portal-sync-service-veto` and `portal-sync-service-pair-report`.
-      email: 59,
+      // AECI-1942 added `contest-submitted-owner`.
+      email: 60,
       'email+portal': 1,
       'supabase-email': 1,
       portal: 36,
@@ -244,6 +246,8 @@ const ALWAYS_ON = [
   'contest-declined-protest-window',
   'contest-protest-opened',
   'contest-protest-reply-reminder',
+  // AECI-1942: carries the 30-day answer date.
+  'contest-submitted-owner',
   'entitlement-expiring',
   'legal-account-change',
   'legal-terms-change',
