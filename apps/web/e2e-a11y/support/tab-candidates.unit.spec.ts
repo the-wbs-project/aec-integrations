@@ -3,6 +3,7 @@ import { haspopupMismatch } from './popup-roles';
 import {
   candidateTabStops,
   diffCandidates,
+  isLastCandidate,
   parseTabindex,
   type ElementFacts,
 } from './tab-candidates';
@@ -184,5 +185,38 @@ describe('haspopupMismatch', () => {
 
   it('reports a value ARIA does not define', () => {
     expect(haspopupMismatch('yes', ['menu'])).toBe('aria-haspopup="yes" is not a valid value');
+  });
+});
+
+describe('isLastCandidate', () => {
+  // AECI-1885: in Playwright Firefox, Tab leaves focus where it is on the last
+  // stop. Only that stop may pass for the end of the page. A stop in the middle
+  // that Tab cannot leave is a forward-only trap, even when Shift+Tab leaves it.
+  it('takes only the last predicted stop for the end of the page', () => {
+    const first = el();
+    const trap = el();
+    const last = el();
+    const hidden = el({ rendered: false });
+    const facts = [first, trap, last, hidden];
+    expect(isLastCandidate(last.key, facts)).toBe(true);
+    expect(isLastCandidate(trap.key, facts)).toBe(false);
+    expect(isLastCandidate(hidden.key, facts)).toBe(false);
+    expect(isLastCandidate(first.key, [])).toBe(false);
+  });
+
+  it('reads the order the walk takes: positive tabindex first, then the rest', () => {
+    const early = el({ tabindexAttr: '1' });
+    const later = el();
+    expect(isLastCandidate(later.key, [later, early])).toBe(true);
+    expect(isLastCandidate(early.key, [later, early])).toBe(false);
+  });
+
+  it('uses the browser scroller rules', () => {
+    const link = el();
+    const scroller = el({ tag: 'div', nativelyFocusable: false, scroller: true });
+    expect(isLastCandidate(scroller.key, [link, scroller])).toBe(true);
+    expect(isLastCandidate(link.key, [link, scroller], { keyboardFocusableScrollers: false })).toBe(
+      true,
+    );
   });
 });

@@ -15,17 +15,26 @@ import { candidateTabStops, type ElementFacts } from './tab-candidates';
 // to the Chromium suites, and needs its own reason.
 
 describe('browser expectations', () => {
-  it('keeps every Chromium value as the suites had it before AECI-1885', () => {
-    expect(expected('sequentialKeys', 'chromium')).toEqual({
-      forward: 'Tab',
-      backward: 'Shift+Tab',
-    });
-    expect(expected('keyboardFocusableScrollers', 'chromium')).toBe(true);
+  // Every entry's Chromium value, as the suites behaved before AECI-1885. The
+  // next test fails when an entry is added without a line here.
+  const CHROMIUM_PINNED: Record<keyof typeof BROWSER_EXPECTATIONS, unknown> = {
+    sequentialKeys: { forward: 'Tab', backward: 'Shift+Tab' },
+    keyboardFocusableScrollers: true,
     // The walk's old rule: a press that leaves focus in place is a trap.
-    expect(expected('sequentialFocusWraps', 'chromium')).toBe(true);
-    expect(expected('scrollersWithFocusableContent', 'chromium')).toBe(false);
+    sequentialFocusWraps: true,
+    scrollersWithFocusableContent: false,
     // The announcement flows click, as they always did.
-    expect(expected('pointerFocusesButtons', 'chromium')).toBe(true);
+    pointerFocusesButtons: true,
+  };
+
+  it('keeps every Chromium value as the suites had it before AECI-1885', () => {
+    for (const [key, value] of Object.entries(CHROMIUM_PINNED)) {
+      expect(expected(key as keyof typeof BROWSER_EXPECTATIONS, 'chromium'), key).toEqual(value);
+    }
+  });
+
+  it('pins every entry, so a new one cannot land without its Chromium value', () => {
+    expect(Object.keys(CHROMIUM_PINNED).sort()).toEqual(Object.keys(BROWSER_EXPECTATIONS).sort());
   });
 
   it('matches the candidate default for Chromium, so the Chromium prediction is unchanged', () => {

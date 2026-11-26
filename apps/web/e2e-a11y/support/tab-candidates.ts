@@ -117,6 +117,21 @@ export function candidateTabStops(
   return [...positive, ...rest];
 }
 
+/**
+ * Is the element with this key the last stop the prediction expects? A browser
+ * that does not wrap (Playwright Firefox) leaves focus on the last stop when Tab
+ * is pressed there. Only that stop may be taken for the end of the page. Any
+ * other stop Tab cannot leave is a trap, even when Shift+Tab leaves it
+ * (AECI-1885).
+ */
+export function isLastCandidate(
+  key: number,
+  elements: readonly ElementFacts[],
+  options: CandidateOptions = {},
+): boolean {
+  return candidateTabStops(elements, options).at(-1)?.key === key;
+}
+
 /** The part of a walked stop the diff reads. `TabStop` in `./tab-walk.ts` satisfies it. */
 export interface WalkedStop {
   readonly key: number;

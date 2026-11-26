@@ -20,7 +20,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { routeFakeAlgolia } from '../e2e/fake-algolia';
 import { untilHydrated } from '../e2e/hydration';
 import { knownFailure } from './known-failure';
-import { browserOf, type A11yBrowser } from './support/browser-expectations';
+import { browserOf } from './support/browser-expectations';
 import {
   blockWrites,
   expectFieldErrorWired,
@@ -128,27 +128,13 @@ async function loginBadEmail(page: Page): Promise<FieldErrorRun> {
   await email.fill('not-an-email');
 
   const rec = await recordAnnouncements(page);
-  await activate(page, submit);
+  // AECI-2196: a click here races the error that moves the button, so outside
+  // Chromium, whose instant click lands first, this flow presses Enter. The lost
+  // click has its own test, the slow press.
+  await activate(page, submit, { keyboard: browserOf(page) !== 'chromium' });
   await expect(email).toBeFocused();
   const error = await expectFieldErrorWired(email, /valid email/);
   return { record: await rec.settle(), error, stubCalls: otp.calls, aborted };
-}
-
-/**
- * AECI-2196, found by the Firefox lane (AECI-1885). With a bad email typed, the
- * press on submit blurs the field, its error renders and pushes the button down,
- * and the release misses it: no submit, no focus move. Playwright's Chromium
- * click is instant, so it lands first. A person's press is not, so the defect is
- * real in every browser, but only the Firefox run sees it. WebKit activates by
- * keyboard (`activate`), and Enter is not lost.
- */
-const LOST_FIRST_CLICK: readonly A11yBrowser[] = ['firefox'];
-function markLostFirstClick(page: Page): void {
-  if (!LOST_FIRST_CLICK.includes(browserOf(page))) return;
-  knownFailure(
-    'AECI-2196',
-    'the error the press renders on blur moves the submit button, so the click is lost',
-  );
 }
 
 test.describe('Announcements: login', () => {
@@ -196,9 +182,41 @@ test.describe('Announcements: login', () => {
     'a bad email is tied to the field, focuses it, and posts nothing',
     surfaceAnnotations(LOGIN),
     async ({ page }) => {
-      markLostFirstClick(page);
       const run = await loginBadEmail(page);
       expect(run.stubCalls, `an invalid email posts nothing. Aborted: ${run.aborted}`).toBe(0);
+    },
+  );
+
+  // AECI-2196 (review 4): a person's press, not Playwright's instant click. The
+  // mouse goes down on submit, waits 150 ms, as a hand does, then comes up. The
+  // first click must submit: the field is focused and nothing is posted. Today
+  // the press blurs the field, its error pushes the button down about 29px, and
+  // the release misses it. Lost in all three browsers, 9 of 9 on 2026-11-26.
+  test(
+    'a bad email: a slow press on submit still submits',
+    surfaceAnnotations(LOGIN),
+    async ({ page }) => {
+      await blockWrites(page);
+      const otp = await stubSupabaseOtp(page, 200);
+      await openSurface(page, LOGIN);
+      const submit = page.getByRole('button', { name: 'Email me a sign-in link' });
+      await expect(submit).toBeEnabled();
+      const email = page.locator('#login-email');
+      await email.fill('not-an-email');
+      await submit.scrollIntoViewIfNeeded();
+      const box = await submit.boundingBox();
+      expect(box, 'the submit button has a box').not.toBeNull();
+      await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+      // Marked only once the setup has passed: a broken setup stays red.
+      knownFailure(
+        'AECI-2196',
+        'the error the press renders on blur moves the submit button, so the click is lost',
+      );
+      await page.mouse.down();
+      await page.waitForTimeout(150);
+      await page.mouse.up();
+      await expect(email, 'the first press submitted, so the field has focus').toBeFocused();
+      expect(otp.calls, 'an invalid email posts nothing').toBe(0);
     },
   );
 
@@ -207,7 +225,6 @@ test.describe('Announcements: login', () => {
       'AECI-2079',
       'the field error is role="alert" and the submit focuses the field it describes, so it is heard twice',
     );
-    markLostFirstClick(page);
     const run = await loginBadEmail(page);
     expectHeardOnce(run.record, run.error, 'focus');
   });

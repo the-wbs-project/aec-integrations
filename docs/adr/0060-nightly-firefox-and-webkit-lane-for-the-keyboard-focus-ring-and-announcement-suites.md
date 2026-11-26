@@ -255,5 +255,9 @@ lane's description is `docs/TESTING_STRATEGY.md` §8.4.10.
 
 **Barriers the lane found on landing,** each filed under AECI-1069 and marked for its browsers only:
 AECI-2195 (focus under the consent banner, Firefox and WebKit), AECI-2196 (the login button moves under
-the pointer, Firefox), AECI-2197 (WebKit's `outline: auto` ring), and AECI-2097 on one more link in
-WebKit.
+the pointer), AECI-2197 (WebKit's `outline: auto` ring on three named links), and AECI-2097 on one more
+link in WebKit. Review 4 (2026-11-26) added a slow-press test, which loses the click in all three
+browsers, so AECI-2196 is marked there for every browser.
+
+**Before it merges,** the lane runs once on Linux by dispatch, because the WebKit snapshots and the
+marks were captured on macOS. `docs/TESTING_STRATEGY.md` §8.4.10, "First run on Linux", has the steps.

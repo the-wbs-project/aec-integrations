@@ -29,9 +29,17 @@ const READS = new Set(['GET', 'HEAD', 'OPTIONS']);
  * real Tab presses and activated by Enter, as a keyboard or screen-reader user
  * does. The Tab presses are in the record on purpose: what a field announces
  * when Tab leaves it is what that user hears (AECI-2079). No `el.focus()`.
+ * `keyboard: true` takes the keyboard path in any browser, for a flow whose
+ * pointer path is judged by its own test (AECI-2196).
  */
-export async function activate(page: Page, control: Locator): Promise<void> {
-  if (expected('pointerFocusesButtons', browserOf(page))) return control.click();
+export async function activate(
+  page: Page,
+  control: Locator,
+  options: { readonly keyboard?: boolean } = {},
+): Promise<void> {
+  if (!options.keyboard && expected('pointerFocusesButtons', browserOf(page))) {
+    return control.click();
+  }
   const reached = await tabTo(page, await keyForLocator(page, control));
   expect(reached, 'Tab reaches the control before it is pressed').not.toBeNull();
   await page.keyboard.press('Enter');

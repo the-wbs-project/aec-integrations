@@ -140,6 +140,8 @@ export function loadSummary(path) {
         route: t.route ? String(t.route) : null,
         // AECI-1876: an e2e sweep test has no surface. Its spec file names it instead.
         file: t.file ? String(t.file) : null,
+        // AECI-1885: the browser project that ran it. Null in a summary from before the lane.
+        browser: t.browser ? String(t.browser) : null,
       }));
     // Only the merged summary has `parts`. A single shard's file has none.
     out.missingParts = Array.isArray(parsed.parts)
@@ -168,9 +170,12 @@ function where(f) {
 export function failingTable(failing) {
   const shown = failing.slice(0, TABLE_MAX);
   const rows = shown.map(
-    (f) => `| ${where(f)} | ${f.route ? `\`${cell(f.route)}\`` : '-'} | ${cell(f.title)} |`,
+    (f) =>
+      `| ${where(f)} | ${f.route ? `\`${cell(f.route)}\`` : '-'} | ${cell(f.title)} | ${
+        f.browser ? cell(f.browser) : '-'
+      } |`,
   );
-  const lines = ['| Surface or spec | Route | Test |', '|---|---|---|', ...rows];
+  const lines = ['| Surface or spec | Route | Test | Browser |', '|---|---|---|---|', ...rows];
   if (failing.length > shown.length) {
     lines.push('', `${failing.length - shown.length} more. The run's HTML report lists them.`);
   }
@@ -247,8 +252,30 @@ function failingSection(summary) {
     '## Failing tests',
     '',
     ...(totals ? [totals, ''] : []),
+    ...harnessNote(summary.failing),
     failingTable(summary.failing),
   ].join('\n');
+}
+
+/**
+ * AECI-1885: the browser every failing row ran in, when that is one browser
+ * other than Chromium. Else null. Such a night may be a difference in
+ * Playwright's build of that browser, not a site regression.
+ */
+export function singleOtherBrowser(failing) {
+  const browsers = new Set(failing.map((f) => f.browser ?? 'unknown'));
+  if (browsers.size !== 1) return null;
+  const [only] = browsers;
+  return only === 'firefox' || only === 'webkit' ? only : null;
+}
+
+function harnessNote(failing) {
+  const browser = singleOtherBrowser(failing);
+  if (!browser) return [];
+  return [
+    `Every failing test ran in ${browser} only. This may be a difference in Playwright's ${browser} build, not a regression on the site. Before fixing anything, follow "First run on Linux, and a red night in one browser" in \`docs/TESTING_STRATEGY.md\` §8.4.10.`,
+    '',
+  ];
 }
 
 export function issueDescription(summary, meta) {

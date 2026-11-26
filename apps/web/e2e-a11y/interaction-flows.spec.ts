@@ -442,6 +442,16 @@ test.describe('error prevention: moderation', () => {
       await quiet(page);
       expect(approve.calls, 'one click on Approve sent the approve, with no confirm').toBe(0);
       expect(writes.list).toEqual([]);
+      // Nothing sent is not enough: a dead Approve button sends nothing too. The
+      // click must open a confirm step. The dialog role sits on a wrapper with no
+      // box (as the ban dialog's does), so the check reads a confirm control in it.
+      await expect(
+        page
+          .getByRole('dialog')
+          .or(page.getByRole('alertdialog'))
+          .getByRole('button', { name: /approve|confirm/i }),
+        'the click on Approve opens a confirm step',
+      ).toBeVisible();
     },
   );
 });
