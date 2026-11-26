@@ -415,5 +415,8 @@ These were proposed and are not in this build: the software the user uses now, w
 the site, trades for trade contractors, buying role, market sectors, country, and years in the
 industry.
 
+The software the user uses now is specced as its own feature, not an onboarding question:
+`docs/MY_STACK_SPEC.md`.
+
 Onboarding still does not ask "How did you find AEC Integrations?". Since AECI-1063 (2026-10-29)
 the claim, listing, mailing-list and feedback forms ask it instead (`docs/ANALYTICS.md` §11b).
