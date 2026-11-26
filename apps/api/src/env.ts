@@ -30,6 +30,7 @@ export type ScheduledJob =
   | 'indexnow_drain'
   | 'claim_stale_check'
   | 'protest_reply_reminder'
+  | 'legal_first_effective_notice'
   | 'vendor_snapshot'
   | 'gsc_inspect'
   | 'claim_owner_fallback'

@@ -390,6 +390,21 @@ describe('capTtlAtLegalNoticeBoundary (AECI-1592)', () => {
   it('leaves the TTL alone with no notices', () => {
     expect(capTtlAtLegalNoticeBoundary(STATIC_TTL, opens, [])).toBe(STATIC_TTL);
   });
+
+  // AECI-1870: the in-force notice opens at 00:00 UTC of its day and closes 14 days on.
+  it('caps at both boundaries of an in-force notice', () => {
+    const inForce: LegalNotice = {
+      kind: 'in-force',
+      effectiveDate: '2027-01-15',
+      effectiveDateLabel: 'January 15, 2027',
+      documents: [{ slug: 'terms', version: '1.2' }],
+    };
+    const start = Date.UTC(2027, 0, 15);
+    const end = Date.UTC(2027, 0, 29);
+    expect(capTtlAtLegalNoticeBoundary(STATIC_TTL, start - 10 * MINUTE, [inForce]).edge).toBe(600);
+    expect(capTtlAtLegalNoticeBoundary(STATIC_TTL, end - 10 * MINUTE, [inForce]).edge).toBe(600);
+    expect(capTtlAtLegalNoticeBoundary(STATIC_TTL, end, [inForce])).toBe(STATIC_TTL);
+  });
 });
 
 // AECI-1689: an upcoming version becomes current at 12:00 UTC of its day, with no

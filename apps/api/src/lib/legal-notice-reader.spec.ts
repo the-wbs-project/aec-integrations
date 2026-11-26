@@ -106,6 +106,7 @@ async function seedVersion(over: Partial<LegalVersionRow> = {}): Promise<LegalVe
     publishedAt: '2026-11-12T00:00:00.000Z',
     noticeEnqueuedAt: '2026-11-12T00:00:01.000Z',
     noticeVendorCount: 3,
+    firstEffectiveNoticeEnqueuedAt: null,
     ...over,
   };
   await t.db.insert(legalVersions).values(row);

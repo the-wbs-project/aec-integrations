@@ -58,8 +58,9 @@ const ENTRIES = Object.entries(NOTIFICATIONS) as Array<[string, NotificationEntr
  * AECI-2042 added `portal-sync-service-veto` and `portal-sync-service-pair-report`: 101.
  * AECI-1942 added `contest-submitted-owner`: 102.
  * AECI-2139 added `portal-flow-corrected-by-aeci` and `portal-flow-correction-lifted-by-aeci`: 104.
+ * AECI-1870 added `legal-first-effective`: 105.
  */
-const EXPECTED_COUNT = 104;
+const EXPECTED_COUNT = 105;
 
 const sendsEmail = (e: NotificationEntry) => e.channel === 'email' || e.channel === 'email+portal';
 
@@ -119,7 +120,8 @@ describe('notification registry shape', () => {
       // AECI-1942 added `contest-submitted-owner`.
       // AECI-2139 added `portal-flow-corrected-by-aeci` and
       // `portal-flow-correction-lifted-by-aeci`.
-      email: 60,
+      // AECI-1870 added `legal-first-effective`.
+      email: 61,
       'email+portal': 1,
       'supabase-email': 1,
       portal: 38,
@@ -253,6 +255,8 @@ const ALWAYS_ON = [
   'contest-submitted-owner',
   'entitlement-expiring',
   'legal-account-change',
+  // AECI-1870: a service notice the day the first versions take effect (ruling 68).
+  'legal-first-effective',
   'legal-terms-change',
   // AECI-1638: a forgotten hold keeps personal data past its period.
   'litigation-hold-reminder',
@@ -313,6 +317,27 @@ describe('pausable (AECI-1224)', () => {
 
   it('never uses the reserved support-copy key as an id', () => {
     expect(Object.keys(NOTIFICATIONS)).not.toContain(SUPPORT_COPY_KEY);
+  });
+});
+
+// AECI-1870 (ruling 68): the day-of notice goes to accounts, once per moment.
+describe('legal-first-effective (AECI-1870)', () => {
+  const entry = getNotification('legal-first-effective');
+
+  it('goes to every unbanned account, vendor seats included, never to a bare billing email', () => {
+    expect(entry.audience).toBe('external');
+    expect(entry.summary).toContain('every unbanned account on the tier, vendor seats included');
+    expect(entry.summary).toContain('A billing email that belongs to no account is not sent it.');
+  });
+
+  it('is a service email: no opt-out, not pausable, one per account per moment', () => {
+    expect(entry.optOut).toBe('none');
+    expect(entry.pausable).toBe(false);
+    expect(entry.dedupe).toMatch(
+      /^One email per account per effective moment: key legal-first-effective:\{YYYY-MM-DD\}:\{profileId\}\./,
+    );
+    expect(entry.dedupe).toContain('a second run sends nothing');
+    expect(entry.ledger).toEqual(['notification_sends', 'fence-column']);
   });
 });
 

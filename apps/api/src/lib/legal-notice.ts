@@ -154,6 +154,7 @@ import {
   summaryOf,
   type LegalVersionRow,
 } from './legal-versions';
+import type { LegalFirstEffectiveMessage } from './legal-first-effective-notice';
 import { fetchAuthUserEmailsResult, type AuthEmailLookup } from './supabase-admin';
 import { loadVendorSeatRecipients, type FetchSeatEmails } from './vendor-seat-recipients';
 
@@ -208,8 +209,15 @@ export const LegalReaderNoticeMessageSchema = z.object({
 });
 export type LegalReaderNoticeMessage = z.infer<typeof LegalReaderNoticeMessageSchema>;
 
-/** Every message `aeci-legal-notice-{env}` carries: a company's, or a group of accounts'. */
-export type LegalNoticeQueueMessage = LegalNoticeMessage | LegalReaderNoticeMessage;
+/**
+ * Every message `aeci-legal-notice-{env}` carries: a company's, a group of accounts', or
+ * since AECI-1870 a group of accounts' day-of notice (`./legal-first-effective-notice`,
+ * which `queue()` in `scheduled.ts` routes before {@link deliverLegalNotice}).
+ */
+export type LegalNoticeQueueMessage =
+  | LegalNoticeMessage
+  | LegalReaderNoticeMessage
+  | LegalFirstEffectiveMessage;
 
 /** The registry id, and `notification_sends.notification_id`, of a reader notice. */
 export const LEGAL_READER_NOTICE_NOTIFICATION_ID = 'legal-account-change';

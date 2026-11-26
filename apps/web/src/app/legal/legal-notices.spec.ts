@@ -21,9 +21,13 @@ import {
   legalUpcomingPaths,
 } from './legal-manifest';
 import {
+  LEGAL_IN_FORCE_NOTICE_DAYS,
   LEGAL_NOTICES,
+  type LegalChangeNotice,
+  type LegalInForceNotice,
   type LegalNotice,
   activeLegalNotices,
+  isLegalInForceNotice,
   legalNoticeHref,
   legalNoticeId,
   legalNoticeWindow,
@@ -33,16 +37,19 @@ import {
 
 const CONTENT_DIR = fileURLToPath(new URL('../../content/legal', import.meta.url));
 
+const frontmatterOf = (slug: LegalSlug) =>
+  parseFrontmatter(readFileSync(join(CONTENT_DIR, LEGAL_SOURCE_FILES[slug]), 'utf8')).data;
+
 const REAL_TITLES = Object.fromEntries(
-  LEGAL_SLUGS.map((slug) => [
-    slug,
-    parseFrontmatter(readFileSync(join(CONTENT_DIR, LEGAL_SOURCE_FILES[slug]), 'utf8')).data[
-      'title'
-    ],
-  ]),
+  LEGAL_SLUGS.map((slug) => [slug, frontmatterOf(slug)['title']]),
 ) as Record<LegalSlug, string>;
 
-const NOTICE: LegalNotice = {
+/** Each current file's `effective_date`, blank while it is a draft (AECI-1870). */
+const REAL_EFFECTIVE_DATES = Object.fromEntries(
+  LEGAL_SLUGS.map((slug) => [slug, frontmatterOf(slug)['effective_date'] ?? '']),
+) as Record<LegalSlug, string>;
+
+const NOTICE: LegalChangeNotice = {
   slug: 'privacy',
   title: 'Privacy Policy',
   version: '1.2',
@@ -56,8 +63,8 @@ const CLOSES = Date.UTC(2027, 3, 1);
 const ENTRY: LegalUpcomingEntry = { slug: 'privacy', version: '1.2', effectiveOn: '2027-03-31' };
 
 /** By default the notice has a matching `LEGAL_UPCOMING` entry, so one field is under test. */
-function problems(notice: Partial<LegalNotice>, upcoming?: LegalUpcomingEntry[]): string[] {
-  const merged = { ...NOTICE, ...notice };
+function problems(notice: Partial<LegalChangeNotice>, upcoming?: LegalUpcomingEntry[]): string[] {
+  const merged: LegalChangeNotice = { ...NOTICE, ...notice };
   const entries = upcoming ?? [
     { slug: merged.slug, version: merged.version, effectiveOn: merged.effectiveDate },
   ];
@@ -124,7 +131,7 @@ describe('validateLegalNotices', () => {
     ]);
   });
 
-  it.each<[string, Partial<LegalNotice>, string]>([
+  it.each<[string, Partial<LegalChangeNotice>, string]>([
     ['an unknown slug', { slug: 'nope' as LegalSlug }, 'unknown slug'],
     ['a bad version', { version: 'next' }, 'invalid version'],
     ['a wrong title', { title: 'Privacy' }, 'does not match the document'],
@@ -177,7 +184,96 @@ describe('validateLegalNotices', () => {
   // the manifest lists.
   it('passes on the real entries', () => {
     expect(
-      validateLegalNotices(LEGAL_NOTICES, REAL_TITLES, LEGAL_UPCOMING, LEGAL_CURRENT_VERSIONS),
+      validateLegalNotices(
+        LEGAL_NOTICES,
+        REAL_TITLES,
+        LEGAL_UPCOMING,
+        LEGAL_CURRENT_VERSIONS,
+        REAL_EFFECTIVE_DATES,
+      ),
     ).toEqual([]);
+  });
+});
+
+// AECI-1870 (ruling 68): the notice that the first in-force versions took effect.
+describe('the in-force notice', () => {
+  const IN_FORCE: LegalInForceNotice = {
+    kind: 'in-force',
+    effectiveDate: '2027-01-15',
+    effectiveDateLabel: 'January 15, 2027',
+    documents: [
+      { slug: 'terms', version: '1.2' },
+      { slug: 'vendor-terms', version: '1.4' },
+    ],
+  };
+  const DAY_START = Date.UTC(2027, 0, 15);
+  const ENDS = DAY_START + LEGAL_IN_FORCE_NOTICE_DAYS * 86_400_000;
+  const CURRENT = { terms: '1.2', 'vendor-terms': '1.4' };
+  const DATED = { terms: 'January 15, 2027', 'vendor-terms': 'January 15, 2027' };
+  const check = (notice: LegalNotice, current = CURRENT, dated = DATED) =>
+    validateLegalNotices([notice], REAL_TITLES, [], current, dated);
+
+  it('is told apart from a change notice, and leaves a change notice alone', () => {
+    expect(isLegalInForceNotice(IN_FORCE)).toBe(true);
+    expect(isLegalInForceNotice(NOTICE)).toBe(false);
+    expect(legalNoticeWindow(NOTICE)).toEqual({ startMs: OPENS, endMs: CLOSES });
+  });
+
+  it('runs from 00:00 UTC of the effective day for 14 days', () => {
+    expect(LEGAL_IN_FORCE_NOTICE_DAYS).toBe(14);
+    expect(legalNoticeWindow(IN_FORCE)).toEqual({ startMs: DAY_START, endMs: ENDS });
+  });
+
+  it.each([
+    ['1 ms before it opens', DAY_START - 1, false],
+    ['the moment it opens', DAY_START, true],
+    ['the effective moment', Date.UTC(2027, 0, 15, 12), true],
+    ['the last ms', ENDS - 1, true],
+    ['the moment it closes', ENDS, false],
+  ])('is active at %s: %s', (_label, now, active) => {
+    expect(activeLegalNotices(now, [IN_FORCE])).toEqual(active ? [IN_FORCE] : []);
+  });
+
+  it('gives the TTL cap both of its boundaries', () => {
+    expect(nextLegalNoticeBoundaryMs(DAY_START - 1, [IN_FORCE])).toBe(DAY_START);
+    expect(nextLegalNoticeBoundaryMs(DAY_START, [IN_FORCE])).toBe(ENDS);
+    expect(nextLegalNoticeBoundaryMs(ENDS, [IN_FORCE])).toBeNull();
+  });
+
+  it('has an id of its own and links /legal', () => {
+    expect(legalNoticeId(IN_FORCE)).toBe('in-force@2027-01-15');
+    expect(legalNoticeHref(IN_FORCE)).toBe('/legal');
+  });
+
+  it('accepts versions that are current and dated that day', () => {
+    expect(check(IN_FORCE)).toEqual([]);
+  });
+
+  it('refuses a version that is not the current one, such as an upcoming one', () => {
+    expect(check(IN_FORCE, { terms: '1.1', 'vendor-terms': '1.4' })).toEqual([
+      'in-force@2027-01-15: terms 1.2 is not the current version',
+    ]);
+  });
+
+  it('refuses a current version dated another day, or still a draft', () => {
+    expect(check(IN_FORCE, CURRENT, { terms: '', 'vendor-terms': 'January 16, 2027' })).toEqual([
+      'in-force@2027-01-15: terms 1.2 is not in force from January 15, 2027',
+      'in-force@2027-01-15: vendor-terms 1.4 is not in force from January 15, 2027',
+    ]);
+  });
+
+  it('refuses no documents, a duplicate, an unknown slug and a wrong label', () => {
+    expect(check({ ...IN_FORCE, documents: [] })).toEqual([
+      'in-force@2027-01-15: names no document',
+    ]);
+    expect(
+      check({ ...IN_FORCE, documents: [IN_FORCE.documents[0]!, IN_FORCE.documents[0]!] }),
+    ).toEqual(['in-force@2027-01-15: terms listed twice']);
+    expect(
+      check({ ...IN_FORCE, documents: [{ slug: 'nope' as LegalSlug, version: '1.0' }] }),
+    ).toEqual(['in-force@2027-01-15: unknown slug nope']);
+    expect(check({ ...IN_FORCE, effectiveDateLabel: 'January 16, 2027' }).join()).toContain(
+      'is not that day',
+    );
   });
 });

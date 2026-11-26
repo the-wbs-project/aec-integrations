@@ -368,6 +368,7 @@ export function createPublishLegalVersionHandler(
       publishedAt: now.toISOString(),
       noticeEnqueuedAt: null,
       noticeVendorCount: null,
+      firstEffectiveNoticeEnqueuedAt: null,
     };
     const entry: AuditLogEntry = {
       actorId: session.userId,

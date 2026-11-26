@@ -68,6 +68,7 @@ import {
   sendVendorTerminatedEmail,
   sendPaymentFailedEmail,
   sendRenewalCancelledEmail,
+  sendLegalFirstEffectiveEmail,
   sendLegalTermsChangeEmail,
   sendListingRequestAlert,
   sendProductRequestAlert,
@@ -879,6 +880,21 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         pdfBase64: 'JVBERi0=',
         dedupeKey: 'legal-account-change:terms:1.2:u1',
         entity: { type: 'legal_version', id: 'lv2' },
+      }),
+  },
+  'legal-first-effective': {
+    links: true,
+    send: (c) =>
+      sendLegalFirstEffectiveEmail(c, {
+        to: 'reader@example.com',
+        effectiveDay: '2027-01-15',
+        documents: [
+          { document: 'terms', version: '1.2' },
+          { document: 'vendor_terms', version: '1.4' },
+        ],
+        ownerSeat: true,
+        dedupeKey: 'legal-first-effective:2027-01-15:u1',
+        entity: { type: 'legal_effective_day', id: '2027-01-15' },
       }),
   },
   'payment-failed': {

@@ -15,7 +15,7 @@ import {
   LEGAL_NOTICE_NOW,
   LegalNoticeBand,
 } from './legal-notice-band';
-import type { LegalNotice } from './legal-notices';
+import type { LegalInForceNotice, LegalNotice } from './legal-notices';
 
 const PRIVACY: LegalNotice = {
   slug: 'privacy',
@@ -31,6 +31,13 @@ const TERMS: LegalNotice = {
   title: 'Terms of Service',
   version: '1.3',
   summary: 'We change the disputes section.',
+};
+/** AECI-1870: the first in-force versions took effect on January 15, 2027. */
+const IN_FORCE: LegalInForceNotice = {
+  kind: 'in-force',
+  effectiveDate: '2027-01-15',
+  effectiveDateLabel: 'January 15, 2027',
+  documents: [{ slug: 'terms', version: '1.2' }],
 };
 const INSIDE = Date.UTC(2027, 2, 10);
 const OUTSIDE = Date.UTC(2027, 1, 1);
@@ -221,6 +228,54 @@ describe('LegalNoticeBand', () => {
       dismissButtons(el)[0]!.click();
       fixture.detectChanges();
       expect(el.querySelector('[role="region"]')).toBeNull();
+    });
+  });
+
+  // AECI-1870 (ruling 68): the notice that the documents are now in force.
+  describe('the in-force notice', () => {
+    it('renders the lead and the Read them link to /legal from the effective day', async () => {
+      configure('server', Date.UTC(2027, 0, 15), [IN_FORCE]);
+      const { el } = await render();
+      const region = el.querySelector('[role="region"]');
+      expect(region?.getAttribute('aria-label')).toBe(
+        'Notice that our legal documents are now in force',
+      );
+      expect(region?.textContent).toContain(
+        'Our legal documents are now in force from January 15, 2027.',
+      );
+      const link = el.querySelector('a');
+      expect(link?.textContent?.trim()).toBe('Read them');
+      expect(link?.getAttribute('href')).toBe('/legal');
+      expect(region?.textContent).not.toMatch(/—/);
+    });
+
+    it('renders nothing the day before and on day 15', async () => {
+      configure('server', Date.UTC(2027, 0, 14, 23, 59), [IN_FORCE]);
+      expect((await render()).el.querySelector('[role="region"]')).toBeNull();
+      TestBed.resetTestingModule();
+      configure('server', Date.UTC(2027, 0, 29), [IN_FORCE]);
+      expect((await render()).el.querySelector('[role="region"]')).toBeNull();
+    });
+
+    it('is dismissible like a change notice, and stores its own id', async () => {
+      const { fixture, el } = await renderInBrowser(
+        ['in-force@2027-01-15', 'privacy@1.2'],
+        [IN_FORCE, PRIVACY],
+      );
+      expect(dismissButtons(el).map((b) => b.getAttribute('aria-label'))).toEqual([
+        'Dismiss the notice that our legal documents are now in force',
+        'Dismiss the notice about the Privacy Policy',
+      ]);
+      dismissButtons(el)[0]!.click();
+      fixture.detectChanges();
+      expect(el.querySelectorAll('[role="region"]')).toHaveLength(1);
+      expect(JSON.parse(stored()!)).toEqual(['in-force@2027-01-15']);
+    });
+
+    it('removes its stored dismissal once its window has ended', async () => {
+      localStorage.setItem(LEGAL_NOTICE_DISMISSED_KEY, JSON.stringify(['in-force@2027-01-15']));
+      await renderInBrowser(null, [IN_FORCE]);
+      expect(stored()).toBeNull();
     });
   });
 });

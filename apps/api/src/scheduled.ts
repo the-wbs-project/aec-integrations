@@ -13,7 +13,7 @@
  * carries no job queues; the AECI-1418 ownership-sync and AECI-1620 legal-notice
  * queues are the local ones, and `queue()` routes each by name before the job path).
  * Not every job has a queue:
- * `queueForJob` marks twelve as queue-less by design, each with its reason, and
+ * `queueForJob` marks thirteen as queue-less by design, each with its reason, and
  * those always run inline on every tier. A queue-backed job runs inline only when
  * its binding is absent. That is expected on local `wrangler dev`, where it keeps a
  * `--test-scheduled` tick from being silently dropped, and an error on a deployed
@@ -256,6 +256,11 @@ import {
   type LegalNoticeQueueMessage,
 } from './lib/legal-notice';
 import {
+  deliverLegalFirstEffectiveNotice,
+  isLegalFirstEffectiveMessage,
+  runLegalFirstEffectiveNotice,
+} from './lib/legal-first-effective-notice';
+import {
   runVendorSnapshot,
   snapshotDayFor,
   VENDOR_SNAPSHOT_RUN_METRIC,
@@ -404,6 +409,11 @@ const CLAIM_STALE_DURATION_METRIC = 'aeci.linear.claim_stale.job.duration_ms';
 const PROTEST_REMINDER_JOB_METRIC = 'aeci.contest.protest_reminder.job';
 const PROTEST_REMINDER_DURATION_METRIC = 'aeci.contest.protest_reminder.job.duration_ms';
 const PROTEST_REMINDER_DUE_METRIC = 'aeci.contest.protest_reminder.due';
+
+/** AECI-1870 day-of legal notice. The run heartbeat, emitted on every run
+ *  (`outcome:ok|failed`). A run with nothing to send is `ok`, the normal value. */
+const LEGAL_FIRST_EFFECTIVE_RUN_METRIC = 'aeci.legal_first_effective.run';
+const LEGAL_FIRST_EFFECTIVE_SOURCE = 'legal-first-effective-notice-cron';
 
 /** AECI-1368 claim owner fallback. `…job` is the run heartbeat, emitted on every run
  *  (`outcome:ok|failed`). `…moved` is the claims handed to AECi this run, emitted on
@@ -2670,6 +2680,63 @@ async function runClaimStaleCheckJob(env: Env, ctx: ExecutionContext): Promise<J
 }
 
 /**
+ * Daily day-of legal notice (AECI-1870, `STAGE_1_SPEC.md` §27.4). Everything
+ * load-bearing is in `./lib/legal-first-effective-notice`; this shell supplies the DB and
+ * the PostHog sink. It only queues: the legal notice queue's consumer sends.
+ *
+ * A fan-out that did not finish is a `failed` run, so the failure alert reaches the
+ * operator, and its marker stays unset, so the next 12:00 run queues it again inside the
+ * 7-day window. A run with nothing to send is `ok`.
+ */
+async function runLegalFirstEffectiveNoticeJob(
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<JobRunReport> {
+  const req = cronRequest('/cron/legal-first-effective-notice');
+  try {
+    const { db } = cronDb(env);
+    const result = await runLegalFirstEffectiveNotice({ env, ctx, request: req }, db);
+    const failed = result.moments.filter((m) => m.outcome === 'failed');
+    const outcome = failed.length > 0 ? 'failed' : 'ok';
+    submitCount(ctx, env, req, LEGAL_FIRST_EFFECTIVE_RUN_METRIC, 1, [
+      'trigger:cron',
+      `outcome:${outcome}`,
+    ]);
+    logToPosthog(ctx, env, req, {
+      level: failed.length > 0 ? 'error' : 'info',
+      message: `aeci.legal_first_effective moments=${result.moments.length} failed=${failed.length} stale=${result.stale}`,
+      source: LEGAL_FIRST_EFFECTIVE_SOURCE,
+    });
+    return {
+      outcome,
+      detail: {
+        job: 'legal-first-effective-notice',
+        moments: result.moments,
+        stale: result.stale,
+      },
+    };
+  } catch (error) {
+    submitCount(ctx, env, req, LEGAL_FIRST_EFFECTIVE_RUN_METRIC, 1, [
+      'trigger:cron',
+      'outcome:failed',
+    ]);
+    logToPosthog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.legal_first_effective.crashed',
+      source: LEGAL_FIRST_EFFECTIVE_SOURCE,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      outcome: 'failed',
+      detail: {
+        job: 'legal-first-effective-notice',
+        reason: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
+
+/**
  * Daily protest reply reminder (AECI-1205 / `STAGE_2_VENDOR_PORTAL_SPEC.md`
  * §11b.12.10). Everything load-bearing is in `./lib/contest-protest-emails`; this
  * shell supplies the DB and the PostHog sink.
@@ -3397,6 +3464,13 @@ function queueForJob(
       // 3-day window, and the ledger key stops a re-send. No
       // `PROTEST_REMINDER_QUEUE` binding exists.
       return QUEUE_LESS;
+    case 'legal_first_effective_notice':
+      // Queue-less like `protest_reply_reminder`, whose tick runs it (AECI-1870). The job
+      // only reads `legal_versions` and queues the notice on LEGAL_NOTICE_QUEUE, whose
+      // consumer sends, so the cron still only enqueues. A failed fan-out leaves the
+      // marker unset and the next day's run queues it again inside the 7-day window; the
+      // ledger key stops a second email. No queue binding of its own exists.
+      return QUEUE_LESS;
     case 'claim_owner_fallback':
       // Queue-less like `protest_reply_reminder` (AECI-1368): one indexed read, one
       // batch and one fail-open digest. The guarded UPDATE is the fence, so a missed
@@ -3755,6 +3829,14 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       source: 'protest-reply-reminder-cron',
     };
   }
+  if (job === 'legal_first_effective_notice') {
+    // Unreachable for the same reason as `protest_reply_reminder` above: queue-less.
+    return {
+      path: '/cron/legal-first-effective-notice',
+      message: 'aeci.legal_first_effective.enqueue_failed',
+      source: LEGAL_FIRST_EFFECTIVE_SOURCE,
+    };
+  }
   if (job === 'request_confirmation_expiry') {
     // Unreachable for the same reason as `claim_owner_fallback` below: queue-less.
     return {
@@ -3873,6 +3955,8 @@ async function dispatchScheduledJob(
       return runClaimStaleCheckJob(env, ctx);
     case 'protest_reply_reminder':
       return runProtestReplyReminderJob(env, ctx);
+    case 'legal_first_effective_notice':
+      return runLegalFirstEffectiveNoticeJob(env, ctx);
     case 'claim_owner_fallback':
       return runClaimOwnerFallbackJob(env, ctx);
     case 'request_confirmation_expiry':
@@ -4008,7 +4092,13 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       await enqueueOrRun(env, ctx, 'claim_stale_check');
       return;
     case PROTEST_REMINDER_CRON:
-      await enqueueOrRun(env, ctx, 'protest_reply_reminder');
+      try {
+        await enqueueOrRun(env, ctx, 'protest_reply_reminder');
+      } finally {
+        // AECI-1870: the same tick runs the day-of legal notice (`lib/cron-schedules.ts`),
+        // even when the reminder throws, so one job's fault never drops the other's run.
+        await enqueueOrRun(env, ctx, 'legal_first_effective_notice');
+      }
       return;
     case VENDOR_SNAPSHOT_CRON:
       await enqueueOrRun(env, ctx, 'vendor_snapshot');
@@ -4127,7 +4217,12 @@ export const queue: ExportedHandlerQueueHandler<
   // `deliverLegalNotice` acks or retries each message itself and does not throw.
   if (isLegalNoticeQueue(batch.queue)) {
     for (const message of batch.messages) {
-      await deliverLegalNotice(env, ctx, message);
+      // AECI-1870: the day-of notice rides the same queue under its own `kind`.
+      if (isLegalFirstEffectiveMessage(message.body)) {
+        await deliverLegalFirstEffectiveNotice(env, ctx, message);
+      } else {
+        await deliverLegalNotice(env, ctx, message);
+      }
     }
     return;
   }
