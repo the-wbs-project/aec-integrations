@@ -83,6 +83,46 @@ describe('the claimed owner', () => {
     expect(el(fixture).querySelector(`${testid('overview-row-maturity')} form`)).toBeNull();
   });
 
+  it('closes an edit on Escape, as Cancel does, and focuses the pencil (AECI-2133)', async () => {
+    const api = makeApi([INTEGRATION_OWNED_CLAIMED]);
+    await setup(api, INTEGRATION_OWNED_CLAIMED);
+    const fixture = await mount(IntegrationOverview, INTEGRATION_OWNED_CLAIMED);
+    el(fixture).querySelector<HTMLButtonElement>(testid('edit-maturity'))!.click();
+    await settle(fixture);
+    el(fixture)
+      .querySelector<HTMLInputElement>(`${testid('overview-row-maturity')} input`)!
+      .dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+    await settle(fixture);
+    expect(el(fixture).querySelector(`${testid('overview-row-maturity')} form`)).toBeNull();
+    expect(document.activeElement).toBe(el(fixture).querySelector(testid('edit-maturity')));
+    expect(api.updateIntegration).not.toHaveBeenCalled();
+  });
+
+  it('ignores Escape while the edit saves (AECI-2133)', async () => {
+    const api = makeApi([INTEGRATION_OWNED_CLAIMED]);
+    api.updateIntegration.mockReturnValue(new Promise(() => undefined));
+    await setup(api, INTEGRATION_OWNED_CLAIMED);
+    const fixture = await mount(IntegrationOverview, INTEGRATION_OWNED_CLAIMED);
+    el(fixture).querySelector<HTMLButtonElement>(testid('edit-maturity'))!.click();
+    await settle(fixture);
+    const input = el(fixture).querySelector<HTMLInputElement>(
+      `${testid('overview-row-maturity')} input`,
+    )!;
+    input.value = 'Beta';
+    input.dispatchEvent(new Event('input'));
+    el(fixture)
+      .querySelector<HTMLFormElement>(`${testid('overview-row-maturity')} form`)!
+      .dispatchEvent(new Event('submit'));
+    await settle(fixture);
+    input.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    );
+    await settle(fixture);
+    expect(el(fixture).querySelector(`${testid('overview-row-maturity')} form`)).not.toBeNull();
+  });
+
   it('refuses a bad pricing page link before sending', async () => {
     const api = makeApi([INTEGRATION_OWNED_CLAIMED]);
     await setup(api, INTEGRATION_OWNED_CLAIMED);

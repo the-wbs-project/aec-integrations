@@ -47,6 +47,7 @@ import {
 } from '../shared/portal-form';
 import { ALERT, FORM_PANEL, HELP, ID_STYLES, INPUT } from './integration-detail-styles';
 import { isReplayedEvent } from '../../core/event-replay';
+import { CloseOnEscape } from '../shared/close-on-escape';
 import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
 
 /** The owner picker's value for "neither company". Never a UUID. `null` on the wire. */
@@ -90,15 +91,19 @@ interface FieldOption {
  *   20-character floor: it is not a ruled rule and the API does not enforce it.
  *
  * Pessimistic: on `201` it announces where the request went, closes, and the host
- * focuses the new item.
+ * focuses the new item. Cancel, or Escape (`aecCloseOnEscape`, ignored while it
+ * sends), emits `cancelled`, and the host returns focus to the button that opened it.
  */
 @Component({
   selector: 'aec-integration-request-form',
-  imports: [KeepClearOfSaveBar, AecButton],
+  imports: [KeepClearOfSaveBar, CloseOnEscape, AecButton],
   styles: [ID_STYLES],
   template: `
     <form
       aecKeepClearOfSaveBar
+      aecCloseOnEscape
+      [escapeBusy]="sending()"
+      (escapeCancel)="cancelled.emit()"
       method="dialog"
       id="change-requests-form"
       tabindex="-1"

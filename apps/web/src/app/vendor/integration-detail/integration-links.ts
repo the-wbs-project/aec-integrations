@@ -54,6 +54,7 @@ import { AecIcon } from '../../shared/icon/icon';
 import { ALERT, ID_STYLES, INPUT } from './integration-detail-styles';
 import { VendorTip } from './vendor-tip';
 import { isReplayedEvent } from '../../core/event-replay';
+import { CloseOnEscape } from '../shared/close-on-escape';
 
 type RecordField = Extract<OfferedContestField, 'listing_url' | 'docs_url'>;
 
@@ -82,7 +83,15 @@ interface SideGroup {
  */
 @Component({
   selector: 'aec-integration-links',
-  imports: [AecButton, AecIcon, VendorTip, NewTabIcon, VendorHiddenNote, VendorLockedNote],
+  imports: [
+    CloseOnEscape,
+    AecButton,
+    AecIcon,
+    VendorTip,
+    NewTabIcon,
+    VendorHiddenNote,
+    VendorLockedNote,
+  ],
   styles: [ID_STYLES],
   template: `
     @let i = integration();
@@ -126,6 +135,9 @@ interface SideGroup {
               <dd class="flex min-h-11 min-w-0 flex-wrap items-center gap-2">
                 @if (editing() === 'record:' + field) {
                   <form
+                    aecCloseOnEscape
+                    [escapeBusy]="busy()"
+                    (escapeCancel)="cancel()"
                     method="dialog"
                     class="flex min-w-0 flex-1 flex-wrap items-center gap-2 py-1"
                     [attr.aria-label]="editLabel(fieldLabel(field))"
@@ -242,7 +254,7 @@ interface SideGroup {
                           type="button"
                           [attr.aria-label]="requestLabel(fieldLabel(field))"
                           [attr.data-testid]="'request-' + field"
-                          (click)="state.openRequestForm(field)"
+                          (click)="state.openRequestForm(field, $event.currentTarget)"
                           i18n="@@vendor.im.requestChange"
                         >
                           Request a change
@@ -353,6 +365,9 @@ interface SideGroup {
                   <dd class="flex min-h-11 min-w-0 flex-wrap items-center gap-2">
                     @if (editing() === target) {
                       <form
+                        aecCloseOnEscape
+                        [escapeBusy]="busy()"
+                        (escapeCancel)="cancel()"
                         method="dialog"
                         class="flex min-w-0 flex-1 flex-wrap items-center gap-2 py-1"
                         [attr.aria-label]="editForLabel(kind.label, group.product.name)"

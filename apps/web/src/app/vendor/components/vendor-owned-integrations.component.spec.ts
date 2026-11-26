@@ -331,6 +331,17 @@ describe('VendorOwnedIntegrations — the edit (AECI-1090)', () => {
     expect(document.activeElement).toBe(trigger(fixture));
   });
 
+  it('closes on Escape, as Cancel does, and restores focus to Edit (AECI-2133)', async () => {
+    const fixture = await open();
+    field(fixture, 'maturity')!.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    );
+    await settle(fixture);
+    expect(rowEl(fixture, CLAIMED.id)!.querySelector('form')).toBeNull();
+    expect(document.activeElement).toBe(trigger(fixture));
+    expect(api.updateIntegration).not.toHaveBeenCalled();
+  });
+
   it('keeps the form open with the refusal in an alert', async () => {
     api.updateIntegration.mockRejectedValue(apiError(403, 'INTEGRATION_NOT_OWNER'));
     const fixture = await open();

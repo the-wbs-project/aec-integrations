@@ -316,6 +316,63 @@ describe('VendorContestForm — submitting', () => {
   });
 });
 
+describe('VendorContestForm: Escape is Cancel (AECI-2133)', () => {
+  const escape = () =>
+    new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+
+  it('closes on Escape, drops the draft and returns focus to "Request a change"', async () => {
+    const fixture = await createForm();
+    await open(fixture);
+    await chooseField(fixture, 'description');
+    await reason(fixture, 'A long draft.');
+    el(fixture).querySelector('textarea[id$="-reason"]')!.dispatchEvent(escape());
+    await settle(fixture);
+    expect(el(fixture).querySelector('form')).toBeNull();
+    expect(api.submitContest).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(trigger(fixture));
+    await open(fixture);
+    expect(
+      (el(fixture).querySelector('select[id$="-field"]') as unknown as HTMLSelectElement).value,
+    ).toBe('');
+  });
+
+  it('ignores Escape while the request sends', async () => {
+    api.submitContest.mockReturnValue(new Promise(() => undefined));
+    const fixture = await createForm();
+    await open(fixture);
+    await chooseField(fixture, 'direction');
+    await typeInto(fixture, valueControl(fixture), 'outbound');
+    await reason(fixture, 'Only Summit pushes data.');
+    await submit(fixture);
+    expect(api.submitContest).toHaveBeenCalled();
+    el(fixture).querySelector('textarea[id$="-reason"]')!.dispatchEvent(escape());
+    await settle(fixture);
+    expect(el(fixture).querySelector('form')).not.toBeNull();
+  });
+
+  it('leaves an Escape a control already spent, and an IME composition, alone', async () => {
+    const fixture = await createForm();
+    await open(fixture);
+    const select = el(fixture).querySelector(
+      'select[id$="-field"]',
+    ) as unknown as HTMLSelectElement;
+    select.addEventListener('keydown', (e) => e.preventDefault(), { once: true });
+    select.dispatchEvent(escape());
+    await settle(fixture);
+    expect(el(fixture).querySelector('form')).not.toBeNull();
+    select.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'Escape',
+        bubbles: true,
+        cancelable: true,
+        isComposing: true,
+      }),
+    );
+    await settle(fixture);
+    expect(el(fixture).querySelector('form')).not.toBeNull();
+  });
+});
+
 describe('VendorContestForm on a connector-evidenced pair (AECI-1092)', () => {
   const PAIR = Object.values(VENDOR_PRODUCT_CONNECTORS_FIXTURE)[0]!.connectors[0]!
     .delivered_contest_targets[0]!;

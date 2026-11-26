@@ -697,6 +697,8 @@ const PREVIEW_CATALOGUE: readonly ProductListItem[] = [
 export class PreviewVendorApi extends VendorApi {
   private me: VendorMeResponse | null = null;
   private seats: VendorSeat[] = clone([...VENDOR_SEATS_FIXTURE]);
+  /** Invites revoked in this preview session (AECI-2129), so a revoke drops the row. */
+  private revokedInvites = new Set<string>();
   private integrations: ListVendorIntegrationsResponse = clone(PREVIEW_INTEGRATIONS);
   private nextClaimSeq = 0;
   private contests: ListVendorContestsResponse = clone(PREVIEW_CONTESTS);
@@ -721,6 +723,7 @@ export class PreviewVendorApi extends VendorApi {
     this.me = clone(me);
     this.checklistState = clone(checklist);
     this.seats = clone([...seats]);
+    this.revokedInvites = new Set();
     this.integrations = clone(integrations);
     this.nextClaimSeq = 0;
     this.contests = clone(PREVIEW_CONTESTS);
@@ -1152,7 +1155,9 @@ export class PreviewVendorApi extends VendorApi {
     // primary actions hidden is reviewing a different surface.
     return {
       seats: clone(this.seats),
-      pending_invites: clone([...VENDOR_SEAT_INVITES_FIXTURE]),
+      pending_invites: clone(
+        VENDOR_SEAT_INVITES_FIXTURE.filter((invite) => !this.revokedInvites.has(invite.id)),
+      ),
       can_manage_seats: true,
       // AECI-1368: one claim routed to the owners, so "Wants to join" renders.
       pending_claims: clone([...VENDOR_PENDING_SEAT_CLAIMS_FIXTURE]),
@@ -1212,9 +1217,15 @@ export class PreviewVendorApi extends VendorApi {
     };
   }
 
-  override async revokeInvite(): Promise<void> {}
+  /** AECI-2129: the row leaves the list, as it does after the real 204, so the
+   *  preview shows where focus lands once a remove or revoke succeeds. */
+  override async revokeInvite(inviteId: string): Promise<void> {
+    this.revokedInvites.add(inviteId);
+  }
 
-  override async removeSeat(): Promise<void> {}
+  override async removeSeat(userId: string): Promise<void> {
+    this.seats = this.seats.filter((seat) => seat.user_id !== userId);
+  }
 
   /** The freshness cursor, frozen. See {@link PREVIEW_UPDATES}. */
   override async getUpdates(): Promise<VendorUpdatesResponse> {
