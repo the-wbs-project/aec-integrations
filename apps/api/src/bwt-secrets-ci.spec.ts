@@ -49,3 +49,33 @@ describe('AECI-821: BWT_API_KEY is provisioned by the production promote', () =>
     expect(example).toMatch(/^BWT_API_KEY=$/m);
   });
 });
+
+/**
+ * AECI-2075: the key travels in the request URL as `?apikey=`. A staging read on
+ * 2026-11-26 showed that `redact_query_string` strips the query string from an
+ * outbound fetch span too (`url.full` without it, `url.query` empty). That setting
+ * is the only thing keeping the key out of Cloudflare's stored traces, so every
+ * observability block in the API Worker's config must keep it.
+ */
+describe('AECI-2075: every API observability block redacts query strings', () => {
+  // Parsed, not pattern-matched, so a commented-out setting does not count. Same
+  // comment-strip as wrangler-legal-publish.spec.ts.
+  type Block = { observability?: { redact_query_string?: unknown } };
+  const raw = readFileSync(join(ROOT, 'apps', 'api', 'wrangler.jsonc'), 'utf8');
+  const config = JSON.parse(
+    raw
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('//'))
+      .join('\n')
+      .replace(/,(\s*[}\]])/g, '$1'),
+  ) as Block & { env: Record<string, Block> };
+
+  it('has no environment block beyond staging, demo and production', () => {
+    expect(Object.keys(config.env).sort()).toEqual(['demo', 'production', 'staging']);
+  });
+
+  it.each(['root', 'staging', 'demo', 'production'])('sets it to true in %s', (name) => {
+    const block = name === 'root' ? config : config.env[name];
+    expect(block?.observability?.redact_query_string).toBe(true);
+  });
+});
