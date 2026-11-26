@@ -173,7 +173,7 @@ export function selfDisclaimStands(contest: VendorContest | null): boolean {
         [attr.aria-labelledby]="fieldId('title')"
         data-testid="not-ours-form"
       >
-        <div class="max-w-prose space-y-1">
+        <div class="space-y-1">
           <p
             [id]="fieldId('title')"
             class="text-sm font-semibold text-(--text-primary)"

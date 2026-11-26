@@ -74,18 +74,12 @@ const SEATS_HEADING_ID = 'vendor-seats-heading';
   imports: [AecButton, AecCard, Chip, DatePipe],
   template: `
     @if (canManage()) {
-      <p
-        class="max-w-[30rem] text-sm leading-relaxed text-(--text-secondary)"
-        i18n="@@vendor.seats.intro.owner"
-      >
+      <p class="text-sm leading-relaxed text-(--text-secondary)" i18n="@@vendor.seats.intro.owner">
         Everyone with access to this vendor. You can invite anyone who helps maintain this listing,
         and remove access when someone leaves.
       </p>
     } @else {
-      <p
-        class="max-w-[30rem] text-sm leading-relaxed text-(--text-secondary)"
-        i18n="@@vendor.seats.intro.member"
-      >
+      <p class="text-sm leading-relaxed text-(--text-secondary)" i18n="@@vendor.seats.intro.member">
         Everyone with access to this vendor. Ask an account owner (listed below) to add or remove a
         colleague.
       </p>
@@ -97,7 +91,7 @@ const SEATS_HEADING_ID = 'vendor-seats-heading';
       <section aecCard [class]="'mt-6 p-6'" aria-labelledby="vendor-seats-claims-heading">
         <h3 id="vendor-seats-claims-heading" i18n="@@vendor.seats.claims.heading">Wants to join</h3>
         <p
-          class="mt-2 max-w-[30rem] text-sm leading-relaxed text-(--text-secondary)"
+          class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
           i18n="@@vendor.seats.claims.intro"
         >
           These people asked AEC Integrations to let them manage this company. Accept sends them a

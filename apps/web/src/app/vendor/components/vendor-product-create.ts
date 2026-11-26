@@ -180,7 +180,7 @@ export type ProductCreateNotice = { kind: 'notOwned' } | { kind: 'text'; text: s
             aria-labelledby="vendor-product-create-title"
             data-testid="product-create-form"
           >
-            <div class="max-w-prose space-y-1">
+            <div class="space-y-1">
               <p
                 id="vendor-product-create-title"
                 class="text-t-16 font-semibold text-(--text-primary)"

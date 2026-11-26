@@ -11,7 +11,9 @@ import { BAND_WRAP_CLASS } from '../../shared/band-wrap';
  * of room under the page. A routed section is already inside it, so a section never
  * adds a width, a gutter or a `max-w-7xl` canvas of its own. A section that wants a
  * narrower reading column caps its own text (`max-w-[32rem]` for notice copy, the
- * form helper's grid for fields), never the page.
+ * form helper's grid for fields), never the page. A section header's description
+ * (the paragraph under a tab, card or form heading) takes no cap: it runs the full
+ * width of the content below it (Chris, 2026-11-26).
  *
  * Whole class names, so Tailwind's scanner sees each one.
  */

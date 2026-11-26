@@ -79,7 +79,7 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
       @if (!labelledBy()) {
         <h3 id="vendor-contests-heading" i18n="@@vendor.contests.heading">Change requests</h3>
         <p
-          class="mt-2 max-w-[30rem] text-sm leading-relaxed text-(--text-secondary)"
+          class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
           i18n="@@vendor.contests.intro"
         >
           A change request says one detail of an integration is wrong and proposes the right value.

@@ -186,12 +186,12 @@ interface PendingRemoval {
         } @else {
           <h3 [id]="headingId()">{{ config().legend }}</h3>
         }
-        <p class="max-w-[52ch] text-sm leading-relaxed text-(--text-secondary)">
+        <p class="text-sm leading-relaxed text-(--text-secondary)">
           {{ config().hint }}
         </p>
         @if (config().narrative) {
           <p
-            class="max-w-[52ch] text-sm leading-relaxed text-(--text-secondary)"
+            class="text-sm leading-relaxed text-(--text-secondary)"
             i18n="@@vendor.product.facet.narrativeHint"
           >
             Under each term you tick, add the points that say how that team actually uses your

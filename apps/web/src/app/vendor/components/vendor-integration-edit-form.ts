@@ -153,7 +153,7 @@ export type EditFormOutcome = 'saved' | 'cancelled';
       (submit)="onSave($event)"
       [attr.aria-labelledby]="fieldId('title')"
     >
-      <div class="mb-8 max-w-prose space-y-1">
+      <div class="mb-8 space-y-1">
         <p
           [id]="fieldId('title')"
           class="font-display text-t-20 font-semibold text-(--text-primary)"
@@ -161,10 +161,7 @@ export type EditFormOutcome = 'saved' | 'cancelled';
         >
           Edit this integration
         </p>
-        <p
-          class="max-w-prose text-sm text-(--text-secondary)"
-          i18n="@@vendor.integrationEdit.intro"
-        >
+        <p class="text-sm text-(--text-secondary)" i18n="@@vendor.integrationEdit.intro">
           Changes go live on the public integration page as soon as you save. There is no review
           step. The other product's vendor is told what changed.
         </p>

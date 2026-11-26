@@ -78,10 +78,7 @@ const REASON_MAX = 2000;
               >Pairs recorded under another company</span
             >
           </h2>
-          <p
-            class="max-w-prose text-sm text-(--text-secondary)"
-            i18n="@@vendor.deliveredPairs.intro"
-          >
+          <p class="text-sm text-(--text-secondary)" i18n="@@vendor.deliveredPairs.intro">
             These pairs are recorded as delivered through your Sync Service, but another company, or
             no company, is recorded as the one that offers them. If your company offers one, ask AEC
             Integrations to record you. We check it and tell you what we decided.
