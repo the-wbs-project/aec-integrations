@@ -1,8 +1,10 @@
 import { OverlayModule, type ConnectedPosition } from '@angular/cdk/overlay';
+import { DOCUMENT } from '@angular/common';
 import {
   Component,
   DestroyRef,
   ElementRef,
+  afterNextRender,
   computed,
   inject,
   input,
@@ -38,7 +40,10 @@ let nextId = 0;
  * The panel opens on hover, focus and click. It stays open while the pointer is
  * over it, with a short grace period across the gap (hoverable). Escape closes it
  * from anywhere, without moving focus or the pointer (dismissible). It stays until
- * the pointer leaves, focus leaves or Escape (persistent). The full text is also
+ * the pointer leaves, focus leaves or Escape (persistent). An Escape that closes an
+ * open panel is marked handled (`preventDefault`, in the capture phase, so before any
+ * form sees it): a portal nested form (`aecCloseOnEscape`, `vendor/shared/close-on-escape.ts`)
+ * then stays open, and the next Escape closes the form (AECI-2133). The full text is also
  * the trigger's `aria-describedby` target, always in the DOM and visually hidden,
  * so assistive tech never depends on the overlay. The panel itself is
  * `aria-hidden`, so its text is not read twice.
@@ -49,7 +54,6 @@ let nextId = 0;
   selector: 'aec-vendor-tip',
   imports: [OverlayModule, Chip, AecIcon],
   styles: [':host { display: inline-flex; max-width: 100%; vertical-align: middle; }'],
-  host: { '(document:keydown.escape)': 'close()' },
   template: `
     <button
       #origin="cdkOverlayOrigin"
@@ -115,6 +119,7 @@ export class VendorTip {
   readonly activate = output<void>();
 
   private readonly destroyRef = inject(DestroyRef);
+  private readonly document = inject(DOCUMENT);
   private readonly trigger = viewChild<ElementRef<HTMLButtonElement>>('trigger');
 
   protected readonly descId = `vendor-tip-${++nextId}`;
@@ -148,7 +153,21 @@ export class VendorTip {
   private closeTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
-    this.destroyRef.onDestroy(() => this.cancelClose());
+    const document = this.document;
+    const onKeydown = (event: KeyboardEvent): void => this.onDocumentKeydown(event);
+    afterNextRender(() => document.addEventListener('keydown', onKeydown, true));
+    this.destroyRef.onDestroy(() => {
+      this.cancelClose();
+      document.removeEventListener('keydown', onKeydown, true);
+    });
+  }
+
+  /** Escape closes the panel from anywhere. When a panel was showing, the Escape is
+   *  spent on it, so a form around the trigger does not also close. */
+  private onDocumentKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'Escape' && event.key !== 'Esc') return;
+    if (this.open() && this.lines().length > 0) event.preventDefault();
+    this.close();
   }
 
   /** Focus the trigger. A flag's jump returns here when the page wants it. */

@@ -34,6 +34,8 @@ import {
 afterEach(() => vi.restoreAllMocks());
 
 const testid = (id: string) => `[data-testid="${id}"]`;
+const escape = () =>
+  new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
 const PROCORE_CONTESTS = {
   submitted: VENDOR_CONTESTS_FIXTURE.submitted.filter(
     (c) => c.integration_id === INTEGRATION_PROCORE_DETAIL.id,
@@ -140,6 +142,26 @@ describe('the Open list', () => {
     await settle(fixture);
     expect(text(fixture)).toContain('Why is this wrong?');
     expect(buttonNamed(fixture, /Edit my reason/)).toBeUndefined();
+  });
+
+  it('closes the reason form on Escape and returns focus to the button that opened it (AECI-2133)', async () => {
+    const api = makeApi([INTEGRATION_PROCORE_DETAIL], PROCORE_CONTESTS);
+    await setup(api, INTEGRATION_PROCORE_DETAIL);
+    const fixture = await mount(IntegrationChangeRequests, INTEGRATION_PROCORE_DETAIL);
+    const documents = INTEGRATION_PROCORE_DETAIL.claims.find((c) => c.added_by === 'counterpart')!;
+    el(fixture)
+      .querySelector<HTMLButtonElement>(testid(`added-no-${documents.id}`))!
+      .click();
+    await settle(fixture);
+    const form = el(fixture).querySelector<HTMLFormElement>(testid('answer-form'))!;
+    const field = form.querySelector<HTMLElement>('textarea, input, select')!;
+    field.dispatchEvent(escape());
+    await settle(fixture);
+    expect(el(fixture).querySelector(testid('answer-form'))).toBeNull();
+    expect(api.upsertAttestation).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(
+      el(fixture).querySelector<HTMLButtonElement>(testid(`added-no-${documents.id}`)),
+    );
   });
 
   it('lets the owner accept or decline a received request with a note', async () => {
@@ -339,6 +361,105 @@ describe('the request form', () => {
     expect(text(fixture)).toContain(
       'This goes to Procore Technologies, the owner. If they say no, you can ask AEC Integrations to review it.',
     );
+  });
+
+  it('closes on Escape as Cancel does, and focus returns to "Request a correction" (AECI-2133)', async () => {
+    const api = makeApi([INTEGRATION_PROCORE_DETAIL], PROCORE_CONTESTS);
+    const { state } = await setup(api, INTEGRATION_PROCORE_DETAIL);
+    const fixture = await mount(IntegrationChangeRequests, INTEGRATION_PROCORE_DETAIL);
+    el(fixture).querySelector<HTMLButtonElement>(testid('request-correction'))!.click();
+    await settle(fixture);
+    const select = el(fixture).querySelector('#request-field') as unknown as HTMLSelectElement;
+    select.value = 'mechanism_name';
+    select.dispatchEvent(new Event('change'));
+    await settle(fixture);
+    const reason = el(fixture).querySelector<HTMLTextAreaElement>('#request-reason')!;
+    reason.value = 'A long draft.';
+    reason.dispatchEvent(new Event('input'));
+    reason.dispatchEvent(escape());
+    await settle(fixture);
+    expect(state.requestForm()).toBeNull();
+    expect(api.submitContest).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(
+      el(fixture).querySelector<HTMLButtonElement>(testid('request-correction')),
+    );
+  });
+
+  it('returns focus to the row button that opened it, on Escape and on Cancel (AECI-2133)', async () => {
+    const api = makeApi([INTEGRATION_PROCORE_DETAIL], PROCORE_CONTESTS);
+    const { state } = await setup(api, INTEGRATION_PROCORE_DETAIL);
+    const fixture = await mount(IntegrationChangeRequests, INTEGRATION_PROCORE_DETAIL);
+    // A "Request a change" button on an Overview row, outside this section.
+    const opener = document.createElement('button');
+    opener.setAttribute('data-testid', 'request-description');
+    document.body.appendChild(opener);
+    try {
+      state.openRequestForm('description', opener);
+      await settle(fixture);
+      el(fixture).querySelector<HTMLTextAreaElement>('#request-reason')!.dispatchEvent(escape());
+      await settle(fixture);
+      expect(state.requestForm()).toBeNull();
+      expect(document.activeElement).toBe(opener);
+
+      state.openRequestForm('description', opener);
+      await settle(fixture);
+      el(fixture)
+        .querySelector<HTMLButtonElement>(`${testid('request-form')} button[type="button"]`)!
+        .click();
+      await settle(fixture);
+      expect(state.requestForm()).toBeNull();
+      expect(document.activeElement).toBe(opener);
+    } finally {
+      opener.remove();
+    }
+  });
+
+  it('finds a re-rendered opener again by its data-testid (AECI-2133)', async () => {
+    const api = makeApi([INTEGRATION_PROCORE_DETAIL], PROCORE_CONTESTS);
+    const { state } = await setup(api, INTEGRATION_PROCORE_DETAIL);
+    const fixture = await mount(IntegrationChangeRequests, INTEGRATION_PROCORE_DETAIL);
+    const first = document.createElement('button');
+    first.setAttribute('data-testid', 'request-description');
+    document.body.appendChild(first);
+    let second: HTMLButtonElement | null = null;
+    try {
+      state.openRequestForm('description', first);
+      await settle(fixture);
+      // The Overview row re-renders: its button is a new element with the same testid.
+      first.remove();
+      second = document.createElement('button');
+      second.setAttribute('data-testid', 'request-description');
+      document.body.appendChild(second);
+      el(fixture).querySelector<HTMLTextAreaElement>('#request-reason')!.dispatchEvent(escape());
+      await settle(fixture);
+      expect(state.requestForm()).toBeNull();
+      expect(document.activeElement).toBe(second);
+    } finally {
+      first.remove();
+      second?.remove();
+    }
+  });
+
+  it('ignores Escape while the request sends (AECI-2133)', async () => {
+    const api = makeApi([INTEGRATION_PROCORE_DETAIL], PROCORE_CONTESTS);
+    api.submitContest.mockReturnValue(new Promise(() => undefined));
+    const { state } = await setup(api, INTEGRATION_PROCORE_DETAIL);
+    state.openRequestForm('mechanism_name');
+    const fixture = await mount(IntegrationChangeRequests, INTEGRATION_PROCORE_DETAIL);
+    const value = el(fixture).querySelector<HTMLInputElement>('#request-value')!;
+    value.value = 'Native connector v2';
+    value.dispatchEvent(new Event('input'));
+    const reason = el(fixture).querySelector<HTMLTextAreaElement>('#request-reason')!;
+    reason.value = 'Short.';
+    reason.dispatchEvent(new Event('input'));
+    el(fixture)
+      .querySelector<HTMLFormElement>(testid('request-form'))!
+      .dispatchEvent(new Event('submit'));
+    await settle(fixture);
+    expect(api.submitContest).toHaveBeenCalled();
+    reason.dispatchEvent(escape());
+    await settle(fixture);
+    expect(state.requestForm()).not.toBeNull();
   });
 
   it('is not offered to the owner', async () => {

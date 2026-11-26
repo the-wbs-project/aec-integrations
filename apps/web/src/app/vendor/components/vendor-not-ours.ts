@@ -36,6 +36,7 @@ import { AecIcon } from '../../shared/icon/icon';
 import { FORM_PANEL } from '../integration-detail/integration-detail-styles';
 import { PORTAL_NESTED_SAVE_BAR_CLASS } from '../shared/portal-form';
 import { PORTAL_SAVE_BUTTON_CLASS } from '../shared/portal-form';
+import { CloseOnEscape } from '../shared/close-on-escape';
 import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
 
 /**
@@ -85,11 +86,13 @@ export function selfDisclaimStands(contest: VendorContest | null): boolean {
  *
  * The form is pessimistic, like `vendor-contest-form.ts`: it parses the body with
  * the shared schema, waits for the `201`, announces, closes, and revalidates
- * `contests`, which also refetches the checklists.
+ * `contests`, which also refetches the checklists. Cancel, or Escape
+ * (`aecCloseOnEscape`, ignored while it sends), discards the draft and returns focus
+ * to "Not ours?".
  */
 @Component({
   selector: 'aec-vendor-not-ours',
-  imports: [KeepClearOfSaveBar, AecButton, AecIcon],
+  imports: [KeepClearOfSaveBar, CloseOnEscape, AecButton, AecIcon],
   styles: [':host { display: block; }'],
   template: `
     @switch (contest()?.status) {
@@ -158,6 +161,9 @@ export function selfDisclaimStands(contest: VendorContest | null): boolean {
     @if (open()) {
       <form
         aecKeepClearOfSaveBar
+        aecCloseOnEscape
+        [escapeBusy]="submitting()"
+        (escapeCancel)="close()"
         method="dialog"
         [id]="fieldId('panel')"
         class="mt-2 max-w-2xl space-y-6"
