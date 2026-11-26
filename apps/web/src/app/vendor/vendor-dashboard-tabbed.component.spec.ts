@@ -1064,21 +1064,55 @@ describe('VendorDashboardTabbed — the connector catalogue seat (AECI-1083)', (
     expect(root(harness).querySelector('aec-vendor-connector-catalogue')).toBeNull();
   });
 
-  it('drops the Catalog tab from a Sync Service with no catalogue, and explains a typed URL (AECI-2045)', async () => {
+  /** The seat's one product with its kind and catalogue maintainer replaced (AECI-2206). */
+  async function openAs(
+    path: string,
+    kind: 'integration_platform' | 'sync_service' | null,
+    managedBy: 'review' | 'vendor' | null,
+  ): Promise<RouterTestingHarness> {
     const harness = await RouterTestingHarness.create();
     TestBed.inject(VendorPortalStore).seed({
       ...SEAT,
       products: SEAT.products.map((p) => ({
         ...p,
-        connector_kind: 'sync_service' as const,
-        has_connector_catalog: false,
+        connector_kind: kind,
+        has_connector_catalog: managedBy !== null,
+        connector_catalog_managed_by: managedBy,
       })),
     });
-    await harness.navigateByUrl(`/vendor/${seatSlug}/products/agave/catalogue`);
+    await harness.navigateByUrl(`/vendor/${seatSlug}/${path}`);
     harness.detectChanges();
     await flush();
     harness.detectChanges();
+    return harness;
+  }
 
+  const KINDS = ['integration_platform', 'sync_service', null] as const;
+
+  // AECI-2206 (ruling, Chris, 2026-11-26): the tab waits for the handover.
+  it.each(KINDS)('shows the Catalog tab on a %s connector the vendor maintains', async (kind) => {
+    const harness = await openAs('products/agave/profile', kind, 'vendor');
+    expect(navLabels(harness)).toContain('Catalog');
+  });
+
+  it.each(KINDS)(
+    'hides the Catalog tab on a %s connector whose catalogue AECi maintains, and a typed URL shows the notice',
+    async (kind) => {
+      const harness = await openAs('products/agave/catalogue', kind, 'review');
+      expect(navLabels(harness)).not.toContain('Catalog');
+      const notice = root(harness).querySelector('[data-catalogue-hidden="aeci-managed"]');
+      expect(notice?.textContent).toContain('We maintain the catalog for Agave for now');
+      expect(notice?.querySelector('a')?.getAttribute('href')).toBe(
+        `/vendor/${seatSlug}/products/agave/integrations`,
+      );
+      // Never the read-only catalogue, and never a 404.
+      expect(root(harness).querySelector('aec-vendor-connector-catalogue')).toBeNull();
+      expect(TestBed.inject(VendorApi).getConnectorCatalog).not.toHaveBeenCalled();
+    },
+  );
+
+  it('hides the Catalog tab on a Sync Service with no catalogue, and explains a typed URL (AECI-2045)', async () => {
+    const harness = await openAs('products/agave/catalogue', 'sync_service', null);
     expect(navLabels(harness)).not.toContain('Catalog');
     const notice = root(harness).querySelector('[data-catalogue-sync-service]');
     expect(notice?.textContent).toContain('Agave is a Sync Service, so it has no catalog.');
@@ -1088,17 +1122,23 @@ describe('VendorDashboardTabbed — the connector catalogue seat (AECI-1083)', (
     expect(root(harness).querySelector('aec-vendor-connector-catalogue')).toBeNull();
   });
 
-  it('keeps the Catalog tab on a Sync Service that has a catalogue (AECI-2045)', async () => {
-    const harness = await RouterTestingHarness.create();
-    TestBed.inject(VendorPortalStore).seed({
-      ...SEAT,
-      products: SEAT.products.map((p) => ({ ...p, connector_kind: 'sync_service' as const })),
-    });
-    await harness.navigateByUrl(`/vendor/${seatSlug}/products/agave/profile`);
-    harness.detectChanges();
-    await flush();
-    harness.detectChanges();
-    expect(navLabels(harness)).toContain('Catalog');
+  it.each(['integration_platform', null] as const)(
+    'hides the Catalog tab on a %s connector with no catalogue, and explains a typed URL',
+    async (kind) => {
+      const harness = await openAs('products/agave/catalogue', kind, null);
+      expect(navLabels(harness)).not.toContain('Catalog');
+      const notice = root(harness).querySelector('[data-catalogue-hidden="none"]');
+      expect(notice?.textContent).toContain('We do not hold a catalog for Agave.');
+      expect(notice?.querySelector('a')?.getAttribute('href')).toBe(
+        `/vendor/${seatSlug}/products/agave/integrations`,
+      );
+      expect(root(harness).querySelector('aec-vendor-connector-catalogue')).toBeNull();
+    },
+  );
+
+  it('shows no overview catalog link while AECi maintains the catalogue', async () => {
+    const harness = await openAs('overview', 'integration_platform', 'review');
+    expect(root(harness).querySelector('[data-catalogue-link]')).toBeNull();
   });
 
   it('links the overview’s catalogue panel to the tab, as a plain link and not a call to action', async () => {

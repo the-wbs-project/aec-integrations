@@ -2278,13 +2278,16 @@ Since AECI-1367 every Free vendor has no license, so "a `connector`-role product
 every Free vendor with one, a mixed vendor such as Rivets included. The seat's product is now
 `isCatalogueProduct`: a `connector` that is not a Sync Service AND that AECi holds a catalogue for
 (`VendorProduct.has_connector_catalog`). A Sync Service gets the ordinary panel and may buy Managed
-(ruling 6 on AECI-2035, `STAGE_2_PAID_TIERS_SPEC.md` §13.14).
+(ruling 6 on AECI-2035, `STAGE_2_PAID_TIERS_SPEC.md` §13.14). **Narrowed again by AECI-2206
+(2026-11-26):** the catalogue must also be vendor-managed (`VendorProduct.connector_catalog_managed_by
+= 'vendor'`). Before the handover the seat's product has no Catalog tab and no `catalogue` state.
 
 **The seat's screen landed (AECI-1083, 2026-09-24).** A Catalogue tab on the connector product in the
 vendor portal lists the catalogue's listings through a new read,
 `GET /api/vendor/products/:id/connector-catalog`, and edits a mapping through the PATCH above. It is
 read-only while the catalogue is `review`-managed, and it sits in the AECI-516 cursor as the
-`catalogue` scope (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.16).
+`catalogue` scope (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.16). Since AECI-2206 (2026-11-26) the tab
+shows only once the catalogue is vendor-managed, so a `review`-managed catalogue has no tab at all.
 
 **What is still not built.** Adding a mapping to a listing that has none: the PATCH edits existing
 rows and there is no create (AECI-1126). Stub and per-app depth editing beyond the mapping

@@ -353,6 +353,7 @@ const PRIMARY_PRODUCT: VendorProduct = {
   product_role: 'application',
   connector_kind: null,
   has_connector_catalog: false,
+  connector_catalog_managed_by: null,
   integration_count: 14,
   review_count: 6,
   updated_at: '2026-07-18T12:00:00.000Z',
@@ -380,6 +381,7 @@ const SECONDARY_PRODUCT: VendorProduct = {
   product_role: 'application',
   connector_kind: null,
   has_connector_catalog: false,
+  connector_catalog_managed_by: null,
   integration_count: 3,
   review_count: 0,
   updated_at: '2026-07-02T09:30:00.000Z',
@@ -513,6 +515,8 @@ export const VENDOR_ME_CONNECTOR_SEAT_FIXTURE: VendorMeResponse = withProductPla
       // AECI-2044: the seat is an Integration platform's, with a catalogue to maintain.
       connector_kind: 'integration_platform',
       has_connector_catalog: true,
+      // AECI-2206: handed to the vendor, so the Catalog tab shows.
+      connector_catalog_managed_by: 'vendor',
       integration_count: 0,
       review_count: 0,
     },
@@ -2650,6 +2654,7 @@ export const SYNC_SERVICE_PRODUCT: VendorProduct = {
   product_role: 'connector',
   connector_kind: 'sync_service',
   has_connector_catalog: false,
+  connector_catalog_managed_by: null,
   integration_count: 0,
   review_count: 0,
   plan: FREE_PLAN,

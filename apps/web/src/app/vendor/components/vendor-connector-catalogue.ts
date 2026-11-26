@@ -61,10 +61,15 @@ function domId(value: string): string {
  * be a 409, and a control that can only fail is not rendered (the admin screen's
  * rule, `ADMIN_PANEL_SPEC.md` §5.9).
  *
+ * Since AECI-2206 the tab, and so this component, renders only once the catalogue is
+ * handed to the vendor (`showsCatalogTab`). The read-only state stays for the case the
+ * lane is taken back while the tab is open: the next re-read lands here as read-only.
+ *
  * ── A PRODUCT TAB, NOT A VENDOR SECTION ─────────────────────────────────────
  * A catalogue belongs to one connector product (`connector_catalogs` is unique on
  * `connector_product_id`), and a vendor can hold more than one. So it sits in the
- * product row beside Integrations, shown only on `connector`-role products.
+ * product row beside Integrations, shown only on a `connector`-role product whose
+ * catalogue the vendor maintains.
  *
  * ── LIVE ────────────────────────────────────────────────────────────────────
  * The read is inside the AECI-516 cursor as the `catalogue` scope. When it moves
@@ -84,7 +89,7 @@ function domId(value: string): string {
   host: { class: 'block' },
   template: `
     <section aria-labelledby="vendor-catalogue-heading" data-catalogue>
-      <div class="max-w-[30rem] space-y-2">
+      <div class="max-w-[52ch] space-y-2">
         <h2 id="vendor-catalogue-heading" class="m-0">
           <!-- The size lives on the span: styles.css sizes h2 outside any cascade
                layer, so a text utility on the h2 itself is dead. -->
@@ -94,7 +99,11 @@ function domId(value: string): string {
             >Catalog</span
           >
         </h2>
-        <p class="text-sm leading-relaxed text-(--text-secondary)">{{ intro() }}</p>
+        <div class="space-y-2 text-sm leading-relaxed text-(--text-secondary)" data-catalogue-intro>
+          <p>{{ intro() }}</p>
+          <p>{{ introReach }}</p>
+          <p>{{ introIntegrations() }}</p>
+        </div>
       </div>
 
       @if (state() === 'failed' && !response()) {
@@ -438,9 +447,19 @@ export class VendorConnectorCatalogue {
     return r ? Math.max(1, Math.ceil(r.total / r.perPage)) : 1;
   });
 
+  /**
+   * AECI-2206: the intro says what the tab is in plain words, because a vendor read
+   * the old one-line intro as its list of integrations. It defines "reach" where the
+   * word first appears, and points at the Integrations tab for delivered integrations.
+   */
   protected readonly intro = computed(
     () =>
-      $localize`:@@vendor.catalogue.intro:Every listing in ${this.productName()}:PRODUCT:'s published catalog, and which product on AEC Integrations each one is. A match confirmed by us or by your company counts toward that product's reach.`,
+      $localize`:@@vendor.catalogue.intro.what:${this.productName()}:PRODUCT: publishes a list of the apps it works with. This tab shows that list, and which product on AEC Integrations each app is.`,
+  );
+  protected readonly introReach = $localize`:@@vendor.catalogue.intro.reach:A match confirmed by your company or by us counts toward that product's reach. Reach is how many products it can be connected to through a connector. Its page shows reach on its own line and never counts it as an integration.`;
+  protected readonly introIntegrations = computed(
+    () =>
+      $localize`:@@vendor.catalogue.intro.integrations:The integrations ${this.productName()}:PRODUCT: delivers between two products are not here. They are on its Integrations tab.`,
   );
 
   protected readonly asOf = computed(() => {

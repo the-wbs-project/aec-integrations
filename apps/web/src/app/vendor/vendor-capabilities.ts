@@ -91,33 +91,42 @@ export interface CatalogueProductFields {
   readonly product_role?: string | null;
   readonly connector_kind?: string | null;
   readonly has_connector_catalog?: boolean | null;
+  /** `VendorProduct.connector_catalog_managed_by` (AECI-2206). */
+  readonly connector_catalog_managed_by?: string | null;
+}
+
+/**
+ * Has AEC Integrations handed this product's catalogue to the vendor
+ * (`connector_catalogs.managed_by = 'vendor'`, AECI-2206)? Only a `connector` product
+ * holds one. Until the handover the catalogue is read-only and gives the vendor
+ * nothing to do, so nothing in the portal points at it (ruling, Chris, 2026-11-26).
+ */
+export function catalogueHandedToVendor(product: CatalogueProductFields): boolean {
+  return product.product_role === 'connector' && product.connector_catalog_managed_by === 'vendor';
 }
 
 /**
  * Is this product the connector catalogue-maintenance seat's product
- * (`STAGE_2_SPEC.md` §8.9, AECI-724)? Narrowed by AECI-2044: a `connector` that is
- * NOT a Sync Service (an Integration platform, or no kind) AND that AECi holds a
- * catalogue for (`has_connector_catalog`). A Sync Service sells finished pairs, has
- * no catalogue to maintain, and may buy Managed (ruling 6 on AECI-2035).
+ * (`STAGE_2_SPEC.md` §8.9, AECI-724)? Narrowed by AECI-2044 and AECI-2206: a
+ * `connector` that is NOT a Sync Service (an Integration platform, or no kind) whose
+ * catalogue AEC Integrations has handed to the vendor ({@link catalogueHandedToVendor}).
+ * A Sync Service sells finished pairs and may buy Managed (ruling 6 on AECI-2035). An
+ * AECi-managed catalogue gives the seat nothing to maintain yet, so its product gets
+ * the ordinary panel for its kind (`unavailable` on Free for an Integration platform).
  */
 export function isCatalogueProduct(product: CatalogueProductFields): boolean {
-  return (
-    product.product_role === 'connector' &&
-    product.connector_kind !== 'sync_service' &&
-    product.has_connector_catalog === true
-  );
+  return product.connector_kind !== 'sync_service' && catalogueHandedToVendor(product);
 }
 
 /**
- * Does the product row show the Catalog tab (AECI-2045, `STAGE_2_VENDOR_PORTAL_SPEC.md`
- * §6.16)? On a `connector` product, yes, unless it is a Sync Service with no catalogue.
- * A Sync Service sells finished pairs and usually has none, but one that AECi holds a
- * catalogue for (Agave) keeps the tab. An Integration platform, or a connector with no
- * kind, keeps today's behaviour: the tab shows even before a catalogue exists.
+ * Does the product row show the Catalog tab (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.16)?
+ * Since AECI-2206, only when the product's catalogue has been handed to the vendor
+ * ({@link catalogueHandedToVendor}), on every connector kind. It is hidden while AEC
+ * Integrations maintains the catalogue, and when there is none. AECI-2045 had shown it
+ * whenever a catalogue existed, and on an Integration platform even with none.
  */
 export function showsCatalogTab(product: CatalogueProductFields): boolean {
-  if (product.product_role !== 'connector') return false;
-  return !(product.connector_kind === 'sync_service' && product.has_connector_catalog !== true);
+  return catalogueHandedToVendor(product);
 }
 
 /**

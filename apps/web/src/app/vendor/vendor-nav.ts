@@ -129,9 +129,10 @@ export const VENDOR_PRODUCT_NAV_ITEMS: readonly VendorNavItem[] = [
 ];
 
 /** The product row for one product: {@link VENDOR_PRODUCT_NAV_ITEMS} minus any tab
- *  whose `roles` exclude the product's `product_role`, and minus the Catalog tab on a
- *  Sync Service that has no catalogue (AECI-2045, {@link showsCatalogTab}). A bare role
- *  string is read as a product with no kind and no catalogue. */
+ *  whose `roles` exclude the product's `product_role`, and minus the Catalog tab unless
+ *  the product's catalogue has been handed to the vendor (AECI-2206, {@link showsCatalogTab}).
+ *  A bare role string is read as a product with no kind and no catalogue, so it has no
+ *  Catalog tab. */
 export function productNavItemsFor(
   product: CatalogueProductFields | string | null | undefined,
 ): readonly VendorNavItem[] {

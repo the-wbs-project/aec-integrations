@@ -53,16 +53,28 @@ const BILLING = '/vendor/summit-bim/billing';
  * The product the panel sits on (AECI-2044). `catalogue` is an Integration platform
  * AECi holds a catalogue for: the §8.9 seat's product. `platform` and `blank` are
  * connectors with no catalogue, which cannot hold a subscription. `sync` is a Sync
- * Service, which can.
+ * Service, which can. Since AECI-2206 the third value is who maintains the catalogue:
+ * `catalogue` is handed to the vendor, and `platformAeci` / `blankAeci` are
+ * connectors whose catalogue AECi still maintains.
  */
-type Kind = 'application' | 'hybrid' | 'sync' | 'catalogue' | 'platform' | 'blank';
-const KINDS: Record<Kind, [string, string | null, boolean]> = {
-  application: ['application', null, false],
-  hybrid: ['hybrid', 'integration_platform', false],
-  sync: ['connector', 'sync_service', false],
-  catalogue: ['connector', 'integration_platform', true],
-  platform: ['connector', 'integration_platform', false],
-  blank: ['connector', null, false],
+type Kind =
+  | 'application'
+  | 'hybrid'
+  | 'sync'
+  | 'catalogue'
+  | 'platform'
+  | 'blank'
+  | 'platformAeci'
+  | 'blankAeci';
+const KINDS: Record<Kind, [string, string | null, string | null]> = {
+  application: ['application', null, null],
+  hybrid: ['hybrid', 'integration_platform', null],
+  sync: ['connector', 'sync_service', null],
+  catalogue: ['connector', 'integration_platform', 'vendor'],
+  platform: ['connector', 'integration_platform', null],
+  blank: ['connector', null, null],
+  platformAeci: ['connector', 'integration_platform', 'review'],
+  blankAeci: ['connector', null, 'review'],
 };
 
 function create(
@@ -70,12 +82,12 @@ function create(
   kind: Kind = 'application',
   billingLink: string | null = null,
 ): ComponentFixture<VendorPlanPanel> {
-  const [productRole, connectorKind, hasCatalog] = KINDS[kind];
+  const [productRole, connectorKind, managedBy] = KINDS[kind];
   const fixture = TestBed.createComponent(VendorPlanPanel);
   fixture.componentRef.setInput('plan', plan);
   fixture.componentRef.setInput('productRole', productRole);
   fixture.componentRef.setInput('connectorKind', connectorKind);
-  fixture.componentRef.setInput('hasConnectorCatalog', hasCatalog);
+  fixture.componentRef.setInput('connectorCatalogManagedBy', managedBy);
   fixture.componentRef.setInput('billingLink', billingLink);
   fixture.componentRef.setInput('now', NOW);
   fixture.detectChanges();
@@ -384,13 +396,30 @@ describe('VendorPlanPanel: per product kind (AECI-2044, ruling 6)', () => {
     },
   );
 
-  it('a Sync Service with a catalogue row is still the ordinary panel, never the seat', () => {
-    const f = create(FREE, 'sync', BILLING);
-    f.componentRef.setInput('hasConnectorCatalog', true);
-    f.detectChanges();
-    expect(state(f)).toBe('free');
-    expect(getLicenses(f)).not.toBeNull();
-  });
+  it.each(['review', 'vendor'])(
+    'a Sync Service with a %s-managed catalogue is still the ordinary panel, never the seat',
+    (managedBy) => {
+      const f = create(FREE, 'sync', BILLING);
+      f.componentRef.setInput('connectorCatalogManagedBy', managedBy);
+      f.detectChanges();
+      expect(state(f)).toBe('free');
+      expect(getLicenses(f)).not.toBeNull();
+    },
+  );
+
+  // AECI-2206: an AECi-managed catalogue gives the seat nothing to do, so the panel is
+  // the true one for the product's kind: Managed is not offered.
+  it.each<[Kind]>([['platformAeci'], ['blankAeci']])(
+    'a %s connector whose catalogue AECi still maintains is `unavailable`, not the seat',
+    (kind) => {
+      const f = create(FREE, kind, BILLING);
+      expect(state(f)).toBe('unavailable');
+      expect(text(f)).toContain('Managed is not offered for this kind of product.');
+      expect(text(f)).not.toContain('This seat maintains your connector catalog');
+      expect(el(f).querySelector('[data-testid="plan-price"]')).toBeNull();
+      expect(getLicenses(f)).toBeNull();
+    },
+  );
 
   it('an Integration platform with a catalogue is the catalogue seat', () => {
     const f = create(FREE, 'catalogue', BILLING);

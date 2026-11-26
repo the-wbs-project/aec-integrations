@@ -388,7 +388,8 @@ export class VendorOverviewSection {
   private readonly canAttest = vendorCan(this.store, 'attestation.author');
   /** The §8.9 connector seat (AECI-1082): the paused row speaks to it differently. */
   protected readonly catalogueSeat = vendorIsCatalogueSeat(this.store);
-  /** AECI-2044: only the products with a catalogue to maintain, never a Sync Service. */
+  /** AECI-2044: only the products with a catalogue to maintain, never a Sync Service.
+   *  AECI-2206: and only once that catalogue is handed to the vendor. */
   protected readonly catalogueProducts = computed(
     () => this.store.me()?.products.filter(isCatalogueProduct) ?? [],
   );

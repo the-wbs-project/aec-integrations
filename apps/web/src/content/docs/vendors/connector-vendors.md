@@ -25,7 +25,7 @@ The AEC Integrations team sets the kind. A connector we have not classified yet 
 
 ## Your seat
 
-A vendor whose products are all connectors is not invoiced for a seat. It can have a catalog-maintenance seat instead, which covers its connector listings, the products each connector reaches, and the evidence for each. In the portal, the plan panel of a connector product we hold a catalog for says the seat maintains your connector catalog, and its plan badge reads **Free**.
+A vendor whose products are all connectors is not invoiced for a seat. It can have a catalog-maintenance seat instead, which covers its connector listings, the products each connector reaches, and the evidence for each. In the portal, once we hand a connector product's catalog to your company, its plan panel says the seat maintains your connector catalog, and its plan badge reads **Free**. Until then, the plan panel of an integration platform says Managed is not offered for this kind of product.
 
 A Sync Service product can hold a Managed subscription, like an application. An integration platform cannot. See [Which products can hold a subscription](/docs/vendors/plans#which-products-can-hold-a-subscription).
 
@@ -35,7 +35,11 @@ We approve a connector-vendor claim like any other, and we also contact you dire
 
 ## The Catalog tab
 
-The Catalog tab is for a connector product with a published catalog, which is usually an integration platform. It shows whenever we hold a catalog for your product, whatever its kind. A Sync Service with no catalog has no Catalog tab: its pairs are on its Integrations tab. The seat's work is on the **Catalog** tab of your connector product: open **Products**, choose the connector, then **Catalog**. The overview links there too. The tab lists every listing in your published catalog and which product on AEC Integrations each one is. Once we hand the catalog to your company, each match has an **Edit** button: you can change the product, rule a product out, mark a listing as outside our scope, set how confident the match is, and add a link that shows the evidence. A match you save counts toward that product's reach on AEC Integrations. Until the handover, the tab is read-only and says we maintain the catalog. A listing with no match yet gets one from us. See [Current limits](/docs/vendors#current-limits).
+Your connector product publishes a list of the apps it works with. We call that list its catalog. The Catalog tab shows that list, and which product on AEC Integrations each app is. It does not list the integrations your product delivers between two products: those are on its Integrations tab.
+
+We maintain each catalog at first. While we do, your product has no Catalog tab, whatever its kind. The tab appears once we hand the catalog to your company. If you type the tab's address before then, the page says we maintain the catalog for now and links to the Integrations tab. A product with no catalog has no Catalog tab either.
+
+Once the catalog is yours, the seat's work is on the **Catalog** tab of your connector product: open **Products**, choose the connector, then **Catalog**. The overview links there too. Each match has an **Edit** button: you can change the product, rule a product out, mark a listing as outside our scope, set how confident the match is, and add a link that shows the evidence. A match you save counts toward that product's reach. Reach is how many products it can be connected to through a connector. A product's page shows its reach on its own line and never counts it as an integration. A listing with no match yet gets one from us. See [Current limits](/docs/vendors#current-limits).
 
 ## If your company owns integrations
 
