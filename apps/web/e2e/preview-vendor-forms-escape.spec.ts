@@ -45,8 +45,8 @@ async function pickFirstField(page: Page, select: string): Promise<void> {
     .locator(select)
     .evaluate(
       (el) =>
-        [...(el as HTMLSelectElement).options].find((o) => o.value !== '' && !o.disabled)?.value ??
-        '',
+        [...(el as unknown as HTMLSelectElement).options].find((o) => o.value !== '' && !o.disabled)
+          ?.value ?? '',
     );
   await page.locator(select).selectOption(value);
 }
