@@ -221,6 +221,24 @@ const BODIES: Record<ReviewUpdateDecision, JsonBody> = {
 // ─── GET ─────────────────────────────────────────────────────────────────────
 
 describe('GET /api/admin/review-updates', () => {
+  it('filters by account_id with status and paging, and names the reviewer id (AECI-1949)', async () => {
+    const a = await seedUpdate(R1, 'pending', { createdAt: T1 });
+    await seedUpdate(R2, 'pending');
+    await seedUpdate(R1, 'rejected', { createdAt: T2 });
+
+    const mine = await list(`?account_id=${REVIEWER}`);
+    expect(mine.body.total).toBe(1);
+    expect(mine.body.data.map((u: JsonBody) => u.id)).toEqual([a]);
+    expect(mine.body.data[0].reviewer_id).toBe(REVIEWER);
+    const rejected = await list(`?account_id=${REVIEWER}&status=rejected&perPage=1&page=1`);
+    expect(rejected.body.total).toBe(1);
+    expect(rejected.body.data).toHaveLength(1);
+    const page2 = await list(`?account_id=${REVIEWER}&perPage=1&page=2`);
+    expect(page2.body.total).toBe(1);
+    expect(page2.body.data).toEqual([]);
+    expect((await list('')).body.total).toBe(2);
+  });
+
   it('lists pending updates by default, oldest first, with the original review beside each', async () => {
     const newer = await seedUpdate(R1, 'pending', { createdAt: T2 });
     const older = await seedUpdate(R2, 'pending', {

@@ -52,7 +52,7 @@ import {
   type ListAdminReviewResponsesResponse,
   type ReviewResponseStatus,
 } from '@aeci/shared';
-import { and, asc, count, eq, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, eq, sql } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb, type Db } from '../db/client';
@@ -137,6 +137,7 @@ function toAdminReviewResponse(
     rejection_reason: row.rejectionReason,
     vendor: { id: row.vendorId, slug: row.vendorSlug, name: row.vendorName },
     vendor_owns_product: Boolean(row.vendorOwnsProduct),
+    author_profile_id: row.authorProfileId,
     author_email: row.authorProfileId ? (emails.get(row.authorProfileId) ?? null) : null,
     product: {
       id: row.productId,
@@ -195,7 +196,11 @@ export function createAdminReviewResponsesListHandler(
       Object.fromEntries(new URL(c.req.url).searchParams),
     );
     const { db } = dbFor(c.env);
-    const where: SQL = eq(reviewResponses.status, query.status);
+    // AECI-1949: `account_id` narrows the queue to the replies one seat last wrote.
+    const where = and(
+      eq(reviewResponses.status, query.status),
+      query.account_id ? eq(reviewResponses.authorProfileId, query.account_id) : undefined,
+    );
 
     // Oldest first, so the longest wait is on top. Served by
     // `review_responses_status_updated_idx (status, updated_at)`. `id` breaks a

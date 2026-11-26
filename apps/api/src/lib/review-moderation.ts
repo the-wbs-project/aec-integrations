@@ -311,7 +311,7 @@ export function reviewResponseDecisionStatements(
   db: Db,
   input: ReviewResponseDecisionInput,
 ): ModerationBatch {
-  const { responseId: id, decision, actor } = input;
+  const { responseId: id, decision, actor, stamp } = input;
   const plan = REVIEW_RESPONSE_DECISIONS[decision.decision];
   const reason = decision.decision === 'approve' ? null : decision.reason;
   const audit: AuditLogEntry = {
@@ -320,7 +320,7 @@ export function reviewResponseDecisionStatements(
     entityType: REVIEW_RESPONSE_ENTITY_TYPE,
     entityId: id,
     // AECI-1192 / AECI-1193: the reply is the vendor's, about one product.
-    ...input.stamp,
+    ...stamp,
     productId: input.product.id,
     beforeState: { status: plan.from },
     afterState: { status: plan.to, ...(reason ? { rejection_reason: reason } : {}) },

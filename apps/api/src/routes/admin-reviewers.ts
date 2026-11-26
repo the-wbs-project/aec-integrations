@@ -24,6 +24,17 @@
  * Terminate from the vendor page (`routes/admin-vendor-suspension.ts`). A ban here never
  * starts a suspension: the operator chooses that. Terminate bans every seat itself.
  *
+ * ── REJECT PENDING (AECI-1949, `ADMIN_PANEL_SPEC.md` §5.8) ──────────────────────────
+ * A ban with `reject_pending: true` also rejects the person's pending reviews, review
+ * updates and the pending replies they wrote, in the SAME batch, after the ban's own
+ * statements (`lib/ban-reject-pending.ts`). Each item uses its manual reject builder,
+ * with a fixed reason and its own audit row pointing at the ban's (`ban_audit_id`).
+ * Above `BAN_REJECT_MAX_ITEMS` the ban is refused, `422 BAN_REJECT_TOO_MANY`. An item
+ * that moved between the read and the batch aborts everything; a re-read then answers
+ * `409 BAN_PENDING_CHANGED`. No review email (ruling 1 of 2026-11-26). Each update
+ * sends `review-update-rejected` post-commit (ruling 1a). Each reply keeps its portal
+ * notice. Nothing pending was public, so nothing is recomputed or purged.
+ *
  * The unban lifts the seat ban and re-stamps `owned_at` when Terminate cleared it. It
  * grants no license: the operator grants complimentary licenses for the ban term from
  * the vendor's Billing section. The contests Terminate moved stay with AECi, because they
@@ -32,6 +43,8 @@
 
 import {
   ApiErrorCode,
+  BAN_REJECTION_REASON,
+  BAN_REJECT_MAX_ITEMS,
   BanReviewerResponseSchema,
   BanReviewerSchema,
   ListBannedReviewersQuerySchema,
@@ -41,6 +54,7 @@ import {
   type ListBannedReviewersResponse,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
+import { mapWithConcurrency, WORKER_CONNECTION_LIMIT } from '@aeci/shared/concurrency';
 import type { WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
 import { and, asc, count, desc, eq, isNotNull, isNull } from 'drizzle-orm';
 import type { Context } from 'hono';
@@ -60,7 +74,19 @@ import {
   type BatchStmt,
   type BatchTuple,
 } from '../lib/audit';
+import {
+  NO_PENDING_ITEMS,
+  NO_REJECTED,
+  banRejectStatements,
+  countBanPendingItems,
+  loadBanPendingItems,
+  pendingFingerprint,
+  rejectedCounts,
+  totalItems,
+  type BanPendingItems,
+} from '../lib/ban-reject-pending';
 import { stampOwnershipStatements } from '../lib/claimed-vendors';
+import { sendReviewUpdateRejectedEmail } from '../lib/email';
 import { purgeTags } from './vendor-shared';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { clearVendorBannedFlagsStatements, type LicenseBatch } from '../lib/license';
@@ -75,6 +101,7 @@ import {
   type HandbackBatch,
 } from '../lib/vendor-handback';
 import type { FetchReviewerEmails } from './admin-reviews';
+import { reviewUpdateDecisionKey } from './admin-review-updates';
 import { NO_VENDOR_STAMP, vendorAuditStamp } from '../lib/audit-vendor';
 
 type AdminContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
@@ -102,6 +129,59 @@ function emitBanAction(
     `role:${role}`,
     `outcome:${outcome}`,
   ]);
+}
+
+/** AECI-1949: one count per kind a ban rejected, value = items. A sibling of
+ *  `aeci.moderation.ban`, so that metric's tags stay bounded. Emitted only for a
+ *  kind with at least one item. */
+function emitBanRejected(
+  c: AdminContext,
+  role: 'reviewer' | 'vendor_admin',
+  items: BanPendingItems,
+) {
+  const counts = rejectedCounts(items);
+  for (const [kind, value] of [
+    ['review', counts.reviews],
+    ['review_update', counts.review_updates],
+    ['review_response', counts.review_responses],
+  ] as const) {
+    if (value > 0) {
+      submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.moderation.ban_rejected', value, [
+        `kind:${kind}`,
+        `role:${role}`,
+      ]);
+    }
+  }
+}
+
+/** Post-commit: the `review-update-rejected` email for every update the ban rejected
+ *  (ruling 1a of 2026-11-26), on the manual reject's dedupe key. Fail-open. */
+async function emailRejectedUpdates(
+  c: AdminContext,
+  fetchEmails: FetchReviewerEmails,
+  profileId: string,
+  updates: BanPendingItems['updates'],
+): Promise<void> {
+  let to: string | undefined;
+  try {
+    to = (await fetchEmails(c.env, [profileId])).get(profileId);
+  } catch (error) {
+    console.warn('admin-reviewers: reviewer email lookup failed', error);
+    return;
+  }
+  await mapWithConcurrency(updates, WORKER_CONNECTION_LIMIT, async (update) => {
+    try {
+      await sendReviewUpdateRejectedEmail(c, {
+        to,
+        productName: update.productName,
+        reason: BAN_REJECTION_REASON,
+        dedupeKey: reviewUpdateDecisionKey(update.id),
+        entity: { type: 'review_update', id: update.id },
+      });
+    } catch (error) {
+      console.warn('admin-reviewers: update-rejected email failed', error);
+    }
+  });
 }
 
 // ─── GET /api/admin/reviewers ──────────────────────────────────────────────────
@@ -160,6 +240,7 @@ export function createBannedReviewersListHandler(
 
 export function createBanReviewerHandler(
   dbFor: DbFactory = getDb,
+  fetchEmails: FetchReviewerEmails = fetchAuthUserEmails,
 ): (c: AdminContext) => Promise<Response> {
   return async (c) => {
     const session = c.get('auth');
@@ -258,6 +339,24 @@ export function createBanReviewerHandler(
     }
     const planned = handbackParams && ban ? ('none' as const) : null;
 
+    // AECI-1949: the person's pending items, when the operator asked to reject them.
+    // Counted first, so an oversized set is refused before anything is loaded.
+    const rejectPending = ban && payload.reject_pending === true;
+    let pending: BanPendingItems = NO_PENDING_ITEMS;
+    if (rejectPending) {
+      const counts = await countBanPendingItems(db, id);
+      if (totalItems(counts) > BAN_REJECT_MAX_ITEMS) {
+        emitBanAction(c, payload.action, seatRole, 'invalid_state');
+        throw new ApiError(
+          422,
+          ApiErrorCode.BAN_REJECT_TOO_MANY,
+          `This person has ${totalItems(counts)} pending items, more than one ban can reject (${BAN_REJECT_MAX_ITEMS}). Reject some from the review queues filtered to this person, then ban again.`,
+          { details: { ...counts, max: BAN_REJECT_MAX_ITEMS } },
+        );
+      }
+      pending = await loadBanPendingItems(db, id);
+    }
+
     // AECI-1589: the unban re-stamps ownership that Terminate cleared.
     const ownedAtBefore = handbackParams
       ? ((
@@ -275,6 +374,8 @@ export function createBanReviewerHandler(
       ...(ownershipStamped ? { ownership_stamped: true } : {}),
     };
     const auditEntry: AuditLogEntry = {
+      // Minted here so each rejected item's audit row can name it (AECI-1949).
+      id: crypto.randomUUID(),
       ...actor,
       action: ban ? `${seatRole}.banned` : `${seatRole}.unbanned`,
       entityType: 'profile',
@@ -345,9 +446,36 @@ export function createBanReviewerHandler(
       extraAudits.push(...flags.auditEntries);
     }
 
+    // AECI-1949: the rejects ride the ban's batch, after its own statements.
+    if (rejectPending) {
+      const rejects = await banRejectStatements(db, pending, {
+        actor,
+        now,
+        banAuditId: auditEntry.id!,
+      });
+      stmts.push(...rejects.stmts);
+      extraAudits.push(...rejects.audits);
+      extraTransitions.push(...rejects.transitions);
+    }
+
     try {
       await db.batch(stmts as BatchTuple);
     } catch (error) {
+      // Every sentinel fails as "malformed JSON", so the error alone cannot say which
+      // one fired. A re-read can: the pending set moved, or the seats did.
+      if (rejectPending && isSeatsChangedError(error)) {
+        const current = pendingFingerprint(await loadBanPendingItems(db, id));
+        if (current !== pendingFingerprint(pending)) {
+          emitBanAction(c, payload.action, seatRole, 'invalid_state');
+          throw new ApiError(
+            409,
+            ApiErrorCode.BAN_PENDING_CHANGED,
+            "This person's pending items changed while the ban ran, so nothing was saved. Check the counts and confirm again.",
+          );
+        }
+        if (handbackParams) throw seatsChangedError();
+        throw error;
+      }
       if (isSeatsChangedError(error)) {
         throw seatsChangedError();
       }
@@ -355,6 +483,11 @@ export function createBanReviewerHandler(
     }
 
     emitBanAction(c, payload.action, seatRole, 'ok');
+    if (rejectPending) emitBanRejected(c, seatRole, pending);
+    // Post-commit, fail-open: the update emails (ruling 1a). No review email.
+    if (pending.updates.length > 0) {
+      c.executionCtx.waitUntil(emailRejectedUpdates(c, fetchEmails, id, pending.updates));
+    }
     // ONE batched forward: a vendor seat's unban adds rows per contest and license.
     forwardAuditBatch(c, [auditEntry, ...extraAudits], [workflowEntry, ...extraTransitions]);
 
@@ -370,6 +503,7 @@ export function createBanReviewerHandler(
       reviewer_id: id,
       banned_at: bannedAt,
       ban_reason: reason,
+      rejected: rejectPending ? rejectedCounts(pending) : NO_REJECTED,
     };
 
     validateResponseInDev(c.env, () => {

@@ -146,6 +146,7 @@ function toAdminReviewUpdate(
     rating_onboarding: row.ratingOnboarding,
     rejection_reason: row.rejectionReason,
     toxicity_score: row.toxicityScore,
+    reviewer_id: row.reviewerId,
     reviewer_email: row.reviewerId ? (emails.get(row.reviewerId) ?? null) : null,
     product: {
       id: row.productId,
@@ -202,7 +203,11 @@ export function createAdminReviewUpdatesListHandler(
       Object.fromEntries(new URL(c.req.url).searchParams),
     );
     const { db } = dbFor(c.env);
-    const where = eq(reviewUpdates.status, query.status);
+    // AECI-1949: `account_id` narrows the queue to one reviewer, through the review.
+    const where = and(
+      eq(reviewUpdates.status, query.status),
+      query.account_id ? eq(reviews.reviewerId, query.account_id) : undefined,
+    );
 
     // Oldest first, so the longest wait is on top. Served by
     // `review_updates_status_created_idx (status, created_at)`. `id` breaks a tie.
@@ -212,7 +217,11 @@ export function createAdminReviewUpdatesListHandler(
         .orderBy(asc(reviewUpdates.createdAt), asc(reviewUpdates.id))
         .limit(query.perPage)
         .offset((query.page - 1) * query.perPage),
-      db.select({ value: count() }).from(reviewUpdates).where(where),
+      db
+        .select({ value: count() })
+        .from(reviewUpdates)
+        .innerJoin(reviews, eq(reviews.id, reviewUpdates.reviewId))
+        .where(where),
     ]);
     const emails = await reviewerEmails(c, fetchEmails, rows);
 

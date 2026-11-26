@@ -79,6 +79,16 @@ async function seedReview(id: string, status: string, reviewerFirm: string | nul
   });
 }
 
+const base = (id: string, productId: string, reviewerId: string) => ({
+  id,
+  productId,
+  reviewerId,
+  ratingOverall: 5,
+  ratingOnboarding: 4,
+  title: 'T',
+  body: 'B',
+});
+
 const emails = vi.fn(async () => new Map([[REVIEWER, 'rev@example.com']]));
 
 function listApp() {
@@ -143,6 +153,35 @@ describe('GET /api/admin/reviews', () => {
     };
     expect(body.total).toBe(1);
     expect(body.data[0]!.reviewer_email).toBe('rev@example.com');
+  });
+
+  it('filters by account_id with status and paging, and names the reviewer id (AECI-1949)', async () => {
+    const OTHER = u(77);
+    await t.db.insert(profiles).values({ id: OTHER });
+    await t.db.insert(products).values([
+      { id: u(2), slug: 'p-2', name: 'P2', promotionStatus: 'promoted' },
+      { id: u(3), slug: 'p-3', name: 'P3', promotionStatus: 'promoted' },
+    ]);
+    await seedReview(u(11), 'pending');
+    await t.db.insert(reviews).values([
+      { ...base(u(12), u(2), REVIEWER), status: 'pending' },
+      { ...base(u(13), u(3), REVIEWER), status: 'approved' },
+      { ...base(u(14), u(1), OTHER), status: 'pending' },
+    ]);
+    const get = async (qs: string) =>
+      (await (
+        await listApp().request(`/api/admin/reviews?${qs}`, {}, TEST_ENV, fakeExecutionContext())
+      ).json()) as { total: number; data: Array<{ id: string; reviewer_id: string | null }> };
+
+    const mine = await get(`account_id=${REVIEWER}`);
+    expect(mine.total).toBe(2);
+    expect(mine.data.map((r) => r.reviewer_id)).toEqual([REVIEWER, REVIEWER]);
+    const page2 = await get(`account_id=${REVIEWER}&perPage=1&page=2`);
+    expect(page2.total).toBe(2);
+    expect(page2.data).toHaveLength(1);
+    const approved = await get(`account_id=${REVIEWER}&status=approved`);
+    expect(approved.data.map((r) => r.id)).toEqual([u(13)]);
+    expect((await get('')).total).toBe(3);
   });
 
   it('surfaces the reviewer_firm for moderation context (AECI-284)', async () => {

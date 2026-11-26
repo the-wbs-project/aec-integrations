@@ -318,6 +318,18 @@ export const AdminUserCountsSchema = z.object({
   dmca_takedowns: z.number().int().min(0),
   /** AECI-1665. Counter-notices this account filed. */
   dmca_counter_notices: z.number().int().min(0),
+  /**
+   * AECI-1949. What a ban with `reject_pending` would reject besides
+   * `reviews.pending`: the person's pending updates to their own reviews, and the
+   * pending vendor replies they wrote (`author_profile_id`). Defaults to zeros for
+   * deploy skew.
+   */
+  pending_moderation: z
+    .object({
+      review_updates: z.number().int().min(0),
+      review_responses: z.number().int().min(0),
+    })
+    .default({ review_updates: 0, review_responses: 0 }),
 });
 export type AdminUserCounts = z.infer<typeof AdminUserCountsSchema>;
 

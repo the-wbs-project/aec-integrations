@@ -157,7 +157,11 @@ export function createAdminReviewsListHandler(
     );
 
     const { db } = dbFor(c.env);
-    const where = eq(reviews.status, query.status);
+    // AECI-1949: `account_id` narrows the queue to one person (`reviews_reviewer_idx`).
+    const where = and(
+      eq(reviews.status, query.status),
+      query.account_id ? eq(reviews.reviewerId, query.account_id) : undefined,
+    );
     const direction = query.sort === 'created_at' ? desc : asc;
 
     const [rows, countRows] = await Promise.all([

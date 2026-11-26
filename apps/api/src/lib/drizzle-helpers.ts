@@ -3501,6 +3501,7 @@ export function toAdminReview(
   return {
     id: raw.id,
     product: { id: raw.product.id, name: raw.product.name, slug: raw.product.slug },
+    reviewer_id: raw.reviewerId,
     reviewer_email: raw.reviewerId ? (emailByReviewerId.get(raw.reviewerId) ?? null) : null,
     reviewer_firm: raw.reviewerFirm,
     rating_overall: raw.ratingOverall,
