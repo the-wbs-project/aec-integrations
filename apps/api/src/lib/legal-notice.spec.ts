@@ -342,6 +342,28 @@ describe('deliverLegalNotice', () => {
     expect(calls.map((c) => c.closing)).toEqual(['managed-monthly-accept']);
   });
 
+  // AECI-2234: the email of a first version in force names no current or earlier version.
+  it('marks the send first in force when no other version of the document is in force', async () => {
+    await seedVendor(V1, 'a', 'billing@a.example');
+    await seedVersion({ id: u(901), document: 'managed_plan', version: '1.0' });
+    const row = await seedVersion();
+    const { calls } = await deliver(row, V1);
+    expect(calls.map((c) => c.firstInForce)).toEqual([true]);
+  });
+
+  it('marks the send not first once an earlier version of the document is in force', async () => {
+    await seedVendor(V1, 'a', 'billing@a.example');
+    await seedVersion({
+      id: u(901),
+      version: '1.3',
+      effectiveAt: Date.parse('2026-10-01T12:00:00.000Z'),
+      pdfKey: 'legal/vendor-terms/v1.3.pdf',
+    });
+    const row = await seedVersion();
+    const { calls } = await deliver(row, V1);
+    expect(calls.map((c) => c.firstInForce)).toEqual([false]);
+  });
+
   it('sends nothing, logs an error and retries when the stored PDF no longer matches its hash', async () => {
     await seedVendor(V1, 'a', 'billing@a.example');
     await seedSeat(u(11), V1);

@@ -17,6 +17,7 @@ import {
   legalAgreementVersionInForce,
   legalInForceNeedsPublished,
   legalMomentReached,
+  legalNoticeIsFirstInForce,
   legalPolicyVersionInForce,
   legalNextEffectiveMomentMs,
   legalPublishableUpcoming,
@@ -239,5 +240,63 @@ describe('isRecordableLegalAgreementVersion', () => {
     expect(isRecordableLegalAgreementVersion('vendor_terms', '1.4', MAPS)).toBe(true);
     expect(isRecordableLegalAgreementVersion('vendor_terms', '1.5', MAPS)).toBe(false);
     expect(isRecordableLegalAgreementVersion('managed_plan', '1.4', MAPS)).toBe(false);
+  });
+});
+
+// AECI-2234: the change notice of a first in-force version names no current or earlier one.
+describe('legalNoticeIsFirstInForce', () => {
+  const EARLIER = MOMENT - 365 * 86_400_000;
+
+  it("today's data: every publishable document's next version is its first", () => {
+    for (const document of [
+      'vendor_terms',
+      'managed_plan',
+      'terms',
+      'privacy',
+      'listing_accuracy',
+      'review_guidelines',
+    ] as const) {
+      expect(legalNoticeIsFirstInForce(document, '9.9', [], MOMENT - 1)).toBe(true);
+    }
+  });
+
+  it('this row alone, or rows of another document, keep it first', () => {
+    const rows = [...PUBLISHED, { document: 'managed_plan', version: '1.1', effectiveAt: EARLIER }];
+    expect(legalNoticeIsFirstInForce('vendor_terms', '1.4', rows, MOMENT - 1, MAPS)).toBe(true);
+  });
+
+  it('an earlier row already in force makes it not first', () => {
+    const rows = [...PUBLISHED, { document: 'vendor_terms', version: '1.3', effectiveAt: EARLIER }];
+    expect(legalNoticeIsFirstInForce('vendor_terms', '1.4', rows, MOMENT - 1, MAPS)).toBe(false);
+    expect(legalNoticeIsFirstInForce('vendor_terms', '1.4', rows, EARLIER - 1, MAPS)).toBe(true);
+  });
+
+  it('a policy is judged on its rows alone', () => {
+    const rows = [{ document: 'listing_accuracy', version: '1.0', effectiveAt: EARLIER }];
+    expect(legalNoticeIsFirstInForce('listing_accuracy', '1.1', rows, MOMENT - 1, MAPS)).toBe(
+      false,
+    );
+    expect(legalNoticeIsFirstInForce('listing_accuracy', '1.1', [], MOMENT - 1, MAPS)).toBe(true);
+  });
+
+  it('a mismatched row is in force nowhere, so it does not count', () => {
+    const moved = [{ document: 'vendor_terms', version: '1.4', effectiveAt: EARLIER }];
+    expect(legalNoticeIsFirstInForce('vendor_terms', '1.5', moved, MOMENT, MAPS)).toBe(true);
+  });
+
+  it('a dated build current version makes it not first', () => {
+    const dated: LegalInForceMaps = {
+      ...MAPS,
+      agreementEffectiveOn: {
+        vendor_terms: { '1.3': '2026-12-31' },
+        managed_plan: { '1.1': null },
+      },
+      readerCurrent: { terms: '1.1', privacy: '1.1' },
+      readerEffectiveOn: { terms: { '1.1': '2026-12-31' }, privacy: { '1.1': null } },
+    };
+    expect(legalNoticeIsFirstInForce('vendor_terms', '1.4', [], MOMENT - 1, dated)).toBe(false);
+    expect(legalNoticeIsFirstInForce('managed_plan', '1.2', [], MOMENT - 1, dated)).toBe(true);
+    expect(legalNoticeIsFirstInForce('terms', '1.2', [], MOMENT - 1, dated)).toBe(false);
+    expect(legalNoticeIsFirstInForce('privacy', '1.2', [], MOMENT - 1, dated)).toBe(true);
   });
 });

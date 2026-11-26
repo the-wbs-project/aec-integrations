@@ -4895,6 +4895,44 @@ describe('sendLegalTermsChangeEmail (AECI-1620)', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  // AECI-2234: a first version in force has no current or earlier version to name.
+  it.each([
+    ['vendor_terms', 'vendor-terms', 'Vendor Terms'],
+    ['vendor_terms', 'vendor-terms-accept', 'Vendor Terms'],
+    ['listing_accuracy', 'vendor-policy', 'Listing Accuracy Policy'],
+    ['managed_plan', 'managed-binds', 'Managed plan agreement'],
+    ['managed_plan', 'managed-monthly-accept', 'Managed plan agreement'],
+    ['terms', 'reader-terms', 'Terms of Service'],
+    ['terms', 'reader-terms-accept', 'Terms of Service'],
+    ['privacy', 'reader-privacy', 'Privacy Policy'],
+  ] as const)(
+    'a first version (%s, %s) says it is the first and names no current or earlier version',
+    async (document, closing, title) => {
+      const { text, html } = await render({ document, closing, firstInForce: true });
+      const lead = `Version 1.4 of the AEC Integrations ${title} takes effect on January 15, 2027. It is the first version of the ${title} to take effect.`;
+      expect(text).toContain(lead);
+      expect(html).toContain(lead);
+      expect(`${text}${html}`).not.toMatch(/current version|earlier version/i);
+    },
+  );
+
+  it('a first version keeps the rest of each accept closing', async () => {
+    const vendor = await render({ closing: 'vendor-terms-accept', firstInForce: true });
+    expect(vendor.text).toContain(
+      'This change needs your acceptance. An owner seat at your company will be asked to accept version 1.4 in the vendor portal.\n',
+    );
+    expect(vendor.text).toMatch(/Open the vendor portal: /);
+    const reader = await render({
+      document: 'terms',
+      closing: 'reader-terms-accept',
+      vendorSlug: null,
+      firstInForce: true,
+    });
+    expect(reader.text).toContain(
+      'Because this change reduces your rights, it applies to your account only after you accept it. The next time you sign in, we will ask you to tick a box to accept it. It never applies to a claim that arose before January 15, 2027.',
+    );
+  });
+
   it('names the attachment from the document slug', () => {
     expect(legalNoticeAttachmentName('vendor_terms', '1.4')).toBe('aeci-vendor-terms-v1.4.pdf');
     expect(legalNoticeAttachmentName('terms', '1.2')).toBe('aeci-terms-v1.2.pdf');

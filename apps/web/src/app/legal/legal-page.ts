@@ -14,7 +14,9 @@
  * **Upcoming versions (AECI-1610, §27.3).** A route whose version is in
  * `LEGAL_UPCOMING` renders the text before it takes effect, at the same kind of
  * URL. It opens with "This version takes effect on <date>. Until then the current
- * version applies.", linking the current page, and is held out of the index the
+ * version applies.", linking the current page (AECI-2234: when the current text is
+ * a draft, "It is the first version of the <title> to take effect." instead, with
+ * no link), and is held out of the index the
  * same way as an archive: `robots: noindex`, canonical to the current page, the
  * egress `X-Robots-Tag`, and no sitemap entry. It stays on the static `/legal/*`
  * TTL, capped at its effective moment, with no purge.
@@ -189,8 +191,20 @@ function chromeForSlug(slug: LegalSlug): LegalChrome {
             </p>
           }
           <!-- AECI-1610: a version not yet in force says so first, and links to
-               the text that applies until then. -->
-          @if (doc.effectiveOn) {
+               the text that applies until then. AECI-2234: when the current text
+               is a draft, no version applies until then, so the first version
+               says it is the first and links nothing. It says nothing about the
+               drafts (legal agent read on AECI-2234). -->
+          @if (doc.effectiveOn && firstInForce) {
+            <p
+              class="mt-6 rounded-control border border-(--border-default) bg-(--surface-base) px-4 py-3 text-t-14 text-(--text-primary)"
+              data-testid="legal-upcoming"
+              i18n="@@app.legal.upcomingFirst"
+            >
+              This version takes effect on {{ doc.frontmatter.effectiveDate }}. It is the first
+              version of the {{ doc.frontmatter.title }} to take effect.
+            </p>
+          } @else if (doc.effectiveOn) {
             <p
               class="mt-6 rounded-control border border-(--border-default) bg-(--surface-base) px-4 py-3 text-t-14 text-(--text-primary)"
               data-testid="legal-upcoming"
@@ -281,6 +295,13 @@ export class LegalPage {
   protected readonly currentPath: string;
   /** The current version served at its own `/v<version>` address (AECI-1610). */
   protected readonly fixedCurrent: boolean;
+  /**
+   * AECI-2234: the current text is a draft (no `effective_date`), so an upcoming
+   * version is the document's first in force and no current version applies until
+   * then. Exact: a document has at most one upcoming version, so an earlier in-force
+   * version would already be the current file.
+   */
+  protected readonly firstInForce: boolean;
   /** Upcoming versions announced on the current text; empty on any other page. */
   protected readonly announcements: readonly LegalAnnouncement[];
 
@@ -306,6 +327,7 @@ export class LegalPage {
     this.doc = view.doc;
     this.currentPath = view.currentPath;
     this.fixedCurrent = view.fixedCurrent;
+    this.firstInForce = !this.lookup.current(slug)?.frontmatter.effectiveDate;
     this.announcements = view.announcements;
 
     const chrome = chromeForSlug(slug);
