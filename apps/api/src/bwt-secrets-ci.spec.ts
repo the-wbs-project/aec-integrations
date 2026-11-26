@@ -58,16 +58,24 @@ describe('AECI-821: BWT_API_KEY is provisioned by the production promote', () =>
  * observability block in the API Worker's config must keep it.
  */
 describe('AECI-2075: every API observability block redacts query strings', () => {
-  const wrangler = readFileSync(join(ROOT, 'apps', 'api', 'wrangler.jsonc'), 'utf8');
-  const blocks = wrangler.match(/"observability":\s*\{/g) ?? [];
-  const redacted = wrangler.match(/"redact_query_string":\s*true/g) ?? [];
+  // Parsed, not pattern-matched, so a commented-out setting does not count. Same
+  // comment-strip as wrangler-legal-publish.spec.ts.
+  type Block = { observability?: { redact_query_string?: unknown } };
+  const raw = readFileSync(join(ROOT, 'apps', 'api', 'wrangler.jsonc'), 'utf8');
+  const config = JSON.parse(
+    raw
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('//'))
+      .join('\n')
+      .replace(/,(\s*[}\]])/g, '$1'),
+  ) as Block & { env: Record<string, Block> };
 
-  it('has one block per tier, top level plus staging, demo and production', () => {
-    expect(blocks).toHaveLength(4);
+  it('has no environment block beyond staging, demo and production', () => {
+    expect(Object.keys(config.env).sort()).toEqual(['demo', 'production', 'staging']);
   });
 
-  it('sets redact_query_string: true in each block', () => {
-    expect(redacted).toHaveLength(blocks.length);
-    expect(wrangler).not.toMatch(/"redact_query_string":\s*false/);
+  it.each(['root', 'staging', 'demo', 'production'])('sets it to true in %s', (name) => {
+    const block = name === 'root' ? config : config.env[name];
+    expect(block?.observability?.redact_query_string).toBe(true);
   });
 });
