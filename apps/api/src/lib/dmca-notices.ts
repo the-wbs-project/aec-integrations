@@ -6,6 +6,9 @@
  *     512(g)(2)(C) lets us restore the material no sooner than 10 and no later than 14
  *     business days after we receive the counter-notice, unless the complainant tells us
  *     a court action was filed. The Terms "Copyright complaints" promise the same window.
+ *   - {@link readRestoresDue}: the open counter-notices that need the operator now
+ *     (AECI-1944). The `dmca_restore_due` data-quality check and the Overview status
+ *     strip both read it, so the two signals cannot disagree.
  *   - {@link takedownCountWhere} and {@link counterNoticeCountWhere}: the per-account counts.
  *     `GET /api/admin/dmca-notices?account_id=` and `GET /api/admin/users/:id` both read
  *     these two predicates, so the two surfaces cannot disagree.
@@ -19,7 +22,7 @@ import {
   type DmcaRestoreClock,
   type DmcaRestoreClockState,
 } from '@aeci/shared';
-import { and, count, eq, inArray, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { dmcaNotices } from '../db/schema';
@@ -105,6 +108,107 @@ export function compareDmcaNotices(a: DmcaNotice, b: DmcaNotice): number {
   if (a.received_at !== b.received_at) return a.received_at < b.received_at ? 1 : -1;
   if (a.id === b.id) return 0;
   return a.id < b.id ? -1 : 1;
+}
+
+/**
+ * The clock states that need the operator now (AECI-1944). `overdue`: business day 14 has
+ * ended with no outcome. `restore_window_open`: the restore is due by day 14. And
+ * `awaiting_forward`: the counter-notice was never sent on to the complainant. That state
+ * wins over the dates in {@link restoreClock}, so an unforwarded counter-notice never turns
+ * `overdue` by itself. It is listed at any age because the Terms promise to forward it
+ * promptly. `waiting`, `court_action` and the outcomes need nothing.
+ */
+export const DMCA_RESTORE_DUE_STATES = [
+  'overdue',
+  'restore_window_open',
+  'awaiting_forward',
+] as const satisfies readonly DmcaRestoreClockState[];
+export type DmcaRestoreDueState = (typeof DMCA_RESTORE_DUE_STATES)[number];
+
+/** One open counter-notice that needs the operator, with its clock. */
+export interface DmcaRestoreDue {
+  id: string;
+  noticeId: string | null;
+  receivedAt: string;
+  /** Set when someone closed the row with no outcome. A mistake: step 9 of the runbook
+   *  closes a counter-notice only once its outcome is recorded. Kept on the list, never
+   *  filtered out, so a stray "Closed on" date cannot silence a running deadline. */
+  closedAt: string | null;
+  /** True once business day 14 has ended (`now >= clock.latest`), whatever the state. An
+   *  unforwarded counter-notice keeps the `awaiting_forward` state past its deadline, so
+   *  the state alone cannot say a restore is late. */
+  pastDeadline: boolean;
+  clock: DmcaRestoreClock & { state: DmcaRestoreDueState };
+}
+
+function isDueState(state: DmcaRestoreClockState): state is DmcaRestoreDueState {
+  return (DMCA_RESTORE_DUE_STATES as readonly string[]).includes(state);
+}
+
+/**
+ * The open counter-notices in a {@link DMCA_RESTORE_DUE_STATES} state, most urgent first,
+ * then oldest `received_at`, then `id`. SQL narrows to counter-notices with no outcome and
+ * no court action. `closed_at` is deliberately not a filter: a closed row with no outcome is
+ * a mistake, and the deadline still runs. {@link restoreClock} decides the rest, so the holiday math stays in one
+ * place. The log holds a handful of rows, so reading them all is cheap.
+ */
+export async function readRestoresDue(db: Db, now: Date): Promise<DmcaRestoreDue[]> {
+  const rows = await db
+    .select({
+      id: dmcaNotices.id,
+      noticeId: dmcaNotices.noticeId,
+      kind: dmcaNotices.kind,
+      receivedAt: dmcaNotices.receivedAt,
+      forwardedAt: dmcaNotices.forwardedAt,
+      courtActionAt: dmcaNotices.courtActionAt,
+      restoreOutcome: dmcaNotices.restoreOutcome,
+      closedAt: dmcaNotices.closedAt,
+    })
+    .from(dmcaNotices)
+    .where(
+      and(
+        eq(dmcaNotices.kind, 'counter_notice'),
+        isNull(dmcaNotices.restoreOutcome),
+        isNull(dmcaNotices.courtActionAt),
+      ),
+    )
+    .orderBy(asc(dmcaNotices.receivedAt), asc(dmcaNotices.id));
+  const due: DmcaRestoreDue[] = [];
+  for (const row of rows) {
+    const clock = restoreClock(row, now);
+    if (!clock || !isDueState(clock.state)) continue;
+    due.push({
+      id: row.id,
+      noticeId: row.noticeId,
+      receivedAt: row.receivedAt,
+      closedAt: row.closedAt,
+      pastDeadline: now.getTime() >= Date.parse(clock.latest),
+      clock: { ...clock, state: clock.state },
+    });
+  }
+  // Past the deadline ranks first in any state, so an unforwarded counter-notice past day
+  // 14 sits with the overdue rows. A stable sort keeps the oldest-first SQL order within.
+  const rank = (d: DmcaRestoreDue) => (d.pastDeadline ? 0 : URGENCY[d.clock.state]);
+  return due.sort((a, b) => rank(a) - rank(b));
+}
+
+/**
+ * The three counts the Overview status strip shows. Each row counts once. `overdue` is
+ * every row past business day 14, forwarded or not, so an unforwarded counter-notice past
+ * its deadline reads as overdue rather than only "not yet forwarded".
+ */
+export function countRestoresDue(due: readonly DmcaRestoreDue[]): {
+  overdue: number;
+  window_open: number;
+  awaiting_forward: number;
+} {
+  return {
+    overdue: due.filter((d) => d.pastDeadline).length,
+    window_open: due.filter((d) => !d.pastDeadline && d.clock.state === 'restore_window_open')
+      .length,
+    awaiting_forward: due.filter((d) => !d.pastDeadline && d.clock.state === 'awaiting_forward')
+      .length,
+  };
 }
 
 /**

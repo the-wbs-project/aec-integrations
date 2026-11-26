@@ -25,6 +25,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   auditLog,
+  dmcaNotices,
   mailingList,
   metricsDaily,
   pageViews,
@@ -554,6 +555,46 @@ describe('GET /api/admin/overview — the status strip and ?recompute=1 (§13 D8
       pending_reviews: 0,
       open_requests: 0,
       open_claims: 0,
+    });
+  });
+
+  // AECI-1944. The copyright restore clock rides every load, not only a recompute.
+  // NOW is 2026-08-11. A counter-notice received 2026-07-01 is long past business
+  // day 14; one received 2026-07-27 is inside days 10 to 14; one with no forward
+  // stamp from 2026-07-01 is past day 14, so it is overdue too; one with no forward
+  // stamp from 2026-08-10 is only "not yet forwarded". A recent forwarded one, one with an
+  // outcome and one with a court action need nothing, and a notice has no clock.
+  it('counts the copyright restores that need the operator, on the default load', async () => {
+    const row = (n: number, over: Partial<typeof dmcaNotices.$inferInsert>) => ({
+      id: `00000000-0000-4000-8000-0000000009${String(n).padStart(2, '0')}`,
+      kind: 'counter_notice',
+      noticeId: '00000000-0000-4000-8000-000000000900',
+      receivedAt: '2026-07-01T15:00:00.000Z',
+      forwardedAt: '2026-07-01T16:00:00.000Z',
+      action: 'pending',
+      createdBy: 'admin',
+      updatedBy: 'admin',
+      ...over,
+    });
+    await t.db.insert(dmcaNotices).values([
+      row(0, { kind: 'notice', noticeId: null, action: 'removed', contentIdentified: 'x' }),
+      row(1, {}),
+      row(2, { receivedAt: '2026-07-27T15:00:00.000Z', forwardedAt: '2026-07-27T16:00:00.000Z' }),
+      row(3, { forwardedAt: null }),
+      // Unforwarded and recent: not yet forwarded, and not late.
+      row(7, { forwardedAt: null, receivedAt: '2026-08-10T15:00:00.000Z' }),
+      row(4, { receivedAt: '2026-08-10T15:00:00.000Z', forwardedAt: '2026-08-10T16:00:00.000Z' }),
+      row(5, { restoreOutcome: 'restored', restoreOutcomeAt: '2026-07-20T12:00:00.000Z' }),
+      row(6, { courtActionAt: '2026-07-10T12:00:00.000Z' }),
+    ]);
+
+    const body = await overview();
+    expect(body.recomputed).toBe(false);
+    // Row 3 is unforwarded AND past day 14: it is overdue, counted once (review finding).
+    expect(body.status.copyright_restores).toEqual({
+      overdue: 2,
+      window_open: 1,
+      awaiting_forward: 1,
     });
   });
 

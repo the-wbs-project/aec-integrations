@@ -159,6 +159,7 @@ function makeOverview(over: Partial<AdminOverviewResponse> = {}): AdminOverviewR
       },
       stats_freshness: { computed_at: '2026-08-13T07:00:00.000Z', age_hours: 3, stale: false },
       moderation: { pending_reviews: 4, open_requests: 2, open_claims: 3 },
+      copyright_restores: { overdue: 0, window_open: 0, awaiting_forward: 0 },
       data_quality: null,
       algolia_drift: null,
     },
@@ -475,6 +476,40 @@ describe('AdminOverview', () => {
       expect(status.querySelector('a[href="/admin/reviews"]')?.textContent).toContain('4');
       expect(status.querySelector('a[href="/admin/requests"]')?.textContent).toContain('2');
       expect(status.querySelector('a[href="/admin/claims"]')?.textContent).toContain('3');
+    });
+
+    // AECI-1944: the copyright restore clock, the one clocked operator duty that had
+    // no signal outside /admin/dmca.
+    it('shows the copyright restore counts and links to the whole log', async () => {
+      const overview = makeOverview();
+      overview.status.copyright_restores = { overdue: 1, window_open: 2, awaiting_forward: 3 };
+      const { el } = await setup(makeApiMock(overview));
+      const status = sectionText(el, 'admin-overview-status-heading');
+      expect(status).toContain('Copyright restores');
+      expect(status).toContain('1 overdue');
+      expect(status).toContain('2 in the restore window');
+      expect(status).toContain('3 not yet forwarded');
+      const region = el.querySelector('[aria-labelledby="admin-overview-status-heading"]')!;
+      expect(region.querySelector('a[href="/admin/dmca"]')?.textContent).toContain(
+        'Open the copyright log',
+      );
+    });
+
+    it('reads zero copyright restores as zero, not as unmeasured', async () => {
+      const { el } = await setup(makeApiMock());
+      const status = sectionText(el, 'admin-overview-status-heading');
+      expect(status).toContain('0 overdue');
+      expect(status).toContain('0 not yet forwarded');
+    });
+
+    it('says the copyright item is not reported when an older API omits it', async () => {
+      const overview = makeOverview();
+      delete (overview.status as Partial<typeof overview.status>).copyright_restores;
+      const { el } = await setup(makeApiMock(overview));
+      const status = sectionText(el, 'admin-overview-status-heading');
+      expect(status).toContain('Not reported by this API build.');
+      // The rest of the strip still renders.
+      expect(status).toContain('reviews pending');
     });
 
     it('flags an SSR/API build mismatch (AECI-92) and stays quiet when they agree', async () => {

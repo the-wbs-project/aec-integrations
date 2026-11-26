@@ -7,7 +7,7 @@ import type { AdminStatusStrip, VersionResponse } from '@aeci/shared';
 import { CONSOLE_LABEL_CLASS } from '../console/console-table';
 
 /**
- * AECI-576 / Phase 8.3 P1.2 — the §5.1 status strip: the five signals that answer
+ * AECI-576 / Phase 8.3 P1.2 — the §5.1 status strip: the six signals that answer
  * "is anything broken right now?" without opening an email or a dashboard.
  *
  * `algolia_drift` is `null` on the default response because it costs network
@@ -115,6 +115,64 @@ import { CONSOLE_LABEL_CLASS } from '../console/console-table';
             i18n="@@admin.status.moderation.claims"
             >{{ s.moderation.open_claims }} claims open</a
           >
+        </dd>
+      </div>
+
+      <!--
+        AECI-1944. The copyright restore clock: open counter-notices whose restore is
+        overdue, whose window is open, or that were never forwarded. A statutory
+        deadline with a counterparty, so it sits beside the moderation depths, under
+        its own term rather than inside "Moderation queue". Live on every load, on the
+        predicate the dmca_restore_due data-quality check reads. The link is the whole
+        log, not "Open only": a row closed by mistake with no outcome still counts here,
+        and the log lists the most urgent clock first whether or not a row is closed. No nav badge: the log is not a queue (§5.23).
+      -->
+      <div class="min-w-0">
+        <dt [class]="labelClass" i18n="@@admin.status.copyright.label">Copyright restores</dt>
+        <dd class="mt-2 grid justify-items-start gap-1 text-t-14">
+          <!-- An older API build sends no copyright_restores while a deploy rolls, so
+               the item says so rather than throwing and blanking the strip. -->
+          @if (s.copyright_restores; as cr) {
+            <p
+              class="tabular-nums"
+              [class]="
+                cr.overdue > 0
+                  ? 'font-semibold text-(--accent-secondary-deep)'
+                  : 'text-(--text-primary)'
+              "
+              i18n="@@admin.status.copyright.overdue"
+            >
+              {{ cr.overdue }} overdue
+            </p>
+            <p
+              class="tabular-nums text-(--text-primary)"
+              i18n="@@admin.status.copyright.windowOpen"
+            >
+              {{ cr.window_open }} in the restore window
+            </p>
+            <p
+              class="tabular-nums"
+              [class]="
+                cr.awaiting_forward > 0
+                  ? 'font-semibold text-(--accent-secondary-deep)'
+                  : 'text-(--text-primary)'
+              "
+              i18n="@@admin.status.copyright.awaitingForward"
+            >
+              {{ cr.awaiting_forward }} not yet forwarded
+            </p>
+            <a
+              routerLink="/admin/dmca"
+              class="rounded-mark text-(--text-primary) underline underline-offset-3 transition-colors
+              duration-fast hover:text-(--accent-primary)"
+              i18n="@@admin.status.copyright.link"
+              >Open the copyright log</a
+            >
+          } @else {
+            <p class="text-(--text-secondary)" i18n="@@admin.status.copyright.notReported">
+              Not reported by this API build.
+            </p>
+          }
         </dd>
       </div>
 

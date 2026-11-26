@@ -1343,6 +1343,14 @@ triage. The email digest to the support inbox (`support@aecintegrations.com`) ca
 > **`review_mirror_drift` means the review app holds a stale or absent copy of an owned vendor's
 > records** (AECI-1455). It has its own section: [Review-app mirror drift](./catalog.md#review-app-mirror-drift).
 
+> **`dmca_restore_due` is an operator duty, not a data defect** (AECI-1944). It counts open
+> counter-notices that are overdue for a restore, inside their restore window, or not yet forwarded
+> to the complainant. The digest includes up to ten examples; use the log for the full list. It is
+> meant to page through business days 10 to 14, before anything is late.
+> Do the step in [Copyright notice or counter-notice](./legal.md#copyright-notice-or-counter-notice-aeci-1665)
+> and record it on `/admin/dmca`. Never stamp a date to clear it. The Overview's "Copyright
+> restores" item shows the same rows live.
+
 > **`browser_evidence_coverage` means the browser report path is broken.** It has its own entry
 > below: [Browser evidence coverage](#browser-evidence-coverage).
 

@@ -6355,7 +6355,7 @@ bounded (`SWARM_MAX_CANDIDATES` caps the bound-parameter count; the 14-day
 recurrence lookback rides `page_views_operator_pair_idx`) and it is the price of
 the panel and the email leading with one number.
 
-**Status strip and `?recompute=1` (§13 D8).** The first three items are cheap
+**Status strip and `?recompute=1` (§13 D8).** The first four items are cheap
 D1/env reads and are always present. The last two need the network — the
 data-quality suite HTTP-probes logo URLs, and drift queries three Algolia indexes
 — so the default response returns them as `null` plus a `requires_recompute`
@@ -6366,6 +6366,7 @@ note, and `?recompute=1` runs them live:
 | `version` | `COMMIT_SHA` / `DEPLOYED_AT` / `ENV` | ✅ | ✅ |
 | `stats_freshness` | `MAX(stats_cache.computed_at)` over the `home.*` keys (AECI-1509), stale > 48 h | ✅ | ✅ |
 | `moderation` | pending reviews + open corrections + open claims (AECI-922; one field per Operations screen, on the `ADMIN_PANEL_SPEC.md` §5.0c predicates) | ✅ | ✅ |
+| `copyright_restores` | `{ overdue, window_open, awaiting_forward }`: open counter-notices, each counted once: `overdue` is any row past business day 14, forwarded or not; the other two are before it. From `readRestoresDue` (`apps/api/src/lib/dmca-notices.ts`, AECI-1944), the predicate the `dmca_restore_due` check reads | ✅ | ✅ |
 | `data_quality` | all §23.1 checks (`runDataQualityChecks`) | `null` | ✅ |
 | `algolia_drift` | `findAlgoliaIndexDrift` per index | `null` | ✅ |
 
