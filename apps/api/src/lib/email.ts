@@ -1772,6 +1772,12 @@ export interface LegalTermsChangeSubject {
   /** The published bullets, plain text. Escaped here. */
   summary: readonly string[];
   closing: LegalTermsChangeClosing;
+  /**
+   * AECI-2234: the document's first version in force (`legalNoticeIsFirstInForce`). There
+   * is no current or earlier version, only a draft that was never in force, so the lead
+   * says it is the first and no line names a current or earlier version. Absent: false.
+   */
+  firstInForce?: boolean;
   /** The row's `expedited_reason`. Only a Vendor Terms or (AECI-1969) policy version
    *  carries one. */
   expeditedReason: LegalExpeditedReason | null;
@@ -1802,15 +1808,26 @@ const LEGAL_EXPEDITED_SENTENCE: Record<LegalExpeditedReason, string> = {
   error: 'This version takes effect in less than 30 days because it corrects an error.',
 };
 
-/** The closing line per case. Each one restates the agreement; none goes past it. */
-function legalClosingLine(closing: LegalTermsChangeClosing, version: string, date: string): string {
+/**
+ * The closing line per case. Each one restates the agreement; none goes past it. For a
+ * first version in force (AECI-2234) the two accept cases drop their earlier-version
+ * sentence: there is no earlier version in force.
+ */
+function legalClosingLine(
+  closing: LegalTermsChangeClosing,
+  version: string,
+  date: string,
+  firstInForce: boolean,
+): string {
   switch (closing) {
     case 'vendor-terms':
       return `If you keep using the portal after ${date}, the new version applies to your company. If you do not agree, give up your claim before that date.`;
     case 'vendor-policy':
       return `The Vendor Terms make this policy part of your company's agreement with us. If you keep using the portal after ${date}, the new version applies to your company. If you do not agree, give up your claim before that date.`;
     case 'vendor-terms-accept':
-      return `This change needs your acceptance. An owner seat at your company will be asked to accept version ${version} in the vendor portal. Until an owner seat accepts, the earlier version applies to your company.`;
+      return firstInForce
+        ? `This change needs your acceptance. An owner seat at your company will be asked to accept version ${version} in the vendor portal.`
+        : `This change needs your acceptance. An owner seat at your company will be asked to accept version ${version} in the vendor portal. Until an owner seat accepts, the earlier version applies to your company.`;
     case 'managed-monthly-accept':
       return `For this change we ask an owner seat at your company to accept version ${version} in the vendor portal.`;
     case 'managed-binds':
@@ -1818,7 +1835,9 @@ function legalClosingLine(closing: LegalTermsChangeClosing, version: string, dat
     case 'reader-terms':
       return `If you keep using the service after ${date}, the new version applies to you.`;
     case 'reader-terms-accept':
-      return `Because this change reduces your rights, it applies to your account only after you accept it. The next time you sign in, we will ask you to tick a box to accept it. Until you do, the earlier version applies. It never applies to a claim that arose before ${date}.`;
+      return firstInForce
+        ? `Because this change reduces your rights, it applies to your account only after you accept it. The next time you sign in, we will ask you to tick a box to accept it. It never applies to a claim that arose before ${date}.`
+        : `Because this change reduces your rights, it applies to your account only after you accept it. The next time you sign in, we will ask you to tick a box to accept it. Until you do, the earlier version applies. It never applies to a claim that arose before ${date}.`;
     case 'reader-privacy':
       return `The new version applies from ${date}.`;
   }
@@ -1850,6 +1869,10 @@ function bulletBlock(items: readonly string[]): { text: string; html: string } {
  * AECI-1637: a `reader-*` closing is the account notice of a Terms of Service or Privacy
  * Policy version, sent and ledgered as `legal-account-change`. It carries the same four
  * things, an account holder's note, and no portal button.
+ *
+ * AECI-2234: `firstInForce` swaps the lead's "Until then the current version applies" for
+ * "It is the first version of the {title} to take effect", and drops the accept closings'
+ * earlier-version sentence.
  */
 export function sendLegalTermsChangeEmail(
   c: EmailContext,
@@ -1868,7 +1891,11 @@ export function sendLegalTermsChangeEmail(
 
   const subject = `Version ${opts.version} of the ${title} takes effect on ${date}`;
   const heading = `A new version of the ${title}`;
-  const lead = `Version ${opts.version} of the AEC Integrations ${title} takes effect on ${date}. Until then the current version applies.`;
+  const firstInForce = opts.firstInForce === true;
+  // AECI-2234: a first version has no current version to apply until then.
+  const lead = firstInForce
+    ? `Version ${opts.version} of the AEC Integrations ${title} takes effect on ${date}. It is the first version of the ${title} to take effect.`
+    : `Version ${opts.version} of the AEC Integrations ${title} takes effect on ${date}. Until then the current version applies.`;
   const changes = 'What changes:';
   const bullets = bulletBlock(opts.summary);
   const pdf = 'A PDF copy is attached so you can save it.';
@@ -1876,7 +1903,7 @@ export function sendLegalTermsChangeEmail(
     legalDocumentMayBeExpedited(opts.document) && opts.expeditedReason
       ? LEGAL_EXPEDITED_SENTENCE[opts.expeditedReason]
       : null;
-  const closing = legalClosingLine(opts.closing, opts.version, date);
+  const closing = legalClosingLine(opts.closing, opts.version, date, firstInForce);
   const askToAccept =
     opts.closing === 'vendor-terms-accept' || opts.closing === 'managed-monthly-accept';
   const reader = isReaderLegalClosing(opts.closing);

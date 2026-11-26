@@ -269,6 +269,26 @@ describe('the reader consumer', () => {
     expect((await rows()).map((r) => r.status)).toEqual(['delivered', 'delivered']);
   });
 
+  // AECI-2234: the email of a first version in force names no current or earlier version.
+  it('marks the send first in force until an earlier version of the document is in force', async () => {
+    const ids = await seedAccounts(1);
+    const row = await seedVersion();
+    expect((await deliver(row, ids)).calls.map((c) => c.firstInForce)).toEqual([true]);
+
+    await seedVersion({
+      id: 'lv-earlier',
+      version: '1.1',
+      effectiveAt: Date.parse('2026-10-01T12:00:00.000Z'),
+      pdfKey: 'legal/terms/v1.1.pdf',
+    });
+    const again = await seedVersion({
+      id: 'lv-next',
+      version: '1.3',
+      pdfKey: 'legal/terms/v1.3.pdf',
+    });
+    expect((await deliver(again, ids)).calls.map((c) => c.firstInForce)).toEqual([false]);
+  });
+
   it('picks the closing by document and acceptance', () => {
     expect(legalReaderClosingFor('terms', false)).toBe('reader-terms');
     expect(legalReaderClosingFor('terms', true)).toBe('reader-terms-accept');
