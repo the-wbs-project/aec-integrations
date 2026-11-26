@@ -198,6 +198,7 @@ import {
   createAddOwnerFlowHandler,
   createChangeOwnerFlowHandler,
   createClearOwnerFlowAnswerHandler,
+  createOwnerFlowHistoryHandler,
   createSetOwnerFlowAnswerHandler,
 } from './vendor-owner-flows';
 import {
@@ -658,6 +659,12 @@ function makeApp() {
     requireVendor(guard),
     createChangeOwnerFlowHandler(t.factory),
   );
+  // AECI-2213 — seat only, a read; owner and Sync Service are inside the handler.
+  app.get(
+    '/api/vendor/owned-integrations/:id/flows/history',
+    requireVendor(guard),
+    createOwnerFlowHistoryHandler(t.factory),
+  );
   // AECI-1006 — seat only; the owner rule is inside the handler.
   app.patch(
     '/api/vendor/integrations/:id',
@@ -858,6 +865,12 @@ const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?:
     path: `/api/vendor/owned-flows/${uuid(992)}`,
     method: 'PATCH',
     body: { direction: 'both' },
+    ok: 404,
+  },
+  // AECI-2213 — the history read. An unknown row is its 404.
+  {
+    path: `/api/vendor/owned-integrations/${uuid(991)}/flows/history?data_object=rfis`,
+    method: 'GET',
     ok: 404,
   },
   // AECI-2042 — seat only. An unknown row, veto or report is its 404, which proves the

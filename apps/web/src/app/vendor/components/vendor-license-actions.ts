@@ -1,7 +1,6 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  ElementRef,
   computed,
   inject,
   input,
@@ -16,7 +15,6 @@ import {
   BrnDialogDescription,
   BrnDialogTitle,
 } from '@spartan-ng/brain/dialog';
-import { BrnPopover, BrnPopoverContent, BrnPopoverTrigger } from '@spartan-ng/brain/popover';
 
 import { LICENSE_RELEASE_REASON_MAX, type VendorBillingLicense } from '@aeci/shared';
 
@@ -29,6 +27,7 @@ import {
   FIELD_INPUT_CLASS,
   FIELD_LABEL_CLASS,
 } from '../../shared/form-field/form-field-classes';
+import { RowActionsMenu, type RowAction } from '../shared/row-actions-menu';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
@@ -57,22 +56,14 @@ type MenuAction = 'release' | 'keep';
  * of the dialog, and with both in effect "Release license" leaves the menu.
  *
  * ── THE MENU ───────────────────────────────────────────────────────────────
- * A `BrnPopover` holding a list of plain buttons, the pattern of the header's
- * `layout/user-menu.ts`: CDK overlay (so the sideways-scrolling table does not clip
- * it), focus trap, Escape and outside-click close, focus back to the trigger, and
- * `aria-haspopup`/`aria-expanded` on the trigger. No `role="menu"`.
- *
- * Not `@angular/aria/menu` (ADR 0010's row for application menus) and not
- * `@angular/cdk/menu`. The header's eager combobox already imports a module that
- * each of them shares, and esbuild then keeps that whole module in `main`: Aria's
- * menu patterns, or CDK's list key manager (+7.8 kB raw). That cost lands on every
- * public page and breaks the 1.05 MB initial budget. `BrnPopover` is already eager,
- * so this menu adds nothing there. ADR 0010 records the exception.
+ * The portal's shared row Actions menu (`vendor/shared/row-actions-menu.ts`, lifted
+ * from here by AECI-2213): a `BrnPopover` of plain buttons, not an Aria or CDK menu,
+ * because either breaks the 1.05 MB initial budget (ADR 0010, amendment 2026-10-16).
  *
  * ── THE DIALOG ─────────────────────────────────────────────────────────────
- * `BrnDialog.open()` runs from the menu item's click handler, never from an
- * `effect()` (NG0602). Focus moves to the trigger and the popover closes first, so
- * the dialog hands focus back to the trigger, not to a destroyed menu item.
+ * `BrnDialog.open()` runs from the menu's `picked` output, inside the item's click,
+ * never from an `effect()` (NG0602). The shared menu moves focus to its trigger and
+ * closes first, so the dialog hands focus back to the trigger, not to a destroyed item.
  *
  * Every write is pessimistic: await it, close the dialog, re-read billing, announce.
  * A failure stays in the dialog. A `409` or `404` closes it and goes to the section
@@ -85,9 +76,7 @@ type MenuAction = 'release' | 'keep';
   imports: [
     AecButton,
     AecIcon,
-    BrnPopover,
-    BrnPopoverContent,
-    BrnPopoverTrigger,
+    RowActionsMenu,
     BrnDialog,
     BrnDialogContent,
     BrnDialogClose,
@@ -96,58 +85,13 @@ type MenuAction = 'release' | 'keep';
   ],
   template: `
     <div class="flex items-center justify-end gap-3">
-      <button
-        #triggerEl
-        aecButton
-        variant="ghost"
-        iconOnly
-        type="button"
-        brnPopoverTrigger
-        [brnPopoverTriggerFor]="actionsMenu"
-        [attr.aria-label]="triggerLabel()"
-        [class]="triggerClass"
-        data-testid="license-actions-trigger"
-      >
-        <aec-icon name="more-vertical" decorative />
-      </button>
+      <aec-row-actions-menu
+        [label]="triggerLabel()"
+        [actions]="menuActions()"
+        testId="license-actions"
+        (picked)="onSelect($event)"
+      />
     </div>
-
-    <brn-popover #actionsMenu="brnPopover" class="contents" align="end" [sideOffset]="4">
-      <ng-template brnPopoverContent>
-        <ul
-          [attr.aria-label]="triggerLabel()"
-          class="aec-popover m-0 flex min-w-[12rem] list-none flex-col gap-1 p-2"
-          data-testid="license-actions-menu"
-        >
-          @if (canRelease()) {
-            <li>
-              <button
-                type="button"
-                (click)="onSelect('release')"
-                [class]="itemClass"
-                data-testid="license-actions-release"
-                i18n="@@vendor.billing.actions.release"
-              >
-                Release subscription
-              </button>
-            </li>
-          }
-          @if (license().release_at_renewal) {
-            <li>
-              <button
-                type="button"
-                (click)="onSelect('keep')"
-                [class]="itemClass"
-                data-testid="license-actions-keep"
-                i18n="@@vendor.billing.actions.keep"
-              >
-                Keep at renewal
-              </button>
-            </li>
-          }
-        </ul>
-      </ng-template>
-    </brn-popover>
 
     @if (notice(); as message) {
       <p
@@ -338,8 +282,7 @@ export class VendorLicenseActions {
 
   /** By ref: `BrnPopover` extends `BrnDialog`, so a type query would find the menu. */
   private readonly dialog = viewChild<BrnDialog>('releaseDialog');
-  private readonly popover = viewChild(BrnPopover);
-  private readonly triggerEl = viewChild<ElementRef<HTMLButtonElement>>('triggerEl');
+  private readonly menu = viewChild(RowActionsMenu);
 
   protected readonly timing = signal<ReleaseTiming>('renewal');
   protected readonly reason = signal('');
@@ -373,15 +316,28 @@ export class VendorLicenseActions {
   /** Called by the Billing section after an assign puts this license on a product,
    *  so focus lands here instead of on `<body>` (AECI-1391). */
   focus(): void {
-    this.triggerEl()?.nativeElement.focus();
+    this.menu()?.focus();
   }
 
-  /** A menu item's click: an event, so opening the dialog here is safe. */
-  protected onSelect(action: MenuAction): void {
-    // Focus the trigger before the menu goes. The dialog returns focus to whatever
-    // held it at open, and the menu item is about to be destroyed.
-    this.focus();
-    this.popover()?.close();
+  /** The menu's items: what is already in effect is left out. */
+  protected readonly menuActions = computed<readonly RowAction[]>(() => [
+    ...(this.canRelease()
+      ? [
+          {
+            id: 'release',
+            label: $localize`:@@vendor.billing.actions.release:Release subscription`,
+          },
+        ]
+      : []),
+    ...(this.license().release_at_renewal
+      ? [{ id: 'keep', label: $localize`:@@vendor.billing.actions.keep:Keep at renewal` }]
+      : []),
+  ]);
+
+  /** A menu item's click (the shared menu has already focused its trigger and closed):
+   *  an event, so opening the dialog here is safe. */
+  protected onSelect(picked: string): void {
+    const action = picked as MenuAction;
     this.notice.set(null);
     if (action === 'release') this.openDialog();
     else if (action === 'keep') void this.keep();
@@ -498,15 +454,6 @@ export class VendorLicenseActions {
   protected readonly hintClass = FIELD_HINT_CLASS;
   protected readonly errorClass = FIELD_ERROR_CLASS;
   protected readonly choiceInputClass = CHOICE_INPUT_CLASS;
-  /** The ghost icon button keeps a sunken fill while its menu is open. */
-  protected readonly triggerClass = 'aria-expanded:bg-(--surface-sunken)';
-  /**
-   * A menu item: the header account menu's item recipe (`layout/user-menu.ts`). It
-   * stays a native button, because a menu row is not a button look: full width, text
-   * at the start, no frame.
-   */
-  protected readonly itemClass =
-    'block min-h-11 w-full cursor-pointer rounded-mark px-3 py-2 text-start text-t-14 text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus:bg-(--surface-sunken) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
   /** A timing option: the shared choice card's look, taller for its help line. */
   protected readonly optionClass =
     'aec-choice-card flex cursor-pointer items-start gap-3 rounded-control border bg-(--surface-base) p-4 text-(--text-primary) has-[:checked]:bg-(--accent-primary-soft)';

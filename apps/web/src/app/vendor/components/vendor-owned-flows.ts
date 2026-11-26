@@ -1,12 +1,28 @@
-import { Component, computed, inject, input, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  computed,
+  inject,
+  input,
+  signal,
+  viewChild,
+} from '@angular/core';
+import {
+  BrnDialog,
+  BrnDialogClose,
+  BrnDialogContent,
+  BrnDialogDescription,
+  BrnDialogTitle,
+} from '@spartan-ng/brain/dialog';
 
-import type { ContextDirection, DataObjectOption, OwnedFlow, OwnedIntegration } from '@aeci/shared';
+import type { ContextDirection, DataObjectOption, OwnedFlow } from '@aeci/shared';
 import { compareText } from '@aeci/shared/text-sort';
 
 import { isReplayedEvent } from '../../core/event-replay';
 import { AecButton } from '../../shared/button/button';
 import { FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
-import { AecIcon } from '../../shared/icon/icon';
 import { ownedFlowRowId } from '../integration-detail/integration-detail-model';
 import {
   ALERT,
@@ -22,74 +38,80 @@ import {
   PORTAL_NESTED_SAVE_BAR_CLASS,
   PORTAL_SAVE_BUTTON_CLASS,
 } from '../shared/portal-form';
-import { SEGMENTED_CLASS, segmentClass } from '../shared/portal-segmented';
+import { RowActionsMenu, type RowAction } from '../shared/row-actions-menu';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorPortalStore } from '../vendor-portal-store';
 
+import { OwnedFlowHistoryDialog } from './owned-flow-history-dialog';
+import { ownedDirectionText, type OwnedFlowsRow } from './vendor-owned-flows-direction';
+
+export { ownedDirectionText, type OwnedFlowsRow } from './vendor-owned-flows-direction';
+
 /** The directions in the order every direction picker lists them. */
 const DIRECTIONS: readonly ContextDirection[] = ['outbound', 'both', 'inbound'];
 
-/**
- * One direction against the row's endpoint A: "From {A} to {B}", "From {B} to {A}" or
- * "Both ways". Shared with the owned row's detail page (AECI-2045), so the flows and the
- * Overview's Direction row read alike.
- */
-export function ownedDirectionText(
-  row: Pick<OwnedIntegration, 'product_a' | 'product_b'>,
-  direction: ContextDirection,
-): string {
-  const a = row.product_a.name;
-  const b = row.product_b.name;
-  switch (direction) {
-    case 'outbound':
-      return $localize`:@@vendor.ownedFlows.direction.aToB:From ${a}:a: to ${b}:b:`;
-    case 'inbound':
-      return $localize`:@@vendor.ownedFlows.direction.bToA:From ${b}:b: to ${a}:a:`;
-    case 'both':
-      return $localize`:@@vendor.im.direction.both:Both ways`;
-  }
-}
-
-/**
- * What the flow controls read of a row. An owned card passes its `OwnedIntegration`.
- * The integration detail page builds one from `VendorIntegration.owner_flows` for a
- * row whose owner also makes an endpoint (AECI-2039). Directions are framed against
- * `product_a` in both.
- */
-export type OwnedFlowsRow = Pick<
-  OwnedIntegration,
-  'id' | 'flows' | 'flows_editable' | 'retired_at' | 'claimed_at' | 'product_a' | 'product_b'
->;
+/** The ids of a row's Actions menu items. */
+type FlowAction = 'confirm' | 'change' | 'history' | 'remove';
 
 /**
  * The data flows on a Sync Service pair the caller owns (AECI-2039,
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.15.3). Rendered inside the owned card under
- * "Integrations your company offers", which has no detail page (AECI-2045 builds one).
+ * "Integrations your company offers", and on the integration detail page.
  *
- * It follows "Data that's shared" (`integration-shared-data.ts`, §6.17.4) rather than
- * reusing that component, which is bound to the endpoint vendor's detail-page state.
- * The same table, the same Yes and No toggles, the same rule: pressing the pressed
- * answer again clears it (the Same-Behavior Rule). What differs is what an answer
- * means. The owner built and runs the integration, so its Yes shows publicly as "Confirmed by
- * {company}, which offers this integration", and its No removes the row from the
- * public page. There is no public "disputed" state: the owner maintains the listing.
+ * ── WHAT IT SHOWS (AECI-2213) ──────────────────────────────────────────────
+ * One row per data type, and only what is true now. A flow the owner removed
+ * (`answer = 'no'`) leaves the table; its events stay in the surviving row's history.
+ * Two live directions of one data type (two AECi seeds) are two real rows, both shown.
+ * The heading count counts shown rows.
  *
- * Directions are framed against `product_a`, as `OwnedFlow.direction` is.
+ * There are no Yes and No toggles. Adding a row confirms it (the API already did).
+ * Each row has an Actions menu (`vendor/shared/row-actions-menu.ts`):
+ *
+ *   - **Confirm**, only while the owner has not answered;
+ *   - **Change direction**, the inline picker, `PATCH /owned-flows/:claimId`;
+ *   - **View history**, `owned-flow-history-dialog.ts`;
+ *   - **Remove row**, after a dialog, `PUT …/answer { asserted: false }`.
+ *
+ * A row whose `flows_editable` is false (unclaimed or retired) offers View history
+ * only. A removed flow comes back through Add a row: the form blocks a data type and
+ * direction already shown, and a new direction of a data type already shown (that is
+ * Change direction), but never a removed flow, even beside a surviving direction of
+ * the same type. The API confirms the existing claim (`200`). The portal no longer
+ * calls `DELETE …/answer`.
+ *
+ * The "On the public page" cell reads the server's `public` (AECI-2213, the pair
+ * read's `isClaimPubliclyBacked`) and, for a public unanswered flow, mirrors the pair
+ * page badge for its `agreement` (`products/agreement-badge.ts`).
+ *
+ * ── THE SAME-BEHAVIOR EXCEPTION ────────────────────────────────────────────
+ * The endpoint vendor's "Data that's shared" (`integration-shared-data.ts`, §6.17.4)
+ * keeps Yes and No, because there a No is a dispute sent with a reason. Here the owner
+ * runs the integration, so it states what the integration moves. Ruling 4 on
+ * AECI-2213 records the exception.
  *
  * AECI-2039: the integration detail page's "Data that's shared" renders this same
  * component for a row the caller owns and also makes an endpoint of, with
  * `labelledBy` set to its own heading. The component then drops its own heading, so
- * the section keeps one. The controls are the same in both places (the Same-Behavior
- * Rule).
+ * the section keeps one. The controls are the same in both places.
  *
- * The add form, the selects and the Yes and No switch are on the same recipes as
- * "Data that's shared" (AECI-1811): the nested form panel and save bar, the shared field,
- * and the portal's segmented control (`vendor/shared/portal-segmented.ts`).
+ * The dialogs open from the menu's `picked` output, inside a click, never from an
+ * `effect()` (NG0602).
  */
 @Component({
   selector: 'aec-vendor-owned-flows',
-  imports: [AecButton, AecIcon, CloseOnEscape, KeepClearOfSaveBar],
+  imports: [
+    AecButton,
+    BrnDialog,
+    BrnDialogClose,
+    BrnDialogContent,
+    BrnDialogDescription,
+    BrnDialogTitle,
+    CloseOnEscape,
+    KeepClearOfSaveBar,
+    OwnedFlowHistoryDialog,
+    RowActionsMenu,
+  ],
   styles: [ID_STYLES],
   host: { class: 'block' },
   template: `
@@ -103,6 +125,7 @@ export type OwnedFlowsRow = Pick<
         }
         @if (r.flows_editable) {
           <button
+            #addToggle
             type="button"
             class="ms-auto"
             aecButton
@@ -140,9 +163,12 @@ export type OwnedFlowsRow = Pick<
                   >Data</label
                 >
                 <select
+                  #addData
                   [id]="prefix() + '-add-data'"
                   [class]="input"
                   class="mt-2"
+                  [attr.aria-describedby]="duplicate() ? prefix() + '-add-duplicate' : null"
+                  [attr.aria-invalid]="duplicate() ? 'true' : null"
                   (change)="draftData.set(selectValue($event))"
                 >
                   @for (option of dataOptions(); track option.slug) {
@@ -151,6 +177,17 @@ export type OwnedFlowsRow = Pick<
                     </option>
                   }
                 </select>
+                @if (duplicate(); as dup) {
+                  <p
+                    [id]="prefix() + '-add-duplicate'"
+                    [class]="alert"
+                    class="mt-2"
+                    role="status"
+                    data-testid="owned-flow-add-duplicate"
+                  >
+                    {{ duplicateText(dup) }}
+                  </p>
+                }
               </div>
               <div>
                 <label
@@ -163,6 +200,7 @@ export type OwnedFlowsRow = Pick<
                   [id]="prefix() + '-add-dir'"
                   [class]="input"
                   class="mt-2"
+                  [attr.aria-describedby]="duplicate() ? prefix() + '-add-duplicate' : null"
                   (change)="draftDirection.set(asDirection($event))"
                 >
                   @for (d of directions; track d) {
@@ -208,7 +246,7 @@ export type OwnedFlowsRow = Pick<
         <p [class]="alert" class="mt-3" role="alert">{{ error() }}</p>
       }
 
-      @if (r.flows.length === 0) {
+      @if (shownFlows().length === 0) {
         <p class="mt-3 text-sm text-(--text-secondary)" i18n="@@vendor.im.data.empty">
           No data is listed as shared yet.
         </p>
@@ -244,14 +282,21 @@ export type OwnedFlowsRow = Pick<
                 <th
                   scope="col"
                   class="py-2 pe-4 text-start font-semibold text-(--text-secondary)"
-                  i18n="@@vendor.ownedFlows.col.answer"
+                  i18n="@@vendor.ownedFlows.col.public"
                 >
-                  Your answer
+                  On the public page
+                </th>
+                <th
+                  scope="col"
+                  class="w-px py-2 text-end font-semibold text-(--text-secondary)"
+                  i18n="@@vendor.ownedFlows.col.actions"
+                >
+                  Actions
                 </th>
               </tr>
             </thead>
             <tbody>
-              @for (flow of r.flows; track flow.id) {
+              @for (flow of shownFlows(); track flow.id) {
                 <tr
                   class="border-b border-(--border-default)"
                   [attr.data-testid]="'owned-flow-' + flow.data_object_slug + '-' + flow.direction"
@@ -268,7 +313,7 @@ export type OwnedFlowsRow = Pick<
                     @if (changing() === flow.id) {
                       <span
                         aecCloseOnEscape
-                        (escapeCancel)="changing.set(null)"
+                        (escapeCancel)="cancelChange(flow)"
                         class="inline-flex flex-wrap items-center gap-2"
                       >
                         <label class="sr-only" [for]="prefix() + '-dir-' + flow.id">{{
@@ -277,6 +322,7 @@ export type OwnedFlowsRow = Pick<
                         <select
                           [id]="prefix() + '-dir-' + flow.id"
                           [class]="input"
+                          [attr.data-testid]="'owned-flow-direction-' + flow.id"
                           (change)="draftChange.set(asDirection($event))"
                         >
                           @for (d of directions; track d) {
@@ -294,6 +340,7 @@ export type OwnedFlowsRow = Pick<
                           variant="ghost"
                           compact
                           [disabled]="busy() !== null"
+                          [attr.data-testid]="'owned-flow-direction-save-' + flow.id"
                           (click)="saveDirection(flow)"
                           i18n="@@vendor.ownedFlows.saveDirection"
                         >
@@ -304,65 +351,29 @@ export type OwnedFlowsRow = Pick<
                           aecButton
                           variant="ghost"
                           compact
-                          (click)="changing.set(null)"
+                          (click)="cancelChange(flow)"
                           i18n="@@vendor.im.add.cancel"
                         >
                           Cancel
                         </button>
                       </span>
                     } @else {
-                      <span class="inline-flex flex-wrap items-center gap-x-3 gap-y-1">
-                        {{ directionText(flow.direction) }}
-                        @if (r.flows_editable) {
-                          <button
-                            type="button"
-                            aecButton
-                            variant="ghost"
-                            compact
-                            [attr.aria-label]="directionLabel(flow)"
-                            [attr.data-testid]="'owned-flow-change-' + flow.id"
-                            (click)="startChange(flow)"
-                            i18n="@@vendor.im.answer.change"
-                          >
-                            Change
-                          </button>
-                        }
-                      </span>
+                      {{ directionText(flow.direction) }}
                     }
                   </td>
-                  <td class="py-2 pe-4">
-                    @if (r.flows_editable) {
-                      <div [class]="segmented" role="group" [attr.aria-label]="answerLabel(flow)">
-                        <button
-                          type="button"
-                          [class]="segment(flow.answer === 'yes')"
-                          [attr.aria-pressed]="flow.answer === 'yes'"
-                          [disabled]="busy() === flow.id"
-                          [attr.data-testid]="'owned-flow-yes-' + flow.id"
-                          (click)="press(flow, true)"
-                        >
-                          <aec-icon name="check" decorative [size]="3.5" />
-                          <span i18n="@@vendor.im.answer.yes">Yes</span>
-                        </button>
-                        <button
-                          type="button"
-                          [class]="segment(flow.answer === 'no')"
-                          [attr.aria-pressed]="flow.answer === 'no'"
-                          [disabled]="busy() === flow.id"
-                          [attr.data-testid]="'owned-flow-no-' + flow.id"
-                          (click)="press(flow, false)"
-                        >
-                          <aec-icon name="x" decorative [size]="3.5" />
-                          <span i18n="@@vendor.im.answer.no">No</span>
-                        </button>
-                      </div>
-                    }
-                    <p
-                      class="m-0 mt-1 text-xs text-(--text-secondary)"
-                      [attr.data-testid]="'owned-flow-public-' + flow.id"
-                    >
-                      {{ publicLine(flow) }}
-                    </p>
+                  <td
+                    class="py-2 pe-4 text-(--text-secondary)"
+                    [attr.data-testid]="'owned-flow-public-' + flow.id"
+                  >
+                    {{ publicLine(flow) }}
+                  </td>
+                  <td class="py-1 text-end">
+                    <aec-row-actions-menu
+                      [label]="actionsLabel(flow)"
+                      [actions]="actionsFor(flow)"
+                      [testId]="'owned-flow-actions-' + flow.id"
+                      (picked)="onPick(flow, $event)"
+                    />
                   </td>
                 </tr>
               }
@@ -371,6 +382,62 @@ export type OwnedFlowsRow = Pick<
         </div>
       }
     </div>
+
+    <aec-owned-flow-history-dialog [row]="r" />
+
+    <brn-dialog [role]="'alertdialog'" [autoFocus]="'first-heading'" #removeDialog="brnDialog">
+      <ng-template brnDialogContent>
+        <div
+          class="aec-dialog max-h-[85vh] w-[min(92vw,32rem)] overflow-y-auto p-6 text-start md:p-8"
+          data-testid="owned-flow-remove-dialog"
+        >
+          <h2
+            brnDialogTitle
+            tabindex="-1"
+            class="rounded-mark focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
+          >
+            {{ removeTitle() }}
+          </h2>
+          <p
+            brnDialogDescription
+            class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
+            i18n="@@vendor.ownedFlows.remove.body"
+          >
+            It leaves this table and the public page. You can add it again with Add a row.
+          </p>
+          @if (removeError(); as message) {
+            <p [class]="alert" class="mt-4" role="alert" data-testid="owned-flow-remove-error">
+              {{ message }}
+            </p>
+          }
+          <div class="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <button
+              aecButton
+              variant="secondary"
+              brnDialogClose
+              type="button"
+              [disabled]="busy() !== null"
+              data-testid="owned-flow-remove-keep"
+              i18n="@@vendor.ownedFlows.remove.keep"
+            >
+              Keep it
+            </button>
+            <button
+              aecButton
+              variant="danger"
+              type="button"
+              [disabled]="busy() !== null"
+              [attr.aria-busy]="busy() !== null ? 'true' : null"
+              data-testid="owned-flow-remove-submit"
+              (click)="confirmRemove()"
+              i18n="@@vendor.ownedFlows.remove.submit"
+            >
+              Yes, remove it
+            </button>
+          </div>
+        </div>
+      </ng-template>
+    </brn-dialog>
   `,
 })
 export class VendorOwnedFlows {
@@ -382,6 +449,14 @@ export class VendorOwnedFlows {
   private readonly api = inject(VendorApi);
   private readonly store = inject(VendorPortalStore);
   private readonly announcer = inject(VendorPortalAnnouncer);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
+
+  /** By ref: `BrnPopover` extends `BrnDialog`, so a type query could find a menu. */
+  private readonly removeDialog = viewChild<BrnDialog>('removeDialog');
+  private readonly historyDialog = viewChild(OwnedFlowHistoryDialog);
+  private readonly addToggle = viewChild<ElementRef<HTMLButtonElement>>('addToggle');
+  private readonly addData = viewChild<ElementRef<HTMLSelectElement>>('addData');
 
   protected readonly directions = DIRECTIONS;
   protected readonly adding = signal(false);
@@ -391,6 +466,9 @@ export class VendorOwnedFlows {
   protected readonly draftDirection = signal<ContextDirection>('outbound');
   protected readonly busy = signal<string | null>(null);
   protected readonly error = signal<string | null>(null);
+  /** The flow the remove dialog asks about. */
+  protected readonly removing = signal<OwnedFlow | null>(null);
+  protected readonly removeError = signal<string | null>(null);
   private readonly dataObjects = signal<readonly DataObjectOption[]>([]);
   protected readonly vocabularyFailed = signal(false);
 
@@ -403,16 +481,16 @@ export class VendorOwnedFlows {
   protected readonly grid = PORTAL_FORM_GRID_CLASS;
   protected readonly saveBar = PORTAL_NESTED_SAVE_BAR_CLASS;
   protected readonly saveButton = PORTAL_SAVE_BUTTON_CLASS;
-  /** The portal's segmented control, as on "Data that's shared" (AECI-1811). */
-  protected readonly segmented = SEGMENTED_CLASS;
-  protected readonly segment = segmentClass;
   protected readonly addFormLabel = $localize`:@@vendor.ownedFlows.addForm:Add a row of data`;
 
   protected readonly prefix = computed(() => `owned-flows-${this.row().id}`);
   protected readonly headingId = computed(() => `${this.prefix()}-heading`);
 
+  /** What is true now: every flow the owner has not removed. */
+  protected readonly shownFlows = computed(() => this.row().flows.filter((f) => f.answer !== 'no'));
+
   protected readonly heading = computed(() => {
-    const n = this.row().flows.length;
+    const n = this.shownFlows().length;
     return $localize`:@@vendor.im.data.heading:Data that's shared (${n}:count:)`;
   });
 
@@ -424,13 +502,43 @@ export class VendorOwnedFlows {
     if (!r.claimed_at) {
       return $localize`:@@vendor.ownedFlows.intro.unclaimed:AEC Integrations listed these. Claim this integration to confirm, change or remove them. Until then AEC Integrations keeps them.`;
     }
-    return $localize`:@@vendor.ownedFlows.intro.claimed.runs:Your company offers and runs this integration, so you confirm what it moves. A Yes shows your company as the confirmer on the public page. A No removes the row from it.`;
+    return $localize`:@@vendor.ownedFlows.intro.claimed.actions:Your company offers and runs this integration, so you confirm what it moves. Each row says what the public page shows. Add a row to list more data. Use a row's Actions to confirm, change or remove it.`;
   });
 
   /** The data type vocabulary, names A to Z. */
   protected readonly dataOptions = computed(() =>
     [...this.dataObjects()].sort((a, b) => compareText(a.name, b.name)),
   );
+
+  /**
+   * Why the add form will not send the picked data type and direction, or `null`.
+   *
+   * - `exact`: that data type is already shown in that direction.
+   * - `other`: it is shown in another direction, and the picked flow is new. A new
+   *   direction of a shown type is Change direction on its row, not a second row.
+   *
+   * A picked flow the owner removed (`answer = 'no'` on this row) is a restore, so it
+   * sends even while another direction of the type is shown. The API's add route
+   * confirms the existing claim (`200`).
+   */
+  protected readonly duplicate = computed<{ flow: OwnedFlow; exact: boolean } | null>(() => {
+    const slug = this.draftData();
+    if (!slug) return null;
+    const direction = this.draftDirection();
+    const shown = this.shownFlows().filter((f) => f.data_object_slug === slug);
+    if (shown.length === 0) return null;
+    const exact = shown.find((f) => f.direction === direction);
+    if (exact) return { flow: exact, exact: true };
+    const restore = this.row().flows.some(
+      (f) => f.data_object_slug === slug && f.direction === direction && f.answer === 'no',
+    );
+    return restore ? null : { flow: shown[0]!, exact: false };
+  });
+
+  protected readonly removeTitle = computed(() => {
+    const data = this.removing()?.data_object_name ?? '';
+    return $localize`:@@vendor.ownedFlows.remove.title:Remove ${data}:data: from the public page?`;
+  });
 
   /** The row's id, the target of "Things that need you" (AECI-2045). */
   protected rowId(flowId: string): string {
@@ -446,20 +554,72 @@ export class VendorOwnedFlows {
     return $localize`:@@vendor.ownedFlows.changeDirection:Change the direction of ${data}:data:`;
   }
 
-  protected answerLabel(flow: OwnedFlow): string {
+  protected actionsLabel(flow: OwnedFlow): string {
     const data = flow.data_object_name;
-    return $localize`:@@vendor.ownedFlows.answerGroup:Is ${data}:data: right?`;
+    return $localize`:@@vendor.ownedFlows.actions:Actions for ${data}:data:`;
   }
 
-  /** What the public pair page shows for the row. */
+  protected duplicateText(dup: { flow: OwnedFlow; exact: boolean }): string {
+    const data = dup.flow.data_object_name;
+    return dup.exact
+      ? $localize`:@@vendor.ownedFlows.add.duplicateExact:${data}:data: is already listed in this direction.`
+      : $localize`:@@vendor.ownedFlows.add.duplicate:${data}:data: is already listed. Use Change direction on its row.`;
+  }
+
+  /** The menu of one row. A row the owner cannot edit offers its history only. */
+  protected actionsFor(flow: OwnedFlow): readonly RowAction[] {
+    const history: RowAction = {
+      id: 'history',
+      label: $localize`:@@vendor.ownedFlows.action.history:View history`,
+    };
+    if (!this.row().flows_editable) return [history];
+    return [
+      ...(flow.answer === null
+        ? [{ id: 'confirm', label: $localize`:@@vendor.ownedFlows.action.confirm:Confirm` }]
+        : []),
+      {
+        id: 'change',
+        label: $localize`:@@vendor.ownedFlows.action.change:Change direction`,
+      },
+      history,
+      {
+        id: 'remove',
+        label: $localize`:@@vendor.ownedFlows.action.remove:Remove row`,
+        destructive: true,
+      },
+    ];
+  }
+
+  /**
+   * What the public pair page shows for a shown row. A Yes is the owner's. Whether
+   * the page shows an unanswered flow at all is the server's `public` (AECI-2213): a
+   * vendor-made flow can be public on a live AECi attestation or an endpoint vendor's
+   * Yes. A public unanswered flow reads what the pair page's badge reads for its
+   * `agreement` (`products/agreement-badge.ts`). The single-source badge names the
+   * vendor, which `OwnedFlow` does not carry, so the cell uses the badge's own
+   * unattributed form. An older API sends `public: null`: the origin rule stands in.
+   */
   protected publicLine(flow: OwnedFlow): string {
-    if (flow.answer === 'no') {
-      return $localize`:@@vendor.ownedFlows.public.removed:Not shown on the public page.`;
+    if (flow.answer === 'yes') {
+      return $localize`:@@vendor.ownedFlows.publicCell.confirmed:Confirmed by your company`;
     }
-    if (flow.agreement === 'owner_confirmed') {
-      return $localize`:@@vendor.ownedFlows.public.confirmed:Public page: Confirmed by your company.`;
+    const shown = flow.public ?? flow.origin !== 'vendor';
+    if (!shown) {
+      return $localize`:@@vendor.ownedFlows.publicCell.hidden:Not shown on the public page`;
     }
-    return $localize`:@@vendor.ownedFlows.public.listed:Public page: Listed by AEC Integrations.`;
+    switch (flow.agreement) {
+      case 'confirmed':
+        return $localize`:@@vendor.ownedFlows.publicCell.bothConfirmed:Confirmed by both companies`;
+      case 'single_source':
+        return $localize`:@@vendor.ownedFlows.publicCell.oneConfirmed:Confirmed by one company`;
+      case 'conflict':
+        return $localize`:@@vendor.ownedFlows.publicCell.conflict:Companies disagree`;
+      case 'owner_confirmed':
+        // Only the owner's Yes gives this state, handled above.
+        return $localize`:@@vendor.ownedFlows.publicCell.confirmed:Confirmed by your company`;
+      default:
+        return $localize`:@@vendor.ownedFlows.publicCell.listed:Listed by AEC Integrations`;
+    }
   }
 
   protected selectValue(event: Event): string {
@@ -476,9 +636,84 @@ export class VendorOwnedFlows {
     if (this.adding()) void this.loadVocabulary();
   }
 
-  protected startChange(flow: OwnedFlow): void {
+  /** A menu item's click. The menu has focused its trigger and closed. */
+  protected onPick(flow: OwnedFlow, picked: string): void {
+    const action = picked as FlowAction;
+    if (action === 'history') {
+      this.historyDialog()?.open(flow.data_object_slug, flow.data_object_name);
+      return;
+    }
+    if (this.busy() !== null) return;
+    if (action === 'confirm') void this.confirm(flow);
+    else if (action === 'change') this.startChange(flow);
+    else if (action === 'remove') this.openRemove(flow);
+  }
+
+  private startChange(flow: OwnedFlow): void {
     this.draftChange.set(flow.direction);
     this.changing.set(flow.id);
+    afterNextRender(() => this.focusTestId(`owned-flow-direction-${flow.id}`), {
+      injector: this.injector,
+    });
+  }
+
+  protected cancelChange(flow: OwnedFlow): void {
+    this.changing.set(null);
+    afterNextRender(() => this.focusMenuOf(flow.data_object_slug, flow.id), {
+      injector: this.injector,
+    });
+  }
+
+  private openRemove(flow: OwnedFlow): void {
+    this.removing.set(flow);
+    this.removeError.set(null);
+    this.removeDialog()?.open();
+  }
+
+  private async confirm(flow: OwnedFlow): Promise<void> {
+    await this.run(flow.id, () => this.api.setOwnerFlowAnswer(flow.id, true));
+    if (this.error()) return;
+    const data = flow.data_object_name;
+    this.announcer.announce(
+      $localize`:@@vendor.ownedFlows.live.confirmed:You confirmed ${data}:data:.`,
+    );
+  }
+
+  /** "Yes, remove it": pessimistic. A failure stays in the dialog. */
+  protected async confirmRemove(): Promise<void> {
+    const flow = this.removing();
+    if (!flow || this.busy() !== null) return;
+    this.removeError.set(null);
+    await this.run(flow.id, () => this.api.setOwnerFlowAnswer(flow.id, false));
+    const failed = this.error();
+    if (failed) {
+      this.error.set(null);
+      this.removeError.set(failed);
+      return;
+    }
+    this.removeDialog()?.close();
+    this.removing.set(null);
+    const data = flow.data_object_name;
+    this.announcer.announce(
+      $localize`:@@vendor.ownedFlows.live.removed:You removed ${data}:data: from the public page.`,
+    );
+    // The row and its menu are gone. Focus lands on Add a row, the way it comes back.
+    afterNextRender(() => this.addToggle()?.nativeElement.focus(), { injector: this.injector });
+  }
+
+  protected async saveDirection(flow: OwnedFlow): Promise<void> {
+    const direction = this.draftChange() ?? flow.direction;
+    await this.run(flow.id, () => this.api.changeOwnerFlow(flow.id, { direction }));
+    if (this.error()) return;
+    this.changing.set(null);
+    const data = flow.data_object_name;
+    this.announcer.announce(
+      $localize`:@@vendor.ownedFlows.live.changed:The direction of ${data}:data: is changed.`,
+    );
+    // A new direction is a new flow with a new id: focus the data type's menu.
+    afterNextRender(() => this.focusMenuOf(flow.data_object_slug, null), {
+      injector: this.injector,
+    });
   }
 
   private async loadVocabulary(): Promise<void> {
@@ -495,35 +730,17 @@ export class VendorOwnedFlows {
     }
   }
 
-  /** Pressing the pressed answer again clears it, as on "Data that's shared". */
-  protected async press(flow: OwnedFlow, yes: boolean): Promise<void> {
-    const pressed = flow.answer === (yes ? 'yes' : 'no');
-    await this.run(flow.id, async () => {
-      if (pressed) await this.api.clearOwnerFlowAnswer(flow.id);
-      else await this.api.setOwnerFlowAnswer(flow.id, yes);
-    });
-    if (this.error()) return;
-    const data = flow.data_object_name;
-    this.announcer.announce(
-      pressed
-        ? $localize`:@@vendor.ownedFlows.live.cleared:Your answer on ${data}:data: is cleared.`
-        : yes
-          ? $localize`:@@vendor.ownedFlows.live.confirmed:You confirmed ${data}:data:.`
-          : $localize`:@@vendor.ownedFlows.live.removed:You removed ${data}:data: from the public page.`,
-    );
-  }
-
-  protected async saveDirection(flow: OwnedFlow): Promise<void> {
-    const direction = this.draftChange() ?? flow.direction;
-    await this.run(flow.id, () => this.api.changeOwnerFlow(flow.id, { direction }));
-    if (!this.error()) this.changing.set(null);
-  }
-
   protected async add(event: Event): Promise<void> {
     if (isReplayedEvent(event)) return;
     event.preventDefault();
     const data = this.draftData() || this.dataOptions()[0]?.slug;
     if (!data) return;
+    // A shown flow, or a new direction of a shown data type, goes through its row. A
+    // removed flow is a restore and sends (see `duplicate`).
+    if (this.duplicate()) {
+      this.addData()?.nativeElement.focus();
+      return;
+    }
     await this.run('add', () =>
       this.api.addOwnerFlow(this.row().id, {
         data_object: data,
@@ -536,6 +753,18 @@ export class VendorOwnedFlows {
         $localize`:@@vendor.ownedFlows.live.added:The row is added and confirmed.`,
       );
     }
+  }
+
+  /** Focus the Actions trigger of a flow: by id, else the data type's first shown row. */
+  private focusMenuOf(slug: string, flowId: string | null): void {
+    const target =
+      (flowId ? this.shownFlows().find((f) => f.id === flowId) : undefined) ??
+      this.shownFlows().find((f) => f.data_object_slug === slug);
+    if (target) this.focusTestId(`owned-flow-actions-${target.id}-trigger`);
+  }
+
+  private focusTestId(testId: string): void {
+    this.host.nativeElement.querySelector<HTMLElement>(`[data-testid="${testId}"]`)?.focus();
   }
 
   /** One write at a time, then a refetch of the owned rows. */

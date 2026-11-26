@@ -23,6 +23,7 @@ import { firstValueFrom } from 'rxjs';
 import type {
   AddOwnerFlowInput,
   ChangeOwnerFlowInput,
+  OwnerFlowHistory,
   OwnerFlowsResponse,
   AcceptLegalVersionRequest,
   AcceptLegalVersionResponse,
@@ -954,10 +955,22 @@ export class VendorApi {
     );
   }
 
-  /** `DELETE /api/vendor/owned-flows/:claimId/answer` — clear the owner's answer. */
+  /** `DELETE /api/vendor/owned-flows/:claimId/answer` — clear the owner's answer.
+   *  No portal caller since AECI-2213; kept for the route's API clients and tests. */
   clearOwnerFlowAnswer(claimId: string): Promise<void> {
     return firstValueFrom(
       this.http.delete<void>(`/api/vendor/owned-flows/${encodeURIComponent(claimId)}/answer`),
+    );
+  }
+
+  /** `GET /api/vendor/owned-integrations/:id/flows/history?data_object=` — one data
+   *  type's history on the row, newest first (AECI-2213). */
+  getOwnerFlowHistory(integrationId: string, dataObject: string): Promise<OwnerFlowHistory> {
+    return firstValueFrom(
+      this.http.get<OwnerFlowHistory>(
+        `/api/vendor/owned-integrations/${encodeURIComponent(integrationId)}/flows/history`,
+        { params: { data_object: dataObject } },
+      ),
     );
   }
 

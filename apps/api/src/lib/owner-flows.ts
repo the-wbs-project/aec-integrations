@@ -36,6 +36,7 @@ import {
   OWNER_ANSWER_SOURCE,
   claimDirectionForContext,
   computeAgreement,
+  isClaimPubliclyBacked,
   isSyncService,
   type AgreementAttestation,
   type ClaimDirection,
@@ -47,6 +48,7 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import {
   attestations,
+  auditLog,
   claimOwnerAnswers,
   claims,
   connectorEvidencedPairs,
@@ -219,11 +221,16 @@ function notOwnerMaintainedError(): ApiError {
  *
  * A seat is the whole remaining gate, on any plan: confirming data flows is a Free
  * capability since AECI-2038, and the owner holds no endpoint product to license.
+ *
+ * `{ read: true }` (AECI-2213, the history read) stops after step 3: an unclaimed or
+ * retired row may read its history. The write routes never pass it, so their refusal
+ * order is unchanged.
  */
 export async function resolveOwnerFlowTarget(
   db: Db,
   vendorId: string,
   id: string,
+  options: { readonly read?: boolean } = {},
 ): Promise<OwnerFlowTarget> {
   const row = await db.query.integrations.findFirst({ where: eq(integrations.id, id) });
   if (row) {
@@ -232,7 +239,7 @@ export async function resolveOwnerFlowTarget(
     const connectorId = row.poweredByProductId;
     if (!isConnectorPoweredEdge(row) || connectorId === null) throw notOwnerMaintainedError();
     if (!(await connectorIsSyncService(db, connectorId))) throw notOwnerMaintainedError();
-    const refusal = claimedAndLiveRefusal(row);
+    const refusal = options.read ? null : claimedAndLiveRefusal(row);
     if (refusal) throw refusal;
     return {
       anchor: 'integration',
@@ -259,7 +266,7 @@ export async function resolveOwnerFlowTarget(
   if (!(await connectorIsSyncService(db, pair.connectorProductId))) {
     throw notOwnerMaintainedError();
   }
-  const refusal = claimedAndLiveRefusal(pair);
+  const refusal = options.read ? null : claimedAndLiveRefusal(pair);
   if (refusal) throw refusal;
   return {
     anchor: 'evidenced_pair',
@@ -343,8 +350,9 @@ export interface OwnedFlowRow {
  * one JSON array through `json_each(?)`, never an `inArray` list: D1 caps bound
  * parameters per query, and an owner's row count has no fixed bound. `direction` is
  * framed against the row's endpoint A, the frame `OwnedIntegration.product_a` uses.
- * `agreement` is what the public pair page shows. A flow the owner removed is listed,
- * so it can be put back.
+ * `agreement` is what the public pair page shows, and `public` is whether it shows the
+ * flow at all (`isClaimPubliclyBacked`, the pair read's rule, AECI-2213). A flow the
+ * owner removed is listed, so it can be put back.
  */
 export async function loadOwnedFlows(
   db: Db,
@@ -404,6 +412,9 @@ export async function loadOwnedFlows(
       agreement: computeAgreement(voted.attestations),
       origin: claim.origin === 'vendor' ? 'vendor' : 'aeci',
       answer: counted === null ? null : counted.asserted ? 'yes' : 'no',
+      // AECI-2213: the pair read's own visibility rule, on the same list with the
+      // owner's vote appended, so the portal cell and the public page cannot disagree.
+      public: isClaimPubliclyBacked(voted),
     });
     out.set(rowId, list);
     orderKey.set(claim.id, claim.dataObject.displayOrder ?? Number.MAX_SAFE_INTEGER);
@@ -430,4 +441,119 @@ export async function liveOwnerAnswerId(db: Db, claimId: string): Promise<string
     where: and(eq(claimOwnerAnswers.claimId, claimId), isNull(claimOwnerAnswers.retractedAt)),
   });
   return row?.id ?? null;
+}
+
+// ─── The history of one data type (AECI-2213) ────────────────────────────────
+
+/** A claim as the history read loads it. */
+export interface OwnerFlowHistoryClaim {
+  readonly id: string;
+  readonly direction: ClaimDirection;
+  readonly origin: string;
+  readonly createdByVendorId: string | null;
+  readonly createdAt: string;
+  /**
+   * Promote turned this AECi seed into a vendor row (`claim.converted`,
+   * `promote-claims.ts` rule 4). `origin` is `'vendor'` now, but AECi listed it, so
+   * the history reads its creation as `listed`. From the audit log, the durable record.
+   */
+  readonly converted: boolean;
+}
+
+/**
+ * Who withdrew a retracted answer, from its `claim_owner_answer.retracted` audit row.
+ * `vendorId` is the writing vendor (`commit()`'s `meta.vendorId`), not the answer's.
+ */
+export interface OwnerFlowHistoryRetractor {
+  readonly vendorId: string | null;
+  readonly actorType: string;
+}
+
+/** An owner answer as the history read loads it, retracted ones included. */
+export interface OwnerFlowHistoryAnswer {
+  readonly id: string;
+  readonly claimId: string;
+  readonly vendorId: string | null;
+  readonly asserted: boolean;
+  readonly createdAt: string;
+  readonly retractedAt: string | null;
+  /** Set only on a retracted answer whose retraction audit row was found. */
+  readonly retractedBy?: OwnerFlowHistoryRetractor | null;
+}
+
+/** The writing vendor an owner flow audit row names in its metadata, or `null`. */
+function metadataVendorId(metadata: unknown): string | null {
+  if (metadata === null || typeof metadata !== 'object') return null;
+  const value = (metadata as { vendorId?: unknown }).vendorId;
+  return typeof value === 'string' ? value : null;
+}
+
+/**
+ * Every claim on the row for one data object, every direction, and every owner answer
+ * on them, retracted ones included. {@link ownerAnswersRelationConfig} loads live
+ * answers only, so this reads `claim_owner_answers` directly. Three indexed reads:
+ * `claims_identity_key` by anchor and data object, `claim_owner_answers_claim_idx`, then
+ * `audit_log_entity_idx` for the two facts the rows themselves do not keep: which
+ * claims promote converted to vendor origin (`claim.converted`), and who retracted
+ * each withdrawn answer (`claim_owner_answer.retracted`). The audit read is one query
+ * over both entity types.
+ */
+export async function loadOwnerFlowHistoryRows(
+  db: Db,
+  anchorId: string,
+  dataObjectId: string,
+): Promise<{ claims: OwnerFlowHistoryClaim[]; answers: OwnerFlowHistoryAnswer[] }> {
+  const rows = await db.query.claims.findMany({
+    columns: { id: true, direction: true, origin: true, createdByVendorId: true, createdAt: true },
+    where: and(eq(claims.anchorId, anchorId), eq(claims.dataObjectId, dataObjectId)),
+  });
+  if (rows.length === 0) return { claims: [], answers: [] };
+  const ids = rows.map((r) => r.id);
+  const answers = await db.query.claimOwnerAnswers.findMany({
+    columns: {
+      id: true,
+      claimId: true,
+      vendorId: true,
+      asserted: true,
+      createdAt: true,
+      retractedAt: true,
+    },
+    where: sql`${claimOwnerAnswers.claimId} IN (SELECT value FROM json_each(${JSON.stringify(ids)}))`,
+  });
+  const retractedIds = answers.filter((a) => a.retractedAt !== null).map((a) => a.id);
+  const audits = await db
+    .select({
+      action: auditLog.action,
+      entityId: auditLog.entityId,
+      actorType: auditLog.actorType,
+      metadata: auditLog.metadata,
+    })
+    .from(auditLog)
+    .where(
+      sql`(${auditLog.entityType} = 'claim' AND ${auditLog.action} = 'claim.converted' AND ${auditLog.entityId} IN (SELECT value FROM json_each(${JSON.stringify(ids)})))
+        OR (${auditLog.entityType} = 'claim_owner_answer' AND ${auditLog.action} = 'claim_owner_answer.retracted' AND ${auditLog.entityId} IN (SELECT value FROM json_each(${JSON.stringify(retractedIds)})))`,
+    );
+  const converted = new Set<string>();
+  const retractors = new Map<string, OwnerFlowHistoryRetractor>();
+  for (const row of audits) {
+    if (row.entityId === null) continue;
+    if (row.action === 'claim.converted') converted.add(row.entityId);
+    else {
+      // An answer is retracted once, so there is one row. Keep the first seen.
+      if (!retractors.has(row.entityId)) {
+        retractors.set(row.entityId, {
+          vendorId: metadataVendorId(row.metadata),
+          actorType: row.actorType,
+        });
+      }
+    }
+  }
+  return {
+    claims: rows.map((r) => ({
+      ...r,
+      direction: r.direction as ClaimDirection,
+      converted: converted.has(r.id),
+    })),
+    answers: answers.map((a) => ({ ...a, retractedBy: retractors.get(a.id) ?? null })),
+  };
 }

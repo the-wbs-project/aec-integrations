@@ -528,6 +528,7 @@ describe('read-only rows', () => {
             agreement: 'unverified' as const,
             origin: 'aeci' as const,
             answer: null,
+            public: true,
           },
         ],
       },
@@ -537,7 +538,10 @@ describe('read-only rows', () => {
       const api = makeApi([owned]);
       await setup(api, owned);
       const fixture = await mount(IntegrationSharedData, owned);
-      expect(el(fixture).querySelector(testid(`owned-flow-yes-${flowId}`))).not.toBeNull();
+      expect(
+        el(fixture).querySelector(testid(`owned-flow-actions-${flowId}-trigger`)),
+      ).not.toBeNull();
+      expect(el(fixture).querySelector(testid(`owned-flow-yes-${flowId}`))).toBeNull();
       expect(el(fixture).querySelector(testid('owned-flow-add-toggle'))).not.toBeNull();
       expect(text(fixture)).not.toContain('Not needed');
       expect(el(fixture).querySelector(testid('connector-note'))).toBeNull();
@@ -547,12 +551,16 @@ describe('read-only rows', () => {
       expect(region?.getAttribute('aria-labelledby')).toBe('data-shared-heading');
     });
 
-    it('answers through the owner route', async () => {
+    it('confirms through the owner route, from the row Actions menu (AECI-2213)', async () => {
       const api = makeApi([owned]);
       await setup(api, owned);
       const fixture = await mount(IntegrationSharedData, owned);
       el(fixture)
-        .querySelector<HTMLButtonElement>(testid(`owned-flow-yes-${flowId}`))!
+        .querySelector<HTMLButtonElement>(testid(`owned-flow-actions-${flowId}-trigger`))!
+        .click();
+      await settle(fixture);
+      document
+        .querySelector<HTMLButtonElement>(testid(`owned-flow-actions-${flowId}-confirm`))!
         .click();
       await settle(fixture);
       expect(api.setOwnerFlowAnswer).toHaveBeenCalledWith(flowId, true);

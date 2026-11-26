@@ -369,6 +369,7 @@ import {
   createAddOwnerFlowHandler,
   createChangeOwnerFlowHandler,
   createClearOwnerFlowAnswerHandler,
+  createOwnerFlowHistoryHandler,
   createSetOwnerFlowAnswerHandler,
 } from './routes/vendor-owner-flows';
 import {
@@ -2030,6 +2031,14 @@ authVendor.patch(
   requireVendor(),
   rateLimit('write'),
   createChangeOwnerFlowHandler(),
+);
+// AECI-2213: one data type's history on an owned row. A READ, so no `rateLimit`
+// (reads are never rate-limited, ADR 0026). The gate runs with `{ read: true }`: owner
+// → Sync Service, and an unclaimed or retired row may read its history.
+authVendor.get(
+  '/api/vendor/owned-integrations/:id/flows/history',
+  requireVendor(),
+  createOwnerFlowHistoryHandler(),
 );
 // AECI-1006 / ADR 0035: the claimed owner edits the integration's standard fields
 // (the eleven contestable content fields), on an `integrations` row or, since
