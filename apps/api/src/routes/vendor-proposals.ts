@@ -122,7 +122,30 @@ function parsePayload(proposalId: string, raw: unknown): StoredPayload {
   if (!parsed.success) {
     throw new Error(`product_proposals ${proposalId} holds an unreadable payload`);
   }
-  return parsed.data;
+  return { ...parsed.data, product: withBlankTextAsNull(parsed.data.product) };
+}
+
+/** The free-text and URL fields an accept publishes through `productEditableData`. */
+const PREVIEWED_TEXT_FIELDS = [
+  'description',
+  'website',
+  'toolIntegrationsUrl',
+  'apiDocsUrl',
+  'logoUrl',
+] as const;
+
+/**
+ * AECI-2212: a whitespace-only value becomes `null`, so the preview and the accept read
+ * the same product. Both go through {@link parsePayload}, so the owner never accepts a
+ * link the card had no row for. Any other value is kept exactly as sent.
+ */
+function withBlankTextAsNull(product: PromoteProduct): PromoteProduct {
+  const out: PromoteProduct = { ...product };
+  for (const field of PREVIEWED_TEXT_FIELDS) {
+    const value = out[field];
+    if (typeof value === 'string' && value.trim() === '') out[field] = null;
+  }
+  return out;
 }
 
 function proposalIdParam(c: VendorContext): string {
@@ -192,6 +215,10 @@ async function loadHosts(db: Db, ids: readonly string[]): Promise<StoredTerm[]> 
   );
 }
 
+/**
+ * The retired 400-character excerpt. Kept for one deploy so a browser tab still running the
+ * previous web bundle shows a description (AECI-2212). Remove it under AECI-2223.
+ */
 function excerpt(text: string | null | undefined): string | null {
   const trimmed = text?.trim();
   if (!trimmed) return null;
@@ -251,10 +278,14 @@ export function createListVendorProposalsHandler(
         proposed_at: proposedAt,
         product: {
           name: parsed.product.name,
+          // AECI-2198 and AECI-2212: the previewed text fields as the accept stores them.
+          description: parsed.product.description ?? null,
           description_excerpt: excerpt(parsed.product.description),
-          // AECI-2198: whole, because an accept publishes it.
           summary: parsed.product.summary ?? null,
           website: parsed.product.website ?? null,
+          tool_integrations_url: parsed.product.toolIntegrationsUrl ?? null,
+          api_docs_url: parsed.product.apiDocsUrl ?? null,
+          logo_url: parsed.product.logoUrl ?? null,
           product_role: parsed.product.productRole,
         },
         vendors: parsed.vendors.map((v) => ({

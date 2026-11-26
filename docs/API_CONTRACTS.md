@@ -9947,9 +9947,13 @@ export const VendorProposalSchema = z.object({
   proposed_at: z.string(),
   product: z.object({
     name: z.string(),
-    description_excerpt: z.string().nullable(),  // first 400 characters
+    description: z.string().nullable(),          // AECI-2212: whole, an accept publishes it
+    description_excerpt: z.string().nullable(),  // deprecated: first 400 characters, removed by AECI-2223
     summary: z.string().nullable(),              // AECI-2198: whole, an accept publishes it
     website: z.string().nullable(),
+    tool_integrations_url: z.string().nullable(), // AECI-2212: as the accept stores it
+    api_docs_url: z.string().nullable(),         // AECI-2212: as the accept stores it
+    logo_url: z.string().nullable(),             // AECI-2212: as the accept stores it
     product_role: z.string(),
   }),
   vendors: z.array(z.object({                   // every vendor the payload names, in order
@@ -9970,6 +9974,8 @@ export const AcceptVendorProposalResponseSchema = z.object({
   dropped: z.array(z.object({ facet: /* as above */, value: z.string() })),
 });
 ```
+
+**The previewed text fields (AECI-2212).** The list and the accept read the payload through one parse. It turns a whitespace-only `description`, `website`, `toolIntegrationsUrl`, `apiDocsUrl` or `logoUrl` into `null` and keeps each of those fields otherwise as sent. The card shows those fields and the normalized summary; accept also stores other product metadata through `productEditableData`. `description_excerpt` stays for one deploy, because the API ships before the web Worker and an open tab keeps the old bundle. The card reads `description` and falls back to the excerpt. AECI-2223 removes it.
 
 **Terms are resolved find-only (ruling Q6).** Categories, audiences and phases match a stored
 term by slug, then by `slugify(name)`, as promote matches them. Trades add the alias pass. A

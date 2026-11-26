@@ -1337,8 +1337,9 @@ keyed per proposal per owner, so a replay sends nothing twice. The rules:
 - **What happens next (AECI-1417).** An owner seat sees the proposal on the portal's
   "Proposed products" tab (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.22) and accepts or declines it.
   **Accept** creates exactly the product you sent, linked to every vendor the payload named,
-  with no editing (ruling B). The owner's card shows your `summary` in full before the accept
-  (AECI-2198). Its taxonomy is matched find-only against the terms that exist
+  with no editing (ruling B). The owner's card shows these fields before the accept: the whole
+  `description`, the `summary` (AECI-2198), `website`, `toolIntegrationsUrl`, `apiDocsUrl` and
+  `logoUrl` (AECI-2212). A whitespace-only value among them is stored as `null` on accept. Its taxonomy is matched find-only against the terms that exist
   at accept time: a category, audience, phase, trade, usefulness group or extension host that
   names nothing is dropped and listed to the owner, and no term is ever created (ruling Q6).
   So send terms that exist if you want them kept. The product is then vendor-owned and

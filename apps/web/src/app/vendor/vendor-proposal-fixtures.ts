@@ -15,10 +15,15 @@ export const VENDOR_PROPOSALS_FIXTURE: readonly VendorProposal[] = [
     proposed_at: '2026-10-17T09:30:00.000Z',
     product: {
       name: 'Summit Clash Review',
+      description:
+        'Runs clash detection on federated models and routes each clash to the trade that owns it.\n\nEach clash keeps its model views,\nits markup and its history, so the trade that owns it can close it without a meeting.',
       description_excerpt:
-        'Runs clash detection on federated models and routes each clash to the trade that owns it.',
+        'Runs clash detection on federated models and routes each clash to the trade that owns it.\n\nEach clash keeps its model views,\nits markup and its history, so the trade that owns it can close it without a meeting.',
       summary: 'Clash detection on federated models, routed to the trade that owns each clash.',
       website: 'https://summitbim.example/clash-review',
+      tool_integrations_url: 'https://summitbim.example/clash-review/integrations',
+      api_docs_url: 'https://developer.summitbim.example/clash-review',
+      logo_url: 'https://summitbim.example/brand/clash-review.png',
       product_role: 'application',
     },
     vendors: [
@@ -53,9 +58,13 @@ export const VENDOR_PROPOSALS_FIXTURE: readonly VendorProposal[] = [
     proposed_at: '2026-10-18T14:05:00.000Z',
     product: {
       name: 'Summit Field Capture',
+      description: null,
       description_excerpt: null,
       summary: null,
       website: null,
+      tool_integrations_url: null,
+      api_docs_url: null,
+      logo_url: null,
       product_role: 'application',
     },
     vendors: [
