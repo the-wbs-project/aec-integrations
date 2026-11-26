@@ -122,7 +122,7 @@ for (const lane of LANES) {
   });
 }
 
-test('the cross-browser matrix lists each browser\'s shards 1..N, and its name and run say /N', () => {
+test("the cross-browser matrix lists each browser's shards 1..N, and its name and run say /N", () => {
   const body = job('cross-browser');
   const entries = [...body.matchAll(/- \{ browser: ([a-z]+), shard: (\d+), of: (\d+) \}/g)].map(
     (m) => ({ browser: m[1], shard: Number(m[2]), of: Number(m[3]) }),
@@ -135,7 +135,11 @@ test('the cross-browser matrix lists each browser\'s shards 1..N, and its name a
     })),
   );
   assert.deepEqual(entries, want);
-  assert.equal(browserShards('webkit'), 6, 'WebKit runs six shards on Linux (first run, 2026-11-26)');
+  assert.equal(
+    browserShards('webkit'),
+    6,
+    'WebKit runs six shards on Linux (first run, 2026-11-26)',
+  );
   assert.match(
     body,
     /name: Accessibility nightly, \$\{\{ matrix\.browser \}\} \(shard \$\{\{ matrix\.shard \}\}\/\$\{\{ matrix\.of \}\}\)/,
