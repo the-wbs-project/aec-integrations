@@ -636,7 +636,7 @@ The value hide computes the two value deadlines from the received date: "Hide by
 1. **Record the request.** Note the date AECi received it and the link to the public source. A `complaint_under_review` hide is refused without a source link.
 2. **Open the company** at `/admin/vendors/:id`.
    - A whole company: the Vendor tab, "Listing visibility", **Hide from the public site**.
-   - One product: the Products tab, **Hide** on the product's row.
+   - One product: the Products tab, open the row's **Actions** menu and choose **Hide from public site**.
 3. **Fill in the form.** Pick the kind from the table above. Enter the received date and the source link. Write the reason for the vendor to read. Put anything else in the internal note, which no vendor sees.
 4. **Confirm.** For a company, the confirm step lists every product that will also be hidden. That includes a product shared with another company that stays live (ruled 2026-11-09).
 5. **Check the result.** The company, product and pair pages answer 404 once the queued purge runs. The records leave Algolia through a sync that runs right after the save.
@@ -646,9 +646,9 @@ The value hide computes the two value deadlines from the received date: "Hide by
 
 1. **Open the company** at `/admin/vendors/:id`.
    - A hidden company: "Listing visibility", **Restore the listing**. The confirm step lists the products that come back with it.
-   - A product hidden on its own: the Products tab, **Restore** on its row.
+   - A product hidden on its own: the Products tab, open the row's **Actions** menu and choose **Restore to public site**.
 2. **Write the reason** for the vendor to read, and confirm. The pages return once the purge runs. The edge caches a 404 for up to 60 seconds, so a page can lag by that much.
-3. **A product hidden with its company** has a disabled Restore. Restore the company instead. The API answers `409 LISTING_HIDDEN_WITH_VENDOR` for the same case.
+3. **A product hidden with its company** has no Restore action; its menu explains why. Restore the company instead. The API answers `409 LISTING_HIDDEN_WITH_VENDOR` for the same case.
 4. **A product joined to two hidden companies** stays hidden when you restore one of them. It moves under the other company's hide.
 
 ### When something looks wrong

@@ -82,7 +82,6 @@ async function settle(f: ComponentFixture<unknown>): Promise<void> {
 async function setup() {
   const fixture = TestBed.createComponent(DeliveredPairsPanel);
   fixture.componentRef.setInput('productId', PRODUCT_ID);
-  fixture.componentRef.setInput('productName', 'Rivets Sync');
   const announce = vi.fn();
   fixture.componentInstance.announce.subscribe(announce);
   await settle(fixture);
@@ -101,9 +100,8 @@ function openForm(row: HTMLElement): void {
 
 describe('DeliveredPairsPanel', () => {
   it('lists every pair with owner, claim and retired state', async () => {
-    const { el, row } = await setup();
+    const { row } = await setup();
     expect(api.getDeliveredPairs).toHaveBeenCalledWith(PRODUCT_ID);
-    expect(el.querySelector('h3')?.textContent).toContain('Pairs Rivets Sync delivers');
     const claimed = row(CLAIMED.id).textContent ?? '';
     expect(claimed).toContain('Procore and Acumatica');
     expect(claimed).toContain('Owner: Rivets');

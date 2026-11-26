@@ -46,15 +46,23 @@ async function setup(kind: 'integration_platform' | 'sync_service' | null = null
   const select = fixture.debugElement.query(By.directive(AecSelect)).componentInstance as AecSelect;
   const saveButton = () =>
     [...el.querySelectorAll('button')].find((b) =>
-      ['Save kind', 'Saving…'].includes(b.textContent?.trim() ?? ''),
+      ['Save type', 'Saving…'].includes(b.textContent?.trim() ?? ''),
     )!;
   return { fixture, el, select, saveButton, saved, announce };
 }
 
 describe('ConnectorKindControl', () => {
+  it('asks the host to close its dialog on Cancel (AECI-2202)', async () => {
+    const ctx = await setup();
+    const cancelled = vi.fn();
+    ctx.fixture.componentInstance.cancelled.subscribe(cancelled);
+    [...ctx.el.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Cancel')!.click();
+    expect(cancelled).toHaveBeenCalledTimes(1);
+  });
+
   it('labels the stored kind and keeps Save off until the pick changes', async () => {
     const { el, saveButton } = await setup('sync_service');
-    expect(el.textContent).toContain('Connector kind');
+    expect(el.textContent).toContain('Connector type');
     expect(el.textContent).toContain('Sync Service');
     expect(saveButton().disabled).toBe(true);
   });
@@ -73,7 +81,7 @@ describe('ConnectorKindControl', () => {
     await fixture.whenStable();
     expect(api.setConnectorKind).toHaveBeenCalledWith(PRODUCT_ID, 'sync_service');
     expect(saved).toHaveBeenCalledWith('sync_service');
-    expect(announce).toHaveBeenCalledWith('Connector kind for Rivets Sync saved: Sync Service.');
+    expect(announce).toHaveBeenCalledWith('Connector type for Rivets Sync saved: Sync Service.');
   });
 
   it('clears the kind with null', async () => {

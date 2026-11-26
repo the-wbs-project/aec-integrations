@@ -39,6 +39,7 @@ const ROUTES = [
   '/preview/admin-seo',
   '/preview/admin-vendor-billing',
   '/preview/admin-vendor-integrations',
+  '/preview/admin-vendor-products',
 ];
 
 const WIDTHS = [

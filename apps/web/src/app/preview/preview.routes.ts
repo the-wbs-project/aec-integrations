@@ -184,6 +184,16 @@ export const previewRoutes: Routes = [
         (m) => m.AdminVendorIntegrationsPreview,
       ),
   },
+  // AECI-2202: the Products tab of `/admin/vendors/:id` over a fake API, so the row
+  // Actions menu and each dialog it opens render without a session.
+  {
+    path: 'admin-vendor-products',
+    providers: [provideAdminChipTones()],
+    loadComponent: () =>
+      import('./admin-vendor-products/admin-vendor-products-preview').then(
+        (m) => m.AdminVendorProductsPreview,
+      ),
+  },
   // AECI-1615: the Billing tab of `/admin/vendors/:id` over a fake API, so the Grants
   // section, the Withdraw action and the signed-deal form render without a session.
   {
