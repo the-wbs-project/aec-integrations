@@ -58,11 +58,22 @@ async function setup(facts: SyncFacts = EMPTY) {
     input(key).dispatchEvent(new Event('input'));
     fixture.detectChanges();
   };
-  const saveButton = () => el.querySelector<HTMLButtonElement>('button')!;
+  const saveButton = () =>
+    [...el.querySelectorAll<HTMLButtonElement>('button')].find((b) =>
+      ['Save facts', 'Saving…'].includes(b.textContent?.trim() ?? ''),
+    )!;
   return { fixture, el, input, type, saveButton, saved, announce };
 }
 
 describe('SyncFactsControl', () => {
+  it('asks the host to close its dialog on Cancel (AECI-2202)', async () => {
+    const ctx = await setup();
+    const cancelled = vi.fn();
+    ctx.fixture.componentInstance.cancelled.subscribe(cancelled);
+    [...ctx.el.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Cancel')!.click();
+    expect(cancelled).toHaveBeenCalledTimes(1);
+  });
+
   it('labels each input, shows the stored values and keeps Save off until one changes', async () => {
     const { el, input, saveButton } = await setup({
       ...EMPTY,

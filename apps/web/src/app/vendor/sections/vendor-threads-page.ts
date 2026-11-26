@@ -73,7 +73,7 @@ export const VENDOR_THREADS_PAGE_SIZE = 25;
       </section>
     } @else {
       <section aria-labelledby="vendor-threads-heading" data-vendor-threads>
-        <div class="max-w-[52ch] space-y-2">
+        <div class="space-y-2">
           <h2 id="vendor-threads-heading" class="m-0">
             <!-- The global h2 rule sizes it, as on the integration page (AECI-1811). -->
             <span class="block text-(--text-primary)" i18n="@@vendor.threads.heading"

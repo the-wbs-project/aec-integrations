@@ -715,14 +715,20 @@ describe('VendorDetail', () => {
       expect(el.textContent).toContain('Revit');
     });
 
-    it('opens the public product page in a new tab, and says so', async () => {
-      const { el } = await setupProducts(makeApiMock(makeVendor(), [], [makeProductRow()]));
-      const link = [...el.querySelectorAll('a')].find(
-        (a) => a.getAttribute('href') === '/products/revit',
+    it('opens the public product page in a new tab from the row menu, and says so', async () => {
+      const { el, fixture } = await setupProducts(
+        makeApiMock(makeVendor(), [], [makeProductRow()]),
       );
+      (el.querySelector('[data-testid="product-actions-trigger"]') as HTMLButtonElement).click();
+      await settle();
+      fixture.detectChanges();
+      const link = document.querySelector(
+        '[data-testid="product-action-view"]',
+      ) as HTMLAnchorElement | null;
+      expect(link?.getAttribute('href')).toBe('/products/revit');
       expect(link?.getAttribute('target')).toBe('_blank');
       expect(link?.getAttribute('rel')).toBe('noopener');
-      expect(el.textContent).toContain('opens in a new tab');
+      expect(link?.textContent).toContain('opens in a new tab');
     });
   });
 

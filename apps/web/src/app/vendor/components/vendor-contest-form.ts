@@ -185,7 +185,7 @@ interface SelectOption {
           [attr.aria-labelledby]="fieldId('title')"
           data-testid="contest-form"
         >
-          <div class="max-w-prose space-y-1">
+          <div class="space-y-1">
             <p
               [id]="fieldId('title')"
               class="text-t-14 font-semibold text-(--text-primary)"

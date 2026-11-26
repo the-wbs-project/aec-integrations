@@ -127,7 +127,7 @@ import { VendorRemovalElection } from './vendor-removal-election';
         <aec-vendor-plan-badge [plan]="plan()" />
       </div>
 
-      <p class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-primary)">{{ lede() }}</p>
+      <p class="mt-3 text-sm leading-relaxed text-(--text-primary)">{{ lede() }}</p>
 
       @switch (state()) {
         @case ('unavailable') {

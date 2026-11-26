@@ -690,6 +690,13 @@ export class VendorDetail {
     void this.loadProducts();
   }
 
+  /** AECI-2202: a logo, connector type or facts save from a row's Actions dialog. A
+   *  quiet refetch keeps the table on screen, so focus goes back to that row's Actions. */
+  protected onProductEdited(): void {
+    void this.loadAudit();
+    void this.loadProducts(true);
+  }
+
   protected retryProducts(): void {
     void this.loadProducts();
   }

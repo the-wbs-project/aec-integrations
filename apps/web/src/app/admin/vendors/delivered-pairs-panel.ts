@@ -28,7 +28,8 @@ const NO_OWNER = '__none__';
 
 /**
  * The pairs one connector product delivers, on the Products tab of `/admin/vendors/:id`
- * (AECI-2045, `ADMIN_PANEL_SPEC.md` §5.7). Both tables, live and retired, with the
+ * (AECI-2045, `ADMIN_PANEL_SPEC.md` §5.7). Since AECI-2202 it renders inside the row's
+ * "Integrations through this connector…" dialog, whose title and intro name the list. Both tables, live and retired, with the
  * owner and the claim state, from `GET /api/admin/products/:id/delivered-pairs`. It
  * needs no catalogue row, unlike `/admin/connectors`.
  *
@@ -44,11 +45,8 @@ const NO_OWNER = '__none__';
   selector: 'aec-delivered-pairs-panel',
   imports: [AecButton],
   template: `
-    <section [attr.aria-labelledby]="headingId()" class="space-y-3">
-      <!-- The global h3 rule sets its type, so it carries no type utility (AECI-2083). -->
-      <h3 [id]="headingId()">
-        {{ heading() }}
-      </h3>
+    <!-- AECI-2202: the host dialog's title names the list, so the panel has no heading. -->
+    <div class="space-y-3">
       @switch (state()) {
         @case ('loading') {
           <p class="text-sm text-(--text-secondary)" i18n="@@admin.deliveredPairs.loading">
@@ -197,7 +195,7 @@ const NO_OWNER = '__none__';
           }
         }
       }
-    </section>
+    </div>
   `,
 })
 export class DeliveredPairsPanel implements OnInit {
@@ -205,8 +203,10 @@ export class DeliveredPairsPanel implements OnInit {
   private readonly injector = inject(Injector);
 
   readonly productId = input.required<string>();
-  readonly productName = input.required<string>();
   readonly announce = output<string>();
+  /** AECI-2202: a write is in flight. The host dialog will not close until it settles,
+   *  so the write's result is never emitted from a destroyed component. */
+  readonly busyChange = output<boolean>();
 
   private readonly reasonFields = viewChildren<ElementRef<HTMLTextAreaElement>>('reasonField');
   private readonly changeTriggers = viewChildren<ElementRef<HTMLButtonElement>>('changeTrigger');
@@ -220,12 +220,6 @@ export class DeliveredPairsPanel implements OnInit {
   protected readonly saving = signal(false);
   protected readonly formError = signal<string | null>(null);
   protected readonly noOwner = NO_OWNER;
-
-  protected readonly headingId = computed(() => `delivered-pairs-heading-${this.productId()}`);
-  protected readonly heading = computed(() => {
-    const name = this.productName();
-    return $localize`:@@admin.deliveredPairs.heading:Pairs ${name}:PRODUCT: delivers`;
-  });
 
   ngOnInit(): void {
     void this.load();
@@ -338,6 +332,7 @@ export class DeliveredPairsPanel implements OnInit {
     }
     const picked = this.pickedOwner();
     this.saving.set(true);
+    this.busyChange.emit(true);
     this.formError.set(null);
     try {
       const result = await this.api.setIntegrationOwner(pair.id, {
@@ -375,6 +370,7 @@ export class DeliveredPairsPanel implements OnInit {
       }
     } finally {
       this.saving.set(false);
+      this.busyChange.emit(false);
     }
   }
 

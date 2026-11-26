@@ -141,7 +141,7 @@ export function ownedRowsInScope(
             </h2>
             @if (onSyncService()) {
               <p
-                class="max-w-[30rem] text-sm text-(--text-secondary)"
+                class="text-sm text-(--text-secondary)"
                 i18n="@@vendor.ownedIntegrations.intro.syncService"
               >
                 Your company is recorded as the owner of these integrations. They are listed here,
@@ -149,10 +149,7 @@ export function ownedRowsInScope(
                 they connect products your company does not make.
               </p>
             } @else {
-              <p
-                class="max-w-[30rem] text-sm text-(--text-secondary)"
-                i18n="@@vendor.ownedIntegrations.intro"
-              >
+              <p class="text-sm text-(--text-secondary)" i18n="@@vendor.ownedIntegrations.intro">
                 Your company is recorded as the owner of these integrations. They are listed here,
                 rather than with the integrations above, because they are delivered through a
                 connector or connect products your company does not make.

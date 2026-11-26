@@ -64,7 +64,7 @@ const NO_LINES: readonly FollowUpLine[] = [];
   template: `
     <section aria-labelledby="vendor-history-heading" data-vendor-history>
       <div class="flex flex-wrap items-start justify-between gap-4">
-        <div class="max-w-[52ch] space-y-2">
+        <div class="space-y-2">
           <!-- AECI-1812: the h2 at the global size, as on every portal section. -->
           <h2 id="vendor-history-heading">
             <span i18n="@@vendor.history.heading">Changes</span>

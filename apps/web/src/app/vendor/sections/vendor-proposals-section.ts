@@ -91,7 +91,7 @@ function facetNoun(facet: ProposalTermFacet): string {
     </h2>
     @if (!isOwner()) {
       <p
-        class="mt-2 max-w-[32rem] text-t-14 leading-[1.6] text-pretty text-(--text-secondary)"
+        class="mt-2 text-t-14 leading-[1.6] text-pretty text-(--text-secondary)"
         data-testid="proposals-owners-only"
         i18n="@@vendor.proposals.ownersOnly"
       >
@@ -100,7 +100,7 @@ function facetNoun(facet: ProposalTermFacet): string {
       </p>
     } @else {
       <p
-        class="mt-2 max-w-[32rem] text-t-14 leading-[1.6] text-pretty text-(--text-secondary)"
+        class="mt-2 text-t-14 leading-[1.6] text-pretty text-(--text-secondary)"
         i18n="@@vendor.proposals.intro"
       >
         Your company owns its listing, so AEC Integrations does not add products to it. When we find

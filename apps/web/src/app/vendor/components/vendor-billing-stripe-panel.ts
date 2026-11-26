@@ -364,7 +364,7 @@ function parseQuantity(text: string): number | null {
           Pay by card
         </h3>
         <p
-          class="mt-2 max-w-[32rem] text-t-14 leading-[1.6] text-(--text-secondary)"
+          class="mt-2 text-t-14 leading-[1.6] text-(--text-secondary)"
           i18n="@@vendor.billing.stripe.buy.intro"
         >
           If you want subscriptions of your own, you can pay for them by card through Stripe. Each
