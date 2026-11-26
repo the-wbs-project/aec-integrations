@@ -33,7 +33,11 @@ export interface TrafficClass {
 /** Named crawlers, matched against the User-Agent (first hit wins). Ordered by
  *  specificity so a UA carrying several tokens gets the most useful label. */
 const NAMED_BOTS: ReadonlyArray<readonly [RegExp, string]> = [
-  [/googlebot|google-inspectiontool|storebot-google|google-extended|apis-google/i, 'Googlebot'],
+  // Before Googlebot (AECI-2061): Search Console's URL Inspection and the Rich Results Test
+  // send this on demand. It is a live test, not a crawl, so the §5.24.4 crawl predicate
+  // (`bot_name = 'Googlebot'`) must not count it.
+  [/google-inspectiontool/i, 'Google-InspectionTool'],
+  [/googlebot|storebot-google|google-extended|apis-google/i, 'Googlebot'],
   [/bingbot|bingpreview|adidxbot|msnbot/i, 'Bingbot'],
   [/applebot/i, 'Applebot'],
   [/duckduckbot|duckduckgo/i, 'DuckDuckBot'],

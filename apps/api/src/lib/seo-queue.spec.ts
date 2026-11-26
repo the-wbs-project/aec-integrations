@@ -29,14 +29,19 @@ import { type TestDb, makeTestDb } from '../test/d1';
 import {
   CONCRETE_PATH_SINCE,
   EDGE_VERIFIED_SINCE,
+  INSPECTION_TOOL_SPLIT_SINCE,
   compareLaneEntries,
   computeSeoLanes,
   crawlNotes,
   crawlWindow,
+  queueReachesUnsplit,
+  reachesUnsplitLabel,
   readCohortFetches,
   readReindexLane,
   readSelfReportedRequestsByDay,
   toCrawlAdminWindow,
+  trendReachesUnsplit,
+  type SeoLaneEntry,
 } from './seo-queue';
 
 const NOW = new Date('2026-11-24T12:00:00.000Z');
@@ -81,6 +86,7 @@ describe('crawlWindow', () => {
       to: NOW.toISOString(),
       clamped: false,
       reachesUnverified: false,
+      reachesUnsplit: true,
     });
     expect(toCrawlAdminWindow(w).days).toBe(28);
   });
@@ -95,15 +101,65 @@ describe('crawlWindow', () => {
 });
 
 describe('crawlNotes', () => {
-  it('always carries the two standing caveats', () => {
-    expect(crawlNotes({ reachesUnverified: false }).map((n) => n.code)).toEqual([
-      'crawl_coverage_is_gateway_arrivals',
-      'crawler_label_includes_inspection_tool',
-    ]);
+  it('always carries the gateway caveat', () => {
+    expect(
+      crawlNotes({ reachesUnverified: false, reachesUnsplit: false }).map((n) => n.code),
+    ).toEqual(['crawl_coverage_is_gateway_arrivals']);
+  });
+
+  it('adds the Inspection Tool caveat only for a window that reaches before the split', () => {
+    expect(
+      crawlNotes({ reachesUnverified: false, reachesUnsplit: true }).map((n) => n.code),
+    ).toEqual(['crawl_coverage_is_gateway_arrivals', 'crawler_label_includes_inspection_tool']);
+  });
+
+  it('counts every window as unsplit until the production date is recorded', () => {
+    // AECI-2061. Flip this when INSPECTION_TOOL_SPLIT_SINCE is set.
+    expect(INSPECTION_TOOL_SPLIT_SINCE).toBeNull();
+    expect(reachesUnsplitLabel('2099-01-01T00:00:00.000Z')).toBe(true);
+    expect(crawlWindow(NOW).reachesUnsplit).toBe(true);
+  });
+
+  describe('once the split date is recorded', () => {
+    const SINCE = '2026-11-10T00:00:00.000Z';
+    const entry = (lastFetchAt: string | null) => ({ lastFetchAt }) as unknown as SeoLaneEntry;
+    const window = crawlWindow(NOW); // starts 2026-10-27, before SINCE
+
+    it('keeps the queue caveat while a shown last fetch predates the split', () => {
+      const after = { ...window, from: '2026-11-12T00:00:00.000Z' };
+      expect(
+        queueReachesUnsplit(
+          { window: after, uncrawled: { google: [entry('2026-11-01T00:00:00.000Z')], bing: [] } },
+          SINCE,
+        ),
+      ).toBe(true);
+      expect(
+        queueReachesUnsplit(
+          {
+            window: after,
+            uncrawled: { google: [entry(null), entry('2026-11-20T00:00:00.000Z')], bing: [] },
+          },
+          SINCE,
+        ),
+      ).toBe(false);
+      expect(queueReachesUnsplit({ window, uncrawled: { google: [], bing: [] } }, SINCE)).toBe(
+        true,
+      );
+    });
+
+    it('keeps the trend caveat across the oldest week snapshot lookback', () => {
+      // A week starting 20 days after the split still counts fetches from before it.
+      expect(trendReachesUnsplit('2026-11-30T00:00:00.000Z', SINCE)).toBe(true);
+      expect(trendReachesUnsplit('2026-12-08T00:00:00.000Z', SINCE)).toBe(false);
+    });
   });
 
   it('adds the clamp and the unverified notes with their dates', () => {
-    const notes = crawlNotes({ clampedFrom: CONCRETE_PATH_SINCE, reachesUnverified: true });
+    const notes = crawlNotes({
+      clampedFrom: CONCRETE_PATH_SINCE,
+      reachesUnverified: true,
+      reachesUnsplit: false,
+    });
     expect(notes.find((n) => n.code === 'crawl_window_clamped')?.params).toEqual({
       from: CONCRETE_PATH_SINCE,
     });
@@ -129,6 +185,7 @@ describe('computeSeoLanes', () => {
       { id: 'p3', slug: 'asn', name: 'Asn', createdAt: daysAgo(60) },
       { id: 'p4', slug: 'nopath', name: 'NoPath', createdAt: daysAgo(60) },
       { id: 'p5', slug: 'stale', name: 'Stale', createdAt: daysAgo(60) },
+      { id: 'p6', slug: 'inspected', name: 'Inspected', createdAt: daysAgo(60) },
     ]);
     await fetches([
       { concretePath: '/products/crawled', createdAt: daysAgo(3) },
@@ -140,10 +197,16 @@ describe('computeSeoLanes', () => {
       { concretePath: null, path: '/products/:slug', createdAt: daysAgo(3) },
       // A verified fetch, but before the 28-day window: a stale crawl.
       { concretePath: '/products/stale', createdAt: daysAgo(40) },
+      // AECI-2061. A verified URL Inspection live test is not a crawl.
+      {
+        concretePath: '/products/inspected',
+        botName: 'Google-InspectionTool',
+        createdAt: daysAgo(3),
+      },
     ]);
 
     const lanes = await computeSeoLanes(t.db, NOW);
-    expect(lanes.catalogUrls).toBe(5);
+    expect(lanes.catalogUrls).toBe(6);
     expect(lanes.crawled).toEqual({ google: 1, bing: 0 });
     const google = lanes.uncrawled.google.map((e) => [e.path, e.lastFetchAt]);
     expect(google).toEqual(
@@ -152,11 +215,12 @@ describe('computeSeoLanes', () => {
         ['/products/asn', null],
         ['/products/nopath', null],
         ['/products/stale', daysAgo(40)],
+        ['/products/inspected', null],
       ]),
     );
-    expect(google).toHaveLength(4);
+    expect(google).toHaveLength(5);
     // Bing never fetched anything, so every page is in its lane.
-    expect(lanes.uncrawled.bing).toHaveLength(5);
+    expect(lanes.uncrawled.bing).toHaveLength(6);
   });
 
   it('counts an unverified row written before edge verification began', async () => {

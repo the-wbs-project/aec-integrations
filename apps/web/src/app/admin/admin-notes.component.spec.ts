@@ -164,6 +164,19 @@ describe('AdminNotes', () => {
     expect(el.textContent).toContain('42');
   });
 
+  it('dates the Inspection Tool caveat only once the split date is recorded (AECI-2061)', () => {
+    const undated = render([makeNote({ code: 'crawler_label_includes_inspection_tool' })]);
+    expect(undated.textContent).toContain('got its own label');
+    expect(undated.textContent).not.toContain('–');
+    const dated = render([
+      makeNote({
+        code: 'crawler_label_includes_inspection_tool',
+        params: { since: '2026-11-27T03:00:00.000Z' },
+      }),
+    ]);
+    expect(dated.textContent).toContain('Rows before 2026-11-27T03:00:00.000Z');
+  });
+
   it('substitutes a placeholder rather than "undefined" when a param is missing', () => {
     const el = render([makeNote({ code: 'partial_day' })]);
     expect(el.textContent).not.toContain('undefined');

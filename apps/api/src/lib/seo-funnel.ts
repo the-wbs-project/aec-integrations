@@ -405,6 +405,7 @@ export async function readSeoFunnel(db: Db, now: Date): Promise<SeoFunnelRespons
   const notes: AdminNote[] = crawlNotes({
     ...(window.clamped ? { clampedFrom: window.from } : {}),
     reachesUnverified: window.reachesUnverified,
+    reachesUnsplit: window.reachesUnsplit,
   });
   if (engines[0]!.stages.some((s) => s.stage === 'impressed')) {
     notes.push(

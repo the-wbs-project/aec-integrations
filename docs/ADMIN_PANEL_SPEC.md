@@ -2794,11 +2794,15 @@ matches all of these:
 
 Two limits of this predicate, stated rather than hidden:
 
-- **`Googlebot` includes Google-InspectionTool.** The `NAMED_BOTS` regex folds
-  `google-inspectiontool`, `storebot-google` and `apis-google` into one label. An operator's own
-  live test in URL Inspection therefore reads as a crawl. The raw UA is discarded at ingest, so
-  past rows cannot be split. This matters most to AECI-824. §5.24.14 proposes splitting the
-  label at ingest.
+- **`Googlebot` included Google-InspectionTool until AECI-2061.** Classifier `tc-2026.11.3`
+  stores it as its own `bot_name`, `Google-InspectionTool`, so the `= 'Googlebot'` predicate
+  above no longer counts an operator's live test in URL Inspection. Rows written before the split
+  still carry `Googlebot`. The raw UA is discarded at ingest, so they cannot be split. AECI-2222
+  records the production date as `INSPECTION_TOOL_SPLIT_SINCE` in `lib/seo-queue.ts`
+  (`POST_LAUNCH_MONITORING.md` §3, "Search console tunables"). A window that reaches before it
+  carries the `crawler_label_includes_inspection_tool` note. Until the date is recorded, every
+  window does. AECI-824's clean data starts at that date. `storebot-google`, `google-extended`
+  and `apis-google` stay under `Googlebot`. Whether they should leave it is not verified.
 - **Verification has a start date.** `cf_verified_bot_category` is populated only on rows written
   after AECI-1301 reached production. A window that reaches before that date uses the UA label
   alone for the earlier rows, and the response carries the `crawler_label_unverified` note.
@@ -3234,9 +3238,11 @@ In priority order. "Chris" marks a ruling only he can make.
 
 1. **Panel 1 beside or instead of `/admin/reindex`.** Ruled by Chris, 2026-11-24: beside
    (§5.24.5).
-2. **Split `Googlebot` at ingest.** Recommended before AECI-824's data window opens, so an
-   operator's live test stops reading as a crawl. It changes the 05:00 digest's crawler table,
-   so it is a classifier change under `POST_LAUNCH_MONITORING.md` §3c.
+2. **Split `Googlebot` at ingest.** Built by AECI-2061 (classifier `tc-2026.11.3`):
+   Google-InspectionTool is its own label, and §5.24.4 records where clean data starts. The 05:00
+   digest's crawler table gains a `Google-InspectionTool` line on days it fetched. It is a
+   classifier change under `POST_LAUNCH_MONITORING.md` §3c (`POST_LAUNCH_HEALTH_REPORT.md`,
+   2026-11-26 entry).
 3. **No "console read" stamp.** Ruled by Chris, 2026-11-24: it stays out, because the one
    self-attested item is spent (§5.24.1).
 4. **Edge verification start date.** Closed 2026-11-24. The operator read it from production
@@ -4485,6 +4491,8 @@ D1–D4 were settled when this document was drafted. **D5–D11 were settled by 
   *Amended 2026-10-23 (AECI-1386, `tc-2026.10.3`; history, current rule in `BOT_TRAFFIC_CLASSIFICATION.md` §2.7):* a row with `privacy_signal = true` never enters **Browser activity with supporting human evidence**. It keeps no UA hash, network or TLS fact, so its evidence cannot be corroborated. It lands in **Unresolved** with `no_corroboration` and the evidence code `evidence_privacy_signal`. The identified and suspected classes are unchanged for it. One exception: a label the ASN rule can also write, such as `Censys (scanner)`, is never read as `ua_self_declared`, because the row has no ASN to tell which rule wrote it. The version change shows once as "classifier changed" in the digest and the classes card.
 
   *Amended 2026-11-02 (AECI-1578, `tc-2026.11.1`, ruled by Chris; history, current rules in `BOT_TRAFFIC_CLASSIFICATION.md` §2.5 and §2.15):* two new signal families, **crawl shape** (`crawl_shape_member`, passing on the reported day alone or on that day plus the prior 14) and **burst** (`burst_member`, a sliding 60 seconds). A day is judged only on what came at or before it. They reach a datacenter crawler that sends a full browser header set, which had one family, network, and so stayed Unresolved. The Suspected rule above is unchanged: each new family alone stays **Unresolved** with its own `single_signal_*` code, so a shared home or office network cannot reach Suspected on crawl shape alone. Neither family blocks or rate-limits anything. `BOT_TRAFFIC_CLASSIFICATION.md` §2.5 has the rules.
+
+  *Amended 2026-11-26 (AECI-2061, `tc-2026.11.3`; history, current rule in `BOT_TRAFFIC_CLASSIFICATION.md` §2.7):* `Google-InspectionTool` gets its own `NAMED_BOTS` label, mapped to `purpose_monitoring`, so the search console's crawl predicate (§5.24.4) stops counting a URL Inspection live test as a Googlebot crawl. It applies to rows captured from the deploy forward. No class or family rule changes.
 
   *Amended 2026-11-05 (AECI-1626, `tc-2026.11.2`; history, current rule in `BOT_TRAFFIC_CLASSIFICATION.md` §2.7):* `Claude-User` gets its own `NAMED_BOTS` label, `Claude-User (Anthropic)`, mapped to `purpose_assistant_retrieval`. It applies to rows captured from the deploy forward. No class or family rule changes.
 

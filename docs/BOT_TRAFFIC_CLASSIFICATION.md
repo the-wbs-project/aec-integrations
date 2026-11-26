@@ -1,6 +1,6 @@
 # Bot traffic classification
 
-**Status: the record of truth for how AECi classifies traffic. It describes classifier `tc-2026.11.2`, checked against the code on 2026-11-05 on top of commit `125eb9ee1`, with the `Claude-User` rule from AECI-1626.**
+**Status: the record of truth for how AECi classifies traffic. It describes classifier `tc-2026.11.3`, checked against the code on 2026-11-26 on top of commit `023bb8dcc`, with the `Google-InspectionTool` label from AECI-2061.**
 
 This is the one place that states how page views are sorted into bots, people and everything in between. Part 1 explains every check for a reader who knows the product but not the code. Part 2 is the technical specification.
 
@@ -51,7 +51,7 @@ We can only read some details at this moment, because we do not keep them afterw
 | # | Check | The question it asks | What it can get wrong |
 |---|---|---|---|
 | 1 | **Cloudflare's confirmed list** | Has Cloudflare confirmed this is a known crawler, such as Googlebot? | Very little. This is the strongest evidence we have. |
-| 2 | **The visitor's name tag** | Does the browser's description of itself name a known bot, or use a word like "bot", "crawler" or "spider"? We keep a list of 22 named crawlers. | A bot can leave the word out. A faker can also claim to be Googlebot. Either way it is still not a person. |
+| 2 | **The visitor's name tag** | Does the browser's description of itself name a known bot, or use a word like "bot", "crawler" or "spider"? We keep a list of 23 named crawlers. | A bot can leave the word out. A faker can also claim to be Googlebot. Either way it is still not a person. |
 | 3 | **Who owns the network** | Does the request come from a data center or cloud company on our list of 109 networks? | A real person on a VPN or a cloud desktop looks the same. This is why it never decides alone. |
 | 4 | **What kind of network it is** | Does a public directory list this network as a content or infrastructure company rather than an internet provider? | Many networks are not in the directory, and those tell us nothing. This counts as the same kind of clue as check 3, not a second one. |
 | 5 | **Does the request look like a browser** | A real browser sends a recognizable set of details with each request. Are they all there, and do they agree with what the visitor claims to be? | Cheap tools fail this. A real browser driven by a robot passes, because it really is a browser. |
@@ -186,7 +186,7 @@ The cron runs at 00:45 because SPA follow-up evidence reads 30 minutes past the 
 
 | Order | Test | Result |
 |---|---|---|
-| 1 | `NAMED_BOTS`: 22 regexes | `bot_name` = crawler label |
+| 1 | `NAMED_BOTS`: 23 regexes | `bot_name` = crawler label |
 | 2 | `GENERIC_BOT_RE`: `bot`, `crawl`, `spider`, `scraper`, `slurp`, `headless`, `phantom`, `python-requests`, `python-urllib`, `go-http-client`, `node-fetch`, `okhttp`, `libwww`, `httpclient`, `scanner`, `facebookexternalhit`, `curl/`, `wget/` | `Other bot` |
 | 3 | `DATACENTER_ASNS`: 109 entries | Network label, such as `Datacenter (AWS)` |
 | 4 | None | `is_bot = 0` |
@@ -296,7 +296,7 @@ Do not rewrite the pair test as `NOT (hash = ? AND asn = ?)`, because that drops
 | Why unresolved | `no_corroboration`, `conflicting_signals`, `bot_label_unmapped`, `single_signal_network`, `single_signal_request_shape`, `single_signal_swarm`, `single_signal_rotator`, `single_signal_crawl_shape`, `single_signal_burst` |
 | Missing evidence, on any class | `evidence_no_asn`, `evidence_no_tls`, `evidence_pre_provenance`, `evidence_privacy_signal` |
 
-**Purpose.** A Cloudflare category is preferred over the stored label, because it is a check rather than a claim. Labels that merge purposes, such as `OpenAI`, `Meta` and `PerplexityBot`, get `purpose_unknown` (AECI-762). `Claude-User (Anthropic)` is the one on-demand fetcher with its own label, so it reads `purpose_assistant_retrieval` (AECI-1626). Its rule sits above the `claudebot` rule because one of its forms carries `claudebot@anthropic.com` as a contact address. A row stored before AECI-1626 keeps its old label or `is_bot = 0`, because the classifier reads the stored label and not the user agent. The label is a claim: an unverified row that borrows the name reads the same, without `verified_edge`.
+**Purpose.** A Cloudflare category is preferred over the stored label, because it is a check rather than a claim. Labels that merge purposes, such as `OpenAI`, `Meta` and `PerplexityBot`, get `purpose_unknown` (AECI-762). `Claude-User (Anthropic)` is an on-demand fetcher with its own label, so it reads `purpose_assistant_retrieval` (AECI-1626). Its rule sits above the `claudebot` rule because one of its forms carries `claudebot@anthropic.com` as a contact address. A row stored before AECI-1626 keeps its old label or `is_bot = 0`, because the classifier reads the stored label and not the user agent. The label is a claim: an unverified row that borrows the name reads the same, without `verified_edge`. `Google-InspectionTool` gets its own label from classifier `tc-2026.11.3` (AECI-2061), mapped to `purpose_monitoring`, because Search Console's URL Inspection and the Rich Results Test send it on demand. It is a test, not an index crawl. Its rule sits above the `Googlebot` rule. `Storebot-Google`, `Google-Extended` and `APIs-Google` stay under `Googlebot`. A row stored before AECI-2061 keeps `Googlebot`, so the search console's crawl predicate (`ADMIN_PANEL_SPEC.md` §5.24.4) still counts those rows as crawls.
 
 **Privacy rows.** `Sec-GPC: 1` or `DNT: 1` nulls the UA hash, ASN and holder, colo, Ray ID, referrer host, link token, request-shape facts, dedupe key and Turnstile verdict. `created_at` is cut to the hour, and no raw R2 envelope is written. `is_bot`, `bot_name`, `client_verdict` and `referrer_source` are still computed in memory and stored. A privacy row's human evidence reads as `no_corroboration`, not `conflicting_signals`, because nothing contradicts it. Its evidence gap is the one code `evidence_privacy_signal`, in place of `evidence_no_asn` and `evidence_no_tls`. A label the ASN rule can also write, such as `Censys (scanner)`, is never read as `ua_self_declared` on a privacy row, because the row has no ASN to tell which rule wrote it.
 

@@ -5782,7 +5782,7 @@ the five codes the queue and the trend emit. AECI-823 added the funnel's three,
 | `crawl_coverage_is_gateway_arrivals` | `info` | Every response that reports crawl coverage. The count is the gateway's arrival rows (§5.24.4) |
 | `crawler_label_unverified` | `warn` | The window includes rows from before edge verification started. `params.since` names the date |
 | `crawl_window_clamped` | `info` | The window was clamped to `CONCRETE_PATH_SINCE`. `params.from` names the clamped start |
-| `crawler_label_includes_inspection_tool` | `info` | Every Google crawl figure, until the `Googlebot` label is split at ingest |
+| `crawler_label_includes_inspection_tool` | `info` | The figures can hold a row from before `INSPECTION_TOOL_SPLIT_SINCE`, when Google-InspectionTool got its own label (AECI-2061). On `/queue`: the window starts before it, or a Google lane item's `last_fetch_at` is before it (`queueReachesUnsplit`). On `/trend`: the oldest week minus `SEO_CRAWL_LOOKBACK_DAYS` is before it (`trendReachesUnsplit`). On `/funnel`: the window starts before it. Every response while the constant is unset. `params.since` names the date once it is set |
 | `indexed_is_impression_lower_bound` | `info` | The Google `impressed` stage is present in the funnel |
 | `search_ingest_absent` | `info` | An engine has no ingested stage in the funnel, whatever the reason, so only its two D1 stages show. `params.engine` names it |
 | `search_window_incomplete` | `warn` | Fewer of an engine's 28 click-window dates hold both a daily clicks row and a daily impressions row than the window spans, so clicks and impressions cover fewer days. `params`: `engine`, `days_recorded`, `days`, `from`, `to` |
@@ -5926,9 +5926,10 @@ far and `cohort.open: true`.
 `outcome = 'requested'` whose `submitted_at` falls in the week. It is the operator's own answer
 in the Done dialog, not a measurement. The UI labels it so.
 
-**Notes.** The two standing crawl caveats, `crawl_coverage_is_gateway_arrivals` and
-`crawler_label_includes_inspection_tool`, on every response. `crawler_label_unverified` when the
-oldest week starts before edge verification. The cohort is matched on an entity id rather than
+**Notes.** `crawl_coverage_is_gateway_arrivals` on every response. `crawler_label_unverified`
+when the oldest week starts before edge verification, and `crawler_label_includes_inspection_tool`
+when the oldest week's lane snapshot lookback, 28 days before it, starts before the
+Google-InspectionTool split (AECI-2061). The cohort is matched on an entity id rather than
 `concrete_path`, so `crawl_window_clamped` never applies here.
 
 ##### `GET /api/admin/seo/funnel` (AECI-823, shipped)
@@ -6029,8 +6030,9 @@ that series' own 28 Pacific dates, and is null when none falls in reach. `refere
 Domain property with no host filter, so they compare. Their windows differ, so they are not like
 for like.
 
-**Notes.** The two standing crawl caveats on every response. `crawl_window_clamped` and
-`crawler_label_unverified` when `crawl_window` reaches past their dates.
+**Notes.** `crawl_coverage_is_gateway_arrivals` on every response. `crawl_window_clamped`,
+`crawler_label_unverified` and `crawler_label_includes_inspection_tool` when `crawl_window`
+reaches past their dates.
 `indexed_is_impression_lower_bound` when the Google `impressed` stage is present.
 `search_ingest_absent` once per engine whose stages are all D1 stages, whatever the reason.
 `search_window_incomplete` once per engine whose `search_window.days_recorded` is below 28.

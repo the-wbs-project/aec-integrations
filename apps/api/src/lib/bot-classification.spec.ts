@@ -44,6 +44,31 @@ describe('classifyTraffic', () => {
     });
   });
 
+  it.each([
+    // Google's documented forms (developers.google.com/search/docs/crawling-indexing/google-common-crawlers).
+    'Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.204 Mobile Safari/537.36 (compatible; Google-InspectionTool/1.0;)',
+    'Mozilla/5.0 (compatible; Google-InspectionTool/1.0;)',
+  ])('labels the URL Inspection test %s on its own, not as Googlebot (AECI-2061)', (ua) => {
+    expect(classifyTraffic(ua, null)).toEqual({ isBot: true, botName: 'Google-InspectionTool' });
+  });
+
+  it('names Google-InspectionTool on a Google network rather than the network', () => {
+    expect(classifyTraffic('Mozilla/5.0 (compatible; Google-InspectionTool/1.0;)', 15169)).toEqual({
+      isBot: true,
+      botName: 'Google-InspectionTool',
+    });
+  });
+
+  it('keeps the other Google agents under Googlebot', () => {
+    for (const ua of [
+      'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+      'Mozilla/5.0 (X11; Linux x86_64; Storebot-Google/1.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.88 Safari/537.36',
+      'APIs-Google (+https://developers.google.com/webmasters/APIs-Google.html)',
+    ]) {
+      expect(classifyTraffic(ua, null)).toEqual({ isBot: true, botName: 'Googlebot' });
+    }
+  });
+
   it('names common crawlers from the User-Agent', () => {
     expect(classifyTraffic(GOOGLEBOT, null)).toEqual({ isBot: true, botName: 'Googlebot' });
     expect(classifyTraffic(BINGBOT, null)).toEqual({ isBot: true, botName: 'Bingbot' });

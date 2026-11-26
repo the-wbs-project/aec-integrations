@@ -102,7 +102,7 @@ const QUEUE_NOTES: AdminNote[] = [
   {
     code: 'crawler_label_includes_inspection_tool',
     severity: 'info',
-    message: 'The Googlebot label includes Google-InspectionTool.',
+    message: 'Rows before the split count Google-InspectionTool as Googlebot.',
   },
 ];
 
