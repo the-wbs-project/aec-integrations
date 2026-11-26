@@ -23,8 +23,16 @@ import {
   type SeoQueueResponse,
 } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
 import { AdminNotes } from '../admin-notes';
 import { AdminPaginator } from '../admin-paginator';
+import { AdminDisclosureButton } from '../console/disclosure-button';
+import {
+  CONSOLE_CAPTION_CLASS,
+  CONSOLE_LABEL_CLASS,
+  CONSOLE_PANEL_CLASS,
+  CONSOLE_TABLE,
+} from '../console/console-table';
 import { AdminSeoApi } from './admin-seo.api';
 import { SEO_ENGINE_LABELS } from './seo-labels';
 
@@ -70,7 +78,7 @@ function humanize(slug: string): string {
  */
 @Component({
   selector: 'aec-seo-queue-panel',
-  imports: [AdminNotes, AdminPaginator, DatePipe, RouterLink],
+  imports: [AdminDisclosureButton, AdminNotes, AdminPaginator, AecButton, DatePipe, RouterLink],
   templateUrl: './seo-queue-panel.html',
   styles: [':host { display: block; }'],
 })
@@ -83,6 +91,16 @@ export class SeoQueuePanel {
   /** Prefix for every element id in the panel, so two instances on one page
    *  (the preview's state gallery) never share an id. */
   readonly idPrefix = input('admin-seo');
+
+  /** The console recipe (AECI-2125, `console/console-table.ts`). */
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly panelClass = CONSOLE_PANEL_CLASS;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly labelClass = CONSOLE_LABEL_CLASS;
+  /** Small print: notes and the read-at line, as on `/admin/traffic`. */
+  protected readonly noteClass = 'text-t-13 text-(--text-secondary)';
+  /** The URL cell: a row header at body weight, so the URL reads as data. */
+  protected readonly urlCellClass = `${CONSOLE_TABLE.cell} font-normal`;
 
   /** Text for the page's polite live region. */
   readonly announce = output<string>();

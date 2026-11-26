@@ -20,7 +20,14 @@ import {
   type SeoTrendWeek,
 } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
 import { AdminNotes } from '../admin-notes';
+import {
+  CONSOLE_CAPTION_CLASS,
+  CONSOLE_LABEL_CLASS,
+  CONSOLE_PANEL_CLASS,
+  CONSOLE_TABLE,
+} from '../console/console-table';
 import { formatPercent, formatThousands } from '../charts/format';
 import { LineChart } from '../charts/line-chart';
 import type { NullableChartSeries } from '../charts/chart-types';
@@ -83,7 +90,7 @@ type LaneKey = Exclude<keyof SeoTrendLanes, 'reindex_oldest_tier12_age_days'>;
  */
 @Component({
   selector: 'aec-seo-trend-panel',
-  imports: [AdminNotes, DatePipe, LineChart],
+  imports: [AdminNotes, AecButton, DatePipe, LineChart],
   templateUrl: './seo-trend-panel.html',
   styles: [':host { display: block; }'],
 })
@@ -95,6 +102,29 @@ export class SeoTrendPanel {
   /** Prefix for every element id in the panel, so two instances on one page
    *  (the preview's state gallery) never share an id. */
   readonly idPrefix = input('admin-seo');
+
+  /** The console recipe (AECI-2125, `console/console-table.ts`). */
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly panelClass = CONSOLE_PANEL_CLASS;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly labelClass = CONSOLE_LABEL_CLASS;
+  /** Small print: notes and the read-at line, as on `/admin/traffic`. */
+  protected readonly noteClass = 'text-t-13 text-(--text-secondary)';
+
+  /*
+   * The week table on the console table recipe. Its first column sticks while the
+   * weeks scroll, so its cells carry the page fill, and every cell aligns to the
+   * top because a row header has two lines. These are the recipe's cell parts
+   * written out with `align-top`, because two vertical alignments in one class
+   * list would be decided by stylesheet order.
+   */
+  protected readonly weekHead = `${CONSOLE_TABLE.head} sticky left-0 z-10 min-w-[11rem] bg-(--surface-base)`;
+  protected readonly groupHead =
+    'sticky left-0 bg-(--surface-base) px-3 pt-6 pb-2 text-start text-t-13 font-semibold leading-[1.4] tracking-[0.01em] text-(--text-secondary) border-b border-(--border-strong)';
+  protected readonly rowHead =
+    'sticky left-0 z-10 min-w-[11rem] px-3 py-2 text-start align-top font-normal border-b border-(--border-default)';
+  protected readonly cell =
+    'px-3 py-2 text-end align-top whitespace-nowrap tabular-nums lining-nums border-b border-(--border-default)';
 
   /** Text for the page's polite live region. */
   readonly announce = output<string>();

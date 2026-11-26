@@ -23,7 +23,14 @@ import type {
   SeoFunnelStageName,
 } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
 import { AdminNotes } from '../admin-notes';
+import {
+  CONSOLE_CAPTION_CLASS,
+  CONSOLE_LABEL_CLASS,
+  CONSOLE_PANEL_CLASS,
+  CONSOLE_TABLE,
+} from '../console/console-table';
 import { formatRate, formatThousands } from '../charts/format';
 import { slotClass, type ChartSlot } from '../charts/chart-types';
 import { AdminSeoApi } from './admin-seo.api';
@@ -136,7 +143,7 @@ export interface FunnelEngineView {
  */
 @Component({
   selector: 'aec-seo-funnel-panel',
-  imports: [AdminNotes, DatePipe],
+  imports: [AdminNotes, AecButton, DatePipe],
   templateUrl: './seo-funnel-panel.html',
   styles: [':host { display: block; }'],
 })
@@ -148,6 +155,26 @@ export class SeoFunnelPanel {
   /** Prefix for every element id in the panel, so two instances on one page
    *  (the preview's state gallery) never share an id. */
   readonly idPrefix = input('admin-seo');
+
+  /** The console recipe (AECI-2125, `console/console-table.ts`). */
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly panelClass = CONSOLE_PANEL_CLASS;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly labelClass = CONSOLE_LABEL_CLASS;
+  /** Small print: notes and the read-at line, as on `/admin/traffic`. */
+  protected readonly noteClass = 'text-t-13 text-(--text-secondary)';
+
+  /*
+   * The funnel and baseline tables on the console table recipe. A stage header has
+   * two lines, so every cell aligns to the top. These are the recipe's cell parts
+   * written out with `align-top`, because two vertical alignments in one class
+   * list would be decided by stylesheet order.
+   */
+  protected readonly stageHead =
+    'w-[45%] px-3 py-2 text-start align-top font-normal border-b border-(--border-default)';
+  protected readonly topCell = 'px-3 py-2 align-top border-b border-(--border-default)';
+  protected readonly topNum =
+    'px-3 py-2 text-end align-top tabular-nums lining-nums whitespace-nowrap border-b border-(--border-default)';
 
   /** Text for the page's polite live region. */
   readonly announce = output<string>();

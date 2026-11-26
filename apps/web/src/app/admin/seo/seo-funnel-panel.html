@@ -4,7 +4,7 @@
     #heading
     tabindex="-1"
     [id]="idPrefix() + '-funnel-heading'"
-    class="text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    class="text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3"
     i18n="@@admin.seo.funnel.heading"
   >
     Is it working?
@@ -12,45 +12,38 @@
   <!-- The window's length comes from the data. Until it arrives the intro names none. -->
   @if (crawlDays(); as days) {
   <p
-    class="mt-1 max-w-[62ch] text-sm text-pretty text-(--text-secondary)"
+    [class]="captionClass"
+    class="mt-2 max-w-[62ch] text-pretty"
     i18n="@@admin.seo.funnel.intro.days"
   >
     Each engine's funnel over the trailing {{ days }} days. The bar is the rate and the count sits
     beside it. Google and Bing are separate indexes, so their figures are never added together.
   </p>
   } @else {
-  <p
-    class="mt-1 max-w-[62ch] text-sm text-pretty text-(--text-secondary)"
-    i18n="@@admin.seo.funnel.intro"
-  >
+  <p [class]="captionClass" class="mt-2 max-w-[62ch] text-pretty" i18n="@@admin.seo.funnel.intro">
     Each engine's funnel over a trailing window. The bar is the rate and the count sits beside it.
     Google and Bing are separate indexes, so their figures are never added together.
   </p>
   } @if (loading()) {
-  <p class="mt-6 text-sm text-(--text-secondary)" i18n="@@admin.seo.funnel.loading">
+  <p class="mt-6 text-t-16 text-(--text-secondary)" i18n="@@admin.seo.funnel.loading">
     Loading the search funnel…
   </p>
   } @else if (loadFailed()) {
   <!-- The /admin/system error recipe (ADMIN_PANEL_SPEC.md §5.24.4 names it). -->
-  <div class="mt-6 space-y-3">
+  <div class="mt-6 space-y-4">
     <p
-      class="text-sm font-medium text-pretty text-(--text-primary)"
+      class="text-t-16 font-semibold text-pretty text-(--text-primary)"
       role="alert"
       i18n="@@admin.seo.funnel.loadFailed"
     >
       We couldn't load the search funnel. Your session may have expired.
     </p>
-    <button
-      type="button"
-      (click)="retry()"
-      class="inline-flex cursor-pointer items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-5 py-2.5 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-      i18n="@@admin.seo.funnel.retry"
-    >
+    <button aecButton variant="secondary" (click)="retry()" i18n="@@admin.seo.funnel.retry">
       Try again
     </button>
   </div>
   } @else if (data(); as d) { @if (engines().length === 0) {
-  <p class="mt-6 text-sm text-(--text-secondary)" i18n="@@admin.seo.funnel.empty">
+  <p class="mt-6 text-t-16 text-(--text-secondary)" i18n="@@admin.seo.funnel.empty">
     No funnel to show yet.
   </p>
   } @else {
@@ -59,84 +52,69 @@
     <article
       [attr.data-testid]="'admin-seo-funnel-' + e.engine"
       [attr.aria-labelledby]="idPrefix() + '-funnel-' + e.engine"
-      class="min-w-0 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-5"
+      [class]="panelClass"
     >
       <h4
         [id]="idPrefix() + '-funnel-' + e.engine"
-        class="font-display text-lg font-semibold text-(--text-primary)"
+        class="text-t-16 font-semibold text-(--text-primary)"
       >
         {{ e.label }}
       </h4>
-      <p class="mt-1 max-w-[65ch] text-xs text-pretty text-(--text-secondary)">{{ e.scope }}</p>
+      <p [class]="noteClass" class="mt-1 max-w-[65ch] text-pretty">{{ e.scope }}</p>
       @if (e.searchWindow) {
       <p
-        class="mt-1 max-w-[65ch] text-xs text-pretty text-(--text-secondary)"
+        [class]="noteClass"
+        class="mt-1 max-w-[65ch] text-pretty"
         [attr.data-testid]="'admin-seo-funnel-window-' + e.engine"
       >
         {{ e.searchWindow }}
       </p>
       }
 
-      <!-- The admin scroll-region recipe (reindex-history.html): focusable and
-           named, so a keyboard user can scroll it when it overflows. -->
+      <!-- The console table recipe (console-table.ts): a focusable, named region,
+           so a keyboard user can scroll it when it overflows. -->
       <div
-        class="mt-4 overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        [class]="t.region"
+        class="mt-4"
         tabindex="0"
         role="region"
         [attr.aria-labelledby]="idPrefix() + '-funnel-caption-' + e.engine"
       >
-        <table class="w-full border-collapse text-sm">
-          <caption [id]="idPrefix() + '-funnel-caption-' + e.engine" class="sr-only">
+        <table [class]="t.table">
+          <caption [id]="idPrefix() + '-funnel-caption-' + e.engine" [class]="t.caption">
             {{ e.caption }}
           </caption>
           <thead>
-            <tr class="border-b border-(--border-default)">
-              <th
-                scope="col"
-                class="py-2 pe-3 text-start text-xs font-bold text-(--text-secondary)"
-                i18n="@@admin.seo.funnel.col.stage"
-              >
-                Stage
-              </th>
-              <th
-                scope="col"
-                class="py-2 text-end text-xs font-bold text-(--text-secondary)"
-                i18n="@@admin.seo.funnel.col.rate"
-              >
-                Rate
-              </th>
-              <th
-                scope="col"
-                class="py-2 ps-3 text-end text-xs font-bold text-(--text-secondary)"
-                i18n="@@admin.seo.funnel.col.pages"
-              >
-                Pages
-              </th>
+            <tr>
+              <th scope="col" [class]="t.head" i18n="@@admin.seo.funnel.col.stage">Stage</th>
+              <th scope="col" [class]="t.headNum" i18n="@@admin.seo.funnel.col.rate">Rate</th>
+              <th scope="col" [class]="t.headNum" i18n="@@admin.seo.funnel.col.pages">Pages</th>
             </tr>
           </thead>
           <tbody>
             @for (row of e.rows; track row.key) {
-            <tr class="border-t border-(--border-default)" [attr.data-stage]="row.key">
+            <tr [class]="t.row" [attr.data-stage]="row.key">
               <!-- The short name is the header every cell in the row hears. The
                  description is linked, not part of it, so it is not repeated. -->
               <th
                 scope="row"
-                class="w-[45%] py-3 pe-3 text-start align-top font-normal"
+                [class]="stageHead"
                 [attr.aria-describedby]="
                 row.sub ? idPrefix() + '-funnel-' + e.engine + '-' + row.key + '-desc' : null
               "
               >
-                <span class="block font-bold text-(--text-primary)">{{ row.label }}</span>
+                <span class="block font-semibold text-(--text-primary)">{{ row.label }}</span>
                 @if (row.sub) {
                 <span
                   [id]="idPrefix() + '-funnel-' + e.engine + '-' + row.key + '-desc'"
                   aria-hidden="true"
-                  class="mt-1 block text-xs text-pretty text-(--text-secondary)"
+                  [class]="t.sub"
+                  class="mt-1 text-pretty"
                   >{{ row.sub }}</span
                 >
                 }
               </th>
-              <td class="py-3 align-top">
+              <td [class]="topCell">
                 <span class="flex items-center justify-end gap-3">
                   <!-- Decoration. The rate beside it is the figure. -->
                   <span
@@ -156,33 +134,33 @@
                     [class]="
                     row.key === 'catalog'
                       ? 'text-(--text-secondary)'
-                      : 'font-bold text-(--text-primary)'
+                      : 'font-semibold text-(--text-primary)'
                   "
                     >{{ row.rateText }}</span
                   >
                 </span>
               </td>
-              <td class="py-3 ps-3 text-end align-top tabular-nums text-(--text-secondary)">
-                {{ row.countText }}
-              </td>
+              <td [class]="topNum" class="text-(--text-secondary)">{{ row.countText }}</td>
             </tr>
             } @if (e.clicked; as c) {
-            <tr class="border-t border-(--border-default)" data-stage="clicked">
-              <th scope="row" class="py-3 pe-3 text-start align-top font-normal">
+            <tr [class]="t.row" data-stage="clicked">
+              <th scope="row" [class]="stageHead">
                 <span
-                  class="block font-bold text-(--text-primary)"
+                  class="block font-semibold text-(--text-primary)"
                   i18n="@@admin.seo.funnel.stage.clicked.row"
                   >Clicked</span
                 >
               </th>
-              <td colspan="2" class="py-3 align-top">
-                <span class="font-bold tabular-nums text-(--text-primary)">{{ c.ctrText }}</span>
+              <td colspan="2" [class]="topCell">
+                <span class="font-semibold tabular-nums text-(--text-primary)"
+                  >{{ c.ctrText }}</span
+                >
                 @if (c.positionText) { {{ ' ' }}<span
                   class="tabular-nums text-(--text-secondary)"
                   data-testid="admin-seo-funnel-position"
                   >{{ c.positionText }}</span
                 >
-                } {{ ' ' }}<span class="mt-1 block text-xs tabular-nums text-(--text-secondary)"
+                } {{ ' ' }}<span class="mt-1 block text-t-13 tabular-nums text-(--text-secondary)"
                   >{{ c.totalsText }}</span
                 >
               </td>
@@ -205,39 +183,33 @@
       @if (e.baseline; as b) {
       <div class="mt-6 border-t border-(--border-default) pt-5" data-testid="admin-seo-baseline">
         <h5
-          class="text-sm font-bold text-(--text-primary)"
+          class="text-t-14 font-semibold text-(--text-primary)"
           i18n="@@admin.seo.funnel.baseline.heading"
         >
           Against the {{ b.monthLabel }} baseline
         </h5>
-        <p class="mt-1 max-w-[65ch] text-xs text-pretty text-(--text-secondary)">{{ b.explain }}</p>
+        <p [class]="noteClass" class="mt-1 max-w-[65ch] text-pretty">{{ b.explain }}</p>
         <div
-          class="mt-3 overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          [class]="t.region"
+          class="mt-3"
           tabindex="0"
           role="region"
           [attr.aria-labelledby]="idPrefix() + '-baseline-caption'"
         >
-          <table class="w-full border-collapse text-sm">
+          <table [class]="t.table">
             <caption
               [id]="idPrefix() + '-baseline-caption'"
-              class="sr-only"
+              [class]="t.caption"
               i18n="@@admin.seo.funnel.baseline.caption"
             >
               Google, whole property: {{ b.currentHeader }} beside the {{ b.monthLabel }} baseline.
             </caption>
             <thead>
-              <tr class="border-b border-(--border-default)">
-                <th
-                  scope="col"
-                  class="py-2 pe-3 text-start align-bottom text-xs font-bold text-(--text-secondary)"
-                  i18n="@@admin.seo.funnel.baseline.measure"
-                >
+              <tr>
+                <th scope="col" [class]="t.head" i18n="@@admin.seo.funnel.baseline.measure">
                   Measure
                 </th>
-                <th
-                  scope="col"
-                  class="py-2 ps-3 text-end align-bottom text-xs font-bold text-(--text-secondary)"
-                >
+                <th scope="col" [class]="t.headNum">
                   <span class="block">{{ b.currentHeader }}</span>
                   @if (b.currentDates) { {{ ' ' }}<span class="block font-normal"
                     >{{ b.currentDates }}</span
@@ -249,10 +221,7 @@
                   >
                   }
                 </th>
-                <th
-                  scope="col"
-                  class="py-2 ps-3 text-end align-bottom text-xs font-bold text-(--text-secondary)"
-                >
+                <th scope="col" [class]="t.headNum">
                   <span class="block">{{ b.referenceHeader }}</span>
                   {{ ' ' }}<span class="block font-normal">{{ b.referenceDates }}</span>
                 </th>
@@ -260,23 +229,18 @@
             </thead>
             <tbody>
               @for (r of b.rows; track r.key) {
-              <tr class="border-t border-(--border-default)" [attr.data-measure]="r.key">
-                <th
-                  scope="row"
-                  class="py-2 pe-3 text-start font-bold whitespace-nowrap text-(--text-primary)"
-                >
+              <tr [class]="t.row" [attr.data-measure]="r.key">
+                <th scope="row" [class]="t.rowHead" class="whitespace-nowrap text-(--text-primary)">
                   {{ r.label }}
                 </th>
-                <td class="py-2 ps-3 text-end tabular-nums">
+                <td [class]="t.num">
                   @if (r.current.notRecorded) {
-                  <span class="text-xs text-(--text-secondary) italic">{{ r.current.text }}</span>
+                  <span class="text-t-13 text-(--text-secondary) italic">{{ r.current.text }}</span>
                   } @else {
                   <span class="text-(--text-primary)">{{ r.current.text }}</span>
                   }
                 </td>
-                <td class="py-2 ps-3 text-end tabular-nums text-(--text-secondary)">
-                  {{ r.reference.text }}
-                </td>
+                <td [class]="t.num" class="text-(--text-secondary)">{{ r.reference.text }}</td>
               </tr>
               }
             </tbody>
@@ -284,7 +248,8 @@
         </div>
         @if (b.currentAbsent) {
         <p
-          class="mt-3 max-w-[65ch] text-xs text-pretty text-(--text-secondary)"
+          [class]="noteClass"
+          class="mt-3 max-w-[65ch] text-pretty"
           i18n="@@admin.seo.funnel.baseline.currentAbsent"
         >
           No whole-property day from Search Console falls in the window yet, so that column reads
@@ -292,7 +257,8 @@
         </p>
         } @if (b.referenceRounded) {
         <p
-          class="mt-2 max-w-[65ch] text-xs text-pretty text-(--text-secondary)"
+          [class]="noteClass"
+          class="mt-2 max-w-[65ch] text-pretty"
           i18n="@@admin.seo.funnel.baseline.roundedNote"
         >
           Search Console showed the baseline impressions rounded, so that figure is approximate.
@@ -308,7 +274,8 @@
        them, so they are static copy here. -->
   @if (crawlDays(); as days) {
   <ul
-    class="mt-4 max-w-[65ch] list-disc space-y-1 ps-5 text-sm text-pretty text-(--text-secondary)"
+    [class]="captionClass"
+    class="mt-4 max-w-[65ch] list-disc space-y-1 ps-5 text-pretty"
     data-testid="admin-seo-funnel-reading"
   >
     <li i18n="@@admin.seo.funnel.note.position">
@@ -325,7 +292,7 @@
   <!-- AdminNotes renders nothing for an empty list, so only the gap is gated. -->
   <aec-admin-notes [class.mt-4]="panelNotes().length > 0" [notes]="panelNotes()" />
 
-  <p class="mt-4 text-xs text-(--text-tertiary)" i18n="@@admin.seo.funnel.readAt">
+  <p [class]="noteClass" class="mt-4" i18n="@@admin.seo.funnel.readAt">
     Read at {{ d.generated_at | date: 'medium' : 'UTC' }} UTC.
   </p>
   }

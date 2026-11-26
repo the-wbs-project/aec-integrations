@@ -2591,6 +2591,9 @@ In Panel 1, a failed lane switch or page change keeps the lane cards and fails i
 alone. Pressing the open lane's "Show URLs" closes its list. That button is a disclosure: it
 carries `aria-expanded` and `aria-controls`, and no `aria-pressed`. Each URL row's Copy button
 sits in its own column, so the row header is the URL alone.
+The screen is on the console recipe (AECI-2125, `DESIGN.md`): lane, chart and funnel cards are
+console panels, every table is a console table, and every button is an `aecButton`. "Show URLs" is
+the console's labelled disclosure, the audit trail's "Show changes" control.
 
 **Accessibility, as built (AECI-823 audit, 2026-11-24).** Every table that can scroll sideways
 sits in a focusable, named region (`tabindex="0"`, `role="region"`, `aria-labelledby` on the

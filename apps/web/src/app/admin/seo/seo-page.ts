@@ -34,7 +34,7 @@ import { SeoTrendPanel } from './seo-trend-panel';
           Search
         </h2>
         <p
-          class="mt-1 max-w-[62ch] text-sm text-pretty text-(--text-secondary)"
+          class="mt-2 max-w-[62ch] text-t-14 text-pretty text-(--text-secondary)"
           i18n="@@admin.seo.subheading"
         >
           SEO work that is undone, then whether the backlog is shrinking, then whether crawling
