@@ -88,3 +88,31 @@ describe('normalizeLinkedInProfileUrl', () => {
     expect(normalizeLinkedInProfileUrl('linkedin.com.evil.io/in/ada')).toBeNull();
   });
 });
+
+describe('UpdateAccountSchema: found_via (AECI-2208)', () => {
+  it('accepts a channel with its follow-up, trimmed', () => {
+    expect(
+      UpdateAccountSchema.parse({ found_via: 'ai_tool', found_via_detail: '  a prompt  ' }),
+    ).toEqual({ found_via: 'ai_tool', found_via_detail: 'a prompt' });
+  });
+
+  it("accepts '' and null as a clear, and the field is optional", () => {
+    expect(UpdateAccountSchema.safeParse({ found_via: '' }).success).toBe(true);
+    expect(UpdateAccountSchema.safeParse({ found_via: null }).success).toBe(true);
+    expect(UpdateAccountSchema.parse({ onboarding: 'completed' })).not.toHaveProperty('found_via');
+  });
+
+  it('rejects an unknown channel and a detail over 200 characters', () => {
+    expect(UpdateAccountSchema.safeParse({ found_via: 'newspaper' }).success).toBe(false);
+    expect(
+      UpdateAccountSchema.safeParse({ found_via: 'other', found_via_detail: 'x'.repeat(201) })
+        .success,
+    ).toBe(false);
+  });
+
+  it('rejects a detail sent without its channel, on the detail field', () => {
+    const result = UpdateAccountSchema.safeParse({ found_via_detail: 'no channel' });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.path).toEqual(['found_via_detail']);
+  });
+});

@@ -328,7 +328,8 @@
   <!--
     ── How people found us (AECI-1063, ANALYTICS.md §11b). The self-reported
     answer to the optional question on the claim, listing, mailing-list and
-    feedback forms. Windowed like the sections above. The details are visitor
+    feedback forms, and in About you on /welcome and /account (AECI-2208). Windowed like the
+    sections above. The details are visitor
     text, rendered as text.
   -->
   <section
@@ -356,7 +357,7 @@
       tabindex="0"
       aria-labelledby="admin-audience-found-via-counts-caption"
     >
-      <table [class]="t.table" class="min-w-[36rem]" data-testid="found-via-counts">
+      <table [class]="t.table" class="min-w-[42rem]" data-testid="found-via-counts">
         <caption
           id="admin-audience-found-via-counts-caption"
           [class]="t.caption"
@@ -381,6 +382,9 @@
             <th scope="col" [class]="t.headNum" i18n="@@admin.audience.foundVia.col.feedback">
               Feedback
             </th>
+            <th scope="col" [class]="t.headNum" i18n="@@admin.audience.foundVia.col.accounts">
+              Accounts
+            </th>
             <th scope="col" [class]="t.headNum" i18n="@@admin.audience.foundVia.col.total">
               Total
             </th>
@@ -399,6 +403,7 @@
             <td [class]="t.num">{{ row.listings }}</td>
             <td [class]="t.num">{{ row.subscribers }}</td>
             <td [class]="t.num">{{ row.feedback }}</td>
+            <td [class]="t.num">{{ row.accounts }}</td>
             <td [class]="t.num + ' font-semibold'">{{ row.total }}</td>
           </tr>
           }

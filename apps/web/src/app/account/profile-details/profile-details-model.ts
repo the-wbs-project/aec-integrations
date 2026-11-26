@@ -11,6 +11,7 @@ import {
   type AccountProfileDetails,
   type CompanySize,
   type CompanyType,
+  type FoundVia,
   type ProfilePrimaryRole,
   type UpdateAccountInput,
 } from '@aeci/shared';
@@ -23,6 +24,10 @@ export interface ProfileDetailsDraft {
   readonly firm_name: string;
   readonly linkedin_url: string;
   readonly audience_ids: readonly string[];
+  /** AECI-2208: "How did you find AEC Integrations?". `''` is unanswered, as on
+   *  the wire. */
+  readonly found_via: '' | FoundVia;
+  readonly found_via_detail: string;
 }
 
 export interface Labelled<V extends string> {
@@ -243,6 +248,8 @@ export const EMPTY_DRAFT: ProfileDetailsDraft = {
   firm_name: '',
   linkedin_url: '',
   audience_ids: [],
+  found_via: '',
+  found_via_detail: '',
 };
 
 /** Seed a draft from the account read shape. Absent details (an older API)
@@ -256,6 +263,9 @@ export function draftFromDetails(details: AccountProfileDetails | undefined): Pr
     firm_name: details.firm_name ?? '',
     linkedin_url: details.linkedin_url ?? '',
     audience_ids: [...details.audience_ids],
+    // `??` covers an older API that does not send the pair yet.
+    found_via: details.found_via ?? '',
+    found_via_detail: details.found_via_detail ?? '',
   };
 }
 
@@ -277,13 +287,21 @@ export function linkedInInvalid(draft: ProfileDetailsDraft): boolean {
  * writes the form as the user sees it. A software company never sees the size,
  * audience and firm questions, so those are cleared rather than left holding an
  * answer given under a different company type. A role from the other group's
- * list is cleared for the same reason.
+ * list is cleared for the same reason. "How did you find us?" goes as a pair:
+ * `''` clears both columns, and the detail is sent only with a channel.
  */
 export function draftToPatch(
   draft: ProfileDetailsDraft,
 ): Pick<
   UpdateAccountInput,
-  'company_type' | 'company_size' | 'primary_role' | 'firm_name' | 'linkedin_url' | 'audience_ids'
+  | 'company_type'
+  | 'company_size'
+  | 'primary_role'
+  | 'firm_name'
+  | 'linkedin_url'
+  | 'audience_ids'
+  | 'found_via'
+  | 'found_via_detail'
 > {
   const vendor = isVendorDraft(draft);
   return {
@@ -293,5 +311,7 @@ export function draftToPatch(
     firm_name: vendor ? null : draft.firm_name.trim() || null,
     linkedin_url: draft.linkedin_url.trim() || null,
     audience_ids: vendor ? [] : [...draft.audience_ids],
+    found_via: draft.found_via,
+    found_via_detail: draft.found_via ? draft.found_via_detail.trim() : '',
   };
 }

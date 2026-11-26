@@ -896,6 +896,8 @@ describe('GET /api/admin/users — About you (AECI-1296)', () => {
       firmName: 'Turner Build',
       linkedinUrl: 'https://www.linkedin.com/in/rita',
       onboardingSkippedAt: '2026-10-01T00:00:00.000Z',
+      foundVia: 'ai_tool',
+      foundViaDetail: 'best estimating integrations',
     });
     await t.db.insert(profileAudiences).values([
       { profileId: REVIEWER, audienceId: u(801) },
@@ -915,6 +917,9 @@ describe('GET /api/admin/users — About you (AECI-1296)', () => {
         { id: u(801), name: 'Superintendent', slug: 'superintendent' },
       ],
       onboarding: 'skipped',
+      // AECI-2208: the /welcome "How did you find us?" answer.
+      found_via: 'ai_tool',
+      found_via_detail: 'best estimating integrations',
     });
   });
 
@@ -930,7 +935,17 @@ describe('GET /api/admin/users — About you (AECI-1296)', () => {
       linkedin_url: null,
       audiences: [],
       onboarding: 'pending',
+      found_via: null,
+      found_via_detail: null,
     });
+  });
+
+  it('reads an off-vocabulary found_via as null (AECI-2208)', async () => {
+    await seedPeople();
+    await t.db.insert(profileDetails).values({ profileId: REVIEWER, foundVia: 'newspaper' });
+    const app = mount('/users/:id', createAdminUserDetailHandler(t.factory, recordSeam()));
+    const body = await readJson(await call(app, `/users/${REVIEWER}`));
+    expect(body.about).toMatchObject({ found_via: null, found_via_detail: null });
   });
 });
 

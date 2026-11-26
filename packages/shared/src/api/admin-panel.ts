@@ -2469,9 +2469,18 @@ export type AdminAudienceWindowTotals = z.infer<typeof AdminAudienceWindowTotals
  * "How people found us" (AECI-1063, `docs/ANALYTICS.md` §11b): the self-reported
  * channel per form. Each form's rows are counted inside the window on that table's
  * own `created_at`. A subscriber counts on the signup date, even when a later
- * re-subscribe filled the answer.
+ * re-subscribe filled the answer. `account` (AECI-2208) is the About you answer on
+ * `profile_details`, windowed on that row's `created_at`: the first save or skip
+ * of the About you form. Named `account`, not `signup`, because "signups" on this
+ * page already means mailing-list signups.
  */
-export const ADMIN_FOUND_VIA_FORMS = ['claim', 'listing', 'subscriber', 'feedback'] as const;
+export const ADMIN_FOUND_VIA_FORMS = [
+  'claim',
+  'listing',
+  'subscriber',
+  'feedback',
+  'account',
+] as const;
 export const AdminFoundViaFormSchema = z.enum(ADMIN_FOUND_VIA_FORMS);
 export type AdminFoundViaForm = z.infer<typeof AdminFoundViaFormSchema>;
 
@@ -2486,7 +2495,9 @@ export const AdminFoundViaCountRowSchema = z.object({
   listings: z.number().int().nonnegative(),
   subscribers: z.number().int().nonnegative(),
   feedback: z.number().int().nonnegative(),
-  /** The sum of the four. */
+  /** AECI-2208: `profile_details` rows, the About you answer. */
+  accounts: z.number().int().nonnegative(),
+  /** The sum of the five. */
   total: z.number().int().nonnegative(),
 });
 export type AdminFoundViaCountRow = z.infer<typeof AdminFoundViaCountRowSchema>;

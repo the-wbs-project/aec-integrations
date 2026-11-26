@@ -136,4 +136,18 @@ describe('FoundViaField', () => {
       'A follow-up question appeared: What did you search for?',
     );
   });
+
+  // AECI-2208: the About you form owns the page's one live region.
+  it('renders no live region and emits the announcement when liveRegion is off', () => {
+    TestBed.configureTestingModule({ providers: [provideZonelessChangeDetection()] });
+    const fixture = TestBed.createComponent(FoundViaField);
+    fixture.componentRef.setInput('liveRegion', false);
+    fixture.detectChanges();
+    const said: string[] = [];
+    fixture.componentInstance.announce.subscribe((m) => said.push(m));
+    choose(fixture, 'search');
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('[role="status"]')).toBeNull();
+    expect(said).toEqual(['A follow-up question appeared: What did you search for?']);
+  });
 });

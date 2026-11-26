@@ -1861,6 +1861,8 @@ export interface AccountProfileDetails {
   firm_name: string | null;
   linkedin_url: string | null;
   audience_ids: string[];   // taxonomy_audiences ids, [] when none
+  found_via: FoundVia | null;        // AECI-2208; off-vocabulary reads as null
+  found_via_detail: string | null;   // AECI-2208; null when no channel
 }
 ```
 
@@ -1947,7 +1949,9 @@ PATCHes `listing_view_preference` alone without re-sending the display name, and
 an account-form save can't clobber the remembered view with a stale client copy
 it never held. The audit's `beforeState`/`afterState` mirror exactly the touched
 keys, except the About-you answers. Those are named in `metadata.about_you_fields` and
-their values are never audited (AECI-1869, `AUTH_AND_RLS.md` §8).
+their values are never audited (AECI-1869, `AUTH_AND_RLS.md` §8). The one exception is
+`found_via`: its channel is audited by value, and `found_via_detail` is only named (AECI-2208,
+ruling 1).
 
 `listing_view_preference` (AECI-988) is the remembered Cards/Table default for `/products`
 and the taxonomy browse surfaces (`?view=`). `null` = never toggled (the site
@@ -1968,8 +1972,14 @@ export const UpdateAccountSchema = z
     linkedin_url: LinkedInProfileUrlSchema.nullable().optional(),  // '' clears; normalized
     audience_ids: z.array(z.string().uuid()).max(10).optional(),   // replace-set
     onboarding: z.enum(['completed', 'skipped']).optional(),
+    // AECI-2208, "How did you find us?" on /welcome and /account (ANALYTICS.md §11b):
+    found_via: z.union([z.literal(''), FoundViaSchema]).nullable().optional(),
+    found_via_detail: z.string().trim().max(200).nullable().optional(),
   })
-  .refine((v) => Object.values(v).some((value) => value !== undefined));
+  .refine((v) => Object.values(v).some((value) => value !== undefined))
+  .refine((v) => v.found_via_detail === undefined || v.found_via !== undefined, {
+    path: ['found_via_detail'],
+  });
 ```
 
 **"About you" fields (AECI-1296).** They write the `profile_details` upsert and the
@@ -1981,6 +1991,15 @@ is written. `linkedin_url` must be `linkedin.com/in/<handle>` (scheme and `www.`
 stored as `https://www.linkedin.com/in/<handle>`. `onboarding` stamps
 `onboarding_completed_at` or `onboarding_skipped_at`. The response is read back from D1 after the
 batch. Enum values and the full rules are in `ACCOUNT_ONBOARDING_SPEC.md` §2 and §5.
+
+**"How did you find us?" (AECI-2208).** When `found_via` is present the server runs
+`normalizeFoundVia` on the pair and writes both `profile_details` columns: `''` or `null` clears
+both, and a detail sent with a channel that takes no follow-up is dropped. An unknown channel, a
+detail over 200 characters, or a `found_via_detail` without `found_via` is a 400
+`VALIDATION_FAILED`. The audit row carries the channel in its before and after state and names
+`found_via_detail` in `metadata.about_you_fields`, never its text (ruling 1, 2026-11-26). The read
+shapes return the pair in `details`, so `/account` shows the stored answer. `GET
+/api/admin/users/:id` `about` carries it too.
 
 Errors: `UNAUTHENTICATED`, `VALIDATION_FAILED`, `RATE_LIMITED` (429 — AECI-773 burst cap, `Retry-After: 60`).
 
@@ -7226,11 +7245,12 @@ export const AdminAudienceFoundViaSchema = z.object({
   counts: z.array(z.object({
     channel: FoundViaSchema.nullable(),
     claims: …, listings: …, subscribers: …, feedback: …,
-    total: …,                                           // the sum of the four
+    accounts: …,                                        // AECI-2208: profile_details, the /welcome answer
+    total: …,                                           // the sum of the five
   })),
-  // The latest 100 ai_tool / search answers across the four forms, newest first.
+  // The latest 100 ai_tool / search answers across the five forms, newest first.
   details: z.array(z.object({
-    form: z.enum(['claim', 'listing', 'subscriber', 'feedback']),
+    form: z.enum(['claim', 'listing', 'subscriber', 'feedback', 'account']),
     id: z.string(),                                     // the row id on its table, as text
     channel: z.enum(['ai_tool', 'search']),
     detail: z.string(),
@@ -7248,6 +7268,12 @@ no row. No writer can produce one. `details` lists only rows with a detail, so a
 was erased on account deletion is counted but not listed. The order is `created_at DESC`, then
 `form`, then `id`. Each form's read is capped at 100 before the merge, so the list is exact. The
 detail is free text a visitor typed. The UI renders it as text.
+
+**The `account` form (AECI-2208).** `accounts` and `form: 'account'` read `profile_details`, the
+`/welcome` answer. It is windowed on that row's `created_at`, the first save or skip of the About
+you form. Its unanswered row counts every About you row with no answer, skips and `/account` saves
+included. A detail row's `id` is the `profile_id`. It is not named `signup` because `signups`
+already means mailing-list signups in this bundle.
 
 **Why this series is derived live and does not read `metrics_daily`.**
 `ADMIN_PANEL_SPEC.md` §7.1 snapshots `audience.subscribers_active` /

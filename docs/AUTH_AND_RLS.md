@@ -1186,7 +1186,7 @@ full list:
 | `review_responses.author_profile_id`              | SET NULL  | nulled (explicit too; the **reply survives** its author's erasure, because it is the vendor's record, so only the writing seat's link is severed) — added by AECI-1175                                                                                                         |
 | `review_responses.moderated_by`                   | SET NULL  | nulled (explicit too; the decision survives, only the deciding admin's link is severed) — added by AECI-1175                                                                                                                                                                   |
 | `notification_preferences.profile_id`             | CASCADE   | not nulled; the seat's preference row is deleted with the profile. It holds only the mute state and token, so nothing survives to anonymize — added by AECI-1204                                                                                                               |
-| `profile_details.profile_id`                      | CASCADE   | not nulled. The "About you" answers, firm name and LinkedIn link included, are deleted with the profile. Added by AECI-1296                                                                                                                                                    |
+| `profile_details.profile_id`                      | CASCADE   | not nulled. The "About you" answers, firm name, LinkedIn link and the found-via answer (AECI-2208) included, are deleted with the profile. Added by AECI-1296                                                                                                      |
 | `profile_audiences.profile_id`                    | CASCADE   | not nulled. The person's audience picks are deleted with the profile. The `taxonomy_audiences` terms survive. Added by AECI-1296                                                                                                                                               |
 | `claim_thread_acknowledgments.profile_id`         | SET NULL  | nulled (explicit too, AECI-1616). The **acknowledgment survives**: it is the company's record that it accepted the private-thread rules (`STAGE_2_ATTESTATIONS_SPEC.md` §15.17)                                                                                                |
 | `claim_thread_messages.author_profile_id`         | SET NULL  | nulled (explicit too, AECI-1536). The **message survives** with its body and `author_vendor_id`, and reads "Former member of {Company}" (`STAGE_2_ATTESTATIONS_SPEC.md` §15.5). Added by AECI-1534                                                                             |
@@ -1262,6 +1262,14 @@ tracks completion. After the scrub, erasure needs no audit rewrite for these ans
 email audit values above intentionally survive erasure. `apps/api/src/routes/account.spec.ts` edits
 About you, deletes the account, and asserts that no audit row holds the firm name or the LinkedIn link.
 
+**The one exception: `found_via` (AECI-2208, Chris's ruling 1 of 2026-11-26).** The audit row
+keeps the "How did you find us?" channel by value: `before_state.found_via` and
+`after_state.found_via` hold the enum or `null`. Its follow-up text is never stored. It is only
+named, as `found_via_detail` in `metadata.about_you_fields` and in `ABOUT_YOU_AUDIT_KEYS`, because
+audit rows are forwarded to PostHog Logs (`ANALYTICS.md` §11b). The Privacy Policy's Retention list
+says the audit record keeps the choice, not the typed text. `ABOUT_YOU_AUDIT_KEYS` leaves
+`found_via` out on purpose, and the scrub's six keys do not include it.
+
 **Pending claim confirmations are deleted (AECI-1435, 2026-10-21).** A
 `request_confirmations` row (ADR 0043) holds an address typed on the anonymous claim or
 listing form and the whole request body, waiting on the emailed link. It is nobody else's
@@ -1288,6 +1296,10 @@ address as typed. Rows with no detail are not touched. The four statements are b
 `foundViaDetailErasure` in `apps/api/src/routes/account.ts`. A session with no email has
 nothing to match, so they are left out. A pending anonymous claim keeps the answer in
 `request_confirmations.payload`, and that row is deleted above.
+
+The fifth place the answer lives, `profile_details` (the About you question, AECI-2208), needs no
+statement here. The row cascades with the profile. Its audit rows keep the channel, by ruling 1
+(above), and never held the follow-up text.
 `apps/api/src/routes/account.spec.ts` asserts all four and the kept enum. The rest of
 these rows is unchanged here: the address, the comments and the attribution stay.
 

@@ -960,6 +960,13 @@
       "when": 1795671392644,
       "tag": "0136_products_summary",
       "breakpoints": true
+    },
+    {
+      "idx": 137,
+      "version": "6",
+      "when": 1795677428493,
+      "tag": "0137_wealthy_grandmaster",
+      "breakpoints": true
     }
   ]
 }

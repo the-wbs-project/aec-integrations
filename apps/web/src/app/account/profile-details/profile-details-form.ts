@@ -16,12 +16,14 @@ import {
   MAX_PROFILE_AUDIENCES,
   type CompanySize,
   type CompanyType,
+  type FoundVia,
   type LinkRef,
   type ProfilePrimaryRole,
 } from '@aeci/shared';
 import { compareText } from '@aeci/shared/text-sort';
 
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
+import { FoundViaField } from '../../shared/found-via/found-via-field';
 import {
   CHOICE_CARD_CLASS,
   CHOICE_INPUT_CLASS,
@@ -65,8 +67,11 @@ const VENDOR_HIDDEN = $localize`:@@profileDetails.vendor.hidden:Company size, au
 const VENDOR_SHOWN = $localize`:@@profileDetails.vendor.shown:Company size, audiences and firm name were added back to the form. The role list now shows AEC roles.`;
 
 /**
- * The "About you" questions 2 to 7 (AECI-1296, `docs/ACCOUNT_ONBOARDING_SPEC.md`):
- * where you work, your role, company size, audiences, firm name and LinkedIn.
+ * The "About you" questions 2 to 8 (AECI-1296, `docs/ACCOUNT_ONBOARDING_SPEC.md`):
+ * where you work, your role, company size, audiences, firm name, LinkedIn and,
+ * since AECI-2208, "How did you find AEC Integrations?". The last is the shared
+ * `aec-found-via-field` with its live region off: its follow-up announcement goes
+ * out on `announce` like every other status here.
  * Display name is NOT here: `/welcome` and `/account` each own that field.
  *
  * Presentational over a two-way `draft` model. The parent owns saving, so the
@@ -93,7 +98,7 @@ const VENDOR_SHOWN = $localize`:@@profileDetails.vendor.shown:Company size, audi
  */
 @Component({
   selector: 'aec-profile-details-form',
-  imports: [AecSelect],
+  imports: [AecSelect, FoundViaField],
   host: { class: 'block' },
   template: `
     <div class="space-y-6">
@@ -300,6 +305,18 @@ const VENDOR_SHOWN = $localize`:@@profileDetails.vendor.shown:Company size, audi
           </p>
         }
       </div>
+
+      <!-- AECI-2208: asked of everyone, on /welcome and /account. Its follow-up
+           box is capped at the server limit, so it has no error state. -->
+      <aec-found-via-field
+        [idPrefix]="idPrefix() + '-found-via'"
+        [liveRegion]="false"
+        [value]="draft().found_via"
+        (valueChange)="setFoundVia($event)"
+        [detail]="draft().found_via_detail"
+        (detailChange)="setFoundViaDetail($event)"
+        (announce)="announce.emit($event)"
+      />
     </div>
   `,
 })
@@ -457,6 +474,14 @@ export class ProfileDetailsForm {
   protected onFirm(event: Event): void {
     const value = (event.target as HTMLInputElement).value;
     this.draft.update((d) => ({ ...d, firm_name: value }));
+  }
+
+  protected setFoundVia(value: '' | FoundVia): void {
+    this.draft.update((d) => ({ ...d, found_via: value }));
+  }
+
+  protected setFoundViaDetail(value: string): void {
+    this.draft.update((d) => ({ ...d, found_via_detail: value }));
   }
 
   protected onLinkedIn(event: Event): void {

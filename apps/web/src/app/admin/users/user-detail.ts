@@ -27,6 +27,7 @@ import { ADMIN_DETAIL_FALLBACK_LABELS } from '../admin-nav';
 import { isStatus } from '../http-status';
 import { lastSeatRefusalVendorId } from '../last-seat-refusal';
 import { ReviewerBansApi } from '../reviewers/reviewer-bans-api';
+import { foundViaLabel } from '../../shared/found-via/found-via-labels';
 import { SortHeader } from '../../shared/sort-header/sort-header';
 import { AdminUsersApi } from './admin-users-api';
 import {
@@ -142,6 +143,10 @@ export class UserDetail {
       linkedinUrl: about.linkedin_url,
       audiences: about.audiences.map((a) => a.name).join(', '),
       onboarding: about.onboarding,
+      // AECI-2208: the About you "How did you find us?" answer, labelled as the
+      // claim detail labels it. An older API omits both keys and reads as unanswered.
+      foundVia: foundViaLabel(about.found_via),
+      foundViaDetail: about.found_via_detail ?? null,
     };
   });
   protected readonly loading = signal(true);

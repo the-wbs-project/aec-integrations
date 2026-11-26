@@ -4,7 +4,8 @@
  * to `next`, and the analytics events never carrying firm or LinkedIn.
  */
 import { provideZonelessChangeDetection } from '@angular/core';
-import { TestBed } from '@angular/core/testing';
+import { type ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -12,6 +13,7 @@ import type { AccountProfileResponse } from '@aeci/shared';
 
 import { Analytics } from '../analytics/analytics';
 import { AccountApi } from '../account/account-api';
+import { FoundViaField } from '../shared/found-via/found-via-field';
 import { WelcomePage, welcomeNextPath } from './welcome';
 
 const PROFILE: AccountProfileResponse = {
@@ -31,6 +33,8 @@ const PROFILE: AccountProfileResponse = {
     firm_name: null,
     linkedin_url: null,
     audience_ids: [],
+    found_via: null,
+    found_via_detail: null,
   },
   onboarding: 'pending',
   suggested_display_name: 'Ada Lovelace',
@@ -47,7 +51,7 @@ async function setup(
 ) {
   const api = {
     getProfile: vi.fn(async () => ({ ...PROFILE, ...profile })),
-    updateProfile: vi.fn(async () => ({ ...PROFILE, onboarding: 'completed' })),
+    updateProfile: vi.fn(async (_input: unknown) => ({ ...PROFILE, onboarding: 'completed' })),
     listAudiences: vi.fn(async () => []),
   };
   const analytics = { onboardingCompleted: vi.fn(), onboardingSkipped: vi.fn() };
@@ -74,7 +78,63 @@ async function setup(
   return { fixture, api, analytics, navigate, el: fixture.nativeElement as HTMLElement };
 }
 
+/** The found-via field's instance, so a test can answer it through its models. */
+function foundViaField(fixture: ComponentFixture<WelcomePage>): FoundViaField {
+  return fixture.debugElement.query(By.directive(FoundViaField)).componentInstance as FoundViaField;
+}
+
 describe('WelcomePage', () => {
+  // AECI-2208: "How did you find us?" on /welcome only.
+  describe('How did you find us?', () => {
+    it('shows the optional question after the About you questions', async () => {
+      const { el } = await setup();
+      const field = el.querySelector('aec-found-via-field');
+      expect(field).not.toBeNull();
+      expect(field!.textContent).toContain('How did you find AEC Integrations? (optional)');
+      expect(el.querySelector('#welcome-found-via-trigger')).not.toBeNull();
+      // The last question of the shared About you form.
+      expect(field!.closest('aec-profile-details-form')).not.toBeNull();
+    });
+
+    it('sends the answer with the completing save, and the event carries the enum only', async () => {
+      const { fixture, el, api, analytics } = await setup();
+      const field = foundViaField(fixture) as unknown as { choose(v: string | null): void };
+      field.choose('ai_tool');
+      fixture.detectChanges();
+      // The follow-up is announced in the page's one live region.
+      expect(el.querySelector('[data-testid="welcome-status"]')!.textContent?.trim()).toBe(
+        'A follow-up question appeared: What did you ask it?',
+      );
+      const input = el.querySelector<HTMLInputElement>('[data-testid="found-via-detail"]')!;
+      input.value = 'best AEC integration directory';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      (el.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit'));
+      await settle();
+      expect(api.updateProfile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          found_via: 'ai_tool',
+          found_via_detail: 'best AEC integration directory',
+          onboarding: 'completed',
+        }),
+      );
+      const props = analytics.onboardingCompleted.mock.calls[0]![0];
+      expect(props.found_via).toBe('ai_tool');
+      expect(JSON.stringify(props)).not.toContain('directory');
+    });
+
+    it('never blocks Save, and Skip never sends it', async () => {
+      const { fixture, el, api } = await setup();
+      const field = foundViaField(fixture);
+      field.value.set('search');
+      field.detail.set('aec directory');
+      fixture.detectChanges();
+      (el.querySelector('[data-testid="welcome-skip"]') as HTMLButtonElement).click();
+      await settle();
+      expect(api.updateProfile).toHaveBeenCalledWith({ onboarding: 'skipped' });
+    });
+  });
+
   it('pre-fills the display name from the Google name when none is set', async () => {
     const { el } = await setup();
     expect(el.querySelector<HTMLInputElement>('#welcome-display-name')!.value).toBe('Ada Lovelace');
@@ -133,6 +193,12 @@ describe('WelcomePage', () => {
       company_size: null,
       primary_role: 'manager',
       audience_count: 0,
+      found_via: null,
+    });
+    // AECI-2208: an unanswered found-via question is sent as a clear, like every answer.
+    expect(api.updateProfile.mock.calls[0]![0]).toMatchObject({
+      found_via: '',
+      found_via_detail: '',
     });
     expect(JSON.stringify(props)).not.toContain('Acme');
     expect(JSON.stringify(props)).not.toContain('linkedin');
@@ -169,6 +235,7 @@ describe('WelcomePage', () => {
 
   it('has one persistent polite status region and focuses the heading when the form shows', async () => {
     const { el } = await setup();
+    // The found-via field relays to this region rather than adding one (AECI-2208).
     const regions = el.querySelectorAll('[role="status"]');
     expect(regions).toHaveLength(1);
     const status = el.querySelector('[data-testid="welcome-status"]')!;
