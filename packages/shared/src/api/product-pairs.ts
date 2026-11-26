@@ -444,7 +444,8 @@ export const PairSubjectCaptionsSchema = z.object({
 });
 export type PairSubjectCaptions = z.infer<typeof PairSubjectCaptionsSchema>;
 
-/** A pair page's two subjects (AECI-1618): each keeps its logo and says if it is claimed. */
+/** A pair page's two subjects (AECI-1618): each keeps a logo and says if it is claimed. While
+ *  unclaimed the logo is one we may show, never a leftover upload (AECI-2057). */
 export const ProductPairSubjectSchema = ProductListItemSchema.extend({
   claim_status: SubjectClaimStatusSchema,
   /**

@@ -100,7 +100,7 @@ export type ProductListItem = z.infer<typeof ProductListItemSchema>;
  * `integrations_as_source` / `integrations_as_target` still carry `logo_url: null` for
  * an unclaimed partner, and no list, card, row or search record carries this shape.
  *
- * `logo_url` is a logo we may show (`wheelLogoOf` in the API): a claimed product's stored
+ * `logo_url` is a logo we may show (`publicLogoOf` in the API): a claimed product's stored
  * logo, the vendor's upload included; for an unclaimed product, the logo we sourced
  * ourselves, never a vendor upload left over from an ended claim (Vendor Terms 1.3,
  * ADR 0051). A removal on objection clears both, and the purge of `product:{partner}` it

@@ -60,3 +60,12 @@ Decision 4 now holds when a read forgets the claim fact. Before, a missing fact 
 - The public `toProductLink` shows a logo only when the row carries a truthy `claimed`. The portal and admin reads map with `toOwnedProductLink`, an explicit choice to keep the stored value. The vendor, list and search mappers already read an absent `owned_at` as unclaimed.
 - `claim_status` on a page subject is required, with no `claimed` default. `shareableLogo` carries a logo only for `'claimed'`.
 - `aec-logo-or-initial` takes a required `claimStatus`. A public list or link payload passes `'server-filtered'`. A portal, admin or avatar surface, and the dev-only preview fixtures, pass `'stored'`. A missing value shows the tile.
+
+## Amended 2026-11-26: the page subject shows only a sourced logo (AECI-2057)
+
+Decision 4 keeps "a small sourced logo" on the page's own subject. The product, pair and vendor subjects returned the stored `logo_url` instead. Right after a claim ends that column can still hold the vendor's upload, until decision 5's job runs, and a hold can delay the job to day 13. So the upload stayed on the page beside the Unclaimed note.
+
+- The three subjects now map through `publicLogoOf` in `apps/api/src/lib/drizzle-helpers.ts`, the rule the integrations wheel already used (AECI-2018). Claimed shows the stored logo. Unclaimed with `logo_source = 'vendor'` shows `sourced_logo_url`, or none. Unclaimed otherwise shows the stored logo, which is promote's or an AECi correction.
+- The pair-subject and vendor-detail reads select `logo_source` and `sourced_logo_url`. A read without them shows no logo while unclaimed, so the rule fails closed.
+- No new purge is needed. The claim end already purges `vendor:{slug}` and each `product:{slug}` (decision 2), and pair pages carry both products' tags.
+
