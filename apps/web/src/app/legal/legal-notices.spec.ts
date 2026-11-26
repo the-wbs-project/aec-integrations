@@ -195,7 +195,7 @@ describe('validateLegalNotices', () => {
   });
 });
 
-// AECI-1870 (ruling 68): the notice that the first in-force versions took effect.
+// AECI-1870 (ruling 69): the notice that the first in-force versions took effect.
 describe('the in-force notice', () => {
   const IN_FORCE: LegalInForceNotice = {
     kind: 'in-force',

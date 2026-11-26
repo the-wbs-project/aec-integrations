@@ -221,7 +221,10 @@ export class HomeWhy {
     },
   ];
 
-  /** What AECi does instead. The second idea is the band's one no-pay-for-placement line. */
+  /**
+   * What AECi does instead. The second idea is the band's one no-pay-for-placement line: the
+   * phrase as its title, and ruling 65's order sentence as its body (AECI-2233, ruling 68).
+   */
   protected readonly ideas: readonly Idea[] = [
     {
       id: 'documented',
@@ -232,8 +235,8 @@ export class HomeWhy {
     {
       id: 'earned',
       icon: 'scale',
-      title: $localize`:@@home.why.idea.earned.title:Position is earned, never bought`,
-      body: $localize`:@@home.why.idea.earned.body:Rankings are algorithmic. Listings are never boosted by spend, and there is no pay-for-placement.`,
+      title: $localize`:@@home.why.idea.earned.title:No pay-for-placement`,
+      body: $localize`:@@home.why.idea.earned.body:Rankings are algorithmic. Payment never changes the order in which products are listed or returned in search.`,
     },
     {
       id: 'aec-native',

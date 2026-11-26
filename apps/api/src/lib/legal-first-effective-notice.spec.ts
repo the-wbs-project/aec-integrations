@@ -1,6 +1,6 @@
 /**
  * The day-of notice when the first in-force versions take effect (AECI-1870,
- * `legal-first-effective`, rulings 28 and 68) on the in-memory D1 harness.
+ * `legal-first-effective`, rulings 28 and 69) on the in-memory D1 harness.
  *
  * INVARIANTS. None should be deleted without reopening the decision behind it:
  *

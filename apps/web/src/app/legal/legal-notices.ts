@@ -5,7 +5,7 @@
  * step is in `src/content/legal/README.md`.
  *
  * Two kinds of entry. A change notice (no `kind`, or `kind: "change"`) names one
- * document's upcoming version. Since AECI-1870 (ruling 68) an in-force notice
+ * document's upcoming version. Since AECI-1870 (ruling 69) an in-force notice
  * (`kind: "in-force"`) says the first in-force versions took effect: it runs from
  * 00:00 UTC of their effective day for 14 days, links `/legal`, and names the versions,
  * each of which must be the current one, dated that day.
@@ -46,7 +46,7 @@ export interface LegalChangeNotice {
 }
 
 /**
- * An in-force notice in `notices.json` (AECI-1870, ruling 68): the first in-force
+ * An in-force notice in `notices.json` (AECI-1870, ruling 69): the first in-force
  * versions of the legal documents took effect on `effectiveDate`.
  */
 export interface LegalInForceNotice {
@@ -79,7 +79,7 @@ export const LEGAL_NOTICES = noticesJson as readonly LegalNotice[];
 /** How long a notice runs before its effective date. */
 export const LEGAL_NOTICE_DAYS = 30;
 
-/** How long an in-force notice runs from its effective day (AECI-1870, ruling 68). */
+/** How long an in-force notice runs from its effective day (AECI-1870, ruling 69). */
 export const LEGAL_IN_FORCE_NOTICE_DAYS = 14;
 
 /** The longest summary the one-line band is designed for. */

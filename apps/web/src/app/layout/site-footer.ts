@@ -206,6 +206,12 @@ import { BrandLogo } from './brand-logo';
                   >
                 </li>
               }
+              <!-- AECI-2237: the index of every legal document. -->
+              <li>
+                <a routerLink="/legal" [class]="linkClass"
+                  ><ng-container i18n="@@app.footer.legal.all">All legal documents</ng-container></a
+                >
+              </li>
               <!-- A static text file, not an app route: a plain href, same tab. -->
               <li>
                 <a

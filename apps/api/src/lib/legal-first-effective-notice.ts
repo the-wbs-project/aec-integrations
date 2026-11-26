@@ -1,6 +1,6 @@
 /**
  * The notice on the day the first in-force versions of the legal documents take effect
- * (AECI-1870, `legal-first-effective`, counsel Q60, rulings 28 and 68, `STAGE_1_SPEC.md`
+ * (AECI-1870, `legal-first-effective`, counsel Q60, rulings 28 and 69, `STAGE_1_SPEC.md`
  * §27.4). Before it, the publish flow emailed 30 days ahead and nothing went at the moment.
  *
  * ── WHEN ───────────────────────────────────────────────────────────────────────
@@ -16,7 +16,7 @@
  * Every document whose first version took effect at one moment goes in one email. The
  * audience is every unbanned `profiles` row of the tier, vendor seats included
  * (`legalNoticeAccountIds`), so a person is one entry however many roles they hold. A
- * billing email that belongs to no account is not sent it (ruling 68). The job queues one
+ * billing email that belongs to no account is not sent it (ruling 69). The job queues one
  * {@link LegalFirstEffectiveMessage} per {@link READER_NOTICE_CHUNK} accounts on
  * `aeci-legal-notice-{env}` with `sendBatch()`, then stamps
  * `legal_versions.first_effective_notice_enqueued_at` on every row of the moment, each with

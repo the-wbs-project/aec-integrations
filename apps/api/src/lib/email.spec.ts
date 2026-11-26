@@ -5056,7 +5056,7 @@ describe('entitlement-expiring with a new Managed plan agreement version (AECI-1
 
 // ─── AECI-1870: the day the first versions take effect ───────────────────────
 
-describe('sendLegalFirstEffectiveEmail (AECI-1870, ruling 68)', () => {
+describe('sendLegalFirstEffectiveEmail (AECI-1870, ruling 69)', () => {
   const SITE = { PUBLIC_SITE_URL: 'https://www.aecintegrations.com' };
   const ALL: LegalFirstEffectiveSubject['documents'] = [
     { document: 'review_guidelines', version: '1.1' },

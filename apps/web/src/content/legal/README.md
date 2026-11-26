@@ -27,6 +27,7 @@ The mapping lives in `LEGAL_SOURCE_FILES` (`app/legal/legal-slugs.ts`, re-export
 
 | Route (public)                  | Source file                   | Frontmatter `title`     |
 | ------------------------------- | ----------------------------- | ----------------------- |
+| `/legal` (index, AECI-2237)     | none: one row per slug below  | Legal                   |
 | `/legal/terms`                  | `terms-of-service.md`         | Terms of Service        |
 | `/legal/privacy`                | `privacy-policy.md`           | Privacy Policy          |
 | `/legal/review-guidelines`      | `review-guidelines.md`        | Review Guidelines       |
@@ -246,7 +247,7 @@ Built rules that match the current text, for the legal stream to know:
 - **AECI-1869, Privacy Policy "Retention": done, no text change (November 17, 2026).** The audit record no longer stores About you values, and a one-time scrub removes the old ones (`scripts/ops/2026-11-about-you-audit-scrub/`). The sentence is true once the scrub has run on a tier.
 - **Text item 14.7, Privacy Policy "Deletion" (AECI-1683, ruling 45). Applied.** After the list of what is kept: "We also keep a copy of information that the law requires us to preserve, for example when we have received legal process about it, for as long as that requirement lasts."
 - **AECI-1871, `/docs/trust/how-ranking-works` (Q44, ruling 36). Applied in ranking page 1.1.** "A paid plan lets a vendor edit more of its own listing. It changes what a page says, never where it appears." **Superseded in 1.2 by item 14.8 (AECI-2230, November 26, 2026).**
-- **AECI-1870 (Q60, ruling 28). Built November 26, 2026, off the gate list.** A short notice when the first versions take effect. Counsel said none is owed for text added before the first effective date. A new use of data we already hold needs notice whenever its text lands. Ruling 68 set the audience, the band and the wording: an email to every unbanned account holder at the moment, and a 14-day band. What goes out is in "Announcing a new version before it takes effect" step 4, and the band entry in "Site-wide notice of a material change". The Privacy Policy changed in the v1.1 draft, in place (see November 26, 2026 below). The band links `/legal`, which **AECI-2237** builds, so no in-force entry may be added before it ships.
+- **AECI-1870 (Q60, ruling 28). Built November 26, 2026, off the gate list.** A short notice when the first versions take effect. Counsel said none is owed for text added before the first effective date. A new use of data we already hold needs notice whenever its text lands. Ruling 69 set the audience, the band and the wording: an email to every unbanned account holder at the moment, and a 14-day band. What goes out is in "Announcing a new version before it takes effect" step 4, and the band entry in "Site-wide notice of a material change". The Privacy Policy changed in the v1.1 draft, in place (see November 26, 2026 below). The band links `/legal`, the legal index AECI-2237 built.
 
 **Also applied in legal branch 6 (AECI-1363, November 18, 2026), all in place:**
 
@@ -264,7 +265,7 @@ On November 7, 2026 the sign-in page redesign added a paragraph to the Privacy P
 
 On November 4, 2026 **AECI-1592** added a paragraph to the Privacy Policy's "Cookies and similar technologies": dismissing a notice is the visitor's choice, the browser keeps a per-notice flag, and we remove the flag on the first visit after the notice period ends. It went into the v1.1 draft in place, without a bump, because that draft has never taken effect. Counsel should check it with AECI-308.
 
-On November 26, 2026 **AECI-1870** (ruling 68) widened that paragraph's first sentence, in the v1.1 draft in place, without a bump, because that draft has never taken effect: "You can dismiss a notice about a change to our legal documents, or a notice that they are now in force." Its last sentence now reads "We remove it the first time you visit after that notice's period ends.", which holds for both kinds: the band drops a stored flag once its notice's window has closed, 30 days before and through the effective day for a change notice, 14 days from the effective day for an in-force notice. The change-history line for 1.1 says so. The Privacy Policy has no text hash, so nothing else changes. Counsel has not seen the sentence.
+On November 26, 2026 **AECI-1870** (ruling 69) widened that paragraph's first sentence, in the v1.1 draft in place, without a bump, because that draft has never taken effect: "You can dismiss a notice about a change to our legal documents, or a notice that they are now in force." Its last sentence now reads "We remove it the first time you visit after that notice's period ends.", which holds for both kinds: the band drops a stored flag once its notice's window has closed, 30 days before and through the effective day for a change notice, 14 days from the effective day for an in-force notice. The change-history line for 1.1 says so. The Privacy Policy has no text hash, so nothing else changes. Counsel has not seen the sentence.
 
 **DMCA designated agent: registered** with the U.S. Copyright Office DMCA Designated Agent
 Directory on October 28, 2026 (**AECI-305**, registration number DMCA-1084399), as the role
@@ -555,7 +556,7 @@ steps in this order.
 4. **On the effective moment, nothing to do.** At 12:00 UTC of the effective day the site switches
    to the new version by itself ("The effective date switches by itself" above). Check
    `/legal/<slug>` shows the new version after the moment.
-   - **For a document's first in-force version, an email goes out too** (AECI-1870, ruling 68).
+   - **For a document's first in-force version, an email goes out too** (AECI-1870, ruling 69).
      The 12:00 UTC tick runs the `legal_first_effective_notice` job. It finds every document
      whose first in-force version took effect at that moment and emails every unbanned account
      one `legal-first-effective` notice listing them, with the owner-seat line about accepting
@@ -606,10 +607,10 @@ steps in this order.
    that day (UTC), so a closed entry renders nothing. This is tidying, and can ride the cleanup
    change in step 5.
 7. **For the first in-force versions, add the in-force band in the cleanup change** (AECI-1870,
-   ruling 68). Add one `kind: "in-force"` entry naming every version that took effect at the moment
+   ruling 69). Add one `kind: "in-force"` entry naming every version that took effect at the moment
    ("Site-wide notice of a material change" below). It runs from the effective day for 14 days, so
-   land the cleanup on the effective day to show all 14. Remove it once those days are over. Not
-   before AECI-2237 has built the `/legal` page it links.
+   land the cleanup on the effective day to show all 14. Remove it once those days are over. The
+   `/legal` page it links shipped with AECI-2237.
 
 ## Publishing an upcoming agreement version (AECI-1688)
 
@@ -838,7 +839,7 @@ Each entry:
   so do not remove it before the day is over. A closed entry renders nothing.
 - `summary` is content, like the Markdown body, so it is not extracted into `messages.xlf`.
 
-**The in-force notice (AECI-1870, ruling 68).** When the first in-force versions take effect, a
+**The in-force notice (AECI-1870, ruling 69).** When the first in-force versions take effect, a
 second kind of entry says so on every page: "Our legal documents are now in force from {date}." with
 a "Read them" link to `/legal`. It is dismissed like a change notice, under its own id
 (`in-force@<effectiveDate>`), so a dismissal never hides any other notice.
@@ -861,7 +862,7 @@ a "Read them" link to `/legal`. It is dismissed like a change notice, under its 
   only when each is the slug's current version (`LEGAL_CURRENT_VERSIONS`), not an upcoming one, and
   the current file's `effective_date` is `effectiveDateLabel`. So add it in the bump-day change (step 7
   above), and remove it once the 14 days are over.
-- The band links `/legal`, which **AECI-2237** builds. Add no entry before that page ships.
+- The band links `/legal`, the legal index AECI-2237 built.
 - The day-of email is separate and needs no entry: the 12:00 job sends it (step 4 above).
 
 ## Open Government Licence attribution (AECI-1310)

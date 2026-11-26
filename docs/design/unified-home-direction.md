@@ -16,7 +16,9 @@ The home's one-liner is:
 
 > **The independent directory of AEC software integrations. No pay-for-placement.**
 
-AECI-1316 (2026-10-14) dropped "No vendor marketing" from every line below. Vendors write product descriptions and "How teams use it", so the claim was untrue.
+AECI-1316 (2026-10-14) dropped "No vendor marketing" from every line below. Vendors write product descriptions and "How teams use it", so the claim was untrue. AECI-2233 removed it from the share image and the welcome email too.
+
+Ruling 68 (AECI-2233, 2026-11-26) keeps "No pay-for-placement" as the short tagline, subject to counsel question Q75. A full sentence about ranking uses ruling 65's order wording instead. The argument band's second idea is titled "No pay-for-placement", and its body reads "Rankings are algorithmic. Payment never changes the order in which products are listed or returned in search." The about page's trust pillar uses the same body.
 
 Three live expressions ladder up to it (reconciled in AECI-270):
 

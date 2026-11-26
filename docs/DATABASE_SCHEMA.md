@@ -3238,7 +3238,7 @@ create unique index legal_versions_document_version_key on legal_versions(docume
   also clears `notice_enqueued_at` (with a system `legal_version.notice_expired` audit row) when a
   message arrives after `effective_at`, because it then sends nothing. What was actually
   sent lives in `notification_sends` (§9.9), per address, and in `legal_notice_deliveries` (§8.6j), per company, not here. The outcome UPDATE is guarded on `effective_at > now`, so a fan-out that finishes after the effective moment cannot stamp the column over the expiry.
-- **The day-of notice marker (AECI-1870, rulings 28 and 68).** The daily
+- **The day-of notice marker (AECI-1870, rulings 28 and 69).** The daily
   `legal_first_effective_notice` job (`lib/legal-first-effective-notice.ts`) stamps
   `first_effective_notice_enqueued_at` on every row whose document's FIRST in-force version took
   effect at one moment in the last 7 days, once it has queued the `legal-first-effective` email to

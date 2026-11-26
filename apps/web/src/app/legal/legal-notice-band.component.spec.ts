@@ -231,7 +231,7 @@ describe('LegalNoticeBand', () => {
     });
   });
 
-  // AECI-1870 (ruling 68): the notice that the documents are now in force.
+  // AECI-1870 (ruling 69): the notice that the documents are now in force.
   describe('the in-force notice', () => {
     it('renders the lead and the Read them link to /legal from the effective day', async () => {
       configure('server', Date.UTC(2027, 0, 15), [IN_FORCE]);

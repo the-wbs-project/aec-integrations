@@ -63,7 +63,7 @@ function writeDismissed(ids: readonly string[]): void {
  * The site-wide legal notice (AECI-1592, `STAGE_1_SPEC.md` §27.4). The Privacy
  * Policy promises a notice on every page for 30 days before a material change
  * takes effect, naming what changes and linking to the new version. Since AECI-1870
- * (ruling 68) it also says when the first in-force versions took effect, for 14 days
+ * (ruling 69) it also says when the first in-force versions took effect, for 14 days
  * from that day, linking `/legal`. Both kinds are dismissed the same way.
  *
  * Rendered once in the app shell, by SSR, so it is in the cached HTML. The HTML

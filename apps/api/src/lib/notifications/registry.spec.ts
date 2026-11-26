@@ -255,7 +255,7 @@ const ALWAYS_ON = [
   'contest-submitted-owner',
   'entitlement-expiring',
   'legal-account-change',
-  // AECI-1870: a service notice the day the first versions take effect (ruling 68).
+  // AECI-1870: a service notice the day the first versions take effect (ruling 69).
   'legal-first-effective',
   'legal-terms-change',
   // AECI-1638: a forgotten hold keeps personal data past its period.
@@ -320,7 +320,7 @@ describe('pausable (AECI-1224)', () => {
   });
 });
 
-// AECI-1870 (ruling 68): the day-of notice goes to accounts, once per moment.
+// AECI-1870 (ruling 69): the day-of notice goes to accounts, once per moment.
 describe('legal-first-effective (AECI-1870)', () => {
   const entry = getNotification('legal-first-effective');
 

@@ -1,6 +1,6 @@
 /**
  * Which documents' FIRST in-force version took effect at a moment (AECI-1870, counsel Q60,
- * ruling 28, ruling 68, `STAGE_1_SPEC.md` §27.4). The day-of notice
+ * ruling 28, ruling 69, `STAGE_1_SPEC.md` §27.4). The day-of notice
  * (`legal-first-effective`) reads it: one email per effective moment, listing every
  * document whose first in-force version took effect then.
  *

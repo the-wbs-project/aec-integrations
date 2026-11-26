@@ -128,6 +128,14 @@ describe('staticSitemapEntries', () => {
     }
   });
 
+  it('includes the /legal index once, without a lastmod (AECI-2237)', async () => {
+    const entries = await staticSitemapEntries(BASE);
+    const index = entries.filter((e) => e.loc === 'https://aecintegrations.com/legal');
+    expect(index).toHaveLength(1);
+    expect(index[0]?.changefreq).toBe('yearly');
+    expect(index[0]?.lastmod).toBeUndefined();
+  });
+
   it('leaves out every archived legal version (AECI-1361)', async () => {
     const entries = await staticSitemapEntries(BASE);
     expect(LEGAL_ARCHIVE_PATHS.length).toBeGreaterThan(0);

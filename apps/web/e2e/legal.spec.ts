@@ -159,6 +159,59 @@ for (const pageDef of PAGES) {
   });
 }
 
+test.describe('/legal — the index of every document (AECI-2237)', () => {
+  test('returns 200 on the /legal/* cache rules, SSR-rendered, indexable', async ({ request }) => {
+    const res = await request.get('/legal', { maxRedirects: 0 });
+    expect(res.status()).toBe(200);
+    const cacheControl = res.headers()['cache-control'] ?? '';
+    expect(cacheControl, `got: ${cacheControl}`).toContain('s-maxage=86400');
+    expect(cacheControl, `got: ${cacheControl}`).toContain('max-age=3600');
+    expect(res.headers()['cache-tag'] ?? '').toContain('route:index');
+    const html = await res.text();
+    for (const pageDef of PAGES) expect(html).toContain(`href="${pageDef.path}"`);
+    expect(html).not.toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
+  });
+
+  test('lists the six documents in order, each link resolves, console-clean', async ({
+    page,
+    request,
+  }) => {
+    const capture = attachConsoleCapture(page);
+    const res = await page.goto('/legal');
+    expect(res?.status()).toBe(200);
+    await expect(page).toHaveTitle('Legal · AEC Integrations');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Legal');
+    const links = page.getByTestId('legal-index').getByRole('link');
+    await expect(links).toHaveText(PAGES.map((p) => p.heading));
+    const hrefs = await links.evaluateAll((els) => els.map((e) => e.getAttribute('href')));
+    expect(hrefs).toEqual(PAGES.map((p) => p.path));
+    for (const href of hrefs) {
+      expect((await request.get(href!, { maxRedirects: 0 })).status(), href!).toBe(200);
+    }
+    await waitForHydrationSettle(page);
+    expectConsoleClean(capture, 'GET /legal');
+  });
+
+  test('is reachable from the footer Legal nav', async ({ page }) => {
+    await presetConsent(page);
+    await page.goto('/');
+    await expect(page.locator('app-root')).toBeAttached();
+    const legal = page.getByRole('navigation', { name: 'Legal' });
+    await legal.getByRole('link', { name: 'All legal documents', exact: true }).click();
+    await expect(page).toHaveURL(/\/legal$/);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Legal');
+  });
+
+  test('has zero axe violations at WCAG AA', async ({ page }) => {
+    await page.goto('/legal');
+    await expect(page.locator('app-root')).toBeAttached();
+    const results = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+      .analyze();
+    expect(results.violations).toEqual([]);
+  });
+});
+
 test.describe('/legal/privacy — signed-in activity disclosure (AECI-1211)', () => {
   test('discloses the first-party daily activity record', async ({ request }) => {
     const html = await (await request.get('/legal/privacy')).text();

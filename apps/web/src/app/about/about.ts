@@ -64,7 +64,7 @@ import { BoneBand } from '../shared/bone-band/bone-band';
           >
             AEC Integrations is an independent directory and review platform for the software
             integrations that architecture, engineering, and construction teams depend on. No
-            pay-for-placement, no blurred line between editorial and revenue.
+            pay-for-placement. Payment never changes the order of results.
           </p>
         </div>
       </aec-bone-band>
@@ -130,8 +130,8 @@ import { BoneBand } from '../shared/bone-band/bone-band';
                     We seed the catalog from public research. The vendor that offers an integration
                     can take it over and keep its details current, and every claim stays labeled
                     “Listed by AEC Integrations” until the vendors involved confirm it. Vendors
-                    never pay to rank, never pay to remove a review, and never set their own
-                    position. Rankings are algorithmic, always.
+                    never pay to rank, never pay to remove a review, and never set the order of
+                    results. Rankings are algorithmic, always.
                   </p>
                 </li>
               </ul>

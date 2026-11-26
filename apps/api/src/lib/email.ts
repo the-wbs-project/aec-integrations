@@ -1975,12 +1975,12 @@ const LEGAL_FIRST_EFFECTIVE_ORDER: readonly LegalPublishableDocument[] = [
   'review_guidelines',
 ];
 
-/** The closing for an account with nothing to accept (ruling 68, item 3). */
+/** The closing for an account with nothing to accept (ruling 69, item 3). */
 const LEGAL_FIRST_EFFECTIVE_NOTHING_TO_DO =
   'There is nothing you need to do. If a later version reduces your rights, we will ask you to accept it the next time you sign in.';
 
 /**
- * The plain-text and HTML blocks of the day-of notice (ruling 68, the approved copy).
+ * The plain-text and HTML blocks of the day-of notice (ruling 69, the approved copy).
  * Exported so a spec and the operator's render check read the exact words. Every URL in
  * the HTML must already be tagged, so `link` is applied here.
  */
@@ -2022,11 +2022,11 @@ export function legalFirstEffectiveBlocks(
   };
 }
 
-/** The subject and heading of the day-of notice (ruling 68). */
+/** The subject and heading of the day-of notice (ruling 69). */
 export const LEGAL_FIRST_EFFECTIVE_SUBJECT = 'Our legal documents are now in force';
 
 /**
- * `legal-first-effective` (AECI-1870, counsel Q60, ruling 28, ruling 68): the short notice
+ * `legal-first-effective` (AECI-1870, counsel Q60, ruling 28, ruling 69): the short notice
  * on the day the first in-force versions of the legal documents take effect. One per
  * account per effective moment, listing every document whose first in-force version took
  * effect then, each linked to its page. An owner seat gets one more line when the Vendor
@@ -3322,7 +3322,7 @@ export function sendMailingListWelcomeEmail(
   const base = siteUrl(c.env);
   const browseUrl = base ? `${base}/products` : null;
   const intro =
-    'Thanks for signing up. AEC Integrations is an independent directory and review platform for the software used across architecture, engineering, and construction. No vendor marketing, no pay-for-placement.';
+    'Thanks for signing up. AEC Integrations is an independent directory and review platform for the software used across architecture, engineering, and construction. No pay-for-placement.';
   const what =
     'We organize tools by workflow stage and discipline, the way AEC actually works, not by generic software categories. And we keep product quality separate from onboarding experience, so you can judge software on what matters to your projects.';
   const browseLead =

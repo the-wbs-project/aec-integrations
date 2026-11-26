@@ -682,7 +682,7 @@ pnpm --filter @aeci/api exec wrangler d1 execute aeci-app-production --env produ
 ## The day the first versions take effect (AECI-1870)
 
 Not a paging alert. Use this on the effective day of the first in-force versions, after 12:00 UTC,
-to confirm the day-of notice went out (counsel Q60, rulings 28 and 68).
+to confirm the day-of notice went out (counsel Q60, rulings 28 and 69).
 
 **What goes out.** At 12:00 UTC the `legal_first_effective_notice` job runs from the protest
 reminder's tick. For each moment in the last 7 days at which a document's first in-force version
