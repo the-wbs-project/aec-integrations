@@ -28,6 +28,9 @@ describe('AboutPage', () => {
     const { host } = setup();
     expect(host.querySelector('h1')?.textContent).toContain("couldn't find anywhere else");
     expect(host.textContent).toContain('No pay-for-placement');
+    // AECI-2233 (ruling 68): the full sentence is tied to order, never to position.
+    expect(host.textContent).toContain('Payment never changes the order of results.');
+    expect(host.textContent).not.toContain('their own position');
     // AECI-1316: vendors write some product copy, so the claim is gone.
     expect(host.textContent).not.toContain('vendor marketing');
   });

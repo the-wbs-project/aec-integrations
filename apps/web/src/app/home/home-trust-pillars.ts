@@ -101,12 +101,15 @@ export class HomeTrustPillars {
   /** Framing line under the headline. */
   protected readonly lede = $localize`:@@home.trust.lede:Every decision we make, especially how we make money, must protect trust. If we break that trust, we have nothing.`;
 
-  /** The three commitments. Source: pitch deck Slide 10 ("Trust Is the Product"). */
+  /**
+   * The three commitments. Source: pitch deck Slide 10 ("Trust Is the Product"). The rankings
+   * body is ruling 65's order sentence (AECI-2233, ruling 68), never a promise about position.
+   */
   protected readonly pillars: readonly Pillar[] = [
     {
       id: 'rankings',
       title: $localize`:@@home.trust.rankings.title:Never sell rankings`,
-      body: $localize`:@@home.trust.rankings.body:Search results and listings are earned, not bought. Payment never influences position. Ever.`,
+      body: $localize`:@@home.trust.rankings.body:Rankings are algorithmic. Payment never changes the order in which products are listed or returned in search.`,
     },
     {
       id: 'transparent',
@@ -121,5 +124,5 @@ export class HomeTrustPillars {
   ];
 
   /** Closing reinforcement (no competitor call-outs on the public site). */
-  protected readonly closing = $localize`:@@home.trust.closing:We will earn revenue from vendors who want to be found, never from changing what you see.`;
+  protected readonly closing = $localize`:@@home.trust.closing:We will earn revenue from vendors who want to be found, never from changing the order of results.`;
 }

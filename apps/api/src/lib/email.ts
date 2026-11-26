@@ -3199,7 +3199,7 @@ export function sendMailingListWelcomeEmail(
   const base = siteUrl(c.env);
   const browseUrl = base ? `${base}/products` : null;
   const intro =
-    'Thanks for signing up. AEC Integrations is an independent directory and review platform for the software used across architecture, engineering, and construction. No vendor marketing, no pay-for-placement.';
+    'Thanks for signing up. AEC Integrations is an independent directory and review platform for the software used across architecture, engineering, and construction. No pay-for-placement.';
   const what =
     'We organize tools by workflow stage and discipline, the way AEC actually works, not by generic software categories. And we keep product quality separate from onboarding experience, so you can judge software on what matters to your projects.';
   const browseLead =

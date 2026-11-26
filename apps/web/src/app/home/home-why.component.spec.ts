@@ -90,7 +90,7 @@ describe('HomeWhy', () => {
     const points = Array.from(card.querySelectorAll('[data-testid="home-why-ideas"] > li'));
     expect(points.map((c) => text(c.querySelector('h4')))).toEqual([
       'Every connection is documented',
-      'Position is earned, never bought',
+      'No pay-for-placement',
       'Organized the way AEC works',
     ]);
     // Secondary ink on Forest is the measured on-brand secondary, never text-secondary.
@@ -109,6 +109,14 @@ describe('HomeWhy', () => {
   it('says no pay-for-placement exactly once in the band', () => {
     const matches = text(setup()).match(/pay-for-placement/gi) ?? [];
     expect(matches).toHaveLength(1);
+  });
+
+  it('ties the ranking promise to order, not to position or spend (AECI-2233, ruling 68)', () => {
+    const t = text(setup());
+    expect(t).toContain(
+      'Payment never changes the order in which products are listed or returned in search.',
+    );
+    expect(t).not.toMatch(/boosted by spend|position is earned|never bought/i);
   });
 
   it('claims no reviews or ratings anywhere outside the cited market figures (AECI-1557)', () => {
