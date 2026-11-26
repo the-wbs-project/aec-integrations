@@ -189,6 +189,13 @@
       "aeci.legal_retention.prune fires on EVERY run, outcome ok, skipped (a global litigation",
       "hold) or failed. It carries activeFrom until its first production heartbeat.",
       "",
+      "AECI-820 added search-ingest, the thirtieth job and the second weekly cron, Sundays at",
+      "22:00 UTC (0 22 * * 1, Cloudflare day-of-week 1 = Sunday). It pulls Search Console figures",
+      "into metrics_daily. Its heartbeat aeci.search_ingest.run fires on EVERY run, outcome ok,",
+      "partial, skipped or failed. maxAgeMinutes is 20520, the asn-registry weekly value, and the",
+      "360-hour lookback already covers a weekly heartbeat. It carries activeFrom until its first",
+      "production heartbeat.",
+      "",
       "AECI-1476 added indexnow-send, the first entry that is NOT a Cloudflare cron. It is the",
       "GitHub Actions workflow that sends the daily IndexNow request from a runner IP, because",
       "IndexNow refuses the shared Worker egress IPs. It carries `scheduler: github-actions`, not",
@@ -444,6 +451,17 @@
         "datadogMonitor": null,
         "datadogNoDataTimeframeMinutes": null,
         "_note": "AECI-1680. Never had a Datadog monitor: the cron did not exist. Daily, so 1560 (26 h). The heartbeat fires on every run, outcome ok, skipped or failed, so its absence means the job stopped running. A failed DigiCert timestamp is logged as aeci.acceptance_chain.timestamp_failed and the run stays ok. The first production heartbeat landed 2026-11-18, so activeFrom was removed."
+      },
+      {
+        "job": "search-ingest",
+        "cron": "0 22 * * 1",
+        "metric": "aeci.search_ingest.run",
+        "maxAgeMinutes": 20520,
+        "trigger": "cron",
+        "activeFrom": "2026-12-14T00:00:00Z",
+        "datadogMonitor": null,
+        "datadogNoDataTimeframeMinutes": null,
+        "_note": "AECI-820. Never had a Datadog monitor: the cron did not exist. WEEKLY, Sundays 22:00 UTC (Cloudflare day-of-week 1 = Sunday), so 20520 (14.25 days), the asn-registry value. The heartbeat fires on every run, once per engine (engine:google, and engine:bing since AECI-821), outcome ok, partial, skipped (no GSC_SA_KEY_JSON or not a public env for Google; no BWT_API_KEY or BWT_SITE_URL for Bing), throttled (Bing only) or failed (the engine refused the credential), so its absence means the job stopped running. trigger:cron, so an operator re-run cannot stand in for a missed week. activeFrom is a placeholder past the expected production promote of epic AECI-816; move it to the first Sunday run after the real promote plus one day, and delete it once the first production heartbeat is in."
       },
       {
         "job": "stripe-reconcile",

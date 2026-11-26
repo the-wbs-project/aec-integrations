@@ -736,7 +736,7 @@ describe('--series selection', () => {
 
   it('stops counting a day once ANY metrics_daily row captures it', async () => {
     // Mirrors `findSnapshotGap`, which asks the same question of the same table:
-    // presence of any row for the day, not presence of every series.
+    // presence of any snapshot-key row for the day, not presence of every series.
     await t.db
       .insert(pageViews)
       .values([{ path: '/', createdAt: '2026-08-06T01:00:00.000Z', isBot: false }]);
@@ -748,6 +748,38 @@ describe('--series selection', () => {
       computedAt: '2026-08-20T00:00:00.000Z',
     });
     expect(exposedDays(EARLIER)).toBe(0);
+  });
+
+  it('keeps counting a day as exposed when only a search ingest row covers it (AECI-820)', async () => {
+    // The ingest files Google's figures under Pacific dates (§5.24.8). Its rows
+    // prove nothing about the snapshot, so the probe must ignore them, as
+    // `findSnapshotGap` does.
+    await t.db
+      .insert(pageViews)
+      .values([{ path: '/', createdAt: '2026-08-06T01:00:00.000Z', isBot: false }]);
+    await t.db.insert(metricsDaily).values({
+      day: '2026-08-06',
+      metric: 'search.google.www_page.impressions',
+      value: 12,
+      source: 'measured',
+      computedAt: '2026-08-20T00:00:00.000Z',
+    });
+    expect(exposedDays(EARLIER)).toBe(1);
+  });
+
+  it('leaves search ingest rows out of the unscoped coverage probe (AECI-820)', async () => {
+    await t.db.insert(metricsDaily).values({
+      day: '2026-08-06',
+      metric: 'search.google.www_page.clicks',
+      value: 3,
+      source: 'measured',
+      computedAt: '2026-08-20T00:00:00.000Z',
+    });
+    const probe = t.raw.prepare(buildCoverageProbe(EARLIER)).get() as {
+      rows_total: number;
+      days_covered: number;
+    };
+    expect(probe).toMatchObject({ rows_total: 0, days_covered: 0 });
   });
 
   it('scopes the coverage probe, so an unrelated series cannot fake success', async () => {

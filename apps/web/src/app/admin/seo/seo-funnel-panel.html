@@ -1,0 +1,299 @@
+<section [attr.aria-labelledby]="idPrefix() + '-funnel-heading'">
+  <!-- tabindex -1: a settled retry moves focus here, so it never drops to the page. -->
+  <h3
+    #heading
+    tabindex="-1"
+    [id]="idPrefix() + '-funnel-heading'"
+    class="text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3"
+    i18n="@@admin.seo.funnel.heading"
+  >
+    Is it working?
+  </h3>
+  <!-- The window's length comes from the data. Until it arrives the intro names none. -->
+  @if (crawlDays(); as days) {
+  <p
+    [class]="captionClass"
+    class="mt-2 max-w-[52ch] text-pretty"
+    i18n="@@admin.seo.funnel.intro.days"
+  >
+    Each engine's funnel over the trailing {{ days }} days. The bar is the rate and the count sits
+    beside it. Google and Bing are separate indexes, so their figures are never added together.
+  </p>
+  } @else {
+  <p [class]="captionClass" class="mt-2 max-w-[52ch] text-pretty" i18n="@@admin.seo.funnel.intro">
+    Each engine's funnel over a trailing window. The bar is the rate and the count sits beside it.
+    Google and Bing are separate indexes, so their figures are never added together.
+  </p>
+  } @if (loading()) {
+  <p class="mt-6 text-t-16 text-(--text-secondary)" i18n="@@admin.seo.funnel.loading">
+    Loading the search funnel…
+  </p>
+  } @else if (loadFailed()) {
+  <!-- The /admin/system error recipe (ADMIN_PANEL_SPEC.md §5.24.4 names it). -->
+  <div class="mt-6 space-y-4">
+    <p
+      class="text-t-16 font-semibold text-pretty text-(--text-primary)"
+      role="alert"
+      i18n="@@admin.seo.funnel.loadFailed"
+    >
+      We couldn't load the search funnel. Your session may have expired.
+    </p>
+    <button aecButton variant="secondary" (click)="retry()" i18n="@@admin.seo.funnel.retry">
+      Try again
+    </button>
+  </div>
+  } @else if (data(); as d) { @if (engines().length === 0) {
+  <p class="mt-6 text-t-16 text-(--text-secondary)" i18n="@@admin.seo.funnel.empty">
+    No funnel to show yet.
+  </p>
+  } @else {
+  <div class="mt-6 grid items-start gap-4 lg:grid-cols-2">
+    @for (e of engines(); track e.engine) {
+    <article
+      [attr.data-testid]="'admin-seo-funnel-' + e.engine"
+      [attr.aria-labelledby]="idPrefix() + '-funnel-' + e.engine"
+      [class]="panelClass"
+    >
+      <h4
+        [id]="idPrefix() + '-funnel-' + e.engine"
+        class="text-t-16 font-semibold text-(--text-primary)"
+      >
+        {{ e.label }}
+      </h4>
+      <p [class]="noteClass" class="mt-1 max-w-[55ch] text-pretty">{{ e.scope }}</p>
+      @if (e.searchWindow) {
+      <p
+        [class]="noteClass"
+        class="mt-1 max-w-[55ch] text-pretty"
+        [attr.data-testid]="'admin-seo-funnel-window-' + e.engine"
+      >
+        {{ e.searchWindow }}
+      </p>
+      }
+
+      <!-- The console table recipe (console-table.ts): a focusable, named region,
+           so a keyboard user can scroll it when it overflows. -->
+      <div
+        [class]="t.region"
+        class="mt-4"
+        tabindex="0"
+        role="region"
+        [attr.aria-labelledby]="idPrefix() + '-funnel-caption-' + e.engine"
+      >
+        <table [class]="t.table">
+          <caption [id]="idPrefix() + '-funnel-caption-' + e.engine" [class]="t.caption">
+            {{ e.caption }}
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col" [class]="t.head" i18n="@@admin.seo.funnel.col.stage">Stage</th>
+              <th scope="col" [class]="t.headNum" i18n="@@admin.seo.funnel.col.rate">Rate</th>
+              <th scope="col" [class]="t.headNum" i18n="@@admin.seo.funnel.col.pages">Pages</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of e.rows; track row.key) {
+            <tr [class]="t.row" [attr.data-stage]="row.key">
+              <!-- The short name is the header every cell in the row hears. The
+                 description is linked, not part of it, so it is not repeated. -->
+              <th
+                scope="row"
+                [class]="stageHead"
+                [attr.aria-describedby]="
+                row.sub ? idPrefix() + '-funnel-' + e.engine + '-' + row.key + '-desc' : null
+              "
+              >
+                <span class="block font-semibold text-(--text-primary)">{{ row.label }}</span>
+                @if (row.sub) {
+                <span
+                  [id]="idPrefix() + '-funnel-' + e.engine + '-' + row.key + '-desc'"
+                  aria-hidden="true"
+                  [class]="t.sub"
+                  class="mt-1 text-pretty"
+                  >{{ row.sub }}</span
+                >
+                }
+              </th>
+              <td [class]="topCell">
+                <span class="flex items-center justify-end gap-3">
+                  <!-- Decoration. The rate beside it is the figure. -->
+                  <span
+                    aria-hidden="true"
+                    class="block h-2 min-w-12 flex-1 overflow-hidden rounded-full bg-(--surface-sunken)"
+                  >
+                    @if (row.barPercent !== null) {
+                    <span
+                      class="block h-full rounded-full"
+                      [class]="e.fillClass"
+                      [style.width.%]="row.barPercent"
+                    ></span>
+                    }
+                  </span>
+                  <span
+                    class="w-14 shrink-0 text-end tabular-nums"
+                    [class]="
+                    row.key === 'catalog'
+                      ? 'text-(--text-secondary)'
+                      : 'font-semibold text-(--text-primary)'
+                  "
+                    >{{ row.rateText }}</span
+                  >
+                </span>
+              </td>
+              <td [class]="topNum" class="text-(--text-secondary)">{{ row.countText }}</td>
+            </tr>
+            } @if (e.clicked; as c) {
+            <tr [class]="t.row" data-stage="clicked">
+              <th scope="row" [class]="stageHead">
+                <span
+                  class="block font-semibold text-(--text-primary)"
+                  i18n="@@admin.seo.funnel.stage.clicked.row"
+                  >Clicked</span
+                >
+              </th>
+              <td colspan="2" [class]="topCell">
+                <span class="font-semibold tabular-nums text-(--text-primary)"
+                  >{{ c.ctrText }}</span
+                >
+                @if (c.positionText) { {{ ' ' }}<span
+                  class="tabular-nums text-(--text-secondary)"
+                  data-testid="admin-seo-funnel-position"
+                  >{{ c.positionText }}</span
+                >
+                } {{ ' ' }}<span class="mt-1 block text-t-13 tabular-nums text-(--text-secondary)"
+                  >{{ c.totalsText }}</span
+                >
+              </td>
+            </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+
+      <!-- This engine's own notes: no ingest data, or a short click window. -->
+      <!-- Flattened inside the card: the notes box is a card of its own, and a
+           card inside a card reads as nesting. A rule above keeps them apart. -->
+      <aec-admin-notes
+        class="[&>div]:rounded-none [&>div]:border-0 [&>div]:bg-transparent [&>div]:px-0 [&>div]:pb-0 border-(--border-default)"
+        [class.mt-4]="e.notes.length > 0"
+        [class.border-t]="e.notes.length > 0"
+        [notes]="e.notes"
+      />
+
+      @if (e.baseline; as b) {
+      <div class="mt-6 border-t border-(--border-default) pt-5" data-testid="admin-seo-baseline">
+        <h5
+          class="text-t-14 font-semibold text-(--text-primary)"
+          i18n="@@admin.seo.funnel.baseline.heading"
+        >
+          Against the {{ b.monthLabel }} baseline
+        </h5>
+        <p [class]="noteClass" class="mt-1 max-w-[55ch] text-pretty">{{ b.explain }}</p>
+        <div
+          [class]="t.region"
+          class="mt-3"
+          tabindex="0"
+          role="region"
+          [attr.aria-labelledby]="idPrefix() + '-baseline-caption'"
+        >
+          <table [class]="t.table">
+            <caption
+              [id]="idPrefix() + '-baseline-caption'"
+              [class]="t.caption"
+              i18n="@@admin.seo.funnel.baseline.caption"
+            >
+              Google, whole property: {{ b.currentHeader }} beside the {{ b.monthLabel }} baseline.
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col" [class]="t.head" i18n="@@admin.seo.funnel.baseline.measure">
+                  Measure
+                </th>
+                <th scope="col" [class]="t.headNum">
+                  <span class="block">{{ b.currentHeader }}</span>
+                  @if (b.currentDates) { {{ ' ' }}<span class="block font-normal"
+                    >{{ b.currentDates }}</span
+                  >
+                  } @if (b.currentRecorded) { {{ ' ' }}<span
+                    class="block font-normal"
+                    data-testid="admin-seo-baseline-recorded"
+                    >{{ b.currentRecorded }}</span
+                  >
+                  }
+                </th>
+                <th scope="col" [class]="t.headNum">
+                  <span class="block">{{ b.referenceHeader }}</span>
+                  {{ ' ' }}<span class="block font-normal">{{ b.referenceDates }}</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (r of b.rows; track r.key) {
+              <tr [class]="t.row" [attr.data-measure]="r.key">
+                <th scope="row" [class]="t.rowHead" class="whitespace-nowrap text-(--text-primary)">
+                  {{ r.label }}
+                </th>
+                <td [class]="t.num">
+                  @if (r.current.notRecorded) {
+                  <span class="text-t-13 text-(--text-secondary) italic">{{ r.current.text }}</span>
+                  } @else {
+                  <span class="text-(--text-primary)">{{ r.current.text }}</span>
+                  }
+                </td>
+                <td [class]="t.num" class="text-(--text-secondary)">{{ r.reference.text }}</td>
+              </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+        @if (b.currentAbsent) {
+        <p
+          [class]="noteClass"
+          class="mt-3 max-w-[55ch] text-pretty"
+          i18n="@@admin.seo.funnel.baseline.currentAbsent"
+        >
+          No whole-property day from Search Console falls in the window yet, so that column reads
+          "Not recorded". The baseline is always shown.
+        </p>
+        } @if (b.referenceRounded) {
+        <p
+          [class]="noteClass"
+          class="mt-2 max-w-[55ch] text-pretty"
+          i18n="@@admin.seo.funnel.baseline.roundedNote"
+        >
+          Search Console showed the baseline impressions rounded, so that figure is approximate.
+        </p>
+        }
+      </div>
+      }
+    </article>
+    }
+  </div>
+
+  <!-- The two notes §5.24.7 requires on the panel itself. The API does not send
+       them, so they are static copy here. -->
+  @if (crawlDays(); as days) {
+  <ul
+    [class]="captionClass"
+    class="mt-4 max-w-[55ch] list-disc space-y-1 ps-5 text-pretty"
+    data-testid="admin-seo-funnel-reading"
+  >
+    <li i18n="@@admin.seo.funnel.note.position">
+      Average position is expected to fall while indexing improves. Newly indexed pages enter at
+      rank 40 to 80 and pull the average down, so a falling position is not a regression.
+    </li>
+    <li i18n="@@admin.seo.funnel.note.reconcile">
+      The stages come from different sources and windows. Crawled is our own record over {{ days }}
+      UTC days. Impressions and clicks are the search engine's Pacific dates, which end a few days
+      earlier. The stages will not reconcile exactly.
+    </li>
+  </ul>
+  } }
+  <!-- AdminNotes renders nothing for an empty list, so only the gap is gated. -->
+  <aec-admin-notes [class.mt-4]="panelNotes().length > 0" [notes]="panelNotes()" />
+
+  <p [class]="noteClass" class="mt-4" i18n="@@admin.seo.funnel.readAt">
+    Read at {{ d.generated_at | date: 'medium' : 'UTC' }} UTC.
+  </p>
+  }
+</section>

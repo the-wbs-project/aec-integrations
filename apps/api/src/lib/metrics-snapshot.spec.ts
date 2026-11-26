@@ -22,6 +22,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   auditLog,
   feedback,
+  gscRecrawlQueue,
   mailingList,
   metricsDaily,
   pageViews,
@@ -41,6 +42,7 @@ import {
   emitMetricsRecheckMetrics,
   emitMetricsSnapshotMetrics,
   recheckWindow,
+  reindexAgeOnDay,
   runMetricsSnapshot,
   runMetricsSnapshotRecheck,
   summarizeRecheck,
@@ -52,6 +54,12 @@ import { OPERATOR_PAIR_LOOKBACK_DAYS } from './page-view-predicates';
 const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const DAY = '2026-08-10';
 const NOW = new Date('2026-08-11T00:15:00.000Z');
+
+/** The key that writes NO row on a day with no tier-1 or tier-2 re-index row
+ *  (AECI-818, §5.24.8). Every fixture here has an empty queue. */
+const ABSENT_ON_EMPTY_QUEUE = 'queue.reindex_oldest_tier12_age_days';
+/** Rows a run writes on an empty re-index queue: every written key but that one. */
+const ROWS_ON_EMPTY_QUEUE = SNAPSHOT_WRITTEN_METRIC_KEYS.length - 1;
 
 const UNFILTERED = { available: false, applied: false, asns: [], predicate: undefined };
 
@@ -133,11 +141,15 @@ describe('runMetricsSnapshot — coverage and idempotence', () => {
 
     expect(result.day).toBe(DAY);
     expect(result.metrics).toHaveLength(SNAPSHOT_WRITTEN_METRIC_KEYS.length);
-    expect(result.metrics.every((m) => m.status === 'written')).toBe(true);
+    for (const m of result.metrics) {
+      expect(m.status).toBe(m.metric === ABSENT_ON_EMPTY_QUEUE ? 'absent' : 'written');
+    }
 
     const rows = await stored();
-    expect(rows.size).toBe(SNAPSHOT_WRITTEN_METRIC_KEYS.length);
-    for (const key of SNAPSHOT_WRITTEN_METRIC_KEYS) expect(rows.has(key)).toBe(true);
+    expect(rows.size).toBe(ROWS_ON_EMPTY_QUEUE);
+    for (const key of SNAPSHOT_WRITTEN_METRIC_KEYS) {
+      expect(rows.has(key)).toBe(key !== ABSENT_ON_EMPTY_QUEUE);
+    }
   });
 
   it('records an empty database as zeros, not as missing rows', async () => {
@@ -161,7 +173,7 @@ describe('runMetricsSnapshot — coverage and idempotence', () => {
     await runMetricsSnapshot(t.db, DAY, later);
 
     const rows = await t.db.select().from(metricsDaily).where(eq(metricsDaily.day, DAY));
-    expect(rows).toHaveLength(SNAPSHOT_WRITTEN_METRIC_KEYS.length);
+    expect(rows).toHaveLength(ROWS_ON_EMPTY_QUEUE);
     expect(rows.every((r) => r.computedAt === later.toISOString())).toBe(true);
   });
 
@@ -173,7 +185,7 @@ describe('runMetricsSnapshot — coverage and idempotence', () => {
     await runMetricsSnapshot(t.db, DAY, NOW);
 
     const rows = await stored();
-    expect(rows.size).toBe(SNAPSHOT_WRITTEN_METRIC_KEYS.length);
+    expect(rows.size).toBe(ROWS_ON_EMPTY_QUEUE);
     expect(rows.get('catalog.products_promoted')).toBe(2);
   });
 
@@ -345,7 +357,162 @@ describe('runMetricsSnapshot — the stock metrics', () => {
   });
 });
 
+describe('runMetricsSnapshot — the search console stocks (AECI-818)', () => {
+  it('writes the seo.* lanes with the crawl window ending at the end of the filed day', async () => {
+    // A day after CONCRETE_PATH_SINCE and edge verification, so no clamp applies.
+    const day = '2026-11-10';
+    await t.db.insert(products).values([
+      { id: u(10), slug: 'crawled', name: 'Crawled', createdAt: '2026-09-01T00:00:00.000Z' },
+      { id: u(11), slug: 'missed', name: 'Missed', createdAt: '2026-09-01T00:00:00.000Z' },
+    ]);
+    const crawl = (concretePath: string, createdAt: string) => ({
+      path: '/products/:slug',
+      concretePath,
+      isBot: true,
+      botName: 'Googlebot',
+      cfVerifiedBotCategory: 'Search Engine Crawler',
+      createdAt,
+    });
+    await t.db.insert(pageViews).values([
+      crawl('/products/crawled', '2026-11-10T23:00:00.000Z'),
+      // After the end of the filed day, so outside that day's window.
+      crawl('/products/missed', '2026-11-11T00:05:00.000Z'),
+    ]);
+    await runMetricsSnapshot(t.db, day, new Date('2026-11-11T00:15:00.000Z'));
+    const rows = await stored(day);
+    expect(rows.get('seo.catalog_urls')).toBe(2);
+    expect(rows.get('seo.crawled_urls_google')).toBe(1);
+    expect(rows.get('seo.uncrawled_urls_google')).toBe(1);
+    expect(rows.get('seo.crawled_urls_bing')).toBe(0);
+    expect(rows.get('seo.uncrawled_urls_bing')).toBe(2);
+    expect(rows.get('seo.pairs_without_reviews')).toBe(0);
+  });
+
+  it('writes the oldest tier-1 or tier-2 age only on a day such a row exists', async () => {
+    const queued = (url: string, priority: number, queuedAt: string) => ({
+      url,
+      priority,
+      reason: 'product.updated',
+      source: 'promote',
+      queuedAt,
+    });
+    await t.db
+      .insert(gscRecrawlQueue)
+      .values(queued('https://x.test/a', 3, '2026-08-01T00:15:00.000Z'));
+    await runMetricsSnapshot(t.db, DAY, NOW);
+    let rows = await stored();
+    expect(rows.get('queue.reindex_pending')).toBe(1);
+    expect(rows.has(ABSENT_ON_EMPTY_QUEUE)).toBe(false);
+
+    await t.db
+      .insert(gscRecrawlQueue)
+      .values(queued('https://x.test/b', 1, '2026-08-08T00:15:00.000Z'));
+    const result = await runMetricsSnapshot(t.db, DAY, NOW);
+    rows = await stored();
+    expect(rows.get('queue.reindex_pending')).toBe(2);
+    // Aged at the sample instant, NOW, three days after it was queued.
+    expect(rows.get(ABSENT_ON_EMPTY_QUEUE)).toBe(3);
+    expect(result.metrics.every((m) => m.status === 'written')).toBe(true);
+  });
+
+  it('stamps every key of one run with the same computed_at, so a stale age row is detectable', async () => {
+    const queued = {
+      url: 'https://x.test/a',
+      priority: 1,
+      reason: 'product.updated',
+      source: 'promote',
+      queuedAt: '2026-08-08T00:15:00.000Z',
+    };
+    await t.db.insert(gscRecrawlQueue).values(queued);
+    await runMetricsSnapshot(t.db, DAY, NOW);
+    const stamps = async () =>
+      new Map(
+        (
+          await t.db
+            .select({ metric: metricsDaily.metric, computedAt: metricsDaily.computedAt })
+            .from(metricsDaily)
+            .where(eq(metricsDaily.day, DAY))
+        ).map((r) => [r.metric, r.computedAt]),
+      );
+    const first = await stamps();
+    expect(new Set(first.values())).toEqual(new Set([NOW.toISOString()]));
+
+    // The tier clears, and the day is snapshotted again later.
+    await t.db.delete(gscRecrawlQueue);
+    const later = new Date(NOW.getTime() + 60 * 60_000);
+    await runMetricsSnapshot(t.db, DAY, later);
+    const second = await stamps();
+    // The age row survives from the first run. Every other key moved to the new stamp.
+    expect(second.get(ABSENT_ON_EMPTY_QUEUE)).toBe(NOW.toISOString());
+    expect(second.get('queue.reindex_tier12_pending')).toBe(later.toISOString());
+    expect(
+      [...second]
+        .filter(([k]) => k !== ABSENT_ON_EMPTY_QUEUE)
+        .every(([, v]) => v === later.toISOString()),
+    ).toBe(true);
+    // The count row says 0, so the shared reader rule reads "none".
+    const rows = await stored();
+    expect(rows.get('queue.reindex_tier12_pending')).toBe(0);
+    expect(
+      reindexAgeOnDay(
+        {
+          value: rows.get('queue.reindex_tier12_pending')!,
+          computedAt: second.get('queue.reindex_tier12_pending')!,
+        },
+        { value: rows.get(ABSENT_ON_EMPTY_QUEUE)!, computedAt: second.get(ABSENT_ON_EMPTY_QUEUE)! },
+      ),
+    ).toBe('none');
+  });
+});
+
+describe('reindexAgeOnDay', () => {
+  const at = (computedAt: string, value: number) => ({ value, computedAt });
+  const T1 = '2026-08-11T00:15:00.000Z';
+  const T2 = '2026-08-11T01:15:00.000Z';
+
+  it('is not recorded without a count row, even when an age row exists', () => {
+    expect(reindexAgeOnDay(undefined, at(T1, 2.5))).toBeNull();
+    expect(reindexAgeOnDay(undefined, undefined)).toBeNull();
+  });
+  it('reads "none" on a count of 0, whatever age row is left', () => {
+    expect(reindexAgeOnDay(at(T2, 0), undefined)).toBe('none');
+    expect(reindexAgeOnDay(at(T2, 0), at(T1, 2.5))).toBe('none');
+  });
+  it('shows the age when the count is positive and both rows come from one run', () => {
+    expect(reindexAgeOnDay(at(T1, 3), at(T1, 2.5))).toBe(2.5);
+  });
+  it('is not recorded when the count is positive and the age row is missing or stale', () => {
+    expect(reindexAgeOnDay(at(T2, 3), undefined)).toBeNull();
+    expect(reindexAgeOnDay(at(T2, 3), at(T1, 2.5))).toBeNull();
+  });
+});
+
 describe('runMetricsSnapshot — failure isolation', () => {
+  it('records a positive tier-1 and tier-2 count when the age write fails, so the age reads not recorded', async () => {
+    await t.db.insert(gscRecrawlQueue).values({
+      url: 'https://x.test/a',
+      priority: 2,
+      reason: 'product.updated',
+      source: 'promote',
+      queuedAt: '2026-08-08T00:15:00.000Z',
+    });
+    t.raw
+      .prepare(
+        `CREATE TRIGGER age_guard BEFORE INSERT ON metrics_daily
+         WHEN NEW.metric = 'queue.reindex_oldest_tier12_age_days'
+         BEGIN SELECT RAISE(ABORT, 'age write failed'); END;`,
+      )
+      .run();
+    const result = await runMetricsSnapshot(t.db, DAY, NOW);
+    expect(result.metrics.find((m) => m.metric === ABSENT_ON_EMPTY_QUEUE)?.status).toBe('failed');
+    const count = await storedRow(DAY, 'queue.reindex_tier12_pending');
+    expect(count?.value).toBe(1);
+    expect(await storedRow(DAY, ABSENT_ON_EMPTY_QUEUE)).toBeUndefined();
+    expect(
+      reindexAgeOnDay({ value: count!.value, computedAt: count!.computedAt }, undefined),
+    ).toBeNull();
+  });
+
   it('records a failing metric and still writes the rest', async () => {
     // §7.1 requires per-key isolation precisely so one broken producer cannot
     // cascade. Dropping `feedback` breaks exactly one metric.
@@ -356,7 +523,7 @@ describe('runMetricsSnapshot — failure isolation', () => {
     const failed = result.metrics.filter((m) => m.status === 'failed');
     expect(failed.map((m) => m.metric)).toEqual(['audience.feedback_total']);
     expect(failed[0]?.error).toBeTruthy();
-    expect((await stored()).size).toBe(SNAPSHOT_WRITTEN_METRIC_KEYS.length - 1);
+    expect((await stored()).size).toBe(ROWS_ON_EMPTY_QUEUE - 1);
   });
 
   it('never throws', async () => {
@@ -593,8 +760,8 @@ describe('runMetricsSnapshotRecheck', () => {
   });
 
   it('never INSERTS a day the primary pass did not cover', async () => {
-    // Not a policy call. `findSnapshotGap` probes metrics_daily with no `metric`
-    // predicate, so one row would tell the 03:00 prune this day is captured while
+    // Not a policy call. `findSnapshotGap` counts any one snapshot-key row as a
+    // captured day, so one row would tell the 03:00 prune this day is captured while
     // every stock — unrecoverable retroactively — is still missing, and the prune
     // would then delete its page_views permanently.
     await seedTargetDay();

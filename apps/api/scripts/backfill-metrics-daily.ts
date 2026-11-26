@@ -398,7 +398,7 @@ export async function main(argv: string[]): Promise<number> {
   }
 
   // 2b. The other half of that scoping, and the one way --series can LOSE data
-  //     (AECI-684). A day gets pruned once it has any `metrics_daily` row, so a
+  //     (AECI-684). A day gets pruned once it has any snapshot-key row, so a
   //     catalog-only run that zero-fills a day holding `page_views` rows marks it
   //     captured while its traffic is still unmeasured — and the next retention
   //     run deletes the only rows it could ever be measured from. The documented

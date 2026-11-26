@@ -42,6 +42,8 @@ import type { EmailOutcome } from './email';
 import type { HomeStatKeyOutcome } from './home-stats';
 import type { MetricsRecheckSummary, MetricsSnapshotResult } from './metrics-snapshot';
 import type { ContestReconcileResult, ReconcileResult } from './reconciliation-sweep';
+import type { GoogleSearchIngestResult } from './search-ingest';
+import type { BingSearchIngestResult } from './search-ingest-bing';
 import type { BrandAssetRemovalCounts } from './brand-asset-removal';
 import type { StripeReconcileCounts } from './stripe-reconcile';
 import type { NudgeSkipReason } from './vendor-claim-nudge';
@@ -452,6 +454,18 @@ export type JobRunDetail =
       tagged: number;
       errors: number;
       halted?: 'quota' | 'auth';
+    }
+  /** The weekly AECI-820 search ingest. `google` is the Google lane's result: the
+   *  Pacific-day windows asked for, each call's outcome, each key's outcome, and the
+   *  `www.` sitemap's dates, which are not `metrics_daily` values. `bing` is the
+   *  AECI-821 Bing lane's result in the same shape, with its sitemap's dates. Each
+   *  lane keeps its own outcome. `reason` names the lane that failed the run, so the
+   *  cron-failure email says which. No field holds the BWT key. */
+  | {
+      job: 'search-ingest';
+      reason?: string;
+      google: GoogleSearchIngestResult;
+      bing: BingSearchIngestResult;
     }
   | {
       job: 'claim-stale-check';

@@ -113,6 +113,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Incident runbooks; post-launch monitoring and health log | `docs/runbooks/alerts.md`; `docs/POST_LAUNCH_MONITORING.md`; `docs/POST_LAUNCH_HEALTH_REPORT.md` |
 | Legal events with a deadline: data breach, accessibility barrier report and demand letter, subpoena, litigation hold | `docs/runbooks/legal.md` |
 | Admin panel / operator console | `docs/ADMIN_PANEL_SPEC.md` |
+| SEO console `/admin/seo` (three panels; no SEO email) | `docs/ADMIN_PANEL_SPEC.md` §5.24 |
 | Launch / DNS cutover runbook | `docs/runbooks/launch-cutover.md` |
 | Phase completion checkpoints | `docs/PHASE_{2..8}_COMPLETION.md` |
 | Auth model and authorization (the Worker guard is the only layer) | `docs/AUTH_AND_RLS.md` |

@@ -119,6 +119,13 @@
   //                 STRIPE_WEBHOOK_SECRET_{STAGING,DEMO,PRODUCTION}, recommended +
   //                 warn-and-skip on every tier. Locally it is the secret `stripe
   //                 listen` prints, not the dashboard endpoint's. API Worker only.
+  //   BWT_API_KEY — Bing Webmaster Tools API key (AECI-821), read by the Bing lane
+  //                 of the weekly search ingest (`src/lib/search-ingest-bing.ts`) and
+  //                 sent as `?apikey=`. User-wide and read-write, so it is never
+  //                 logged. Production only: `promote-to-prod.yml` pushes it from
+  //                 BWT_API_KEY_PRODUCTION, recommended + warn-and-skip. Absent → the
+  //                 lane is skipped. Pairs with the BWT_SITE_URL var, which is unset
+  //                 until the operator reads the registered site from BWT.
   //   RESEND_API_KEY — Resend API key for transactional email (AECI-240 / Phase 7.5,
   //                 §11.1). Read at runtime by `lib/email.ts` for review submit/
   //                 approve/reject confirmations, the account-deletion email, and the
@@ -616,6 +623,9 @@
           // AECI-1680 acceptance chain: fingerprints of acceptance and grant rows to locked R2,
           // with a DigiCert timestamp. The next free daily slot after 17:00. Rides RECONCILE_QUEUE.
           "0 18 * * *",
+          // AECI-820 weekly search ingest. Sundays 22:00 UTC: Cloudflare's day-of-week
+          // is 1 = Sunday. Rides RECONCILE_QUEUE.
+          "0 22 * * 1",
           // AECI-1345 traffic classification writer for the prior UTC day. 00:45, not
           // 00:15: the SPA follow-up evidence reads 30 minutes past the day's end.
           "45 0 * * *",
@@ -909,6 +919,9 @@
           // AECI-1680 acceptance chain: fingerprints of acceptance and grant rows to locked R2,
           // with a DigiCert timestamp. The next free daily slot after 17:00. Rides RECONCILE_QUEUE.
           "0 18 * * *",
+          // AECI-820 weekly search ingest. Sundays 22:00 UTC: Cloudflare's day-of-week
+          // is 1 = Sunday. Rides RECONCILE_QUEUE.
+          "0 22 * * 1",
           // AECI-1345 traffic classification writer for the prior UTC day. 00:45, not
           // 00:15: the SPA follow-up evidence reads 30 minutes past the day's end.
           "45 0 * * *",
@@ -1103,6 +1116,14 @@
         // `www.`), so emails and IndexNow emit `www.` URLs that need no redirect hop
         // and agree with the self-referential sitemap `<loc>`s.
         "PUBLIC_SITE_URL": "https://www.aecintegrations.com",
+        // AECI-821: BWT_SITE_URL, the site exactly as Bing Webmaster Tools registered
+        // it, is UNSET until the operator reads it from BWT. Unset → the search
+        // ingest's Bing lane is skipped (`no_site_url`). It must name the www. host,
+        // or the lane skips (`site_url_not_www`). To turn the lane on, add e.g.
+        // `"BWT_SITE_URL": "https://www.aecintegrations.com/"` here. Production only:
+        // the BWT_API_KEY secret is pushed to no other tier. Not before AECI-2075
+        // answers whether stored traces keep an outbound query string: the key travels in it
+        // (docs/environments.md, "Bing Webmaster Tools ingest per tier").
         // AECI-1499: Stripe, the live account (see the base-config note).
         "STRIPE_PORTAL_CONFIG_ANNUAL": "bpc_1UV5f6QjYyilC49gRYsZF57S",
         "STRIPE_PORTAL_CONFIG_MONTHLY": "bpc_1UV5fMQjYyilC49gtxqN3ggH",
@@ -1226,6 +1247,9 @@
           // AECI-1680 acceptance chain: fingerprints of acceptance and grant rows to locked R2,
           // with a DigiCert timestamp. The next free daily slot after 17:00. Rides RECONCILE_QUEUE.
           "0 18 * * *",
+          // AECI-820 weekly search ingest. Sundays 22:00 UTC: Cloudflare's day-of-week
+          // is 1 = Sunday. Rides RECONCILE_QUEUE.
+          "0 22 * * 1",
           // AECI-1345 traffic classification writer for the prior UTC day. 00:45, not
           // 00:15: the SPA follow-up evidence reads 30 minutes past the day's end.
           "45 0 * * *",

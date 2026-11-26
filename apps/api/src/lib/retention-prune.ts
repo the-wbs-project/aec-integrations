@@ -124,6 +124,7 @@
  */
 
 import {
+  ADMIN_SNAPSHOT_METRIC_KEYS,
   JOB_RUNS_RETENTION_DAYS,
   MIN_RETENTION_DAYS,
   NOTIFICATION_DELIVERY_EVENTS_RETENTION_DAYS,
@@ -429,21 +430,39 @@ async function oldestCreatedAt(db: Db, table: WindowedTable): Promise<string | n
 
 /**
  * §7.4 rule 2. Every UTC day in `[fromDay, toDay]` that has no `metrics_daily`
- * row at all.
+ * row for any SNAPSHOT key.
  *
- * **Presence of ANY row for the day counts as captured**, deliberately — not all
- * 20 keys. AECI-581's backfill zero-fills the flow series but cannot reconstruct
- * stocks (§7.1: a past total is unrecoverable), so a "all keys present" test
- * would deadlock the prune on every pre-snapshot day, forever.
+ * **Presence of ANY snapshot-key row for the day counts as captured**,
+ * deliberately — not all of them. AECI-581's backfill zero-fills the flow series
+ * but cannot reconstruct stocks (§7.1: a past total is unrecoverable), so an "all
+ * keys present" test would deadlock the prune on every pre-snapshot day, forever.
+ * The backfill writes only snapshot keys, so a backfilled day still counts.
  *
- * The read is a PK index seek: `metrics_daily`'s primary key leads with `day`
- * precisely to serve this probe.
+ * **Only the snapshot vocabulary counts (AECI-820, `ADMIN_PANEL_SPEC.md` §5.24.8).**
+ * `metrics_daily` has a second writer: the weekly search ingest files Google's
+ * figures under Pacific dates (`SEARCH_INGEST_METRIC_KEYS`). Those rows say nothing
+ * about whether the 00:15 snapshot captured the day. If they counted, an ingest row
+ * on a day the snapshot missed would clear the prune to delete that day's raw
+ * `page_views`, and nothing could rebuild it. So the probe is an allow-list of
+ * `ADMIN_SNAPSHOT_METRIC_KEYS`, not a deny-list of the ingest prefix: a future
+ * third writer is excluded by default rather than counted by default.
+ *
+ * The list binds one parameter per key, plus the two day bounds. D1 caps a query
+ * at 100 bound parameters, and `retention-prune.spec.ts` asserts the list stays
+ * under it. The read seeks the PK, which leads with `day`, and filters `metric`
+ * inside the day range.
  */
 export async function findSnapshotGap(db: Db, fromDay: string, toDay: string): Promise<string[]> {
   const rows = await db
     .selectDistinct({ day: metricsDaily.day })
     .from(metricsDaily)
-    .where(and(gte(metricsDaily.day, fromDay), lte(metricsDaily.day, toDay)));
+    .where(
+      and(
+        gte(metricsDaily.day, fromDay),
+        lte(metricsDaily.day, toDay),
+        inArray(metricsDaily.metric, [...ADMIN_SNAPSHOT_METRIC_KEYS]),
+      ),
+    );
   const captured = new Set(rows.map((r) => r.day));
   return daysBetween(fromDay, toDay).filter((day) => !captured.has(day));
 }

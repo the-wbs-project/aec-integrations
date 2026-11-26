@@ -4253,11 +4253,25 @@ create unique index page_views_dedupe_key_idx on page_views(dedupe_key); -- AECI
 -- table is zero. The key order matches the correlated subquery: seek on
 -- (user_agent_hash, cf_asn), then range-scan created_at. Verify with EXPLAIN QUERY PLAN;
 -- it should read `SEARCH op USING COVERING INDEX page_views_operator_pair_idx`.
+create index page_views_crawl_path_idx
+  on page_views(bot_name, concrete_path, created_at, cf_verified_bot_category)
+  where is_bot = 1 and concrete_path is not null; -- AECI-818, migration 0134
+-- Serves the search console's crawled-path read (readLastFetchByPath, lib/seo-queue.ts),
+-- run on every /api/admin/seo/queue request and once by the 00:15 snapshot. Covering,
+-- so the read never touches the table. The read pins it with INDEXED BY: unpinned,
+-- SQLite picks page_views_bot_idx (is_bot, created_at), which range-scans nearly every
+-- bot row since CONCRETE_PATH_SINCE. The write cost is one more index entry on each
+-- bot row with a concrete path. Human rows and path-less rows pay nothing.
+-- migration-0134.spec.ts asserts `USING COVERING INDEX page_views_crawl_path_idx`.
 ```
 
 **Migration `0014` is the repo's first table recreate** — every `ALTER` before it is an `ADD`. SQLite refuses `DROP COLUMN` on a column carrying an index **or** a `FOREIGN KEY` clause, and `user_id` had both (`page_views_user_idx` + the FK to `profiles`), so the drop is a `__new_page_views` copy-and-rename; `session_id` and `profile_role` ride along in it for free. Two things about that file are load-bearing: the copy lists `id` explicitly, so the autoincrement PK survives (the Activity feed paginates on `(created_at DESC, id DESC)` and would repeat or skip rows otherwise), and drizzle-kit's emitted `PRAGMA foreign_keys=OFF` was **hand-replaced with `PRAGMA defer_foreign_keys = true`**, which is the lever D1 supports. Regenerating that migration reintroduces the wrong pragma. See `docs/migrations.md`.
 
 **Migration `0072` (AECI-1301) is three plain `ADD` statements**: `cf_ray`, `cf_verified_bot` and `cf_verified_bot_category`. It has no CHECK and no index, so drizzle-kit emits no table recreate. AECI-1348 retired `cf_verified_bot` without a migration. The column was NULL on every row, because Cloudflare sends `botManagement` only to a Bot Management zone. Dropping it would be a recreate (`docs/migrations.md` §0), so it stays and nothing writes it.
+
+**Migration `0134` (AECI-818) is one `CREATE INDEX`**: the partial covering
+`page_views_crawl_path_idx` above. No table recreate. `apps/api/src/test/migration-0134.spec.ts`
+fails if the file grows any other statement, and checks the query plan of the read it serves.
 
 **Migration `0095` (AECI-1457) is one plain `ADD`**: `turnstile_verdict`. No CHECK and no index, so no table recreate. `apps/api/src/test/migration-0095.spec.ts` fails if the file ever grows a `__new_page_views` copy.
 
@@ -4334,6 +4348,31 @@ CHECK constraint — the vocabulary lives in `ADMIN_SNAPSHOT_METRIC_KEYS`
 (`packages/shared/src/api/admin-panel.ts`), and a SQLite CHECK change would force
 a table rebuild.
 
+**A second writer since AECI-820: the weekly search ingest.** The `0 22 * * 1` cron (Sundays,
+`apps/api/src/lib/search-ingest.ts`) upserts Google Search Console figures under a separate
+vocabulary, `SEARCH_INGEST_METRIC_KEYS` (`ADMIN_PANEL_SPEC.md` §5.24.8). Since AECI-821 its Bing
+lane (`apps/api/src/lib/search-ingest-bing.ts`) upserts Bing Webmaster Tools figures under the
+`search.bing.www.*` keys of the same list. Four rules set it apart:
+
+- **Its `day` is a Pacific date**, Google's and Bing's reporting day, not a UTC date. Only the four
+  Google `www_sitemap` keys and the two Bing `sitemap_*` keys are filed under the run's UTC day,
+  because they are a sample taken at the run.
+- **The snapshot never writes, zero-fills or backfills its keys**, because they are not in
+  `ADMIN_SNAPSHOT_METRIC_KEYS`.
+- **The prune never counts its rows.** `findSnapshotGap` and the backfill's two coverage probes
+  read only the snapshot keys, so an ingest row on a day the snapshot missed cannot clear that
+  day's `page_views` for deletion.
+- **It re-writes `measured` over `measured`.** Each run re-pulls 14 days and overwrites with
+  Google's current figure. ADR 0027 allows that where the source still holds the data, and Google
+  keeps 16 months. A day Google did not return is left as it was, never written as 0. An empty
+  28-day answer writes no row either. The Bing lane re-pulls the same 14 days, and Bing keeps six
+  months. `search.bing.www.in_index` is Bing's own undefined figure, never a true count.
+
+No `audit_log` row, under ADR 0022's 2026-11-24 amendment, a second exemption route for an
+operator-only reading of an external system. The four Google `www_sitemap` keys and the two Bing
+`sitemap_*` keys are run-time readings and not reproducible, and the amendment covers them by
+name. The run's record is its `job_runs` row.
+
 ```sql
 create table metrics_daily (
   day         text not null,                      -- 'YYYY-MM-DD', UTC
@@ -4401,6 +4440,47 @@ flows are readable through the timeseries endpoint today (the stocks await
 | `audience.feedback_total` | stock | `feedback` | not backfilled |
 | `queue.reviews_pending` | stock | `reviews` where `status='pending'` | not backfilled |
 | `queue.requests_open` | stock | `vendor_requests` where `status='open'` | not backfilled |
+| `seo.catalog_urls` | stock | `listCatalogUrls` (`lib/catalog-urls.ts`), the catalog half of the sitemap (AECI-818) | not backfilled |
+| `seo.crawled_urls_google` | stock | catalog URLs with a verified `Googlebot` `page_views` fetch in the `SEO_CRAWL_LOOKBACK_DAYS` window ending at the end of the filed day (`lib/seo-queue.ts`) | not backfilled |
+| `seo.crawled_urls_bing` | stock | the same for `Bingbot` | not backfilled |
+| `seo.uncrawled_urls_google` | stock | Panel 1's Google "Not crawled" lane. Pages inside `SEO_UNCRAWLED_GRACE_DAYS` are left out, so it is not `catalog_urls − crawled_urls` | not backfilled |
+| `seo.uncrawled_urls_bing` | stock | the same for Bing | not backfilled |
+| `seo.pairs_without_reviews` | stock | catalog pair URLs where both endpoints have `products.review_count = 0` | not backfilled |
+| `queue.reindex_pending` | stock | `gsc_recrawl_queue`, every row: the same number as `pending_reindex` | not backfilled |
+| `queue.reindex_tier12_pending` | stock | `gsc_recrawl_queue` rows with `priority <= 2`, from the same statement as the age below. Written on every run, 0 included, so a day records "no tier-1 or tier-2 row" explicitly (AECI-816). A supporting key for the age, never a Panel 2 row | not backfilled |
+| `queue.reindex_oldest_tier12_age_days` | stock, days, REAL | age at the sample instant of the oldest `gsc_recrawl_queue` row with `priority <= 2`, one decimal. **No row** on a day with no such row, because 0 would mean "a row queued just now". The run records that key as `absent`, which is neither a write nor a failure. Absence alone cannot tell "no such row" from a failed age write, so it is read with `queue.reindex_tier12_pending` through `reindexAgeOnDay` in `lib/metrics-snapshot.ts`. A count of 0 reads "none". A positive count with an age row of the same `computed_at` reads the age, because one run stamps every key with one instant. A positive count with the age row missing or stamped by another run reads not recorded. No count row reads not recorded. A re-run of the same day after the tier emptied leaves the earlier age row in place, and the count of 0 makes it read "none". No delete is done, because a scheduled `DELETE` must write a summary `audit_log` row (ADR 0022) | not backfilled |
+
+**The search console keys (AECI-818).** The eight rows above were specified by
+`ADMIN_PANEL_SPEC.md` §5.24.8 and are written by the 00:15 snapshot from the first run after
+AECI-818 deployed. Earlier days have none, and Panel 2 reads them as not recorded. None needed a
+migration. Bing's ingest keys (`search.bing.www.*`, AECI-821) are listed below the Google ones.
+AECI-820 narrowed the `findSnapshotGap` probe first: a day counts as captured only by a row for
+one of `ADMIN_SNAPSHOT_METRIC_KEYS`, so an ingest row can never clear the prune (§5.24.8).
+
+**The Google ingest keys (AECI-820).** All `source = 'measured'`. "Pacific" means the row's `day` is
+Google's Pacific date.
+
+| Key | Kind | `day` | Source call |
+|---|---|---|---|
+| `search.google.www_page.clicks` / `.impressions` | flow | Pacific | Search Analytics, `date`, `www.` page filter |
+| `search.google.www_page.position_avg` | average, REAL | Pacific | the same. No row on a day with no impressions |
+| `search.google.property.clicks` / `.impressions` / `.position_avg` | flow, average | Pacific | Search Analytics, `date`, no filter, `byProperty` |
+| `search.google.www_page.pages_with_impressions_28d` | count | Pacific, the window's last day | Search Analytics, `page`, `www.` filter, 28 days |
+| `search.google.www_page.catalog_pages_with_impressions_28d` | count | Pacific, the window's last day | the same, intersected with the catalog sitemap URLs |
+| `search.google.www_page.queries_28d` | count | Pacific, the window's last day | Search Analytics, `query`, `www.` filter, 28 days |
+| `search.google.www_sitemap.urls_submitted` / `.errors` / `.warnings` | stock | UTC, the run's day | Sitemaps list, the `www.` `sitemap.xml` entry |
+| `search.google.www_sitemap.download_age_days` | days, REAL | UTC, the run's day | the same. No row when Google reports no download |
+
+**The Bing ingest keys (AECI-821).** All `source = 'measured'`. "Pacific" means the row's `day` is
+the calendar date of Bing's `Date` at the offset Bing states.
+
+| Key | Kind | `day` | Source call |
+|---|---|---|---|
+| `search.bing.www.clicks` / `.impressions` | flow | Pacific | `GetRankAndTrafficStats`, every vertical |
+| `search.bing.www.in_index` | count, as reported by Bing | Pacific | `GetCrawlStats` `InIndex`. Microsoft does not define it |
+| `search.bing.www.crawled_pages` / `.crawl_errors` | flow | Pacific | `GetCrawlStats` |
+| `search.bing.www.sitemap_urls` | stock | UTC, the run's day | `GetFeeds`, the `www.` `sitemap.xml` entry |
+| `search.bing.www.sitemap_crawl_age_days` | days, REAL | UTC, the run's day | the same. No row when Bing reports no crawl |
 
 **`catalog.integrations_total` spans both delivered-tier tables, and that is what makes the
 AECI-721 migration invisible to this series.** `STAGE_1_5_SPEC.md` §13.5 flagged this producer as
@@ -4437,7 +4517,7 @@ for a stock: an uncaptured day would report zero subscribers rather than unknown
 
 ### 9.4 `job_runs`
 
-One row per execution of one of the twenty-five `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 subscription term-expiry sweep (the `entitlement-expiry` job), AECI-613, the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile, the fourteenth is the IndexNow drain, AECI-826, daily at `5 0` since AECI-1136 (`*/20` before), the fifteenth is the `25 */6` claim-staleness check, AECI-862, the sixteenth is the 12:00 protest reply reminder, AECI-1205, the seventeenth is the 00:30 vendor snapshot, AECI-1210, and the eighteenth is the daily 13:00 `gsc-inspect` Google URL Inspection run, AECI-1236, the nineteenth is the daily 14:00 `claim-owner-fallback`, AECI-1368, and the twentieth is the daily 14:30 `request-confirmation-expiry`, AECI-1435, the twenty-first is the 00:45 `traffic-classify`, AECI-1345, and the twenty-second is `sitemap-rebuild` on `7-59/15 * * * *`, AECI-1505, the twenty-fourth is the daily 15:00 `vendor-claim-nudge`, AECI-1305, and the twenty-fifth is the daily 16:00 `brand-asset-removal`, AECI-1618). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
+One row per execution of one of the thirty `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 subscription term-expiry sweep (the `entitlement-expiry` job), AECI-613, the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile, the fourteenth is the IndexNow drain, AECI-826, daily at `5 0` since AECI-1136 (`*/20` before), the fifteenth is the `25 */6` claim-staleness check, AECI-862, the sixteenth is the 12:00 protest reply reminder, AECI-1205, the seventeenth is the 00:30 vendor snapshot, AECI-1210, and the eighteenth is the daily 13:00 `gsc-inspect` Google URL Inspection run, AECI-1236, the nineteenth is the daily 14:00 `claim-owner-fallback`, AECI-1368, and the twentieth is the daily 14:30 `request-confirmation-expiry`, AECI-1435, the twenty-first is the 00:45 `traffic-classify`, AECI-1345, and the twenty-second is `sitemap-rebuild` on `7-59/15 * * * *`, AECI-1505, the twenty-fourth is the daily 15:00 `vendor-claim-nudge`, AECI-1305, and the twenty-fifth is the daily 16:00 `brand-asset-removal`, AECI-1618, and the thirtieth is the WEEKLY Sunday 22:00 `search-ingest`, AECI-820, whose `detail` is `{ job, reason?, google, bing }`: each lane's windows, per-call and per-key outcomes and its sitemap's dates, with AECI-821's Bing lane beside Google's and `reason` naming a failed lane). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
 
 ```sql
 create table job_runs (

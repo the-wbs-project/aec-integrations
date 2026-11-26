@@ -184,6 +184,10 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
       { path: '/admin/overview', label: $localize`:@@admin.shell.nav.overview:Overview` },
       { path: '/admin/activity', label: $localize`:@@admin.shell.nav.activity:Activity` },
       { path: '/admin/traffic', label: $localize`:@@admin.shell.nav.traffic:Traffic` },
+      // AECI-822 (`ADMIN_PANEL_SPEC.md` §5.24.4). Right after Traffic, because it
+      // reads crawls of the same pages. Not a queue, so no badge and no part of
+      // any §5.0c sum: its re-index lane is already counted on Re-index queue.
+      { path: '/admin/seo', label: $localize`:@@admin.shell.nav.seo:Search` },
       { path: '/admin/audience', label: $localize`:@@admin.shell.nav.audience:Audience` },
       // AECI-859. Sits beside Audience rather than under Operations because what
       // it does is READ the mailing list, not administer it — there is no write

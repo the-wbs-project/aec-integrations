@@ -1525,7 +1525,9 @@ prune skipping because of the gap.
 
 **What it means:** The daily **00:15 UTC** §7.1 snapshot (AECI-581 / Phase 8.3 P2.1,
 `apps/api/src/lib/metrics-snapshot.ts`) writes one `metrics_daily` row per `(day, metric)` for all
-21 `ADMIN_SNAPSHOT_METRIC_KEYS`, capturing the prior **complete** UTC day. It is the only writer.
+21 `ADMIN_SNAPSHOT_METRIC_KEYS`, capturing the prior **complete** UTC day. It is the only writer of
+those keys. The weekly search ingest writes its own `search.*` keys to the same table (AECI-820),
+and they never count toward a captured day.
 
 **Since AECI-827 the same job has a SECOND pass** (ADR 0027): after the capture it re-checks the
 trailing ~33 days and rewrites the `traffic.*` days the operator retro-join moved. It emits its own
@@ -1545,8 +1547,8 @@ guard working and leaves the run green. The refusals and what to do about them:
 | `uncovered` non-zero | Days in the window with no stored `traffic.page_views_human` row. The pass never inserts (see below), so it cannot see whether those days moved | Fill coverage with `ops:backfill-metrics-daily`. This is the same gap that aborts the 03:00 prune |
 
 **Why it refuses to insert a missing day**, because it looks like an easy improvement and is not:
-§7.4's `findSnapshotGap` probes `metrics_daily` with **no `metric` predicate**, so one inserted row
-would tell the 03:00 prune that day is captured while every stock key — unrecoverable retroactively —
+§7.4's `findSnapshotGap` counts **any one** snapshot-key row as a captured day, so one inserted
+traffic row would tell the 03:00 prune that day is captured while every stock key — unrecoverable retroactively —
 is still missing, and the prune would then delete that day's `page_views` permanently.
 
 Three properties shape every response here:
@@ -2452,6 +2454,83 @@ The manual fallback is step 0 of `docs/runbooks/gsc-reindex.md`.
 
 **`outcome:skipped` is the correct state outside production**, and in production before the key is
 provisioned. It is not a fault.
+
+## Search ingest partial or failed
+
+**Signal:** `aeci.search_ingest.run{outcome:partial}` or `{outcome:failed}` for the weekly
+`search-ingest` cron (AECI-820, `0 22 * * 1`, Sundays at 22:00 UTC). `outcome:failed` also sends
+the `cron-job-failed-alert` email. `/admin/system` shows the run's `job_runs.detail.google`: the
+Pacific-day windows, each call's outcome, each key's outcome, and the `www.` sitemap's dates.
+
+**Two lanes, two points.** Since AECI-821 the run has a Google lane and a Bing lane. Each emits
+its own point, tagged `engine:google` or `engine:bing`, and each has its own outcome in
+`detail.google` and `detail.bing`. One lane's failure changes nothing the other lane writes. The
+run's `job_runs` outcome is `failed` when either lane failed, and `detail.reason` names the lane.
+The Google half is below. The Bing half follows it.
+
+**What the job does.** It reads Search Console with the same service account as `gsc-inspect`. It
+makes five sequential read calls on one token: two daily Search Analytics series, a 28-day page
+count, a 28-day query count, and the Sitemaps list. It writes `metrics_daily` rows under the
+`search.google.*` keys, filed under Google's Pacific dates. It changes nothing in Search Console.
+
+**`outcome:partial`: usually do nothing.** One call failed, wrote nothing for its keys, and the
+other calls still wrote. Read `detail.google.calls` for the failed call and its `outcome`:
+
+| Call outcome | What it means | What to do |
+|---|---|---|
+| `quota` | Google answered 429 | Nothing. The next Sunday re-pulls 14 days, so a missed week leaves no gap in the daily series |
+| `transient` | A 5xx or a dropped connection, three times | Nothing, unless it repeats on two Sundays running |
+| `rejected` | Another 4xx. The request shape is wrong | File an issue with the `job_runs` row. Google may have changed the API |
+| `auth` on one call only | Google refused that call but not the others | Check the service account's permission level on the property |
+| `token` is `transient` (`reason: token_transient`) | Google's token endpoint failed three times with a 5xx, a 429 or a dropped connection. Nothing was written | Nothing, unless it repeats. The next Sunday re-pulls 14 days |
+| Every call `ok`, `catalog_pages_with_impressions_28d` is `failed` | The catalog URL read failed. `calls.www_pages_28d.catalogReadError` holds its message. The all-pages figure was written, and the funnel's Google impressed stage is missing for the week | Read the message. A D1 error clears itself next week. Anything else, file an issue with the `job_runs` row |
+
+A key whose outcome is `failed` has no row for that week. The 28-day keys and the sitemap keys are
+one point a week, so a missed week is a missing point, never a zero. The daily keys recover on the
+next run.
+
+**`outcome:failed`: check the key and the property.** It means Google refused the credential: the
+token endpoint answered a 4xx other than 429, the key would not import, or every call answered 401
+or 403. A D1 write that threw also reads `failed` (`aeci.search_ingest.crashed`), and the queue retries it. `gsc-inspect` uses the same key, so it
+fails the same way. Follow steps 1 to 3 of "gsc-inspect halted on quota or failed" above.
+
+**`www_sitemap` keys with `no_data`.** Google's Sitemaps list has no entry for
+`https://www.aecintegrations.com/sitemap.xml`. Resubmit it in Search Console, as
+`POST_LAUNCH_MONITORING.md` §2a describes. The weekly manual read is the check.
+
+**What the figures are not.** The `www_page` figures are filtered to `www.` and aggregated by page.
+They do not match the Performance chart, which aggregates by property. The `property` figures are
+the ones comparable to the AECI-799 baseline. `pages_with_impressions_28d` is a lower bound on
+indexed pages, not the indexed count. Google has no API for that count.
+
+**`outcome:skipped` is the correct state outside production**, and in production before the key is
+provisioned. It is not a fault.
+
+### The Bing lane (AECI-821)
+
+**What the lane does.** It makes three sequential read calls to Bing Webmaster Tools (BWT) with
+`BWT_API_KEY`: `GetRankAndTrafficStats` (`traffic`), `GetCrawlStats` (`crawl`) and `GetFeeds`
+(`feeds`). It writes the `search.bing.www.*` keys, filed under Bing's Pacific dates. It changes
+nothing in BWT. Read `detail.bing.calls` on `/admin/system`. Each call's `message` names Bing's
+error code, such as `bwt_ThrottleUser`.
+
+| `engine:bing` outcome | What it means | What to do |
+|---|---|---|
+| `skipped` | No `BWT_API_KEY`, no `BWT_SITE_URL`, or a site URL that is not the `www.` site. `detail.bing.reason` says which | Nothing, unless you meant the lane to run. Then follow "Bing Webmaster Tools ingest per tier" in `docs/environments.md` |
+| `throttled` | Every failed call was `ThrottleUser` or `ThrottleHost`. Bing sends these as HTTP 400, not 429 | Nothing for one week. If two Sundays running read `throttled`, Bing may be limiting the shared Cloudflare egress, as it did for IndexNow. File an issue to run the transport from a GitHub Actions runner. `lib/bing-webmaster-api.ts` is built to move |
+| `partial` | At least one call failed for another reason, and the rest wrote | Read the failed call's `outcome`. `transient` is a 5xx, a dropped connection or Bing's `InternalError`, three times: do nothing unless it repeats. `rejected` is another error code, such as `InvalidUrl` or `Deprecated`: file an issue with the `job_runs` row. `auth` on one call only: check the account's role on the site |
+| `failed` | Every call reported a refused credential: `InvalidApiKey`, `NotAuthorized`, `UserBlocked`, `UserNotFound`, or HTTP 401 or 403. Or a D1 write threw (`aeci.search_ingest.crashed`), which the queue retries | `InvalidApiKey`: the key was deleted or rotated in BWT. Generate a new one and follow the rotation steps in `docs/environments.md`. `NotAuthorized`: the key's account cannot see the site in `BWT_SITE_URL`. Check the URL against the BWT site picker, and check the account is a user on the site |
+
+**`sitemap_*` keys with `no_data`.** BWT's feed list has no entry for
+`https://www.aecintegrations.com/sitemap.xml`. Resubmit the sitemap in BWT.
+
+**What the figures are not.** `search.bing.www.in_index` is Bing's own figure, as reported by Bing.
+Microsoft does not define it. It is not a true count, and it is never compared with or added to
+the Google figures. The Bing clicks and impressions include every vertical, Chat included.
+
+**The key never appears in our logs or a `job_runs` row.** A failed fetch is recorded as
+`network_error`, never the runtime's text. If you ever see `apikey=` in either, or in a Cloudflare
+trace, treat the key as leaked: delete it in BWT and rotate it (`docs/environments.md`).
 
 ## Backfill traffic classifications
 
