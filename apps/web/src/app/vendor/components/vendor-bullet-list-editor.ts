@@ -204,8 +204,10 @@ export class VendorBulletListEditor {
     return `${this.idPrefix()}-bullet-${id}`;
   }
 
+  /** Over the cap AND editable. A read-only list never shows an error: the
+   *  vendor cannot fix a point they are not allowed to change. */
   protected tooLong(bullet: BulletDraft): boolean {
-    return bullet.text.trim().length > this.maxLength();
+    return !this.disabled() && bullet.text.trim().length > this.maxLength();
   }
 
   protected tooLongMessage(bullet: BulletDraft): string {
