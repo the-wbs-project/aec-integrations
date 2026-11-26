@@ -50,7 +50,7 @@ import {
 } from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import { type WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
-import { and, asc, count, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
@@ -71,9 +71,13 @@ import {
 } from '../lib/audit';
 import { adminReviewConfig, toAdminReview, type RawAdminReviewRow } from '../lib/drizzle-helpers';
 import { sendReviewApprovedEmail, sendReviewRejectedEmail } from '../lib/email';
-import { ONE_ROW } from '../lib/integration-claims';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { recomputeProductCounts } from '../lib/recompute-counts';
+import {
+  isReviewRaceError,
+  reviewDecisionStatements,
+  reviewStillInStateSentinel,
+} from '../lib/review-moderation';
 import {
   emailOwnersOfApprovedReview,
   loadReviewOwners,
@@ -245,46 +249,17 @@ export function createModerateReviewHandler(
         eq(workflowInstances.entityId, id),
       ),
     });
-    const workflowId = existingWf?.id ?? crypto.randomUUID();
-
-    const auditEntry: AuditLogEntry = {
-      actorId: userId,
-      actorType: auditActorType(session),
-      action: approve ? 'review.approved' : 'review.rejected',
-      entityType: 'review',
-      entityId: id,
-      // AECI-1192: the product the review is about. A review is not vendor-held, so
-      // there is no `vendor_id`.
-      productId: existing.product.id,
-      metadata: {
-        source: 'admin-moderation',
-        product_id: existing.product.id,
-        ...(approve ? {} : { rejection_reason: rejectionReason }),
-      },
-    };
-    const workflowEntry: WorkflowTransitionEntry = {
-      workflowId,
-      fromState: 'pending',
-      toState: newStatus,
-      actorId: userId,
-      reason: rejectionReason,
-      metadata: {
-        source: 'admin-moderation',
-        product_id: existing.product.id,
-        ...(approve ? {} : { rejection_reason: rejectionReason }),
-      },
-    };
+    const actor = { actorId: userId, actorType: auditActorType(session) };
 
     // AECI-1180 (§11c.12): on approve, one `notification.sent` row per owning
     // vendor, primary or not, on every plan. Owners are read before the batch
     // because a batch statement cannot fan out into audit rows. Reject writes none.
     const owners = approve ? await loadReviewOwners(db, existing.product.id) : [];
-    const notifications = reviewApprovedNotifications(
-      'portal-review',
-      { actorId: userId, actorType: auditEntry.actorType },
-      owners,
-      { id, title: existing.title, product: existing.product },
-    );
+    const notifications = reviewApprovedNotifications('portal-review', actor, owners, {
+      id,
+      title: existing.title,
+      product: existing.product,
+    });
 
     // The guarded update (`WHERE status='pending'`) makes the state change safe under
     // a concurrent moderation, and the sentinel right after it makes the LOSER's whole
@@ -293,35 +268,18 @@ export function createModerateReviewHandler(
     // then emailed the reviewer a second, possibly contradictory, decision. Now the
     // loser writes nothing, sends nothing, and answers 409 REVIEW_ALREADY_MODERATED.
     // The vendor feed rows ride the same batch, so the loser writes none of them.
-    const stmts: BatchStmt[] = [
-      db
-        .update(reviews)
-        .set({
-          status: newStatus,
-          moderatedBy: userId,
-          moderatedAt,
-          ...(approve ? {} : { rejectionReason }),
-        })
-        .where(and(eq(reviews.id, id), eq(reviews.status, 'pending'))),
-      // Directly after the UPDATE: `changes()` must read the guarded write.
-      reviewStillInStateSentinel(db),
-      auditInsert(db, auditEntry),
-      existingWf
-        ? db
-            .update(workflowInstances)
-            .set({ currentState: newStatus, completedAt: moderatedAt, finalOutcome: newStatus })
-            .where(eq(workflowInstances.id, workflowId))
-        : db.insert(workflowInstances).values({
-            id: workflowId,
-            workflowType: 'review_moderation',
-            entityId: id,
-            currentState: newStatus,
-            completedAt: moderatedAt,
-            finalOutcome: newStatus,
-          }),
-      workflowTransitionInsert(db, workflowEntry),
-      ...notifications.map((entry) => auditInsert(db, entry)),
-    ];
+    // The statements come from the builder the ban's `reject_pending` also uses
+    // (AECI-1949, `lib/review-moderation.ts`).
+    const { stmts, audits, transitions } = reviewDecisionStatements(db, {
+      reviewId: id,
+      productId: existing.product.id,
+      decision: approve ? 'approve' : 'reject',
+      rejectionReason,
+      moderatedAt,
+      actor,
+      existingWorkflowId: existingWf?.id ?? null,
+      notifications,
+    });
     try {
       await db.batch(stmts as BatchTuple);
     } catch (error) {
@@ -348,7 +306,7 @@ export function createModerateReviewHandler(
       c.executionCtx.waitUntil(purgeProductTag(c, existing.product.slug));
     }
     // §26.5 audit + workflow forwards, in ONE request (AECI-1112).
-    forwardAuditBatch(c, [auditEntry, ...notifications], [workflowEntry]);
+    forwardAuditBatch(c, audits, transitions);
 
     // AECI-1180: email the owners' seats, post-commit and fail-open.
     if (owners.length > 0) {
@@ -574,38 +532,6 @@ async function computeRepeatOffenderPrompt(
   };
 }
 
-/**
- * A batch statement that ABORTS the moderation batch when the guarded
- * `UPDATE … WHERE status = <from>` just before it changed no row (AECI-1203): another
- * moderator moved the review out of the action's from-state (`pending` for approve and
- * reject, `approved` for remove, AECI-1643) between this handler's read and its batch.
- * Modelled on
- * `contestStillOpenSentinel` (`lib/integration-contests.ts`). `changes()` is the row
- * count of the connection's last write, which inside the batch is the guarded UPDATE.
- * When it is 0, `json('review-not-in-state')` is malformed JSON and raises, so the audit
- * row and the workflow writes roll back with it. FROM a one-row constant, so the guard
- * is evaluated exactly once.
- */
-export function reviewStillInStateSentinel(db: Db) {
-  return db
-    .select({ guard: sql`CASE WHEN changes() = 0 THEN json('review-not-in-state') END` })
-    .from(ONE_ROW);
-}
-
-/**
- * True for the error {@link reviewStillInStateSentinel} raises, in D1 or SQLite. SQLite
- * reports only "malformed JSON" and never echoes the token. Nothing else in the
- * moderation batch calls `json()`, so the match is unambiguous.
- */
-export function isReviewRaceError(error: unknown): boolean {
-  const seen = new Set<unknown>();
-  let current: unknown = error;
-  while (current && !seen.has(current)) {
-    seen.add(current);
-    if (/malformed JSON/i.test(String((current as { message?: unknown }).message ?? current))) {
-      return true;
-    }
-    current = (current as { cause?: unknown }).cause;
-  }
-  return false;
-}
+// The sentinel moved to `lib/review-moderation.ts` (AECI-1949). Re-exported so
+// existing importers keep working.
+export { isReviewRaceError, reviewStillInStateSentinel };

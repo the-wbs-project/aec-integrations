@@ -49,11 +49,9 @@ import {
   ListAdminReviewResponsesResponseSchema,
   REVIEW_RESPONSE_DECISIONS,
   type AdminReviewResponse,
-  type DecideReviewResponseInput,
   type ListAdminReviewResponsesResponse,
   type ReviewResponseStatus,
 } from '@aeci/shared';
-import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { and, asc, count, eq, sql, type SQL } from 'drizzle-orm';
 import type { Context } from 'hono';
 
@@ -62,17 +60,16 @@ import { products, reviewResponses, reviews, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
-import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
+import type { BatchTuple } from '../lib/audit';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { forwardAuditBatch } from '../lib/moderation-forward';
 import {
-  REVIEW_RESPONSE_DECISION_ACTIONS,
-  REVIEW_RESPONSE_ENTITY_TYPE,
-  isReviewResponseRaceError,
-  reviewResponseChangedSentinel,
-} from '../lib/review-responses';
-import { reviewResponseDecisionNotification } from '../lib/review-notifications';
+  reviewResponseDecisionNotifications,
+  reviewResponseDecisionStatements,
+  type ReviewResponseDecisionContext,
+} from '../lib/review-moderation';
+import { isReviewResponseRaceError } from '../lib/review-responses';
 import { fetchAuthUserEmails } from '../lib/supabase-admin';
 import { parseJsonBody, purgeTags } from './vendor-shared';
 import { vendorAuditStamp } from '../lib/audit-vendor';
@@ -226,61 +223,9 @@ export function createAdminReviewResponsesListHandler(
 
 // ─── PATCH /api/admin/review-responses/:id ───────────────────────────────────
 
-/** What a decision batch knows about the reply it decides. */
-export interface ReviewResponseDecisionContext {
-  responseId: string;
-  decision: DecideReviewResponseInput['decision'];
-  /** The reply's vendor: the recipient of the decision notice. */
-  vendorId: string;
-  reviewId: string;
-  /** The reviewed product, snapshotted onto the feed row. */
-  product: { id: string; slug: string; name: string };
-  /** The reason on a reject or remove; `null` on approve. */
-  reason: string | null;
-  actor: { actorId: string; actorType: AuditLogEntry['actorType'] };
-}
-
-/**
- * The vendor's `notification.sent` rows for one decision (§11c.12, AECI-1180). They
- * ride the decision batch AFTER the sentinel and the audit row, so a lost race
- * commits none.
- *
- * Exactly one row, to the reply's vendor: `metadata.kind = 'review_response'`,
- * `metadata.event` (`approved | rejected | removed`), and `metadata.reason` on
- * reject and remove. No email follows a decision, as for contests (§11b.8).
- */
-export function reviewResponseDecisionNotifications(
-  ctx: ReviewResponseDecisionContext,
-): AuditLogEntry[] {
-  return [
-    reviewResponseDecisionNotification('portal-review-response', ctx.actor, {
-      responseId: ctx.responseId,
-      decision: ctx.decision,
-      vendorId: ctx.vendorId,
-      reviewId: ctx.reviewId,
-      product: ctx.product,
-      reason: ctx.reason,
-    }),
-  ];
-}
-
-/** The columns one decision writes (§11c.6 "Columns per transition"). */
-function decisionColumns(
-  decision: DecideReviewResponseInput,
-  adminId: string,
-  now: string,
-): Partial<typeof reviewResponses.$inferInsert> {
-  const to = REVIEW_RESPONSE_DECISIONS[decision.decision].to;
-  const base = { status: to, moderatedBy: adminId, moderatedAt: now, updatedAt: now };
-  switch (decision.decision) {
-    case 'approve':
-      return { ...base, publishedAt: now };
-    case 'reject':
-      return { ...base, rejectionReason: decision.reason };
-    case 'remove':
-      return { ...base, rejectionReason: decision.reason, publishedAt: null };
-  }
-}
+// The notice builder moved to `lib/review-moderation.ts` with the batch builder
+// (AECI-1949). Re-exported so existing importers keep working.
+export { reviewResponseDecisionNotifications, type ReviewResponseDecisionContext };
 
 function wrongStateError(status: string): ApiError {
   return new ApiError(
@@ -323,53 +268,19 @@ export function createDecideReviewResponseHandler(
     if (row.updatedAt !== expected) throw changedError(row.status, row.updatedAt);
 
     const now = new Date().toISOString();
-    const reason = payload.decision === 'approve' ? null : payload.reason;
     const actor = { actorId: session.userId, actorType: auditActorType(session) };
-    const audit: AuditLogEntry = {
-      ...actor,
-      action: REVIEW_RESPONSE_DECISION_ACTIONS[payload.decision],
-      entityType: REVIEW_RESPONSE_ENTITY_TYPE,
-      entityId: id,
-      // AECI-1192 / AECI-1193: the reply is the vendor's, about one product.
-      ...(await vendorAuditStamp(db, row.vendorId)),
-      productId: row.productId,
-      beforeState: { status: plan.from },
-      afterState: { status: plan.to, ...(reason ? { rejection_reason: reason } : {}) },
-      metadata: {
-        source: AUDIT_SOURCE,
-        vendorId: row.vendorId,
-        reviewId: row.reviewId,
-        productId: row.productId,
-        ...(reason ? { reason } : {}),
-      },
-    };
-    const notifications = reviewResponseDecisionNotifications({
+    // The builder the ban's `reject_pending` also uses (AECI-1949).
+    const { stmts, audits } = reviewResponseDecisionStatements(db, {
       responseId: id,
-      decision: payload.decision,
+      decision: payload,
       vendorId: row.vendorId,
       reviewId: row.reviewId,
       product: { id: row.productId, slug: row.productSlug, name: row.productName },
-      reason,
       actor,
+      now,
+      stamp: await vendorAuditStamp(db, row.vendorId),
+      source: AUDIT_SOURCE,
     });
-
-    const stmts: BatchStmt[] = [
-      db
-        .update(reviewResponses)
-        .set(decisionColumns(payload, session.userId, now))
-        .where(
-          and(
-            eq(reviewResponses.id, id),
-            eq(reviewResponses.status, plan.from),
-            eq(reviewResponses.updatedAt, expected),
-          ),
-        ),
-      // Immediately after the guarded UPDATE: a lost race aborts here, before the
-      // audit row and the notification.
-      reviewResponseChangedSentinel(db),
-      auditInsert(db, audit),
-      ...notifications.map((entry) => auditInsert(db, entry)),
-    ];
     try {
       await db.batch(stmts as BatchTuple);
     } catch (error) {
@@ -388,7 +299,7 @@ export function createDecideReviewResponseHandler(
     if (plan.purges) {
       c.executionCtx.waitUntil(purgeTags(c, [`product:${row.productSlug}`], 'moderation'));
     }
-    forwardAuditBatch(c, [audit, ...notifications], []);
+    forwardAuditBatch(c, audits, []);
 
     const after = await loadAdminRow(db, id);
     if (!after) throw notFoundError('review_response', { id });
