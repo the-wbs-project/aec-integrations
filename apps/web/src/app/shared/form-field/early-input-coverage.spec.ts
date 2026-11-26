@@ -59,6 +59,11 @@ const NON_CONSENT_BOXES: readonly { file: string; tag: string; why: string }[] =
   },
   { file: 'admin/dmca/dmca-notices.html', tag: 'openOnly()', why: 'admin filter: open only' },
   {
+    file: 'admin/reviewers/ban-pending-choice.ts',
+    tag: 'ban-reject-pending',
+    why: 'admin ban: also reject the pending items (AECI-1949)',
+  },
+  {
     file: 'admin/traffic/traffic.html',
     tag: 'excludeInternal()',
     why: 'admin filter: hide internal traffic',
