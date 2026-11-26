@@ -126,11 +126,11 @@ Two deliberate widenings ride along:
    written, and `indexnow-drain` and `claim-stale-check` did not exist until AECI-826 and
    AECI-862). AECI-1205 added `protest-reply-reminder` and AECI-1210 added
    `vendor-snapshot`, AECI-1236 added `gsc-inspect`, AECI-1368 added `claim-owner-fallback`,
-   and AECI-1435 added `request-confirmation-expiry`, so the query now sums eighteen metrics. AECI-1345 adds `traffic-classify`, making nineteen. AECI-1503 adds `stripe-reconcile`, making twenty. AECI-1305 adds `vendor-claim-nudge`, making twenty-one. AECI-1618 adds `brand-asset-removal`, making twenty-two. AECI-1636 adds `acceptance-evidence-removal`, making twenty-three. AECI-1621 adds `plan-snapshot`, making twenty-four. AECI-1680 adds `acceptance-chain`, making twenty-five. AECI-1638 adds `legal-retention-prune`, making twenty-six.
+   and AECI-1435 added `request-confirmation-expiry`, so the query now sums eighteen metrics. AECI-1345 adds `traffic-classify`, making nineteen. AECI-1503 adds `stripe-reconcile`, making twenty. AECI-1305 adds `vendor-claim-nudge`, making twenty-one. AECI-1618 adds `brand-asset-removal`, making twenty-two. AECI-1636 adds `acceptance-evidence-removal`, making twenty-three. AECI-1621 adds `plan-snapshot`, making twenty-four. AECI-1680 adds `acceptance-chain`, making twenty-five. AECI-1638 adds `legal-retention-prune`, making twenty-six. AECI-820 adds `search-ingest`, making twenty-seven.
    A routine Google 429 on `gsc-inspect` is `outcome:quota`, not `failed`, so only a refused key
    or a broken chain pages. Their liveness rows are in the
    sweep with an `activeFrom` grace (see "New crons: activeFrom" below).
-   Three of the twenty-nine cron jobs are absent from that query on purpose:
+   Three of the thirty cron jobs are absent from that query on purpose:
    `moderation-snapshot`, `algolia-drift` and `request-reconcile` heartbeat on a GAUGE with no
    `outcome` tag, so there is nothing to sum. A fourth, `sitemap-rebuild` (AECI-1505), is absent
    because it has not been added: its `aeci.sitemap.rebuild.run` carries `outcome:failed`, but no

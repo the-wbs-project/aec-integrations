@@ -524,7 +524,7 @@ export class IntegrationRowThread {
     const who = this.other();
     return $localize`:@@vendor.im.thread.composerLabel:Message to ${who}:company:`;
   });
-  protected readonly unavailableSentence = $localize`:@@vendor.im.thread.error.notAttestable:This row cannot have a conversation. It needs two different companies, on an integration that does not run through a connector service.`;
+  protected readonly unavailableSentence = $localize`:@@vendor.im.thread.error.notAttestable.v2:This row cannot have a conversation. It needs two different companies, on an integration that does not run through a connector product.`;
   protected readonly countLabel = computed(() => {
     const n = this.draft().length;
     const max = THREAD_MESSAGE_BODY_MAX;
@@ -640,7 +640,7 @@ export class IntegrationRowThread {
       case 'claim_removed':
         return $localize`:@@vendor.im.thread.closed.removed:This conversation closed when this row was removed from the directory. It is read-only.`;
       case 'not_attestable':
-        return $localize`:@@vendor.im.thread.closed.notAttestable:This conversation closed when the integration moved to a connector service, which neither company builds. It is read-only.`;
+        return $localize`:@@vendor.im.thread.closed.notAttestable.v3:This conversation closed when the integration moved to a connector product, so neither product vendor can answer its data. It is read-only.`;
     }
   }
 
@@ -853,7 +853,7 @@ export class IntegrationRowThread {
         await this.load({ quiet: true });
         break;
       case 'THREAD_NOT_ATTESTABLE':
-        message = $localize`:@@vendor.im.thread.error.notAttestable:This row cannot have a conversation. It needs two different companies, on an integration that does not run through a connector service.`;
+        message = $localize`:@@vendor.im.thread.error.notAttestable.v2:This row cannot have a conversation. It needs two different companies, on an integration that does not run through a connector product.`;
         break;
       case 'INTEGRATION_RETIRED':
         message = $localize`:@@vendor.im.thread.error.retired:This integration was retired, so it takes no new messages.`;

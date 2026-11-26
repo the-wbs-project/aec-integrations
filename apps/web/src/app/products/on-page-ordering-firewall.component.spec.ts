@@ -464,6 +464,7 @@ function similarFixture(): ProductListItem[] {
     name,
     logo_url: null,
     product_role: 'application',
+    connector_kind: null,
     vendor: null,
     integration_count: 0,
     review_count: 0,
@@ -480,6 +481,7 @@ function paidCard(item: ProductListItem, level: number): ProductListItem {
     ...item,
     logo_url: level === 0 ? null : `https://cdn.example.com/logo-${level}.png`,
     product_role: level % 3 === 0 ? 'application' : level % 3 === 1 ? 'connector' : 'hybrid',
+    connector_kind: null,
     vendor:
       level === 0
         ? null

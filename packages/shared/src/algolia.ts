@@ -678,6 +678,11 @@ const INDEX_SETTINGS: Readonly<Record<IndexEntity, IndexSettings>> = {
       'searchable(trades)',
       'searchable(vendor_name)',
       'integration_count',
+      // AECI-1662 — the "Connector type" filter. Plain, not `searchable()`: two
+      // values need no facet search. Not `filterOnly()`: the filter shows counts.
+      // Never searchable and never ranked. The kind is admin-set, not bought, and
+      // orders nothing (`SEARCH_RANKING.md` §3.1).
+      'connector_kind',
     ],
     customRanking: ['desc(listing_tier)', 'desc(review_count)'],
   },

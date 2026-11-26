@@ -34,8 +34,9 @@ describe('planComparisonGroups', () => {
     expect(row('Product description, website, logo and categories').free).toBe(
       TIER_CAPABILITIES.unclaimed.includes('product.categories.edit'),
     );
+    // AECI-2038: confirming data flows is on every plan.
     expect(row('Confirm which data each integration moves')).toMatchObject({
-      free: false,
+      free: true,
       managed: true,
     });
     expect(row('Answer reviews in public')).toMatchObject({ free: true, managed: true });

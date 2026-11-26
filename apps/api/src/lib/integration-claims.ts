@@ -121,7 +121,9 @@ export function promoteClaimFenceSentinel(db: Db, integrationId: string) {
       // AECI-1011: `origin = 'vendor'` too, the same predicate as the plan-time
       // `claimFenceRefuses`. `origin` never changes after insert, so this half only
       // ever fires on the claim; it is here so the two halves read identically.
-      guard: sql`CASE WHEN ${integrations.claimedAt} IS NOT NULL OR ${integrations.origin} = 'vendor' THEN json('integration-claimed-during-promote') END`,
+      // AECI-2042: a veto filed mid-promote fences the row too, as the plan-time
+      // refusal does.
+      guard: sql`CASE WHEN ${integrations.claimedAt} IS NOT NULL OR ${integrations.origin} = 'vendor' OR ${integrations.vetoedAt} IS NOT NULL THEN json('integration-claimed-during-promote') END`,
     })
     .from(integrations)
     .where(eq(integrations.id, integrationId));
@@ -142,7 +144,7 @@ export function promoteClaimFenceSentinel(db: Db, integrationId: string) {
 export function promoteEvidencedClaimFenceSentinel(db: Db, pairId: string) {
   return db
     .select({
-      guard: sql`CASE WHEN ${connectorEvidencedPairs.claimedAt} IS NOT NULL OR ${connectorEvidencedPairs.origin} = 'vendor' THEN json('integration-claimed-during-promote') END`,
+      guard: sql`CASE WHEN ${connectorEvidencedPairs.claimedAt} IS NOT NULL OR ${connectorEvidencedPairs.origin} = 'vendor' OR ${connectorEvidencedPairs.vetoedAt} IS NOT NULL THEN json('integration-claimed-during-promote') END`,
     })
     .from(connectorEvidencedPairs)
     .where(eq(connectorEvidencedPairs.id, pairId));

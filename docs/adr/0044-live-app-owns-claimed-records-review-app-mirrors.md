@@ -150,3 +150,26 @@ later `proposals[]` bind for the same pair is a no-op. The builder reads it with
 read of `product_proposals`. It is inside `recordHash`, and the canonical JSON needed no
 change. It is not in the field map, which covers content only. The review receiver must
 accept it before any tier sends v2 (AECI-1491).
+
+**Amendment 2026-11-24 (AECI-2047):** The v2 record gains an optional `deliveredPairs[]`. A
+Sync Service owns the pairs it delivers (`built_by_vendor_id`), but `integrations[]` lists only
+pairs where the vendor's product is an endpoint, so an owner's edits to its own delivered pairs
+never reached the review side. Each entry has the v2 integration shape on
+`connector_evidenced_pairs`. Its `owner` is the per-row hold (claimed or vendor-created, the
+promote fence of `REVIEW_APP_PROMOTE_API.md` §4b), and content and claims ride exactly when it is
+`vendor`. The key is additive and is left out when the list is empty, so no existing meaning
+changes and the hash of every vendor without delivered pairs is unchanged. An edit to a pair
+re-sends its owned builder's record too. The review receiver must accept and ignore the key until
+it mirrors it (§4d rule 9, a `REVIEW - ` issue), and production needs a backfill of the affected
+vendors after the deploy.
+
+**Amendment 2026-11-24 (AECI-2039 follow-up):** An owned v2 integration entry, in either list,
+gains an optional `ownerFlows`. Since AECI-2039 the owner of a claimed Sync Service pair adds,
+confirms and removes its data flows, and the answers live in `claim_owner_answers`, not in
+`attestations`. The claim slots are attestation-based, so they could not carry an owner answer
+or a flow the owner added. `ownerFlows` lists every claim on such a row (`dataObject`,
+`direction`, `origin`) with the owner's counted answer (`yes`, `no` or `null`). It rides only on
+an entry that already has `content` and whose row the owner maintains. No existing field or
+claim slot changes meaning, and every other entry hashes as before. An owner flow write already
+re-sends the builder's record. The receiver must accept and ignore the key until it mirrors it
+(§4d rule 10), and production needs a backfill of the affected vendors after the deploy.

@@ -91,6 +91,9 @@ import {
   dmcaNotices,
   feedback,
   integrationFieldChallenges,
+  syncServicePairContests,
+  syncServicePairVetoes,
+  syncServiceVetoObjections,
   licenseReleaseRequests,
   licenses,
   listingRequests,
@@ -727,6 +730,44 @@ export function createDeleteAccountHandler(
         .update(integrationFieldChallenges)
         .set({ protestDecidedBy: null })
         .where(eq(integrationFieldChallenges.protestDecidedBy, userId)),
+      // AECI-2042: the Sync Service pair reports and vetoes, under the same rule. Each
+      // column is `ON DELETE SET NULL` and nulled here too. The report and the veto
+      // survive: they are the vendor's record. A veto stays in force, because a seat
+      // leaving does not withdraw its company's decision.
+      db
+        .update(syncServicePairContests)
+        .set({ submittedBy: null })
+        .where(eq(syncServicePairContests.submittedBy, userId)),
+      db
+        .update(syncServicePairContests)
+        .set({ decidedBy: null })
+        .where(eq(syncServicePairContests.decidedBy, userId)),
+      db
+        .update(syncServicePairContests)
+        .set({ protestedBy: null })
+        .where(eq(syncServicePairContests.protestedBy, userId)),
+      db
+        .update(syncServicePairContests)
+        .set({ protestDecidedBy: null })
+        .where(eq(syncServicePairContests.protestDecidedBy, userId)),
+      db
+        .update(syncServicePairVetoes)
+        .set({ filedBy: null })
+        .where(eq(syncServicePairVetoes.filedBy, userId)),
+      db
+        .update(syncServicePairVetoes)
+        .set({ endedBy: null })
+        .where(eq(syncServicePairVetoes.endedBy, userId)),
+      // AECI-2192: an objection to a removal, under the same rule. The objection
+      // survives as the Sync Service's record.
+      db
+        .update(syncServiceVetoObjections)
+        .set({ filedBy: null })
+        .where(eq(syncServiceVetoObjections.filedBy, userId)),
+      db
+        .update(syncServiceVetoObjections)
+        .set({ decidedBy: null })
+        .where(eq(syncServiceVetoObjections.decidedBy, userId)),
       // AECI-1175: two more, `ON DELETE SET NULL` and nulled explicitly under the
       // same rule. The REPLY survives: it is the vendor's record, not the person's
       // (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.11). `updated_at` is pinned to itself

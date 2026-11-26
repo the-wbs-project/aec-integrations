@@ -134,6 +134,7 @@ const listItem = (slug: string, name: string) => ({
   name,
   logo_url: null,
   product_role: 'application' as const,
+  connector_kind: null,
   vendor: null,
   integration_count: 1,
   review_count: 0,

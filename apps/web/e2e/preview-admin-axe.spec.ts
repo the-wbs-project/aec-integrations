@@ -36,8 +36,10 @@ const ROUTES = [
   '/preview/admin-review-responses',
   '/preview/admin-review-updates',
   '/preview/admin-reviews',
+  '/preview/admin-seo',
   '/preview/admin-vendor-billing',
   '/preview/admin-vendor-integrations',
+  '/preview/admin-vendor-products',
 ];
 
 const WIDTHS = [

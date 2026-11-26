@@ -56,6 +56,8 @@ import {
   integrationListConfig,
   integrationPairConfig,
   integrationTimelineConfig,
+  integrationOwnerFlowContext,
+  evidencedPairOwnerFlowContext,
   pairAlternativesConfig,
   pickPrimaryVendorRow,
   productPairSubjectConfig,
@@ -86,6 +88,7 @@ import {
 } from '../lib/field-hides';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { liveEvidencedPairWhere, liveIntegrationWhere } from '../lib/live-integration';
+import { withOwnerVotes, type OwnerFlowContext } from '../lib/owner-flows';
 import { noHiddenEndpointOn, visibleProductWhere } from '../lib/listing-visibility';
 import {
   CONTEXT_VERSION_PARAM,
@@ -474,7 +477,10 @@ export function createIntegrationDetailHandler(
 
     if (!row) throw notFoundError('integration', { id });
 
-    if (row.retiredAt) {
+    // AECI-2192 (ruling 66, "the public sees nothing"): a row a vendor's removal took
+    // off the site answers exactly as a retired row does, the two slugs only. Before
+    // this, a vetoed row that was not also retired served its full detail here.
+    if (row.retiredAt || row.vetoedAt) {
       const retired: RetiredIntegrationDetail = {
         id: row.id,
         retired: true,
@@ -703,15 +709,19 @@ export function createProductPairHandler(
     // Both arms, since AECI-1035 gave evidenced pairs their claims. Public claims
     // only (AECI-1314): a withheld claim's stamps must not open selectors that
     // change nothing a reader can see.
-    const hasVersionStamps = [...rows, ...evidencedRows].some((row) =>
-      row.claims.some(
+    // AECI-2039: after the owner's answers join, as in the mappers, so a flow the owner
+    // of a Sync Service pair removed cannot open selectors either.
+    const stamped = (claims: (typeof rows)[number]['claims'], ctx: OwnerFlowContext) =>
+      withOwnerVotes(claims, ctx).some(
         (claim) =>
           isClaimPubliclyBacked(claim) &&
           claim.attestations.some(
             (a) => a.introducedVersionId !== null || a.deprecatedVersionId !== null,
           ),
-      ),
-    );
+      );
+    const hasVersionStamps =
+      rows.some((row) => stamped(row.claims, integrationOwnerFlowContext(row))) ||
+      evidencedRows.some((row) => stamped(row.claims, evidencedPairOwnerFlowContext(row)));
 
     const versions = resolveVersionSelection({
       versionRows,

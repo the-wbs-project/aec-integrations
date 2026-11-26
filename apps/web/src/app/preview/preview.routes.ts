@@ -159,6 +159,12 @@ export const previewRoutes: Routes = [
     loadComponent: () =>
       import('./admin-activity/admin-activity-preview').then((m) => m.AdminActivityPreview),
   },
+  // AECI-822: `/admin/seo` Panels 1 and 2 over a fake API, with a gallery of the
+  // empty, no-site-address and failed states, for review without a session.
+  {
+    path: 'admin-seo',
+    loadComponent: () => import('./admin-seo/admin-seo-preview').then((m) => m.AdminSeoPreview),
+  },
   // AECI-1223 — `/admin/email` over a fake API, so the summary, the sign-in panel and
   // the sends list render without an admin session.
   {
@@ -176,6 +182,16 @@ export const previewRoutes: Routes = [
     loadComponent: () =>
       import('./admin-vendor-integrations/admin-vendor-integrations-preview').then(
         (m) => m.AdminVendorIntegrationsPreview,
+      ),
+  },
+  // AECI-2202: the Products tab of `/admin/vendors/:id` over a fake API, so the row
+  // Actions menu and each dialog it opens render without a session.
+  {
+    path: 'admin-vendor-products',
+    providers: [provideAdminChipTones()],
+    loadComponent: () =>
+      import('./admin-vendor-products/admin-vendor-products-preview').then(
+        (m) => m.AdminVendorProductsPreview,
       ),
   },
   // AECI-1615: the Billing tab of `/admin/vendors/:id` over a fake API, so the Grants

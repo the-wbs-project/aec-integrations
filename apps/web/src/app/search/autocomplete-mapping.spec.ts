@@ -36,6 +36,7 @@ function product(overrides: Partial<AlgoliaProductRecord> = {}): AlgoliaProductR
     updated_at_ts: 1767225600,
     logo_url: null,
     product_role: 'application',
+    connector_kind: null,
     ...overrides,
   };
 }

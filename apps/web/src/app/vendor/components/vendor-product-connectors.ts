@@ -19,6 +19,7 @@ import { LogoOrInitial } from '../../shared/logo-or-initial/logo-or-initial';
 import { VendorApi } from '../vendor-api';
 
 import { VendorContestForm } from './vendor-contest-form';
+import { VendorSyncServiceRights } from './vendor-sync-service-rights';
 
 type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
 
@@ -54,7 +55,7 @@ type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
  */
 @Component({
   selector: 'aec-vendor-product-connectors',
-  imports: [AecButton, AecCard, AecIcon, LogoOrInitial, VendorContestForm],
+  imports: [AecButton, AecCard, AecIcon, LogoOrInitial, VendorContestForm, VendorSyncServiceRights],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
@@ -86,9 +87,11 @@ type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
               >Connectors</span
             >
           </h2>
-          <p class="max-w-[30rem] text-sm text-(--text-secondary)" i18n="@@vendor.connectors.intro">
-            Integration platforms that list this product. AEC Integrations maintains this list from
-            each platform's published catalog, so it is read-only here.
+          <!-- AECI-2037: "connectors", not "integration platforms". A Sync Service with a
+               published catalog lists products here too. -->
+          <p class="text-sm text-(--text-secondary)" i18n="@@vendor.connectors.intro.v2">
+            Connectors that list this product. AEC Integrations maintains this list from each
+            connector's published catalog, so it is read-only here.
           </p>
         </div>
 
@@ -140,6 +143,9 @@ type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
                         by {{ ownerName(target) }}.
                       </p>
                       <aec-vendor-contest-form [integration]="target" anchor="evidenced_pair" />
+                      <!-- AECI-2042: a Sync Service pair also carries the endpoint vendor's
+                           veto and its two reports. -->
+                      <aec-vendor-sync-service-rights [target]="target" (changed)="retry()" />
                     </div>
                   }
                 </div>

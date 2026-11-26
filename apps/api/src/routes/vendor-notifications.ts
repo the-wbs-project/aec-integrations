@@ -85,6 +85,10 @@ import {
   type VendorContestNotification,
   type VendorIntegrationClaimNotification,
   type VendorIntegrationCreateNotification,
+  type VendorPairRightNotification,
+  PAIR_RIGHT_NOTIFICATION_EVENTS,
+  isRemovalEndReason,
+  removalReasonWireCode,
   type VendorIntegrationRetireNotification,
   type VendorIntegrationUpdateNotification,
   type VendorNotification,
@@ -124,6 +128,10 @@ import {
   type RetireNotificationMetadata,
 } from '../lib/integration-retire';
 import { pairPathFor, type ContestNotificationMetadata } from '../lib/integration-contests';
+import {
+  PAIR_RIGHT_NOTIFICATION_KIND,
+  type PairRightNotificationMetadata,
+} from '../lib/sync-service-pair-rights';
 import {
   REVIEW_NOTIFICATION_KIND,
   REVIEW_RESPONSE_NOTIFICATION_KIND,
@@ -263,6 +271,8 @@ function toVendorNotification(row: {
   if (kind === THREAD_MESSAGE_NOTIFICATION_KIND) return toThreadMessageNotification(row);
   // AECI-1548: a private row thread closed (§15.8).
   if (kind === THREAD_CLOSED_NOTIFICATION_KIND) return toThreadClosedNotification(row);
+  // AECI-2042: a veto or a report on a Sync Service pair.
+  if (kind === PAIR_RIGHT_NOTIFICATION_KIND) return toPairRightNotification(row);
   const meta = row.metadata as Partial<NotificationLedgerMetadata> | null;
   if (!meta || !row.entityId) return null;
   if (typeof meta.detector !== 'string' || !DETECTORS.has(meta.detector)) return null;
@@ -884,5 +894,44 @@ export function createListVendorNotificationsHandler(
     };
     validateResponseInDev(c.env, () => ListVendorNotificationsResponseSchema.parse(body));
     return json(body);
+  };
+}
+
+/**
+ * Map one veto or report ledger row (AECI-2042), or `null` when it is not recognisable.
+ * Same tolerance as the other mappers: an unknown event drops the row.
+ */
+function toPairRightNotification(row: {
+  id: string;
+  entityId: string | null;
+  createdAt: string;
+  metadata: unknown;
+}): VendorPairRightNotification | null {
+  const meta = row.metadata as Partial<PairRightNotificationMetadata> | null;
+  if (!meta || typeof meta.integrationId !== 'string') return null;
+  const event = meta.event;
+  if (!event || !(PAIR_RIGHT_NOTIFICATION_EVENTS as readonly string[]).includes(event)) {
+    return null;
+  }
+  const pair = meta.pairSlugs;
+  const pairSlugs =
+    Array.isArray(pair) && typeof pair[0] === 'string' && typeof pair[1] === 'string'
+      ? ([pair[0], pair[1]] as const)
+      : null;
+  return {
+    kind: 'pair_right',
+    id: row.id,
+    event,
+    integration_id: meta.integrationId,
+    integration_name: typeof meta.integrationName === 'string' ? meta.integrationName : null,
+    report_kind:
+      meta.reportKind === 'existence' || meta.reportKind === 'data_flow' ? meta.reportKind : null,
+    by_vendor_name: typeof meta.byVendorName === 'string' ? meta.byVendorName : null,
+    reason: typeof meta.reason === 'string' ? meta.reason : null,
+    reason_code: removalReasonWireCode(meta.reasonCode),
+    end_reason: isRemovalEndReason(meta.endReason) ? meta.endReason : null,
+    pair_public: typeof meta.pairPublic === 'boolean' ? meta.pairPublic : null,
+    pair_path: pairPathFor(pairSlugs),
+    created_at: row.createdAt,
   };
 }

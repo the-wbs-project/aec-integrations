@@ -41,6 +41,11 @@ const PROTEST_ALLOWED = new Set([
   'routes/admin-contest-protests.ts',
   'routes/vendor-contests.ts',
   'routes/vendor-contest-protests.ts',
+  // AECI-2042: the Sync Service pair reports and their protests. Authenticated portal
+  // and admin routes, never a public read.
+  'lib/sync-service-pair-contests.ts',
+  'routes/vendor-pair-contests.ts',
+  'routes/admin-pair-contests.ts',
 ]);
 
 /** Modules that may name the contests table, each for a non-public reason. */
@@ -57,13 +62,17 @@ const TABLE_ALLOWED = new Set([
   'lib/vendor-handback.ts', // seat loss re-routes owner contests (AECI-989)
   'routes/promote-contests.ts', // a promote cross-table move re-anchors contests (AECI-1110)
   'routes/vendor-checklist.ts', // the checklist's open-owner-contest test, authenticated, existence only (AECI-1217)
+  'routes/vendor-delivered-pairs.ts', // the caller's own open owner request id, authenticated (AECI-2045)
   'lib/vendor-snapshot.ts', // the operator-only daily snapshot's open-contest counts (AECI-1210)
+  'routes/vendor-connectors.ts', // the endpoint vendor's own open reports, authenticated (AECI-2042)
 ]);
 
 // `protest_reply_reminder` is the AECI-1205 cron job id, not a column.
 const PROTEST_COLUMN =
   /\bprotest(Status|Basis|Reason|Evidence|edBy|edAt|ReplyDueAt|Reply|ReplyEvidence|RepliedBy|RepliedAt|DecisionNote|DecidedBy|DecidedAt|WorkflowId)\b|\bprotest_(status|basis|reason|evidence|reply(?!_reminder)|decision|decided|workflow)|\bprotested_(by|at)\b/;
-const CONTEST_TABLE = /\bintegrationFieldChallenges\b|\bintegration_field_challenges\b/;
+// AECI-2042: the Sync Service pair reports table is held to the same rule.
+const CONTEST_TABLE =
+  /\bintegrationFieldChallenges\b|\bintegration_field_challenges\b|\bsyncServicePairContests\b|\bsync_service_pair_contests\b/;
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {

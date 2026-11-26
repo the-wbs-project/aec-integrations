@@ -18,7 +18,6 @@ import {
   SIGNED_DEAL_TEXT_MAX,
   SignedDealSchema,
   type GrantLicensesResponse,
-  type GrantLicensesWarning,
   type LicenseGrantStatus,
   type SignedDealInput,
 } from '@aeci/shared';
@@ -83,9 +82,11 @@ function todayLocal(): string {
  * replays the same grant (the API answers 200, `replayed: true`) rather than writing
  * a second set. Cancelling and reopening is a new grant.
  *
- * ── IT WARNS; IT DOES NOT GATE ──────────────────────────────────────────────
- * On a pure connector vendor it shows a note and stays enabled (AECI-738). The API
- * returns the same warning in `warnings[]`, shown after the grant.
+ * ── A NOTE ON A PURE CONNECTOR VENDOR (AECI-738, AECI-2044) ──────────────────
+ * On a pure connector vendor it shows a note and stays enabled. Since AECI-2044 the
+ * API refuses the grant (`409 NO_SUBSCRIBABLE_PRODUCT`) when none of the vendor's
+ * products can hold a subscription, that is, none is a Sync Service. The note says
+ * so before the operator submits. The API no longer sends a warning in `warnings[]`.
  *
  * ── HOST-OWNED CHROME ───────────────────────────────────────────────────────
  * No heading and no live region, like `ProvisionSeatControl`: `VendorDetail` owns
@@ -119,7 +120,7 @@ export class GrantLicensesControl {
 
   readonly vendorId = input.required<string>();
   readonly vendorName = input.required<string>();
-  /** The §8.8(1) payer test (AECI-738). Drives the warning ONLY, never the disabled state. */
+  /** The §8.8(1) payer test (AECI-738). Drives the note ONLY, never the disabled state. */
   readonly isPureConnectorVendor = input.required<boolean>();
   /** Prefix for the form controls' `id`/`for` pairs. */
   readonly idPrefix = input.required<string>();
@@ -206,12 +207,6 @@ export class GrantLicensesControl {
     () => this.dealValue() !== null && !this.dealVersionMismatch() && !this.dealSignedInFuture(),
   );
 
-  /** The warnings the last committed grant came back with. */
-  private readonly lastWarnings = signal<readonly GrantLicensesWarning[]>([]);
-  protected readonly warnedConnector = computed(() =>
-    this.lastWarnings().some((w) => w.code === 'pure_connector_vendor'),
-  );
-
   protected readonly quantityValue = computed(() => {
     const raw = this.quantity().trim();
     if (!/^\d+$/.test(raw)) return null;
@@ -243,7 +238,6 @@ export class GrantLicensesControl {
 
   protected openForm(): void {
     this.failedMessage.set('');
-    this.lastWarnings.set([]);
     this.lastStatus.set(null);
     this.grantId.set(crypto.randomUUID());
     this.quantity.set('1');
@@ -369,7 +363,6 @@ export class GrantLicensesControl {
       });
       this.granted.emit(result);
       this.closeForm();
-      this.lastWarnings.set(result.warnings);
       this.lastStatus.set(result.status);
       this.announce.emit(this.announcementFor(result));
     } catch (err) {

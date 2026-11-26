@@ -45,6 +45,7 @@ export function planCardsCopy(locale: string): PlanCardsCopy {
         $localize`:@@app.docs.plans.free.h1:Keep your company details and logo current`,
         $localize`:@@app.docs.plans.free.h2:Keep each product's description, website and categories current`,
         $localize`:@@app.docs.plans.free.h3:Claim and maintain the integrations you build`,
+        $localize`:@@app.docs.plans.free.dataFlows:Confirm the data each integration moves`,
         $localize`:@@app.docs.plans.free.h4:Invite your colleagues`,
         $localize`:@@app.docs.plans.free.h5:Answer reviews in public`,
       ],
@@ -58,7 +59,7 @@ export function planCardsCopy(locale: string): PlanCardsCopy {
       highlights: [
         $localize`:@@app.docs.plans.managed.h1:"How teams use it", in your own words`,
         $localize`:@@app.docs.plans.managed.h2:The trades, audiences and phases you serve`,
-        $localize`:@@app.docs.plans.managed.integrationDetail:Integration detail: extra links and the data each integration moves.`,
+        $localize`:@@app.docs.plans.managed.links:Links to your integrations page and API docs`,
         $localize`:@@app.docs.plans.managed.h7:Search engines notified when you update a page`,
       ],
     },

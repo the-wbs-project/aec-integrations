@@ -504,7 +504,7 @@ export class IntegrationLinksSection {
     return (
       i.powered_by?.name ??
       i.mechanism_name ??
-      $localize`:@@vendor.im.connector.fallback:a connector service`
+      $localize`:@@vendor.im.connector.fallback.v2:a connector product`
     );
   });
 

@@ -42,7 +42,8 @@ export type ScheduledJob =
   | 'acceptance_evidence_removal'
   | 'plan_snapshot'
   | 'acceptance_chain'
-  | 'legal_retention';
+  | 'legal_retention'
+  | 'search_ingest';
 
 /**
  * Body of a message on a scheduled-job queue. The producer is the cron
@@ -736,18 +737,44 @@ export type Env = {
    */
   LINEAR_API_KEY?: string;
   /**
-   * Google service-account key, the whole key-file JSON (AECI-1236). Read by the
-   * daily URL Inspection run (`lib/gsc-inspect-job.ts`), which signs a
-   * `webmasters.readonly` token with it. The account needs read access to the
+   * Google service-account key, the whole key-file JSON (AECI-1236). Two readers
+   * sign a `webmasters.readonly` token with it (`lib/google-service-account.ts`):
+   * the daily URL Inspection run (`lib/gsc-inspect-job.ts`) and, since AECI-820,
+   * the weekly search ingest (`lib/search-ingest.ts`), which reads Search
+   * Analytics and Sitemaps. The account needs read access to the
    * `sc-domain:aecintegrations.com` Search Console property and nothing else.
    *
    * **Production only, and recommended rather than required.** The worklist only
    * fills where `INDEXNOW_KEY` is set, which is production. `promote-to-prod.yml`
    * pushes it from the `GSC_SA_KEY_JSON_PRODUCTION` GH secret; when it is absent
    * the run is `skipped` with `aeci.gsc_inspect.run{outcome:skipped}` emitted, so
-   * a missing key is visible rather than silent (the AECI-851 lesson).
+   * a missing key is visible rather than silent (the AECI-851 lesson). The ingest
+   * skips the same way, with `aeci.search_ingest.run{outcome:skipped}`.
    */
   GSC_SA_KEY_JSON?: string;
+  /**
+   * Bing Webmaster Tools API key (AECI-821). Read by the Bing lane of the weekly
+   * search ingest (`lib/search-ingest-bing.ts`), which sends it as `?apikey=` on
+   * three read calls. The key is the user's, not the site's, and Bing offers no
+   * read-only scope, so it can also call BWT's write methods. It never appears in a
+   * log line, a `job_runs` detail or a metric attribute (`lib/bing-webmaster-api.ts`).
+   *
+   * **Production only, and recommended rather than required.** `promote-to-prod.yml`
+   * pushes it from the `BWT_API_KEY_PRODUCTION` GH secret, warn-and-skip when empty.
+   * Absent, the Bing lane is `skipped` with `aeci.search_ingest.run{engine:bing,
+   * outcome:skipped}` emitted, so a missing key is visible.
+   */
+  BWT_API_KEY?: string;
+  /**
+   * The site exactly as Bing Webmaster Tools registered it, e.g.
+   * `https://www.aecintegrations.com/` (AECI-821). A plain per-env var, not a secret.
+   * Unset on every tier until the operator reads it from BWT. Unset, or naming any
+   * host but `www.aecintegrations.com`, the Bing lane is `skipped` (`no_site_url`,
+   * `site_url_not_www`), because every `search.bing.www.*` key names the `www.` host.
+   * The key travels in the query string. AECI-2075 showed `redact_query_string` keeps
+   * it out of stored traces, so setting it is safe (`docs/environments.md`).
+   */
+  BWT_SITE_URL?: string;
   /**
    * The support inbox: the one recipient for every operator email the API Worker
    * sends (AECI-1220). It reaches:

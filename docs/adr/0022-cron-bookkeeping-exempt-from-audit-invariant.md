@@ -631,3 +631,59 @@ vendor once the last acceptance or grant naming it is deleted, and counts it in 
 so each place and release audits in its own batch. It is not on the exemption list.
 
 **Where it is recorded.** `STAGE_1_SPEC.md` §26.6 and `DATABASE_SCHEMA.md` §8.4 and §8.15.
+
+## Amendment 2026-11-24: search engine figures in `metrics_daily` (AECI-820)
+
+**This amendment adds a second exemption route.** Nothing above is reversed, and no table joins
+the list, because `metrics_daily` is already on it. But the table's second writer does not pass the
+three-part test, so the existing route does not cover it. It is exempt by the new route below.
+
+**The writer.** The weekly search ingest (`apps/api/src/lib/search-ingest.ts`) reads Google Search
+Console's Search Analytics and Sitemaps figures and upserts them into `metrics_daily` under the
+`SEARCH_INGEST_METRIC_KEYS` (`ADMIN_PANEL_SPEC.md` §5.24.8). Bing's figures join under AECI-821.
+
+**Why the original test fails.** Leg (a) asks for data computed from what is already in the
+database. These are external facts, so leg (a) fails. The 2026-08-31 amendment does not apply
+either: it covers a bulk mirror of an upstream record that feeds a public surface, and it audits.
+
+**The new route: an operator-only reading of an external system.** A write is exempt by this route
+when **all four** of these hold:
+
+1. **It is not domain state.** It is not the catalog, a user, a review, a claim, a request or a
+   workflow, and no person's action in the app produced it.
+2. **It is invisible on every public surface.** Only an admin screen or an operator email reads it.
+3. **The external system is the record.** The value is what an outside system reported, and the
+   row adds no decision of ours. An audit row would record nothing that system does not.
+4. **It is never deleted, and never written as a value the system did not report.** No `DELETE`
+   path exists. A value absent from the system's answer writes no row, never a 0.
+
+The ingest's rows pass all four. Leg (3) is why a re-pull may overwrite a `measured` row, as ADR
+0027 allows where the source still holds the data.
+
+**Reproducibility, which the original route also asks for, holds for most keys but not all.** The
+daily and 28-day Search Analytics keys are reproducible: Google keeps 16 months, and re-running the
+job writes the same rows. **The four `www_sitemap.*` keys are not.** They are readings of the
+Sitemaps list taken at the run: URLs counted, errors, warnings, and days since Google last read
+the file. A later run reads a later state and cannot rebuild an earlier one. They are exempt by the
+new route anyway, because reproducibility is not one of its four legs. They are a sample of an
+outside system's state, like a snapshot stock, and the run's `job_runs` row records the reading,
+the raw dates and the outcome of every call. That row, not an audit row, is their record. Its
+90-day retention is the accepted cost.
+
+**What would end the exemption.** A public surface reading these keys, an operator editing a row
+through the app, or a delete path would fail a leg. Any of those audits in the same `db.batch`.
+
+**The Bing keys (AECI-821) pass the same four legs.** The Bing lane
+(`apps/api/src/lib/search-ingest-bing.ts`) upserts the `search.bing.www.*` keys from Bing Webmaster
+Tools. They are not domain state. Only the admin console and the operator email read them. Bing is
+the record, and `in_index` is stored as Bing reported it. There is no delete path, and a day or a
+field Bing did not return writes no row. Five of the seven keys are daily series. The lane writes
+only a 14-day window, so a re-run within that window writes the same rows. A run missed by more
+than about 11 days leaves the oldest days of the gap unwritten, even though Bing still holds six
+months. **The two `sitemap_*` keys are
+run-time readings, like the Google `www_sitemap` keys.** They record the feed list's URL count and
+the days since Bing last crawled the sitemap, as of the run. A later run cannot rebuild them. The
+run's `job_runs.detail.bing.sitemap` is their record, as for Google.
+
+**Where it is recorded.** `STAGE_1_SPEC.md` §26.1, `ADMIN_PANEL_SPEC.md` §5.24.10 rule 1 and
+`DATABASE_SCHEMA.md` §9.3.

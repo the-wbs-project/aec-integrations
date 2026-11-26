@@ -273,6 +273,40 @@ export const products = sqliteTable(
     usefulnessSource: text('usefulness_source', { enum: ['vendor', 'admin'] }),
 
     productRole: text('product_role').notNull().default('application'),
+    /**
+     * The connector kind (AECI-2036, `STAGE_1_5_SPEC.md` §13.13). It tells a Sync
+     * Service from an Integration platform, the two public kinds under the one
+     * `connector` role (AECI-2035 ruling 1). NULL is unclassified and reads as
+     * "Connector". Only an AECi admin sets it, through
+     * `PATCH /api/admin/products/:id/connector-kind`, and only on a `connector` or
+     * `hybrid` product (ruling 3). Promote never writes or clears it, and the review
+     * app does not carry it. Drizzle's `enum` option emits no SQL CHECK: the column is
+     * a plain `ADD COLUMN`, as `usefulness_source` was, and must never gain a
+     * table-level CHECK (a CHECK recreates `products`, `docs/migrations.md` §0). Zod
+     * validates the value instead (`ConnectorKindSchema`).
+     */
+    connectorKind: text('connector_kind', { enum: ['integration_platform', 'sync_service'] }),
+    /**
+     * A Sync Service's three curated facts (AECI-2046, ruling 15 on AECI-2035,
+     * `STAGE_1_5_SPEC.md` §13.13): how often it syncs, who supports it, and how setup
+     * works. Short free text, AECi-curated: only an AECi admin writes them, through
+     * `PATCH /api/admin/products/:id/sync-facts`, and only while the product is a Sync
+     * Service. The vendor does not edit them (a vendor-editable version is a legal
+     * `decision`). Promote never writes or clears them. A kind change keeps them stored,
+     * and readers show them only while the product is a Sync Service. Zod caps the
+     * length (`SYNC_FACT_MAX_LENGTH`). Plain `ADD COLUMN`s, never a table-level CHECK
+     * (a CHECK recreates `products`, `docs/migrations.md` §0).
+     *
+     * The source and the date go with them because the Terms promise that text we write
+     * on a listing a vendor maintains "is marked as ours, with its source and date": the
+     * https link the facts came from (required while any fact is set), and when the
+     * write last changed them. Both clear with the last fact.
+     */
+    syncFrequency: text('sync_frequency'),
+    syncSupport: text('sync_support'),
+    syncSetup: text('sync_setup'),
+    syncFactsSourceUrl: text('sync_facts_source_url'),
+    syncFactsRecordedAt: text('sync_facts_recorded_at'),
     logoUrl: text('logo_url'),
     logoSource: text('logo_source', { enum: ['vendor', 'admin'] }),
     /** The AECi logo, kept when a local save first overwrites it (AECI-1618). Promote
@@ -501,6 +535,17 @@ export const integrations = sqliteTable(
      * CHECK here would make drizzle-kit recreate the table).
      */
     retiredBy: text('retired_by'),
+    /**
+     * When an endpoint vendor's veto took this row off the public site (AECI-2042,
+     * ruling 8 on AECI-2035), or NULL while no veto is in force. Only on a row whose
+     * connector (`powered_by_product_id`) is a Sync Service. Denormalised from
+     * `sync_service_pair_vetoes`: the veto, withdraw and lift batches set it to the
+     * earliest open veto's `filed_at`, or NULL when none is open, in the same batch.
+     * Every public read filters it through `lib/live-integration.ts`, beside
+     * `retired_at`. Promote treats a vetoed row as vendor-held: it never writes it.
+     * A plain ADD COLUMN with no CHECK, so `integrations` is not recreated.
+     */
+    vetoedAt: text('vetoed_at'),
 
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -1083,6 +1128,278 @@ export const attestations = sqliteTable(
     // the vendor poll's MAX(updated_at) join, the pair timeline and the conflict replay.
     index('attestations_claim_idx').on(t.claimId, t.updatedAt),
     check('attestations_source_check', sql`"source" IN ('aeci', 'vendor_a', 'vendor_b')`),
+  ],
+);
+
+// The OWNER's answer on a data flow of a Sync Service pair (AECI-2039, ruling 4 on
+// AECI-2035, `STAGE_2_ATTESTATIONS_SPEC.md` §14.10). A Sync Service runs both sides of
+// its pairs, so the pair's owner confirms or removes the flows on it.
+//
+// ── WHY A TABLE OF ITS OWN, NOT A FOURTH `attestations.source` ─────────────────
+// `attestations_source_check` is a CHECK, and changing a CHECK on D1 recreates the
+// table, which fires `ON DELETE CASCADE` from its children (`docs/migrations.md` §0).
+// Writing the owner's answer into the `aeci` slot would say AEC Integrations said it,
+// and `vendor_a` / `vendor_b` speak for an endpoint vendor. So the answer lives here.
+// Every reader that does not know this table keeps reading `attestations` exactly as
+// before, and fails safe: a flow the owner confirmed reads "Listed by AEC
+// Integrations", and a flow the owner added is withheld (`isClaimPubliclyBacked`).
+//
+// One LIVE row per claim (`claim_owner_answers_live_key`). Supersession is
+// retract-then-insert, never UPDATE, as on `attestations`. An answer counts only while
+// `vendor_id` is the anchor row's `built_by_vendor_id`, the row is claimed, and the
+// connector product is a Sync Service (`lib/owner-flows.ts`). An answer from an old
+// owner therefore never speaks for a new one.
+export const claimOwnerAnswers = sqliteTable(
+  'claim_owner_answers',
+  {
+    id: uuidPk(),
+    claimId: text('claim_id')
+      .notNull()
+      .references(() => claims.id, { onDelete: 'cascade' }),
+    // SET NULL, as on `attestations.attested_by_vendor_id`: losing the vendor row must
+    // not delete the history. A NULL vendor matches no owner, so the answer stops counting.
+    vendorId: text('vendor_id').references(() => vendors.id, { onDelete: 'set null' }),
+    /** `true` confirms the flow. `false` removes it from public reads. */
+    asserted: integer('asserted', { mode: 'boolean' }).notNull(),
+    retractedAt: text('retracted_at'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('claim_owner_answers_live_key')
+      .on(t.claimId)
+      .where(sql`"retracted_at" IS NULL`),
+    index('claim_owner_answers_claim_idx').on(t.claimId, t.updatedAt),
+  ],
+);
+
+// ===========================================================================
+// Endpoint rights on a Sync Service pair (AECI-2042, rulings 8 to 10 on AECI-2035,
+// `STAGE_2_VENDOR_PORTAL_SPEC.md` §11e)
+// ===========================================================================
+
+// One row per veto an endpoint vendor files on a pair a Sync Service delivers. The pair
+// key (connector, A, B) is stored with it, so the veto keeps blocking a re-create of
+// the same pair even if the row it was filed on is later deleted: the anchor FKs are
+// SET NULL, not CASCADE. An open veto (`ended_at IS NULL`) hides the row through the
+// denormalised `vetoed_at` on the anchor. One open veto per vendor per pair key.
+export const syncServicePairVetoes = sqliteTable(
+  'sync_service_pair_vetoes',
+  {
+    id: uuidPk(),
+    integrationId: text('integration_id').references(() => integrations.id, {
+      onDelete: 'set null',
+    }),
+    evidencedPairId: text('evidenced_pair_id').references(() => connectorEvidencedPairs.id, {
+      onDelete: 'set null',
+    }),
+    connectorProductId: text('connector_product_id')
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    /** The pair key in canonical order: `product_a_id < product_b_id`. */
+    productAId: text('product_a_id')
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    productBId: text('product_b_id')
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    /** The vetoing endpoint vendor. SET NULL keeps the veto in force: only a withdraw
+     *  or an AECi lift ends one. */
+    vendorId: text('vendor_id').references(() => vendors.id, { onDelete: 'set null' }),
+    /** The vendor's name at filing, so the owner's notice survives a vendor delete. */
+    vendorName: text('vendor_name'),
+    /** The text on record. Since AECI-2192 (0135) it is the English label of
+     *  `reason_code`; on an older row it is the vendor's own words. */
+    reason: text('reason').notNull(),
+    /** AECI-2192 (ruling 66): the fixed reason, one of `REMOVAL_REASON_CODES`. NULL on a
+     *  row filed before the fixed list. A plain ADD COLUMN with no CHECK: Zod validates. */
+    reasonCode: text('reason_code', {
+      enum: ['not_supported', 'not_authorised', 'no_longer_work_with'],
+    }),
+    filedBy: text('filed_by').references(() => profiles.id, { onDelete: 'set null' }),
+    filedAt: text('filed_at').notNull(),
+    /** NULL while in force. */
+    endedAt: text('ended_at'),
+    /** `withdrawn` (the vetoing vendor) or `lifted` (an AECi admin). */
+    endedHow: text('ended_how'),
+    endedBy: text('ended_by').references(() => profiles.id, { onDelete: 'set null' }),
+    /** The admin's required note on a lift. */
+    endNote: text('end_note'),
+    /** AECI-2192: why AECi ended it, one of `REMOVAL_END_REASONS`. NULL on a withdraw and
+     *  on a lift before 0135. A plain ADD COLUMN with no CHECK. */
+    endReason: text('end_reason', {
+      enum: [
+        'unauthorised_account',
+        'wrong_product',
+        'reason_plainly_false',
+        'claim_ended_or_suspended',
+        'law_requires',
+      ],
+    }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    check(
+      'sync_service_pair_vetoes_anchor_check',
+      sql`("integration_id" IS NULL) OR ("evidenced_pair_id" IS NULL)`,
+    ),
+    check('sync_service_pair_vetoes_order_check', sql`"product_a_id" < "product_b_id"`),
+    check(
+      'sync_service_pair_vetoes_ended_how_check',
+      sql`"ended_how" IS NULL OR "ended_how" IN ('withdrawn', 'lifted')`,
+    ),
+    uniqueIndex('sync_service_pair_vetoes_open_key')
+      .on(t.connectorProductId, t.productAId, t.productBId, t.vendorId)
+      .where(sql`"ended_at" IS NULL`),
+    index('sync_service_pair_vetoes_key_idx').on(t.connectorProductId, t.productAId, t.productBId),
+    index('sync_service_pair_vetoes_integration_idx').on(t.integrationId),
+    index('sync_service_pair_vetoes_pair_idx').on(t.evidencedPairId),
+    index('sync_service_pair_vetoes_vendor_idx').on(t.vendorId, t.updatedAt),
+  ],
+);
+
+// AECI-2192 (ruling 66 on AECI-2035, after counsel's Q73 and Q74): the Sync Service's
+// objection to a removal. One ground of three, an explanation, and for
+// `reason_plainly_false` a link to the removing vendor's own public material. AECi
+// decides it: an accept ends the removal (the veto's `end_reason` is the ground), a
+// decline leaves it standing. A removal that ends another way closes an open objection
+// in the same batch (`closed`). One open objection per removal, by the partial unique
+// index. A new table, so its CHECKs are safe (`docs/migrations.md` §0). Nothing public
+// reads it.
+export const syncServiceVetoObjections = sqliteTable(
+  'sync_service_veto_objections',
+  {
+    id: uuidPk(),
+    vetoId: text('veto_id')
+      .notNull()
+      .references(() => syncServicePairVetoes.id, { onDelete: 'cascade' }),
+    /** The objecting vendor (an owner of a row on the key, or the Sync Service's vendor).
+     *  SET NULL keeps the record when the vendor is deleted. */
+    vendorId: text('vendor_id').references(() => vendors.id, { onDelete: 'set null' }),
+    vendorName: text('vendor_name'),
+    ground: text('ground', {
+      enum: ['unauthorised_account', 'wrong_product', 'reason_plainly_false'],
+    }).notNull(),
+    explanation: text('explanation').notNull(),
+    sourceUrl: text('source_url'),
+    filedBy: text('filed_by').references(() => profiles.id, { onDelete: 'set null' }),
+    status: text('status', { enum: ['open', 'accepted', 'declined', 'closed'] })
+      .notNull()
+      .default('open'),
+    decisionNote: text('decision_note'),
+    decidedBy: text('decided_by').references(() => profiles.id, { onDelete: 'set null' }),
+    decidedAt: text('decided_at'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    check(
+      'sync_service_veto_objections_ground_check',
+      sql`"ground" IN ('unauthorised_account', 'wrong_product', 'reason_plainly_false')`,
+    ),
+    check(
+      'sync_service_veto_objections_status_check',
+      sql`"status" IN ('open', 'accepted', 'declined', 'closed')`,
+    ),
+    check(
+      'sync_service_veto_objections_source_check',
+      sql`"ground" <> 'reason_plainly_false' OR "source_url" IS NOT NULL`,
+    ),
+    uniqueIndex('sync_service_veto_objections_open_key')
+      .on(t.vetoId)
+      .where(sql`"status" = 'open'`),
+    index('sync_service_veto_objections_veto_idx').on(t.vetoId, t.createdAt),
+    index('sync_service_veto_objections_status_idx').on(t.status, t.createdAt),
+  ],
+);
+
+// The two contests an endpoint vendor files on a Sync Service pair that the field
+// contest table cannot hold without changing its `field` CHECK (a recreate):
+// `existence` ("this does not exist or is no longer offered", always decided by AECi,
+// ruling 9) and `data_flow` (one flow is wrong, decided by the owner of a claimed pair,
+// ruling 10). The decision and protest columns follow `integration_field_challenges`.
+// Nothing public reads this table.
+export const syncServicePairContests = sqliteTable(
+  'sync_service_pair_contests',
+  {
+    id: uuidPk(),
+    kind: text('kind').notNull(),
+    integrationId: text('integration_id').references(() => integrations.id, {
+      onDelete: 'cascade',
+    }),
+    evidencedPairId: text('evidenced_pair_id').references(() => connectorEvidencedPairs.id, {
+      onDelete: 'cascade',
+    }),
+    /** The flow a `data_flow` contest names. NULL on `existence`. */
+    claimId: text('claim_id').references(() => claims.id, { onDelete: 'cascade' }),
+    /** The flow's stored direction at submit (`a_to_b` | `b_to_a` | `both`). */
+    currentDirection: text('current_direction'),
+    /** The stored direction the submitter proposes, or NULL for "remove this flow". */
+    proposedDirection: text('proposed_direction'),
+    reason: text('reason').notNull(),
+    submitterVendorId: text('submitter_vendor_id')
+      .notNull()
+      .references(() => vendors.id, { onDelete: 'cascade' }),
+    submittedBy: text('submitted_by').references(() => profiles.id, { onDelete: 'set null' }),
+    /** Frozen at submit: `owner` or `aeci`. */
+    routedTo: text('routed_to').notNull(),
+    ownerVendorId: text('owner_vendor_id').references(() => vendors.id, { onDelete: 'set null' }),
+    status: text('status').notNull().default('open'),
+    decisionNote: text('decision_note'),
+    decidedBy: text('decided_by').references(() => profiles.id, { onDelete: 'set null' }),
+    decidedAt: text('decided_at'),
+    /** What an accept did: `retired`, `upstream-only`, `flow-removed`, `flow-redirected`. */
+    acceptMode: text('accept_mode'),
+    protestStatus: text('protest_status'),
+    protestBasis: text('protest_basis'),
+    protestReason: text('protest_reason'),
+    protestedBy: text('protested_by').references(() => profiles.id, { onDelete: 'set null' }),
+    protestedAt: text('protested_at'),
+    protestDecisionNote: text('protest_decision_note'),
+    protestDecidedBy: text('protest_decided_by').references(() => profiles.id, {
+      onDelete: 'set null',
+    }),
+    protestDecidedAt: text('protest_decided_at'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    check(
+      'sync_service_pair_contests_anchor_check',
+      sql`(("integration_id" IS NOT NULL) + ("evidenced_pair_id" IS NOT NULL)) = 1`,
+    ),
+    check('sync_service_pair_contests_kind_check', sql`"kind" IN ('existence', 'data_flow')`),
+    check(
+      'sync_service_pair_contests_claim_check',
+      sql`("kind" = 'data_flow') = ("claim_id" IS NOT NULL)`,
+    ),
+    check(
+      'sync_service_pair_contests_direction_check',
+      sql`"proposed_direction" IS NULL OR "proposed_direction" IN ('a_to_b', 'b_to_a', 'both')`,
+    ),
+    check('sync_service_pair_contests_routed_check', sql`"routed_to" IN ('owner', 'aeci')`),
+    check(
+      'sync_service_pair_contests_status_check',
+      sql`"status" IN ('open', 'accepted', 'declined', 'withdrawn')`,
+    ),
+    check(
+      'sync_service_pair_contests_protest_status_check',
+      sql`"protest_status" IS NULL OR "protest_status" IN ('open', 'upheld', 'rejected', 'withdrawn')`,
+    ),
+    check(
+      'sync_service_pair_contests_protest_basis_check',
+      sql`"protest_basis" IS NULL OR "protest_basis" IN ('declined', 'silence')`,
+    ),
+    // No partial unique index for "one open contest per submitter, kind and target":
+    // two of its columns are NULL on most rows, and SQLite treats NULLs as distinct.
+    // The submit batch's `pairContestDuplicateSentinel` holds the rule instead.
+    index('sync_service_pair_contests_integration_idx').on(t.integrationId),
+    index('sync_service_pair_contests_pair_idx').on(t.evidencedPairId),
+    index('sync_service_pair_contests_claim_idx').on(t.claimId),
+    index('sync_service_pair_contests_submitter_idx').on(t.submitterVendorId, t.updatedAt),
+    index('sync_service_pair_contests_owner_idx').on(t.ownerVendorId, t.updatedAt),
+    index('sync_service_pair_contests_status_idx').on(t.status, t.routedTo, t.createdAt),
   ],
 );
 
@@ -3964,6 +4281,18 @@ export const pageViews = sqliteTable(
     index('page_views_operator_pair_idx')
       .on(t.userAgentHash, t.cfAsn, t.createdAt)
       .where(sql`"is_operator" = 1`),
+    // AECI-818 — the search console's crawled-path read (`readLastFetchByPath` in
+    // `lib/seo-queue.ts`), run on every `/api/admin/seo/queue` request and by the
+    // 00:15 snapshot. It groups crawler rows by `(bot_name, concrete_path)` back to
+    // `CONCRETE_PATH_SINCE`. Without this index the only seek is
+    // `page_views_bot_idx`, and `is_bot = 1` is most of the table, so the read
+    // range-scanned nearly every bot row. COVERING (every column the read touches)
+    // and PARTIAL, so the write cost lands only on bot rows that carry a concrete
+    // path. The read spells `is_bot = 1` as a literal: a bound `?` would not let
+    // SQLite prove the index's WHERE.
+    index('page_views_crawl_path_idx')
+      .on(t.botName, t.concretePath, t.createdAt, t.cfVerifiedBotCategory)
+      .where(sql`"is_bot" = 1 AND "concrete_path" IS NOT NULL`),
     // AECI-743 — the constraint that makes the de-duplication atomic, plus the
     // seek ingest uses to probe the current and previous bucket for its metric.
     // UNIQUE is the load-bearing word: `ON CONFLICT DO NOTHING` against it settles
@@ -4230,9 +4559,12 @@ export const metricsDaily = sqliteTable(
   'metrics_daily',
   {
     /** `YYYY-MM-DD`, UTC. Text, so it sorts lexically = chronologically and can be
-     *  compared directly against `substr(created_at, 1, 10)` elsewhere. */
+     *  compared directly against `substr(created_at, 1, 10)` elsewhere. The search
+     *  ingest's daily and 28-day keys are the exception: their day is Google's or
+     *  Bing's Pacific date (AECI-820, AECI-821, `SEARCH_INGEST_METRIC_KEYS`). */
     day: text('day').notNull(),
-    /** One of `ADMIN_SNAPSHOT_METRIC_KEYS` (`@aeci/shared`). Deliberately NOT a
+    /** One of `ADMIN_SNAPSHOT_METRIC_KEYS` or, since AECI-820,
+     *  `SEARCH_INGEST_METRIC_KEYS` (`@aeci/shared`). Deliberately NOT a
      *  CHECK constraint: the whole point of the key-value shape is that a new
      *  metric costs no migration, and a SQLite CHECK change forces a table rebuild. */
     metric: text('metric').notNull(),
@@ -5857,11 +6189,13 @@ export const connectorEvidencedPairs = sqliteTable(
      *  (`routes/vendor-integration-claims.ts`, AECI-1089) for the owner, on any plan
      *  since AECI-1663. */
     claimedAt: text('claimed_at'),
-    /** Who created the row. Always `'aeci'` today, because vendor create stays
-     *  closed on connector-powered rows (`STAGE_2_SPEC.md` §8.10(8), ruling 1).
-     *  It exists so the vendor-held predicate reads identically on both tables,
-     *  and because the ops lanes' `notVendorHeldSql` switches on only when
-     *  both `claimed_at` and `origin` exist. Enforced by the hand-written CHECK. */
+    /** Who created the row: `'aeci'` from promote, or `'vendor'` when a Sync Service
+     *  added its own pair (AECI-2040, `routes/vendor-sync-service-pair-create.ts`).
+     *  Every other vendor create stays closed on connector-powered rows
+     *  (`STAGE_2_SPEC.md` §8.10(8), ruling 1, reopened for Sync Services only). The
+     *  vendor-held predicate reads it identically on both tables, and the ops lanes'
+     *  `notVendorHeldSql` switches on only when both `claimed_at` and `origin` exist.
+     *  Enforced by the hand-written CHECK. */
     origin: text('origin').notNull().default('aeci'),
     /** When the pair was retired, or NULL while it is live. Written only by the
      *  retire routes (AECI-1091); promote never writes it. Every count, id set and
@@ -5872,6 +6206,11 @@ export const connectorEvidencedPairs = sqliteTable(
     /** Who retired the pair: `'owner'` or `'aeci'`. NULL while live. Enforced by
      *  the hand-written column CHECK in 0049. */
     retiredBy: text('retired_by'),
+    /** When an endpoint vendor's veto took the pair off the public site (AECI-2042),
+     *  or NULL. Same rule as `integrations.vetoed_at`: denormalised from
+     *  `sync_service_pair_vetoes`, filtered by `liveEvidencedPairWhere`, and a promote
+     *  fence. Plain ADD COLUMN, no CHECK. */
+    vetoedAt: text('vetoed_at'),
 
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -6197,6 +6536,12 @@ export const claimsRelations = relations(claims, ({ one, many }) => ({
     relationName: 'ClaimCreatedByVendor',
   }),
   attestations: many(attestations),
+  // AECI-2039: the owner's answer on a Sync Service pair's flow.
+  ownerAnswers: many(claimOwnerAnswers),
+}));
+export const claimOwnerAnswersRelations = relations(claimOwnerAnswers, ({ one }) => ({
+  claim: one(claims, { fields: [claimOwnerAnswers.claimId], references: [claims.id] }),
+  vendor: one(vendors, { fields: [claimOwnerAnswers.vendorId], references: [vendors.id] }),
 }));
 export const attestationsRelations = relations(attestations, ({ one }) => ({
   claim: one(claims, { fields: [attestations.claimId], references: [claims.id] }),
@@ -6370,6 +6715,11 @@ export const connectorPairsRelations = relations(connectorPairs, ({ one, many })
 
 export const schema = {
   healthCheck,
+  // AECI-2042. No relations entries: every read joins explicitly.
+  syncServicePairVetoes,
+  syncServicePairContests,
+  // AECI-2192.
+  syncServiceVetoObjections,
   vendorSuspensions,
   vendorAbuseCostEntries,
   vendorTerminationRefunds,
@@ -6386,6 +6736,7 @@ export const schema = {
   productVersions,
   claims,
   attestations,
+  claimOwnerAnswers,
   productCategories,
   productAudiences,
   productPhases,
@@ -6454,6 +6805,7 @@ export const schema = {
   taxonomyDataObjectsRelations,
   claimsRelations,
   attestationsRelations,
+  claimOwnerAnswersRelations,
   productVersionsRelations,
   productCategoriesRelations,
   productAudiencesRelations,

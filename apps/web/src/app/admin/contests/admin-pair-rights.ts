@@ -1,0 +1,779 @@
+import { DatePipe } from '@angular/common';
+import { Component, LOCALE_ID, afterNextRender, inject, signal } from '@angular/core';
+
+import {
+  REMOVAL_END_REASONS,
+  type AdminVeto,
+  type PairContest,
+  type PairRightPair,
+  type RemovalEndReason,
+  type VetoObjection,
+} from '@aeci/shared';
+
+import { AecButton } from '../../shared/button/button';
+import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
+import {
+  objectionGroundLabel,
+  removalEndReasonLabel,
+  removalReasonText,
+} from '../../vendor/components/removal-labels';
+import {
+  CHOICE_CARD_CLASS,
+  CHOICE_INPUT_CLASS,
+  FIELD_ERROR_CLASS,
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { AdminDangerAction } from '../console/danger-action';
+import { adminStatusTone } from '../console/status-tones';
+import { QUEUE_FORM_CLASS } from '../reviews/queue-classes';
+
+import { AdminContestsApi } from './admin-contests-api';
+
+type Form = {
+  id: string;
+  kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'rejected' | 'objAccept' | 'objDecline';
+} | null;
+
+/**
+ * Sync Service pair reports and endpoint vetoes on `/admin/contests` (AECI-2042,
+ * `ADMIN_PANEL_SPEC.md` §5.12, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11e).
+ *
+ * Three lists below the field contests, with the same one-decision-at-a-time,
+ * pessimistic pattern:
+ *
+ * - **Reports AEC Integrations decides**: existence reports, and data flow reports on
+ *   unclaimed pairs. Accept needs a note; an existence accept also needs a proof link,
+ *   and on a vendor-held pair it retires the pair. Data flow reports on a claimed pair
+ *   are the owner's and are listed read-only. Decline is the console's shared danger
+ *   form (`aec-admin-danger-action`, AECI-2104), with an optional reason, as the field
+ *   contests' Decline above.
+ * - **Reviews of an owner's answer**: protests. Upheld or rejected, with a note. Advice
+ *   only: nothing on the listing changes.
+ * - **Removals in force**: endpoint vetoes, with "Reason the vendor gave" and the filed
+ *   time. Not checked when sent (ruling 66). An open objection from the Sync Service shows
+ *   its received date, its answer-by date (five business days, `objection_answer_due`), an
+ *   "Answer overdue" chip once that has passed, its ground, explanation and link, with Accept (ends the removal, required note) and
+ *   Decline (the removal stands, required note), both the shared danger form.
+ *   "End this removal" is a hand-built queue form because it carries a radio group: a
+ *   required end reason from the five of ruling 66 and a required note. A radio inside
+ *   the danger form's projected facts would submit it on Enter (`danger-action.ts`).
+ *
+ * The forms that stay hand-built (Accept, and the two protest answers) use the console
+ * queue's form recipe and the shared field classes (`QUEUE_FORM_CLASS`, `FIELD_*`).
+ */
+@Component({
+  selector: 'aec-admin-pair-rights',
+  imports: [AdminDangerAction, AecButton, Chip, DatePipe],
+  host: { class: 'block' },
+  template: `
+    <section class="mt-10 space-y-6" aria-labelledby="admin-pair-rights-heading">
+      <h3 id="admin-pair-rights-heading" class="m-0">
+        <span
+          class="block font-display text-xl font-semibold text-(--text-primary)"
+          i18n="@@admin.pairRights.heading"
+          >Sync Service integrations</span
+        >
+      </h3>
+
+      <div class="space-y-3" data-admin-pair-reports>
+        <h4 class="text-base font-semibold text-(--text-primary)" i18n="@@admin.pairRights.reports">
+          Reports
+        </h4>
+        @if (reports().length === 0) {
+          <p class="text-sm text-(--text-secondary)" i18n="@@admin.pairRights.reports.empty">
+            No open reports.
+          </p>
+        }
+        <ul class="m-0 list-none space-y-3 p-0">
+          @for (r of reports(); track r.id) {
+            <li class="rounded-panel border border-(--border-default) p-4 text-sm">
+              <p class="font-medium text-(--text-primary)">{{ title(r) }}</p>
+              <p class="text-(--text-secondary)" i18n="@@admin.pairRights.reports.from">
+                {{ r.submitter_name }} on {{ r.created_at | date: 'mediumDate' }}: {{ r.reason }}
+              </p>
+              @if (r.routed_to === 'owner') {
+                <p class="text-(--text-secondary)" i18n="@@admin.pairRights.reports.owner">
+                  With the owner, {{ r.owner_name }}. The owner decides.
+                </p>
+              } @else {
+                <div class="mt-2 flex flex-wrap items-start gap-2">
+                  <button
+                    type="button"
+                    aecButton
+                    variant="secondary"
+                    compact
+                    [attr.aria-expanded]="isOpen(r.id, 'accept')"
+                    (click)="openForm(r.id, 'accept')"
+                    i18n="@@admin.pairRights.accept"
+                  >
+                    Accept
+                  </button>
+                  <aec-admin-danger-action
+                    class="min-w-0 flex-1"
+                    [openerLabel]="declineCopy.opener"
+                    [confirmLabel]="declineCopy.confirm"
+                    [busyLabel]="declineCopy.busy"
+                    [reasonLabel]="declineCopy.label"
+                    [reasonRequired]="null"
+                    [maxLength]="noteMax"
+                    [busy]="busy() && isOpen(r.id, 'decline')"
+                    [error]="isOpen(r.id, 'decline') ? error() : null"
+                    [open]="isOpen(r.id, 'decline')"
+                    (openChange)="setOpen(r.id, 'decline', $event)"
+                    (confirmed)="decline(r, $event)"
+                  />
+                </div>
+                @if (isOpen(r.id, 'accept')) {
+                  <form
+                    method="dialog"
+                    [class]="formClass"
+                    class="mt-3"
+                    (submit)="$event.preventDefault(); accept(r)"
+                    (keydown.escape)="closeForm()"
+                  >
+                    @if (r.kind === 'existence') {
+                      <p [class]="hintClass" i18n="@@admin.pairRights.accept.existenceHelp">
+                        On a vendor-held pair this retires it now. On a pair AEC Integrations holds,
+                        retract it in the review app.
+                      </p>
+                    }
+                    <label
+                      [class]="labelClass"
+                      for="rpt-note-{{ r.id }}"
+                      i18n="@@admin.pairRights.note"
+                      >Note shown to the vendor</label
+                    >
+                    <textarea
+                      id="rpt-note-{{ r.id }}"
+                      rows="3"
+                      [attr.maxlength]="noteMax"
+                      [class]="inputClass"
+                      class="min-h-24 resize-y py-3"
+                      (input)="note.set(valueOf($event))"
+                    ></textarea>
+                    @if (r.kind === 'existence') {
+                      <label
+                        [class]="labelClass"
+                        class="pt-2"
+                        for="rpt-src-{{ r.id }}"
+                        i18n="@@admin.pairRights.source"
+                        >Proof link (required)</label
+                      >
+                      <input
+                        id="rpt-src-{{ r.id }}"
+                        type="url"
+                        inputmode="url"
+                        autocomplete="off"
+                        placeholder="https://"
+                        [class]="inputClass"
+                        (input)="source.set(valueOf($event))"
+                      />
+                    }
+                    @if (error()) {
+                      <p role="alert" [class]="errorClass">{{ error() }}</p>
+                    }
+                    <div class="mt-2 flex flex-wrap gap-3">
+                      <button
+                        type="submit"
+                        aecButton
+                        compact
+                        [disabled]="busy()"
+                        i18n="@@admin.pairRights.confirm"
+                      >
+                        Confirm
+                      </button>
+                      <button
+                        type="button"
+                        aecButton
+                        variant="ghost"
+                        compact
+                        [disabled]="busy()"
+                        (click)="closeForm()"
+                        i18n="@@admin.pairRights.cancel"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                }
+              }
+            </li>
+          }
+        </ul>
+      </div>
+
+      <div class="space-y-3" data-admin-pair-protests>
+        <h4
+          class="text-base font-semibold text-(--text-primary)"
+          i18n="@@admin.pairRights.protests"
+        >
+          Reviews of an owner's answer
+        </h4>
+        @if (protests().length === 0) {
+          <p class="text-sm text-(--text-secondary)" i18n="@@admin.pairRights.protests.empty">
+            No open reviews.
+          </p>
+        }
+        <ul class="m-0 list-none space-y-3 p-0">
+          @for (r of protests(); track r.id) {
+            <li class="rounded-panel border border-(--border-default) p-4 text-sm">
+              <p class="font-medium text-(--text-primary)">{{ title(r) }}</p>
+              <p class="text-(--text-secondary)">{{ r.protest?.reason }}</p>
+              <p class="text-(--text-secondary)" i18n="@@admin.pairRights.protests.advice">
+                Your answer is advice. It does not change the listing.
+              </p>
+              <div class="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  aecButton
+                  variant="secondary"
+                  compact
+                  [attr.aria-expanded]="isOpen(r.id, 'upheld')"
+                  (click)="openForm(r.id, 'upheld')"
+                  i18n="@@admin.pairRights.upheld"
+                >
+                  Agree with the report
+                </button>
+                <button
+                  type="button"
+                  aecButton
+                  variant="secondary"
+                  compact
+                  [attr.aria-expanded]="isOpen(r.id, 'rejected')"
+                  (click)="openForm(r.id, 'rejected')"
+                  i18n="@@admin.pairRights.rejected"
+                >
+                  Agree with the owner
+                </button>
+              </div>
+              @if (form()?.id === r.id) {
+                <form
+                  method="dialog"
+                  [class]="formClass"
+                  class="mt-3"
+                  (submit)="$event.preventDefault(); decideProtest(r)"
+                  (keydown.escape)="closeForm()"
+                >
+                  <label
+                    [class]="labelClass"
+                    for="pp-note-{{ r.id }}"
+                    i18n="@@admin.pairRights.noteRequired"
+                    >Note shown to both vendors (required)</label
+                  >
+                  <textarea
+                    id="pp-note-{{ r.id }}"
+                    rows="3"
+                    [attr.maxlength]="noteMax"
+                    required
+                    [class]="inputClass"
+                    class="min-h-24 resize-y py-3"
+                    (input)="note.set(valueOf($event))"
+                  ></textarea>
+                  @if (error()) {
+                    <p role="alert" [class]="errorClass">{{ error() }}</p>
+                  }
+                  <div class="mt-2 flex flex-wrap gap-3">
+                    <button
+                      type="submit"
+                      aecButton
+                      compact
+                      [disabled]="busy()"
+                      i18n="@@admin.pairRights.confirm"
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      type="button"
+                      aecButton
+                      variant="ghost"
+                      compact
+                      [disabled]="busy()"
+                      (click)="closeForm()"
+                      i18n="@@admin.pairRights.cancel"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              }
+            </li>
+          }
+        </ul>
+      </div>
+
+      <div class="space-y-3" data-admin-vetoes>
+        <h4 class="text-base font-semibold text-(--text-primary)" i18n="@@admin.pairRights.vetoes">
+          Removals in force
+        </h4>
+        <p
+          class="max-w-prose text-sm text-(--text-secondary)"
+          i18n="@@admin.pairRights.vetoes.explain.v2"
+        >
+          A vendor of an endpoint product removed these from its product. A removal takes effect
+          when it is sent and is not checked first. End one only on one of the five grounds below.
+          Decide nothing else, and not whether the vendor should support the integration.
+        </p>
+        @if (vetoes().length === 0) {
+          <p class="text-sm text-(--text-secondary)" i18n="@@admin.pairRights.vetoes.empty">
+            No removals in force.
+          </p>
+        }
+        <ul class="m-0 list-none space-y-3 p-0">
+          @for (v of vetoes(); track v.id) {
+            <li class="rounded-panel border border-(--border-default) p-4 text-sm" data-admin-veto>
+              <p class="font-medium text-(--text-primary)">{{ pairName(v.pair) }}</p>
+              <p class="text-(--text-secondary)" i18n="@@admin.pairRights.vetoes.by.v3">
+                Removed by {{ v.vendor_name }} on {{ v.filed_at | date: 'mediumDate' }} at
+                {{ v.filed_at | date: 'shortTime' }}.
+              </p>
+              <p class="text-(--text-secondary)" i18n="@@admin.pairRights.vetoes.reasonGiven">
+                Reason the vendor gave: {{ reasonText(v) }}
+              </p>
+              @if (v.owner_name) {
+                <p class="text-(--text-secondary)" i18n="@@admin.pairRights.vetoes.owner">
+                  Owner: {{ v.owner_name }}
+                </p>
+              }
+              @if (v.objection?.status === 'open' && v.objection; as o) {
+                <div
+                  class="mt-3 space-y-1 border-t border-(--border-default) pt-3"
+                  data-admin-objection
+                >
+                  <p
+                    class="font-semibold text-(--text-primary)"
+                    i18n="@@admin.pairRights.objection.title"
+                  >
+                    Objection from {{ o.vendor_name }} on {{ o.created_at | date: 'mediumDate' }}
+                  </p>
+                  <p class="text-t-13 text-(--text-secondary)">
+                    <span class="block" i18n="@@admin.pairRights.objection.received"
+                      >Received {{ o.created_at | date: 'mediumDate' }}</span
+                    >
+                    @if (v.objection_answer_due; as due) {
+                      <span class="block" i18n="@@admin.pairRights.objection.answerDue"
+                        >Answer by {{ dueDay(due) }}</span
+                      >
+                    }
+                  </p>
+                  @if (answerOverdue(v)) {
+                    <aec-chip density="dense" [tone]="overdueTone" data-testid="objection-overdue"
+                      ><span i18n="@@admin.pairRights.objection.overdue"
+                        >Answer overdue</span
+                      ></aec-chip
+                    >
+                  }
+                  <p class="text-(--text-primary)" i18n="@@admin.pairRights.objection.ground">
+                    Ground: {{ groundLabel(o.ground) }}
+                  </p>
+                  <p class="text-(--text-secondary)">{{ o.explanation }}</p>
+                  @if (o.source_url) {
+                    <p class="text-(--text-secondary)">
+                      <span i18n="@@admin.pairRights.objection.link">Link given:</span>
+                      {{ ' ' }}
+                      <a
+                        class="underline"
+                        [href]="o.source_url"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        >{{ o.source_url }}</a
+                      >
+                    </p>
+                  }
+                  <p [class]="hintClass" i18n="@@admin.pairRights.objection.help">
+                    Accept only when the ground holds. An account: check the seat and its grant in
+                    the vendor's record. Wrong product: compare the removal's product with the
+                    integration's two products. Plainly false: the vendor's own public page must
+                    show it supports the integration.
+                  </p>
+                  <div class="mt-2 flex flex-wrap items-start gap-2">
+                    <aec-admin-danger-action
+                      class="min-w-0"
+                      [openerLabel]="objAcceptCopy.opener"
+                      [confirmLabel]="objAcceptCopy.confirm"
+                      [busyLabel]="objAcceptCopy.busy"
+                      [reasonLabel]="objAcceptCopy.label"
+                      [reasonRequired]="objAcceptCopy.required"
+                      [warning]="objAcceptCopy.warning"
+                      [maxLength]="noteMax"
+                      [busy]="busy() && isOpen(o.id, 'objAccept')"
+                      [error]="isOpen(o.id, 'objAccept') ? error() : null"
+                      [open]="isOpen(o.id, 'objAccept')"
+                      (openChange)="setOpen(o.id, 'objAccept', $event)"
+                      (confirmed)="decideObjection(o.id, 'accept', $event)"
+                    />
+                    <aec-admin-danger-action
+                      class="min-w-0"
+                      [openerLabel]="objDeclineCopy.opener"
+                      [confirmLabel]="objDeclineCopy.confirm"
+                      [busyLabel]="objDeclineCopy.busy"
+                      [reasonLabel]="objDeclineCopy.label"
+                      [reasonRequired]="objDeclineCopy.required"
+                      [maxLength]="noteMax"
+                      [busy]="busy() && isOpen(o.id, 'objDecline')"
+                      [error]="isOpen(o.id, 'objDecline') ? error() : null"
+                      [open]="isOpen(o.id, 'objDecline')"
+                      (openChange)="setOpen(o.id, 'objDecline', $event)"
+                      (confirmed)="decideObjection(o.id, 'decline', $event)"
+                    />
+                  </div>
+                </div>
+              } @else if (v.objection; as o) {
+                <p class="mt-2 text-(--text-secondary)">{{ objectionOutcome(o) }}</p>
+              }
+              <div class="mt-3">
+                <button
+                  type="button"
+                  aecButton
+                  variant="secondary"
+                  compact
+                  [attr.aria-expanded]="isOpen(v.id, 'lift')"
+                  [attr.aria-controls]="'lift-form-' + v.id"
+                  (click)="isOpen(v.id, 'lift') ? closeForm() : openForm(v.id, 'lift')"
+                  i18n="@@admin.pairRights.lift"
+                >
+                  End this removal
+                </button>
+                @if (isOpen(v.id, 'lift')) {
+                  <form
+                    [id]="'lift-form-' + v.id"
+                    method="dialog"
+                    novalidate
+                    [class]="formClass"
+                    class="mt-3"
+                    (submit)="$event.preventDefault(); lift(v)"
+                    (keydown.escape)="closeForm()"
+                  >
+                    <fieldset class="m-0 max-w-2xl space-y-2 border-0 p-0">
+                      <legend [class]="labelClass" i18n="@@admin.pairRights.lift.endReason">
+                        Why it ends (required)
+                      </legend>
+                      @for (r of endReasons; track r) {
+                        <label [class]="choiceCardClass">
+                          <input
+                            type="radio"
+                            [class]="choiceInputClass"
+                            [attr.name]="'end-reason-' + v.id"
+                            [value]="r"
+                            [checked]="endReason() === r"
+                            (change)="endReason.set(r)"
+                          />
+                          {{ endReasonLabel(r) }}
+                        </label>
+                      }
+                    </fieldset>
+                    <label
+                      [class]="labelClass"
+                      class="pt-2"
+                      [for]="'lift-note-' + v.id"
+                      i18n="@@admin.pairRights.noteLift"
+                      >Why it ends, shown to the vendors (required)</label
+                    >
+                    <textarea
+                      [id]="'lift-note-' + v.id"
+                      rows="3"
+                      [attr.maxlength]="noteMax"
+                      required
+                      [class]="inputClass"
+                      class="min-h-24 resize-y py-3"
+                      (input)="note.set(valueOf($event))"
+                    ></textarea>
+                    @if (error()) {
+                      <p role="alert" [class]="errorClass">{{ error() }}</p>
+                    }
+                    <div class="mt-2 flex flex-wrap gap-3">
+                      <button
+                        type="submit"
+                        aecButton
+                        variant="danger"
+                        compact
+                        [disabled]="busy()"
+                        i18n="@@admin.pairRights.lift.confirm"
+                      >
+                        End the removal
+                      </button>
+                      <button
+                        type="button"
+                        aecButton
+                        variant="ghost"
+                        compact
+                        [disabled]="busy()"
+                        (click)="closeForm()"
+                        i18n="@@admin.pairRights.cancel"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                }
+              </div>
+            </li>
+          }
+        </ul>
+      </div>
+
+      @if (error() && !form()) {
+        <p role="alert" class="text-sm font-medium text-(--text-primary)">{{ error() }}</p>
+      }
+      <p class="sr-only" role="status">{{ status() }}</p>
+    </section>
+  `,
+})
+export class AdminPairRights {
+  private readonly api = inject(AdminContestsApi);
+  private readonly locale = inject(LOCALE_ID);
+
+  /** An objection past its five business days is a missed policy clock: critical. */
+  protected readonly overdueTone: ConsoleChipTone = adminStatusTone('overdue');
+  /** The instant the lists were read, for the overdue marker. Set on each load. */
+  protected readonly readAt = signal(0);
+
+  protected readonly reports = signal<readonly PairContest[]>([]);
+  protected readonly protests = signal<readonly PairContest[]>([]);
+  protected readonly vetoes = signal<readonly AdminVeto[]>([]);
+  protected readonly form = signal<Form>(null);
+  protected readonly note = signal('');
+  protected readonly source = signal('');
+  protected readonly busy = signal(false);
+  protected readonly error = signal<string | null>(null);
+  protected readonly status = signal('');
+
+  /** The Label role (AECI-2083 admin recipe) and the shared field recipe. */
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  protected readonly errorClass = FIELD_ERROR_CLASS;
+  /** The console queue's decision form (`reviews/queue-classes.ts`). */
+  protected readonly formClass = QUEUE_FORM_CLASS;
+  /** Every note the API takes here is capped at 1000 characters. */
+  protected readonly noteMax = 1000;
+
+  /** Decline's words (the shared danger form, as on the field contests). */
+  protected readonly declineCopy = {
+    opener: $localize`:@@admin.pairRights.decline:Decline`,
+    label: $localize`:@@admin.pairRights.decline.label:Note shown to the vendor (optional)`,
+    confirm: $localize`:@@admin.pairRights.decline.confirm:Confirm decline`,
+    busy: $localize`:@@admin.pairRights.declining:Declining…`,
+  } as const;
+
+  // ── AECI-2192 (ruling 66): end reasons and objections ─────────────────────
+
+  protected readonly endReasons = REMOVAL_END_REASONS;
+  protected readonly endReason = signal<RemovalEndReason | null>(null);
+  protected readonly endReasonLabel = removalEndReasonLabel;
+  protected readonly groundLabel = objectionGroundLabel;
+  protected readonly reasonText = removalReasonText;
+  protected readonly choiceCardClass = CHOICE_CARD_CLASS;
+  protected readonly choiceInputClass = CHOICE_INPUT_CLASS;
+
+  /** Accept an objection: the shared danger form with a required note. */
+  protected readonly objAcceptCopy = {
+    opener: $localize`:@@admin.pairRights.objection.accept:Accept and end the removal`,
+    label: $localize`:@@admin.pairRights.objection.acceptLabel:Why the ground holds, shown to both vendors (required)`,
+    required: $localize`:@@admin.pairRights.err.noteRequired:A note is required.`,
+    warning: $localize`:@@admin.pairRights.objection.acceptWarning:This ends the removal now. Every listing of this integration returns to the public site, and both vendors are told why.`,
+    confirm: $localize`:@@admin.pairRights.objection.acceptConfirm:End the removal`,
+    busy: $localize`:@@admin.pairRights.lifting:Ending…`,
+  } as const;
+
+  /** Decline an objection: the removal stands. */
+  protected readonly objDeclineCopy = {
+    opener: $localize`:@@admin.pairRights.objection.decline:Decline`,
+    label: $localize`:@@admin.pairRights.objection.declineLabel:Why the ground does not hold, shown to the Sync Service (required)`,
+    required: $localize`:@@admin.pairRights.err.noteRequired:A note is required.`,
+    confirm: $localize`:@@admin.pairRights.objection.declineConfirm:Confirm decline`,
+    busy: $localize`:@@admin.pairRights.declining:Declining…`,
+  } as const;
+
+  protected objectionOutcome(o: VetoObjection): string {
+    const ground = objectionGroundLabel(o.ground);
+    return o.status === 'declined'
+      ? $localize`:@@admin.pairRights.objection.wasDeclined:An objection was declined (${ground}:ground:): ${o.decision_note ?? ''}:note:`
+      : $localize`:@@admin.pairRights.objection.wasClosed:An earlier objection (${ground}:ground:) is closed.`;
+  }
+
+  protected decideObjection(
+    id: string,
+    decision: 'accept' | 'decline',
+    note: string,
+  ): Promise<void> {
+    return this.write(async () => {
+      await this.api.decideVetoObjection(id, { decision, note });
+      this.status.set(
+        decision === 'accept'
+          ? $localize`:@@admin.pairRights.objection.accepted:Objection accepted. The removal ended and the integration is back on the site.`
+          : $localize`:@@admin.pairRights.objection.declined:Objection declined. The removal stands.`,
+      );
+    });
+  }
+
+  constructor() {
+    afterNextRender(() => void this.load());
+  }
+
+  /** A form control's value, from its event. */
+  protected valueOf(event: Event): string {
+    return (event.target as HTMLInputElement | HTMLTextAreaElement).value;
+  }
+
+  protected pairName(pair: PairRightPair): string {
+    const a = pair.product_a?.name ?? '';
+    const b = pair.product_b?.name ?? '';
+    const via = pair.connector?.name ?? '';
+    return (
+      pair.name ?? $localize`:@@admin.pairRights.pairName:${a}:a: and ${b}:b: through ${via}:via:`
+    );
+  }
+
+  protected title(r: PairContest): string {
+    const pair = this.pairName(r.pair);
+    return r.kind === 'existence'
+      ? $localize`:@@admin.pairRights.title.existence:Not offered: ${pair}:pair:`
+      : $localize`:@@admin.pairRights.title.flow:Data flow ${r.flow?.data_object_name ?? ''}:flow: on ${pair}:pair:`;
+  }
+
+  protected openForm(id: string, kind: NonNullable<Form>['kind']): void {
+    if (this.busy()) return;
+    this.note.set('');
+    this.source.set('');
+    this.endReason.set(null);
+    this.error.set(null);
+    this.form.set({ id, kind });
+  }
+
+  protected closeForm(): void {
+    if (this.busy()) return;
+    this.error.set(null);
+    this.form.set(null);
+  }
+
+  protected isOpen(id: string, kind: NonNullable<Form>['kind']): boolean {
+    const f = this.form();
+    return f?.id === id && f.kind === kind;
+  }
+
+  /** The danger form's two-way `open`. */
+  protected setOpen(id: string, kind: NonNullable<Form>['kind'], open: boolean): void {
+    if (open) this.openForm(id, kind);
+    else if (this.isOpen(id, kind)) this.closeForm();
+  }
+
+  protected accept(r: PairContest): Promise<void> {
+    const note = this.note().trim();
+    if (!note) {
+      this.error.set($localize`:@@admin.pairRights.err.note:A note is required to accept.`);
+      return Promise.resolve();
+    }
+    return this.write(async () => {
+      await this.api.decidePairContest(r.id, {
+        decision: 'accept',
+        note,
+        ...(this.source().trim() ? { source_url: this.source().trim() } : {}),
+      });
+      this.status.set($localize`:@@admin.pairRights.done:Decided.`);
+    });
+  }
+
+  protected decline(r: PairContest, reason: string): Promise<void> {
+    return this.write(async () => {
+      await this.api.decidePairContest(r.id, {
+        decision: 'decline',
+        ...(reason ? { note: reason } : {}),
+      });
+      this.status.set($localize`:@@admin.pairRights.done:Decided.`);
+    });
+  }
+
+  protected decideProtest(r: PairContest): Promise<void> {
+    const decision = this.form()?.kind === 'upheld' ? 'upheld' : 'rejected';
+    const note = this.note().trim();
+    if (!note) {
+      this.error.set($localize`:@@admin.pairRights.err.noteRequired:A note is required.`);
+      return Promise.resolve();
+    }
+    return this.write(async () => {
+      await this.api.decidePairProtest(r.id, { decision, note });
+      this.status.set($localize`:@@admin.pairRights.done:Decided.`);
+    });
+  }
+
+  protected lift(v: AdminVeto): Promise<void> {
+    const endReason = this.endReason();
+    const note = this.note().trim();
+    if (!endReason) {
+      this.error.set($localize`:@@admin.pairRights.err.endReason:Choose why the removal ends.`);
+      return Promise.resolve();
+    }
+    if (!note) {
+      this.error.set($localize`:@@admin.pairRights.err.noteRequired:A note is required.`);
+      return Promise.resolve();
+    }
+    return this.write(async () => {
+      const res = await this.api.liftVeto(v.id, endReason, note);
+      this.status.set(
+        res.pair_public
+          ? $localize`:@@admin.pairRights.lifted.public:Removal ended. The integration is back on the site.`
+          : $localize`:@@admin.pairRights.lifted.hidden:Removal ended. Another removal or a retire still keeps it off the site.`,
+      );
+    });
+  }
+
+  private async write(action: () => Promise<void>): Promise<void> {
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      await action();
+      this.form.set(null);
+    } catch (e) {
+      const field = (e as { error?: { error?: { field?: string } } }).error?.error?.field;
+      this.error.set(
+        field === 'sourceUrl'
+          ? $localize`:@@admin.pairRights.err.source:Add an https proof link to accept.`
+          : $localize`:@@admin.pairRights.err.generic:Not saved. It may have changed. The lists are reloaded.`,
+      );
+    } finally {
+      this.busy.set(false);
+      await this.load();
+    }
+  }
+
+  /** An open objection whose answer window has fully passed. */
+  protected answerOverdue(v: AdminVeto): boolean {
+    if (v.objection?.status !== 'open' || !v.objection_answer_due) return false;
+    const due = Date.parse(v.objection_answer_due);
+    return !Number.isNaN(due) && due < this.readAt();
+  }
+
+  /**
+   * The last business day of the answer window, as a date. The server's due instant is
+   * the moment the window has fully passed (`businessWindowEnd`), so the day shown is the
+   * New York date just before it, as on the value hides.
+   */
+  protected dueDay(iso: string): string {
+    const at = Date.parse(iso);
+    if (Number.isNaN(at)) return iso;
+    return new Intl.DateTimeFormat(this.locale, {
+      dateStyle: 'medium',
+      timeZone: 'America/New_York',
+    }).format(new Date(at - 1));
+  }
+
+  private async load(): Promise<void> {
+    try {
+      const [reports, protests, vetoes] = await Promise.all([
+        this.api.listPairContests(),
+        this.api.listPairContests({ protests: true }),
+        this.api.listVetoes(),
+      ]);
+      this.reports.set(reports.data);
+      this.protests.set(protests.data);
+      this.vetoes.set(vetoes.data);
+      this.readAt.set(Date.now());
+    } catch {
+      this.error.set(
+        $localize`:@@admin.pairRights.err.load:Could not load the Sync Service lists.`,
+      );
+    }
+  }
+}

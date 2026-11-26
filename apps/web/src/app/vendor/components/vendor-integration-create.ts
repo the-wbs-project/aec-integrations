@@ -214,6 +214,8 @@ function emptyDraft(): Draft {
   template: `
     <div class="space-y-4" data-testid="integration-create">
       <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <!-- AECI-2045 QA: the shared button recipe, the same size as the Sync Service
+             create's trigger. On a hybrid Sync Service the label says what it adds. -->
         <button
           #trigger
           aecButton
@@ -223,9 +225,8 @@ function emptyDraft(): Draft {
           [attr.aria-controls]="formId"
           (click)="toggle()"
           data-testid="add-integration"
-          i18n="@@vendor.integrationCreate.trigger"
         >
-          Add an integration
+          {{ triggerLabel() }}
         </button>
         @if (!open()) {
           <p class="text-sm text-(--text-secondary)" i18n="@@vendor.integrationCreate.teaser">
@@ -328,7 +329,7 @@ function emptyDraft(): Draft {
           class="max-w-4xl space-y-6 p-6 md:p-8"
           data-testid="create-panel"
         >
-          <div class="max-w-prose space-y-1">
+          <div class="space-y-1">
             <p
               id="vendor-create-title"
               class="font-display text-t-20 font-semibold text-(--text-primary)"
@@ -336,10 +337,7 @@ function emptyDraft(): Draft {
             >
               Add an integration
             </p>
-            <p
-              class="max-w-prose text-sm text-(--text-secondary)"
-              i18n="@@vendor.integrationCreate.intro"
-            >
+            <p class="text-sm text-(--text-secondary)" i18n="@@vendor.integrationCreate.intro">
               Your company will own this integration. It goes live on the public integration page as
               soon as you add it, with no review step, and the other product's vendor is told.
             </p>
@@ -379,7 +377,7 @@ function emptyDraft(): Draft {
               aria-labelledby="vendor-request-title"
               data-testid="product-request-form"
             >
-              <div class="mb-6 max-w-prose space-y-1">
+              <div class="mb-6 space-y-1">
                 <p
                   #focusTarget
                   id="vendor-request-title"
@@ -1010,6 +1008,20 @@ export class VendorIntegrationCreate implements OnInit {
 
   /** The product the tab is filed under, preselected as "your product". */
   readonly contextProductId = input<string | null>(null);
+
+  /**
+   * AECI-2045 QA. Set on a `hybrid` Sync Service's tab, which also offers the Sync
+   * Service create: the trigger then says what it adds, "Add an integration with
+   * {product}". Elsewhere it reads "Add an integration".
+   */
+  readonly withProductName = input<string | null>(null);
+
+  protected readonly triggerLabel = computed(() => {
+    const name = this.withProductName();
+    return name
+      ? $localize`:@@vendor.integrationCreate.trigger.with:Add an integration with ${name}:name:`
+      : $localize`:@@vendor.integrationCreate.trigger:Add an integration`;
+  });
   /**
    * Read `?create=open&counterpart={slug}` (AECI-1377). Only the routed
    * Integrations tab turns this on. The single-page concept has no route of its own.

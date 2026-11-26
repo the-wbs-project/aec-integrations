@@ -28,6 +28,9 @@ import {
   VENDOR_ME_FIXTURE,
   VENDOR_ME_UNVERIFIED_FIXTURE,
   VENDOR_OWNED_INTEGRATIONS_FIXTURE,
+  VENDOR_ME_SYNC_SERVICE_FIXTURE,
+  VENDOR_SYNC_OWNED_FIXTURE,
+  SYNC_SERVICE_PRODUCT,
 } from '../vendor-fixtures';
 import { VendorPortalStore } from '../vendor-portal-store';
 
@@ -384,5 +387,25 @@ describe('VendorOwnedIntegrations — the edit (AECI-1090)', () => {
 describe('VendorOwnedIntegrations: the guide link (AECI-1253)', () => {
   it('links Owning an integration under the intro', async () => {
     expectVendorDocsLink(el(await create()), 'owning-an-integration');
+  });
+});
+
+describe('VendorOwnedIntegrations — the detail link (AECI-2045)', () => {
+  it('links each row to its own page, naming the integration', async () => {
+    const fixture = await create();
+    const link = rowEl(fixture, CLAIMED.id)!.querySelector(
+      '[data-testid="owned-detail-link"]',
+    ) as HTMLAnchorElement;
+    expect(link.textContent?.trim()).toBe('Open details');
+    expect(link.getAttribute('href')).toMatch(new RegExp(`/integrations/${CLAIMED.id}$`));
+    expect(link.getAttribute('aria-label')).toBe(
+      'Open details: Summit Model Coordination and Autodesk Build',
+    );
+  });
+
+  it('names the Sync Service in the intro on a Sync Service tab', async () => {
+    TestBed.inject(VendorPortalStore).seed(VENDOR_ME_SYNC_SERVICE_FIXTURE);
+    const fixture = await create(VENDOR_SYNC_OWNED_FIXTURE, SYNC_SERVICE_PRODUCT.id);
+    expect(el(fixture).textContent).toContain('because your Sync Service delivers them');
   });
 });

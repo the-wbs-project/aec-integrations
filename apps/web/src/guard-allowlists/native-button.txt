@@ -23,12 +23,17 @@ admin/threads/thread-list.html 1
 admin/traffic/traffic.html 4
 admin/users/user-detail.html 1
 admin/vendors/vendor-detail.html 1
+# Kept: the Actions menu items inside the row popover (AECI-2202), the vendor-license-actions menu recipe.
+admin/vendors/vendor-products-table.html 6
 # Kept: the status filter toggles (aria-pressed segments), kept by ruling 2026-11-24.
 vendor/components/vendor-integrations-section.ts 1
 # Kept: Release and Keep, menu items inside the actions popover.
 vendor/components/vendor-license-actions.ts 2
 # Kept: the email switch (role="switch", aria-checked).
 vendor/components/vendor-nudge-mute-toggle.ts 1
+# Kept: the owner's Yes and No toggles (aria-pressed segments on the portal segmented recipe, as in
+# integration-shared-data.ts). Arrived with the Sync Service branch (AECI-2039) after the list was cut.
+vendor/components/vendor-owned-flows.ts 2
 # Kept: the kind filter toggles (aria-pressed segments), kept by ruling 2026-11-24.
 vendor/history/vendor-history-page.ts 1
 # Kept: the request filter toggles (ruling 2026-11-24) and a whole-row disclosure trigger.

@@ -216,13 +216,18 @@ describe('VendorProgramPage', () => {
       expect(titles(managed)).toEqual([
         'How teams use it',
         'Trades, audiences and phases',
-        'Integration detail buyers can check',
+        'Links to your documentation',
       ]);
-      // Ruled 2026-10-12: the integration detail body, reworded for clarity.
+      // AECI-2038: confirming data flows is on every plan, so the Free integrations
+      // line says it and the Managed line keeps only the two documentation links.
+      expect(text(free.querySelectorAll('li')[1])).toContain(
+        "Confirm which data each integration moves, and your answer counts the same as your partner's.",
+      );
       const detail = text(managed.querySelectorAll('li')[2]);
       expect(detail).toContain(
-        "Link evaluators to your integrations page and API docs. Confirm which data each integration moves, and your answer counts the same as your partner's. Buyers can check what an integration syncs before they rely on it for a project.",
+        'Link evaluators to your integrations page and API docs. The links show under Resources on your product page, so a buyer can check the details before relying on an integration for a project.',
       );
+      expect(text(managed)).not.toMatch(/confirm|data each integration/i);
       // Every line is the one shared item: the same host classes on both sections.
       const itemClasses = new Set(
         [...free.querySelectorAll('li'), ...managed.querySelectorAll('li')].map(

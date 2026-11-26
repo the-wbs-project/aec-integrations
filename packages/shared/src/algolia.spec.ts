@@ -326,7 +326,7 @@ describe('indexSettingsFor', () => {
     }
   });
 
-  it('products: facets categories/audiences/phases/trades/vendor_name/integration_count (§7.2)', () => {
+  it('products: facets categories/audiences/phases/trades/vendor_name/integration_count/connector_kind (§7.2)', () => {
     const s = indexSettingsFor('products');
     expect(s.attributesForFaceting).toEqual([
       'searchable(categories)',
@@ -335,6 +335,7 @@ describe('indexSettingsFor', () => {
       'searchable(trades)',
       'searchable(vendor_name)',
       'integration_count',
+      'connector_kind', // AECI-1662
     ]);
     // Ordered — earlier = higher textual priority (SEARCH_RANKING.md §3.1). name
     // leads; the trade name outranks its colloquial aliases, and both outrank the
@@ -368,8 +369,8 @@ describe('indexSettingsFor', () => {
 
   // AECI-1086 — `product_role` is on the record for the search-card chip only.
   // A role is a fact about what the product is, not a quality signal, so it is
-  // never ranked. It is not searched or faceted either until a role filter ships
-  // on /search and /products together.
+  // never ranked, searched or faceted. The filter AECI-1662 built is by connector
+  // kind (`connector_kind`, below), not by role.
   it('products: product_role is display-only (never ranked, searched or faceted)', () => {
     const s = indexSettingsFor('products');
     for (const attr of [
@@ -378,6 +379,29 @@ describe('indexSettingsFor', () => {
       ...s.attributesForFaceting,
     ]) {
       expect(attr).not.toMatch(/product_role/);
+    }
+  });
+
+  // AECI-1662 — the connector kind is a filter and nothing else. It is set by an
+  // AECi admin, never bought, and orders nothing, so it is faceted (with counts, so
+  // not `filterOnly`) but never searched and never ranked.
+  it('products: connector_kind is faceted only (never ranked or searched)', () => {
+    const s = indexSettingsFor('products');
+    expect(s.attributesForFaceting.filter((attr) => attr.includes('connector_kind'))).toEqual([
+      'connector_kind',
+    ]);
+    for (const attr of [...s.customRanking, ...s.searchableAttributes]) {
+      expect(attr).not.toMatch(/connector_kind/);
+    }
+    for (const entity of ['vendors', 'integrations'] as const) {
+      const other = indexSettingsFor(entity);
+      for (const attr of [
+        ...other.customRanking,
+        ...other.searchableAttributes,
+        ...other.attributesForFaceting,
+      ]) {
+        expect(attr).not.toMatch(/connector_kind/);
+      }
     }
   });
 

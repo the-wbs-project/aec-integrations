@@ -859,11 +859,12 @@
     <p
       [class]="captionClass"
       class="mt-2 max-w-[42rem]"
-      i18n="@@admin.vendors.detail.products.intro2"
+      i18n="@@admin.vendors.detail.products.intro3"
     >
       Every product this vendor owns, including the ones it co-owns with another vendor. Catalog
-      records reach AECi through the review app's promote step, not from this screen. A product can
-      be hidden from the public site from its row.
+      records reach AECi through the review app's promote step, not from this screen. Each row's
+      Actions menu changes the logo or hides the product from the public site. On a connector it
+      also sets the connector type and lists the integrations that run through it.
     </p>
 
     <aec-vendor-products-table
@@ -877,6 +878,7 @@
       (pageChange)="goToProductPage($event)"
       (retry)="retryProducts()"
       (listingChanged)="onListingChanged()"
+      (edited)="onProductEdited()"
     />
   </section>
 

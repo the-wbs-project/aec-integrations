@@ -35,6 +35,7 @@ import {
   rowsNeedingAnswer,
   sharedSummary,
   stampsToKeep,
+  statusChipLabel,
   statusExplain,
   statusFromParam,
   statusLabel,
@@ -261,32 +262,62 @@ describe('integrationStatus — the first that applies (§6.17.2)', () => {
     ).toBe('waiting');
   });
 
-  it('a connector-powered row with nothing else is maintained by AEC Integrations', () => {
+  it('a connector-powered row with nothing else reads "Delivered through a connector"', () => {
     const connector = { ...CONNECTOR, owner: { id: 'x', name: 'Agave' } };
     expect(integrationStatus(connector, ctx())).toBe('connector');
-    expect(statusLabel('connector')).toBe('AEC Integrations maintained');
+    // AECI-2039: true on a claimed row of either kind, and the chip says the same.
+    expect(statusLabel('connector')).toBe('Delivered through a connector');
+    expect(statusChipLabel('connector')).toBe('Delivered through a connector');
+  });
+
+  it('on a claimed Sync Service row, the tooltip names the owner as the keeper of the flows', () => {
+    const synced = {
+      ...CONNECTOR,
+      claimed_at: '2026-11-01T00:00:00.000Z',
+      flows_maintained_by_owner: true,
+      owner: { id: 'x', name: 'Rivets' },
+    };
+    expect(statusExplain('connector', synced)).toBe(
+      'It runs through a Sync Service that Rivets offers. Rivets keeps its details and its data flows up to date.',
+    );
+  });
+
+  it('on a claimed Sync Service row, the row pill reports the owner’s answer', () => {
+    const synced = {
+      ...CONNECTOR,
+      flows_maintained_by_owner: true,
+      owner: { id: 'x', name: 'Rivets' },
+    };
+    const claim = CONNECTOR.claims[0]!;
+    expect(rowPill(synced, { ...claim, owner_answer: 'yes' }, null).label).toBe(
+      'Confirmed by Rivets',
+    );
+    expect(rowPill(synced, { ...claim, owner_answer: 'no' }, null).label).toBe('Removed by Rivets');
+    expect(rowPill(synced, { ...claim, owner_answer: null }, null).label).toBe(
+      'Listed by AEC Integrations',
+    );
   });
 
   it('the connector tooltip says who keeps the row, by claimed state', () => {
     const agave = { id: 'x', name: 'Agave' };
     const claimed_at = '2026-09-23T00:00:00.000Z';
     expect(statusExplain('connector', { ...CONNECTOR, owner: agave, claimed_at: null })).toBe(
-      'It runs through a connector service, so AEC Integrations keeps its data up to date.',
+      'It runs through a connector product, so AEC Integrations keeps its data up to date.',
     );
     expect(
       statusExplain('connector', { ...CONNECTOR, is_owner: false, owner: agave, claimed_at }),
     ).toBe(
-      'It runs through a connector service. Agave keeps its details up to date, and AEC Integrations no longer updates it.',
+      'It runs through a connector product. Agave keeps its details up to date, and AEC Integrations no longer updates it.',
     );
     expect(
       statusExplain('connector', { ...CONNECTOR, is_owner: true, owner: agave, claimed_at }),
     ).toBe(
-      'It runs through a connector service. Your company keeps its details up to date, and AEC Integrations no longer updates it.',
+      'It runs through a connector product. Your company keeps its details up to date, and AEC Integrations no longer updates it.',
     );
     expect(
       statusExplain('connector', { ...CONNECTOR, is_owner: false, owner: null, claimed_at }),
     ).toBe(
-      'It runs through a connector service. Its owner keeps its details up to date, and AEC Integrations no longer updates it.',
+      'It runs through a connector product. Its owner keeps its details up to date, and AEC Integrations no longer updates it.',
     );
     expect(isClaimed({ claimed_at: null })).toBe(false);
     expect(isClaimed({ claimed_at })).toBe(true);
@@ -405,9 +436,8 @@ describe('row pills and copy (§6.17.8)', () => {
     const disputed = rowPill(INTEGRATION_PROCORE_DETAIL, byName('Drawings'), co);
     expect(disputed).toEqual({ label: 'Disputed', tone: 'conflict' });
     expect(rowPill(BOTH, BOTH.claims[0]!, null).label).toBe('Confirmed by you');
-    expect(rowPill(CONNECTOR, CONNECTOR.claims[0]!, null).label).toBe(
-      'Checked by AEC Integrations',
-    );
+    // AECI-2039: "Checked by AEC Integrations" was not true on a claimed row.
+    expect(rowPill(CONNECTOR, CONNECTOR.claims[0]!, null).label).toBe('Listed by AEC Integrations');
   });
 
   it('says what is shared in one line, by direction', () => {
@@ -425,7 +455,7 @@ describe('row pills and copy (§6.17.8)', () => {
   it('names how you get it in plain words', () => {
     expect(howYouGetIt('native', null)).toBe('Built into the product');
     expect(howYouGetIt('iPaaS', 'Zapier')).toBe('Through Zapier');
-    expect(howYouGetIt('iPaaS', null)).toBe('Through a connector service');
+    expect(howYouGetIt('iPaaS', null)).toBe('Through a connector product');
     expect(howYouGetIt('integrator', null)).toBe('Built by a consultancy');
   });
 });

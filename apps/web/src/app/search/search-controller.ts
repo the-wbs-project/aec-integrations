@@ -52,8 +52,10 @@
 import { type Signal, type WritableSignal, signal } from '@angular/core';
 
 import { replicaIndexName, sortReplicasFor } from '@aeci/shared/algolia';
+import { isConnectorKind } from '@aeci/shared/api/connector-kind';
 import type { AlgoliaProductRecord, AlgoliaVendorRecord } from '@aeci/shared/algolia-records';
 
+import { connectorKindLabel } from '../products/connector-kind-labels';
 import type { RefinementItem } from '../shared/facets/refinement-item';
 
 import type { AlgoliaPublicConfig } from './algolia-config';
@@ -520,10 +522,22 @@ interface FacetConfig {
  * doesn't apply. The floor governs the API-backed sidebar and nav instead
  * (AECI-546, `TRADES_VOCABULARY.md` §6). Note `trade_aliases` is deliberately
  * absent — it is searchable-only matching metadata, never a facet.
+ *
+ * `connector_kind` (AECI-1662) is the "Connector type" filter, last of the
+ * checkbox groups, as on `/products`. Its values are stored kinds, so the rendered
+ * label comes from `connectorKindLabel` (`labelFacetItems`) and the order is the
+ * vocabulary's (`orderFacetItems`). It filters and never ranks.
  */
 const FACET_CONFIG: Record<'products' | 'vendors', FacetConfig> = {
   products: {
-    refinementLists: ['categories', 'audiences', 'phases', 'trades', 'vendor_name'],
+    refinementLists: [
+      'categories',
+      'audiences',
+      'phases',
+      'trades',
+      'vendor_name',
+      'connector_kind',
+    ],
     numericMenus: [{ attribute: 'integration_count', items: COUNT_BUCKETS }],
     ranges: [],
   },
@@ -549,6 +563,22 @@ export function facetAttributesFor(entity: 'products' | 'vendors'): {
     numericMenus: config.numericMenus.map((menu) => menu.attribute),
     ranges: config.ranges,
   };
+}
+
+/**
+ * The rendered label of each facet value. A value is its own label (a taxonomy,
+ * vendor or product name), except `connector_kind` (AECI-1662), whose values are
+ * stored kinds: "Integration platform" and "Sync Service", the words the
+ * `/products` sidebar shows for the same values.
+ */
+export function labelFacetItems(
+  attribute: string,
+  items: readonly RefinementItem[],
+): RefinementItem[] {
+  if (attribute !== 'connector_kind') return [...items];
+  return items.map((item) =>
+    isConnectorKind(item.value) ? { ...item, label: connectorKindLabel(item.value) } : item,
+  );
 }
 
 /** Page size per entity tab: 24, the same as `/products` (`STAGE_1_PHASE_2_SPEC.md` §7.1). */
@@ -1042,7 +1072,7 @@ export class SearchController {
           // omits its whole facet, so the reader can uncheck it.
           const checked = this.lastFilters[entity].refinementList[attribute] ?? [];
           const shown = withCheckedValues(state.items, checked);
-          items.set(orderFacetItems(attribute, shown));
+          items.set(labelFacetItems(attribute, orderFacetItems(attribute, shown)));
           canRefine.set(state.canRefine || shown.length > 0);
         })({
           attribute,

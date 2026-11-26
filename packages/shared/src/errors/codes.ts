@@ -38,6 +38,14 @@ export const ApiErrorCode = {
   // AECI-724: the edit would collide with another mapping on the same stub — the same
   // product twice, or a second stub-level decision (409).
   MAPPING_CONFLICT: 'MAPPING_CONFLICT',
+  // AECI-2036: `PATCH /api/admin/products/:id/connector-kind` named an `application`
+  // product. Only a `connector` or `hybrid` product carries a kind (409). Nothing is
+  // written. `details.product_role` names the role the product has.
+  CONNECTOR_KIND_NOT_CONNECTOR: 'CONNECTOR_KIND_NOT_CONNECTOR',
+  // AECI-2046: `PATCH /api/admin/products/:id/sync-facts` named a product that is not a
+  // Sync Service (`isSyncService`). Only a Sync Service carries the three curated facts
+  // (409). Nothing is written. `details` names the role and the kind the product has.
+  SYNC_FACTS_NOT_SYNC_SERVICE: 'SYNC_FACTS_NOT_SYNC_SERVICE',
   INVALID_STATE_TRANSITION: 'INVALID_STATE_TRANSITION',
   // AECI-1203: `PATCH /api/admin/reviews/:id` lost a race with another moderator.
   // Both passed the pending check, the other batch committed first, and this one
@@ -54,6 +62,11 @@ export const ApiErrorCode = {
   CONTEST_NOT_OPEN: 'CONTEST_NOT_OPEN',
   CONTEST_ROUTED_TO_OWNER: 'CONTEST_ROUTED_TO_OWNER',
   CONTEST_NO_CHANGE: 'CONTEST_NO_CHANGE',
+  // AECI-2045 (§11b.2): the vendor that holds a Sync Service pair's connector product,
+  // and is not its owner, may file only an `owner` contest that names itself.
+  CONTEST_CONNECTOR_OWNER_ONLY: 'CONTEST_CONNECTOR_OWNER_ONLY',
+  // AECI-2045: the admin owner write takes only a connector-delivered row.
+  INTEGRATION_NOT_CONNECTOR_DELIVERED: 'INTEGRATION_NOT_CONNECTOR_DELIVERED',
   // AECI-1151: a deny (`asserted: false`) with no reason. `field: 'note'` (400).
   ATTESTATION_NOTE_REQUIRED: 'ATTESTATION_NOTE_REQUIRED',
   // AECI-1245: another company or AECi holds a live answer on the row.
@@ -80,6 +93,11 @@ export const ApiErrorCode = {
   INTEGRATION_ALREADY_CLAIMED: 'INTEGRATION_ALREADY_CLAIMED',
   // AECI-1005 Q1 ruling (2026-09-22): decision 9 blocks the claim too in v1.
   INTEGRATION_CONNECTOR_POWERED: 'INTEGRATION_CONNECTOR_POWERED',
+  // AECI-2047 (409): the owner's claim of an `integrations` row still marked as
+  // delivered through a connector AECi has not recorded (`mechanism_kind = 'iPaaS'`
+  // with no `powered_by_product_id`). A claimed row never moves, and promote would
+  // move this one to `connector_evidenced_pairs` once the connector is recorded.
+  INTEGRATION_CONNECTOR_UNRESOLVED: 'INTEGRATION_CONNECTOR_UNRESOLVED',
   // `INTEGRATION_ENTITLEMENT_REQUIRED` (AECI-1089) is retired: AECI-1663 (ruling 14)
   // dropped the entitlement gate on owner writes to connector-powered rows, its only
   // raiser (`API_CONTRACTS.md` §4).
@@ -166,6 +184,47 @@ export const ApiErrorCode = {
   INTEGRATION_NOT_VENDOR_HELD: 'INTEGRATION_NOT_VENDOR_HELD',
   // AECI-1006 owner edits (`API_CONTRACTS.md` §4): a value that is wrong for its field.
   INTEGRATION_INVALID_VALUE: 'INTEGRATION_INVALID_VALUE',
+  // AECI-2040 (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.7): a Sync Service adds its own pair.
+  // `CONNECTOR_NOT_SYNC_SERVICE` (422) answers a connector product the caller holds that
+  // is not a Sync Service: an Integration platform, an unclassified connector or an
+  // application. `INTEGRATION_ALREADY_ON_RECORD` (409) answers a pair that is already on
+  // record through the same connector, in either table, live or retired; `details` names
+  // the row so the portal can open it (claim or restore it instead).
+  CONNECTOR_NOT_SYNC_SERVICE: 'CONNECTOR_NOT_SYNC_SERVICE',
+  INTEGRATION_ALREADY_ON_RECORD: 'INTEGRATION_ALREADY_ON_RECORD',
+  // AECI-2042 (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11e): an endpoint vendor's rights on a
+  // Sync Service pair. `INTEGRATION_VETOED` (409) answers a restore, a re-create or a
+  // report on a row an endpoint vendor's veto took off the site. `SYNC_SERVICE_RIGHT_NOT_AVAILABLE`
+  // (403) answers a veto, existence report or data flow report on a row whose connector
+  // is not a Sync Service (a native row, an Integration platform, a blank kind).
+  // `SYNC_SERVICE_RIGHT_OWN_INTEGRATION` (403) answers the pair's owner or its Sync Service
+  // vendor trying to use an endpoint vendor's right. `VETO_DUPLICATE` (409): this vendor
+  // already has a veto in force on the pair. `VETO_NOT_IN_FORCE` (409): a withdraw or lift
+  // of a veto that already ended. `VETO_PAIR_CHANGED` (409): the row, its connector, its
+  // owner or the caller's hold on an endpoint changed between the gate and the commit,
+  // so nothing was written. `PAIR_CONTEST_DUPLICATE` (409): the vendor already has
+  // the same report open. `PAIR_CONTEST_NOT_OPEN` (409): a decision or withdraw on a
+  // closed report. `PAIR_CONTEST_CHANGED` (409): the pair or its owner changed while
+  // deciding, or while a report was being filed. `PAIR_PROTEST_NOT_ALLOWED` (409): no
+  // protest basis, or one already filed.
+  // `PAIR_PROTEST_NOT_OPEN` (409): a decision or withdraw on a closed protest.
+  INTEGRATION_VETOED: 'INTEGRATION_VETOED',
+  SYNC_SERVICE_RIGHT_NOT_AVAILABLE: 'SYNC_SERVICE_RIGHT_NOT_AVAILABLE',
+  SYNC_SERVICE_RIGHT_OWN_INTEGRATION: 'SYNC_SERVICE_RIGHT_OWN_INTEGRATION',
+  VETO_DUPLICATE: 'VETO_DUPLICATE',
+  VETO_NOT_IN_FORCE: 'VETO_NOT_IN_FORCE',
+  VETO_PAIR_CHANGED: 'VETO_PAIR_CHANGED',
+  PAIR_CONTEST_DUPLICATE: 'PAIR_CONTEST_DUPLICATE',
+  PAIR_CONTEST_NOT_OPEN: 'PAIR_CONTEST_NOT_OPEN',
+  PAIR_CONTEST_CHANGED: 'PAIR_CONTEST_CHANGED',
+  PAIR_PROTEST_NOT_ALLOWED: 'PAIR_PROTEST_NOT_ALLOWED',
+  PAIR_PROTEST_NOT_OPEN: 'PAIR_PROTEST_NOT_OPEN',
+  // AECI-2192 (ruling 66): the Sync Service's objection to a removal.
+  // `VETO_OBJECTION_DUPLICATE` (409): an objection to this removal is already open.
+  // `VETO_OBJECTION_NOT_OPEN` (409): a decision on an objection already decided or
+  // closed, or one the removal's end closed meanwhile.
+  VETO_OBJECTION_DUPLICATE: 'VETO_OBJECTION_DUPLICATE',
+  VETO_OBJECTION_NOT_OPEN: 'VETO_OBJECTION_NOT_OPEN',
   // AECI-1237 admin field corrections (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5).
   // `FIELD_LOCKED_BY_AECI` (409) answers a vendor write that would change a field AECi
   // corrected and locked; `details.fields` names them. `FIELD_OVERRIDE_ACTIVE` (409)
@@ -285,6 +344,17 @@ export const ApiErrorCode = {
   LICENSE_NOT_LIVE: 'LICENSE_NOT_LIVE',
   LICENSE_ALREADY_ASSIGNED: 'LICENSE_ALREADY_ASSIGNED',
   PRODUCT_ALREADY_LICENSED: 'PRODUCT_ALREADY_LICENSED',
+  // AECI-2044 (ruling 6 on AECI-2035, `STAGE_2_SPEC.md` §8.8), all 409, nothing written.
+  // `PRODUCT_NOT_SUBSCRIBABLE`: the assign named a product that cannot hold a Managed
+  // subscription: a `connector` whose kind is Integration platform or blank
+  // (`productTakesSubscription`). `details` carries `product_role` and `connector_kind`.
+  // `NO_SUBSCRIBABLE_PRODUCT`: a checkout, an add or an admin grant for a vendor that owns
+  // products and none of them can hold a subscription. `CONNECTOR_KIND_SUBSCRIBED`: the
+  // admin kind change would leave a product that holds a live subscription unable to
+  // hold one. Move or end the subscription first.
+  PRODUCT_NOT_SUBSCRIBABLE: 'PRODUCT_NOT_SUBSCRIBABLE',
+  NO_SUBSCRIBABLE_PRODUCT: 'NO_SUBSCRIBABLE_PRODUCT',
+  CONNECTOR_KIND_SUBSCRIBED: 'CONNECTOR_KIND_SUBSCRIBED',
   // AECI-1501 (E9.3) Stripe purchase routes (`API_CONTRACTS.md` §4, §6.14).
   // `STRIPE_UNAVAILABLE` (503): this tier does not sell through Stripe right now
   // (`STRIPE_CHECKOUT_ENABLED` off, or a key, portal config or site URL unset).

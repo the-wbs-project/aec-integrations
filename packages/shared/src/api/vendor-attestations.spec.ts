@@ -51,6 +51,7 @@ const CLAIM = {
   can_delete: true,
   created_at: '2026-08-17T00:00:00.000Z',
   disagreement: null,
+  owner_answer: null,
 };
 
 const INTEGRATION = {
@@ -85,6 +86,8 @@ const INTEGRATION = {
   maintained_by: 'vendor' as const,
   last_reviewed_at: '2026-08-17T00:00:00.000Z',
   pricing_url: 'https://autodesk.example/pricing',
+  flows_maintained_by_owner: false,
+  owner_flows: null,
 };
 
 describe('VENDOR_ATTESTATION_SLOTS', () => {
@@ -499,5 +502,18 @@ describe('the integration detail page fields default for deploy skew (AECI-1150 
     expect(shape.created_at.parse(undefined)).toBeNull();
     expect(shape.last_reviewed_at.parse(undefined)).toBeNull();
     expect(shape.pricing_url.parse(undefined)).toBeNull();
+  });
+});
+
+describe('the AECI-2039 owner flow shapes', () => {
+  it('defaults the owned-row flow fields for deploy skew', () => {
+    const parsed = VendorClaimSchema.parse({ ...CLAIM, owner_answer: undefined });
+    expect(parsed.owner_answer).toBeNull();
+  });
+
+  it('takes owner_confirmed as an agreement state', () => {
+    expect(VendorClaimSchema.parse({ ...CLAIM, agreement: 'owner_confirmed' }).agreement).toBe(
+      'owner_confirmed',
+    );
   });
 });

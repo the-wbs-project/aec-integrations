@@ -263,19 +263,14 @@ describe('GrantLicensesControl', () => {
     expect(field(el, 'quantity').getAttribute('aria-invalid')).toBe('true');
   });
 
-  it('warns on a pure connector vendor and stays enabled', async () => {
-    const api = makeApiMock({
-      warnings: [{ code: 'pure_connector_vendor', message: 'server text' }],
-    });
-    const { el, refresh } = await setup(api, true);
+  // AECI-2044: the note says only a Sync Service can hold one. The API decides.
+  it('notes a pure connector vendor and stays enabled', async () => {
+    const { el, refresh } = await setup(makeApiMock(), true);
     await openAndFill(el, refresh);
     expect(el.textContent).toContain('Every product this vendor owns is a connector.');
+    expect(el.textContent).toContain('Only a Sync Service can hold a subscription');
+    expect(el.textContent).not.toContain('not settled yet');
     expect(button(el, 'Grant the subscriptions').disabled).toBe(false);
-    button(el, 'Grant the subscriptions').click();
-    await refresh();
-    expect(el.querySelector('[data-testid="grant-licenses-warning"]')?.textContent).toContain(
-      'Granted to a vendor whose every product is a connector.',
-    );
   });
 
   it('announces a replay as nothing changed', async () => {

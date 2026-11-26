@@ -15,14 +15,19 @@
  * including the zero-count listing, which is the common case there: the facet is
  * sparse by design (`TRADES_VOCABULARY.md` §1.1). No publication gate is applied
  * here; the sidebar decides what to render.
+ *
+ * `connector_kinds` (AECI-1662) is the fifth group, the "Connector type" filter. It is
+ * not a taxonomy: one entry per stored kind, always both, in vocabulary order, each
+ * counting the products `connectorKindWhere` matches under the other active filters.
  */
 
 import {
+  CONNECTOR_KINDS,
   ProductFacetsQuerySchema,
   ProductFacetsResponseSchema,
   type ProductFacetsResponse,
 } from '@aeci/shared';
-import { asc, count, eq } from 'drizzle-orm';
+import { and, asc, count, eq } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
@@ -41,7 +46,11 @@ import type { Env } from '../env';
 import { json } from '../http';
 import { textAsc } from '../lib/collation';
 import { displayOrderAsc } from '../lib/display-order';
-import { buildProductsWhere, toTaxonomyTermWithCount } from '../lib/drizzle-helpers';
+import {
+  buildProductsWhere,
+  connectorKindWhere,
+  toTaxonomyTermWithCount,
+} from '../lib/drizzle-helpers';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 
 type TermRow = {
@@ -76,6 +85,7 @@ export function createProductFacetsHandler(
       phaseCounts,
       tradeTerms,
       tradeCounts,
+      kindCounts,
     ] = await Promise.all([
       db
         .select({
@@ -146,6 +156,13 @@ export function createProductFacetsHandler(
         .innerJoin(products, eq(products.id, productTrades.productId))
         .where(buildProductsWhere(db, query, 'trade'))
         .groupBy(productTrades.tradeId),
+      db
+        .select({ kind: products.connectorKind, value: count() })
+        .from(products)
+        .where(
+          and(buildProductsWhere(db, query, 'connector_kind'), connectorKindWhere(CONNECTOR_KINDS)),
+        )
+        .groupBy(products.connectorKind),
     ]);
 
     const body: ProductFacetsResponse = {
@@ -153,6 +170,10 @@ export function createProductFacetsHandler(
       audiences: withCounts(audTerms, audCounts),
       phases: withCounts(phaseTerms, phaseCounts),
       trades: withCounts(tradeTerms, tradeCounts),
+      connector_kinds: CONNECTOR_KINDS.map((kind) => ({
+        kind,
+        product_count: kindCounts.find((row) => row.kind === kind)?.value ?? 0,
+      })),
     };
 
     validateResponseInDev(c.env, () => {

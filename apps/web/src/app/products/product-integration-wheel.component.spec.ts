@@ -615,16 +615,54 @@ describe('ProductHero: the panel holds the wheel', () => {
     expect(el.querySelector('[data-testid="product-hero-visual"]')).toBeNull();
   });
 
-  it('a pure connector, with only the pairs it powers, has no wheel and no panel', () => {
+  it('a pure connector shows the products its pairs reach, each a link to its own page', () => {
     const powered = {
       ...partners(1)[0]!,
       source: link('aa', 'Alpha'),
       target: link('bb', 'Beta'),
     } as unknown as ProductDetail['integrations_as_connector'][number];
     const el = hero(
-      buildProduct({ product_role: 'connector', integrations_as_connector: [powered] }),
+      buildProduct({
+        product_role: 'connector',
+        connector_kind: 'sync_service',
+        integrations_as_connector: [powered],
+      }),
     );
+    expect(el.querySelector('.aec-hero-panel [data-testid="product-hero-wheel"]')).not.toBeNull();
+    expect(el.querySelector('.aec-wheel-name')?.textContent?.trim()).toBe('Products it syncs');
+    expect(el.querySelector('.aec-wheel-count')?.textContent?.trim()).toBe('2 products');
+    const hrefs = [
+      ...el.querySelectorAll<HTMLAnchorElement>('[data-testid="product-hero-wheel-tile"]'),
+    ].map((a) => a.getAttribute('href'));
+    expect(hrefs).toEqual(['/products/aa', '/products/bb']);
+    // The dots line, when it shows, counts products.
+    expect(el.querySelector('[data-testid="product-hero-wheel-dots-line"]')?.textContent).toContain(
+      'Each dot is one product.',
+    );
+  });
+
+  it('a connector with nothing on record says so in the panel, never a blank column', () => {
+    const el = hero(buildProduct({ product_role: 'connector', connector_kind: 'sync_service' }));
     expect(el.querySelector('[data-testid="product-hero-wheel"]')).toBeNull();
-    expect(el.querySelector('[data-testid="product-hero-visual"]')).toBeNull();
+    expect(
+      el.querySelector('.aec-hero-panel [data-testid="product-hero-visual-empty"]')?.textContent,
+    ).toContain('No integrations are recorded for this Sync Service yet.');
+  });
+
+  it('a hybrid shows its endpoint rows, not the pairs it powers', () => {
+    const powered = {
+      ...partners(1)[0]!,
+      source: link('aa', 'Alpha'),
+      target: link('bb', 'Beta'),
+    } as unknown as ProductDetail['integrations_as_connector'][number];
+    const el = hero(
+      buildProduct({
+        product_role: 'hybrid',
+        integrations_as_source: partners(3),
+        integrations_as_connector: [powered],
+      }),
+    );
+    expect(el.querySelector('.aec-wheel-name')?.textContent?.trim()).toBe('All integrations');
+    expect(el.querySelector('.aec-wheel-count')?.textContent?.trim()).toBe('3 products');
   });
 });

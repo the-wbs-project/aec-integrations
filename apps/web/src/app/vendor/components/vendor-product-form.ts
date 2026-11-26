@@ -243,22 +243,6 @@ interface FieldConfig {
           @for (cfg of formFields; track cfg.key) {
             <div [class]="cfg.control === 'textarea' ? wideFieldClass : fieldClass">
               <label [for]="fieldId(cfg.key)" [class]="labelClass">{{ cfg.label }}</label>
-              @if (!editable()[cfg.key]) {
-                <!--
-                  AECI-1218: the locked field's reason, visible and tied to the
-                  control with aria-describedby so a screen reader reads it too.
-                -->
-                <p
-                  [id]="fieldId(cfg.key) + '-locked'"
-                  class="flex items-center gap-2 text-xs text-(--text-secondary)"
-                  data-testid="locked-reason"
-                >
-                  <aec-icon name="lock" decorative [size]="3.5" />
-                  <span i18n="@@vendor.product.locked.reason"
-                    >Part of Managed for this product. The current value stays published.</span
-                  >
-                </p>
-              }
               @if (cfg.control === 'textarea') {
                 <textarea
                   [id]="fieldId(cfg.key)"
@@ -281,6 +265,23 @@ interface FieldConfig {
                   [attr.aria-describedby]="describedBy(cfg.key)"
                   [class]="inputClass"
                 />
+              }
+              @if (!editable()[cfg.key]) {
+                <!--
+                  AECI-1218: the locked field's reason, visible and tied to the
+                  control with aria-describedby so a screen reader reads it too. It sits
+                  below the control so locked and editable inputs line up across a row.
+                -->
+                <p
+                  [id]="fieldId(cfg.key) + '-locked'"
+                  class="flex items-center gap-2 text-xs text-(--text-secondary)"
+                  data-testid="locked-reason"
+                >
+                  <aec-icon name="lock" decorative [size]="3.5" />
+                  <span i18n="@@vendor.product.locked.reason"
+                    >Part of Managed for this product. The current value stays published.</span
+                  >
+                </p>
               }
               @if (aeciLock(cfg.key); as lock) {
                 <div [class]="lockRowClass">

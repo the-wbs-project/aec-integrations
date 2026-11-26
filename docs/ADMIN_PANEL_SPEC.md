@@ -44,7 +44,7 @@ That last point is the immediate trigger for this work. On 2026-08-10 the digest
 **In scope**
 
 - A `/admin` console covering traffic, audience, catalog, moderation, and system health (§5).
-- API endpoints behind `requireAdmin()` (§6), **read-only with 54 named write routes**: §5.7's seat revoke (`DELETE /api/admin/vendors/:id/seats/:userId`, AECI-652) and its **seat provision** (`POST /api/admin/vendors/:id/seats`, AECI-740), §5.8's ban/reinstate, which reuses the pre-existing `PATCH /api/admin/reviewers/:id` (AECI-218) rather than adding a writer, §5.9's `managed_by` flip (`PATCH /api/admin/connector-catalogs/:id`, AECI-720), §5.10's operator note (`PATCH /api/admin/claims/:id/notes`, AECI-739), and §5.11's worklist clear (`DELETE /api/admin/reindex/:id`, AECI-946). The first three are *account* writes (since AECI-1415 a seat revoke hands no record back, and a revoke of the vendor's last active seat moves its open owner contests to AECi's queue, and since AECI-1623 the ban of a vendor's last unbanned seat is refused, because ending a vendor is Suspend, then Terminate, from the vendor page. Neither edits catalog content: see §5.7), the fourth is a **governance** write — it decides which system may author a catalogue and changes no catalogue content — the fifth is an **annotation**: it changes no claim status and grants nothing — and the sixth is **queue consumption**: it clears one row of the operator's own worklist and touches nothing any visitor can see. See the catalog-editing bullet below. *(This bullet read "two named exceptions" until AECI-722: AECI-720 added its endpoint to §6's table without amending the count here. Kept at "three" through AECI-722, raised to "four" by AECI-739, to "five" by AECI-740, to "six" by AECI-946, to "seven" by AECI-955, to "eight" by AECI-1008, to "nine" by AECI-1046, to "ten" by AECI-1177, to "eleven" by AECI-1377, to "twelve" by AECI-1370, to "thirteen" by AECI-1371 to "fourteen" by AECI-1373, to "fifteen" by AECI-1415, to "sixteen" by AECI-1381 and to "seventeen" by AECI-1379 and to "eighteen" by AECI-1589, which counted AECI-1293's listing-request decision a week after it shipped, and to "twenty-six" by AECI-1623, which added eight writes, to "twenty-seven" by AECI-1625, and to "twenty-eight" by AECI-1613, and to "twenty-nine" by AECI-1238 PR 1, and to "thirty" by AECI-1238 PR 2, and to "thirty-one" by AECI-1615, and to "fifty" by AECI-1688, and to "fifty-one" by AECI-1620, and to "fifty" by AECI-1705, which removed the listing request decision with its queue, and to "fifty-two" by AECI-1665, and to "fifty-four" by AECI-1638 — the drift is this line's known failure mode, so amend it in the same PR as the endpoint. AECI-1671 (2026-11-11) ended the hand count: the number now counts ROUTES, not exception families — the families below (thirty-eight numbered, the seventeenth retired by AECI-1705; the pre-existing reviewers ban is the third family itself, and the other three pre-existing decision PATCHes are named inline after the thirty-eighth) name all fifty-four — and `apps/api/src/routes/admin-panel.writes.spec.ts` compares §6's table with the registrations in `apps/api/src/index.ts`, in both directions, so a route added without its §6 row fails CI and a retired route left in the table fails too.)* The seventh is the **logo-only catalog write** introduced by AECI-955: vendor and product logo PATCHes plus their upload endpoint, governed by STAGE_2_5_SPEC.md §11. It writes no other catalog field. The eighth is the **contest decision** introduced by AECI-1008: `PATCH /api/admin/contests/:id` accepts or declines an integration field contest routed to AECi (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). It is a **decision** write. An accept writes no catalog data: it records the decision and files a `REVIEW - ` Linear issue so the review lane applies the value upstream, which keeps the §2 catalog lockout intact. AECI-1009 added the **protest decision** under the same exception: `PATCH /api/admin/contests/:id/protest` upholds or rejects a routed protest with a required note both vendors see, and it is advice only — it writes the protest columns, no catalog data and no Linear issue (§5.12). The ninth is the **admin retire and restore** introduced by AECI-1046: `POST /api/admin/integrations/:id/retire` and `/restore`, from the Integrations tab on `/admin/vendors/:id` (§5.7). It is a **moderation** write on a vendor-held listing: it hides or restores the row with a required reason and writes no catalog content (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6.4). The tenth is the **vendor review-reply decision**, specified by AECI-1174 and built by AECI-1177: `PATCH /api/admin/review-responses/:id` approves, rejects or removes a vendor's reply to a review (§5.13). It is a **moderation** write on vendor-authored content. It writes no catalog data and never touches the review. The eleventh is the **product request decision** introduced by AECI-1377: `PATCH /api/admin/product-requests/:id` marks a vendor's request to add a product as added, already listed or declined (§5.16, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.6). It is a **decision** write on a request: it links an already promoted product or records a decline reason, and writes no catalog data. The product itself is created upstream and promoted first. The twelfth is the **subscription grant** introduced by AECI-1370 (E4.1): `POST /api/admin/vendors/:id/licenses` writes N unassigned complimentary or invoice subscriptions on a vendor's billing account (§5.7, `VENDOR_SIGNUP_PROCESS.md` §3 step 5). It is a **commercial** write: it assigns nothing, so no product changes plan, and it writes no catalog data. The thirteenth is the **subscription edit** introduced by AECI-1371 (E4.2): `PATCH /api/admin/licenses/:id` extends, re-references or revokes one subscription (§5.7, `VENDOR_SIGNUP_PROCESS.md` §3 step 11). It is a **commercial** write. A revoke ends the subscription now with a vendor reason; a product it was on drops to Free and keeps its content (decision 14). It writes no catalog data. The fourteenth is the **early-unassign decision** introduced by AECI-1373 (E4.4): `PATCH /api/admin/license-release-requests/:id` approves or declines a vendor owner's request to take a subscription off its product before renewal (§5.17, `VENDOR_SIGNUP_PROCESS.md` decision 11). It is a **commercial** write: an approve unassigns the subscription through `lib/license.ts`, so that product drops to Free, and it writes no catalog data. The fifteenth is the **return of records to AECi** introduced by AECI-1415: `POST /api/admin/vendors/:id/return-to-aeci` clears `vendors.owned_at` and hands the vendor's markers, claims and open owner contests back (§5.7). It is an **account** write for a mistaken approval, refused while any seat remains, and it writes no catalog content. The sixteenth is the **billing email edit** introduced by AECI-1381 (2026-10-23): `PUT /api/admin/vendors/:id/billing/email` sets or clears the billing email on a vendor's billing account from the Billing tab (§5.7, `VENDOR_SIGNUP_PROCESS.md` decision 16). It is a **commercial** write: one UPDATE and one `billing_account.email_changed` audit row, the vendor route's builder. It sends no email, purges nothing and writes no catalog data. The seventeenth was the **listing request decision** (`PATCH /api/admin/listing-requests/:id`, AECI-1293, counted here by AECI-1379). AECI-1705 (2026-11-12) removed it with the listing request queue: the `listing-request-alert` email is the record, and the operator works it from the inbox (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.5). The number is kept so the later ordinals still read. The eighteenth is the **ban-term subscription grant** introduced by AECI-1589 (2026-11-03): `POST /api/admin/vendors/:id/licenses/ban-term` grants complimentary subscriptions, each assigned to the product its banned subscription was on, for the rest of the term a ban cut short (§5.7). It is a **commercial** write on an unbanned vendor, grouped by end date, idempotent on `grant_id`, and it writes no catalog data. The nineteenth to the twenty-sixth are the **suspend and terminate** writes introduced by AECI-1623 (2026-11-05), all from the Suspension section of `/admin/vendors/:id` (§5.7), each behind `requireAdmin()` then `rateLimit('write')`, each with its audit row in the same batch. They are **account** writes on a vendor, and none edits catalog content. The nineteenth, `POST /api/admin/vendors/:id/suspend`, locks every seat out of the portal and sends the notice. The twentieth, `POST .../suspension/resend-notice`, re-sends an unconfirmed notice. The twenty-first, `POST .../suspension/stage-2`, opens the false-claim stage with its own notice. The twenty-second, `POST .../suspension/cost-log`, appends one entry to the abuse cost log. The twenty-third, `POST .../suspension/cost-log/:entryId/void`, voids one. The twenty-fourth, `POST .../suspension/lift`, ends a suspension that was cured or wrong. The twenty-fifth, `POST .../suspension/terminate`, is also a **commercial** write: it bans every seat, ends every subscription, cancels Stripe now, returns the records and writes the refund rows. The twenty-sixth, `POST .../suspension/refunds/retry`, retries refunds that failed. The ninth route of the family, `GET /api/admin/vendors/:id/suspension`, is a read and not an exception. *Count checked against `apps/api/src/index.ts` on 2026-11-05: nine routes, eight writes.* The twenty-seventh is the **vendor legal name edit** introduced by AECI-1625 (2026-11-06): `PUT /api/admin/vendors/:id/billing/legal-name` sets or clears `vendors.legal_name` from the Billing tab (§5.7, `VENDOR_SIGNUP_PROCESS.md` §4). It is a **commercial** write: one UPDATE and one `vendor.legal_name_changed` audit row, through the builder the owner route shares. It sends no email, purges nothing and writes no catalog data. The twenty-eighth is the **reviewer-update decision** introduced by AECI-1613 (2026-11-06): `PATCH /api/admin/review-updates/:id` approves, rejects or removes a reviewer's update to a published review (§5.20). It is a **moderation** write on reviewer-authored content. It never touches the review row and writes no catalog data. Approve and remove recompute the product's rating averages, which is derived state. The twenty-ninth is the **listing hide and restore** introduced by AECI-1238 (2026-11-09): `POST /api/admin/vendors/:id/hide` and `/restore`, and `POST /api/admin/products/:id/hide` and `/restore`, from the Listing visibility section and the Products tab of `/admin/vendors/:id` (§5.7). It is a **moderation** write: it takes a company or product off the public site and puts it back, with a required vendor reason, and writes no catalog content (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6). The thirtieth is the **value hide** introduced by AECI-1238 PR 2 (2026-11-09): `POST /api/admin/field-hides`, `/:id/restore` and `/:id/status-reply`, from the Values under review section of `/admin/vendors/:id` (§5.7). It is a **moderation** write: it masks one value on a vendor-held record on the public page while AECi checks it, ends that mask, or records a status reply. It writes no catalog content (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.7). The thirty-first is the **grant withdraw** introduced by AECI-1615 (2026-11-10): `PATCH /api/admin/license-grants/:id` `{ action: 'withdraw', reason }` withdraws a subscription grant still waiting for the owner's accept (§5.7, `VENDOR_SIGNUP_PROCESS.md` §3 step 5). It is a **commercial** write: one guarded UPDATE and one `license_grant.withdrawn` audit row with the reason. No subscription exists yet, so it sends no email, purges nothing and writes no catalog data. The thirty-second is the **stub-mapping decision** introduced by AECI-724 (2026-09-23): `PATCH /api/admin/connector-stub-mappings/:id` edits one mapping's status, product, confidence or evidence link on a **vendor-managed** catalogue only (§5.9), stamping `decided_by = 'aeci-operator'`. It is a **decision** write on connector mapping rows: a review-managed catalogue is `409 CATALOG_REVIEW_MANAGED`, and it writes no catalogue content. The thirty-third is the **email sending switch** introduced by AECI-1224 (2026-10-02): `PUT /api/admin/email/switches/:key` pauses or resumes one email template on one tier (§5.14). It is an **operational** write — an operator's choice about a whole template, not about any vendor, subscription or content — one upsert and one `notification_settings.updated` audit row in one `db.batch`. The thirty-fourth is the **field correction with a lock** introduced by AECI-1237 (2026-10-04; facets AECI-1382): `POST /api/admin/field-overrides` corrects a factual field on a vendor-held record and locks it, and `POST /api/admin/field-overrides/:id/lift` lifts the lock, both with a reason the vendor reads (§5.7, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5). It is a **moderation** write: it corrects a vendor-held value the owner cannot then quietly undo (`409 FIELD_LOCKED_BY_AECI` on the owner route), bounded by the shared per-record allow-list and the vendor's own value rules. The thirty-fifth is the **brand-assets hold** introduced by AECI-1618 (2026-11-05): `POST /api/admin/vendors/:id/brand-assets/hold` sets, and `DELETE .../brand-assets/hold` lifts, a hold that delays the daily brand-asset removal job for a company whose claim has ended, never past the day-14 limit (§5.7). It is an **operational** write — the only admin write that defers a scheduled job — one column and one `vendor.brand_assets_hold_set` / `vendor.brand_assets_hold_lifted` audit row in one `db.batch`. The thirty-sixth is the **legal version publish** introduced by AECI-1688 (2026-11-12): `POST /api/admin/legal-versions` records one upcoming Vendor Terms or Managed plan agreement version (since AECI-1637 also a Terms of Service or Privacy Policy version, and since AECI-1969 a Listing Accuracy Policy or Review Guidelines version) from `/admin/legal` (§5.22): its summary, the operator's two answers (material, needs acceptance) and the hash of its CI-built PDF. It is an **operational** write about a legal document, not about any vendor, subscription or content: one `legal_versions` insert and one `legal_version.published` audit row in one `db.batch`. Since AECI-1620 (2026-11-12) a material version then enqueues its change notice post-commit and records the outcome on the row with a `legal_version.notice_queued` audit row, and the family's second route, `POST /api/admin/legal-versions/:id/notice`, sends that notice again: the same fan-out, the outcome and a `legal_version.notice_resent` audit row in one `db.batch`. Neither purges anything or writes catalog data, and both answer `409 LEGAL_PUBLISH_DISABLED` on a tier whose `LEGAL_PUBLISH_ENABLED` is not `"true"`. The thirty-seventh is the **copyright notice log** introduced by AECI-1665 (2026-11-17, counsel Q38): `POST /api/admin/dmca-notices` logs one DMCA notice or counter-notice, and `PATCH /api/admin/dmca-notices/:id` edits one, from `/admin/dmca` (§5.23). It is a **legal-record** write: it records what AECi received and did under the Terms "Copyright complaints" section, and it writes no catalog data, sends no email and purges nothing. Each is one `dmca_notices` insert or guarded UPDATE and one `dmca_notice.created` / `dmca_notice.updated` audit row in one `db.batch`. Taking material down is done elsewhere and is not this write. The thirty-eighth is the **litigation hold** introduced by AECI-1638 (2026-11-17, counsel Q23a): `POST /api/admin/litigation-holds` places one hold, and `POST /api/admin/litigation-holds/:id/release` releases it, from `/admin/legal` (§5.22b). It is an **operational** write about the legal retention prune: an open hold stops that job from deleting records a matter needs. It writes no catalog data, sends no email and purges nothing. Each is one `litigation_holds` insert or guarded UPDATE and one `litigation_hold.placed` / `litigation_hold.released` audit row in one `db.batch`. Three more **pre-existing** decision writes the panel's screens drive join the third exception's ban route in the fifty-four, named here the way that exception names AECI-218's route — not as new §2 exceptions: `PATCH /api/admin/requests/:id` (Phase 6.6, AECI-213 — resolve or reject a vendor request, a **decision** write), `PATCH /api/admin/claims/:id` (Stage 2, AECI-519 — approve or reject a claim, a **decision** write), and `PATCH /api/admin/reviews/:id` (Phase 5.13, a **moderation** write; AECI-1643 added the final remove, §5.21, which says of it "not a new §2 exception"). *As built 2026-11-10 (AECI-1615):* the twelfth and the eighteenth now write a pending `license_grants` row and no subscription. The subscriptions are written when an owner accepts in the portal, or at once when the grant form records a signed deal. **Reasons on admin overwrites (AECI-1191).** Three of these writes now take a reason that lands in the audit row's `metadata.reason`: the seat revoke (required `{ reason }` body), the logo PATCHes (required `reason` beside `logo_url`) and the contest accept (a required `note` when the accept changes a vendor-held value; see §5.12). The seat revoke and logo reasons use the shared `AdminReasonSchema` (trimmed, 1 to 1000 characters). The contest note keeps `DecideContestSchema`'s limit (trimmed, 1 to 2000 characters). The retire reason (the ninth) was already required.
+- API endpoints behind `requireAdmin()` (§6), **read-only with 61 named write routes**: §5.7's seat revoke (`DELETE /api/admin/vendors/:id/seats/:userId`, AECI-652) and its **seat provision** (`POST /api/admin/vendors/:id/seats`, AECI-740), §5.8's ban/reinstate, which reuses the pre-existing `PATCH /api/admin/reviewers/:id` (AECI-218) rather than adding a writer, §5.9's `managed_by` flip (`PATCH /api/admin/connector-catalogs/:id`, AECI-720), §5.10's operator note (`PATCH /api/admin/claims/:id/notes`, AECI-739), and §5.11's worklist clear (`DELETE /api/admin/reindex/:id`, AECI-946). The first three are *account* writes (since AECI-1415 a seat revoke hands no record back, and a revoke of the vendor's last active seat moves its open owner contests to AECi's queue, and since AECI-1623 the ban of a vendor's last unbanned seat is refused, because ending a vendor is Suspend, then Terminate, from the vendor page. Neither edits catalog content: see §5.7), the fourth is a **governance** write — it decides which system may author a catalogue and changes no catalogue content — the fifth is an **annotation**: it changes no claim status and grants nothing — and the sixth is **queue consumption**: it clears one row of the operator's own worklist and touches nothing any visitor can see. See the catalog-editing bullet below. *(This bullet read "two named exceptions" until AECI-722: AECI-720 added its endpoint to §6's table without amending the count here. Kept at "three" through AECI-722, raised to "four" by AECI-739, to "five" by AECI-740, to "six" by AECI-946, to "seven" by AECI-955, to "eight" by AECI-1008, to "nine" by AECI-1046, to "ten" by AECI-1177, to "eleven" by AECI-1377, to "twelve" by AECI-1370, to "thirteen" by AECI-1371 to "fourteen" by AECI-1373, to "fifteen" by AECI-1415, to "sixteen" by AECI-1381 and to "seventeen" by AECI-1379 and to "eighteen" by AECI-1589, which counted AECI-1293's listing-request decision a week after it shipped, and to "twenty-six" by AECI-1623, which added eight writes, to "twenty-seven" by AECI-1625, and to "twenty-eight" by AECI-1613, and to "twenty-nine" by AECI-1238 PR 1, and to "thirty" by AECI-1238 PR 2, and to "thirty-one" by AECI-1615, and to "fifty" by AECI-1688, and to "fifty-one" by AECI-1620, and to "fifty" by AECI-1705, which removed the listing request decision with its queue, and to "fifty-two" by AECI-1665, and to "fifty-four" by AECI-1638, and to "fifty-five" by AECI-2036, and to "fifty-six" by AECI-2045, and to "fifty-nine" by AECI-2042 (the veto lift and the two Sync Service pair report decisions), and to "sixty" by AECI-2046, and to "sixty-one" by AECI-2192 (the decision on a Sync Service's objection to a removal) — the drift is this line's known failure mode, so amend it in the same PR as the endpoint. AECI-1671 (2026-11-11) ended the hand count: the number now counts ROUTES, not exception families — the families below (forty-one numbered, the seventeenth retired by AECI-1705; the pre-existing reviewers ban is the third family itself, and the other three pre-existing decision PATCHes are named inline after the forty-first) name all sixty-one — and `apps/api/src/routes/admin-panel.writes.spec.ts` compares §6's table with the registrations in `apps/api/src/index.ts`, in both directions, so a route added without its §6 row fails CI and a retired route left in the table fails too.)* The seventh is the **logo-only catalog write** introduced by AECI-955: vendor and product logo PATCHes plus their upload endpoint, governed by STAGE_2_5_SPEC.md §11. It writes no other catalog field. The eighth is the **contest decision** introduced by AECI-1008: `PATCH /api/admin/contests/:id` accepts or declines an integration field contest routed to AECi (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). It is a **decision** write. An accept writes no catalog data: it records the decision and files a `REVIEW - ` Linear issue so the review lane applies the value upstream, which keeps the §2 catalog lockout intact. AECI-1009 added the **protest decision** under the same exception: `PATCH /api/admin/contests/:id/protest` upholds or rejects a routed protest with a required note both vendors see, and it is advice only — it writes the protest columns, no catalog data and no Linear issue (§5.12). The ninth is the **admin retire and restore** introduced by AECI-1046: `POST /api/admin/integrations/:id/retire` and `/restore`, from the Integrations tab on `/admin/vendors/:id` (§5.7). It is a **moderation** write on a vendor-held listing: it hides or restores the row with a required reason and writes no catalog content (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6.4). The tenth is the **vendor review-reply decision**, specified by AECI-1174 and built by AECI-1177: `PATCH /api/admin/review-responses/:id` approves, rejects or removes a vendor's reply to a review (§5.13). It is a **moderation** write on vendor-authored content. It writes no catalog data and never touches the review. The eleventh is the **product request decision** introduced by AECI-1377: `PATCH /api/admin/product-requests/:id` marks a vendor's request to add a product as added, already listed or declined (§5.16, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.6). It is a **decision** write on a request: it links an already promoted product or records a decline reason, and writes no catalog data. The product itself is created upstream and promoted first. The twelfth is the **subscription grant** introduced by AECI-1370 (E4.1): `POST /api/admin/vendors/:id/licenses` writes N unassigned complimentary or invoice subscriptions on a vendor's billing account (§5.7, `VENDOR_SIGNUP_PROCESS.md` §3 step 5). It is a **commercial** write: it assigns nothing, so no product changes plan, and it writes no catalog data. The thirteenth is the **subscription edit** introduced by AECI-1371 (E4.2): `PATCH /api/admin/licenses/:id` extends, re-references or revokes one subscription (§5.7, `VENDOR_SIGNUP_PROCESS.md` §3 step 11). It is a **commercial** write. A revoke ends the subscription now with a vendor reason; a product it was on drops to Free and keeps its content (decision 14). It writes no catalog data. The fourteenth is the **early-unassign decision** introduced by AECI-1373 (E4.4): `PATCH /api/admin/license-release-requests/:id` approves or declines a vendor owner's request to take a subscription off its product before renewal (§5.17, `VENDOR_SIGNUP_PROCESS.md` decision 11). It is a **commercial** write: an approve unassigns the subscription through `lib/license.ts`, so that product drops to Free, and it writes no catalog data. The fifteenth is the **return of records to AECi** introduced by AECI-1415: `POST /api/admin/vendors/:id/return-to-aeci` clears `vendors.owned_at` and hands the vendor's markers, claims and open owner contests back (§5.7). It is an **account** write for a mistaken approval, refused while any seat remains, and it writes no catalog content. The sixteenth is the **billing email edit** introduced by AECI-1381 (2026-10-23): `PUT /api/admin/vendors/:id/billing/email` sets or clears the billing email on a vendor's billing account from the Billing tab (§5.7, `VENDOR_SIGNUP_PROCESS.md` decision 16). It is a **commercial** write: one UPDATE and one `billing_account.email_changed` audit row, the vendor route's builder. It sends no email, purges nothing and writes no catalog data. The seventeenth was the **listing request decision** (`PATCH /api/admin/listing-requests/:id`, AECI-1293, counted here by AECI-1379). AECI-1705 (2026-11-12) removed it with the listing request queue: the `listing-request-alert` email is the record, and the operator works it from the inbox (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.5). The number is kept so the later ordinals still read. The eighteenth is the **ban-term subscription grant** introduced by AECI-1589 (2026-11-03): `POST /api/admin/vendors/:id/licenses/ban-term` grants complimentary subscriptions, each assigned to the product its banned subscription was on, for the rest of the term a ban cut short (§5.7). It is a **commercial** write on an unbanned vendor, grouped by end date, idempotent on `grant_id`, and it writes no catalog data. The nineteenth to the twenty-sixth are the **suspend and terminate** writes introduced by AECI-1623 (2026-11-05), all from the Suspension section of `/admin/vendors/:id` (§5.7), each behind `requireAdmin()` then `rateLimit('write')`, each with its audit row in the same batch. They are **account** writes on a vendor, and none edits catalog content. The nineteenth, `POST /api/admin/vendors/:id/suspend`, locks every seat out of the portal and sends the notice. The twentieth, `POST .../suspension/resend-notice`, re-sends an unconfirmed notice. The twenty-first, `POST .../suspension/stage-2`, opens the false-claim stage with its own notice. The twenty-second, `POST .../suspension/cost-log`, appends one entry to the abuse cost log. The twenty-third, `POST .../suspension/cost-log/:entryId/void`, voids one. The twenty-fourth, `POST .../suspension/lift`, ends a suspension that was cured or wrong. The twenty-fifth, `POST .../suspension/terminate`, is also a **commercial** write: it bans every seat, ends every subscription, cancels Stripe now, returns the records and writes the refund rows. The twenty-sixth, `POST .../suspension/refunds/retry`, retries refunds that failed. The ninth route of the family, `GET /api/admin/vendors/:id/suspension`, is a read and not an exception. *Count checked against `apps/api/src/index.ts` on 2026-11-05: nine routes, eight writes.* The twenty-seventh is the **vendor legal name edit** introduced by AECI-1625 (2026-11-06): `PUT /api/admin/vendors/:id/billing/legal-name` sets or clears `vendors.legal_name` from the Billing tab (§5.7, `VENDOR_SIGNUP_PROCESS.md` §4). It is a **commercial** write: one UPDATE and one `vendor.legal_name_changed` audit row, through the builder the owner route shares. It sends no email, purges nothing and writes no catalog data. The twenty-eighth is the **reviewer-update decision** introduced by AECI-1613 (2026-11-06): `PATCH /api/admin/review-updates/:id` approves, rejects or removes a reviewer's update to a published review (§5.20). It is a **moderation** write on reviewer-authored content. It never touches the review row and writes no catalog data. Approve and remove recompute the product's rating averages, which is derived state. The twenty-ninth is the **listing hide and restore** introduced by AECI-1238 (2026-11-09): `POST /api/admin/vendors/:id/hide` and `/restore`, and `POST /api/admin/products/:id/hide` and `/restore`, from the Listing visibility section and the Products tab of `/admin/vendors/:id` (§5.7). It is a **moderation** write: it takes a company or product off the public site and puts it back, with a required vendor reason, and writes no catalog content (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6). The thirtieth is the **value hide** introduced by AECI-1238 PR 2 (2026-11-09): `POST /api/admin/field-hides`, `/:id/restore` and `/:id/status-reply`, from the Values under review section of `/admin/vendors/:id` (§5.7). It is a **moderation** write: it masks one value on a vendor-held record on the public page while AECi checks it, ends that mask, or records a status reply. It writes no catalog content (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.7). The thirty-first is the **grant withdraw** introduced by AECI-1615 (2026-11-10): `PATCH /api/admin/license-grants/:id` `{ action: 'withdraw', reason }` withdraws a subscription grant still waiting for the owner's accept (§5.7, `VENDOR_SIGNUP_PROCESS.md` §3 step 5). It is a **commercial** write: one guarded UPDATE and one `license_grant.withdrawn` audit row with the reason. No subscription exists yet, so it sends no email, purges nothing and writes no catalog data. The thirty-second is the **stub-mapping decision** introduced by AECI-724 (2026-09-23): `PATCH /api/admin/connector-stub-mappings/:id` edits one mapping's status, product, confidence or evidence link on a **vendor-managed** catalogue only (§5.9), stamping `decided_by = 'aeci-operator'`. It is a **decision** write on connector mapping rows: a review-managed catalogue is `409 CATALOG_REVIEW_MANAGED`, and it writes no catalogue content. The thirty-third is the **email sending switch** introduced by AECI-1224 (2026-10-02): `PUT /api/admin/email/switches/:key` pauses or resumes one email template on one tier (§5.14). It is an **operational** write — an operator's choice about a whole template, not about any vendor, subscription or content — one upsert and one `notification_settings.updated` audit row in one `db.batch`. The thirty-fourth is the **field correction with a lock** introduced by AECI-1237 (2026-10-04; facets AECI-1382): `POST /api/admin/field-overrides` corrects a factual field on a vendor-held record and locks it, and `POST /api/admin/field-overrides/:id/lift` lifts the lock, both with a reason the vendor reads (§5.7, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5). It is a **moderation** write: it corrects a vendor-held value the owner cannot then quietly undo (`409 FIELD_LOCKED_BY_AECI` on the owner route), bounded by the shared per-record allow-list and the vendor's own value rules. The thirty-fifth is the **brand-assets hold** introduced by AECI-1618 (2026-11-05): `POST /api/admin/vendors/:id/brand-assets/hold` sets, and `DELETE .../brand-assets/hold` lifts, a hold that delays the daily brand-asset removal job for a company whose claim has ended, never past the day-14 limit (§5.7). It is an **operational** write — the only admin write that defers a scheduled job — one column and one `vendor.brand_assets_hold_set` / `vendor.brand_assets_hold_lifted` audit row in one `db.batch`. The thirty-sixth is the **legal version publish** introduced by AECI-1688 (2026-11-12): `POST /api/admin/legal-versions` records one upcoming Vendor Terms or Managed plan agreement version (since AECI-1637 also a Terms of Service or Privacy Policy version, and since AECI-1969 a Listing Accuracy Policy or Review Guidelines version) from `/admin/legal` (§5.22): its summary, the operator's two answers (material, needs acceptance) and the hash of its CI-built PDF. It is an **operational** write about a legal document, not about any vendor, subscription or content: one `legal_versions` insert and one `legal_version.published` audit row in one `db.batch`. Since AECI-1620 (2026-11-12) a material version then enqueues its change notice post-commit and records the outcome on the row with a `legal_version.notice_queued` audit row, and the family's second route, `POST /api/admin/legal-versions/:id/notice`, sends that notice again: the same fan-out, the outcome and a `legal_version.notice_resent` audit row in one `db.batch`. Neither purges anything or writes catalog data, and both answer `409 LEGAL_PUBLISH_DISABLED` on a tier whose `LEGAL_PUBLISH_ENABLED` is not `"true"`. The thirty-seventh is the **copyright notice log** introduced by AECI-1665 (2026-11-17, counsel Q38): `POST /api/admin/dmca-notices` logs one DMCA notice or counter-notice, and `PATCH /api/admin/dmca-notices/:id` edits one, from `/admin/dmca` (§5.23). It is a **legal-record** write: it records what AECi received and did under the Terms "Copyright complaints" section, and it writes no catalog data, sends no email and purges nothing. Each is one `dmca_notices` insert or guarded UPDATE and one `dmca_notice.created` / `dmca_notice.updated` audit row in one `db.batch`. Taking material down is done elsewhere and is not this write. The thirty-eighth is the **litigation hold** introduced by AECI-1638 (2026-11-17, counsel Q23a): `POST /api/admin/litigation-holds` places one hold, and `POST /api/admin/litigation-holds/:id/release` releases it, from `/admin/legal` (§5.22b). It is an **operational** write about the legal retention prune: an open hold stops that job from deleting records a matter needs. It writes no catalog data, sends no email and purges nothing. Each is one `litigation_holds` insert or guarded UPDATE and one `litigation_hold.placed` / `litigation_hold.released` audit row in one `db.batch`. The thirty-ninth is the **connector kind** introduced by AECI-2036 (2026-11-24, AECI-2035 rulings 1 and 3): `PATCH /api/admin/products/:id/connector-kind` sets or clears whether a `connector` or `hybrid` product is an Integration platform or a Sync Service, from the Products tab of `/admin/vendors/:id` (§5.7, `STAGE_1_5_SPEC.md` §13.13). It is a **classification** write on one AECi-owned column that promote never writes: one UPDATE and one `product.updated` audit row in one `db.batch`, then a purge of `product:{slug}` and `index:products` and, since AECI-1662, a by-id re-index of the product's Algolia record. An `application` product is `409 CONNECTOR_KIND_NOT_CONNECTOR`. Since AECI-2044 a change that would leave a product holding a live subscription unable to hold one is `409 CONNECTOR_KIND_SUBSCRIBED`. It sends no email and touches no vendor-authored value. The fortieth is the **owner record** introduced by AECI-2045 (2026-11-24, AECI-2035): `PUT /api/admin/integrations/:id/owner` sets or changes `built_by_vendor_id` on a connector-delivered pair, in `integrations` or `connector_evidenced_pairs`, from the Delivered pairs section of the Products tab on `/admin/vendors/:id` (§5.7). It is a **moderation** write with a required reason, and it reuses the `owner` contest accept's writer (`planOwnerReassign`, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.6): the owner changes, `claimed_at` clears, open owner-routed contests move to AECi, and one `integration.updated` audit row lands in the same `db.batch`, with the `portal-field-overridden-by-aeci` notice to the displaced owner of a claimed row. A row that is not connector-delivered, or a Convention-A self-reference, is `409 INTEGRATION_NOT_CONNECTOR_DELIVERED`. After commit it purges the pair, both endpoint pages and the connector's page, re-indexes the row and re-sends the ownership record of the old and the new owner. It writes no other catalog field. The forty-first is the **Sync Service facts** introduced by AECI-2046 (2026-11-24, ruling 15 on AECI-2035): `PATCH /api/admin/products/:id/sync-facts` sets or clears the three facts a Sync Service's "What it syncs" block shows, how often it syncs, who supports it and how setup works, from the Products tab of `/admin/vendors/:id` (§5.7, `STAGE_1_5_SPEC.md` §13.13). It is a **curation** write on three AECi-owned columns that promote never writes and no vendor writes: one UPDATE and one `product.updated` audit row in one `db.batch`, then a purge of `product:{slug}`. A product that is not a Sync Service is `409 SYNC_FACTS_NOT_SYNC_SERVICE`, and a batch sentinel answers the same when its kind or role changes mid-request. It sends no email, re-indexes nothing and touches no vendor-authored value. Three more **pre-existing** decision writes the panel's screens drive join the third exception's ban route in the sixty, named here the way that exception names AECI-218's route — not as new §2 exceptions: `PATCH /api/admin/requests/:id` (Phase 6.6, AECI-213 — resolve or reject a vendor request, a **decision** write), `PATCH /api/admin/claims/:id` (Stage 2, AECI-519 — approve or reject a claim, a **decision** write), and `PATCH /api/admin/reviews/:id` (Phase 5.13, a **moderation** write; AECI-1643 added the final remove, §5.21, which says of it "not a new §2 exception"). *As built 2026-11-10 (AECI-1615):* the twelfth and the eighteenth now write a pending `license_grants` row and no subscription. The subscriptions are written when an owner accepts in the portal, or at once when the grant form records a signed deal. **Reasons on admin overwrites (AECI-1191).** Three of these writes now take a reason that lands in the audit row's `metadata.reason`: the seat revoke (required `{ reason }` body), the logo PATCHes (required `reason` beside `logo_url`) and the contest accept (a required `note` when the accept changes a vendor-held value; see §5.12). The seat revoke and logo reasons use the shared `AdminReasonSchema` (trimmed, 1 to 1000 characters). The contest note keeps `DecideContestSchema`'s limit (trimmed, 1 to 2000 characters). The retire reason (the ninth) was already required.
 - A daily metrics-snapshot table so counts-over-time become answerable (§7.1).
 - Persisting cron and data-quality results so "current status" is inspectable (§7.2) — **shipped, AECI-583**.
 - Hand-rolled SVG charts, no new client dependency (§8).
@@ -127,7 +127,7 @@ The four questions that motivated this document, answered against §3.
 
 ## 5. Information architecture
 
-Twenty-nine routes under the existing `AdminShell` (`app/admin/admin-shell.ts`): **twenty-two nav-able screens** (the exact length of `ADMIN_NAV_GROUPS`, and `admin-shell.component.spec.ts` asserts the ordered list), **five parameterised detail routes** that no nav entry can address, and **two redirects** (`/admin` → Overview, `/admin/reviewers` → the banned filter). *(Fifteen / eleven / two until AECI-722 added the §5.9 connector pair; seventeen with three detail routes until AECI-739 added `/admin/claims/:id`; eighteen / twelve until AECI-859 added `/admin/subscribers`; nineteen / thirteen until AECI-946 added `/admin/reindex`; twenty / fourteen until AECI-1008 added `/admin/contests`; twenty-one / fifteen until AECI-1177 added `/admin/review-responses` on 2026-10-02; twenty-two / sixteen until AECI-1223 added `/admin/email`; twenty-three / seventeen until AECI-653 added `/admin/audit`. Twenty-four / eighteen until AECI-1539 added `/admin/threads` and `/admin/threads/:id`. Twenty-six / nineteen until AECI-1613 added `/admin/review-updates` on 2026-11-06. Twenty-seven / twenty until AECI-1688 added `/admin/legal` on 2026-11-12. Twenty-eight / twenty-one until AECI-1665 added `/admin/dmca` on 2026-11-17. The nav-able count is unchanged by a parameterised route, by construction.)* The shell's `h1` changes from "Moderation" to "Admin" and its flat nav becomes three groups.
+Thirty routes under the existing `AdminShell` (`app/admin/admin-shell.ts`): **twenty-three nav-able screens** (the exact length of `ADMIN_NAV_GROUPS`, and `admin-shell.component.spec.ts` asserts the ordered list), **five parameterised detail routes** that no nav entry can address, and **two redirects** (`/admin` → Overview, `/admin/reviewers` → the banned filter). *(Fifteen / eleven / two until AECI-722 added the §5.9 connector pair; seventeen with three detail routes until AECI-739 added `/admin/claims/:id`; eighteen / twelve until AECI-859 added `/admin/subscribers`; nineteen / thirteen until AECI-946 added `/admin/reindex`; twenty / fourteen until AECI-1008 added `/admin/contests`; twenty-one / fifteen until AECI-1177 added `/admin/review-responses` on 2026-10-02; twenty-two / sixteen until AECI-1223 added `/admin/email`; twenty-three / seventeen until AECI-653 added `/admin/audit`. Twenty-four / eighteen until AECI-1539 added `/admin/threads` and `/admin/threads/:id`. Twenty-six / nineteen until AECI-1613 added `/admin/review-updates` on 2026-11-06. Twenty-seven / twenty until AECI-1688 added `/admin/legal` on 2026-11-12. Twenty-eight / twenty-one until AECI-1665 added `/admin/dmca` on 2026-11-17. Twenty-nine / twenty-two until AECI-822 added `/admin/seo` on 2026-11-24. The nav-able count is unchanged by a parameterised route, by construction.)* The shell's `h1` changes from "Moderation" to "Admin" and its flat nav becomes three groups.
 
 ```
 /admin                     → redirect to /admin/overview
@@ -135,6 +135,7 @@ Twenty-nine routes under the existing `AdminShell` (`app/admin/admin-shell.ts`):
     /admin/overview        §5.1
     /admin/activity        §5.2
     /admin/traffic         §5.3
+    /admin/seo             §5.24 (the search console, Panels 1 and 2 AECI-822, Panel 3 AECI-823)
     /admin/audience        §5.4  (aggregates)
     /admin/subscribers     §5.4  (the roster — AECI-859)
   Catalog
@@ -735,7 +736,7 @@ series' first tombstone, since those dates differ per series.
 ### 5.6 System — SHIPPED (AECI-580, 2026-08-13; completed by AECI-583, 2026-08-13)
 
 - SSR + API `sha` / `deployedAt` / `environment` from the two existing endpoints (`/api/version` and the SSR Worker's own `/_version` — they differ precisely so a stale SSR deploy is detectable). The UI reads both and flags a mismatch as a `role="alert"` band; an unknown SHA (the `wrangler --var` injection missing) reads as *unknown*, not as a difference. The bundle carries the **API** Worker's half — nothing reachable from the API Worker knows the SSR Worker's SHA.
-- **Cron liveness** — last run, duration, outcome per job, for all twenty-nine cron jobs (§7.2; AECI-1435 added the twentieth, `request-confirmation-expiry`, AECI-1345 the twenty-first, `traffic-classify`, AECI-1505 the twenty-second, `sitemap-rebuild`, AECI-1305 the twenty-fourth, `vendor-claim-nudge`, AECI-1618 the twenty-fifth, `brand-asset-removal`, AECI-1636 the twenty-sixth, `acceptance-evidence-removal`, AECI-1621 the twenty-seventh, `plan-snapshot`, and AECI-1680 the twenty-eighth, `acceptance-chain`. AECI-1638 added the twenty-ninth job, `legal-retention-prune`, with no trigger of its own: the 03:00 retention tick enqueues it).
+- **Cron liveness** — last run, duration, outcome per job, for all thirty cron jobs (§7.2; AECI-1435 added the twentieth, `request-confirmation-expiry`, AECI-1345 the twenty-first, `traffic-classify`, AECI-1505 the twenty-second, `sitemap-rebuild`, AECI-1305 the twenty-fourth, `vendor-claim-nudge`, AECI-1618 the twenty-fifth, `brand-asset-removal`, AECI-1636 the twenty-sixth, `acceptance-evidence-removal`, AECI-1621 the twenty-seventh, `plan-snapshot`, and AECI-1680 the twenty-eighth, `acceptance-chain`. AECI-1638 added the twenty-ninth job, `legal-retention-prune`, with no trigger of its own: the 03:00 retention tick enqueues it. AECI-820 added the thirtieth, the weekly `search-ingest`).
 - **The data-quality checks** rendered with severity and sample rows — formerly visible only in an email. **Delivered as specified:** since AECI-583 the default view reads the last persisted `job_runs` result (labelled with the run's own `computed_at`) and `?recompute=1` is the refresh. Both are pure reads, so neither writes anything or needs an `audit_log` row (§13 **D8**).
 - Algolia sync watermark, index drift, orphan-sweep results.
 - D1 size and per-table row counts. Since AECI-1484 the default load estimates `page_views` and `audit_log` from their rowid range (`estimated: true`, an upper bound), and `?recompute=1` counts every table exactly (`API_CONTRACTS.md` "The D1 footprint").
@@ -818,7 +819,7 @@ Three IA notes:
 > - **Billing account.** Name, billing email, Stripe customer, owner seats (labelled by the AECI-1277 rule, banned ones marked) and the created date. An absent Stripe customer renders as a dash with a screen-reader phrase. An absent billing email reads "Not set" in the edit control (next bullet). A vendor with no account reads "This vendor has no billing account yet": one is created when a claim is approved or a seat is added, so this is the normal state of an unclaimed vendor (copy since AECI-1975; until then it called this a bug to file). The Subscriptions section and the grant control are then hidden, because the grant would 404.
 > - **Billing email (AECI-1381, 2026-10-23).** The billing email row holds `billing-email-control.ts`, projected through the table's `[billingEmail]` slot, over `PUT /api/admin/vendors/:id/billing/email`. It shows the address or "Not set" with a **Change** button, then an inline `novalidate` form checked against the shared schema before any request. An empty field clears the address. The hint says the grant, renewal and plan-end emails go to this address and to every seat. A failure stays in the form's own `role="alert"`. On save the page patches the shown address from the response, announces through its live region, reloads the Audit trail and returns focus to **Change**. Without the control the row falls back to the static value. This was the one edit on the account block until AECI-1625: decision 17's 2026-10-23 note.
 > - **Legal name (AECI-1625, 2026-11-06).** The account block gains a "Legal name" row after the billing email. It holds `legal-name-control.ts`, projected through the table's `[legalName]` slot, over `PUT /api/admin/vendors/:id/billing/legal-name`. It shows `vendors.legal_name` from the Billing read's top-level `legal_name`, or "Not set", with a **Change** button, accessible name "Change company legal name". The inline form is like the billing email's. An empty field clears the name. The hint says a checkout acceptance records this name. It shows even for a vendor with no billing account, because the column is on the vendor. Claim approval fills it while empty, so this edit is how AECi corrects a wrong one.> - **Subscriptions.** One table, live first in creation order, then ended with the most recent first. Columns: product (name and slug, or Unassigned; an ended subscription keeps its product as history), source with the reference under it, starts, ends ("Monthly, renews" when a paid subscription (by card) has no end, "No end date" when any other source has none, such as a perpetual complimentary grant from the E1.5 back-fill), status, Stripe subscription and terms version (a dash when absent). Dates go through `formatTermDate` (`STAGE_2_PAID_TIERS_SPEC.md` §5.8). A live subscription flagged `cancel_at_term_end` reads "Cancels at term end: vendor banned" (the `LICENSE_CANCEL_REASONS` label). A banner tops the tab while any live subscription is flagged (E4.5). A second note names any flagged subscription with no end date and says to revoke it from its row: it has no term end, so the flag never ends it (ruled 2026-10-16). The row model is built in one function, `toBillingLicenseRow`. The table takes an optional `rowActions` template. Without it there is no Actions column. The page fills it with the AECI-1371 subscription actions (next bullet). The read is capped at 500 subscriptions and says so when the cap bites. *As built 2026-11-18 (AECI-1866):* an ended subscription's ends column shows the day it ended (`ended_at`), not its term end, and its product name and status turn `--text-secondary`. The admin table does not take the vendor table's status chips or its closed "Ended subscriptions" group: bulk select spans the one list, and operators read the full history at once.
-> - **Grant subscriptions (AECI-1370, E4.1).** The grant control (`grant-licenses-control.ts`, over `POST /api/admin/vendors/:id/licenses`) sits at the top of the Subscriptions section. It moved here from the Vendor tab. A grant assigns nothing: the subscriptions wait unassigned on the billing account and the vendor chooses which products they go on. The form takes the number of subscriptions (1 to 50), the source (Complimentary or Invoice or PO), the start date (prefilled with today), the end date (required, after the start), a reference (required for an invoice grant, and shown to the vendor in the email and, since AECI-1390, on its Billing tab; the field hint says so) and notes (audit trail only). The control mints a `grant_id` when the form opens, so a double click replays the same grant. A `409 LICENSE_GRANT_CONFLICT` tells the operator to reopen. A vendor whose every owner seat is banned is refused with `409 VENDOR_STILL_BANNED`, and the control tells the operator to unban a seat first (AECI-1589, ruled 2026-11-03). A vendor nobody has claimed is not grantable: it has no billing account, so the grant answers `404` (ruled 2026-11-20, AECI-1975). Approve the claim or add a seat first. A `409 VENDOR_SEATS_CHANGED` (a last-seat ban landed mid-grant) tells the operator to reload. On a pure connector vendor it warns and never gates (AECI-738). Same idioms as the seat provision: no heading and no live region of its own. On success the page refetches the Billing view and the Audit trail. Focus (AECI-1989): opening the form focuses the quantity, Cancel, Escape (AECI-2124, not while the grant runs) and a grant return focus to **Grant subscriptions**, and a refusal focuses its message. Every unbanned seat, and the billing email when set, gets `licenses-granted` after commit (`docs/NOTIFICATIONS.md`).
+> - **Grant subscriptions (AECI-1370, E4.1).** The grant control (`grant-licenses-control.ts`, over `POST /api/admin/vendors/:id/licenses`) sits at the top of the Subscriptions section. It moved here from the Vendor tab. A grant assigns nothing: the subscriptions wait unassigned on the billing account and the vendor chooses which products they go on. The form takes the number of subscriptions (1 to 50), the source (Complimentary or Invoice or PO), the start date (prefilled with today), the end date (required, after the start), a reference (required for an invoice grant, and shown to the vendor in the email and, since AECI-1390, on its Billing tab; the field hint says so) and notes (audit trail only). The control mints a `grant_id` when the form opens, so a double click replays the same grant. A `409 LICENSE_GRANT_CONFLICT` tells the operator to reopen. A vendor whose every owner seat is banned is refused with `409 VENDOR_STILL_BANNED`, and the control tells the operator to unban a seat first (AECI-1589, ruled 2026-11-03). A vendor nobody has claimed is not grantable: it has no billing account, so the grant answers `404` (ruled 2026-11-20, AECI-1975). Approve the claim or add a seat first. A `409 VENDOR_SEATS_CHANGED` (a last-seat ban landed mid-grant) tells the operator to reload. On a pure connector vendor it shows a note and stays enabled (AECI-738). Since AECI-2044 the note says only a Sync Service can hold a subscription, and the API answers `409 NO_SUBSCRIBABLE_PRODUCT` when none of the vendor's products can hold one. The post-grant connector warning is gone with the API's `pure_connector_vendor` warning. Same idioms as the seat provision: no heading and no live region of its own. On success the page refetches the Billing view and the Audit trail. Focus (AECI-1989): opening the form focuses the quantity, Cancel, Escape (AECI-2124, not while the grant runs) and a grant return focus to **Grant subscriptions**, and a refusal focuses its message. Every unbanned seat, and the billing email when set, gets `licenses-granted` after commit (`docs/NOTIFICATIONS.md`).
 >   *As built 2026-11-10 (AECI-1615, counsel Q5).* The grant writes a pending grant, not subscriptions. The success message says "Waiting for an owner to accept in the portal", and each owner seat gets `license-grant-pending`. `licenses-granted` now goes when the grant activates. The form gains a **Recorded signed deal** section, collapsed by default. It takes the signer's name and role, the company legal name, the signer's email, the deal reference, the agreement version and date the deal names, the signed date and a required "signing accepts the agreement" box. Every field is required once the section is open. The version must be the current one, else the API answers `400` on `signed_deal.version_named` and the control says which version to name. A future signed date is refused the same way. With a valid deal the grant activates at once ("Active: recorded signed deal"), and the owner sees no prompt (ruling R5).
 > - **Grant complimentary subscriptions for the ban term (AECI-1589, 2026-11-03).** `ban-term-licenses-control`, over `POST /api/admin/vendors/:id/licenses/ban-term`, sits beside the grant control in the Subscriptions section. Terminate (AECI-1623) ends every subscription `banned` and the unban restores none, so this is how the operator gives the vendor back the term the termination cut short. A termination also refunds the unused term (see the Suspension block below). The control shows only when a product has a `banned` subscription and no live one, no subscription on that product (any source, live or ended) was created after the `banned` row's `ended_at`, and the vendor has an unbanned `vendor_admin` seat. A `banned` row is permanent, so without the second test the panel would come back with a past date once the restored subscription lapsed or was revoked. The API applies the same rule (`400` on `items.{i}.ended_license_id`); `created_at` is already on the Billing payload. It is two-step like the grant control: the open button reads "Review the ban-term subscriptions", and the confirm button reads "Grant complimentary subscriptions for the ban term". It lists one row per product with a checkbox, the product name and a date input prefilled from the banned row's `ends_at`. An untouched prefilled date sends the stored timestamp, so a Stripe period end keeps its time of day. The date is required when `ends_at` is NULL, because Stripe could not be read at the ban ("Term end unknown: enter the date the vendor had paid through"). A date is checked by the API's rule (`banTermEndIsValid`): the value sent, as an instant, must be after now, so a typed date counts as UTC midnight. The error reads "Enter a date after today (UTC)". The copy ids are `@@admin.vendors.billing.banTerm.*`. The control mints a `grant_id` when it opens, so a double click replays the same grant. Confirming grants one complimentary subscription per product, assigned at grant, reference "Complimentary for the ban term", grouped by end date: one `grantLicensesStatements` call per group, all in one batch, and one `licenses-granted` email per group (dedupe key `licenses-granted:{grant_id}:{ends_at}:{recipient hash}`). *As built 2026-11-10 (AECI-1615, ruling R1):* confirming now writes one pending ban-term grant and no subscription, and the success message says it waits for an owner. The subscriptions are written and assigned at the owner's accept, with the grouping and emails above. A product that took a subscription while the grant waited gets its new one unassigned in the pool (ruling R6). A product named by a pending ban-term grant drops out of this control, because the API refuses a second grant of the same ended row. The control takes no signed deal. The refusals are in `API_CONTRACTS.md`. They write nothing. On success the page refetches the Billing view and the Audit trail. Focus (AECI-1989): opening the panel focuses the first Include checkbox. Cancel, Escape (not while the grant runs, AECI-2124) and a grant return focus to the open button, and a refusal focuses its message. When the refetch then hides the control, focus moves to the Subscriptions heading, but only if it was lost. The date error is a `role="alert"` live region (`ANGULAR_STYLE_GUIDE.md` §13). The vendor page's seats intro (`@@admin.vendors.detail.seats.intro2`) said, until AECI-1623: "Banning the vendor's last unbanned seat also ends every subscription at once and returns its records to AECi." That is no longer true of the code, and the web half of AECI-1623 owns the rewrite of this copy. The return-records control hides when `owned_at` is NULL, so a banned vendor shows no "Return records to AECi".
 > - **Subscription actions (AECI-1371, E4.2).** `license-row-actions.ts`, one per row, over `PATCH /api/admin/licenses/:id`. **Extend** (a date input that must be after the current end; it reads **Set end date** on a subscription with no end), **Change reference** (invoice subscriptions only) and **Revoke**. A paid subscription offers Revoke only. An ended subscription offers nothing and says so to a screen reader. One form opens inline in the Actions cell, focus moves to its first field, and Cancel or Escape returns focus to the button. Escape does nothing while the request runs (AECI-2124). Revoke mirrors the seat revoke's confirm: the copy names the product and says it drops to Free now, its text stays live, the vendor loses the Managed edit right, every seat is emailed, nothing is refunded and there is no undo. Since AECI-1375 it also says seats and logins stay, and that this is not a seat revoke or a ban (the `STAGE_2_PAID_TIERS_SPEC.md` §5.2 invariant the entitlement clear used to carry). *Until AECI-1663 (ruling 14, 2026-11-09) a revoke that ended the vendor's last live subscription re-routed its open owner-routed contests on connector-powered rows to AECi, and a `409 CONTEST_INTEGRATION_CHANGED` had its own sentence. A revoke moves no contest now, and that branch is gone. A revoke that loses two races gets the ordinary changed-license `422`.* A required "Reason shown to the vendor (required)" and an optional "Internal note (optional, never shown to the vendor)". Confirming with no reason sends nothing and focuses the field. A refusal keeps the form open and focuses its `role="alert"` message, because the disabled confirm button drops focus (AECI-1994). Announced through the page's live region. The page refetches the Billing view and the Audit trail after every edit.
@@ -829,7 +830,7 @@ Three IA notes:
 > - **Early-unassign requests.** Decision 11. Since AECI-1373: the vendor's requests, open first, with the date asked, the product, the reason, the status and the decision. An open request is decided on `/admin/requests` (§5.17), and the section links there. The empty state says a subscription stays on its product until renewal unless the vendor asks AECi.
 > - **The Vendor tab points here.** The Entitlement and Plan price sections left the Vendor tab on 2026-10-17 (AECI-1375, E4.6). One line there links to `?tab=billing`. The "Manage billing" links on `/admin/claims` and `/admin/claims/:id` open `?tab=billing` (named "Manage entitlement" until AECI-1371).
 
-> **Products tab — `GET /api/admin/vendors/:id/products`.** Paginated, ordered by name, and it joins **every** `product_vendors` row rather than only the primary — a co-owned product is owned, the rule `product_roles` already counts by (`STAGE_2_SPEC.md` §8.8(1)) — with `is_primary` on the row so the two are distinguishable. Columns: product (name + slug), role, promotion status, integrations, reviews, record updated, and a **View page** link that opens the public product in a new tab (there is no admin product detail page to link to instead). Role and promotion status are the two that decide what the operator does next: role is the §5.2 payer test *per product*, where the Basics roll-up can only give a total, and promotion status is the single field that explains a product missing from the public site. The average rating obeys the §5.5 five-review floor exactly as the public surfaces do — the console is not an exemption. **Read-only**: there is no admin product-edit endpoint, and catalog records still reach AECi only through `POST /api/promote`. Since AECI-769 the Basics "Products by role" count is a link to `?tab=products`, so the product that is the connector is one click from the breakdown. Its visible text is the unchanged count, and a visually-hidden suffix inside the anchor names the Products tab as the destination.
+> **Products tab — `GET /api/admin/vendors/:id/products`.** Paginated, ordered by name, and it joins **every** `product_vendors` row rather than only the primary — a co-owned product is owned, the rule `product_roles` already counts by (`STAGE_2_SPEC.md` §8.8(1)) — with `is_primary` on the row so the two are distinguishable. Columns: product (name + slug), role, promotion status, integrations, reviews, record updated, and an **Actions** menu (AECI-2202, below) whose first item, **View public page**, opens the public product in a new tab (there is no admin product detail page to link to instead). Role and promotion status are the two that decide what the operator does next: role is the §5.2 payer test *per product*, where the Basics roll-up can only give a total, and promotion status is the single field that explains a product missing from the public site. The average rating obeys the §5.5 five-review floor exactly as the public surfaces do — the console is not an exemption. **Read-only** but for the narrow row actions named below (logo, listing hide, and since AECI-2036 the connector kind): there is no general admin product-edit endpoint, and catalog records still reach AECi only through `POST /api/promote`. Since AECI-769 the Basics "Products by role" count is a link to `?tab=products`, so the product that is the connector is one click from the breakdown. Its visible text is the unchanged count, and a visually-hidden suffix inside the anchor names the Products tab as the destination.
 
 **Seat revoke needs a reason (AECI-1191).** The inline confirm row has a required "Reason shown to the vendor (required)" textarea and an optional "Internal note (optional, never shown to the vendor)" textarea. Confirming with the reason empty sends nothing: an inline alert appears and focus moves to the textarea. The body is `{ reason, internalNote? }` and the reason goes into the `vendor_claim.seat_revoked` row's `metadata.reason` with `metadata.reasonVisibility = 'vendor'`. Since AECI-1159 (scope 1159a) the vendor's remaining seats see the reason in Messages. The internal note stays in the audit row. When the revoke leaves no seat, nothing is sent (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d). The portal's owner-only revoke is unchanged.
 
@@ -855,7 +856,11 @@ Per §9.3 the GETs (detail, products, audit, acceptances, billing, integrations)
 >
 > - **The state.** A visible company shows "Hide from the public site". A hidden one shows the kind, the received date, the source, the reason, the internal note and "Restore the listing". It reads `listing_hide` on `GET /api/admin/vendors/:id`.
 > - **A two-step inline form** (`listing-hide-form.ts`), with no browser dialog. Step one takes the kind (`complaint_under_review`, `lawful_order` or `defunct`), the date the request was received, the source link (required for a complaint), a reason shown to the vendor and an optional internal note. Step two is the confirm. It lists the N products that will also be hidden, from `listing_hide_products`, or says no other product is hidden. Restore uses the same form shape, with a reason and an optional note.
-> - **Products tab row action.** Each row in `vendor-products-table` has Hide or Restore for that one product, over `POST /api/admin/products/:id/hide` and `/restore`. A product hidden with its company has a disabled Restore. The note beside it reads "Hidden with the company. Restore the company's listing." The API refuses that restore with `409 LISTING_HIDDEN_WITH_VENDOR`.
+> - **The Actions menu (AECI-2202, ruled by Chris 2026-11-26).** Each row has one **Actions** button (accessible name "Actions for {product}") that opens a menu on the shared popover: **View public page** (new tab), **Change logo…**, **Set connector type…** and **Integrations through this connector…** on a `connector` or `hybrid` row, **Edit Sync Service facts…** on a Sync Service row, then **Hide from public site…** or **Restore to public site…** under a rule. The recipe is the vendor portal's `BrnPopover` menu (`vendor-license-actions.ts`, ADR 0010's exception), with no `role="menu"`. Every item but View opens one alert dialog, on its title, which names the product ("Hide {product} from the public site", "Connector type for {product}", "Integrations through {product}", "Logo for {product}", "Sync Service facts for {product}"). A line under the title says what the action does. The dialog has its own live region while open. A logo, type, facts or listing save closes it, announces through the page's region and asks the page for a quiet refetch, so focus goes back to the row's Actions. An owner save leaves the integrations dialog open for the next pair. While any write in it is in flight, Escape and Close wait, so the write's result is never lost with the form. A backdrop click never closes it. The Role column shows the connector type as text under the role ("Type: Sync Service", "Type: not set"). The row badge on a hidden product reads "Hidden from public site". Nothing opens in a detail row any more. Preview without a session: `/preview/admin-vendor-products`.
+> - **Connector kind (AECI-2036).** A `connector` or `hybrid` row's **Set connector type…** dialog (AECI-2202) explains the three types, then offers a "Connector type" select with "Not set (shows as Connector)", "Integration platform" and "Sync Service", Cancel, and a "Save type" button that stays off until the pick changes. It saves over `PATCH /api/admin/products/:id/connector-kind`, announces "Connector type for {product} saved: {kind}." and refetches the tab. An `application` row has no such item, because the endpoint refuses it. Since AECI-2044 a change that would take a product holding a live subscription from Sync Service to Integration platform or blank is refused (`409 CONNECTOR_KIND_SUBSCRIBED`), and the dialog says "This product holds a live Managed subscription, and that type cannot hold one. Move or end the subscription first." Component: `apps/web/src/app/admin/vendors/connector-kind-control.ts`. A set kind reads the public label from `apps/web/src/app/products/connector-kind-labels.ts`, the one place the three labels live (AECI-2037). The Role column shows the data role, "Connector", with the type as a line under it. Since AECI-2037 the kind sets the public label, and since AECI-1662 the save re-indexes the product's search record, so the `/search` "Connector type" filter and card chip follow at once. Since AECI-2041 Sync Service also lets promote add and update this connector's pairs on an owned endpoint product (`REVIEW_APP_PROMOTE_API.md` §4a), so set it only on a vendor that sells finished pairs. Contract: `STAGE_1_5_SPEC.md` §13.13.
+> - **Sync Service facts (AECI-2046).** A row whose stored kind is Sync Service also offers **Edit Sync Service facts…**, a dialog (AECI-2202) that opens with a line on where the facts show and holds the form: "How often it syncs", "Who supports it" and "How setup works", three text inputs with the API's caps (120, 160 and 280 characters), a "Source link (https)" input that the API requires while any fact is set, Cancel, and a "Save facts" button that stays off until a value changes. It saves over `PATCH /api/admin/products/:id/sync-facts`, announces "Sync Service facts for {product} saved.", closes and refetches the tab. A blank input clears that fact. AECi curates these facts, from the vendor's own material or a call: the vendor cannot edit them (ruling 15 on AECI-2035; a vendor-editable version is a legal `decision`). They show on the product page's "What it syncs" block only while the product is a Sync Service. A later kind change keeps them stored and hides them. Component: `apps/web/src/app/admin/vendors/sync-facts-control.ts`. Contract: `STAGE_1_5_SPEC.md` §13.13.
+> - **Delivered pairs (AECI-2045).** A `connector` or `hybrid` row also offers **Integrations through this connector…** (named "Delivered pairs" until AECI-2202). It opens a dialog titled "Integrations through {product}", whose intro reads "Each integration below connects two other products and runs through {product}. The owner is the vendor who maintains it. Changing the owner clears any claim on the integration." It holds `delivered-pairs-panel.ts` over `GET /api/admin/products/:id/delivered-pairs`: every pair the product delivers, from `connector_evidenced_pairs` and from `integrations` rows it powers, live and retired, with the two products, the owner, Claimed or Not claimed, and Live, Retired by the owner or Retired by AEC Integrations. It needs no catalogue row, so a Sync Service with no catalogue has a screen here, which `/admin/connectors` (§5.9) cannot give it. Each pair has **Change owner**: an inline form with a native select (the connector's own vendors, the pair's endpoint vendors and the current owner, A to Z, plus "No owner"), a required reason, which the current owner of a claimed pair reads in its notice, Save and Cancel. Save sends `PUT /api/admin/integrations/:id/owner` (the fortieth §2 write) and splices the returned pair into the list. The form says what the write does: a claimed pair is un-claimed by a reassignment, the rule an `owner` contest accept applies (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.6), and on an unclaimed pair the next promote can write the review app's owner back, so record the same owner upstream. Pessimistic, announced through the dialog's live region, and the dialog stays open for the next pair. `409 INTEGRATION_CHANGED_WHILE_SAVING` reloads the list. The write's audit row files under the pair, not the vendor.
+> - **Products tab row action.** Each row's Actions menu has **Hide from public site…** or **Restore to public site…** for that one product, over `POST /api/admin/products/:id/hide` and `/restore`. The dialog's intro says what leaves: "Its product page, its search entry and its integrations leave the public site. Nothing is deleted. You can restore it from the Actions menu." On a connector it adds "every integration it powers", because the public reads drop an integration whose connector is hidden (`noHiddenEndpointOn`). It states no count: `integration_count` leaves out the integrations a connector powers without being an endpoint. It holds the same two-step form. A product hidden with its company has no Restore item. The menu says instead "Hidden with the company. To bring it back, restore the company's listing on the Vendor tab.", and so does a note under the row's badge. The API refuses that restore with `409 LISTING_HIDDEN_WITH_VENDOR`.
 > - **Which kind to pick** is in `docs/runbooks/catalog.md` "Removal requests", from counsel's Q20 and Q21 answers.
 > - **The vendor is told** through a portal notice and a banner, never by email. The portal keeps working while the listing is hidden.
 > - **Digest check.** `product_live_under_hidden_vendor` (`error`) lists any visible product joined to a hidden company. It backstops the promote race window. It also lists a product still hidden by a restored hide.
@@ -983,6 +988,8 @@ Per §9.3 all three GETs emit no `audit_log` row; the ban does, in the same `db.
 ---
 
 ### 5.9 Connectors — SHIPPED (AECI-722, 2026-08-31)
+
+> **A connector with no catalogue (AECI-2045, 2026-11-24).** This screen is keyed on a catalogue: `GET /api/admin/connector-catalogs/:id/pairs` loads the catalogue first and 404s without one. A Sync Service usually has none. Its pairs, with their owners, are listed and re-owned from the Products tab of `/admin/vendors/:id` instead (§5.7, "Delivered pairs").
 
 `/admin/connectors` and `/admin/connectors/:id`, the **first read layer** over the six
 connector-lane tables AECI-714 landed (`DATABASE_SCHEMA.md` §9a). Before this the lane had no
@@ -1278,6 +1285,10 @@ The Google re-crawl worklist. `STAGE_1_SPEC.md` §20.2 owns the contract and
 `API_CONTRACTS.md` §6.10 the endpoint shapes. Recorded here because the route, the
 IA and the write are this doc's business.
 
+**The search console is §5.24, not this section.** Epic AECI-816 was written against §5.11
+before AECI-946 took the number. Its sub-issues anchor to §5.24. Chris ruled on 2026-11-24 that
+`/admin/seo` shows this queue as one lane with a link here, and this screen is unchanged.
+
 **Why it exists.** Bing and Yandex are fed automatically: a write buffers URLs into
 `indexnow_queue` and a daily cron (00:05 UTC since AECI-1136; every 20 minutes before)
 submits them in one request, highest tier first. Google
@@ -1550,6 +1561,74 @@ and says that agreeing with the owner blocks the submitter from re-contesting th
 still reply. Pessimistic like the contest decision: a success drops the row and decrements
 the badge, and `409 PROTEST_NOT_OPEN` announces and reloads. The contract is
 `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.12.
+
+**Sync Service integrations (AECI-2042, 2026-11-24).** Below the field contests,
+`admin-pair-rights.ts` lists three things, each over its own read, one decision at a time and
+pessimistic like the contest queue. The contract is `STAGE_2_VENDOR_PORTAL_SPEC.md` §11e.
+
+- **Reports**, over `GET /api/admin/pair-contests`: existence reports ("not offered"), which
+  always route to AECi, and data flow reports on unclaimed pairs. Accept and Decline open an
+  inline form. An accept needs a note shown to the vendor, and an existence accept also needs
+  an https proof link. The form says that on a vendor-held pair the accept retires it now,
+  and that on a pair AECi holds the operator retracts it in the review app
+  (`docs/runbooks/catalog.md`). A data flow report on a claimed pair is the owner's and is
+  shown read-only.
+- **Reviews of an owner's answer**, over `?protests=true`: "Agree with the report" or "Agree
+  with the owner", with a required note. The screen says the answer is advice and does not
+  change the listing.
+- **Removals in force**, over `GET /api/admin/vetoes`: each endpoint veto with the vetoing
+  vendor, the filed date and time, "Reason the vendor gave" with its fixed reason (or an older
+  removal's own words, or "The vendor gave another reason" for a stored code outside today's
+  list) and the owner. _As built on 2026-11-24 a removal was "not reviewed", and "End this removal" existed
+  only for a seat that should not have had it._ Since ruling 66 (AECI-2192, after counsel's
+  Q73 and Q74) a removal is still not checked when it is sent, but AECi decides an objection
+  and may end a removal on five grounds. "End this removal" is a hand-built queue form with a
+  required end reason (radio group) and a required note shown to the vendors
+  (`POST /api/admin/vetoes/:id/lift`). The admin restore on the vendor's Integrations tab
+  refuses a vetoed row until then.
+- **Objections** (AECI-2192), inside the removal they object to: the objecting vendor, the
+  date it was received, its "Answer by" date, the ground, the explanation and the link. The
+  answer-by date is `objection_answer_due` on the list row: `businessWindowEnd(created_at, 5)`,
+  the helper the value-hide clocks use (`apps/api/src/lib/business-days.ts`). The screen shows
+  the New York date before that instant. Once it has passed, an "Answer overdue" chip in the
+  `overdue` tone marks the objection. "Accept and end the removal" and "Decline"
+  are the shared danger form, each with a required note
+  (`PATCH /api/admin/veto-objections/:id`). An accept ends the removal with the ground as its
+  end reason and every row on the pair key returns. A decline leaves it standing. A declined
+  or closed earlier objection shows as one line.
+
+None of these moves the `contests` badge in v1. The AECi alert email (§11b.8) is how a
+new report or a new objection reaches the inbox.
+
+**Who owns the objection queue (AECI-2192, ruling 66).**
+
+- **Where it lands.** `/admin/contests`, the Sync Service integrations section, inside the
+  removal it names. The `contest-submitted-alert` email goes to `SUPPORT_EMAIL`, the
+  support and claims inbox, with the subject `[AECi] Objection to a removal: <integration>`.
+- **Who sees it.** AECi admins. Nothing about it is public, and the removing vendor is not
+  told it exists unless it is accepted.
+- **Who decides.** The AECi operator, today Chris. The operator owns the queue and its
+  five-business-day deadline.
+- **What each ground needs.** An account that should not have had access: check the seat
+  that filed it (`filed_by`) and its grant on `/admin/vendors/:id`, and whether the company
+  held the product that day. The wrong product: compare the removal's product with the
+  integration's two products and with what the removing vendor holds. Plainly false on its
+  face: the removing vendor's own public page, at the link the Sync Service gave, must show it
+  supports the integration. Quote it in the note.
+- **What we decide nothing else on.** Not whether the vendor should support the integration,
+  and not whether the listing is useful. A ground that does not hold is a decline.
+- **Time to answer.** Within five business days of receipt, accepted or declined. The Listing
+  Accuracy Policy promises it, after the legal agent's read of ruling 66 (2026-11-26). Business
+  days are Monday to Friday, US federal holidays excluded, as the policy defines them. Receipt
+  is the objection's `created_at` for a portal objection, and the day the email arrived for one
+  by email. The alert email on filing is the trigger: the operator opens the queue from it. The
+  queue shows the answer-by date and marks an overdue objection. Nothing escalates on its own.
+  An email objection has no row, so its five days are tracked by hand
+  (`docs/runbooks/listing-submissions.md` §6c).
+- **No seat.** An objection from a Sync Service with no seat arrives by email. Follow
+  `docs/runbooks/listing-submissions.md` §6c: check the sender, test the ground the same
+  way, and use "End this removal" with that ground as the end reason, or reply with the
+  decline by email.
 
 ### 5.13 Vendor review replies — SHIPPED (specified AECI-1174, built AECI-1177, 2026-10-02)
 
@@ -2573,6 +2652,602 @@ console's `AecSelect`.
 
 The endpoints are in §6 and in `API_CONTRACTS.md` §6.10 "Copyright notices".
 
+### 5.24 Search console (`/admin/seo`): SPECIFIED (AECI-817), ENDPOINTS AND ALL THREE PANELS BUILT (2026-11-24)
+
+**Status.** All three reads are built. AECI-818 built `GET /api/admin/seo/queue` and
+`GET /api/admin/seo/trend`, with the derivation in `apps/api/src/lib/seo-queue.ts`, the shared
+catalog URL list and the `seo.*` and `queue.*` snapshot keys. AECI-823 built
+`GET /api/admin/seo/funnel`. AECI-820 built the Google ingest and AECI-821 the Bing ingest
+(§5.24.10). AECI-822 built the screen with Panels 1 and 2 (`apps/web/src/app/admin/seo/`).
+AECI-823 built Panel 3 in `seo-funnel-panel.ts`. Each panel fails on its own with the
+`/admin/system` error recipe.
+In Panel 1, a failed lane switch or page change keeps the lane cards and fails in the list area
+alone. Pressing the open lane's "Show URLs" closes its list. That button is a disclosure: it
+carries `aria-expanded` and `aria-controls`, and no `aria-pressed`. Each URL row's Copy button
+sits in its own column, so the row header is the URL alone.
+The screen is on the console recipe (AECI-2125, `DESIGN.md`): lane, chart and funnel cards are
+console panels, every table is a console table, and every button is an `aecButton`. "Show URLs" is
+the console's labelled disclosure, the audit trail's "Show changes" control.
+
+**Accessibility, as built (AECI-823 audit, 2026-11-24).** Every table that can scroll sideways
+sits in a focusable, named region (`tabindex="0"`, `role="region"`, `aria-labelledby` on the
+caption). That is the `reindex-history.html` recipe. A row header holds the short name only, and
+its description is linked with `aria-describedby`, so no cell repeats it. An age shown as "9.1 d"
+is read as "9.1 days". When a panel's Try again settles, focus moves to the panel heading and the
+page's live region says whether it loaded or failed again. Panel 1's list retry does the same
+with the list heading.
+`/preview/admin-seo` renders the three panels and a gallery of states over a fake API, for review
+without a session. The gallery holds every lane empty, no site address, Google with no ingest data
+beside Bing with every stage, the funnel loading, and each panel's failed load. There is no weekly SEO email: Chris
+dropped it on 2026-11-24 (§5.24.9). This section is the contract for epic
+AECI-816. Every sub-issue below anchors here. The endpoint shapes are in `API_CONTRACTS.md` §6.10 "Search
+console". Open decisions are listed at the end of this section, and the ones that need Chris are
+marked.
+
+| Issue | Delivers | Depends on |
+|---|---|---|
+| AECI-818 | The Panel 1 derivation, the `seo.*` snapshot keys, `GET /api/admin/seo/queue` | nothing |
+| AECI-819 | Nothing. The weekly SEO email was dropped by Chris on 2026-11-24 (§5.24.9) | none |
+| AECI-820 | Google Search Console ingest into `metrics_daily` | AECI-818 for the URL set |
+| AECI-821 | Bing Webmaster Tools ingest into `metrics_daily` | AECI-818 for the URL set |
+| AECI-822 | `/admin/seo` Panel 1 and Panel 2. `GET /api/admin/seo/trend` shipped with AECI-818 | AECI-818 |
+| AECI-823 | Panel 3, `GET /api/admin/seo/funnel` | AECI-820, AECI-821 |
+| AECI-824 | The analysis: is manual Request Indexing worth the time | eight weeks of AECI-822 data |
+
+#### 5.24.1 What the screen is for
+
+The screen shows SEO work that is undone, then whether the backlog is shrinking, then whether
+crawling turns into impressions and clicks. Inputs come before outcomes. Average position is an
+outcome and cannot be acted on. A list of eight URLs no crawler has fetched can be acted on.
+
+**The screen is not a scorecard.** It shows what is undone. It does not grade whether the
+operator did it. Most of the actions happen inside Google's or Bing's UI, where we cannot see.
+Measuring the effect is the control.
+
+**The one self-attested item is already spent.** The epic allows at most one self-reported
+value across the whole surface. That value exists today. It is the Done dialog's
+"Requested indexing in Search Console" answer on `/admin/reindex` (AECI-1185, §5.11), stored as
+a `recrawl_submissions` row with `channel = 'gsc_manual'`. This section reuses it and adds no
+second one. AECI-822 proposed a "Days since last console read" stamp. That stamp would be a
+second self-attested item, so it is not specified. Panel 2 shows the weekly count of
+`requested` answers instead, labelled as self-reported.
+
+**The surface writes nothing.** All three panels are reads. The one self-attested value is
+written by the existing `DELETE /api/admin/reindex/:id`, which already audits per row
+(`reindex.cleared`, §5.11). So the ADR 0022 question AECI-817 asked has no new subject: this
+epic adds no domain-state write and no `audit_log` row.
+
+#### 5.24.2 What already exists, and is reused rather than specified again
+
+| Piece | Where | How this section uses it |
+|---|---|---|
+| The Google re-crawl worklist and its Done dialog | §5.11, `gsc_recrawl_queue`, `apps/web/src/app/admin/reindex/` | Panel 1's re-index lane is a count and a link to it |
+| Request history, including the self-reported answer | `recrawl_submissions` (`DATABASE_SCHEMA.md` §9.6a) | Panel 2's "requests recorded" row, and AECI-824's request-volume proxy |
+| Google URL Inspection, daily | `gsc-inspect` cron `0 13 * * *`, `lib/gsc-inspect-job.ts`, `lib/gsc-inspection.ts` | Unchanged. Its service account (`GSC_SA_KEY_JSON`, scope `webmasters.readonly`, property `sc-domain:aecintegrations.com`) is the credential AECI-820 reuses |
+| IndexNow to Bing and Yandex, daily | `indexnow_queue`, the 00:20 UTC GitHub Actions runner (AECI-1476) | Unchanged. Context for the Bing lane |
+| The catalog URL set | `listCatalogUrls` in `lib/catalog-urls.ts`, which `buildCatalogSitemap` in `lib/sitemap-build.ts` renders (AECI-818) | The universe every Panel 1 lane and every funnel rate is computed over |
+| Absolute public URLs | `publicSiteBase` and the builders in `lib/public-urls.ts` | Every URL this surface returns |
+| Crawler labels | `classifyTraffic` in `lib/bot-classification.ts`, stored on `page_views.is_bot` and `bot_name` | Which rows count as a fetch (§5.24.4) |
+| Edge verification | `isEdgeVerified` in `lib/traffic-classifier.ts`, `page_views.cf_verified_bot_category` | The verified half of the crawl predicate |
+| The daily snapshot | `metrics_daily`, the `15 0 * * *` cron, `lib/metrics-snapshot.ts` (§7.1) | Writes the new `seo.*` and `queue.*` stocks |
+| The 05:00 digest's crawler table | `lib/analytics-digest.ts` | Unchanged. It stays daily. There is no SEO email (§5.24.9) |
+
+#### 5.24.3 Where the epic is stale, and the code wins
+
+The epic was written 2026-09-09. These statements in it, or in its sub-issues, are no longer
+true. The sub-issue descriptions should be edited to match.
+
+1. **§5.11 is taken.** AECI-946 shipped the Re-index queue there. This section is §5.24.
+2. **Production is cached, and the crawl count survives it.** The epic says production is
+   uncached and that a cache would make crawl coverage under-report. Native Workers Cache has
+   been on in production since AECI-1443 (`CACHE_STRATEGY.md`, deployment status). The arrival
+   row is written by the uncached gateway on a HIT and on a MISS (`recordGatewayArrival` in
+   `apps/web/src/server-runtime.ts`, AECI-1297). So coverage does not under-report today. The
+   real caveat is narrower, and §5.24.4 states it.
+3. **The liveness count is 30, not 13.** `observability/posthog/project-config.json` has 30
+   `liveness.crons[]` entries: 29 `AdminCronJob`s and the `indexnow-send` runner. AECI-820's
+   `search-ingest` took the 30th `AdminCronJob` and the 29th cron expression. The SEO email
+   was dropped on 2026-11-24 (§5.24.9), so this epic adds no further job or liveness entry.
+4. **A new Google service account is not needed.** AECI-820 says the old secrets were deleted
+   (AECI-747). They were. AECI-1236 then provisioned `GSC_SA_KEY_JSON` with the
+   `webmasters.readonly` scope, which also covers Search Analytics and Sitemaps reads.
+5. **"Products with no trade tag" is not a backlog.** `TRADES_VOCABULARY.md` §1.1 makes
+   "untagged" the correct state for horizontal platforms. `GET /api/admin/catalog/coverage`
+   already reports published and thin trades with the `trade_facet_sparse_by_design` note. The
+   lane is dropped (§5.24.5).
+6. **Bing Webmaster Tools is registered** (`POST_LAUNCH_MONITORING.md` §2a, 2026-09). AECI-821's
+   blocker is gone.
+7. **Google's funnel has no separate "Indexed" stage.** AECI-823 defines stage 2 as indexed
+   pages, measured by the proxy "pages with at least one impression", and stage 3 as pages with
+   an impression divided by indexed pages. With the proxy, stage 3 is always 100%. §5.24.7
+   merges them for Google.
+
+#### 5.24.4 Route, nav, authz, and the crawl predicate
+
+**Route and nav.** `/admin/seo`, under **Insights**, after Traffic. Nav label "Search". One lazy
+child of the shell. Each panel fetches its own endpoint after render, the `/admin/system`
+pattern, so one failing panel does not blank the others. The screen is not a queue, so it has no
+nav badge. It is not in any §5.0c sum, for the reason §5.0c decision (6) gives for the re-index
+queue. AECI-822 raises the §5 route count and the `admin-shell.component.spec.ts` ordered list
+by one.
+
+**Authz.** Admin only. Every endpoint registers on `authAdmin` behind `requireAdmin()`. No
+`rateLimit()`, because they are reads (ADR 0026). No `Cache-Tag` and no edge caching, because
+`/admin/*` is uncacheable (§9.2). The page is `noindex` like every admin route.
+
+**What counts as a crawl.** A catalog URL counts as fetched by an engine when a `page_views` row
+matches all of these:
+
+| Column | Predicate | Why |
+|---|---|---|
+| `is_bot` | `= 1`, as a literal | Implies the WHERE of the partial index `page_views_crawl_path_idx` (migration `0134`, AECI-818), which serves the read. `page_views_bot_idx` would range-scan nearly every bot row |
+| `bot_name` | `= 'Googlebot'` for the Google lane, `= 'Bingbot'` for the Bing lane | The ingest-time label from `NAMED_BOTS`. No other crawler counts: not Applebot, not AI crawlers, not SEO tools, and not `Datacenter (Google)` or `Datacenter (Microsoft)`, which are ASN verdicts, not search crawlers |
+| `cf_verified_bot_category` | `IS NOT NULL` | Cloudflare verified the bot (`isEdgeVerified`). Anyone can send a Googlebot user agent |
+| `concrete_path` | equals the URL's path. A pair URL also matches its other orientation | `path` is a route pattern and cannot name a URL. A NULL `concrete_path` never matches any URL |
+| `created_at` | inside the lane's window | The window is per lane, below |
+
+Two limits of this predicate, stated rather than hidden:
+
+- **`Googlebot` includes Google-InspectionTool.** The `NAMED_BOTS` regex folds
+  `google-inspectiontool`, `storebot-google` and `apis-google` into one label. An operator's own
+  live test in URL Inspection therefore reads as a crawl. The raw UA is discarded at ingest, so
+  past rows cannot be split. This matters most to AECI-824. §5.24.14 proposes splitting the
+  label at ingest.
+- **Verification has a start date.** `cf_verified_bot_category` is populated only on rows written
+  after AECI-1301 reached production. A window that reaches before that date uses the UA label
+  alone for the earlier rows, and the response carries the `crawler_label_unverified` note.
+  AECI-818 records the date as `EDGE_VERIFIED_SINCE` beside `CONCRETE_PATH_SINCE` in
+  `lib/seo-queue.ts`. Its value, `2026-10-13T08:02:33.500Z`, is the first production row with an
+  edge verdict, read from production on 2026-11-24 (§5.24.14 item 4).
+
+**`concrete_path` has a start date too.** It is trustworthy from 2026-08-18 03:49 UTC
+(`ANALYTICS_BASELINE.md`, "What AECI-585 started recording"). Rows before it have a NULL
+`concrete_path` and never match. A window that starts before that instant is clamped to it, and
+the response carries the `crawl_window_clamped` note. A pre-AECI-585 row can never make a page
+read as uncrawled, because the clamp removes it from the window rather than counting it as a
+miss.
+
+**The caveat that must live in the code.** AECI-818 puts this comment on the crawl-coverage
+function, and AECI-823 shows a one-line version beside the Crawled stage:
+
+> Crawl coverage counts the `page_views` arrival rows the SSR gateway writes. Production runs
+> native Workers Cache (AECI-1443), and the gateway still writes the row on a HIT (AECI-1297).
+> Three changes would make this count silently under-report, which would look like a crawl
+> collapse and would not be one: moving the arrival write into `Renderer`, putting any cache or
+> redirect in front of the gateway, or narrowing `recordGatewayArrival`'s filter (GET, status
+> 200, `text/html`, cacheable route). A crawl that got a 404, a 5xx or a redirect is not
+> recorded, so it is not counted. That is deliberate.
+
+The response also carries this as the `crawl_coverage_is_gateway_arrivals` note on every read
+that reports coverage.
+
+#### 5.24.5 Panel 1: Do this now
+
+A work list with copyable absolute URLs. Each lane is listed with its count. Selecting a lane
+lists its URLs, 25 a page, each with a copy control, oldest first. URLs are built with
+`publicSiteBase(env)` and the `lib/public-urls.ts` builders, so they paste straight into URL
+Inspection.
+
+**Ruled by Chris, 2026-11-24.** Panel 1 does not duplicate the `/admin/reindex`
+worklist. It shows the re-index queue as one lane with a count, the age of its oldest tier-1 or
+tier-2 row, and a link to `/admin/reindex`. Panel 1 adds only the lanes the re-index queue does
+not cover. *The alternative, declined:* Panel 1 replaces `/admin/reindex`, and its rows, Done dialog and
+submission history move to `/admin/seo`. That would give the operator one SEO screen, at the
+cost of rebuilding a shipped Operations screen and its nav badge.
+
+**The catalog URL set.** Every lane except the re-index lane reads the catalog half of the
+sitemap. AECI-818 extracts the URL list from `buildCatalogSitemap` into one function both
+callers use, returning each entry's URL, page type and publish anchor. The queue must not
+restate the visibility filter, the retired-slug rule or the trade gate. Static and docs pages
+are in `sitemap.xml` but not in D1, so no lane covers them.
+
+The publish anchor is the date a page went live:
+
+| Page type | Anchor | Exactness |
+|---|---|---|
+| Product | `products.promoted_at`, else `products.created_at` | Exact (§13 D6) |
+| Vendor | `vendors.created_at` | Exact. Vendors have no `promoted_at` |
+| Pair | the earliest `created_at` across the pair's live `integrations` and `connector_evidenced_pairs` rows | Approximate. A row moved between the two tables (AECI-888) carries its move time |
+| Category, audience, phase, trade | none | Null. These sort last |
+
+**The lanes.**
+
+| Lane | Engine | Derivable from D1 today | Derivation |
+|---|---|---|---|
+| Re-index queue | Google | **Yes** | `count(*)` of `gsc_recrawl_queue`, and the age in days of the oldest row with `priority <= 2` by `queued_at`. Links to `/admin/reindex`. No URL list here |
+| Not crawled | Google | **Yes** | Catalog URLs whose publish anchor is more than `SEO_UNCRAWLED_GRACE_DAYS` old, or null, with no verified Googlebot fetch (§5.24.4) in the last `SEO_CRAWL_LOOKBACK_DAYS` |
+| Not crawled | Bing | **Yes** | The same, for Bingbot |
+| Pair pages with no reviews | none | Yes, but **a count, not a lane** | Catalog pair URLs where both endpoint products have `products.review_count = 0`. The column is what the pair page renders, so the count matches what a crawler sees. Ruled by Chris, 2026-11-24: shown on Panel 2 only (§5.24.6) |
+| Products with no trade tag | none | Yes, but **dropped** | Not a backlog. §5.24.3 point 5 |
+| Soft 404s in the sitemap | Google | **No** | D1 holds no HTTP status for a crawl and no Google verdict per URL. `gsc_recrawl_queue.coverage_state` holds Google's verdict only for queued rows, which `/admin/reindex` already shows. There is no bulk coverage API (AECI-820). Revisit if the ingest research finds one |
+| Sitemap not read recently | Google, Bing | **No**, not from D1 | Needs the Sitemaps read from AECI-820 and the Bing equivalent from AECI-821. Added as a lane when that data exists, read from the ingest's stored state |
+
+Each URL row carries `last_fetch_at`, the newest verified fetch by that engine since
+`CONCRETE_PATH_SINCE`, or null. A row with an old `last_fetch_at` is a stale crawl. A row with
+null was never fetched in the record.
+
+**Order.** Oldest publish anchor first, then null anchors, then URL ascending, BINARY. There is
+no sort parameter. The oldest undone item is the most urgent, and a queue that sorts any other
+way trains the operator to skim it (the §5.11 rule).
+
+**Pair pages with no reviews are a count, not a lane.** Ruled by Chris, 2026-11-24. An operator
+cannot clear such a row, because it clears only when a reviewer writes a review. So it is a trend
+and not a work list. The queue lists no pair lane and no pair URLs. The
+`seo.pairs_without_reviews` snapshot key records the count daily, and Panel 2 shows it week over
+week.
+
+**Live, not snapshotted.** Every lane is computed on each request. The catalog is about 1,500
+URLs, so the set is built in memory and sliced into pages. The daily snapshot stores the counts
+(§5.24.8) so Panel 2 has history.
+
+#### 5.24.6 Panel 2: Am I keeping up
+
+Week over week, for the last `SEO_TREND_WEEKS_DEFAULT` complete ISO weeks (Monday to Sunday,
+UTC). The current week is excluded, because it is partial.
+
+| Row | What it shows | Source | Live or stored |
+|---|---|---|---|
+| Crawled within 7 days | For product and vendor pages published in each week, the share with a verified fetch within `SEO_CRAWL_COHORT_DAYS` of the anchor. Google and Bing | `page_views` matched on `product_id` or `vendor_id`, not on path, so a slug change does not lose the fetch | Live. `page_views` keeps 400 days |
+| Lane depth | Each Panel 1 lane's count on the last day of each week, with the change from the week before | `metrics_daily`: the `seo.*` and `queue.*` keys in §5.24.8 | Stored. A stock cannot be rebuilt later |
+| Pair pages with no reviews | The count on the last day of each week, with the change from the week before. A trend, never a work list (§5.24.5) | `metrics_daily`: `seo.pairs_without_reviews` | Stored |
+| Oldest re-index row | Age of the oldest tier-1 or tier-2 row on the week's last sampled day. "None" when that day's tier-1 and tier-2 count was 0. "Not recorded" when the count was above 0 but that run wrote no age, or when the week has no count. It never falls back to an earlier day. An age row from an earlier run of the same day does not count: its `computed_at` must match the count's | `metrics_daily`: `queue.reindex_oldest_tier12_age_days`, read against `queue.reindex_tier12_pending` on the latest day in the week that has the count | Stored |
+| Requests recorded (self-reported) | Count of `recrawl_submissions` rows with `channel = 'gsc_manual'` and `outcome = 'requested'` per week | `recrawl_submissions` | Live. The table is append-only and §7.4 does not prune it |
+
+ADR 0031 declined an alert on re-index depth because depth cannot tell a busy catalog from a
+neglected queue. The oldest-row age is the signal that ADR names, so Panel 2 shows it beside the
+depth.
+
+**The self-reported row is labelled in the UI.** The label reads that the operator recorded the
+number with the Done dialog, and that it is not a measurement. It is the request-volume proxy
+AECI-824 needs, so AECI-824 needs no tally of its own.
+
+**Pairs are out of the cohort.** A pair's anchor moves when its row moves between tables, so a
+cohort built on it would mix real publications with moves.
+
+**History starts when the keys start.** The `seo.*` and `queue.*` keys begin at the first
+snapshot after AECI-818 ships. Weeks before that render as "Not recorded", never as zero.
+
+**As built (AECI-822, 2026-11-24).** The oldest week is on the left, in the two charts and the
+table alike (Chris, 2026-11-24). Two line charts sit above the table: the cohort crawl rate per
+engine, and the two "not crawled" lanes at the end of each week. A "Not recorded" week is a gap
+in the line with a hatched band, never a point at zero (§8.1 item 4). A week that published no
+pages reads "No pages" in the table and is a gap in the rate chart. The newest cohort, while
+`open`, is a hollow point off the line and reads "so far". A lane's change from the week before
+shows only when the week before was recorded too. The requests row carries a "Self-reported"
+label and the sentence "Not a measurement".
+
+#### 5.24.7 Panel 3: Is it working
+
+**Built by AECI-823 (2026-11-24).** `GET /api/admin/seo/funnel` in `routes/admin-seo.ts`, derived
+in `lib/seo-funnel.ts`. The screen is `apps/web/src/app/admin/seo/seo-funnel-panel.ts`.
+
+**As built (AECI-823, 2026-11-24).** Google and Bing sit side by side at desktop width and stack on
+a narrow screen. Each funnel is a real table: stage, rate and pages. The rate is text with an
+`aria-hidden` bar beside it in the engine's series colour. The clicked stage is click-through to
+two decimals, with Google's average position beside it and the clicks and impressions under it.
+It has no bar, because a bar a third of a percent long draws nothing. The panel draws only the
+stages its engine can have: Google catalog, crawled, impressed and clicked, and Bing catalog,
+crawled, indexed and clicked. A Bing impressed stage or a Bing position never renders, even if the
+API sent one. Each engine's own notes (`search_ingest_absent`, `search_window_incomplete`) sit in
+its card. The notes that name no engine sit under both funnels, after the two static notes below.
+Each card states its host, the UTC day the crawl stages end on, and the Pacific dates of its search
+figures, with "Days recorded" when the click window is short. The `search_window_incomplete`
+note in the card does not repeat that count. The baseline table sits in the Google card, with
+"Not recorded" in every cell of a null `current` row. When the current row's window is short, its
+header and the sentence above the table say "Days recorded" too. A missing impressions figure on
+the clicked stage reads "impressions not recorded", never "0 impressions". The window lengths in
+the intro, the cards and the static notes come from the response, never a fixed 28.
+
+The funnel, per engine, over trailing 28-day windows. Rates are plotted. Counts sit beside them,
+because the catalog grows and a rising count can hide a falling rate.
+
+| # | Stage | Google | Bing | Rate |
+|---|---|---|---|---|
+| 0 | In the catalog sitemap | `seo.catalog_urls` | same | the denominator |
+| 1 | Crawled | `seo.crawled_urls_google` | `seo.crawled_urls_bing` | crawled ÷ catalog URLs |
+| 2 | Indexed | **Not measurable.** Google has no bulk index API. Merged into stage 3 | `search.bing.www.in_index`, Bing's own index figure, captioned "as reported by Bing" | indexed ÷ catalog URLs |
+| 3 | Impressed | catalog pages with at least one impression in 28 days. Labelled "Indexed (lower bound)" because it is the only index signal | **Not stored** (AECI-821). BWT has no page count with a stated window, so this stage is absent for Bing (§5.24.10) | impressed ÷ catalog URLs for Google |
+| 4 | Clicked | clicks ÷ impressions over the 28 days, with impression-weighted average position beside it | clicks ÷ impressions over the 28 days. No position: BWT's daily series has none | CTR at position |
+
+**Never sum the two engines.** They are different indexes. The Google figure is a lower bound,
+and the Bing figure is Bing's own undefined count.
+
+**The funnel is `www.` only. The whole property is the baseline table.** Resolved by AECI-823,
+2026-11-24. The Google property is a Domain property spanning `www.`, the apex and `demo.`. Stage
+3 has a source only at the `www_page` scope, because the ingest stores pages with an impression
+for `www.` alone (§5.24.8). So the Google funnel is `www_page` on every ingested stage, and the
+endpoint takes no scope parameter. The `property` figures appear in one place: a table under the
+Google funnel that compares them with the AECI-799 baseline. Chris approved the table as always
+visible on 2026-11-24. It has two rows, each with clicks, impressions, CTR and average position:
+
+| Row | Window | Source |
+|---|---|---|
+| Now | The last 28 ingested Pacific days | `search.google.property.*` |
+| AECI-799 baseline | Three months ending 2026-09-05, read 2026-09-09 | `ANALYTICS_BASELINE.md`. Search Console showed impressions as "15.9K", so that figure is rounded |
+
+Both rows are the whole property with no host filter, so they can be compared. They are still not
+like for like, because one covers three months and the other 28 days. The "Now" row reads "Not
+recorded" until the ingest has written a `property` day in the window. The baseline row is always
+shown.
+
+**Two kinds of day, two windows.** Stated in `lib/seo-funnel.ts` and repeated here.
+
+- **The D1 stages are UTC.** `day` is the last complete UTC day. Stages 0 and 1 cover the 28 days
+  ending at 00:00 UTC after `day`, which is what the 00:15 snapshot files under `day`. The
+  endpoint reads the stored keys. When the snapshot has not yet filed `day`, it runs the same
+  computation to the same instant, so stage 1 is always present.
+- **The ingested stages are Pacific dates.** The ingest files each row under Google's or Bing's
+  Pacific date, and the funnel does not re-cut it. Each ingested series gets the 28 Pacific dates
+  ending on the newest date that holds its daily impressions row. That end is two to nine days
+  behind `day`, because Google finalises a day late and the ingest runs weekly. Ending on `day`
+  would leave those days empty and under-count. The window is anchored on the daily series alone,
+  so a run whose daily call failed but whose page count was written does not move it forward over
+  days with no daily rows. Google's 28-day page count is filed under the same end date, so stages 3
+  and 4 cover the same dates. A count filed under any other date covers other dates and is not
+  read. Bing's stage 2 is a daily reading, not a sum, so it is the newest reading in the 28 dates
+  ending on `day`.
+- **A short window says so.** The click and impression totals sum only the dates that hold both
+  a clicks row and an impressions row. The ingest stores the two as separate rows, and a field the
+  engine left out writes none, so a date can hold one without the other. A clicks row alone has no
+  denominator, and an impressions row alone is not a measured zero. With no such date the clicked
+  stage is omitted, never a 0% CTR. When fewer than 28 of the window's dates hold both, the
+  response carries the `search_window_incomplete` note, a `warn`, and `days_recorded` counts the
+  matched dates. This is normal in the ingest's first weeks.
+- **A stale series is no data.** A series whose newest date falls before the 28 dates ending on
+  `day` is treated as absent.
+- **No silent omission.** An engine whose ingested stages are all omitted, for any reason, carries
+  the `search_ingest_absent` note. The panel never shows the two D1 stages alone with no
+  explanation.
+
+**Two notes on the panel, not only in this spec.** Average position is expected to fall while
+the work succeeds, because newly indexed pages enter at rank 40 to 80. Stage 1 is a UTC rolling
+window and stages 3 and 4 are a Pacific window of a different source that ends days earlier, so
+the stages will not reconcile exactly.
+
+**Bing has stages 0, 1, 2 and 4, and never stage 3.** Stage 2 is `search.bing.www.in_index`, the
+newest reading in Bing's window. Stage 4 is CTR from `search.bing.www.clicks` and `.impressions`,
+with no position beside it. There is no Bing "pages with an impression" figure, because Microsoft
+does not document the window `GetPageStats` covers (§5.24.10). AECI-823 must not expect one, and
+the Bing stage-3 row is absent rather than empty. A mock-up that draws a Bing impressed stage draws
+a stage with no data. Bing has no baseline, because none was taken (`ANALYTICS_BASELINE.md`, Bing
+addendum).
+
+**A stage with no data is omitted, not zeroed.** Stages 0 and 1 are always present for both
+engines, because they come from D1. Stages 2 to 4 appear only after AECI-820 or AECI-821 has written
+that engine's keys inside the window. AECI-823 asked for the Bing lane to be hidden entirely until
+AECI-821 lands. This section shows Bing's stage 1, because it is measured (§5.24.14).
+
+#### 5.24.8 The metric model
+
+**Storage decision: `metrics_daily` keys, no new table, no migration.** `metrics_daily.metric`
+carries no CHECK (`apps/api/src/db/schema.ts`), so a new key costs no migration and forces no
+table recreate. `value` is REAL, so the day-age and average-position keys fit. `source` stays
+`measured` on every key below, inside the existing CHECK. The host filter is part of the key
+name rather than a new column, because an added column would be the first schema change this
+table has had.
+
+**D1-derived stocks, written by the 00:15 snapshot.** AECI-818 adds these to
+`ADMIN_SNAPSHOT_STOCK_METRIC_KEYS`. Each is sampled once a day, filed under the prior complete UTC
+day, and never backfilled. The window for the crawl keys ends at the end of that day.
+
+| Key | Unit | Value |
+|---|---|---|
+| `seo.catalog_urls` | count | Catalog sitemap URLs (§5.24.5) |
+| `seo.crawled_urls_google` | count | Catalog URLs with at least one verified Googlebot fetch in `SEO_CRAWL_LOOKBACK_DAYS` |
+| `seo.crawled_urls_bing` | count | The same for Bingbot |
+| `seo.uncrawled_urls_google` | count | Panel 1's Google "Not crawled" lane. It excludes pages inside the grace period, so it is not `catalog_urls − crawled_urls` |
+| `seo.uncrawled_urls_bing` | count | The same for Bing |
+| `seo.pairs_without_reviews` | count | Catalog pair URLs where neither endpoint product has a review. Panel 2's pair row, not a Panel 1 lane |
+| `queue.reindex_pending` | count | `gsc_recrawl_queue` rows. The same number as `pending_reindex` on `GET /api/admin/summary` |
+| `queue.reindex_tier12_pending` | count | `gsc_recrawl_queue` rows with `priority <= 2`. Written on every run, 0 included, from the same read as the age below. It is a supporting key: it records that the tier was empty, and Panel 2 does not show it as a row. Added by AECI-816. Days snapshotted before it existed have no count row, so their age reads "Not recorded". Nothing had shipped then, so no real history is lost |
+| `queue.reindex_oldest_tier12_age_days` | days, REAL | Age of the oldest row with `priority <= 2`. **No row** on a day with no such row, because 0 would mean "a row queued just now". This follows the `quality.arrival_cf_coverage` precedent of writing no row rather than a misleading value. Absence alone cannot tell "no such row" from a failed age write, so it is read with `queue.reindex_tier12_pending` through `reindexAgeOnDay` in `lib/metrics-snapshot.ts`. A count of 0 reads "none". A positive count with an age row of the same `computed_at` reads the age, because one run stamps every key with one instant. A positive count with the age row missing or stamped by another run reads not recorded. No count row reads not recorded. A re-run of the same day after the tier emptied leaves the earlier age row in place, and the count of 0 makes it read "none". No delete is done, because a scheduled `DELETE` must write a summary `audit_log` row (ADR 0022) |
+
+**Ingested keys, written by AECI-820 and AECI-821.** These are not snapshot keys. They live in a
+new constant, `SEARCH_INGEST_METRIC_KEYS`, so the snapshot never writes or zero-fills them.
+`{scope}` names both the host filter and how Google aggregated the figure, because the two change
+the number:
+
+- `www_page`: filtered to `www.aecintegrations.com` by a page filter. Google then aggregates by
+  page, so two of our results on one results page count as two impressions.
+- `property`: the whole Domain property, unfiltered, aggregated by property. This is the scope
+  the AECI-799 baseline was taken under.
+
+| Key | Unit | Kind |
+|---|---|---|
+| `search.google.{scope}.clicks` | count | Flow. Clicks on that day |
+| `search.google.{scope}.impressions` | count | Flow. Impressions on that day |
+| `search.google.{scope}.position_avg` | position, REAL | Impression-weighted average for that day. No row on a day with no impressions. A window re-weights by each day's impressions |
+| `search.google.www_page.pages_with_impressions_28d` | count | Distinct `www.` pages with at least one impression in the 28 days ending that day |
+| `search.google.www_page.catalog_pages_with_impressions_28d` | count | The same, restricted to the catalog URL set. This is Panel 3's stage 3 numerator |
+| `search.google.www_page.queries_28d` | count | Distinct queries in the 28 days ending that day. A lower bound, because Google drops rare queries |
+| `search.google.www_sitemap.urls_submitted` | count | Stock, sampled at the run. URLs Google counted in `https://www.aecintegrations.com/sitemap.xml` at its last read. Added by AECI-820 |
+| `search.google.www_sitemap.errors` | count | Stock, sampled at the run. Errors Google reported for that sitemap. Added by AECI-820 |
+| `search.google.www_sitemap.warnings` | count | Stock, sampled at the run. Warnings Google reported. Added by AECI-820 |
+| `search.google.www_sitemap.download_age_days` | days, REAL | Stock, sampled at the run. Days since Google last downloaded the sitemap. No row when Google reports no download. Added by AECI-820 for the "Sitemap not read recently" lane |
+| `search.bing.www.clicks` | count | Flow. Clicks on that day, every vertical including Chat (`GetRankAndTrafficStats`). Added by AECI-821 |
+| `search.bing.www.impressions` | count | Flow. Impressions on that day (`GetRankAndTrafficStats`). Added by AECI-821 |
+| `search.bing.www.in_index` | count | Bing's own index figure for that day, `InIndex` from `GetCrawlStats`. Captioned "as reported by Bing", because Microsoft does not define it. Never called a true count. Added by AECI-821 |
+| `search.bing.www.crawled_pages` | count | Flow. Pages Bing crawled that day (`GetCrawlStats`). Added by AECI-821 |
+| `search.bing.www.crawl_errors` | count | Flow. Crawl errors Bing recorded that day (`GetCrawlStats`). Added by AECI-821 |
+| `search.bing.www.sitemap_urls` | count | Stock, sampled at the run. URLs Bing counted in `https://www.aecintegrations.com/sitemap.xml` (`GetFeeds`). Added by AECI-821 |
+| `search.bing.www.sitemap_crawl_age_days` | days, REAL | Stock, sampled at the run. Days since Bing last crawled that sitemap. No row when Bing reports no crawl. Added by AECI-821 for the "Sitemap not read recently" lane |
+
+The Bing scope is `www`: Bing registers sites per host, and the lane runs only when the registered
+site is `https://www.aecintegrations.com/`. Bing reports no position in its daily series, so
+there is no Bing `position_avg` key, and no Bing count of pages with an impression.
+`GetPageStats` lists top pages, but Microsoft does not say what window its rows cover.
+
+**Ingested days are Pacific dates.** Google and Bing both report by Pacific Time day. The row is
+filed under that date in `day`, which is documented as UTC for every other key. The key's
+docblock says so. The ingest does not try to re-cut Google's day. The four `www_sitemap` keys are
+the exception: they are a sample taken at the run, so they are filed under the run's UTC day, like
+a snapshot stock. So are the two Bing `sitemap_*` keys. A Bing `Date` is a WCF string,
+`/Date(ms-0800)/`. The row is filed under the calendar date at the offset Bing states, which is the
+Pacific day.
+
+CTR is never stored. It is derived at read time as the sum of clicks over the sum of
+impressions, so a window's CTR is never an average of daily ratios.
+
+> **Prune hazard. Fixed by AECI-820 before its first write.** `findSnapshotGap` in
+> `apps/api/src/lib/retention-prune.ts` asks whether a day is captured by probing
+> `metrics_daily` with **no `metric` predicate**. An ingest row for a day the 00:15 snapshot
+> missed would mark that day captured, and the 03:00 prune could then delete that day's
+> `page_views` while the snapshot keys were still missing. §7.1 point 4 refuses an insert by the
+> re-check for exactly this reason. AECI-820 narrows that probe, and the matching probes in
+> `lib/metrics-backfill.ts`, to `ADMIN_SNAPSHOT_METRIC_KEYS`, with a test, in the same PR as its
+> first writer. No migration is involved. This is a predicate change. *Done: the three probes
+> read only `ADMIN_SNAPSHOT_METRIC_KEYS`, an allow-list, so a future third writer is excluded
+> by default. `retention-prune.spec.ts` and `metrics-backfill.spec.ts` cover an ingest-only day.*
+
+**What is not stored.** Panel 1's URL lists, the cohort rates and the request counts are
+computed live. The self-reported answer is already stored in `recrawl_submissions`. The manual
+weekly read of Google's indexed count stays a manual step in `POST_LAUNCH_MONITORING.md` §2a.
+Typing that number into the console would be a second self-attested item.
+
+#### 5.24.9 The weekly SEO email: dropped (AECI-819)
+
+**Dropped. Ruled by Chris, 2026-11-24.** There is no weekly SEO email, and AECI-819 is cancelled.
+Nothing was built for it. `/admin/seo` is the only place these numbers are shown. No cron, job,
+queue message, notification id or liveness entry was ever added for it, so none is removed. The
+Sunday 22:00 UTC `search-ingest` keeps its schedule (§5.24.10). The 05:00 operator digest is
+unchanged and keeps its crawler table.
+
+#### 5.24.10 Google and Bing ingest: the storage contract (AECI-820, AECI-821)
+
+This section fixes only what the funnel reads. The keys are in §5.24.8. Five rules
+bind both ingests:
+
+1. **Write only `SEARCH_INGEST_METRIC_KEYS`**, per key and outside any batch, `source =
+   'measured'`, exactly as §7.1 writes. No `audit_log` row: derived bookkeeping under ADR 0022
+   (its 2026-11-24 amendment, a second route for operator-only readings of an external system).
+2. **Fix the prune probe first** (§5.24.8).
+3. **Every stored figure names its scope** in its key: host filter and aggregation. Nothing is
+   stored without one.
+4. **Fail open.** An API outage warns, records the failure on the run's `job_runs` row, and never
+   fails another job. `discardResponseBody` on every response whose body is not read, and no
+   unbounded `Promise.all` (CLAUDE.md, the connection-limit rule).
+5. **Do not sample URL Inspection to rebuild an index count.** Google allows 2,000 inspections
+   a day per property. The daily `gsc-inspect` run already budgets 1,500
+   (`GSC_INSPECT_RUN_BUDGET`), and the rest is the operator's headroom in the Search Console UI.
+
+**Ingest details, Google (AECI-820, built).** Folded in from the AECI-816 ingest research. Bing's
+half (AECI-821) follows it.
+
+| Question | Answer |
+|---|---|
+| Credential | `GSC_SA_KEY_JSON`, the `gsc-inspect` service account. Its `webmasters.readonly` scope covers `searchanalytics.query` and `sitemaps.list`. No new secret, no new property user. The token code moved to `lib/google-service-account.ts`, which both jobs import |
+| Gate | The `gsc-inspect` gate: skipped without the key, `INDEXNOW_KEY` or `PUBLIC_SITE_URL`. Production only |
+| Endpoints | `POST https://www.googleapis.com/webmasters/v3/sites/{siteUrl}/searchAnalytics/query` and `GET …/sites/{siteUrl}/sitemaps`, with `siteUrl = sc-domain:aecintegrations.com` URL-encoded (`lib/search-console-api.ts`) |
+| Calls per run | Six, sequential on one token: the token exchange, the `www_page` daily series (`date`, page filter `includingRegex ^https://www\.aecintegrations\.com/`), the `property` daily series (`date`, no filter, `byProperty`), the 28-day `page` list, the 28-day `query` list, and the Sitemaps list. The two lists page by `startRow` only when 25,000 rows come back, up to four pages |
+| Freshness | Every call asks `dataState: 'final'`. Google says data is typically available after two to three days, so the daily window ends three Pacific days before the run |
+| Re-write window | The daily series re-pull 14 Pacific days, two weekly runs. A missed week leaves no gap, and a late-finalised day is corrected the next week. The 28-day keys end on the newest day the `www_page` call returned, so they never cover a part-loaded day |
+| Overwriting `measured` | Allowed. ADR 0027's clause permits it where the source still holds the data, and Google keeps 16 months. A day Google did not return is never written, so a re-pull cannot erase a figure by absence. An empty 28-day answer, or a `www_page` series with no day in the window, writes no 0: the keys read `no_data` |
+| Schedule, job id, queue | `SEARCH_INGEST_CRON = '0 22 * * 1'`, Sundays 22:00 UTC (Cloudflare day-of-week 1 = Sunday). `ScheduledJob` `search_ingest`, `AdminCronJob` `search-ingest`, the thirtieth. Rides `RECONCILE_QUEUE`. Nothing reads the keys at a fixed hour after it: `/admin/seo` reads them on request |
+| Quota cost | Five Search Analytics or Sitemaps requests a week against 1,200 a minute per site. A 429 is not retried |
+| Sitemap state | `lastDownloaded`, `lastSubmitted`, `isPending`, errors, warnings and the URL count go to the run's `job_runs.detail.google.sitemap`. The four numbers also go to the `www_sitemap` keys above. A date is not a `metrics_daily` value, so the age in days is stored instead |
+| Failure | Each call fails alone: its keys get no row and the other calls still run. The heartbeat `aeci.search_ingest.run` reads `partial`. The run is `failed` only when Google refuses the credential: a 4xx other than 429 from the token endpoint, a key that will not import, or 401 or 403 on every call. A token exchange that stays transient after two in-process retries, the same retry shape as every call and as `gsc-inspect`'s inspection calls, writes nothing, records `token_transient` and ends `ok` with `partial`. The next Sunday's 14-day re-pull covers the gap. A D1 error throws, so the queue retries, which is safe. A failed catalog URL read is the one caught failure: the catalog key gets no row and reads `failed`, and the all-pages figure stands. The heartbeat reads `partial`, because any `failed` key counts, and `calls.www_pages_28d.catalogReadError` keeps the error message. A failed write of the catalog key throws like every other write |
+| Catalog URL set | Read from `buildCatalogSitemap`'s `<loc>` output for now. AECI-818's extracted URL function replaces it when it lands |
+
+**Ingest details, Bing (AECI-821, built).** The second lane of the same `search-ingest` run. The
+lanes are independent: neither reads the other's result, and each has its own outcome.
+
+| Question | Answer |
+|---|---|
+| Credential | `BWT_API_KEY`, a Bing Webmaster Tools API key, sent as `?apikey=`. Production only, pushed by `promote-to-prod.yml` from `BWT_API_KEY_PRODUCTION`. The key is user-wide and has no read-only scope, so it is never logged, and `lib/bing-webmaster-api.ts` scrubs it from any error text |
+| Site | `BWT_SITE_URL`, a plain per-env var, the site exactly as BWT registered it. Unset on every tier until the operator supplies it |
+| Trace gate | **Cleared by AECI-2075 (2026-11-26).** The key is read-write, and it travels in the request URL as `?apikey=`. A staging span read showed that `redact_query_string: true` strips the query string from an outbound fetch span: `url.full` has none and `url.query` is empty (`OBSERVABILITY.md`, production traces). So the key does not reach Cloudflare's stored traces. The lane may be enabled by setting `BWT_SITE_URL` (`environments.md`). The clearance holds only while every API observability block keeps `redact_query_string: true`. `bwt-secrets-ci.spec.ts` enforces that |
+| Gate | `skipped` without the key (`no_creds`), without the site URL (`no_site_url`), or when the site URL is not the `www.` site (`site_url_not_www`), because every key names `www` |
+| Endpoints | `GET https://ssl.bing.com/webmaster/api.svc/json/{Method}?siteUrl=…&apikey=…` for `GetRankAndTrafficStats`, `GetCrawlStats` and `GetFeeds` |
+| Where it runs | The Worker. `lib/bing-webmaster-api.ts` is a pure transport like `callIndexNow`, so it can move to a GitHub Actions runner if Bing refuses the shared Cloudflare egress. The runner variant is not built |
+| Calls per run | Three, sequential. Each retries a 5xx, a dropped connection or Bing's `InternalError` twice |
+| Window | The Google lane's: 14 Pacific days ending three days before the run. Bing returns up to six months. Days outside the window are not written. **The gap is real:** two missed Sundays in a row leave about three days that no later run fills, though Bing still holds them |
+| Errors | Bing sends every API error as HTTP 400 with `{"ErrorCode":n,"Message":"…"}`. The body is read. `ThrottleUser` and `ThrottleHost` are `throttled`, routine and not retried. `InvalidApiKey`, `NotAuthorized`, `UserBlocked` and `UserNotFound` are `auth`. Every other non-200 body is discarded |
+| Overwriting `measured` | Allowed, as for Google. Bing keeps six months. A day Bing did not return, or a field it left out, writes no row and never a 0 |
+| Sitemap state | `LastCrawled`, `Submitted`, `Status` and `UrlCount` go to `job_runs.detail.bing.sitemap`. `UrlCount` and the crawl age also go to the two `sitemap_*` keys |
+| Failure | Each call fails alone. The heartbeat point `engine:bing` reads `throttled` when every failed call was a throttle, else `partial`. The lane is `failed` only when every call reports a refused credential. A D1 error in either lane is rethrown once both lanes have run, so the queue retries the whole run |
+| Not stored | Position and pages with an impression. The daily series has no position, and `GetPageStats` does not state its window. The AI-answer report in the BWT UI has no API |
+
+The run's `job_runs` outcome is `failed` when either lane failed, and `detail.reason` names the
+lane. It is `skipped` only when both lanes skipped.
+
+**`GET /api/admin/seo/funnel` is AECI-823's**, not this issue's. The ingest writes the keys the
+funnel reads, and §5.24.7 states how the funnel windows them.
+
+#### 5.24.11 Empty and error states
+
+| State | What the operator sees |
+|---|---|
+| A lane with no rows | The lane reads "Nothing outstanding". Never a spinner, never a blank list |
+| Every lane empty | One line, "Nothing outstanding", above the lane list |
+| `PUBLIC_SITE_URL` unset or unparseable | The queue endpoint returns `lanes: []` and the `public_site_url_unset` note. The panel says URLs cannot be built on this tier |
+| A panel's request fails | That panel shows an error with a Retry button. The other panels render normally |
+| No stored history yet | Panel 2 rows read "Not recorded" for weeks before the first snapshot, never zero |
+| An engine with no ingest data | Its stages 2 to 4 are absent, with one line saying the data has not been pulled. The `search_ingest_absent` note carries the reason |
+| The crawl window reaches before a start date | The `crawl_window_clamped` or `crawler_label_unverified` note, shown beside the figure |
+
+The screen announces a lane change and a page change through one polite live region, the
+§5.11 pattern. AECI-822 and AECI-823 run the design checklist in CLAUDE.md, including
+`npx impeccable detect` against the rendered URL and an axe pass.
+
+#### 5.24.12 Tunables
+
+The constants land with AECI-818, and move to `POST_LAUNCH_MONITORING.md` §3 when they exist.
+
+| Constant | Start value | Reason |
+|---|---|---|
+| `SEO_CRAWL_LOOKBACK_DAYS` | 28 | Search Console's own reports use 28 days. Long enough that a page Google revisits monthly counts as crawled |
+| `SEO_UNCRAWLED_GRACE_DAYS` | 7 | A page younger than a week is not overdue. It matches the cohort window, so the two panels agree on "late" |
+| `SEO_CRAWL_COHORT_DAYS` | 7 | The "crawled within 7 days" window AECI-822 names |
+| `SEO_TREND_WEEKS_DEFAULT` | 12 | A quarter of weeks. `?weeks=` accepts 1 to 26 |
+| `CONCRETE_PATH_SINCE` | `2026-08-18T03:49:00Z` | A fact, not a tunable: the first production row with `concrete_path` |
+| `EDGE_VERIFIED_SINCE` | `2026-10-13T08:02:33.500Z` | A fact, not a tunable: the first production row with `cf_verified_bot_category`, read from production on 2026-11-24 |
+| `SEO_FUNNEL_WINDOW_DAYS` | 28 | The funnel's window, in UTC days for the D1 stages and Pacific dates for the ingested ones (§5.24.7). Search Console's own reports use 28 |
+
+#### 5.24.13 Out of scope
+
+- **Submitting anything to a search engine.** The surface reads. Google has no submit API for
+  our content (ADR 0031). IndexNow is unchanged.
+- **A second self-attested item**, including a "console read" stamp or a typed-in indexed count.
+- **Editing the re-index queue from `/admin/seo`.** Chris ruled on 2026-11-24 that Panel 1 sits
+  beside `/admin/reindex` and links to it (§5.24.5).
+- **Static and docs pages.** They are not in D1, so no lane covers them.
+- **AI-answer appearances in BWT.** They overlap AECI-762. Decide there.
+- **Alerting.** The surface is a screen, not an alert. ADR 0031's declined depth alert stays
+  declined.
+- **A weekly SEO email.** Dropped by Chris on 2026-11-24 (§5.24.9).
+- **Changing the 05:00 operator digest.** It keeps its crawler table.
+
+**Legal impact: `none`** for the surface as specified (`docs/LEGAL_IMPACT_REVIEW.md` §3). It
+collects no new field from a person, adds no log or store of visitor data, and sends no email.
+It reads `page_views` rows that already exist. Google and Bing receive no
+personal data from it. Each build issue re-checks the verdict for its own diff.
+
+#### 5.24.14 Open decisions
+
+In priority order. "Chris" marks a ruling only he can make.
+
+1. **Panel 1 beside or instead of `/admin/reindex`.** Ruled by Chris, 2026-11-24: beside
+   (§5.24.5).
+2. **Split `Googlebot` at ingest.** Recommended before AECI-824's data window opens, so an
+   operator's live test stops reading as a crawl. It changes the 05:00 digest's crawler table,
+   so it is a classifier change under `POST_LAUNCH_MONITORING.md` §3c.
+3. **No "console read" stamp.** Ruled by Chris, 2026-11-24: it stays out, because the one
+   self-attested item is spent (§5.24.1).
+4. **Edge verification start date.** Closed 2026-11-24. The operator read it from production
+   with `SELECT min(created_at) FROM page_views WHERE cf_verified_bot_category IS NOT NULL`.
+   `EDGE_VERIFIED_SINCE` in `lib/seo-queue.ts` is `2026-10-13T08:02:33.500Z`
+   (`POST_LAUNCH_MONITORING.md` §3, "Search console tunables").
+5. **The pair lane's size.** Ruled by Chris, 2026-11-24: count only, shown in Panel 2. A row
+   clears only when a reviewer writes a review, so it is a trend and not a work list. The size
+   no longer decides anything, so it is not measured.
+6. **Email send hour.** Moot. Chris ruled on 2026-11-24 that there is no weekly SEO email
+   (§5.24.9).
+7. **Bing stage 1 before AECI-821.** Recommended: show it (§5.24.7).
+8. **`page_views.product_id` scope.** Resolved by AECI-818: narrowed. Ingest sets `product_id` from
+   an explicit `entity_type` as well as from a detail-page arrival (`resolveEntity` in
+   `routes/page-views.ts`), so it is not provably detail-only. The cohort match therefore also
+   requires `path = '/products/:slug'`, or `'/vendors/:slug'` for a vendor.
+
 ## 6. API surface
 
 All endpoints are admin-gated and register on the existing `authAdmin` sub-router in `apps/api/src/index.ts` behind `requireAdmin()`, which stays the single enforcement point (`AUTH_AND_RLS.md`). Contracts live in `packages/shared/src/api/admin-panel.ts` and reuse `PageQuerySchema` (`page` / `perPage`, capped at 100) and `paginatedResponseSchema` so list shapes match `/api/admin/requests`.
@@ -2634,6 +3309,9 @@ All endpoints are admin-gated and register on the existing `authAdmin` sub-route
 | `PATCH /api/admin/claims/:id` | §5.10 claim decision — pre-existing (Stage 2, AECI-519; row added by AECI-1671) | **A decision write** the claim screen drives. Approve grants the verified-account seat; reject records the reason. One `db.batch` behind `claimUndecidedSentinel` — the guarded UPDATE, its audit row, the workflow transition — so a lost race (`409 CLAIM_ALREADY_DECIDED`) writes nothing. Post-commit: the claim-decision email (AECI-528) and the Linear issue close (AECI-1421), both fail-open without their keys. No limiter. Contract in `API_CONTRACTS.md` §6.10 |
 | `GET /api/admin/reindex` | §5.11 worklist — **SHIPPED (AECI-946)** | The Google re-crawl queue, most important first. `PageQuerySchema` + `?priority=` (1–4). **Ordering is fixed and carries no `sort` parameter**, because a worklist the operator can re-order no longer has the right next action on top. `id ASC` is the third `ORDER BY` term per AECI-825: rows from one promote share a `queued_at` to the millisecond, and a paginated list without a unique trailing term can drop or duplicate a row |
 | `DELETE /api/admin/reindex/:id` | §5.11 Done — **SHIPPED (AECI-946)** | **The fifth write in this table**, and *queue consumption* — no catalog row, no account row, nothing a visitor can see. Audit row in the same `db.batch` as the delete, `action='reindex.cleared'`, attributed to the admin rather than `'system'`. This is **not** §26.1's scheduled-deletion case, so it audits per row rather than one summary row per run. Carries **no** `rateLimit()`. Which admin writes do carry one is listed in `waf-rate-limits.md` §6.2, not here, because a list in this row went stale. A row another tab already cleared is a flat 404. Since AECI-1185 `?outcome=requested\|not_requested` is required (400 otherwise). `requested` also writes one `gsc_manual` `recrawl_submissions` row and its causes in the same batch |
+| `GET /api/admin/seo/queue` | §5.24 Panel 1. **SHIPPED (AECI-818)** | Read-only. The lane counts plus one page of the selected lane's absolute URLs, oldest first. `PageQuerySchema` (default `perPage` 25) + `?lane=` + `?engine=`. Console envelope with `notes`, because crawl coverage can be wrong. No audit row, no limiter. Contract in `packages/shared/src/api/admin-seo.ts` |
+| `GET /api/admin/seo/trend` | §5.24 Panel 2. **SHIPPED (AECI-818)**, though specified under AECI-822 | Read-only. Weekly lane depths from `metrics_daily`, live cohort crawl rates, and the self-reported request count. `?weeks=` (1–26, default 12). No audit row, no limiter. Same contract file |
+| `GET /api/admin/seo/funnel` | §5.24 Panel 3. **SHIPPED (AECI-823)** | Read-only. Per-engine stages as rates and counts, each with its host filter, plus the Google `property` baseline table. No query parameters. A stage with no data is omitted. No audit row, no limiter. Same contract file |
 | `GET /api/admin/contests` | §5.12 queue — **SHIPPED (AECI-1008)** | `PageQuerySchema` + `?status=` (default `open`) + `?routed_to=` (default `aeci`; `owner` is the read-only view). Ordered `created_at DESC, id ASC`. Bare `paginatedResponseSchema`, same reasoning as §5.11. Contract in `packages/shared/src/api/integration-contests.ts` |
 | `PATCH /api/admin/contests/:id` | §5.12 accept / decline — **SHIPPED (AECI-1008)** | **A decision write, not a catalog write** (the eighth §2 exception). Accept files a `REVIEW - ` Linear issue after commit. It writes catalog data only on a claimed row, where promote no longer can (AECI-1005, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.6). **Since AECI-1191 an accept that changes a vendor-held value requires `note`** (`400 VALIDATION_FAILED`, `error.field = 'note'`, nothing written), recorded in the decision audit row's `metadata.reason`; the list read carries `accept_note_required`. **Since AECI-1159 the body also takes an optional `internalNote`** (`AdminDecideContestSchema`), and that note is shown to the displaced owner as the reason (`reasonVisibility = 'vendor'`). Audit row, workflow transition and the submitter's `notification.sent` ride one `db.batch` behind a race sentinel. Carries `rateLimit('write')`. `409 CONTEST_NOT_OPEN` / `CONTEST_ROUTED_TO_OWNER` |
 | `PATCH /api/admin/contests/:id/protest` | §5.12 protest decision — **AECI-1009** (row added by AECI-1671) | **A decision write, advice only** — a second route under §2's eighth exception. Body `DecideContestProtestSchema` (`{ decision, note }`), the note required and shown to both vendors; a lost protest blocks the submitter from re-contesting the field for 90 days unless its value changes. One `db.batch`: the guarded `UPDATE … WHERE protest_status = 'open'`, the `changes()` sentinel, the protest instance closed with its transition, the audit row, and a `notification.sent` to each side. A lost race is `409 PROTEST_NOT_OPEN` with nothing written. Writes the protest columns and nothing else: no catalog write, no purge, no Linear issue. Carries `rateLimit('write')`. Contract in `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.12 |
@@ -2650,6 +3328,10 @@ All endpoints are admin-gated and register on the existing `authAdmin` sub-route
 | `PATCH /api/admin/license-release-requests/:id` | §5.17 approve / decline — **AECI-1373 (E4.4)** | **A commercial write** (the fourteenth §2 exception), behind `rateLimit('write')`. Body `{ action: 'approve' }` or `{ action: 'decline', reason }` (1 to 1000, shown to the vendor). Approve: guarded request UPDATE, sentinel, `unassignLicenseStatements` (action `license.release_approved`) with a second sentinel after the subscription UPDATE, the mirror reconcile, and the vendor's portal row; then purge `product:{slug}`, `index:products`, `vendor:{slug}`. The subscription stays live with its term dates. Decline: guarded UPDATE, sentinel, `license.release_declined`, portal row. `409 RELEASE_REQUEST_NOT_OPEN` on a decided row or a lost race, `409 LICENSE_NOT_ASSIGNED` when the subscription ended, was unassigned or moved. Both write nothing |
 | `GET /api/admin/vendors/:id/integrations` | §5.7 Integrations tab — **AECI-1046**, both tables since **AECI-1091** | The vendor-held integrations the vendor owns (`built_by_vendor_id = :id` and claimed or `origin = 'vendor'`), live and retired, from `integrations` and `connector_evidenced_pairs` (each row carries `anchor` and, on a pair, `connector`), ordered by name case-insensitively then id, paged in memory. `PageQuerySchema`, bare `paginatedResponseSchema`. No audit row |
 | `POST /api/admin/integrations/:id/retire` · `/restore` | §5.7 Integrations tab — **AECI-1046** | **A moderation write** (the ninth §2 exception). Body `{ reason, internalNote? }`, the reason required and shown to the owner since AECI-1159. The owner retire's batch: guarded UPDATE of `retired_at` / `retired_by` / `updated_at`, contest closes on retire, the audit row with the admin and the reason, a `notification.sent` to the owner and every endpoint vendor, both count recomputes. Since AECI-1091 the id may name a vendor-held evidenced pair: a soft retire of the pair's `retired_at` / `retired_by`, never a delete, with the connector's count recomputed too. Carries `rateLimit('write')`. `409 INTEGRATION_NOT_VENDOR_HELD` / `INTEGRATION_RETIRED` / `INTEGRATION_NOT_RETIRED` / `INTEGRATION_RETIRED_BY_OWNER` |
+| `POST /api/admin/vetoes/:id/lift` | §5.12 Sync Service section — **AECI-2042**, end reason **AECI-2192** | **A moderation write.** Ends one endpoint veto (a removal) on a Sync Service pair. Since AECI-2192 (ruling 66) the body is `{ end_reason, note }` (`AdminLiftVetoSchema`), both required and shown to the vendors. `end_reason` is one of the five grounds ruling 66 names: `unauthorised_account`, `wrong_product`, `reason_plainly_false`, `claim_ended_or_suspended`, `law_requires`. A removal is not otherwise judged. The batch: guarded UPDATE of the veto with `end_reason`, any open objection closed, `vetoed_at` recomputed on every row on the veto's pair key in both tables, `integration.veto_lifted`, notices, three count recomputes. Carries `rateLimit('write')`. `409 VETO_NOT_IN_FORCE` |
+| `PATCH /api/admin/veto-objections/:id` | §5.12 Sync Service section — **AECI-2192** | **A moderation write** (the sixty-first route). Decides a Sync Service's objection to a removal. Body `{ decision: 'accept' \| 'decline', note }` (`AdminDecideVetoObjectionSchema`), the note required and shown to the vendors. An accept is the lift above in the same batch, with the objection's ground as `end_reason`: every row on the pair key returns, and the remover, the owners, the other endpoint vendors and the objecting vendor are told why. A decline leaves the removal in force and tells only the objecting vendor (`objection_declined`). Both re-check at commit that the objection is open and the removal in force. Carries `rateLimit('write')`. `409 VETO_OBJECTION_NOT_OPEN`, `400` on a missing note |
+| `PATCH /api/admin/pair-contests/:id` | §5.12 Sync Service section — **AECI-2042** | **A moderation write.** Accepts or declines an AECi-routed existence or data flow report. An accept needs a `note`; an existence accept also needs an https `source_url`, and on a vendor-held pair runs the admin retire batch in the same batch. On an AECi-held pair, or a data flow report, it writes no catalog data. Carries `rateLimit('write')`. `409 CONTEST_ROUTED_TO_OWNER` / `PAIR_CONTEST_NOT_OPEN` / `PAIR_CONTEST_CHANGED`, `400` on a missing note or source |
+| `PATCH /api/admin/pair-contests/:id/protest` | §5.12 Sync Service section — **AECI-2042** | **Advice only.** Upholds or rejects a protest of an owner's data flow decline, with a required `note`. Writes no catalog data. Carries `rateLimit('write')`. `409 PAIR_PROTEST_NOT_OPEN` |
 | `POST /api/admin/vendors/:id/hide` · `/restore`, `POST /api/admin/products/:id/hide` · `/restore` | §5.7 Listing visibility and the Products tab, **AECI-1238** | **A moderation write** (the twenty-ninth §2 exception). `requireAdmin()` then `rateLimit('write')`. Hide body `{ kind, reason, internalNote?, receivedAt, sourceUrl? }`, restore body `{ reason, internalNote? }`. One batch: the `listing_hides` rows, the guarded UPDATEs of `hidden_at` / `hidden_hide_id`, a company's child rows for every joined product, the `vendor.hidden` / `product.hidden` (or `.restored`) audit rows, the `aeci_override` notices and the counterpart count recomputes. After commit: a by-id Algolia sync, the purge, the recrawl and a home-stats refresh. `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6 |
 | `POST /api/admin/field-hides` · `/:id/restore` · `/:id/status-reply`, `GET /api/admin/vendors/:id/field-hides` | §5.7 Values under review, **AECI-1238 PR 2** | **A moderation write** (the thirtieth §2 exception). `requireAdmin()` then `rateLimit('write')` on the three POSTs. The GET is a read. Hide body `{ entityType, entityId, field, sourceUrl, receivedAt, reason, internalNote? }`, restore body `{ reason }`, status reply body `{ note }`. One batch: the `field_hides` row or its guarded clear, the `<entity>.field_hidden` / `.field_hide_cleared` / `.field_hide_status_reply` audit row and the `aeci_override` notice (none on a status reply). After commit on a hide or restore: the purge and a by-id Algolia sync. `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.7 |
 | `POST /api/admin/field-overrides` · `/:id/lift` | §5.7 Field corrections — **AECI-1237** (facets AECI-1382; row added by AECI-1671) | **A moderation write**. The POST corrects a factual field on a **vendor-held** record — the shared per-record allow-list, a required https source link (AECI-1614), a reason the vendor reads, an optional internal note — and locks it; the lift removes the lock with the same two reason fields. One `db.batch`: the `field_overrides` row, the guarded record UPDATE, the `<entity>.field_overridden` / `.override_lifted` audit row; the partial unique index `field_overrides_active_key` backs the pre-read against a race (`409 FIELD_OVERRIDE_ACTIVE`). Anything not vendor-held is `409 FIELD_OVERRIDE_NOT_VENDOR_HELD`. The owner's next save cannot undo a lock: `409 FIELD_LOCKED_BY_AECI` (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5). After commit on a correction: the purge and a by-id Algolia sync; a lift changes no public value, so it purges and syncs nothing. Carries `rateLimit('write')`; `GET /api/admin/vendors/:id/field-overrides` is a read and carries none |
@@ -2671,6 +3353,10 @@ All endpoints are admin-gated and register on the existing `authAdmin` sub-route
 | `POST /api/admin/email/sends/search` | §5.14 address search — **SHIPPED (AECI-1223)** | **A read with a body, not a write.** The same filters plus a required `address`, in JSON. The handler hashes it with `recipientHash` and filters `recipient_hash =`. The address is never logged and never in the response. Adds `unmatched_events`, the 25 newest delivery events for that hash with no ledger row. No audit row, no `rateLimit()` (reads are never limited) |
 | `POST /api/admin/logo` | Logo upload — **SHIPPED (AECI-955)** | Not a write *in D1*: one bounded multipart `file` to the private `UPLOADS` R2 bucket, keyed by its SHA-256, returning `{logo_url: "/api/logos/<hash>"}`. No `audit_log` row, because no domain state moved — an upload is not a catalog edit until a parent form saves. Carries `rateLimit('write')` and a same-origin check (`requireLogoOrigin`), both exceptions to the conventions above; the limiter is here because this route is the only admin write that consumes unbounded external storage. Contract in `packages/shared/src/api/logos.ts` |
 | `PATCH /api/admin/vendors/:id/logo` | §5.7 vendor logo — **SHIPPED (AECI-955)** | **The sixth write in this table, and the FIRST catalog-content write** (`STAGE_2_5_SPEC.md` §11 admits it; §2's boundary is amended, not bypassed). Strict `{logo_url, reason, internalNote?}` only (AECI-1191 added the required `reason`, recorded in the audit row's `metadata.reason`; AECI-1159 shows it to the vendor) — no other column is reachable. Writes `logo_url` + `logo_source='admin'` + `updated_at` with its `vendor.updated` audit row in the same `db.batch`, then purges `vendor:{slug}` post-commit. `logo_source` fences promote off that column permanently (`REVIEW_APP_PROMOTE_API.md` "Logo ownership override"). Carries `rateLimit('write')` |
+| `GET /api/admin/products/:id/delivered-pairs` | §5.7 Products tab, Delivered pairs — **AECI-2045** | Every pair the connector product delivers, from `connector_evidenced_pairs` (`connector_product_id`) and `integrations` (`powered_by_product_id`, a Convention-A self-reference left out), live and retired, with owner, `claimed_at`, `retired_at` / `retired_by` and each row's endpoint vendors, plus the connector's own vendors. No catalogue row needed. Ordered by name case-insensitively then id, at most 500 rows. `404` unknown product, `409 CONNECTOR_KIND_NOT_CONNECTOR` on an `application`. No audit row, no rate limit. Contract in `packages/shared/src/api/delivered-pairs.ts` |
+| `PUT /api/admin/integrations/:id/owner` | §5.7 Delivered pairs — **AECI-2045** | **The fortieth write.** Body `{ owner_vendor_id: uuid \| null, reason }`, strict, the reason `AdminReasonSchema`. The id is looked up in `integrations` first, then `connector_evidenced_pairs`. `404` unknown id, `409 INTEGRATION_NOT_CONNECTOR_DELIVERED` on a row no connector delivers, `422 VALIDATION_FAILED` on `owner_vendor_id` for an unknown vendor. An unchanged owner is `200 { changed: false }` and writes nothing. Otherwise one batch: the accept's state sentinel, the `planOwnerReassign` statements (owner, `claimed_at = NULL`, `vendor_edited_at = NULL`, open owner-routed contests re-routed to AECi) and the `integration.updated` audit row (`reason: 'owner-reassigned'`, `metadata.source = 'admin-owner-write'`, `metadata.adminReason`), and on a claimed row the `portal-field-overridden-by-aeci` notice to the displaced owner with the reason. A race is `409 INTEGRATION_CHANGED_WHILE_SAVING`. After commit: purge, by-id Algolia sync, ownership record re-sent for both owners. Carries `rateLimit('write')` |
+| `PATCH /api/admin/products/:id/connector-kind` | §5.7 connector kind — **SHIPPED (AECI-2036)** | **The thirty-ninth write.** Body `{ connector_kind: 'integration_platform' \| 'sync_service' \| null }`, strict. `409 CONNECTOR_KIND_NOT_CONNECTOR` on an `application` product, and when a promote moves the product to `application` mid-request (a batch sentinel). `409 CONNECTOR_KIND_SUBSCRIBED` when the change would take a subscribed product from may-hold to may-not (AECI-2044, a second sentinel for an assign mid-request). An unchanged value is `200 { changed: false }` and writes nothing. Otherwise one `product.updated` audit row in the same `db.batch`, then a purge of `product:{slug}` + `index:products` and a by-id Algolia sync of the product (AECI-1662). Carries `rateLimit('write')`. Contract in `packages/shared/src/api/connector-kind-schema.ts` |
+| `PATCH /api/admin/products/:id/sync-facts` | §5.7 Sync Service facts — **AECI-2046** | **The forty-first write.** Body `{ sync_frequency, sync_support, sync_setup, source_url }`, all four required, each a string or `null`, strict. Each fact is trimmed, a blank reads as `null` (clears it), and the caps are 120, 160 and 280 characters (`SYNC_FACT_MAX_LENGTH`). `source_url` is an https link, required while any fact is set, and the write stamps `sync_facts_recorded_at`: the page marks the facts as ours with that source and date, as the Terms promise. `409 SYNC_FACTS_NOT_SYNC_SERVICE` when the product is not a Sync Service (`isSyncService`), and when its kind or role changes mid-request (a batch sentinel). An unchanged set is `200 { changed: false }` and writes nothing. Otherwise one `product.updated` audit row naming the changed fields in the same `db.batch`, then a purge of `product:{slug}`. No Algolia sync: the record does not carry the facts. Carries `rateLimit('write')`. Contract in `packages/shared/src/api/sync-service.ts` |
 | `PATCH /api/admin/products/:id/logo` | §5.7 product logo — **SHIPPED (AECI-955)** | **The seventh write**, same shape, same required `reason` (AECI-1191): `product.updated` audit row in the same `db.batch`, purging `product:{slug}` + `index:products`. The narrower tag set than `productEditTags` is deliberate — a logo touches no facet membership, and every browse page that lists the product already embeds its `product:{slug}` tag. Carries `rateLimit('write')` |
 
 **Conventions.** No `audit_log` rows **from the reads** — every `GET` in the table above writes nothing, including the `?recompute=1` ones, all five §5.9 connector reads, §5.10's claim detail and claim audit trail, §5.18's global audit log, §5.4a's roster, §5.11's worklist and all three §5.14 email reads, the `POST` search included (§26.1 governs writes; ADR 0022 scopes it). Reading a subscriber's address is not exempted by special pleading: it is a read, and the panel audits none of them. The write paths do audit, in the same `db.batch` as their write: §5.7's revoke via `revokeSeatStatements` and provision via `provisionSeatStatements`, §5.8's ban via the AECI-218 handler, AECI-1623's suspension writes via `auditInsert` in their batches, AECI-720's `managed_by` flip via `auditInsert` alongside its guarded `UPDATE`, and AECI-739's operator note via `saveClaimNotesStatements`, and AECI-946's worklist clear via `deleteGscRecrawlRow` alongside `auditInsert`, and AECI-955's two logo PATCHes via `auditInsert` alongside their guarded `UPDATE`, and AECI-1224's sending switch via `auditInsert` alongside its upsert and race sentinel. **Only one of them touches §2's "no editing catalog data" boundary, and it does so by amendment rather than by accident**: a seat revoke and a ban are account writes, a `managed_by` flip is a *governance* write — it decides which system may author a catalogue, and changes no catalogue content — an operator note is an *annotation* on a request row, which was never catalog data, and a worklist clear removes a row from a table no public surface reads. The AECI-955 logo PATCHes **are** catalog-content writes, admitted as §2's seventh named exception and bounded to a single column by a strict one-key schema (`STAGE_2_5_SPEC.md` §11). Promotion remains the review-app → `POST /api/promote` path, and there is still no *general* admin vendor-edit or product-edit endpoint — logo is the only field an operator can write. No `Cache-Tag`, no edge caching; `/admin/*` is absent from `ROUTE_CACHE_PATTERNS` in `server-runtime.ts` and therefore takes the non-cacheable branch with `private, no-store`. That must stay true (§9.2). Response validation in dev via `validateResponseInDev`, as with the other admin routes.
@@ -2764,7 +3450,9 @@ vocabulary is `ADMIN_SNAPSHOT_METRIC_KEYS` in `packages/shared/src/api/admin-pan
 tabulated in `DATABASE_SCHEMA.md` §9.3 — **21 keys**: the 9 flow keys the
 timeseries endpoint already served, 11 stocks (catalog totals, subscriber
 counts, queue depths), and since AECI-869 one **data-quality** key,
-`quality.arrival_cf_coverage` (§13 **D20**). That third family is a per-day RATIO
+`quality.arrival_cf_coverage` (§13 **D20**). AECI-818 added eight more stocks, the `seo.*` and
+`queue.reindex_*` keys of §5.24.8, and AECI-816 added a ninth, `queue.reindex_tier12_pending`. One of them, `queue.reindex_oldest_tier12_age_days`, writes no
+row on a day with no tier-1 or tier-2 re-index row, and the run records it as `absent`. That third family is a per-day RATIO
 rather than a count, and it is in `ADMIN_SNAPSHOT_QUALITY_METRIC_KEYS` rather than
 `ADMIN_METRIC_KEYS` because the endpoint's read path rounds a stored value to an
 integer — which would turn a failing 0.94 into a passing 1. The stocks are written from day one but **not yet readable
@@ -2907,7 +3595,8 @@ Six properties are load-bearing; ADR 0027 carries the full reasoning.
 2. **Three keys, and the narrowed type is the guard.** Only `traffic.page_views_human`,
    `traffic.page_views_bot` and `traffic.unique_visitors` are diffed
    (`ADMIN_RETROACTIVE_METRIC_KEYS`). Re-running the primary producers for an old day would **destroy
-   data** — the eleven stock producers ignore their `day` argument and count as of now — so handing
+   data** — the stock producers count as of now. The AECI-818 `seo.*` crawl keys end their window at
+   their day, but they read today's catalog — so handing
    the pass a stock key is a compile error rather than a comment. Note `accounts.sign_ins_new` also
    moves retroactively (a deleted profile decrements the day it was created on) and is excluded for a
    *different* reason: "3 people signed in on 20 August" is a fact that does not un-happen.
@@ -2924,9 +3613,11 @@ Six properties are load-bearing; ADR 0027 carries the full reasoning.
    would drop the per-point flag the timeseries reports and lock the backfill out of that row
    for good. A correction changes the value, never the provenance.
 4. **It never inserts**, and the reason is not "coverage is the backfill's job". §7.4's
-   `findSnapshotGap` probes `metrics_daily` with **no `metric` predicate**, so one inserted row would
-   clear the 03:00 prune to delete that day's `page_views` while every unrecoverable stock key was
-   still missing.
+   `findSnapshotGap` counts **any one** snapshot-key row as a captured day, so one inserted traffic
+   row would clear the 03:00 prune to delete that day's `page_views` while every unrecoverable stock
+   key was still missing. Since AECI-820 the probe reads only `ADMIN_SNAPSHOT_METRIC_KEYS`, which
+   keeps the search ingest's rows out of it (§5.24.8). The re-check's keys are snapshot keys, so
+   this rule still holds.
 5. **The pair is written together or not at all.** Retired 2026-10-23 (AECI-1460): the filtered key is frozen
    and has no writer, so the re-check no longer recomputes it. History follows. Correcting the raw human count while leaving
    `traffic.page_views_human_after_automation` stale renders a filtered series *above* the unfiltered
@@ -2972,9 +3663,9 @@ job_runs
   INDEX (job, started_at)
 ```
 
-Each of the twenty-nine cron jobs in `scheduled.ts` writes one row (eight at the time this was written; AECI-581 added the 00:15 `snapshot` job, AECI-584 the 03:00 `retention` prune, AECI-302 the 10:00 attestation detector sweep, AECI-613 the 11:00 entitlement term-expiry sweep, AECI-826 the IndexNow drain (`*/20`, daily at `5 0` since AECI-1136), AECI-862 the `25 */6` claim-staleness check, AECI-1205 the 12:00 protest reply reminder, AECI-1210 the 00:30 vendor snapshot, AECI-1236 the 13:00 `gsc-inspect` Google URL Inspection run, AECI-1368 the 14:00 `claim-owner-fallback`, AECI-1435 the 14:30 `request-confirmation-expiry`, AECI-1345 the 00:45 `traffic-classify` run, AECI-1505 the `7-59/15` `sitemap-rebuild`, AECI-1305 the 15:00 `vendor-claim-nudge`, AECI-1618 the 16:00 `brand-asset-removal`, AECI-1636 the 17:00 `acceptance-evidence-removal`, AECI-1621 the `11-59/15` `plan-snapshot`, AECI-1680 the 18:00 `acceptance-chain`, AECI-1638 the `legal-retention-prune` the 03:00 tick enqueues, and AECI-624 the WEEKLY 02:00 Monday `asn-registry` refresh — cron `0 2 * * 2`, because Cloudflare's day-of-week is 1=Sunday, AECI-661 — which met this table at the AECI-750 reconcile). One writer is not a cron (AECI-1476). The IndexNow result route, `POST /api/internal/indexnow/batch/:batchId/result`, writes one `job = 'indexnow-send'` row per recorded GitHub Actions send. That value is outside `AdminCronJob`, and every reader filters on `job`, so the row never reaches `/admin/system`. `DATABASE_SCHEMA.md` §9.4 has its `detail` shape. The data-quality run stores its full result set in `detail`, which is what §5.6 renders. Retention: 90 days (§7.4), enforced by the 03:00 prune since AECI-584.
+Each of the thirty cron jobs in `scheduled.ts` writes one row (eight at the time this was written; AECI-581 added the 00:15 `snapshot` job, AECI-584 the 03:00 `retention` prune, AECI-302 the 10:00 attestation detector sweep, AECI-613 the 11:00 entitlement term-expiry sweep, AECI-826 the IndexNow drain (`*/20`, daily at `5 0` since AECI-1136), AECI-862 the `25 */6` claim-staleness check, AECI-1205 the 12:00 protest reply reminder, AECI-1210 the 00:30 vendor snapshot, AECI-1236 the 13:00 `gsc-inspect` Google URL Inspection run, AECI-1368 the 14:00 `claim-owner-fallback`, AECI-1435 the 14:30 `request-confirmation-expiry`, AECI-1345 the 00:45 `traffic-classify` run, AECI-1505 the `7-59/15` `sitemap-rebuild`, AECI-1305 the 15:00 `vendor-claim-nudge`, AECI-1618 the 16:00 `brand-asset-removal`, AECI-1636 the 17:00 `acceptance-evidence-removal`, AECI-1621 the `11-59/15` `plan-snapshot`, AECI-1680 the 18:00 `acceptance-chain`, AECI-1638 the `legal-retention-prune` the 03:00 tick enqueues, AECI-820 the WEEKLY Sunday 22:00 `search-ingest` (`0 22 * * 1`), and AECI-624 the WEEKLY 02:00 Monday `asn-registry` refresh — cron `0 2 * * 2`, because Cloudflare's day-of-week is 1=Sunday, AECI-661 — which met this table at the AECI-750 reconcile). One writer is not a cron (AECI-1476). The IndexNow result route, `POST /api/internal/indexnow/batch/:batchId/result`, writes one `job = 'indexnow-send'` row per recorded GitHub Actions send. That value is outside `AdminCronJob`, and every reader filters on `job`, so the row never reaches `/admin/system`. `DATABASE_SCHEMA.md` §9.4 has its `detail` shape. The data-quality run stores its full result set in `detail`, which is what §5.6 renders. Retention: 90 days (§7.4), enforced by the 03:00 prune since AECI-584.
 
-**SHIPPED (AECI-583, 2026-08-13.)** `job` uses the twenty-nine `AdminCronJob` ids in `packages/shared/src/api/admin-panel.ts` (AECI-581 added the ninth, `metrics-snapshot`; AECI-584 the tenth, `retention-prune`; AECI-302 the eleventh, `attestation-notify`; AECI-613 the twelfth, `entitlement-expiry`; AECI-624 the thirteenth, `asn-registry`; AECI-826 the fourteenth, `indexnow-drain`; AECI-862 the fifteenth, `claim-stale-check`; AECI-1205 the sixteenth, `protest-reply-reminder`; AECI-1210 the seventeenth, `vendor-snapshot`; AECI-1236 the eighteenth, `gsc-inspect`; AECI-1368 the nineteenth, `claim-owner-fallback`; AECI-1435 the twentieth, `request-confirmation-expiry`; AECI-1345 the twenty-first, `traffic-classify`; AECI-1505 the twenty-second, `sitemap-rebuild`; AECI-1305 the twenty-fourth, `vendor-claim-nudge`; AECI-1618 the twenty-fifth, `brand-asset-removal`; AECI-1636 the twenty-sixth, `acceptance-evidence-removal`; AECI-1621 the twenty-seventh, `plan-snapshot`, AECI-1680 the twenty-eighth, `acceptance-chain`; AECI-1638 the twenty-ninth, `legal-retention-prune` — no migration needed for any of them, `job` carries no CHECK for exactly this reason); the DDL above is the built shape and `DATABASE_SCHEMA.md` §9.4 is the implementation record. Four things settled during the build are worth carrying forward:
+**SHIPPED (AECI-583, 2026-08-13.)** `job` uses the thirty `AdminCronJob` ids in `packages/shared/src/api/admin-panel.ts` (AECI-581 added the ninth, `metrics-snapshot`; AECI-584 the tenth, `retention-prune`; AECI-302 the eleventh, `attestation-notify`; AECI-613 the twelfth, `entitlement-expiry`; AECI-624 the thirteenth, `asn-registry`; AECI-826 the fourteenth, `indexnow-drain`; AECI-862 the fifteenth, `claim-stale-check`; AECI-1205 the sixteenth, `protest-reply-reminder`; AECI-1210 the seventeenth, `vendor-snapshot`; AECI-1236 the eighteenth, `gsc-inspect`; AECI-1368 the nineteenth, `claim-owner-fallback`; AECI-1435 the twentieth, `request-confirmation-expiry`; AECI-1345 the twenty-first, `traffic-classify`; AECI-1505 the twenty-second, `sitemap-rebuild`; AECI-1305 the twenty-fourth, `vendor-claim-nudge`; AECI-1618 the twenty-fifth, `brand-asset-removal`; AECI-1636 the twenty-sixth, `acceptance-evidence-removal`; AECI-1621 the twenty-seventh, `plan-snapshot`, AECI-1680 the twenty-eighth, `acceptance-chain`; AECI-1638 the twenty-ninth, `legal-retention-prune`; AECI-820 the thirtieth, `search-ingest` — no migration needed for any of them, `job` carries no CHECK for exactly this reason); the DDL above is the built shape and `DATABASE_SCHEMA.md` §9.4 is the implementation record. Four things settled during the build are worth carrying forward:
 
 - **Written on entry, completed on exit.** `withJobRun` (`apps/api/src/lib/job-runs.ts`) awaits the entry insert *before* invoking the job, so a run the isolate never returns from leaves `finished_at IS NULL` — the unfinished row is the signal. The finish write is awaited too, never `ctx.waitUntil`: on the queue path `ack()` fires the instant the job returns, and a deferred write would race it and manufacture false timeouts.
 - **All ten impls return a `JobRunReport` rather than `void`.** They swallow their own operational errors, so a wrapper that only watched for a throw would record `ok` for a failed run. A *thrown* handler is recorded `failed` **and rethrown**, preserving the reconcile job's deliberate queue retry; a *reported* failure does not throw, so instrumenting did not widen the retry surface to the other nine.
@@ -3393,6 +4084,22 @@ form outright and names two anti-patterns this section would hit: a 2-slice pie
 comparing close values (countries and sources differ by a few percent). It is
 built and tested so the §8 vocabulary is complete and a later section with a
 genuine few-category split can adopt it.
+
+**4. `LineChart` leaves a gap for a missing value (AECI-822).** A series value may be `null`
+(`NullableChartSeries` in `chart-types.ts`). A `null` means nothing was recorded there, which is
+a different claim from zero. The line breaks at a `null` and has no vertex there. A stretch where
+every series is `null` gets a hatched band with the caller's `gapLabel`. The hidden data table
+prints that label, never `0`. Three more inputs ride with it: `gapLabel`, `openLast` with
+`openLabel` (the last point is still open, so it is drawn hollow and off the line), and
+`unit: 'percent'` (values are fractions, the axis runs to 100%). Every input defaults to the old
+behaviour. A series with no `null` renders the same DOM as before AECI-822, checked by rendering
+the base-commit component beside the new one. The stacked charts keep plain numbers, because a
+stack has no honest way to draw a missing segment. The hatch is drawn as lines, not an SVG
+`pattern`, because a `url(#id)` fill is a bare fragment that the app's `base href` breaks.
+AECI-823 drew the hatch in `--border-field`, 3.55:1 on the chart surface, after an audit
+measured the grid colour at 1.22:1 (WCAG 1.4.11). Below the medium container width the band's
+label runs down the band instead of hiding, so there is a text cue at every width. Both changes
+are inside the band's own loop, so a chart with no band renders as before.
 
 **Also shipped:** a hover crosshair/tooltip on the time-series charts, per the
 skill's default. It is `aria-hidden` (the data table carries the values) and its

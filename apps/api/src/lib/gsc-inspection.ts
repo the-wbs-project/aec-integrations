@@ -18,79 +18,30 @@
  */
 
 import { discardResponseBody } from '@aeci/shared/response-drain';
-import { SignJWT, importPKCS8 } from 'jose';
 
-export const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
+import { SEARCH_CONSOLE_READONLY_SCOPE, SEARCH_CONSOLE_SITE } from './google-service-account';
+
+// The service account and token exchange moved to `./google-service-account` when
+// the weekly search ingest became a second reader (AECI-820). Re-exported so the
+// inspection run and its specs keep one import site.
+export {
+  GOOGLE_TOKEN_ENDPOINT,
+  getGoogleAccessToken,
+  parseServiceAccount,
+  SEARCH_CONSOLE_SITE,
+  type GoogleServiceAccount,
+  type TokenFailureKind,
+  type TokenResult,
+} from './google-service-account';
+
 export const URL_INSPECTION_ENDPOINT =
   'https://searchconsole.googleapis.com/v1/urlInspection/index:inspect';
-/** Read-only. The service account can inspect, never change the property. */
-export const URL_INSPECTION_SCOPE = 'https://www.googleapis.com/auth/webmasters.readonly';
-/** The Domain property. Inspected URLs are the stored absolute `url`, any host. */
-export const SEARCH_CONSOLE_SITE = 'sc-domain:aecintegrations.com';
+/** Read-only. The service account can inspect, never change the property. The
+ *  scope is shared with the search ingest; this name is kept for its readers. */
+export const URL_INSPECTION_SCOPE = SEARCH_CONSOLE_READONLY_SCOPE;
 
 /** Waits before the 2nd and 3rd attempt on a 5xx or a dropped connection. */
 export const INSPECT_RETRY_DELAYS_MS = [2_000, 5_000] as const;
-
-export interface GoogleServiceAccount {
-  clientEmail: string;
-  /** PKCS#8 PEM. `\n`-escaped keys (single-line secrets) are normalized. */
-  privateKey: string;
-}
-
-/**
- * Parse the service-account key file JSON held in `GSC_SA_KEY_JSON`. Returns
- * null on anything unusable, so a malformed secret reads as "not configured"
- * rather than a crash.
- */
-export function parseServiceAccount(json: string | undefined): GoogleServiceAccount | null {
-  if (!json) return null;
-  try {
-    const parsed = JSON.parse(json) as { client_email?: unknown; private_key?: unknown };
-    if (typeof parsed.client_email !== 'string' || typeof parsed.private_key !== 'string') {
-      return null;
-    }
-    return { clientEmail: parsed.client_email, privateKey: parsed.private_key };
-  } catch {
-    return null;
-  }
-}
-
-export type TokenResult = { ok: true; token: string } | { ok: false; message: string };
-
-/** Sign an RS256 assertion and exchange it for a one-hour access token. */
-export async function getGoogleAccessToken(
-  fetchImpl: typeof fetch,
-  account: GoogleServiceAccount,
-  tokenEndpoint: string = GOOGLE_TOKEN_ENDPOINT,
-): Promise<TokenResult> {
-  try {
-    const key = await importPKCS8(account.privateKey.replace(/\\n/g, '\n'), 'RS256');
-    const assertion = await new SignJWT({ scope: URL_INSPECTION_SCOPE })
-      .setProtectedHeader({ alg: 'RS256', typ: 'JWT' })
-      .setIssuer(account.clientEmail)
-      .setAudience(tokenEndpoint)
-      .setIssuedAt()
-      .setExpirationTime('1h')
-      .sign(key);
-    const res = await fetchImpl(tokenEndpoint, {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-        assertion,
-      }).toString(),
-    });
-    if (!res.ok) {
-      discardResponseBody(res);
-      return { ok: false, message: `token_http_${res.status}` };
-    }
-    const body = (await res.json()) as { access_token?: unknown };
-    if (typeof body.access_token !== 'string') return { ok: false, message: 'token_missing' };
-    return { ok: true, token: body.access_token };
-  } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : 'token_error' };
-  }
-}
 
 /** The fields of `inspectionResult.indexStatusResult` this module reads. */
 export interface IndexStatus {

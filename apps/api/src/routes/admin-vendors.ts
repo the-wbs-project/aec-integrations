@@ -66,6 +66,7 @@ import {
   type AdminReturnRecordsResponse,
   type ProvisionVendorSeatResponse,
   type VendorSeatInvite,
+  connectorKindFor,
 } from '@aeci/shared';
 import { compareText } from '@aeci/shared/text-sort';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
@@ -543,6 +544,12 @@ export function createAdminVendorProductsHandler(
           name: products.name,
           logoUrl: products.logoUrl,
           productRole: products.productRole,
+          connectorKind: products.connectorKind,
+          syncFrequency: products.syncFrequency,
+          syncSupport: products.syncSupport,
+          syncSetup: products.syncSetup,
+          syncFactsSourceUrl: products.syncFactsSourceUrl,
+          syncFactsRecordedAt: products.syncFactsRecordedAt,
           isPrimary: productVendors.isPrimary,
           promotionStatus: products.promotionStatus,
           integrationCount: products.integrationCount,
@@ -588,6 +595,16 @@ export function createAdminVendorProductsHandler(
           // the public product card uses, so a data defect surfaces identically
           // in the console rather than rendering as if it were understood.
           product_role: toProductRole(row.productRole, row.id),
+          // AECI-2036: what the roster's kind control edits.
+          connector_kind: connectorKindFor(row.productRole, row.connectorKind),
+          // AECI-2046: what the roster's Sync Service facts form edits.
+          sync_facts: {
+            sync_frequency: row.syncFrequency ?? null,
+            sync_support: row.syncSupport ?? null,
+            sync_setup: row.syncSetup ?? null,
+            source_url: row.syncFactsSourceUrl ?? null,
+            recorded_at: row.syncFactsRecordedAt ?? null,
+          },
           is_primary: row.isPrimary,
           promotion_status: row.promotionStatus,
           integration_count: row.integrationCount,

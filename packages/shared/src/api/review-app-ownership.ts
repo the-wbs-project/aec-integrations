@@ -112,7 +112,8 @@ export const OwnershipProductSchema = z.object({
 /**
  * One integration where a product of this vendor is the source or the target (ruling
  * Q2). An edge where the vendor's product is only the `poweredByProduct` connector is
- * not listed. `owner` is `vendor` when either endpoint product is owned, by this vendor
+ * not listed here. Under v2 a pair the vendor builds is in `deliveredPairs[]` instead
+ * (AECI-2047, {@link OwnershipDeliveredPairSchema}). `owner` is `vendor` when either endpoint product is owned, by this vendor
  * or another. The per-row claim fence (§4b) and the vendor-created fence (§4c) apply on
  * top of it in promote, whatever this says.
  */
@@ -372,13 +373,52 @@ export const OwnershipClaimSchema = z.object({
 });
 export type OwnershipClaim = z.infer<typeof OwnershipClaimSchema>;
 
+/**
+ * One data flow on a row whose OWNER maintains its flows (AECI-2039, §4d `ownerFlows`):
+ * a claimed pair whose connector product is a Sync Service. Every claim on the row is
+ * listed, including a flow the owner added, which has no attestation and so no claim
+ * slot. `answer` is the owner's live answer, counted by the rule the public pages use:
+ * `yes` shows the flow as confirmed by the owner, `no` removes it from every public
+ * page, `null` means the owner has not answered. Unique by `{ dataObject, direction }`.
+ */
+export const OwnershipOwnerFlowSchema = z.object({
+  dataObject: PromoteClaimSchema.shape.dataObject,
+  direction: PromoteClaimSchema.shape.direction,
+  /** `vendor` when the owner added the flow, `aeci` when AEC Integrations seeded it. */
+  origin: z.enum(['aeci', 'vendor']),
+  answer: z.enum(['yes', 'no']).nullable(),
+});
+export type OwnershipOwnerFlow = z.infer<typeof OwnershipOwnerFlowSchema>;
+
+/** The natural key of an owner flow, for uniqueness checks and sorting. */
+export function ownershipOwnerFlowKey(f: Pick<OwnershipOwnerFlow, 'dataObject' | 'direction'>) {
+  return `${f.dataObject}\u0000${f.direction}`;
+}
+
 /** A v2 integration entry: the v1 entry plus `content` and `claims`, both present
- *  exactly when owned. */
+ *  exactly when owned. `ownerFlows` (AECI-2039) is optional and additive: present only
+ *  on an owned entry whose row's owner maintains its flows, else absent. */
 export const OwnershipIntegrationV2Schema = OwnershipIntegrationSchema.extend({
   content: OwnershipIntegrationContentSchema.optional(),
   claims: z.array(OwnershipClaimSchema).optional(),
+  ownerFlows: z.array(OwnershipOwnerFlowSchema).optional(),
 });
 export type OwnershipIntegrationV2 = z.infer<typeof OwnershipIntegrationV2Schema>;
+
+/**
+ * A pair this vendor delivers as its connector's builder (AECI-2047, §4d
+ * `deliveredPairs[]`): a `connector_evidenced_pairs` row whose `built_by_vendor_id` is
+ * this vendor and whose two endpoints are not this vendor's products. `integrations[]`
+ * never lists one, because its rule is "this vendor's product is an endpoint".
+ *
+ * `owner` here is the per-row hold, not the product rule: `vendor` exactly when the
+ * pair is claimed or vendor-created, which is when promote refuses it (§4b). Then
+ * `content` and `claims` are present, as on an `integrations[]` entry.
+ */
+export const OwnershipDeliveredPairSchema = OwnershipIntegrationV2Schema.extend({
+  table: z.literal('connector_evidenced_pairs'),
+});
+export type OwnershipDeliveredPair = z.infer<typeof OwnershipDeliveredPairSchema>;
 
 /** A lowercase hex SHA-256 digest. */
 export const RecordHashSchema = z.string().regex(/^[0-9a-f]{64}$/, 'a lowercase hex SHA-256');
@@ -406,6 +446,12 @@ export const OwnershipRecordV2Schema = z
     products: z.array(OwnershipProductV2Schema),
     integrations: z.array(OwnershipIntegrationV2Schema),
     proposals: z.array(OwnershipProposalSchema),
+    /**
+     * AECI-2047: the pairs this vendor delivers as a connector's builder. Optional and
+     * additive: absent means none, and the producer leaves it out when it is empty, so
+     * a record without such pairs hashes exactly as before.
+     */
+    deliveredPairs: z.array(OwnershipDeliveredPairSchema).optional(),
     recordHash: RecordHashSchema,
   })
   .superRefine((record, ctx) => {
@@ -426,54 +472,92 @@ export const OwnershipRecordV2Schema = z
         });
       }
     });
-    record.integrations.forEach((intg, i) => {
-      const owned = intg.owner === 'vendor';
-      if (owned !== (intg.content !== undefined) || owned !== (intg.claims !== undefined)) {
+    const edges: Array<['integrations' | 'deliveredPairs', OwnershipIntegrationV2[]]> = [
+      ['integrations', record.integrations],
+      ['deliveredPairs', record.deliveredPairs ?? []],
+    ];
+    // AECI-2047: a pair is listed once. One with an endpoint of this vendor's is an
+    // `integrations[]` entry, never also a delivered pair.
+    const listed = new Set(record.integrations.map((intg) => intg.id));
+    record.deliveredPairs?.forEach((pair, i) => {
+      if (listed.has(pair.id)) {
         ctx.addIssue({
           code: 'custom',
-          path: ['integrations', i, 'content'],
-          message:
-            'integration content and claims are present exactly when the integration is vendor-owned',
+          path: ['deliveredPairs', i, 'id'],
+          message: 'a delivered pair is never also listed in integrations',
         });
       }
-      const content = intg.content;
-      if (content) {
-        const isPair = intg.table === 'connector_evidenced_pairs';
-        if (isPair && content.mechanismKind !== undefined) {
-          ctx.addIssue({
-            code: 'custom',
-            path: ['integrations', i, 'content', 'mechanismKind'],
-            message: 'a connector_evidenced_pairs row stores no mechanismKind',
-          });
-        }
-        if (!isPair && content.mechanismKind === undefined) {
-          ctx.addIssue({
-            code: 'custom',
-            path: ['integrations', i, 'content', 'mechanismKind'],
-            message: 'an integrations row sends mechanismKind, null when unset',
-          });
-        }
-        if (isPair && content.poweredByProduct === null) {
-          ctx.addIssue({
-            code: 'custom',
-            path: ['integrations', i, 'content', 'poweredByProduct'],
-            message: 'a connector_evidenced_pairs row always names its connector',
-          });
-        }
-      }
-      const seen = new Set<string>();
-      intg.claims?.forEach((c, j) => {
-        const key = ownershipClaimKey(c);
-        if (seen.has(key)) {
-          ctx.addIssue({
-            code: 'custom',
-            path: ['integrations', i, 'claims', j],
-            message: 'claim slots are unique by { dataObject, direction, source }',
-          });
-        }
-        seen.add(key);
-      });
     });
+    for (const [list, entries] of edges) {
+      entries.forEach((intg, i) => {
+        const owned = intg.owner === 'vendor';
+        if (owned !== (intg.content !== undefined) || owned !== (intg.claims !== undefined)) {
+          ctx.addIssue({
+            code: 'custom',
+            path: [list, i, 'content'],
+            message:
+              'integration content and claims are present exactly when the integration is vendor-owned',
+          });
+        }
+        const content = intg.content;
+        if (content) {
+          const isPair = intg.table === 'connector_evidenced_pairs';
+          if (isPair && content.mechanismKind !== undefined) {
+            ctx.addIssue({
+              code: 'custom',
+              path: [list, i, 'content', 'mechanismKind'],
+              message: 'a connector_evidenced_pairs row stores no mechanismKind',
+            });
+          }
+          if (!isPair && content.mechanismKind === undefined) {
+            ctx.addIssue({
+              code: 'custom',
+              path: [list, i, 'content', 'mechanismKind'],
+              message: 'an integrations row sends mechanismKind, null when unset',
+            });
+          }
+          if (isPair && content.poweredByProduct === null) {
+            ctx.addIssue({
+              code: 'custom',
+              path: [list, i, 'content', 'poweredByProduct'],
+              message: 'a connector_evidenced_pairs row always names its connector',
+            });
+          }
+        }
+        // AECI-2039: owner flows ride an owned entry only, one per flow identity.
+        if (intg.ownerFlows !== undefined && intg.content === undefined) {
+          ctx.addIssue({
+            code: 'custom',
+            path: [list, i, 'ownerFlows'],
+            message: 'ownerFlows are present only on a vendor-owned integration',
+          });
+        }
+        const flowKeys = new Set<string>();
+        intg.ownerFlows?.forEach((f, j) => {
+          const key = ownershipOwnerFlowKey(f);
+          if (flowKeys.has(key)) {
+            ctx.addIssue({
+              code: 'custom',
+              path: [list, i, 'ownerFlows', j],
+              message: 'owner flows are unique by { dataObject, direction }',
+            });
+          }
+          flowKeys.add(key);
+        });
+        const seen = new Set<string>();
+        intg.claims?.forEach((c, j) => {
+          const key = ownershipClaimKey(c);
+          if (seen.has(key)) {
+            ctx.addIssue({
+              code: 'custom',
+              path: [list, i, 'claims', j],
+              message: 'claim slots are unique by { dataObject, direction, source }',
+            });
+          }
+          seen.add(key);
+        });
+      });
+    }
   });
 
 /** What the receiver accepts: either schema version, told apart by `schemaVersion`. */
@@ -560,6 +644,24 @@ const byKey =
  * four taxonomy slug lists. Kept in order: product versions and usefulness groups and
  * points, whose order a reader sees.
  */
+/** Edges in hash order: by id, with their vendor links and claim slots sorted. */
+function sortEdges<T extends OwnershipIntegrationV2>(edges: readonly T[]): T[] {
+  return [...edges]
+    .map((intg) => ({
+      ...intg,
+      content: intg.content && {
+        ...intg.content,
+        vendorLinks: [...intg.content.vendorLinks].sort(
+          byKey((l) => `${l.productId}\u0000${l.kind}`),
+        ),
+      },
+      claims: intg.claims && [...intg.claims].sort(byKey(ownershipClaimKey)),
+      // AECI-2039: left out when absent, so an entry without them hashes as before.
+      ownerFlows: intg.ownerFlows && [...intg.ownerFlows].sort(byKey(ownershipOwnerFlowKey)),
+    }))
+    .sort(byKey((i) => i.id));
+}
+
 export function ownershipRecordHashContent(
   record: Omit<OwnershipRecordV2, 'version' | 'asOf' | 'reason' | 'recordHash'> &
     Partial<Pick<OwnershipRecordV2, 'version' | 'asOf' | 'reason' | 'recordHash'>>,
@@ -584,19 +686,11 @@ export function ownershipRecordHashContent(
           : p,
       )
       .sort(byKey((p) => p.id)),
-    integrations: [...rest.integrations]
-      .map((intg) => ({
-        ...intg,
-        content: intg.content && {
-          ...intg.content,
-          vendorLinks: [...intg.content.vendorLinks].sort(
-            byKey((l) => `${l.productId}\u0000${l.kind}`),
-          ),
-        },
-        claims: intg.claims && [...intg.claims].sort(byKey(ownershipClaimKey)),
-      }))
-      .sort(byKey((i) => i.id)),
+    integrations: sortEdges(rest.integrations),
     proposals: [...rest.proposals].sort(byKey((p) => p.id)),
+    // AECI-2047: left out when absent, so a record with no delivered pairs hashes as
+    // it did before the field existed.
+    deliveredPairs: rest.deliveredPairs && sortEdges(rest.deliveredPairs),
   };
 }
 

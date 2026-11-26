@@ -156,6 +156,8 @@ async function seed() {
       slug: 'agave',
       name: 'Agave',
       productRole: 'connector',
+      // AECI-1662: a kind, so `connector_kind` is exercised off NULL too.
+      connectorKind: 'sync_service',
       promotionStatus: 'promoted',
     },
   ]);
@@ -443,6 +445,33 @@ describe('Algolia builder parity: datatool full reindex vs Worker transform (AEC
       const transformed = await transformProduct(id);
       expect(record.product_role).toBe(expected[id]);
       expect(transformed.product_role).toBe(expected[id]);
+      expect(record).toStrictEqual(transformed);
+    }
+  });
+
+  // AECI-1662 — asserted directly as well as through parity, for the same reason.
+  // u(12) is an application holding a stale kind: both paths must read NULL.
+  it('carries connector_kind on both paths, for every role and kind', async () => {
+    await seed();
+    await t.db
+      .update(products)
+      .set({ connectorKind: 'integration_platform' })
+      .where(eq(products.id, u(12)));
+    await t.db
+      .update(products)
+      .set({ productRole: 'hybrid', connectorKind: 'integration_platform' })
+      .where(eq(products.id, u(11)));
+    const reindexed = await buildProductRecords(asD1(t.raw));
+    const expected = {
+      [u(11)]: 'integration_platform',
+      [u(12)]: null,
+      [u(13)]: 'sync_service',
+    };
+    for (const record of reindexed) {
+      const id = record.objectID as string;
+      const transformed = await transformProduct(id);
+      expect(record).toHaveProperty('connector_kind', expected[id]);
+      expect(transformed.connector_kind).toBe(expected[id]);
       expect(record).toStrictEqual(transformed);
     }
   });

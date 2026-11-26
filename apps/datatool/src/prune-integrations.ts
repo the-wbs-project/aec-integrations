@@ -70,6 +70,7 @@
 
 import {
   ddlHasRetiredColumn,
+  ddlHasVetoedColumn,
   EVIDENCED_PAIRS_DDL_QUERY,
   evidencedPairsDdlOrThrow,
   INTEGRATIONS_DDL_QUERY,
@@ -345,6 +346,14 @@ export async function hasRetiredColumn(db: D1Database): Promise<boolean> {
   return ddlHasRetiredColumn(integrationsDdlOrThrow(row?.sql));
 }
 
+/** Whether `vetoed_at` exists yet (migration 0132, AECI-2042). One migration adds it
+ *  to both edge tables, so the `integrations` probe answers for both. Without it no
+ *  row is vetoed. */
+export async function hasVetoedColumn(db: D1Database): Promise<boolean> {
+  const [row] = await selectAll(db, INTEGRATIONS_DDL_QUERY, []);
+  return ddlHasVetoedColumn(integrationsDdlOrThrow(row?.sql));
+}
+
 /** Whether `products.hidden_at` exists yet (migration 0113, AECI-1238). A row that
  *  touches a hidden product is not live, here as in the Worker. */
 export async function hasProductsHiddenColumn(db: D1Database): Promise<boolean> {
@@ -391,6 +400,7 @@ export async function prunePlan(db: D1Database, ids: string[]): Promise<PrunePla
   const binds = ids;
   const retiredColumn = await hasRetiredColumn(db);
   const productsHidden = await hasProductsHiddenColumn(db);
+  const vetoedColumn = await hasVetoedColumn(db);
 
   const rows = (await selectAll(
     db,
@@ -424,7 +434,7 @@ export async function prunePlan(db: D1Database, ids: string[]): Promise<PrunePla
            AND NOT EXISTS (
              SELECT 1 FROM integrations s JOIN claims sc ON sc.integration_id = s.id
               WHERE s.id NOT IN (${ph})
-                AND ${liveIntegrationSqlIf('s', retiredColumn, productsHidden)}
+                AND ${liveIntegrationSqlIf('s', retiredColumn, productsHidden, vetoedColumn)}
                 AND s.source_product_id = o.source_product_id
                 AND s.target_product_id = o.target_product_id
                 AND IFNULL(s.mechanism_name,'') = IFNULL(o.mechanism_name,'')
@@ -436,14 +446,14 @@ export async function prunePlan(db: D1Database, ids: string[]): Promise<PrunePla
            AND NOT EXISTS (
              SELECT 1 FROM integrations s
               WHERE s.id NOT IN (${ph})
-                AND ${liveIntegrationSqlIf('s', retiredColumn, productsHidden)}
+                AND ${liveIntegrationSqlIf('s', retiredColumn, productsHidden, vetoedColumn)}
                 AND s.source_product_id = o.source_product_id
                 AND s.target_product_id = o.target_product_id
                 AND IFNULL(s.mechanism_name,'') = IFNULL(o.mechanism_name,'')
            )) AS orphansWithoutATwin,
        (SELECT COUNT(*) FROM integrations o
           JOIN integrations s ON s.id NOT IN (${ph})
-            AND ${liveIntegrationSqlIf('s', retiredColumn, productsHidden)}
+            AND ${liveIntegrationSqlIf('s', retiredColumn, productsHidden, vetoedColumn)}
             AND s.source_product_id = o.source_product_id
             AND s.target_product_id = o.target_product_id
             AND IFNULL(s.mechanism_name,'') = IFNULL(o.mechanism_name,'')
@@ -622,6 +632,7 @@ export async function pruneExecute(
   const ph = placeholders(ids.length);
   const retiredColumn = await hasRetiredColumn(db);
   const productsHidden = await hasProductsHiddenColumn(db);
+  const vetoedColumn = await hasVetoedColumn(db);
   const pairsRetiredColumn = await hasEvidencedRetiredColumn(db);
 
   // The route refuses vendor-held ids before it gets here. This is the second gate, so
@@ -688,10 +699,10 @@ export async function pruneExecute(
             `UPDATE products SET integration_count =
                ((SELECT COUNT(*) FROM integrations
                    WHERE (source_product_id = ? OR target_product_id = ?)
-                     AND ${liveIntegrationSqlIf('integrations', retiredColumn, productsHidden)})
+                     AND ${liveIntegrationSqlIf('integrations', retiredColumn, productsHidden, vetoedColumn)})
                 + (SELECT COUNT(*) FROM connector_evidenced_pairs
                      WHERE (product_a_id = ? OR product_b_id = ? OR connector_product_id = ?)
-                       AND ${liveEvidencedPairSqlIf('connector_evidenced_pairs', pairsRetiredColumn, productsHidden)}))
+                       AND ${liveEvidencedPairSqlIf('connector_evidenced_pairs', pairsRetiredColumn, productsHidden, vetoedColumn)}))
              WHERE id = ?`,
           )
           .bind(pid, pid, pid, pid, pid, pid),

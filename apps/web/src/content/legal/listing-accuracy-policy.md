@@ -2,7 +2,7 @@
 title: Listing Accuracy Policy
 version: 1.0
 effective_date:
-last_updated: November 12, 2026
+last_updated: November 26, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -16,13 +16,13 @@ AEC Integrations catalogs software products, vendors, and the integrations betwe
 
 Listings are compiled from **publicly available information**, including vendor websites, public product and API documentation, public integration directories and marketplaces, and similar sources, together with information sent to us by people who use the service and, where applicable, confirmed by vendors. We curate this into an AEC-native taxonomy and keep it as current as we reasonably can.
 
-A listing is a factual catalog entry, not an advertisement. We do not sell listings or ranking position, and inclusion does not imply any relationship with, or endorsement by, the vendor.
+A listing is a factual catalog entry, not an advertisement. We do not sell listings or ranking position, and inclusion does not imply any relationship with, or endorsement by, the vendor. Whether we list something is at our discretion. We may withdraw a listing, and a listing gives no one a right to stay visible on the site.
 
 ## Who maintains an integration
 
 An integration is a listing of how two products connect. It belongs to the vendor that built and offers it, which the listing names on its "Offered by" line, as recorded from that vendor's own documentation. We record integrations from public sources to start the catalog. The vendor named as the owner may then claim the integration through its vendor account. Once it does, the owner maintains the integration's details, its edits are published without review by us, and our own catalog updates no longer change that integration, except a correction under Requesting a correction below. A vendor may also add an integration of its own, which it maintains from the start. An integration delivered through a third-party connector product can be claimed, edited and contested in the same way by its owner. A correction request applies to it at any time.
 
-An owner may **retire** an integration it has claimed. A retired integration is taken off the public site but is not deleted, and the owner may restore it. We may also retire an integration a vendor maintains, where this policy lets us remove a listing: to correct an error, or to enforce our terms. Only we may restore an integration we retired.
+An owner may **retire** an integration it has claimed. A retired integration is taken off the public site but is not deleted, and the owner may restore it. The owner cannot restore it while a vendor's removal of it from its product stands. We may also retire an integration a vendor maintains, where this policy lets us remove a listing: to correct an error, or to enforce our terms. Only we may restore an integration we retired.
 
 ## We aim for accuracy, but we don't guarantee it
 
@@ -66,6 +66,18 @@ We then say which side we agree with, and give our reasons to both vendors. **Ou
 
 We do not publish anything about a review: not that one was asked for, and not our view.
 
+### Integrations a Sync Service delivers
+
+A Sync Service is a connector product that sells and runs a fixed list of finished integrations between two other companies' products. The vendor of a product at one end of such an integration may remove it from its product, even when the listing is accurate. We do not guarantee that an integration a third company delivers stays listed. On an integration a Sync Service delivers, a vendor whose product is at one end has three rights, sent from its vendor account:
+
+- **Removal.** The vendor can remove the integration from its product. It must choose its reason from a fixed list, and we record the reason and the time. A removal takes effect when the vendor sends it, and the integration is taken off the public site at once. We do not check a removal before it takes effect. The public site shows nothing about a removal: no note, no reason and not the name of the vendor that removed it. The Sync Service is told at once, with the vendor's reason and how to object. The Sync Service cannot restore the integration or add it again. The vendor that removed it can withdraw the removal, and the integration then returns as it was. If both vendors remove it, it returns only when both have withdrawn.
+- **Not offered.** The vendor can tell us the integration does not exist or is no longer offered. We decide. The integration stays listed while we check. If we confirm it, we take the integration off the public site within five business days.
+- **One data flow.** The vendor can tell us that one data flow on the integration is wrong, and say what is right. If the Sync Service has claimed the integration, the Sync Service decides. Otherwise we decide. Where the Sync Service declines, the vendor may ask us to review the decision as described above. Our view is advice, and the Sync Service decides the listing of that data flow. If our review shows a data flow is a factual error we can verify against a public source, we may still act under Requesting a correction above. On an integration the Sync Service has claimed, the Sync Service maintains its data flows and we cannot change one. So we take the integration off the public site.
+
+Each report is accepted, declined or withdrawn, and the decider is fixed when the report is sent. While a report is open, the listing does not show that it exists. These rights apply only where the connector is a Sync Service. They do not apply to an integration a vendor builds itself, or to one delivered through any other connector.
+
+The Sync Service may object to a removal, from its vendor account or by email to [support@aecintegrations.com](mailto:support@aecintegrations.com). We look at an objection after the removal has taken effect, and on three grounds only. The removal came from an account that should not have had access to that product. It named the wrong product. Or its reason is plainly false on its face, for example where the vendor's own public materials show that it supports the integration. We do not decide whether the vendor should support the integration. We may also end a removal where the vendor's claim to that product ends or is suspended, or where the law requires it. When we end a removal, the integration returns as it was, unless the other vendor has removed it too. We tell both vendors why. If we do not agree with an objection, we tell the Sync Service why. We answer an objection within five business days of receiving it. While an objection is open, the integration stays off the site.
+
 A contest is separate from a correction request. Anyone may still ask us for a correction under the section above.
 
 ## What we will and will not change
@@ -77,7 +89,7 @@ We will:
 
 We will **not**:
 
-- **remove an accurate listing simply because a vendor asks us to.** AEC Integrations is an independent directory built from public information; a vendor's preference not to be listed is not, on its own, a reason to remove an accurate entry. We remove a listing only to correct an error, reflect that a company or product is defunct, comply with a legal obligation, or enforce our terms.
+- **remove an accurate listing simply because a vendor asks us to.** AEC Integrations is an independent directory built from public information; a vendor's preference not to be listed is not, on its own, a reason to remove an accurate entry. We remove a listing only to correct an error, reflect that a company or product is defunct, comply with a legal obligation, or enforce our terms. The one exception is an integration a Sync Service delivers. A vendor at one end of it can remove it from its product, even when the listing is accurate, as described under Integrations a Sync Service delivers above.
 
 This independence is deliberate: it is what lets the directory stay useful and trustworthy rather than reflecting only what vendors want shown.
 
@@ -97,4 +109,4 @@ Corrections and questions: [support@aecintegrations.com](mailto:support@aecinteg
 
 ## Change history
 
-- **Version 1.0** (this version): draft, not yet in force. A plain-language pass said that a correction request needs a public source. After counsel's read: says who the contest procedure binds, commits to hiding a contested value within two business days and correcting a verified error within five, and says what hiding a listing means. After counsel's follow-up: names how to send a correction, says hiding is not a finding, and defines business days. After a second drafting pass: an integration delivered through a connector can be claimed, edited and contested by its owner on any plan, we give our view on a protest after the owner's reply or its 14 days, sooner only in two named cases that our view states, and a trademark objection to a logo is handled here while a copyright complaint goes through the Terms. After counsel's later answers: we accept a copyright notice about a logo as well.
+- **Version 1.0** (this version): draft, not yet in force. A plain-language pass said that a correction request needs a public source. After counsel's read: says who the contest procedure binds, commits to hiding a contested value within two business days and correcting a verified error within five, and says what hiding a listing means. After counsel's follow-up: names how to send a correction, says hiding is not a finding, and defines business days. After a second drafting pass: an integration delivered through a connector can be claimed, edited and contested by its owner on any plan, we give our view on a protest after the owner's reply or its 14 days, sooner only in two named cases that our view states, and a trademark objection to a logo is handled here while a copyright complaint goes through the Terms. After counsel's later answers: we accept a copyright notice about a logo as well. On November 24, 2026: on an integration a Sync Service delivers, a vendor at one end can remove it from its product, report that it is not offered, or report one wrong data flow. On November 25, 2026: we may also end a removal when the vendor's claim ends or is suspended or the law requires it, a confirmed not-offered report takes the integration off the site within five business days, and a correction request still applies to a data flow. On November 26, 2026, after counsel's answers: a listing is at our discretion and gives no right to stay visible, a product's vendor may remove an integration tied to its product even when it is accurate, and we do not guarantee that an integration a third company delivers stays listed. A removal still takes effect at once. The vendor must choose a fixed reason, which we record with the time, and the Sync Service is told at once with how to object. The public site shows nothing about a removal. We look at an objection on three grounds and answer it within five business days, and may also end a removal where the vendor's claim ends or is suspended or the law requires it.

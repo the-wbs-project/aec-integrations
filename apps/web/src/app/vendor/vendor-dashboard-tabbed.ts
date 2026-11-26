@@ -332,7 +332,7 @@ export class VendorDashboardTabbed {
         (item) => (owner || !item.ownerOnly) && (threads || !item.threadsOnly),
       );
     }
-    return productNavItemsFor(p.product_role).map((item) => ({
+    return productNavItemsFor(p).map((item) => ({
       ...item,
       path: `products/${p.slug}/${item.path}`,
     }));

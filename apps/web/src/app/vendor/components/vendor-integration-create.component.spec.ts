@@ -68,6 +68,7 @@ const product = (id: string, name: string): ProductListItem => ({
   name,
   logo_url: null,
   product_role: 'application',
+  connector_kind: null,
   vendor: {
     id: '00000000-0000-4000-8000-000000009999',
     slug: 'v',

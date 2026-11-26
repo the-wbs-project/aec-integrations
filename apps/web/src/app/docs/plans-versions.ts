@@ -26,6 +26,9 @@ export const PLANS_PAGE_PATH = '/docs/vendors/plans';
 export const PLANS_PAGE_RECORDED_ON: Readonly<Record<string, string>> = {
   '1.0': 'November 11, 2026',
   '1.1': 'November 17, 2026',
+  '1.2': 'November 24, 2026',
+  '1.3': 'November 24, 2026',
+  '1.4': 'November 25, 2026',
 };
 
 /** One version's snapshot page: `/docs/vendors/plans/v<version>`. */

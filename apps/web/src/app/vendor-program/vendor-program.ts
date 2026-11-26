@@ -328,12 +328,13 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                   </ng-container>
                 </li>
                 <li aec-vendor-program-benefit [benefitTitle]="freeTitles.integrations">
-                  <ng-container i18n="@@vendorProgram.free.integrations.body">
+                  <ng-container i18n="@@vendorProgram.free.integrations.bodyFlows">
                     Claim the integrations your company builds and keep them accurate. Add a link to
                     your setup instructions, so the person connecting the two products on a project
                     finds them on the integration page. Buyers see who maintains each integration.
-                    If a partner's listing describes your integration wrongly, you can request a
-                    change.
+                    Confirm which data each integration moves, and your answer counts the same as
+                    your partner's. If a partner's listing describes your integration wrongly, you
+                    can request a change.
                   </ng-container>
                 </li>
                 <li
@@ -366,10 +367,10 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                     >What Managed adds</span
                   >
                 </h2>
-                <p [class]="benefitLede" i18n="@@vendorProgram.managed.lede">
+                <p [class]="benefitLede" i18n="@@vendorProgram.managed.lede.links">
                   Managed is for products that need more than a corrected listing: your own account
-                  of what the product does on a project, who it is for, and how its integrations
-                  move data.
+                  of what the product does on a project, who it is for, and where evaluators find
+                  its documentation.
                 </p>
                 <p class="mt-3 text-sm text-(--text-secondary)">{{ terms }} {{ term }}</p>
                 <p class="mt-2 text-sm text-(--text-secondary)">{{ renewal }}</p>
@@ -401,14 +402,14 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                 </li>
                 <li
                   aec-vendor-program-benefit
-                  [benefitTitle]="managedTitles.integrationDetail"
+                  [benefitTitle]="managedTitles.links"
                   [link]="plansPath"
                   fragment="what-managed-adds"
                 >
-                  <ng-container i18n="@@vendorProgram.managed.integrationDetail.body">
-                    Link evaluators to your integrations page and API docs. Confirm which data each
-                    integration moves, and your answer counts the same as your partner's. Buyers can
-                    check what an integration syncs before they rely on it for a project.
+                  <ng-container i18n="@@vendorProgram.managed.links.body">
+                    Link evaluators to your integrations page and API docs. The links show under
+                    Resources on your product page, so a buyer can check the details before relying
+                    on an integration for a project.
                   </ng-container>
                 </li>
               </ul>
@@ -698,7 +699,7 @@ export class VendorProgramPage {
   protected readonly managedTitles = {
     usefulness: $localize`:@@vendorProgram.managed.usefulness.title:How teams use it`,
     taxonomy: $localize`:@@vendorProgram.managed.taxonomy.title:Trades, audiences and phases`,
-    integrationDetail: $localize`:@@vendorProgram.managed.integrationDetail.title:Integration detail buyers can check`,
+    links: $localize`:@@vendorProgram.managed.links.title:Links to your documentation`,
   };
   /** `$25 USD a month or $250 USD a year per product.` */
   protected readonly terms = managedTermsLine(inject(LOCALE_ID));

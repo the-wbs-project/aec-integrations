@@ -76,6 +76,8 @@ import { vendorProductContext } from './vendor-product-context';
         <aec-vendor-plan-panel
           [plan]="p.plan"
           [productRole]="p.product_role"
+          [connectorKind]="p.connector_kind"
+          [hasConnectorCatalog]="p.has_connector_catalog"
           [billingLink]="billingLink()"
           [electionProductId]="store.me()?.seat_owner === true ? p.id : null"
           headingId="vendor-product-plan-h"
@@ -122,13 +124,14 @@ export class VendorProductOverviewPage {
 
   protected readonly checklistHeading = $localize`:@@vendor.checklist.product.heading:Product checklist`;
 
-  /** The steps that count differ by plan, so the lede says which. */
+  /** The lede counts the steps that count. Since AECI-2038 all four count on every
+   *  plan, so it names no plan. */
   protected readonly checklistLede = computed(() => {
     const c = this.checklist();
     if (!c) return null;
     return c.steps.some((s) => s.key === 'confirm_data_flows' && s.counts)
-      ? $localize`:@@vendor.checklist.product.lede.managed:Four checks for this product on Managed. All four count.`
-      : $localize`:@@vendor.checklist.product.lede.free:Three checks finish this product on Free. Confirming data flows is optional until Managed.`;
+      ? $localize`:@@vendor.checklist.product.lede.all:Four checks for this product. All four count.`
+      : $localize`:@@vendor.checklist.product.lede.three:Three checks for this product.`;
   });
 
   constructor() {

@@ -1444,6 +1444,13 @@ async function main() {
   // AECI-1238: a row touching a hidden product is not live either, the same clause as
   // `liveIntegrationSql` / `liveEvidencedPairSql`. Probed on `products`: migration 0113
   // reaches each tier at its next deploy, and without the column nothing is hidden.
+  // AECI-2042: a row an endpoint vendor vetoed is not live either (`vetoed_at`,
+  // migration 0132, on both tables). The literal mirrors `notVetoedSql` in
+  // `@aeci/shared/live-integration`. Probed on each table's DDL.
+  const integrationsVetoFilter = ddlHasColumn(integrationsDdl, 'vetoed_at')
+    ? 'AND vetoed_at IS NULL'
+    : '';
+  const pairsVetoFilter = ddlHasColumn(pairsDdl, 'vetoed_at') ? 'AND vetoed_at IS NULL' : '';
   const productsDdl = ddlOf('products');
   const hiddenEndpointFilter = (columns) =>
     ddlHasColumn(productsDdl, 'hidden_at')
@@ -1466,9 +1473,9 @@ async function main() {
         (pid) =>
           `UPDATE products SET integration_count =
              ((SELECT COUNT(*) FROM integrations
-                 WHERE (source_product_id = '${pid}' OR target_product_id = '${pid}') ${liveFilter} ${integrationsHiddenFilter})
+                 WHERE (source_product_id = '${pid}' OR target_product_id = '${pid}') ${liveFilter} ${integrationsVetoFilter} ${integrationsHiddenFilter})
               + (SELECT COUNT(*) FROM connector_evidenced_pairs
-                   WHERE (product_a_id = '${pid}' OR product_b_id = '${pid}' OR connector_product_id = '${pid}') ${evidencedLiveFilter} ${pairsHiddenFilter})),
+                   WHERE (product_a_id = '${pid}' OR product_b_id = '${pid}' OR connector_product_id = '${pid}') ${evidencedLiveFilter} ${pairsVetoFilter} ${pairsHiddenFilter})),
              updated_at = '${now}'
            WHERE id = '${pid}';`,
       )

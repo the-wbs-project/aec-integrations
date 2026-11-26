@@ -14,8 +14,8 @@
  * that really are in the database.
  *
  * The load-bearing cases:
- *   - authority → 404 before the `attestation.author` capability → 403
- *     `ENTITLEMENT_REQUIRED` (AECI-623), and a 404 that cannot be told apart
+ *   - authority → 404 before the `attestation.author` capability (AECI-623; held
+ *     by every live tier since AECI-2038, so a Free owner writes), and a 404 that cannot be told apart
  *     from "no such claim";
  *   - the capability reads the SESSION tier, never the `vendors.verified` mirror;
  *   - retract-then-insert never trips the partial unique index, however many
@@ -966,32 +966,29 @@ describe('POST /api/vendor/claims', () => {
     expect(ghost.body.error.details.resource).toBe(foreign.body.error.details.resource);
   });
 
-  it('403s an owner without attestation.author with ENTITLEMENT_REQUIRED — copy points at activation, not ranking', async () => {
-    const { status, body: res } = await sendJson(
+  // AECI-2038 (ruling 5 on epic AECI-2035): Free holds attestation.author, so an
+  // endpoint owner with no subscription adds a data flow like a Managed one.
+  it('lets a Free endpoint owner add a data flow, audited in the same batch', async () => {
+    const { status } = await sendJson(
       'POST',
       '/api/vendor/claims',
       { integration_id: I_UNVERIFIED, data_object: 'rfis', direction: 'outbound' },
       AUTH_UNVERIFIED,
     );
-    expect(status).toBe(403);
-    expect(res.error.code).toBe('ENTITLEMENT_REQUIRED');
-    expect(res.error.details).toEqual({ capability: 'attestation.author', tier: 'unclaimed' });
-    expect(res.error.message).not.toMatch(/rank|placement|search/i);
-    expect(await auditRows()).toHaveLength(0);
+    expect(status).toBe(201);
+    expect(await auditRows()).not.toHaveLength(0);
   });
 
   // AECI-623: the gate is the session's entitlement tier. The `vendors.verified`
   // mirror is not an authorization input, so the two cases below pull them apart.
-  it('rejects an entitlement-less seat even when its vendor row still reads verified', async () => {
-    const { status, body: res } = await sendJson(
+  it('lets a Free seat write even when its vendor row still reads verified', async () => {
+    const { status } = await sendJson(
       'POST',
       '/api/vendor/claims',
       body(),
       seat(SEAT_A, VENDOR_A, false),
     );
-    expect(status).toBe(403);
-    expect(res.error.code).toBe('ENTITLEMENT_REQUIRED');
-    expect(await auditRows()).toHaveLength(0);
+    expect(status).toBe(201);
   });
 
   it('accepts a seat holding attestation.author even when its vendor row reads unverified', async () => {
@@ -1277,22 +1274,22 @@ describe('PUT /api/vendor/claims/:claimId/attestation', () => {
     expect(Object.keys(ghost.body.error).sort()).toEqual(Object.keys(foreign.body.error).sort());
   });
 
-  it('403s an owner without attestation.author with ENTITLEMENT_REQUIRED and writes nothing', async () => {
+  it('lets a Free endpoint owner confirm a data flow (AECI-2038)', async () => {
     await t.db.insert(claims).values({
       id: uuid(48),
       integrationId: I_UNVERIFIED,
       dataObjectId: DO_RFIS,
       direction: 'a_to_b',
     });
-    const { status, body: res } = await sendJson(
+    const { status } = await sendJson(
       'PUT',
       attestationUrl(uuid(48)),
       { asserted: true },
       AUTH_UNVERIFIED,
     );
-    expect(status).toBe(403);
-    expect(res.error.code).toBe('ENTITLEMENT_REQUIRED');
-    expect(await auditRows()).toHaveLength(0);
+    expect(status).toBe(200);
+    expect(await liveAttestations(uuid(48))).toHaveLength(1);
+    expect(await auditRows()).not.toHaveLength(0);
   });
 
   it('rejects a body with no stance', async () => {
@@ -1389,7 +1386,7 @@ describe('DELETE /api/vendor/claims/:claimId/attestation', () => {
     ]);
   });
 
-  it('403s an owner without attestation.author with ENTITLEMENT_REQUIRED', async () => {
+  it('lets a Free endpoint owner clear its answer (AECI-2038)', async () => {
     await t.db.insert(claims).values({
       id: uuid(49),
       integrationId: I_UNVERIFIED,
@@ -1408,9 +1405,9 @@ describe('DELETE /api/vendor/claims/:claimId/attestation', () => {
       { method: 'DELETE' },
       AUTH_UNVERIFIED,
     );
-    expect(status).toBe(403);
-    expect(res.error.code).toBe('ENTITLEMENT_REQUIRED');
-    expect(await liveAttestations(uuid(49))).toHaveLength(1);
+    expect(status).toBe(204);
+    expect(res.error).toBeUndefined();
+    expect(await liveAttestations(uuid(49))).toHaveLength(0);
   });
 });
 
@@ -1803,21 +1800,21 @@ describe('PUT: a deny needs a reason (AECI-1151)', () => {
     });
     const foreign = await sendJson('PUT', attestationUrl(uuid(47)), { asserted: false });
     expect(foreign.status).toBe(404);
-    // An endpoint vendor without `attestation.author`: the capability 403 wins.
+    // A Free endpoint vendor may write since AECI-2038, so it meets the rule itself.
     await t.db.insert(claims).values({
       id: uuid(48),
       integrationId: I_UNVERIFIED,
       dataObjectId: DO_RFIS,
       direction: 'a_to_b',
     });
-    const unentitled = await sendJson(
+    const free = await sendJson(
       'PUT',
       attestationUrl(uuid(48)),
       { asserted: false },
       AUTH_UNVERIFIED,
     );
-    expect(unentitled.status).toBe(403);
-    expect(unentitled.body.error.code).toBe('ENTITLEMENT_REQUIRED');
+    expect(free.status).toBe(400);
+    expect(free.body.error.code).not.toBe('ENTITLEMENT_REQUIRED');
   });
 
   it('grandfathers an existing deny with no note on read', async () => {
@@ -2264,50 +2261,44 @@ describe('recrawl causes (AECI-1184)', () => {
 
 // ─── Per-product gate (ruled 2026-10-14) ─────────────────────────────────────
 
-describe('attestation.author is per product (ruled 2026-10-14)', () => {
+describe('attestation.author is on every plan (AECI-2038; per product since 2026-10-14)', () => {
   /** A seat whose vendor holds a live license, but on a product that is not an
-   *  endpoint of I_MAIN. The vendor-level tier is paid; P_SOURCE is Free. */
+   *  endpoint of I_MAIN. The vendor-level tier is paid; P_SOURCE is Free. Since
+   *  AECI-2038 a Free endpoint product passes the gate, so every write below lands. */
   const AUTH_A_OTHER_PRODUCT = seat(SEAT_A, VENDOR_A, true, [P_FOREIGN]);
-  const REFUSED = { capability: 'attestation.author', tier: 'unclaimed' };
 
-  it('403s POST /claims when the caller’s endpoint product is Free, whatever the vendor holds', async () => {
-    const { status, body: res } = await sendJson(
+  it('accepts POST /claims when the caller’s endpoint product is Free', async () => {
+    const { status } = await sendJson(
       'POST',
       '/api/vendor/claims',
       { integration_id: I_MAIN, data_object: 'submittals', direction: 'outbound' },
       AUTH_A_OTHER_PRODUCT,
     );
-    expect(status).toBe(403);
-    expect(res.error.code).toBe('ENTITLEMENT_REQUIRED');
-    expect(res.error.details).toEqual(REFUSED);
-    expect(await auditRows()).toHaveLength(0);
+    expect(status).toBe(201);
+    expect(await auditRows()).not.toHaveLength(0);
   });
 
-  it('403s PUT …/attestation on the same terms', async () => {
-    const { status, body: res } = await sendJson(
+  it('accepts PUT …/attestation on the same terms', async () => {
+    const { status } = await sendJson(
       'PUT',
       attestationUrl(C_MAIN),
       { asserted: true },
       AUTH_A_OTHER_PRODUCT,
     );
-    expect(status).toBe(403);
-    expect(res.error.code).toBe('ENTITLEMENT_REQUIRED');
-    expect(res.error.details).toEqual(REFUSED);
+    expect(status).toBe(200);
   });
 
-  it('403s DELETE …/attestation on the same terms', async () => {
+  it('accepts DELETE …/attestation on the same terms', async () => {
     expect((await sendJson('PUT', attestationUrl(C_MAIN), { asserted: true })).status).toBe(200);
-    const { status, body: res } = await call(
+    const { status } = await call(
       attestationUrl(C_MAIN),
       { method: 'DELETE' },
       AUTH_A_OTHER_PRODUCT,
     );
-    expect(status).toBe(403);
-    expect(res.error.code).toBe('ENTITLEMENT_REQUIRED');
-    expect(res.error.details).toEqual(REFUSED);
+    expect(status).toBe(204);
   });
 
-  it('still 404s a non-owner before the per-product gate answers', async () => {
+  it('still 404s a non-owner, whatever its plan', async () => {
     const { status } = await sendJson(
       'POST',
       '/api/vendor/claims',
@@ -2329,7 +2320,7 @@ describe('attestation.author is per product (ruled 2026-10-14)', () => {
     expect(res.claim.mine.map((a: JsonBody) => a.slot)).toEqual(['vendor_a', 'vendor_b']);
   });
 
-  it('an owns-both caller with NEITHER endpoint product Managed gets the 403', async () => {
+  it('an owns-both caller with NEITHER endpoint product Managed writes both slots too', async () => {
     const neither = seat(SEAT_BOTH, VENDOR_BOTH, true, [P_SOURCE]);
     const { status, body: res } = await sendJson(
       'PUT',
@@ -2337,8 +2328,8 @@ describe('attestation.author is per product (ruled 2026-10-14)', () => {
       { asserted: true },
       neither,
     );
-    expect(status).toBe(403);
-    expect(res.error.details).toEqual(REFUSED);
+    expect(status).toBe(200);
+    expect(res.claim.mine.map((a: JsonBody) => a.slot)).toEqual(['vendor_a', 'vendor_b']);
   });
 });
 

@@ -85,25 +85,62 @@ export function integrationCanAuthor(
   );
 }
 
+/** The product fields the catalogue rules read. All optional, so a partial value
+ *  reads as "not a catalogue product", the closed answer. */
+export interface CatalogueProductFields {
+  readonly product_role?: string | null;
+  readonly connector_kind?: string | null;
+  readonly has_connector_catalog?: boolean | null;
+}
+
+/**
+ * Is this product the connector catalogue-maintenance seat's product
+ * (`STAGE_2_SPEC.md` §8.9, AECI-724)? Narrowed by AECI-2044: a `connector` that is
+ * NOT a Sync Service (an Integration platform, or no kind) AND that AECi holds a
+ * catalogue for (`has_connector_catalog`). A Sync Service sells finished pairs, has
+ * no catalogue to maintain, and may buy Managed (ruling 6 on AECI-2035).
+ */
+export function isCatalogueProduct(product: CatalogueProductFields): boolean {
+  return (
+    product.product_role === 'connector' &&
+    product.connector_kind !== 'sync_service' &&
+    product.has_connector_catalog === true
+  );
+}
+
+/**
+ * Does the product row show the Catalog tab (AECI-2045, `STAGE_2_VENDOR_PORTAL_SPEC.md`
+ * §6.16)? On a `connector` product, yes, unless it is a Sync Service with no catalogue.
+ * A Sync Service sells finished pairs and usually has none, but one that AECi holds a
+ * catalogue for (Agave) keeps the tab. An Integration platform, or a connector with no
+ * kind, keeps today's behaviour: the tab shows even before a catalogue exists.
+ */
+export function showsCatalogTab(product: CatalogueProductFields): boolean {
+  if (product.product_role !== 'connector') return false;
+  return !(product.connector_kind === 'sync_service' && product.has_connector_catalog !== true);
+}
+
 /**
  * Is this the connector catalogue-maintenance seat (`STAGE_2_SPEC.md` §8.9, AECI-724)?
  *
- * The signal is data `GET /api/vendor/me` already carries: NO entitlement row at all
- * (`status: null`, which is not the same as lapsed) on a vendor holding a
- * `connector`-role product. No tier and no capability, because the seat has
- * neither. `status: null` on a seat is reachable only through the AECI-740
- * provision, so this is the §8.9 seat by construction. A connector vendor that
- * later pays gets a row, leaves `null`, and stops matching.
+ * The signal is data `GET /api/vendor/me` already carries: NO license (`status:
+ * null`, which is not the same as lapsed) on a vendor holding a catalogue product
+ * ({@link isCatalogueProduct}). No tier and no capability, because the seat has
+ * neither.
  *
- * The plan panel's `catalogue` state and the read-only notices (AECI-1082) both
- * read this one rule, so the panel and the forms cannot describe the same vendor
- * two different ways.
+ * AECI-2044 replaced the old rule, "`status: null` and any `connector`-role product".
+ * Since AECI-1367 every Free vendor has `status: null`, so the old rule read every Free
+ * vendor with a connector product, a mixed vendor such as Rivets included, as this
+ * seat, and hid Managed's price and purchase path from products that may buy it.
+ *
+ * The plan panel's `catalogue` state, the overview's catalogue links and the read-only
+ * notices (AECI-1082) all read this rule, so they cannot describe one vendor two ways.
  */
 export function isCatalogueSeat(
   status: string | null | undefined,
-  products: readonly { readonly product_role?: string | null }[],
+  products: readonly CatalogueProductFields[],
 ): boolean {
-  return status === null && products.some((p) => p.product_role === 'connector');
+  return status === null && products.some(isCatalogueProduct);
 }
 
 /**

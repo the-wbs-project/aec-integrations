@@ -214,6 +214,9 @@ export function buildRetireBatch(db: Db, input: RetireBatchInput): RetireBatch {
         and(
           eq(integrations.id, integrationId),
           mode === 'retire' ? isNull(integrations.retiredAt) : isNotNull(integrations.retiredAt),
+          // AECI-2042: a veto that lands mid-restore aborts it. Both restores refuse a
+          // vetoed row up front; this holds the rule at commit.
+          mode === 'restore' ? isNull(integrations.vetoedAt) : undefined,
           input.guard,
         ),
       ),
@@ -489,6 +492,7 @@ export function buildPairRetireBatch(db: Db, input: PairRetireBatchInput): Retir
           mode === 'retire'
             ? isNull(connectorEvidencedPairs.retiredAt)
             : isNotNull(connectorEvidencedPairs.retiredAt),
+          mode === 'restore' ? isNull(connectorEvidencedPairs.vetoedAt) : undefined,
           input.guard,
         ),
       ),
@@ -511,8 +515,13 @@ export function buildPairRetireBatch(db: Db, input: PairRetireBatchInput): Retir
 export interface RetireCommitInput {
   mode: RetireMode;
   integrationId: string;
+  /** More rows the write changed (AECI-2042: a veto hides every row on its pair key).
+   *  Synced by id beside `integrationId`. */
+  alsoIntegrationIds?: readonly string[];
   productIds: readonly string[];
   owner: { id: string; slug: string } | null;
+  /** More owners whose `vendor:` page lists a row the write changed (AECI-2042). */
+  alsoOwners?: readonly { id: string; slug: string }[];
   pairSlugs: readonly [string, string] | null;
   /** The connector product's slug (AECI-1091): a pair's connector, whose page lists
    *  the pair and whose count moved, or an `integrations` row's `powered_by`
@@ -533,6 +542,9 @@ export interface RetireCommitInput {
 
 /** The post-commit tail. All best-effort; see the module header. */
 export function afterRetireCommit(c: VendorContext, db: Db, input: RetireCommitInput): void {
+  const owners = [...(input.owner ? [input.owner] : []), ...(input.alsoOwners ?? [])];
+  const ownerIds = [...new Set(owners.map((o) => o.id))];
+  const ownerTags = [...new Set(owners.map((o) => `vendor:${o.slug}`))];
   dispatchOwnerWriteSearch(
     c,
     `${input.hookPrefix}-${input.mode}-algolia`,
@@ -540,9 +552,9 @@ export function afterRetireCommit(c: VendorContext, db: Db, input: RetireCommitI
       c,
       db,
       {
-        integrations: [input.integrationId],
+        integrations: [...new Set([input.integrationId, ...(input.alsoIntegrationIds ?? [])])],
         products: [...input.productIds],
-        vendors: input.owner ? [input.owner.id] : [],
+        vendors: ownerIds,
         // AECI-1897: the vendor count is reach, so every vendor of an endpoint (and
         // of a pair's connector) moved, not only the owner.
         vendorsOfProducts: [...input.productIds],
@@ -561,7 +573,7 @@ export function afterRetireCommit(c: VendorContext, db: Db, input: RetireCommitI
         ]
       : []),
     ...(input.connectorSlug ? [`product:${input.connectorSlug}`] : []),
-    ...(input.owner ? [`vendor:${input.owner.slug}`] : []),
+    ...ownerTags,
     'index:products',
     'taxonomy',
     'sitemap',

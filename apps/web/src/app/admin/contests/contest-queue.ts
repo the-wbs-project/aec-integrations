@@ -45,6 +45,7 @@ import {
 } from '../reviews/queue-classes';
 import { queueFocusAfterRemoval } from '../reviews/queue-focus';
 import { AdminContestsApi } from './admin-contests-api';
+import { AdminPairRights } from './admin-pair-rights';
 import { AecButton } from '../../shared/button/button';
 import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
@@ -110,6 +111,7 @@ const QUEUE_PAGE_SIZE = 100;
   selector: 'aec-contest-queue',
   imports: [
     AdminDangerAction,
+    AdminPairRights,
     AdminDisclosureButton,
     AecButton,
     AecFormSubmit,

@@ -1,7 +1,14 @@
-import type { ClaimStatus, ProductIntegrationItem, WheelMark } from '@aeci/shared';
+import type {
+  ClaimStatus,
+  IntegrationListItem,
+  ProductDetail,
+  ProductIntegrationItem,
+  WheelMark,
+} from '@aeci/shared';
 import { compareText } from '@aeci/shared/text-sort';
 
 import { splitIntegrationLanes } from './connector-lane-grouping';
+import { connectedProducts } from './powered-hub-grouping';
 
 /**
  * AECI-2018 - the integrations wheel in the product page hero. The model and the
@@ -20,6 +27,13 @@ import { splitIntegrationLanes } from './connector-lane-grouping';
  * "All integrations". A product with two categories is on both slides. A category with no
  * product for this page is not offered, because a slide exists only for a category some
  * row carries.
+ *
+ * A connector's wheel (QA pass on AECI-2035, 2026-11-24). On a `connector`-role product
+ * the wheel shows the products its pairs reach instead (`connectorWheelModel`): every
+ * endpoint of `integrations_as_connector` but itself, the set the hero's reach line
+ * counts (`connectedProducts`, §13.6), Convention-A partners included. One slide, no
+ * category slides, one dot per product when there are too many for tiles. Which set a
+ * page shows is `heroWheelSource`.
  *
  * Nothing here reads an input a paid plan can change. Inclusion reads the rows, order
  * reads the partner's name and id, the category slides read `partner_categories` (the Free
@@ -62,6 +76,14 @@ export interface WheelModel {
   readonly slides: readonly WheelSlide[];
   /** Category slides, for "in {n} categories". */
   readonly categoryCount: number;
+  /**
+   * `endpoint`: the products this one has an integration with; a slide's `integrations`
+   * counts rows, and a tile links to the pair page. `connector`: the products a
+   * connector's pairs reach; one slide, its `integrations` counts products (one dot
+   * each), and a tile links to the product's page, since the connector is not one of
+   * the pair's two products.
+   */
+  readonly source: 'endpoint' | 'connector';
 }
 
 const byNameThenId = (a: WheelProduct, b: WheelProduct) =>
@@ -121,7 +143,7 @@ export function wheelModel(
       };
     })
     .sort(byNameThenId);
-  if (all.length === 0) return { slides: [], categoryCount: 0 };
+  if (all.length === 0) return { slides: [], categoryCount: 0, source: 'endpoint' };
 
   const names = new Map<string, string>();
   for (const p of products.values()) for (const [slug, name] of p.categories) names.set(slug, name);
@@ -137,7 +159,82 @@ export function wheelModel(
       return { key: slug, name, products: members, integrations: count(members) };
     }),
   ];
-  return { slides, categoryCount: categories.length };
+  return { slides, categoryCount: categories.length, source: 'endpoint' };
+}
+
+/**
+ * A connector's wheel: the products its pairs reach (`connectedProducts`, the hero
+ * line's set), A to Z by name then id, on one "all" slide whose `integrations` is the
+ * product count. No category slides: the wheel reads no endpoint categories. Empty when
+ * the connector reaches nothing.
+ */
+export function connectorWheelModel(
+  asConnector: readonly IntegrationListItem[],
+  selfSlug: string,
+  marks: readonly WheelMark[] | undefined,
+): WheelModel {
+  const markById = new Map((marks ?? []).map((m) => [m.product_id, m]));
+  const products: WheelProduct[] = connectedProducts(asConnector, selfSlug)
+    .map((link) => {
+      const mark = markById.get(link.id);
+      return {
+        id: link.id,
+        slug: link.slug,
+        name: link.name,
+        vendorName: null,
+        logoUrl: mark?.logo_url ?? null,
+        claimStatus: mark?.claim_status ?? null,
+        categorySlugs: [],
+        integrations: 1,
+      };
+    })
+    .sort(byNameThenId);
+  if (products.length === 0) return { slides: [], categoryCount: 0, source: 'connector' };
+  return {
+    slides: [{ key: 'all', name: null, products, integrations: products.length }],
+    categoryCount: 0,
+    source: 'connector',
+  };
+}
+
+/**
+ * Which set the hero wheel shows (QA pass on AECI-2035, 2026-11-24):
+ *
+ *  - a `connector` shows the products its pairs reach, and falls back to its own
+ *    endpoint rows when it reaches none;
+ *  - a `hybrid` or an `application` shows its endpoint rows, and falls back to the
+ *    products its pairs reach when it has none (the reach line has no role gate);
+ *  - `empty` when a `connector` has neither: the panel says so (never a blank column);
+ *  - `none` when another product has neither: no panel, as before.
+ */
+export type HeroWheelSource = 'endpoint' | 'connector' | 'empty' | 'none';
+
+export function heroWheelSource(
+  p: Pick<
+    ProductDetail,
+    'product_role' | 'slug' | 'integrations_as_source' | 'integrations_as_target'
+  > & { readonly integrations_as_connector: readonly IntegrationListItem[] },
+): HeroWheelSource {
+  const endpoint = p.integrations_as_source.length + p.integrations_as_target.length > 0;
+  const reach = connectedProducts(p.integrations_as_connector, p.slug).length > 0;
+  if (p.product_role === 'connector') {
+    if (reach) return 'connector';
+    return endpoint ? 'endpoint' : 'empty';
+  }
+  if (endpoint) return 'endpoint';
+  return reach ? 'connector' : 'none';
+}
+
+/** The wheel's model for a page, from the set {@link heroWheelSource} picks. */
+export function heroWheelModel(
+  p: Pick<
+    ProductDetail,
+    'product_role' | 'slug' | 'integrations_as_source' | 'integrations_as_target' | 'wheel_marks'
+  > & { readonly integrations_as_connector: readonly IntegrationListItem[] },
+): WheelModel {
+  return heroWheelSource(p) === 'connector'
+    ? connectorWheelModel(p.integrations_as_connector, p.slug, p.wheel_marks)
+    : wheelModel(p.integrations_as_source, p.integrations_as_target, p.wheel_marks);
 }
 
 // ─── Geometry ─────────────────────────────────────────────────────────────────

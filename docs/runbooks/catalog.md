@@ -163,7 +163,7 @@ shape, which is the AECI-888 signature.
 > you take is a question about the UPSTREAM record. Do not hand-DELETE either way.** The
 > datatool prune cannot touch `connector_evidenced_pairs`. `ops:retract-product` deletes (and
 > tombstones) them only as a side effect of retracting an endpoint or connector product, and
-> only under `--delete-evidenced-pairs`, which `--force` does not imply (AECI-687, AECI-904), and never for a vendor-held pair, flag or not (AECI-1088). The plan re-checks that at write time and aborts before any write if a pair was claimed after the dry run. The CLI then says a vendor-held row entered scope and nothing was written, and exits `1`. It does not mean a credentials problem. So it is not a tool for one stranded pair. The retraction consumer is,
+> only under `--delete-evidenced-pairs`, which `--force` does not imply (AECI-687, AECI-904), and never for a vendor-held pair, flag or not (AECI-1088), except the pairs a connector's own vendor holds under `--withdraw-connector` (AECI-2047, "Withdrawing a connector" below). The plan re-checks that at write time and aborts before any write if a pair was claimed after the dry run. The CLI then says a vendor-held row entered scope and nothing was written, and exits `1`. It does not mean a credentials problem. So it is not a tool for one stranded pair. The retraction consumer is,
 > and it takes two cohorts:
 >
 > - **Route A, the upstream record still exists — prefer this.** Confirm the ruling, have the
@@ -411,6 +411,75 @@ upstream step.
 
 ---
 
+## Promoting a connector and its pairs
+
+Use this for a new Sync Service or any connector that delivers its own pairs (AECI-2047). The
+order matters. A pair promoted before its connector lands in `integrations` with no connector.
+Once its owner claims it, it can never move to `connector_evidenced_pairs`, because promote never
+moves a claimed row (`REVIEW_APP_PROMOTE_API.md` §3.4a, §4b).
+
+1. **Promote the connector product first.** In the review app, `promote_product` on the connector.
+   This creates its vendor and product in the live app.
+2. **Set its kind.** An AECi admin sets Sync Service or Integration platform on the product's admin
+   page (`PATCH /api/admin/products/:id/connector-kind`). Promote never sets it. A pair on an
+   owned endpoint is written only once the kind is Sync Service (§4a).
+3. **Re-promote the endpoints of every pair.** A pair travels in its endpoints' bundles, not the
+   connector's. One endpoint per pair is enough. When both endpoints of a pair are owned, their
+   bundles skip it, so send it as an integration-only push (§3.5).
+4. **Read each job's `unresolvedLinks[]`.** A `field: "powered_by"` entry on one of these pairs
+   means its connector still did not resolve, and the pair is in the wrong table. Fix the
+   connector, then repeat step 3. Do not let the owner claim it first.
+5. **Only then tell the owner to claim its pairs.** The claim route refuses a row typed `iPaaS`
+   with no connector (`409 INTEGRATION_CONNECTOR_UNRESOLVED`). It cannot see a row typed
+   `marketplace-app` with no connector, so step 4 is the only check for that one.
+
+**A pair already stuck.** A claimed pair in `integrations` with no connector stays there until an
+admin un-claims it. Ask Chris before changing a claimed row. After the un-claim, repeat steps 3
+and 4, then the owner claims it again.
+
+---
+
+## Withdrawing a connector
+
+Use this when a connector product leaves the directory together with the pairs it delivers, for
+example a Sync Service that stops trading (AECI-2047). `ops:retract-product` refuses it by default,
+because its own vendor holds those pairs. `--withdraw-connector` is the supported path. It implies
+`--delete-evidenced-pairs`. It deletes the pairs the product delivers that its own vendor holds,
+with their claims and attestations, and writes an `integration.deleted` tombstone for each with
+the pair's hold and `metadata.withdraw_connector: true`. It still refuses a pair another vendor
+holds, a held pair where the product is an endpoint, any vendor-held integration, and a connector
+catalogue.
+
+1. **Retire the catalogue first, if there is one.** The connector-catalogue sync owns it. Send the
+   catalogue's `deleted` through the sync (`REVIEW_APP_PROMOTE_API.md` §3a), then check the dry
+   run no longer lists a catalogue.
+2. **Dry run.** It prints the footprint and one line per pair the run would delete, with each
+   pair's endpoints, hold, builder and claim count. Put the product's slug in place of `SLUG`.
+
+```bash
+pnpm --filter @aeci/api ops:retract-product -- --slug SLUG --env production --withdraw-connector
+```
+
+3. **Check every listed pair with Chris.** A claimed pair is the vendor's text. Withdrawing it is a
+   deletion, not a hide.
+4. **Apply.** Production needs Chris's go-ahead and `--allow-production`. Add `--force` only if the
+   dry run listed blockers (integrations, reviews, versions or a live license) you also mean to
+   delete.
+
+```bash
+pnpm --filter @aeci/api ops:retract-product -- --slug SLUG --env production --withdraw-connector --apply --allow-production --operator chrisw@thewbsproject.com
+```
+
+5. **Work down the printed follow-ups**, as in "Retracting a product or vendor by hand" above.
+6. **Re-send the connector vendor's ownership record.** The withdrawn pairs were in its
+   `deliveredPairs[]` (§4d). The steps are in "Ownership records not reaching the review app"
+   below, "Re-send one vendor".
+
+If the apply aborts saying a vendor-held row entered scope, another vendor claimed one of the
+pairs after the dry run. Nothing was written. Run the dry run again.
+
+---
+
 ## Ownership records not reaching the review app
 
 Not a paging alert yet. Use this when the review app shows a vendor's records as editable
@@ -524,6 +593,10 @@ consumer sends v1 again.
 
 Not an alert. Use this when someone asks AECi to take down a listing, or a part of one. The request comes by email to support@aecintegrations.com, or as a correction request. **A request to be removed never deletes anything by itself.** There are two tools. The listing hide (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6, ADR 0052) takes a company or product off the public site and out of search, and it keeps the data, so a restore is exact. The value hide (§11d.7) blanks one value on a vendor-held record while AECi checks it, and shows "Under review" in its place.
 
+**A Sync Service integration (AECI-2042).** An endpoint vendor with a seat removes one itself, at once, in the portal (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11e.2). An emailed removal is `docs/runbooks/listing-submissions.md` §6b. An accepted "not offered" report on `/admin/contests` retires a vendor-held pair in the same click. On a pair AECi holds it writes nothing (`accept_mode = 'upstream-only'`): reject the pair in the review app, push the retraction, and run the retraction consumer, as for any AECi-held edge. **Finish within five business days of the accept** (Monday to Friday, US federal holidays excluded). The Listing Accuracy Policy promises the pair is off the public site by then. Check the pair is gone from both product pages and the Sync Service's page before the deadline. The accept retires only the row the report was filed on. If the same pair is listed a second time through the same Sync Service, retire that row by hand with the admin retire, inside the same five business days (AECI-2170 will do this in the accept). A pair an endpoint vendor vetoed is fenced from promote until the veto ends, so do not expect a re-promote to bring it back.
+
+**An objection to a Sync Service removal (AECI-2192, ruling 66).** A removal takes effect when the vendor sends it, with a reason from a fixed list, and nobody checks it first. The Sync Service may then object on three grounds only. The objection lands on `/admin/contests`, in the Sync Service integrations section, inside the removal it names, and the alert email goes to the support inbox. AECi admins see it. The AECi operator, today Chris, owns the queue and decides it. Answer it, accepted or declined, within five business days of receiving it: Monday to Friday, US federal holidays excluded, as the Listing Accuracy Policy defines them. The alert email is the trigger. The queue shows each open objection's answer-by date and marks it "Answer overdue" once that date has passed. The evidence each ground needs and what we never decide are in `ADMIN_PANEL_SPEC.md` §5.12 "Who owns the objection queue". **Accept and end the removal** brings every row on the pair key back at once, and both vendors are told why. **Decline** leaves it, and the Sync Service is told why. The same five grounds are the only reasons to use **End this removal** without an objection: the three objection grounds, the vendor's claim to the product ended or suspended, or the law requires it. A claim ending does not end a removal by itself: when you end or suspend a claim (`docs/runbooks/README.md`), check `/admin/contests` for removals that vendor filed, and end each with `claim_ended_or_suspended`. An objection by email from a Sync Service with no seat is `docs/runbooks/listing-submissions.md` §6c.
+
 **What "hidden" means.** Counsel's Q20 answer says a reversible hidden state "will normally meet the practical purpose of removal". It "does not meet an order or duty requiring deletion of the underlying data". Retained data "remains discoverable". So a hide never answers an order to delete. Send any deletion order to Chris before you act.
 
 ### Which requests oblige us to act
@@ -565,7 +638,7 @@ The value hide computes the two value deadlines from the received date: "Hide by
 1. **Record the request.** Note the date AECi received it and the link to the public source. A `complaint_under_review` hide is refused without a source link.
 2. **Open the company** at `/admin/vendors/:id`.
    - A whole company: the Vendor tab, "Listing visibility", **Hide from the public site**.
-   - One product: the Products tab, **Hide** on the product's row.
+   - One product: the Products tab, open the row's **Actions** menu and choose **Hide from public site**.
 3. **Fill in the form.** Pick the kind from the table above. Enter the received date and the source link. Write the reason for the vendor to read. Put anything else in the internal note, which no vendor sees.
 4. **Confirm.** For a company, the confirm step lists every product that will also be hidden. That includes a product shared with another company that stays live (ruled 2026-11-09).
 5. **Check the result.** The company, product and pair pages answer 404 once the queued purge runs. The records leave Algolia through a sync that runs right after the save.
@@ -575,9 +648,9 @@ The value hide computes the two value deadlines from the received date: "Hide by
 
 1. **Open the company** at `/admin/vendors/:id`.
    - A hidden company: "Listing visibility", **Restore the listing**. The confirm step lists the products that come back with it.
-   - A product hidden on its own: the Products tab, **Restore** on its row.
+   - A product hidden on its own: the Products tab, open the row's **Actions** menu and choose **Restore to public site**.
 2. **Write the reason** for the vendor to read, and confirm. The pages return once the purge runs. The edge caches a 404 for up to 60 seconds, so a page can lag by that much.
-3. **A product hidden with its company** has a disabled Restore. Restore the company instead. The API answers `409 LISTING_HIDDEN_WITH_VENDOR` for the same case.
+3. **A product hidden with its company** has no Restore action; its menu explains why. Restore the company instead. The API answers `409 LISTING_HIDDEN_WITH_VENDOR` for the same case.
 4. **A product joined to two hidden companies** stays hidden when you restore one of them. It moves under the other company's hide.
 
 ### When something looks wrong
@@ -639,3 +712,21 @@ After the SQL runs, in run order:
 3. **Check the review app's copy of the slug.** Read the review record's `supabaseSlug` with the `aeci-review` read tools. No tool writes it directly. The review app stores the slug a promote returns, so a promote in step 2 is what fixes it. Run that promote even when the name has already arrived.
 4. **Check the discovery queues.** URLs already in `gsc_recrawl_queue` and `indexnow_queue` under the old slug were queued before the mapping existed, and now only 301. The IndexNow drain drops its own copies before sending (`indexnow-drain.ts`), so only the Google queue keeps them. Report them. Do not delete them without a ruling. For AECI-1574 Chris ruled to delete them, once the promote had queued the new-slug URLs. `scripts/ops/2026-11-openasset-slug-rename/delete-queued-old-slug.sql` is the template. It matches with `substr` because D1 rejects a long LIKE pattern as too complex.
 5. **Verify.** With a browser user agent (the WAF answers curl's default with 403), `curl -sI` the old vendor URL, the old product URL and one old pair URL on `www.aecintegrations.com`. Each should return `301` with `location` on the new slug.
+
+## After a new Algolia record field
+
+Not an alert. Run this once per environment after a deploy that adds a field to an Algolia record. The first case is AECI-1662 (2026-11-24): the product record gained `connector_kind`, which the `/search` "Connector type" filter and the search card chip read (`SEARCH_RANKING.md` §3.1).
+
+**Why it is needed.** The nightly sync rewrites only rows whose `updated_at` moved. An existing record keeps its old shape until its product is touched. A product record without `connector_kind` reads as unclassified: its card says "Connector" and it matches neither filter option. The CI apply step adds the facet to the index settings, but it rewrites no records.
+
+**What rewrites itself.** A product whose kind an admin sets or changes after the deploy is re-indexed by id at once. Any promote of a product rewrites its record that night.
+
+In run order, per environment (staging, then demo, then production):
+
+1. **Check the deploy.** The environment's settings apply step must have run (`SEARCH_RANKING.md` §1.1). Without it the facet returns no counts.
+2. **Pick the path.** The cheapest is the watermark reset for `products` (`SEARCH_RANKING.md` §1.2). It schedules a full products sweep at the next 08:00 UTC run and never empties the index. The datatool full reindex is faster but clears the index, so search returns nothing while it runs. Use it only off-peak.
+3. **Reset the `products` watermark** with the script in `scripts/ops/2026-09-algolia-integration-watermark-reset/`, `--entity products`. Run the dry run first, then `--apply`. Production also needs `--allow-production`. The README there holds the commands.
+4. **Verify after the next 08:00 UTC run.** Open `/search`, filter "Sync Service", and check that the known Sync Services appear with their chip. In production on 2026-11-24 the kind was set only where an admin had set it, so a short list is expected.
+
+Do not run the reindex to fix one product. A change of its kind re-indexes it by id. Saving the same value does nothing.
+

@@ -45,21 +45,30 @@
 
 import {
   INTEGRATION_CONTEST_FIELDS,
+  isSyncService,
   VendorProductConnectorsResponseSchema,
   type ContestableFields,
   type EvidencedPairContestTarget,
+  type PairContestKind,
+  type PairFlowDirection,
   type ProductLink,
+  type SyncServiceRights,
   type VendorProductConnectorsResponse,
 } from '@aeci/shared';
 import { compareText } from '@aeci/shared/text-sort';
-import { eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import { getDb, type Db } from '../db/client';
 import {
   connectorCatalogSurfaces,
   connectorCatalogs,
+  claims,
   connectorEvidencedPairs,
+  productVendors,
   products,
+  syncServicePairContests,
+  syncServicePairVetoes,
+  taxonomyDataObjects,
   vendors,
 } from '../db/schema';
 import { ApiError, notFoundError } from '../errors';
@@ -178,6 +187,7 @@ async function evidencedContestTargets(
     for (const r of rows) names.set(r.id, r.name);
   }
   const ref = (id: string) => ({ id, name: names.get(id) ?? '' });
+  const rights = await syncServiceRightsFor(db, vendorId, pairs);
   for (const pair of pairs) {
     const contextIsSource = pair.productAId === productId;
     const context = contextIsSource ? pair.productA : pair.productB;
@@ -209,6 +219,128 @@ async function evidencedContestTargets(
       owner: pair.builtByVendorId ? ref(pair.builtByVendorId) : null,
       is_owner: pair.builtByVendorId === vendorId,
       retired: pair.retiredAt !== null,
+      sync_service_rights: rights.get(pair.id) ?? null,
+    });
+  }
+  return out;
+}
+
+/**
+ * AECI-2042: what the caller may file on each pair a Sync Service delivers: a veto, an
+ * existence report, a data flow report (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11e). Absent
+ * for any other connector, and for the owner or the Sync Service vendor itself, which
+ * `resolvePairRightTarget` would refuse. Four reads for the whole list (the connectors'
+ * kind, the caller's connector products, the claims, the caller's open vetoes and
+ * reports), each chunked for D1's bound-parameter cap.
+ */
+async function syncServiceRightsFor(
+  db: Db,
+  vendorId: string,
+  pairs: readonly {
+    id: string;
+    connectorProductId: string;
+    productAId: string;
+    productBId: string;
+    builtByVendorId: string | null;
+    claimedAt: string | null;
+  }[],
+): Promise<Map<string, SyncServiceRights>> {
+  const out = new Map<string, SyncServiceRights>();
+  if (pairs.length === 0) return out;
+  const connectorIds = [...new Set(pairs.map((p) => p.connectorProductId))];
+  const [kinds, held] = await Promise.all([
+    db
+      .select({ id: products.id, role: products.productRole, kind: products.connectorKind })
+      .from(products)
+      .where(inArray(products.id, connectorIds)),
+    db
+      .select({ productId: productVendors.productId })
+      .from(productVendors)
+      .where(
+        and(eq(productVendors.vendorId, vendorId), inArray(productVendors.productId, connectorIds)),
+      ),
+  ]);
+  const syncService = new Set(kinds.filter((k) => isSyncService(k.role, k.kind)).map((k) => k.id));
+  const holdsConnector = new Set(held.map((h) => h.productId));
+  const eligible = pairs.filter(
+    (p) =>
+      syncService.has(p.connectorProductId) &&
+      !holdsConnector.has(p.connectorProductId) &&
+      p.builtByVendorId !== vendorId,
+  );
+  if (eligible.length === 0) return out;
+  const ids = eligible.map((p) => p.id);
+  const [claimRows, vetoRows, reportRows] = await Promise.all([
+    Promise.all(
+      chunked(ids).map((chunk) =>
+        db
+          .select({
+            id: claims.id,
+            pairId: claims.connectorEvidencedPairId,
+            direction: claims.direction,
+            name: taxonomyDataObjects.name,
+            order: taxonomyDataObjects.displayOrder,
+          })
+          .from(claims)
+          .innerJoin(taxonomyDataObjects, eq(taxonomyDataObjects.id, claims.dataObjectId))
+          .where(inArray(claims.connectorEvidencedPairId, chunk)),
+      ),
+    ).then((pages) => pages.flat()),
+    Promise.all(
+      chunked(ids).map((chunk) =>
+        db
+          .select({ id: syncServicePairVetoes.id, pairId: syncServicePairVetoes.evidencedPairId })
+          .from(syncServicePairVetoes)
+          .where(
+            and(
+              eq(syncServicePairVetoes.vendorId, vendorId),
+              isNull(syncServicePairVetoes.endedAt),
+              inArray(syncServicePairVetoes.evidencedPairId, chunk),
+            ),
+          ),
+      ),
+    ).then((pages) => pages.flat()),
+    Promise.all(
+      chunked(ids).map((chunk) =>
+        db
+          .select({
+            pairId: syncServicePairContests.evidencedPairId,
+            kind: syncServicePairContests.kind,
+            claimId: syncServicePairContests.claimId,
+          })
+          .from(syncServicePairContests)
+          .where(
+            and(
+              eq(syncServicePairContests.submitterVendorId, vendorId),
+              eq(syncServicePairContests.status, 'open'),
+              inArray(syncServicePairContests.evidencedPairId, chunk),
+            ),
+          ),
+      ),
+    ).then((pages) => pages.flat()),
+  ]);
+  for (const pair of eligible) {
+    const flows = claimRows
+      .filter((r) => r.pairId === pair.id)
+      // The pair page's order: curated display order, then name, then id (BINARY).
+      .sort(
+        (a, b) =>
+          (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER) ||
+          compareText(a.name, b.name) ||
+          (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+      )
+      .map((r) => ({
+        claim_id: r.id,
+        data_object_name: r.name,
+        direction: r.direction as PairFlowDirection,
+      }));
+    const reports = reportRows.filter((r) => r.pairId === pair.id);
+    out.set(pair.id, {
+      veto_id: vetoRows.find((v) => v.pairId === pair.id)?.id ?? null,
+      open_reports: [...new Set(reports.map((r) => r.kind as PairContestKind))],
+      open_flow_claim_ids: reports.flatMap((r) => (r.claimId ? [r.claimId] : [])),
+      flows,
+      flows_decided_by_owner: pair.claimedAt !== null && pair.builtByVendorId !== null,
     });
   }
   return out;

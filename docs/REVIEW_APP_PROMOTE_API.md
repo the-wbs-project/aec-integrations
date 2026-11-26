@@ -535,6 +535,16 @@ Four consequences worth knowing:
   permanently** (AECI-735): it is the only thing marking them as connector-delivered once the FK is
   absent, and both the AECI-705 attestation gate and the product page's "Via" lane read it. Do not
   re-key them to `native` or unset because the connector lane now has its own tables.
+  **Promote the connector first, then the pairs (AECI-2047).** An edge promoted before its
+  connector is stuck in `integrations` once its owner claims it, because a claimed row never moves
+  (§4b). So the owner's claim of an `integrations` row typed `iPaaS` with no `powered_by` is
+  refused (`409 INTEGRATION_CONNECTOR_UNRESOLVED`) until the connector is recorded. That is the
+  only form the live app can recognise: an edge typed `marketplace-app` whose connector did not
+  resolve looks like a direct integration there, and its owner can claim it. Its only trace is
+  the `unresolvedLinks[] { field: "powered_by" }` entry on the job that wrote it (§4a). So
+  promote the connector product before its pairs, and re-promote each pair's endpoints after it.
+  Treat a `powered_by` entry on a Sync Service pair as an action, not noise. The operator steps
+  are `docs/runbooks/catalog.md` "Promoting a connector and its pairs".
 - **`direction` is RE-ANCHORED, not re-encoded (amended by AECI-921).** It was a vocabulary
   translation; since AECI-921 you already send `a_to_b | b_to_a | both`, so what is left is an
   anchor change: your value is relative to **your** `sourceProduct` → `targetProduct`, while this
@@ -1177,6 +1187,28 @@ work every time. AECi therefore refuses those specific writes.
 
 **As built 2026-11-09 (AECI-1238, ADR 0052): promote never writes `hidden_at` or `hidden_hide_id`.** AECi hides a company or product through the admin hide routes (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6). A hidden record that promote updates stays hidden. A **new** product joined to a hidden company that is not owned is not created. The plan skips it with a reason starting `VENDOR_HIDDEN:` (`VENDOR_HIDDEN_REASON` in `routes/promote.ts`) and writes a `promote.blocked` audit row. An integration in the same payload with that product as an endpoint is skipped with `VENDOR_HIDDEN_INTEGRATION_REASON`. The ledger rules are unchanged. An owned company keeps the proposal route below. When the owner accepts the proposal under a hidden company, the product is inserted hidden, with a child row under the company's hide. The data-quality check `product_live_under_hidden_vendor` backstops the race between a promote's plan and a hide.
 
+**As built 2026-11-24 (AECI-2036): promote never writes or clears `products.connector_kind`.** The column says whether a connector is an Integration platform or a Sync Service, and an AECi admin sets it (`STAGE_1_5_SPEC.md` §13.13). `PromoteProductSchema` has no field for it and strips a `connectorKind` key, and the product upsert names its columns. A role change by promote leaves the stored value, and readers show NULL for an `application`. The ownership record (§4d) does not carry it. `promote.spec.ts` pins this.
+
+**As built 2026-11-24 (AECI-2041, ruling 7 on AECI-2035, ADR 0042's 2026-11-24 amendment): a Sync Service pair on an owned endpoint writes.** A pair that a Sync Service delivers between two other companies' products is the Sync Service's, not the endpoint vendor's record. So the owned-endpoint fence (the `BLOCKED_OWNED_ENDPOINT_REASON` row below) lets it through. The edge lands in `connector_evidenced_pairs`. Nothing on the owned product's own record is written: its fields, vendor links and taxonomy are untouched, and only its derived counts are recomputed, as for any pair. The connector's role and kind are read from the live database. You do not send the kind, and promote never writes it (the AECI-2036 paragraph above). The §4b claim fence still runs after this, so a pair the Sync Service has claimed, or created, is never written. The decision, for an edge where the new or the stored source or target is owned:
+
+| The edge | Result |
+|---|---|
+| A new pair whose connector is a Sync Service (role `connector` or `hybrid`, kind `sync_service`) that is neither endpoint | Written to `connector_evidenced_pairs` |
+| The same, with **both** endpoints owned, sent as an integration-only push (§3.5) or in an unowned endpoint's bundle | Written |
+| An update of a stored, unclaimed pair whose stored connector and new connector are both Sync Services. An omitted `poweredByProduct` inherits the stored one | Written. A re-point to a different pair or a different Sync Service is written too |
+| A pair whose connector is an Integration platform, an unclassified connector, or a product whose role is `application` | `BLOCKED_OWNED_ENDPOINT_REASON` |
+| A direct edge: no `poweredByProduct`, an explicit `null`, or a connector that does not resolve | `BLOCKED_OWNED_ENDPOINT_REASON` |
+| A connector that is one of the two endpoints (Convention A, §3.4a) | `BLOCKED_OWNED_ENDPOINT_REASON` |
+| An update that would move an `integrations` row into `connector_evidenced_pairs` | `BLOCKED_OWNED_ENDPOINT_REASON`. The row is a direct edge of the owned product, and the move deletes it |
+| An update of a stored pair whose stored connector is not a Sync Service, or whose new connector is not | `BLOCKED_OWNED_ENDPOINT_REASON` |
+| An explicit `poweredByProduct: null` on a stored Sync Service pair (a de-route) | `BLOCKED_OWNED_ENDPOINT_REASON` |
+| The payload is the connector product and sets `productRole: "application"` in the same push | `BLOCKED_OWNED_ENDPOINT_REASON`. The role the batch writes is the one that counts |
+| The pair is claimed, or vendor-created | The §4b skip, `REFUSED_CLAIMED_INTEGRATION`, as before |
+| The payload is the owned product's own bundle | The product is `BLOCKED_PRODUCT_REASON` and the edge `BLOCKED_INTEGRATION_REASON`, as before. Send the pair in the other endpoint's bundle, or as an integration-only push |
+| No endpoint is owned | Unchanged. The kind plays no part |
+
+A written exception edge carries `metadata.ownedEndpointException: "sync_service"` on its `connector_evidenced_pair.created` or `.updated` audit row. Its endpoints are left out of the commit-time ownership sentinel, because they are owned by design. Its connector, and on an update its stored connector, are guarded instead: a statement at the end of the batch aborts it when either is no longer a Sync Service at commit. The job then ends `errored` with `VENDOR_OWNED_DURING_PROMOTE` (409, §6.2), nothing is written, and a re-push under a new `jobId` gets the `BLOCKED_OWNED_ENDPOINT_REASON` skip. The ledger row stays the first statement, and a replay returns the recorded result. Code: `syncServiceExceptionApplies` in `routes/promote.ts`, `promoteSyncServiceSentinels` in `lib/claimed-vendors.ts`. Spec: `promote-sync-service-exception.spec.ts`, one test per row above.
+
 **As built 2026-10-19 (AECI-1415, ADR 0042): the fence reads stored ownership, not seats.** Before it, "claimed" meant at least one unbanned seat. A ban or a last-seat revoke made promote write the record again. That is gone. Ownership is `vendors.owned_at`, set at claim approval and at the admin seat provision, and only two things clear it: the admin "Return records to AECi" action and, since AECI-1589 (2026-11-03) and as moved by AECI-1623 (2026-11-05), Terminate of a suspended vendor. The ban of the last unbanned seat no longer clears it: that ban is refused. The unban stamps it again. Seat loss, subscription lapse and account erasure never clear it. An unowned company behaves as before. A seat without `owned_at` owns nothing. Each skip writes a `promote.blocked` audit row.
 
 What that looks like in a response:
@@ -1192,7 +1224,7 @@ What that looks like in a response:
 | You **create** a new product that would join a **hidden** company that is not owned (AECI-1238) | **Not created.** `product` is `null`. `skipped[]` gains `{ ref, kind: "product", reason }`, where `reason` starts `VENDOR_HIDDEN:`. Re-send it after AECi restores the company. |
 | An integration in that same payload touches the product skipped as `VENDOR_HIDDEN` | Skipped with `kind: "integration"` and `VENDOR_HIDDEN_INTEGRATION_REASON`, which also starts `VENDOR_HIDDEN:`. |
 | An integration in that same payload has an endpoint on an existing product this promote skipped, including as its `poweredByProduct` | Skipped with `kind: "integration"` and `BLOCKED_INTEGRATION_REASON`, "an endpoint is a product this promote refuses because its vendor owns its record". |
-| An integration whose **source or target** product is owned, whichever product the payload is about | Skipped with `kind: "integration"` and `BLOCKED_OWNED_ENDPOINT_REASON`, "the source or target product belongs to a vendor that owns its record; review-app writes to the integration are refused". It also holds when an update would move the edge away from an owned product, because the stored endpoints count. An edge where the owned product is only the `poweredByProduct` connector still writes. |
+| An integration whose **source or target** product is owned, whichever product the payload is about | Skipped with `kind: "integration"` and `BLOCKED_OWNED_ENDPOINT_REASON`, "the source or target product belongs to a vendor that owns its record; review-app writes to the integration are refused". It also holds when an update would move the edge away from an owned product, because the stored endpoints count. An edge where the owned product is only the `poweredByProduct` connector still writes. Since AECI-2041 a pair whose connector is a Sync Service also writes, on the terms of the table above. |
 | You **create** a new vendor | Never blocked, nothing vendor-owned exists yet. |
 | Anything else in the same payload | Promotes normally. |
 
@@ -1243,7 +1275,10 @@ AECI-1341).*
   product still writes, is dropped. Ownership now covers the integrations the vendor
   owns. The per-row claim fence (§4b, ADR 0035) still applies on top of it. An
   integration built by an owned vendor between two unowned products is not caught
-  by this rule, only by §4b (open question, ADR 0042).
+  by this rule, only by §4b (open question, ADR 0042). One exception since AECI-2041:
+  a pair a Sync Service delivers is not the endpoint vendor's, so it writes (the
+  table above). An endpoint vendor that does not want it uses its veto (ruling 8 on
+  AECI-2035), not this fence.
 
 **Seat loss does not hand anything back (AECI-1415, ruled 2026-10-19).** A revoke or an
 account erasure of the vendor's last seat ends the edit right only. *Excepted 2026-11-03
@@ -1432,7 +1467,11 @@ production pair is vendor-held and nothing changes on your side.
   `integrations` delete already did. The consumer and the strand audit exempt vendor-held pairs.
   `ops:retract-product --delete-evidenced-pairs` refuses a vendor-held pair, with no override,
   and its delete plan re-checks at write time: it opens with a statement that aborts the run
-  if a vendor-held integration or pair entered scope after the footprint check. The datatool
+  if a vendor-held integration or pair entered scope after the footprint check. One explicit
+  exception (AECI-2047): `--withdraw-connector` withdraws a connector product with the pairs it
+  delivers, including those its own vendor holds. Any pair another vendor holds still refuses.
+  The review app learns of it from the builder's next ownership record (§4d `deliveredPairs[]`)
+  and from the upstream `delete_product` the run's follow-ups list. The datatool
   prune refuses an id that names one.
 - Promote never writes the four ownership columns on that table: `claimed_at`, `origin`,
   `retired_at` and `retired_by`. A pair promote creates, or moves in from `integrations`, is
@@ -1440,6 +1479,26 @@ production pair is vendor-held and nothing changes on your side.
   in from `integrations` carries across unchanged (§4b above).
 
 You see the same `skipped[]` entry for a fenced evidenced pair as for a fenced integration.
+
+### 4b.1 A vetoed Sync Service pair is fenced too (AECI-2042, 2026-11-24)
+
+An endpoint vendor may veto a pair a Sync Service delivers (`STAGE_2_VENDOR_PORTAL_SPEC.md`
+§11e.2). `vetoed_at` is set on every row on the vetoed pair key, in both tables, and they
+leave every public read. So the by-id fence below covers a second row on the key as well
+as the row the veto was filed on. The veto needs no
+claim, so an AECi-seeded pair can be vetoed. Promote treats a vetoed row as vendor-held for
+this fence, and never writes `vetoed_at`:
+
+| Promote write | On a vetoed row or key | How |
+|---|---|---|
+| Any write to the vetoed row, by id, in either table (content, re-point, move, claims) | Skipped, `kind: "integration"`, reason `REFUSED_VETOED_INTEGRATION` ("integration was removed from the site by an endpoint vendor; promote writes nothing to a vetoed integration"), a `promote.blocked` audit row. Checked before the claim fence, so a claimed and vetoed row names the veto | `routes/promote.ts`, the located row's `vetoed_at` |
+| A veto filed between the plan read and the batch | The batch aborts; the job errors with `INTEGRATION_CLAIMED_DURING_PROMOTE`; a re-push skips the edge | `promoteClaimFenceSentinel` and `promoteEvidencedClaimFenceSentinel` also fire on `vetoed_at IS NOT NULL` |
+| A new upstream id for the same pair, through the same connector | Skipped as `VENDOR_OWNED_TWIN` (§4c): the twin guards count a vetoed row as vendor-held (`promoteFencedIntegrationWhere`, `promoteFencedEvidencedPairWhere`) | `lib/integration-twins.ts` |
+| A new row on a vetoed pair key whose vetoed row is gone | Skipped with `REFUSED_VETOED_INTEGRATION`, with a commit-time sentinel (`openVetoOnPairKeySentinel`) | The veto row keeps the pair key (its anchor FKs are SET NULL) |
+
+When the endpoint vendor withdraws its veto, or AECi lifts it, the next promote writes the
+row as before. Spec: `vendor-sync-service-vetoes.spec.ts`, "promote never revives, overwrites
+or duplicates a vetoed pair".
 
 ## 4c. Vendor-created integrations, and the `VENDOR_OWNED_TWIN` skip (AECI-1011)
 
@@ -1520,6 +1579,19 @@ rolls back and ends `errored` with `VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE` (4
 failing on the unique index. The functions are `findVendorHeldEvidencedTwin` and
 `vendorOwnedEvidencedTwinSentinel` in `apps/api/src/lib/integration-twins.ts`.
 
+**A Sync Service's own pairs (AECI-2040, 2026-11-24).** A Sync Service now adds the pairs it
+delivers in the portal (`POST /api/vendor/sync-service-pairs`, `STAGE_2_VENDOR_PORTAL_SPEC.md`
+§4.7.7, rulings 7 and 11 on AECI-2035). Such a pair lands in `connector_evidenced_pairs` with
+`origin = 'vendor'`, its Sync Service vendor in `built_by_vendor_id` and `claimed_at` set. It is
+vendor-held, so nothing above changes for you: an edge naming its id gets §4b's `claimed` skip,
+and a push of the same pair through the same connector with no `supabaseId` gets the
+`VENDOR_OWNED_TWIN` skip with the vendor pair's id. Nothing is written beside it. As for any
+vendor-created row, the review app has no record of it until AECI-2047's ownership record lists
+it under `deliveredPairs[]`. The portal create has its own guard, the other way round: it refuses
+a pair that is already on record through the same connector, in either table, live or retired
+(`findSyncServicePairBlock` in `apps/api/src/lib/integration-twins.ts`). So a pair you promote
+first is never added again by the vendor.
+
 The two guards never search each other's table. Promote routes every write whose stated
 connector is a third product into `connector_evidenced_pairs`, and the unique index that can fail
 a promote exists on that table only.
@@ -1568,7 +1640,7 @@ The live app sends one vendor's record after each of these commits:
 | Owner declines a product proposal | `proposal_declined` |
 | "Return records to AECi" (`POST /api/admin/vendors/:id/return-to-aeci`). Also Terminate of a suspended vendor (`POST /api/admin/vendors/:id/suspension/terminate`, AECI-1623, which took this over from the last-seat ban of AECI-1589), which returns the records in its batch. The records stay the vendor's text: only the operational lock clears, and the cause is `vendor-terminated` on the audit row (AECI-1974). The message reason is `records_returned`, reused because the receiver validates the enum | `records_returned` |
 | `ops:backfill-ownership-sync`, once per already-owned vendor (ruling Q7) | `backfill` |
-| A vendor-portal write that changes a mirrored field of an owned vendor's record: profile, product, versions, taxonomy, usefulness, logo, integration edit, create, claim, retire, restore, links, attestations, "Looks right", contest decisions (v2 producer, AECI-1454) | `vendor_edit` |
+| A vendor-portal write that changes a mirrored field of an owned vendor's record: profile, product, versions, taxonomy, usefulness, logo, integration edit, create, claim, retire, restore, links, attestations, "Looks right", contest decisions (v2 producer, AECI-1454). Since AECI-2047 a write to a pair also re-sends its builder's record, when the builder is owned (`deliveredPairs[]`) | `vendor_edit` |
 | An AECi admin write to a mirrored field of an owned vendor's record: logo, contest decision, field correction with a lock and its lift, integration retire or restore (v2 producer, AECI-1454). Also the daily brand asset removal, after it puts the AECi logo back on a company whose claim ended (AECI-1618, no new reason, because the receiver validates the enum) | `admin_edit` |
 | An owner seat's removal election, which blanks the text the vendor wrote on a product after Managed ends (AECI-1618) | `vendor_edit` |
 
@@ -1636,7 +1708,7 @@ The review app imports or mirrors it.
 | `version` | Epoch milliseconds of the database read the record was built from. Monotonic per vendor. |
 | `asOf` | `version` as an ISO instant, for people. |
 | `products[]` | Every product joined to the vendor. Each carries its own `owner`. A product joined to any owned vendor is `vendor`-owned (ruling Q3), so a co-owned product stays `vendor` after this vendor returns its records. |
-| `integrations[]` | Every integration where one of those products is the source or the target (ruling Q2). `table` says where the id lives: `integrations` (source or target) or `connector_evidenced_pairs` (`product_a` or `product_b`), because promote routes connector-delivered edges there (§3.4a). An edge where the vendor's product is only the `poweredByProduct` connector is **not** listed. Each is `vendor`-owned when either endpoint product is owned. |
+| `integrations[]` | Every integration where one of those products is the source or the target (ruling Q2). `table` says where the id lives: `integrations` (source or target) or `connector_evidenced_pairs` (`product_a` or `product_b`), because promote routes connector-delivered edges there (§3.4a). An edge where the vendor's product is only the `poweredByProduct` connector is **not** listed here. Under v2, a pair this vendor builds is listed in `deliveredPairs[]` instead (AECI-2047, below). Each is `vendor`-owned when either endpoint product is owned. |
 | `proposals[]` | Every product proposal addressed to the vendor (AECI-1416): its `ref` (your `p:rec…`), `state` (`open`, `accepted`, `declined`), `decidedAt`, and the `productId` an accept created. Bind your record to that id. A proposal "Return records to AECi" discarded is no longer listed. |
 
 **Ids.** Every id is an AECi UUID, the `supabaseId` you store per record (§3.1). A
@@ -1674,6 +1746,8 @@ A v2 record carries every v1 field with the same meaning, plus:
 | `products[].fromProposalRef` | The `ref` (`p:rec…`) of the accepted product proposal that created this product, else `null` (AECI-1489). On every product entry, owned or not. It is set in every vendor's record that lists the product, including a co-owner that did not propose it. Live-only, and inside `recordHash`. |
 | `integrations[].content` | The integration's content (`OwnershipIntegrationContentSchema`), either table. Present exactly when that integration's `owner` is `vendor`. |
 | `integrations[].claims` | Its claim slots (`OwnershipClaimSchema`). Present exactly when `content` is. |
+| `deliveredPairs[]` | **Optional, AECI-2047.** The pairs this vendor delivers as a connector's builder: every `connector_evidenced_pairs` row whose `built_by_vendor_id` is this vendor and that `integrations[]` does not already list (it lists a pair with one of the vendor's own products as an endpoint). Live and retired rows both. Each entry has the `integrations[]` v2 shape with `table` always `connector_evidenced_pairs`. Its `owner` is the per-row hold, not the product rule: `vendor` exactly when the pair is claimed or vendor-created, which is when promote refuses it (§4b). Then `content` and `claims` are present. **Absent means none**: the live app leaves the key out when the list would be empty, so the record and `recordHash` of a vendor that delivers no pair are exactly as before. Sorted by id, inside `recordHash`. |
+| `integrations[].ownerFlows`, `deliveredPairs[].ownerFlows` | **Optional, AECI-2039 follow-up.** The owner's data flows on a row whose owner maintains them: a claimed pair whose connector product is a Sync Service (`STAGE_2_ATTESTATIONS_SPEC.md` §14.10). Present only on an entry that has `content`, and only for such a row. Absent everywhere else, so every other entry hashes as before. See "Owner flows" below. |
 | `recordHash` | Lowercase hex SHA-256 of the record's canonical JSON, without `version`, `asOf`, `reason` and `recordHash`. Store it. The versions read below echoes it. |
 
 **Content is whole state.** Every key is present, `null` when the live column is empty. Field
@@ -1711,6 +1785,17 @@ its connector, `direction` and every claim are framed to that A and B (§3.4a), 
 per slot. It is the slot's active attestation, or when none is active the most recently
 retracted one, so you learn a position was withdrawn.
 
+**Owner flows** (`OwnershipOwnerFlowSchema`, AECI-2039 follow-up). One entry per claim on the
+row: `dataObject` (slug), `direction` (`a_to_b`, `b_to_a`, `both`, framed to the row's A and B as
+the claim slots are), `origin` (`vendor` when the owner added the flow, `aeci` when it was seeded)
+and `answer`. `answer` is the owner's live answer, counted by the rule the public pages use: the
+answer's vendor is the row's owner now, the row is claimed and the connector is a Sync Service.
+`yes` shows the flow as "Confirmed by {owner}, which offers this integration". `no` removes the
+flow from every public page. `null` means the owner has not answered. Unique by
+`{ dataObject, direction }`, sorted by that key, binary, inside `recordHash`. An owner answer is
+never a claim slot: the slots keep `aeci`, `vendor_a` and `vendor_b` with their meanings, and a
+flow the owner added has no slot, because it has no attestation.
+
 **Left out on purpose:** derived and aggregate columns (`verified`, `review_count`, rating
 averages, `integration_count`), `created_at` and `updated_at`, and the curation columns you
 author yourself (`sourceUrl`, `adminNotes`, research, priority and search columns,
@@ -1725,8 +1810,8 @@ field that is neither a promote field nor listed live-only.
 **`recordHash`.** `computeOwnershipRecordHash(record)` in the shared module computes it.
 Canonical JSON sorts object keys by UTF-16 code unit at every depth, drops `undefined`, and
 keeps array order. Before hashing, the set-like arrays are sorted: products, integrations and
-proposals by id, claim slots by natural key, vendor links by product and kind, and the four
-taxonomy slug lists. Product versions and usefulness groups keep their order, because a reader
+proposals by id, claim slots by natural key, owner flows by `{ dataObject, direction }`
+(AECI-2039), vendor links by product and kind, and the four taxonomy slug lists. Product versions and usefulness groups keep their order, because a reader
 sees it. You may recompute it to check a body. You must store the value you received.
 
 **Rules for a v2 receiver**, on top of rules 1 to 4 below:
@@ -1744,6 +1829,37 @@ sees it. You may recompute it to check a body. You must store the value you rece
    names the product may be a co-owner's, whose `proposals[]` does not list the proposal.
 8. **When ownership returns**, the next record carries `owner: aeci` and no content for the
    records that left vendor ownership. Keep the last mirrored values as your starting point.
+9. **`deliveredPairs[]` (AECI-2047) is additive.** A receiver that does not know the key yet must
+   accept the record and ignore it, which a non-strict parse does. Do not refuse an unknown key.
+   Store the `recordHash` you received, never one you recompute after dropping the key, or the
+   drift check reports `hash differs` for every vendor with delivered pairs. To build support:
+   bind each entry by its id like an `integrations[]` entry (create a read-only mirror row for an
+   id you never stored). Make the pair read-only while its entry says `vendor`. The same pair id
+   can also appear in an endpoint vendor's record under `integrations[]`, with the product rule's
+   `owner`. Treat the pair as read-only when either record says `vendor`. An entry that leaves the
+   list on a later record is no longer this vendor's to mirror. Never infer a delete from it.
+
+10. **`ownerFlows` (AECI-2039 follow-up) is additive.** A receiver that does not know the key
+   must accept the record and ignore it, as for rule 9, and store the `recordHash` it received. To
+   build support: store each entry's `ownerFlows` read-only with the row, replaced whole by the
+   next record. Treat an `answer: no` flow as removed from the public page, not deleted: the owner
+   can clear the answer and the flow returns. A flow with `origin: vendor` is the owner's own and
+   has no claim slot. Never infer a claim delete from a flow leaving the list.
+
+**Rolling out `deliveredPairs[]`.** The key is in the live schema from AECI-2047. A vendor that
+delivers a pair gets a new `recordHash` at the first delivery after the deploy, so run
+`ops:backfill-ownership-sync` for those vendors after the production deploy, before the next 04:00
+UTC drift run. Every other vendor's hash is unchanged. A delivered pair's edit (a claim, an owner
+edit, a retire) now re-sends the builder's record too, when the builder is owned. The review-app
+side is a `REVIEW - ` issue: parse the key, mirror the entries, and apply rule 9.
+
+**Rolling out `ownerFlows`.** A vendor whose owned entry carries the key gets a new `recordHash` at
+its first delivery after the deploy: the builder of a claimed Sync Service pair, and an endpoint
+vendor whose owned entry lists such a pair. Run `ops:backfill-ownership-sync` for those vendors
+after the production deploy, before the next 04:00 UTC drift run. An owner flow write re-sends the
+builder's record, because its `integration.updated` audit entry names the row (`mirrorTargets`).
+The review-app side is the same `REVIEW - ` issue as rule 9 (AECI-2081): parse the key, store it,
+apply rule 10.
 
 **The flag.** The live producer sends v2 only where the per-env wrangler var
 `REVIEW_APP_MIRROR_SCHEMA` is `"2"`. Production is `"2"` since AECI-1455 (2026-10-27), after
@@ -2287,7 +2403,7 @@ Synchronous rejections use the standard AECi envelope:
 | `VALIDATION_FAILED` | A name that can't be turned into a URL slug (reserved or empty after normalization) — only detectable once AECi tries | Fix the name; re-push with a new `jobId`. |
 | `CATALOG_VENDOR_MANAGED` | Connector arm only (§3a). The catalogue is **vendor-managed** on AECi, so the review lane is frozen for it | **Do not retry — not with this `jobId` and not with a new one.** Stop syncing that catalogue and render it read-only your side. Only an AECi operator can return it to review authorship. |
 | `INTEGRATION_CLAIMED_DURING_PROMOTE` | An integration in the bundle was claimed by its owner after AECi planned the write and before it committed (§4b). The whole batch rolled back | Re-push with a **new `jobId`**. The re-push reports that edge in `skipped[]` and commits the rest. |
-| `VENDOR_OWNED_DURING_PROMOTE` | A vendor the plan treated as unowned and writes, or a product at either end of a written edge, became owned (claim approval or seat provision) after AECi planned the write and before it committed (§4a, AECI-1415). The whole batch rolled back | Re-push with a **new `jobId`**. The re-push reports those rows in `skipped[]` and commits the rest. |
+| `VENDOR_OWNED_DURING_PROMOTE` | A vendor the plan treated as unowned and writes, or a product at either end of a written edge, became owned (claim approval or seat provision) after AECi planned the write and before it committed (§4a, AECI-1415). Since AECI-2041 also: the connector of a Sync Service pair written on an owned endpoint stopped being a Sync Service before commit (§4a). The whole batch rolled back | Re-push with a **new `jobId`**. The re-push reports those rows in `skipped[]` and commits the rest. |
 | `VENDOR_RETURNED_DURING_PROMOTE` | The vendor a new product was being proposed to stopped owning its records (the admin "Return records to AECi") after AECi planned the proposal and before it committed (§4a, AECI-1416). The whole batch rolled back | Re-push with a **new `jobId`**. The vendor is AECi's again, so the product is created normally. |
 | `PRODUCT_PROPOSED_DURING_PROMOTE` | Another promote stored a proposal for the same new product `ref` after AECi planned this one and before it committed (§4a, AECI-1416). The unique index on `product_proposals.ref` aborted the whole batch | Re-push with a **new `jobId`**. The re-push reports the product as already sent, with the stored `proposalId`, and commits the rest. |
 | `CONTEST_CHANGED_DURING_PROMOTE` | A contest on an edge this bundle moves between `integrations` and `connector_evidenced_pairs` was filed, withdrawn or decided after AECi planned the move and before it committed (§3.4a, AECI-1110). The whole batch rolled back | Re-push with a **new `jobId`**. The re-push re-anchors the contests as they now stand. |
@@ -2726,6 +2842,7 @@ window, so reusing the first promote's id would just hand you back that job's ol
 - [ ] **Send a reach claim in `claims[]` on the connector arm, anchored by `connectorPairId`** (§3a, AECI-891) — never as an `integrations[]` claim. The two anchors mean different things: one says somebody built the integration, the other says only that the two ends are joinable. Send the pair before the claim, or expect a re-sendable `kind: "claim"` skip.
 - [ ] **Set `pairs[].surface` to `derived` on any pair you enumerated rather than found** (§3a, AECI-906). `unknown` promises a page exists and nobody read it; `derived` says no page exists. AECi counts `derived` toward reach and publishes it nowhere, so mislabelling it as `unknown` puts a non-existent vendor page into the publication candidate set.
 - [ ] On a synchronous 4xx, surface `error.message` / `error.field` to the curator; on 5xx, retry (same `jobId`) then escalate `trace_id`. On `status: "errored"`, surface `error.code` / `error.message` and retry with a new `jobId` (§6).
+- [ ] **Sync Service pairs (AECI-2041, AECI-2047).** Promote the connector product before its pairs, and re-promote the pairs' endpoints after it (§3.4a). Treat an `unresolvedLinks[] { field: "powered_by" }` entry on a Sync Service pair as an action. A pair on an owned endpoint writes (§4a), but an owned product's own bundle still skips its edges: when both endpoints are owned, send the pair as an integration-only push (§3.5). Accept the ownership record's optional `deliveredPairs[]` (§4d rule 9) and `ownerFlows` (§4d rule 10, AECI-2039).
 
 ## Usefulness ownership override (AECI-963)
 

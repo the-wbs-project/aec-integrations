@@ -20,11 +20,13 @@ import { VendorEntitlementBlockSchema } from './vendor';
  *   - `done`     — finished. A done step keeps `done` whether or not it counts.
  *   - `todo`     — not finished, and it counts.
  *   - `optional` — not finished, and it does not count. "Invite a colleague"
- *                  always; "Confirm data flows" on a product whose plan lacks
- *                  `attestation.author` (a Free product, §13.1 decision 6).
+ *                  always; "Confirm data flows" only on a product whose plan
+ *                  lacks `attestation.author`. Since AECI-2038 every live plan
+ *                  holds it, Free included, so that is a tier the build does
+ *                  not know.
  *
- * `done` / `total` count the counted steps only. So a Free product reads "3 of 3"
- * when finished, and a Managed product reads "x of 4". A step with nothing to do
+ * `done` / `total` count the counted steps only. So a product reads "x of 4" on
+ * every plan since AECI-2038 (a Free product read "3 of 3" before). A step with nothing to do
  * is `done` (§13.10 "a step with nothing to do counts as done").
  *
  * i18n note: keys are stable identifiers, never copy. The portal maps each key to

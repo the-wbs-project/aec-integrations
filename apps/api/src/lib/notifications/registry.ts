@@ -459,10 +459,11 @@ export const NOTIFICATIONS = {
     audience: 'operator',
     trigger: {
       kind: 'route',
-      ref: 'POST /api/vendor/integrations/:id/contests (routes/vendor-contests.ts)',
+      ref: 'POST /api/vendor/integrations/:id/contests (routes/vendor-contests.ts); since AECI-2042 also POST /api/vendor/integrations/:id/pair-contests (routes/vendor-pair-contests.ts); since AECI-2192 also POST /api/vendor/vetoes/:id/objections (routes/vendor-sync-service-vetoes.ts)',
     },
     envRule: 'any-tier',
-    dedupe: 'None. Sent only when the contest routes to AECi.',
+    dedupe:
+      'None. Sent only when the contest or Sync Service pair report routes to AECi, and on every objection to a removal (which always routes to AECi).',
     ledger: ['notification_sends'],
     optOut: 'none',
     pausable: true,
@@ -1369,12 +1370,63 @@ export const NOTIFICATIONS = {
     summary: 'Tells the other endpoint vendors a vendor created an integration on their product.',
     note: 'Not pausable: a portal row, not email.',
   },
+  'portal-sync-service-pair-create': {
+    channel: 'portal',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/vendor/sync-service-pairs (routes/vendor-sync-service-pair-create.ts)',
+    },
+    envRule: 'any-tier',
+    dedupe: 'One row per recipient, in the create batch.',
+    ledger: ['audit_log'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §4.7.7',
+    summary:
+      'Tells the vendors of both products a Sync Service added a pair it delivers between them (ruling 11 on AECI-2035).',
+    note: 'Not pausable: a portal row, not email. Same `integration_create` kind as the vendor create, so the feed renders it alike.',
+  },
+  'portal-sync-service-veto': {
+    channel: 'portal',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/vendor/integrations/:id/veto and POST /api/vendor/vetoes/:id/withdraw (routes/vendor-sync-service-vetoes.ts); POST /api/admin/vetoes/:id/lift and PATCH /api/admin/veto-objections/:id (routes/admin-sync-service-vetoes.ts)',
+    },
+    envRule: 'any-tier',
+    dedupe: 'One row per recipient, in the write batch.',
+    ledger: ['audit_log'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11e',
+    summary:
+      'Tells the owner of a Sync Service pair, and the other endpoint vendors, that an endpoint vendor removed it from its product, withdrew a removal, or that AECi ended one (rulings 8 and 66 on AECI-2035). The removal row to the owner names the vendor and the time, and gives the fixed reason as a statement by that vendor ("{vendor} gave this reason"). The portal shows how to object. An AECi end names its ground and note. A declined objection tells the objecting vendor why.',
+    note: 'Not pausable: a portal row, not email. No vendor is emailed: the Sync Service with a seat reads it in its portal at once, and one with no seat has nobody to read it (the operator steps are in docs/runbooks/listing-submissions.md §6c). An end also tells the vendor whose removal ended and, on an accepted objection, the objecting vendor. A removal is keyed to the pair, so the owner of every other row on the same connector and endpoint pair is told as an owner too.',
+  },
+  'portal-sync-service-pair-report': {
+    channel: 'portal',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/vendor/integrations/:id/pair-contests and the /api/vendor/pair-contests/:id routes (routes/vendor-pair-contests.ts); PATCH /api/admin/pair-contests/:id and its /protest (routes/admin-pair-contests.ts)',
+    },
+    envRule: 'any-tier',
+    dedupe: 'One row per recipient, in the write batch.',
+    ledger: ['audit_log'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11e',
+    summary:
+      'Tells the owner when a data flow report on its Sync Service pair is filed or withdrawn, and the filing vendor when a report it filed is decided or its protest is answered (rulings 9 and 10 on AECI-2035).',
+    note: 'Not pausable: a portal row, not email. An existence report routes to AECi, so its filing tells no vendor.',
+  },
   'portal-claim-added': {
     channel: 'portal',
     audience: 'external',
     trigger: {
       kind: 'route',
-      ref: 'PUT /api/vendor/claims/:claimId/attestation (routes/vendor-attestations.ts)',
+      ref: 'POST /api/vendor/claims (routes/vendor-attestations.ts); the Sync Service owner adding a flow, POST /api/vendor/owned-integrations/:id/flows and PATCH /api/vendor/owned-flows/:claimId (routes/vendor-owner-flows.ts)',
     },
     envRule: 'any-tier',
     dedupe: 'One row per recipient, in the attestation batch.',
@@ -1494,7 +1546,7 @@ export const NOTIFICATIONS = {
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11d',
     summary:
       "Tells an integration's owner that AECi accepted a contest that changed a field it holds, and why. On an Owner accept it tells the old owner it no longer holds the integration.",
-    note: 'Sent only when the accept overwrites a value the owner holds, to an owner that is not the submitter. Every plan, no tier rule. Carries the reason, never the internal note. Not pausable: a portal row, not email.',
+    note: 'Sent only when the accept overwrites a value the owner holds, to an owner that is not the submitter. Since AECI-2045 also sent by PUT /api/admin/integrations/:id/owner (routes/admin-integration-owner.ts) to the owner of a claimed pair the admin re-owns, with the admin reason. Every plan, no tier rule. Carries the reason, never the internal note. Not pausable: a portal row, not email.',
   },
   'portal-logo-overridden-by-aeci': {
     channel: 'portal',

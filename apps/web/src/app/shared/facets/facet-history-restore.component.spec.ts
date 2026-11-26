@@ -31,6 +31,7 @@ function counts(label: string): ProductFacetsResponse {
     audiences: [term('a1', 'Aud', 2)],
     trades: [],
     phases: [],
+    connector_kinds: [],
   };
 }
 

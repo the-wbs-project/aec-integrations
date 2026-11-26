@@ -27,6 +27,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
+  ADMIN_SNAPSHOT_METRIC_KEYS,
   JOB_RUNS_RETENTION_DAYS,
   NOTIFICATION_DELIVERY_EVENTS_RETENTION_DAYS,
   NOTIFICATION_SENDS_RETENTION_DAYS,
@@ -59,6 +60,7 @@ import {
   cutoffFor,
   emitRetentionPruneMetrics,
   findArchiveGap,
+  findSnapshotGap,
   MAX_CHUNKS_PER_TABLE,
   NEVER_PRUNED,
   PRUNABLE,
@@ -154,12 +156,13 @@ async function seedUserActivity(days: string[], offset = 0): Promise<void> {
 }
 
 /** One `metrics_daily` row per day — the gate only asks that a day was captured
- *  at all, not that all 20 keys landed (stocks are never backfilled). */
+ *  at all, not that every key landed (stocks are never backfilled). The key must
+ *  be a SNAPSHOT key: since AECI-820 the gate ignores every other metric. */
 async function seedSnapshots(days: string[]): Promise<void> {
   if (days.length === 0) return;
   await t.db
     .insert(metricsDaily)
-    .values(days.map((day) => ({ day, metric: 'page_views_total', value: 0 })));
+    .values(days.map((day) => ({ day, metric: 'traffic.page_views_human', value: 0 })));
 }
 
 /** Every day in `[from, to]` inclusive. */
@@ -530,6 +533,40 @@ describe('runRetentionPrune', () => {
     const result = await runRetentionPrune(t.db, NOW, WINDOWS);
 
     expect(result).toMatchObject({ status: 'pruned', rowsDeleted: 1 });
+  });
+
+  it('reports a day captured only by a search ingest row as a gap (AECI-820)', async () => {
+    // The ingest files Google's figures under Pacific dates (§5.24.8). Such a row
+    // says nothing about the 00:15 snapshot, so it must not clear the day for the
+    // prune: the day's raw page_views would go, and nothing could rebuild them.
+    await seedPageViews([PV_LAST_PRUNED_DAY]);
+    await t.db.insert(metricsDaily).values({
+      day: PV_LAST_PRUNED_DAY,
+      metric: 'search.google.www_page.impressions',
+      value: 40,
+    });
+
+    expect(await findSnapshotGap(t.db, PV_LAST_PRUNED_DAY, PV_LAST_PRUNED_DAY)).toEqual([
+      PV_LAST_PRUNED_DAY,
+    ]);
+    const result = await runRetentionPrune(t.db, NOW, WINDOWS);
+    expect(result).toMatchObject({ status: 'skipped', reason: 'metrics_daily_gap' });
+    expect(await tally(pageViews)).toBe(1);
+  });
+
+  it('still counts a day with ANY snapshot key, whatever else the day holds', async () => {
+    // The narrowed probe keeps the old rule for snapshot keys: one is enough.
+    await t.db.insert(metricsDaily).values([
+      { day: PV_LAST_PRUNED_DAY, metric: 'catalog.products_promoted', value: 3 },
+      { day: PV_LAST_PRUNED_DAY, metric: 'search.google.www_page.clicks', value: 2 },
+    ]);
+    expect(await findSnapshotGap(t.db, PV_LAST_PRUNED_DAY, PV_LAST_PRUNED_DAY)).toEqual([]);
+  });
+
+  it("binds the snapshot key list inside D1's 100-parameter cap", () => {
+    // One parameter per key plus the two day bounds. A list that outgrew the cap
+    // would fail the probe on D1 and stop every prune.
+    expect(ADMIN_SNAPSHOT_METRIC_KEYS.length + 2).toBeLessThanOrEqual(100);
   });
 
   it('caps the reported missing days but not the count', async () => {

@@ -129,9 +129,10 @@ misstatement this ADR exists to end.
 
 It writes only where a stored row already exists. The tempting reading — "coverage is the
 backfill's job" — is a policy statement a future PR can and will overrule. The real mechanism
-is sharper: `findSnapshotGap` probes `metrics_daily` with `selectDistinct({day})` and **no
-`metric` predicate**, so *any single row* tells the 03:00 retention prune that a day is
-captured. Inserting one traffic key for a day the primary pass never covered would clear the
+is sharper: `findSnapshotGap` probes `metrics_daily` with `selectDistinct({day})`, so *any
+single snapshot-key row* tells the 03:00 retention prune that a day is captured. (Until AECI-820
+it had no `metric` predicate at all. It now reads only `ADMIN_SNAPSHOT_METRIC_KEYS`, which keeps
+the search ingest's rows out. The re-checked keys are snapshot keys, so this section holds.) Inserting one traffic key for a day the primary pass never covered would clear the
 prune to delete that day's `page_views` while seventeen keys — including every stock, which is
 unrecoverable retroactively — were still missing. That is permanent.
 

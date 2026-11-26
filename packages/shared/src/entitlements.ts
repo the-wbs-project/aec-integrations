@@ -51,9 +51,11 @@
  * `analytics.view` is **declared with no consumer on purpose**, so the issue that
  * needs it becomes a pure render-path/handler change with no registry edit, and
  * so the whole vocabulary is auditable in one place. `attestation.author` was in
- * that set until AECI-623 made it the gate on the six attestation and
- * product-version writes (`requireCapability` in `apps/api/src/lib/authz.ts`) and
- * on the portal's Integrations tab (`vendorCan`).
+ * that set until AECI-623 made it the gate on the attestation and product-version
+ * writes (`requireCapability` in `apps/api/src/lib/authz.ts`) and on the portal's
+ * Integrations tab (`vendorCan`). Since AECI-2038 it gates the attestation writes
+ * only, and every claimed tier holds it. The three product-version writes moved to
+ * `product.versions.edit`, which stays Managed.
  *
  * `integration.version_diff` is **no longer in that set**: AECI-304 shipped its
  * consumer in `./version-diff` (`canViewVersionDiff`), and it is the one capability
@@ -70,10 +72,11 @@ export const CAPABILITIES = [
   'product.categories.edit', // AECI-1214 — `category_slugs` on an owned product
   'product.taxonomy.edit', // trades, audiences and phases on an owned product
   'product.usefulness.edit', // AECI-963 — the "how teams use it" narrative on an owned product
-  'attestation.author', // AECI-623 — the attestation + product-version writes
+  'attestation.author', // AECI-623 — the attestation writes; every claimed tier since AECI-2038
   'analytics.view', // vendor analytics — declared, no consumer yet
   'integration.version_diff', // AECI-304 — consulted by `./version-diff`
   'review.reply', // AECI-1176 — a public reply to a review; every claimed tier since AECI-1590 (STAGE_2_VENDOR_PORTAL_SPEC.md §11c.9)
+  'product.versions.edit', // AECI-2038 — the product-version writes, split from `attestation.author`
 ] as const;
 
 /** One capability id. */
@@ -106,11 +109,23 @@ export type EntitlementTier = (typeof TIERS)[number];
  * reply on any plan. The capability stays in the registry so the ranking
  * firewall and the route gates are unchanged; only the tier moved.
  *
+ * Since AECI-2038 (ruled 2026-11-24, ruling 5 on epic AECI-2035) it also holds
+ * `attestation.author`. Confirming which data an integration moves is accuracy,
+ * not promotion, so every claimed company may confirm, deny and add data flows
+ * on any plan. The same move as `review.reply`: the id and its route gates stay.
+ * Product versions stay Managed under `product.versions.edit`.
+ *
  * `verified` unlocks everything §8.1(3) lists. A future middle rung is a subset
  * literal, not a new branch anywhere else in the codebase.
  */
 export const TIER_CAPABILITIES: Readonly<Record<EntitlementTier, readonly Capability[]>> = {
-  unclaimed: ['profile.edit', 'product.listing.edit', 'product.categories.edit', 'review.reply'],
+  unclaimed: [
+    'profile.edit',
+    'product.listing.edit',
+    'product.categories.edit',
+    'attestation.author',
+    'review.reply',
+  ],
   verified: [...CAPABILITIES],
 };
 

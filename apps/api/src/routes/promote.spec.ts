@@ -5675,6 +5675,105 @@ describe('AECI-963 promote usefulness ownership', () => {
   });
 });
 
+/**
+ * AECI-2036 — promote never writes or clears `products.connector_kind`
+ * (`STAGE_1_5_SPEC.md` §13.13). The kind is AECi's, set by an admin. The review app
+ * does not carry it, and the promote product schema has no field for it, so a sender
+ * that adds one has it stripped.
+ */
+describe('AECI-2036 promote leaves the connector kind alone', () => {
+  const productId = uuid(903);
+  const readKind = async () =>
+    (await t.db.query.products.findFirst({ where: eq(products.id, productId) }))?.connectorKind;
+
+  beforeEach(async () => {
+    await seedProduct(productId, 'rivets-sync', 'Rivets Sync', {
+      productRole: 'connector',
+      connectorKind: 'sync_service',
+    });
+  });
+
+  it('keeps a set kind across an update push', async () => {
+    const res = await promote({
+      product: {
+        ref: 'p',
+        supabaseId: productId,
+        name: 'Rivets Sync',
+        productRole: 'connector',
+        description: 'Changed upstream.',
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(await readKind()).toBe('sync_service');
+  });
+
+  it('keeps it when the push omits productRole, which defaults to application', async () => {
+    const res = await promote({
+      product: { ref: 'p', supabaseId: productId, name: 'Rivets Sync' },
+    });
+    expect(res.status).toBe(200);
+    expect(await readKind()).toBe('sync_service');
+  });
+
+  it('ignores a connectorKind a sender adds, on update and on create', async () => {
+    const res = await promote({
+      product: {
+        ref: 'p',
+        supabaseId: productId,
+        name: 'Rivets Sync',
+        productRole: 'connector',
+        connectorKind: 'integration_platform',
+        connector_kind: null,
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(await readKind()).toBe('sync_service');
+
+    const body = (await (
+      await promote({
+        product: {
+          ref: 'fresh',
+          name: 'Fresh connector',
+          productRole: 'connector',
+          connectorKind: 'sync_service',
+        },
+      })
+    ).json()) as PromoteResponse;
+    const created = await t.db.query.products.findFirst({
+      where: eq(products.id, body.product?.id as string),
+    });
+    expect(created?.connectorKind).toBeNull();
+  });
+
+  // AECI-2046: the three curated Sync Service facts are AECi's too. Promote has no field
+  // for them, so an update keeps them and a sender's copy is stripped.
+  it('keeps the curated sync facts across an update push, and ignores a sender copy', async () => {
+    const facts = {
+      syncFrequency: 'Every 15 minutes',
+      syncSupport: 'Rivets supports it',
+      syncSetup: 'Rivets sets it up',
+      syncFactsSourceUrl: 'https://example.com/rivets',
+      syncFactsRecordedAt: '2026-11-20T00:00:00.000Z',
+    };
+    await t.db.update(products).set(facts).where(eq(products.id, productId));
+    const res = await promote({
+      product: {
+        ref: 'p',
+        supabaseId: productId,
+        name: 'Rivets Sync',
+        productRole: 'connector',
+        description: 'Changed upstream.',
+        syncFrequency: null,
+        sync_frequency: 'Daily',
+        sync_setup: null,
+      },
+    });
+    expect(res.status).toBe(200);
+    const row = await t.db.query.products.findFirst({ where: eq(products.id, productId) });
+    expect(row).toMatchObject(facts);
+  });
+});
+
 describe('AECI-1310 promote company facts', () => {
   it('writes a fact with its source, leaves it on an absent key, and clears it on null', async () => {
     const vendorId = uuid(810);

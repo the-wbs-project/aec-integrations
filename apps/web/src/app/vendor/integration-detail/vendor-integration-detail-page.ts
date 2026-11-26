@@ -18,6 +18,8 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 
+import type { PairContest, SyncServicePairVeto } from '@aeci/shared';
+
 import { BAND_WRAP_CLASS } from '../../shared/band-wrap';
 import { AecButton } from '../../shared/button/button';
 import { AecCard } from '../../shared/card/card';
@@ -25,7 +27,13 @@ import { AecIcon } from '../../shared/icon/icon';
 import { LogoOrInitial } from '../../shared/logo-or-initial/logo-or-initial';
 import { injectInPageHrefFor } from '../../shared/in-page-href';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
+import { VendorContestsList } from '../components/vendor-contests-list';
 import { STANDALONE_LINK_CLASS, VendorDocsLink } from '../components/vendor-docs-link';
+import { selfDisclaimOn, selfDisclaimStands } from '../components/vendor-not-ours';
+import { VendorOwnedFlows, ownedDirectionText } from '../components/vendor-owned-flows';
+import { ownedRowsForProduct } from '../components/vendor-owned-integrations';
+import { VendorOwnedRetire } from '../components/vendor-owned-retire';
+import { VendorPairRightsList } from '../components/vendor-pair-rights-list';
 import { vendorProductContext } from '../sections/vendor-product-context';
 import { VendorPortalStore } from '../vendor-portal-store';
 
@@ -39,6 +47,14 @@ import {
   statusLabel,
   statusTone,
   integrationStatus,
+  NO_OWNED_ROW_RIGHTS,
+  ownedIntegrationStatus,
+  ownedNeedsItems,
+  ownedRowRights,
+  ownedStatusExplain,
+  ownedStatusLabel,
+  type OwnedStatusKey,
+  type IntegrationStatusKey,
   type NeedItem,
   type SectionId,
 } from './integration-detail-model';
@@ -48,6 +64,7 @@ import { IntegrationLinksSection } from './integration-links';
 import { IntegrationOverview } from './integration-overview';
 import { IntegrationSettings } from './integration-settings';
 import { IntegrationSharedData } from './integration-shared-data';
+import { OwnedIntegrationOverview } from './owned-integration-overview';
 import { VendorTip } from './vendor-tip';
 
 /**
@@ -95,6 +112,11 @@ const SPY_TOP_PX = 80;
     IntegrationChangeRequests,
     IntegrationSettings,
     VendorDocsLink,
+    OwnedIntegrationOverview,
+    VendorOwnedFlows,
+    VendorContestsList,
+    VendorOwnedRetire,
+    VendorPairRightsList,
   ],
   providers: [IntegrationDetailState],
   styles: [ID_STYLES],
@@ -110,7 +132,7 @@ const SPY_TOP_PX = 80;
       </a>
     </nav>
 
-    @if (integration(); as i) {
+    @if (shell(); as sh) {
       @if (showSlim()) {
         <section
           [attr.aria-label]="slimLabel()"
@@ -121,15 +143,15 @@ const SPY_TOP_PX = 80;
             <span aria-hidden="true" class="hidden shrink-0 items-center sm:flex">
               <aec-logo-or-initial
                 [claimStatus]="'stored'"
-                [src]="i.context_product.logo_url"
-                [name]="i.context_product.name"
+                [src]="sh.a.logo_url"
+                [name]="sh.a.name"
                 size="sm"
               />
               <span class="h-px w-3 bg-(--border-strong)"></span>
               <aec-logo-or-initial
                 [claimStatus]="'stored'"
-                [src]="i.other_product.logo_url"
-                [name]="i.other_product.name"
+                [src]="sh.b.logo_url"
+                [name]="sh.b.name"
                 size="sm"
               />
             </span>
@@ -161,20 +183,25 @@ const SPY_TOP_PX = 80;
           <span aria-hidden="true" class="flex shrink-0 items-center pt-1">
             <aec-logo-or-initial
               [claimStatus]="'stored'"
-              [src]="i.context_product.logo_url"
-              [name]="i.context_product.name"
+              [src]="sh.a.logo_url"
+              [name]="sh.a.name"
               size="sm"
             />
             <span class="h-px w-3 bg-(--border-strong)"></span>
             <aec-logo-or-initial
               [claimStatus]="'stored'"
-              [src]="i.other_product.logo_url"
-              [name]="i.other_product.name"
+              [src]="sh.b.logo_url"
+              [name]="sh.b.name"
               size="sm"
             />
           </span>
           <div class="min-w-0">
-            <h2 class="break-words text-(--text-primary)" data-testid="integration-title">
+            <h2
+              #titleHeading
+              tabindex="-1"
+              class="break-words text-(--text-primary) focus:outline-none"
+              data-testid="integration-title"
+            >
               {{ title() }}
             </h2>
             <div class="mt-2">
@@ -252,7 +279,7 @@ const SPY_TOP_PX = 80;
           class="lg:sticky lg:top-20 lg:self-start"
         >
           <ul class="m-0 list-none border-s border-(--border-default) p-0">
-            @for (item of navItems; track item.id) {
+            @for (item of navItems(); track item.id) {
               <li>
                 <a
                   [href]="hrefFor()(item.id)"
@@ -269,77 +296,219 @@ const SPY_TOP_PX = 80;
         </nav>
 
         <div class="min-w-0 space-y-6">
-          <section
-            #spy
-            id="overview"
-            data-section="overview"
-            aecCard
-            class="scroll-mt-20 p-6"
-            aria-labelledby="overview-heading"
-          >
-            <h3
-              id="overview-heading"
-              tabindex="-1"
-              class="text-(--text-primary) focus:outline-none"
-              i18n="@@vendor.im.section.overview"
+          @if (integration(); as i) {
+            <section
+              #spy
+              id="overview"
+              data-section="overview"
+              aecCard
+              class="scroll-mt-20 p-6"
+              aria-labelledby="overview-heading"
             >
-              Overview
-            </h3>
-            <p><aec-vendor-docs-link page="owning-an-integration" /></p>
-            <div class="mt-2"><aec-integration-overview [integration]="i" /></div>
-          </section>
+              <h3
+                id="overview-heading"
+                tabindex="-1"
+                class="text-(--text-primary) focus:outline-none"
+                i18n="@@vendor.im.section.overview"
+              >
+                Overview
+              </h3>
+              <p><aec-vendor-docs-link page="owning-an-integration" /></p>
+              <div class="mt-2"><aec-integration-overview [integration]="i" /></div>
+            </section>
 
-          <section
-            #spy
-            id="data-shared"
-            data-section="data-shared"
-            aecCard
-            class="scroll-mt-20 p-6"
-            aria-labelledby="data-shared-heading"
-          >
-            <aec-integration-shared-data [integration]="i" />
-          </section>
-
-          <section
-            #spy
-            id="links"
-            data-section="links"
-            aecCard
-            class="scroll-mt-20 p-6"
-            aria-labelledby="links-heading"
-          >
-            <aec-integration-links [integration]="i" />
-          </section>
-
-          <section
-            #spy
-            id="change-requests"
-            data-section="change-requests"
-            aecCard
-            class="scroll-mt-20 p-6"
-            aria-labelledby="change-requests-heading"
-          >
-            <aec-integration-change-requests [integration]="i" />
-          </section>
-
-          <section
-            #spy
-            id="settings"
-            data-section="settings"
-            aecCard
-            class="scroll-mt-20 p-6"
-            aria-labelledby="settings-heading"
-          >
-            <h3
-              id="settings-heading"
-              tabindex="-1"
-              class="text-(--text-primary) focus:outline-none"
-              i18n="@@vendor.im.section.settings"
+            <section
+              #spy
+              id="data-shared"
+              data-section="data-shared"
+              aecCard
+              class="scroll-mt-20 p-6"
+              aria-labelledby="data-shared-heading"
             >
-              Settings
-            </h3>
-            <div class="mt-4"><aec-integration-settings [integration]="i" /></div>
-          </section>
+              <aec-integration-shared-data [integration]="i" />
+            </section>
+
+            <section
+              #spy
+              id="links"
+              data-section="links"
+              aecCard
+              class="scroll-mt-20 p-6"
+              aria-labelledby="links-heading"
+            >
+              <aec-integration-links [integration]="i" />
+            </section>
+
+            <section
+              #spy
+              id="change-requests"
+              data-section="change-requests"
+              aecCard
+              class="scroll-mt-20 p-6"
+              aria-labelledby="change-requests-heading"
+            >
+              <aec-integration-change-requests [integration]="i" />
+            </section>
+
+            <section
+              #spy
+              id="settings"
+              data-section="settings"
+              aecCard
+              class="scroll-mt-20 p-6"
+              aria-labelledby="settings-heading"
+            >
+              <h3
+                id="settings-heading"
+                tabindex="-1"
+                class="text-(--text-primary) focus:outline-none"
+                i18n="@@vendor.im.section.settings"
+              >
+                Settings
+              </h3>
+              <div class="mt-4"><aec-integration-settings [integration]="i" /></div>
+            </section>
+          } @else if (ownedRow(); as o) {
+            <!-- AECI-2045: a row the company owns but makes neither product of, or a pair. -->
+            <section
+              #spy
+              id="overview"
+              data-section="overview"
+              aecCard
+              class="scroll-mt-20 p-6"
+              aria-labelledby="overview-heading"
+              data-testid="owned-detail"
+            >
+              <h3
+                id="overview-heading"
+                tabindex="-1"
+                class="text-(--text-primary) focus:outline-none"
+                i18n="@@vendor.im.section.overview"
+              >
+                Overview
+              </h3>
+              <p><aec-vendor-docs-link page="owning-an-integration" /></p>
+              <div class="mt-2"><aec-owned-integration-overview [row]="o" /></div>
+            </section>
+
+            <section
+              #spy
+              id="data-shared"
+              data-section="data-shared"
+              aecCard
+              class="scroll-mt-20 p-6"
+              aria-labelledby="data-shared-heading"
+            >
+              <h3
+                id="data-shared-heading"
+                tabindex="-1"
+                class="text-(--text-primary) focus:outline-none"
+                i18n="@@vendor.im.section.dataShared"
+              >
+                Data that's shared
+              </h3>
+              @if (o.sync_service) {
+                <aec-vendor-owned-flows [row]="o" [labelledBy]="'data-shared-heading'" />
+              } @else {
+                <p
+                  class="mt-2 max-w-prose text-sm text-(--text-secondary)"
+                  data-testid="owned-flows-note"
+                >
+                  @if (o.claimed_at) {
+                    <span i18n="@@vendor.im.owned.flows.frozen"
+                      >These rows stay as they were when your company claimed this integration. A
+                      connector product delivers it, so they cannot be changed here.</span
+                    >
+                  } @else {
+                    <span i18n="@@vendor.im.owned.flows.aeci"
+                      >AEC Integrations keeps these rows up to date. A connector product delivers
+                      this integration, so they cannot be changed here.</span
+                    >
+                  }
+                </p>
+                @if (o.flows.length === 0) {
+                  <p class="mt-3 text-sm text-(--text-primary)" i18n="@@vendor.im.owned.flows.none">
+                    No data is listed for this integration yet.
+                  </p>
+                } @else {
+                  <ul class="mt-3 list-none divide-y divide-(--border-default) p-0 text-sm">
+                    @for (flow of o.flows; track flow.id) {
+                      <li class="flex flex-wrap justify-between gap-2 py-2">
+                        <span class="font-medium text-(--text-primary)">{{
+                          flow.data_object_name
+                        }}</span>
+                        <span class="text-(--text-secondary)">{{
+                          flowDirection(o, flow.direction)
+                        }}</span>
+                      </li>
+                    }
+                  </ul>
+                }
+              }
+            </section>
+
+            <section
+              #spy
+              id="change-requests"
+              data-section="change-requests"
+              aecCard
+              class="scroll-mt-20 p-6"
+              aria-labelledby="change-requests-heading"
+            >
+              <h3
+                id="change-requests-heading"
+                tabindex="-1"
+                class="text-(--text-primary) focus:outline-none"
+                i18n="@@vendor.im.section.changeRequests"
+              >
+                Change requests
+              </h3>
+              <aec-vendor-contests-list
+                class="mt-2"
+                [integrationId]="o.id"
+                [labelledBy]="'change-requests-heading'"
+              />
+              <!-- AECI-2045: on a Sync Service pair, the data flow reports the owner
+                   received and the endpoint vendors' removals, narrowed to this pair. -->
+              @if (o.sync_service) {
+                <aec-vendor-pair-rights-list
+                  class="mt-6"
+                  [integrationId]="o.id"
+                  [labelledBy]="'change-requests-heading'"
+                  (loaded)="pairRights.set($event)"
+                />
+              }
+            </section>
+
+            <section
+              #spy
+              id="settings"
+              data-section="settings"
+              aecCard
+              class="scroll-mt-20 p-6"
+              aria-labelledby="settings-heading"
+            >
+              <h3
+                id="settings-heading"
+                tabindex="-1"
+                class="text-(--text-primary) focus:outline-none"
+                i18n="@@vendor.im.section.settings"
+              >
+                Settings
+              </h3>
+              @if (o.claimed_at || o.retired_at) {
+                <aec-vendor-owned-retire [row]="o" [statusLine]="titleHeading" />
+              } @else {
+                <p
+                  class="mt-3 max-w-prose text-sm text-(--text-secondary)"
+                  i18n="@@vendor.im.owned.settings.unclaimed"
+                >
+                  Once you claim this integration, you can retire it here if it is no longer
+                  offered.
+                </p>
+              }
+            </section>
+          }
         </div>
       </div>
     } @else if (loading()) {
@@ -412,6 +581,33 @@ export class VendorIntegrationDetailPage {
     );
   });
 
+  /**
+   * AECI-2045: a row the caller owns that the endpoint list does not carry (`owned[]`,
+   * §6.15), when `:integrationId` names none of the caller's endpoint entries. The two
+   * lists are disjoint (`owned[]` skips a row the list carries), so an id resolves to
+   * at most one of them. The same rows the product's tab lists (`ownedRowsForProduct`).
+   */
+  protected readonly ownedRow = computed(() => {
+    if (this.integration()) return null;
+    const id = this.integrationId();
+    const product = this.ctx.product();
+    if (!id || !product) return null;
+    const mine = new Set((this.store.me()?.products ?? []).map((p) => p.id));
+    return (
+      ownedRowsForProduct(this.store.ownedIntegrations(), product.id, mine).find(
+        (row) => row.id === id,
+      ) ?? null
+    );
+  });
+
+  /** The two products the title block shows, in either mode. */
+  protected readonly shell = computed(() => {
+    const i = this.integration();
+    if (i) return { a: i.context_product, b: i.other_product };
+    const o = this.ownedRow();
+    return o ? { a: o.product_a, b: o.product_b } : null;
+  });
+
   protected readonly loading = this.store.integrationsLoading;
   protected readonly failed = this.store.integrationsFailed;
   protected readonly productPossessive = computed(() => possessive(this.ctx.product()?.name ?? ''));
@@ -425,16 +621,26 @@ export class VendorIntegrationDetailPage {
   protected readonly hrefFor = injectInPageHrefFor();
 
   protected readonly title = computed(() => {
-    const i = this.integration();
-    if (!i) return '';
-    const a = i.context_product.name;
-    const b = i.other_product.name;
+    const sh = this.shell();
+    if (!sh) return '';
+    const a = sh.a.name;
+    const b = sh.b.name;
     return $localize`:@@vendor.im.title:${a}:context: and ${b}:other:`;
   });
 
-  private readonly statusKey = computed(() => {
+  private readonly statusKey = computed<IntegrationStatusKey>(() => {
     const i = this.integration();
-    if (!i) return 'up_to_date' as const;
+    const o = this.ownedRow();
+    if (!i) {
+      return o
+        ? ownedIntegrationStatus(
+            o,
+            this.pageContests(),
+            new Date().toISOString(),
+            this.ownedRights(),
+          )
+        : 'up_to_date';
+    }
     return integrationStatus(i, {
       contests: this.pageContests(),
       canAuthor: this.state.canAuthor(),
@@ -445,21 +651,58 @@ export class VendorIntegrationDetailPage {
   /** The page's own contest read, narrowed to this row as a guard. */
   private readonly pageContests = computed(() => {
     const i = this.integration();
-    return i ? contestsFor(this.state.contests(), i.id) : { submitted: [], received: [] };
+    if (i) return contestsFor(this.state.contests(), i.id);
+    // An owned row's page reads the store's vendor-wide contests, as its list does.
+    const o = this.ownedRow();
+    return o ? contestsFor(this.store.contests(), o.id) : { submitted: [], received: [] };
   });
 
-  protected readonly statusText = computed(() =>
-    statusLabel(this.statusKey(), this.pageContests()),
-  );
+  /**
+   * AECI-2045: the owner's received data flow reports and the endpoint vendors' removals
+   * on this pair, as the Change requests section's pair-rights block last read them.
+   * Empty until that read lands, and on any row that is not a Sync Service pair.
+   */
+  protected readonly pairRights = signal<{
+    readonly reports: readonly PairContest[];
+    readonly vetoes: readonly SyncServicePairVeto[];
+  }>({ reports: [], vetoes: [] });
+
+  private readonly ownedRights = computed(() => {
+    const o = this.ownedRow();
+    return o ? ownedRowRights(o.id, this.pairRights()) : NO_OWNED_ROW_RIGHTS;
+  });
+
+  protected readonly statusText = computed(() => {
+    const key = this.statusKey();
+    return this.ownedRow() && isOwnedKey(key)
+      ? ownedStatusLabel(key, this.pageContests(), this.ownedRights())
+      : statusLabel(key, this.pageContests());
+  });
   protected readonly tone = computed(() => statusTone(this.statusKey()));
   protected readonly statusHelp = computed(() => {
     const i = this.integration();
-    return i ? statusExplain(this.statusKey(), i) : '';
+    if (i) return statusExplain(this.statusKey(), i);
+    const o = this.ownedRow();
+    const key = this.statusKey();
+    return o && isOwnedKey(key) ? ownedStatusExplain(key, o.retired_by, this.ownedRights()) : '';
   });
 
   protected readonly needs = computed(() => {
     const i = this.integration();
-    if (!i) return { yours: [], waiting: [] };
+    if (!i) {
+      const o = this.ownedRow();
+      if (!o) return { yours: [], waiting: [] };
+      const notOurs = selfDisclaimStands(
+        selfDisclaimOn(this.store.contests().submitted, o.id, o.anchor),
+      );
+      return ownedNeedsItems(
+        o,
+        this.pageContests(),
+        new Date().toISOString(),
+        notOurs,
+        this.ownedRights(),
+      );
+    }
     return needsItems(i, {
       contests: this.pageContests(),
       canAuthor: this.state.canAuthor(),
@@ -469,17 +712,17 @@ export class VendorIntegrationDetailPage {
   });
 
   protected readonly publicHref = computed(() => {
-    const i = this.integration();
-    return i ? `/products/${i.context_product.slug}/integrations/${i.other_product.slug}` : '/';
+    const sh = this.shell();
+    return sh ? `/products/${sh.a.slug}/integrations/${sh.b.slug}` : '/';
   });
 
   /** Built in TS: an interpolated `i18n-aria-label` emits no attribute here. It
    *  starts with the visible text (WCAG 2.5.3) and names the destination (§6.7). */
   protected readonly publicAria = computed(() => {
-    const i = this.integration();
-    if (!i) return null;
-    const context = i.context_product.name;
-    const other = i.other_product.name;
+    const sh = this.shell();
+    if (!sh) return null;
+    const context = sh.a.name;
+    const other = sh.b.name;
     return $localize`:@@vendor.attest.card.viewPublic.aria:View public page: the ${context}:CONTEXT: and ${other}:OTHER: integration (opens in a new tab)`;
   });
 
@@ -487,7 +730,7 @@ export class VendorIntegrationDetailPage {
     () => $localize`:@@vendor.im.sticky.aria:Current integration: ${this.title()}:title:`,
   );
 
-  protected readonly navItems: readonly { id: SectionId; label: string }[] = [
+  private readonly allNavItems: readonly { id: SectionId; label: string }[] = [
     { id: 'overview', label: $localize`:@@vendor.im.section.overview:Overview` },
     { id: 'data-shared', label: $localize`:@@vendor.im.section.dataShared:Data that's shared` },
     { id: 'links', label: $localize`:@@vendor.im.section.links:Integration links` },
@@ -497,6 +740,20 @@ export class VendorIntegrationDetailPage {
     },
     { id: 'settings', label: $localize`:@@vendor.im.section.settings:Settings` },
   ];
+
+  /** An owned row has no Integration links section: its listing and documentation
+   *  links are two of the nine fields in its Overview (AECI-2045). */
+  protected readonly navItems = computed(() =>
+    this.ownedRow() ? this.allNavItems.filter((item) => item.id !== 'links') : this.allNavItems,
+  );
+
+  /** "From {A} to {B}", as the owned card's flows read it. */
+  protected flowDirection(
+    row: Parameters<typeof ownedDirectionText>[0],
+    direction: Parameters<typeof ownedDirectionText>[1],
+  ): string {
+    return ownedDirectionText(row, direction);
+  }
 
   /** The section under the sticky bar. SSR marks Overview. */
   protected readonly active = signal<SectionId>('overview');
@@ -730,6 +987,19 @@ function sectionAtBar(sections: readonly HTMLElement[], lastInFullView: boolean)
     if (el.getBoundingClientRect().top <= SPY_TOP_PX + 1) current = el;
   }
   return keyOf(current);
+}
+
+const OWNED_KEYS: ReadonlySet<IntegrationStatusKey> = new Set<OwnedStatusKey>([
+  'retired',
+  'needs_answer',
+  'needs_decision',
+  'ready_to_claim',
+  'waiting',
+  'up_to_date',
+]);
+
+function isOwnedKey(key: IntegrationStatusKey): key is OwnedStatusKey {
+  return OWNED_KEYS.has(key);
 }
 
 function safeDecode(value: string): string {

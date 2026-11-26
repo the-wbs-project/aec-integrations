@@ -1070,6 +1070,9 @@ export class SearchPage implements OnDestroy {
         return $localize`:@@search.facet.trades:Trades`;
       case 'vendor_name':
         return $localize`:@@search.facet.vendor:Vendor`;
+      // AECI-1662 — the same words as the `/products` sidebar's group.
+      case 'connector_kind':
+        return $localize`:@@listing.filters.connectorKind:Connector type`;
       case 'founded_year':
         return $localize`:@@search.facet.founded:Founded`;
       case 'product_count':

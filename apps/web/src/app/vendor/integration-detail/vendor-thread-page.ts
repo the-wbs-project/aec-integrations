@@ -40,7 +40,7 @@ import { IntegrationRowThread } from './integration-row-thread';
       {{ title() }}
     </h2>
     @if (!missing()) {
-      <p class="mt-2 max-w-prose text-sm text-(--text-secondary)" i18n="@@vendor.thread.page.intro">
+      <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@vendor.thread.page.intro">
         A private conversation between your company and the other company on this data row. Only
         your two companies and AEC Integrations see it.
       </p>

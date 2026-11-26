@@ -2,6 +2,7 @@ import { Component, inject } from '@angular/core';
 
 import { AecCard } from '../../shared/card/card';
 import { VendorContestsList } from '../components/vendor-contests-list';
+import { VendorPairRightsList } from '../components/vendor-pair-rights-list';
 import { VendorDocsLink } from '../components/vendor-docs-link';
 import { VendorNotificationsList } from '../components/vendor-notifications-list';
 import { VendorNudgeMuteToggle } from '../components/vendor-nudge-mute-toggle';
@@ -57,6 +58,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
   selector: 'aec-vendor-messages-page',
   imports: [
     AecCard,
+    VendorPairRightsList,
     VendorContestsList,
     VendorDocsLink,
     VendorNotificationsList,
@@ -71,7 +73,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
         <div>
           <h2 i18n="@@vendor.section.messages">Messages</h2>
           <p
-            class="mt-2 max-w-[30rem] text-sm leading-relaxed text-(--text-secondary)"
+            class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
             i18n="@@vendor.messages.intro.contests"
           >
             Updates about your company: where your claim and correction requests stand, the change
@@ -92,6 +94,9 @@ import { VendorPortalStore } from '../vendor-portal-store';
         </section>
 
         <aec-vendor-contests-list />
+
+        <!-- AECI-2042: removals and reports on Sync Service pairs. -->
+        <aec-vendor-pair-rights-list />
 
         <div class="space-y-6">
           <aec-vendor-nudge-mute-toggle />

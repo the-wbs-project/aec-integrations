@@ -1,7 +1,7 @@
 import { Component, computed, input } from '@angular/core';
 
 import { formatThousands } from './format';
-import type { ChartSeries } from './chart-types';
+import type { NullableChartSeries } from './chart-types';
 
 /**
  * The visually-hidden data table every chart carries — AECI-578 / Phase 8.3 P1.4.
@@ -68,19 +68,40 @@ export class ChartDataTable {
   readonly categoryHeader = input.required<string>();
   /** Row headers, index-aligned to every series' `values`. Already localized. */
   readonly categories = input.required<readonly string[]>();
-  readonly series = input.required<readonly ChartSeries[]>();
+  readonly series = input.required<readonly NullableChartSeries[]>();
+  /**
+   * What a `null` cell says (AECI-822). A `null` value means nothing was
+   * recorded there, so it must never print as `0`. Only `LineChart` passes
+   * `null`, and it always passes a label with it.
+   */
+  readonly gapLabel = input('');
+  /** Formats a recorded value. `index` is the row, so a caller can qualify one
+   *  cell (an open cohort's "so far"). Defaults to the thousands format every
+   *  existing chart uses. */
+  readonly format = input<(value: number, index: number) => string>((value) =>
+    formatThousands(value),
+  );
 
   /**
    * Rows are built here rather than indexed in the template so a series shorter
    * than `categories` renders `0` instead of an empty cell. An empty `<td>` in a
    * data table is ambiguous — it reads as "no value", which is a different claim
    * from "zero", and every series on this page is zero-filled by the API.
+   *
+   * An explicit `null` is that other claim, made on purpose (AECI-822): it
+   * prints {@link gapLabel}, never `0`. A missing index still prints `0`, so
+   * every chart that passes plain numbers renders exactly as before.
    */
   protected readonly rows = computed(() => {
     const series = this.series();
+    const format = this.format();
+    const gap = this.gapLabel();
     return this.categories().map((label, i) => ({
       label,
-      cells: series.map((s) => formatThousands(s.values[i] ?? 0)),
+      cells: series.map((s) => {
+        const value = s.values[i];
+        return value === null ? gap : format(value ?? 0, i);
+      }),
     }));
   });
 }

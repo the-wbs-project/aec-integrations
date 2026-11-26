@@ -84,7 +84,7 @@ function domId(value: string): string {
   host: { class: 'block' },
   template: `
     <section aria-labelledby="vendor-catalogue-heading" data-catalogue>
-      <div class="max-w-[30rem] space-y-2">
+      <div class="space-y-2">
         <h2 id="vendor-catalogue-heading" class="m-0">
           <!-- The size lives on the span: styles.css sizes h2 outside any cascade
                layer, so a text utility on the h2 itself is dead. -->
@@ -390,9 +390,9 @@ function domId(value: string): string {
         <p
           [class]="noticeClass + ' mt-6 max-w-[52ch] text-sm leading-relaxed'"
           data-catalogue-none
-          i18n="@@vendor.catalogue.none"
+          i18n="@@vendor.catalogue.none.v2"
         >
-          We do not hold a catalog for this product yet. When it does, its listings appear here.
+          We do not hold a catalog for this product yet. When we do, its listings appear here.
         </p>
       }
     </section>

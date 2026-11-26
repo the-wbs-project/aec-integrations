@@ -40,4 +40,7 @@ export const LISTING_CACHE_KEY_PARAMS: readonly string[] = [
   // correctness bug (§4a), so this must stay in step with `DIMENSIONS` in
   // `facet-sidebar.ts` and the `passthroughParams` on both listing pages.
   'trade_id',
+  // AECI-1662 — the "Connector type" filter, a comma-separated kind list the same
+  // sidebar writes. Content-affecting, so it keys the entry like the four ids.
+  'connector_kind',
 ];

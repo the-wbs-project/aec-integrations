@@ -4,12 +4,16 @@ import type {
   IntegrationEditField,
   IntegrationMechanismKind,
   ListVendorContestsResponse,
+  OwnedIntegration,
+  PairContest,
+  SyncServicePairVeto,
   VendorClaim,
   VendorContest,
   VendorIntegration,
 } from '@aeci/shared';
-import { isAwaitingCounterpartAnswer } from '@aeci/shared';
+import { isAwaitingCounterpartAnswer, ownerFlowsAwaitingAnswer } from '@aeci/shared';
 
+import { removalReasonText } from '../components/removal-labels';
 import { noteAudienceHint } from '../components/vendor-attestation-labels';
 
 /**
@@ -357,6 +361,16 @@ export function openOwnerRequest(contests: ListVendorContestsResponse): VendorCo
   return openSubmittedOn(contests, 'owner');
 }
 
+/** The owner flows on an endpoint entry the caller also owns (`owner_flows`, AECI-2039)
+ *  that wait for its answer, by the product checklist's rule (`ownerFlowsAwaitingAnswer`). */
+export function ownerFlowsAwaiting(
+  integration: Pick<VendorIntegration, 'owner_flows'>,
+): readonly { readonly id: string }[] {
+  const owned = integration.owner_flows;
+  if (!owned) return [];
+  return ownerFlowsAwaitingAnswer({ flows_editable: owned.editable, flows: owned.flows });
+}
+
 /**
  * The one status of an integration, the first that applies (§6.17.2).
  *
@@ -371,6 +385,8 @@ export function integrationStatus(
   if (integration.claims.some((c) => c.agreement === 'conflict')) return 'disagreement';
   const answerable = integration.attestable && ctx.canAuthor;
   if (answerable && rowsNeedingAnswer(integration).length > 0) return 'needs_answer';
+  // AECI-2045: the caller owns this Sync Service row and keeps its flows as the owner.
+  if (ownerFlowsAwaiting(integration).length > 0) return 'needs_answer';
   const receivedOpen = ctx.contests.received.some(
     (c) => c.status === 'open' || protestReplyDue(c, ctx.now),
   );
@@ -433,7 +449,10 @@ export function statusLabel(
         : $localize`:@@vendor.im.status.waitingAeci:Waiting on AEC Integrations`;
     }
     case 'connector':
-      return $localize`:@@vendor.im.status.connector:AEC Integrations maintained`;
+      // AECI-2039: "AEC Integrations maintained" was false on a claimed row of either
+      // connector kind. This label is also the list's filter chip, so the two change
+      // together (the Same-Behavior Rule). The tooltip says who keeps it.
+      return $localize`:@@vendor.im.status.connector.v2:Delivered through a connector`;
     case 'up_to_date':
       return $localize`:@@vendor.im.status.upToDate:All up to date`;
   }
@@ -450,25 +469,20 @@ export function statusChipLabel(key: IntegrationStatusKey): string {
 export function statusExplain(key: IntegrationStatusKey, integration: VendorIntegration): string {
   switch (key) {
     case 'retired':
-      return integration.retired_by === 'aeci'
-        ? $localize`:@@vendor.im.status.explain.retiredAeci:AEC Integrations retired it. It is hidden from the public page and from search.`
-        : $localize`:@@vendor.im.status.explain.retired:It is hidden from the public page and from search. Only its owner can restore it, from Settings.`;
+    case 'needs_decision':
+    case 'ready_to_claim':
+    case 'up_to_date':
+      return ownedStatusExplain(key, integration.retired_by);
     case 'disagreement':
       return $localize`:@@vendor.im.status.explain.disagreement:You and the other company answer a row of data differently. It is open in Change requests.`;
     case 'needs_answer':
       return $localize`:@@vendor.im.status.explain.needsAnswer:At least one row of data needs a Yes or a No from you.`;
-    case 'needs_decision':
-      return $localize`:@@vendor.im.status.explain.needsDecision:Another company asked you to decide something. It is open in Change requests.`;
-    case 'ready_to_claim':
-      return $localize`:@@vendor.im.status.explain.readyToClaim:Your company is recorded as the owner. Claim it to edit its details yourself.`;
     case 'no_owner':
       return $localize`:@@vendor.im.status.explain.noOwner:No company is recorded as the owner. If your company offers it, ask to be recorded as the owner.`;
     case 'waiting':
       return $localize`:@@vendor.im.status.explain.waiting:You asked for a correction and it is being reviewed. Nothing else needs you.`;
     case 'connector':
       return connectorExplain(integration);
-    case 'up_to_date':
-      return $localize`:@@vendor.im.status.explain.upToDate:Nothing needs you right now.`;
   }
 }
 
@@ -479,15 +493,25 @@ export function statusExplain(key: IntegrationStatusKey, integration: VendorInte
  */
 function connectorExplain(integration: VendorIntegration): string {
   if (!isClaimed(integration)) {
-    return $localize`:@@vendor.im.status.explain.connector:It runs through a connector service, so AEC Integrations keeps its data up to date.`;
+    return $localize`:@@vendor.im.status.explain.connector.v2:It runs through a connector product, so AEC Integrations keeps its data up to date.`;
+  }
+  // AECI-2039: on a claimed Sync Service row the owner keeps its data flows too.
+  if (integration.flows_maintained_by_owner) {
+    if (integration.is_owner) {
+      return $localize`:@@vendor.im.status.explain.syncService.mine:It runs through your company's Sync Service. Your company keeps its details and its data flows up to date.`;
+    }
+    const owner = integration.owner?.name;
+    return owner
+      ? $localize`:@@vendor.im.status.explain.syncService.other:It runs through a Sync Service that ${owner}:owner: offers. ${owner}:owner: keeps its details and its data flows up to date.`
+      : $localize`:@@vendor.im.status.explain.syncService.unnamed:It runs through a Sync Service. The company that offers it keeps its details and its data flows up to date.`;
   }
   if (integration.is_owner) {
-    return $localize`:@@vendor.im.status.explain.connectorClaimed.mine:It runs through a connector service. Your company keeps its details up to date, and AEC Integrations no longer updates it.`;
+    return $localize`:@@vendor.im.status.explain.connectorClaimed.mine.v2:It runs through a connector product. Your company keeps its details up to date, and AEC Integrations no longer updates it.`;
   }
   const owner = integration.owner?.name;
   return owner
-    ? $localize`:@@vendor.im.status.explain.connectorClaimed.other:It runs through a connector service. ${owner}:owner: keeps its details up to date, and AEC Integrations no longer updates it.`
-    : $localize`:@@vendor.im.status.explain.connectorClaimed.unnamed:It runs through a connector service. Its owner keeps its details up to date, and AEC Integrations no longer updates it.`;
+    ? $localize`:@@vendor.im.status.explain.connectorClaimed.other.v2:It runs through a connector product. ${owner}:owner: keeps its details up to date, and AEC Integrations no longer updates it.`
+    : $localize`:@@vendor.im.status.explain.connectorClaimed.unnamed.v2:It runs through a connector product. Its owner keeps its details up to date, and AEC Integrations no longer updates it.`;
 }
 
 /**
@@ -563,7 +587,7 @@ export function howYouGetIt(
     case 'iPaaS':
       return connectorName
         ? $localize`:@@vendor.im.how.connector:Through ${connectorName}:connector:`
-        : $localize`:@@vendor.im.how.connectorUnnamed:Through a connector service`;
+        : $localize`:@@vendor.im.how.connectorUnnamed.v2:Through a connector product`;
     case 'webhook':
       return $localize`:@@vendor.im.how.webhook:Webhook`;
     case 'partner':
@@ -663,8 +687,24 @@ export function rowPill(
   company: string | null,
 ): RowPill {
   if (!integration.attestable) {
+    // AECI-2039: "Checked by AEC Integrations" was not true on a claimed row. On a
+    // claimed Sync Service row the owner answers; elsewhere AECi listed the row.
+    if (integration.flows_maintained_by_owner && claim.owner_answer !== null) {
+      const owner =
+        integration.owner?.name ??
+        $localize`:@@vendor.im.row.ownerFallback:the company that offers it`;
+      return claim.owner_answer === 'yes'
+        ? {
+            label: $localize`:@@vendor.im.row.confirmedByOwner:Confirmed by ${owner}:company:`,
+            tone: 'neutral',
+          }
+        : {
+            label: $localize`:@@vendor.im.row.removedByOwner:Removed by ${owner}:company:`,
+            tone: 'neutral',
+          };
+    }
     return {
-      label: $localize`:@@vendor.im.row.checkedByAeci:Checked by AEC Integrations`,
+      label: $localize`:@@vendor.im.row.listedByAeci:Listed by AEC Integrations`,
       tone: 'neutral',
     };
   }
@@ -771,6 +811,52 @@ function protestReplyDue(contest: VendorContest, now: string): boolean {
   );
 }
 
+/**
+ * The received-request items of "Things that need you": an open request to decide, and
+ * an appeal reply still due. Shared with the owned row's page (AECI-2045), which jumps
+ * to its Change requests list rather than to one item (`target`).
+ */
+export function receivedNeeds(
+  contests: ListVendorContestsResponse,
+  now: string,
+  target: (contestId: string) => string,
+): NeedItem[] {
+  const items: NeedItem[] = [];
+  for (const contest of contests.received) {
+    const who = contest.submitter_vendor.name;
+    if (contest.status === 'open') {
+      const field = pageFieldLabelMid(contest.field);
+      items.push({
+        key: `received-${contest.id}`,
+        text: $localize`:@@vendor.im.needs.received:${who}:company: asked to change ${field}:field:`,
+        target: target(contest.id),
+        inRequests: true,
+      });
+    }
+    const protest = contest.protest;
+    if (protest && protestReplyDue(contest, now)) {
+      const date = formatDay(protest.reply_due_at);
+      items.push({
+        key: `protest-${contest.id}`,
+        text: $localize`:@@vendor.im.needs.protest:${who}:company: asked AEC Integrations to review your decision. Reply by ${date}:date:`,
+        target: target(contest.id),
+        inRequests: true,
+      });
+    }
+  }
+  return items;
+}
+
+/** "You can claim this integration", jumping to `target`. */
+export function claimNeed(target: string): NeedItem {
+  return {
+    key: 'claim',
+    text: $localize`:@@vendor.im.needs.claim:You can claim this integration`,
+    target,
+    inRequests: false,
+  };
+}
+
 /** The two lists under the title block. A retired row lists nothing; a
  *  connector-powered row lists ownership and change request items only. */
 export function needsItems(integration: VendorIntegration, ctx: NeedsContext): NeedLists {
@@ -819,28 +905,7 @@ export function needsItems(integration: VendorIntegration, ctx: NeedsContext): N
     }
   }
 
-  for (const contest of ctx.contests.received) {
-    const who = contest.submitter_vendor.name;
-    if (contest.status === 'open') {
-      const field = pageFieldLabelMid(contest.field);
-      yours.push({
-        key: `received-${contest.id}`,
-        text: $localize`:@@vendor.im.needs.received:${who}:company: asked to change ${field}:field:`,
-        target: contestItemId(contest.id),
-        inRequests: true,
-      });
-    }
-    const protest = contest.protest;
-    if (protest && protestReplyDue(contest, ctx.now)) {
-      const date = formatDay(protest.reply_due_at);
-      yours.push({
-        key: `protest-${contest.id}`,
-        text: $localize`:@@vendor.im.needs.protest:${who}:company: asked AEC Integrations to review your decision. Reply by ${date}:date:`,
-        target: contestItemId(contest.id),
-        inRequests: true,
-      });
-    }
-  }
+  yours.push(...receivedNeeds(ctx.contests, ctx.now, contestItemId));
 
   if (integration.attestable && ctx.canAuthor) {
     const rows = rowsNeedingAnswer(integration);
@@ -858,14 +923,22 @@ export function needsItems(integration: VendorIntegration, ctx: NeedsContext): N
     }
   }
 
-  if (canClaim(integration)) {
+  // AECI-2045: the owner's own flows on a Sync Service row it also makes an endpoint of.
+  const ownerRows = ownerFlowsAwaiting(integration);
+  if (ownerRows.length > 0) {
+    const n = ownerRows.length;
     yours.push({
-      key: 'claim',
-      text: $localize`:@@vendor.im.needs.claim:You can claim this integration`,
-      target: rowTargetId('owner'),
+      key: 'owner-rows',
+      text:
+        n === 1
+          ? $localize`:@@vendor.im.needs.rows.one:1 row of data needs your answer`
+          : $localize`:@@vendor.im.needs.rows:${n}:count: rows of data need your answer`,
+      target: ownedFlowRowId(ownerRows[0]!.id),
       inRequests: false,
     });
   }
+
+  if (canClaim(integration)) yours.push(claimNeed(rowTargetId('owner')));
   if (integration.owner === null && openOwnerRequest(ctx.contests) === null) {
     yours.push({
       key: 'no-owner',
@@ -1236,4 +1309,177 @@ export function newestFirst(
 ): number {
   if (a.at !== b.at) return a.at < b.at ? 1 : -1;
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+// ─── An owned row's page (AECI-2045, §6.17.12) ───────────────────────────────
+
+/** The statuses an owned row can take. A subset of the endpoint page's, with the
+ *  same labels and tones, so the two pages never name one state two ways. */
+export type OwnedStatusKey = Extract<
+  IntegrationStatusKey,
+  'retired' | 'needs_answer' | 'needs_decision' | 'ready_to_claim' | 'waiting' | 'up_to_date'
+>;
+
+/**
+ * What an owned Sync Service pair carries besides its own row and its field contests
+ * (AECI-2042, §11e): the data flow reports the owner received on it, and the endpoint
+ * vendors' removals. Both come from the owner's Messages reads (`GET
+ * /api/vendor/pair-contests`, `GET /api/vendor/vetoes`), narrowed to the row.
+ */
+export interface OwnedRowRights {
+  readonly flowReports: readonly PairContest[];
+  readonly vetoes: readonly SyncServicePairVeto[];
+}
+
+export const NO_OWNED_ROW_RIGHTS: OwnedRowRights = { flowReports: [], vetoes: [] };
+
+/** The rights reads narrowed to one row: open reports received, vetoes in force. */
+export function ownedRowRights(
+  rowId: string,
+  received: {
+    readonly reports: readonly PairContest[];
+    readonly vetoes: readonly SyncServicePairVeto[];
+  },
+): OwnedRowRights {
+  return {
+    flowReports: received.reports.filter(
+      (r) => r.pair.integration_id === rowId && r.kind === 'data_flow' && r.status === 'open',
+    ),
+    vetoes: received.vetoes.filter((v) => v.pair.integration_id === rowId && v.in_force),
+  };
+}
+
+/** The row fields the owned status reads. */
+export type OwnedStatusRow = Pick<
+  OwnedIntegration,
+  'retired_at' | 'claimed_at' | 'flows_editable' | 'flows'
+>;
+
+/**
+ * The first that applies (§6.17.12): retired; a data flow that waits for the owner's
+ * answer (`ownerFlowsAwaitingAnswer`, the product checklist's rule); a request or a
+ * data flow report to decide; unclaimed; removed from the site by an endpoint vendor;
+ * else up to date.
+ */
+export function ownedIntegrationStatus(
+  row: OwnedStatusRow,
+  contests: ListVendorContestsResponse,
+  now: string,
+  rights: OwnedRowRights = NO_OWNED_ROW_RIGHTS,
+): OwnedStatusKey {
+  if (row.retired_at) return 'retired';
+  if (ownerFlowsAwaitingAnswer(row).length > 0) return 'needs_answer';
+  if (receivedNeeds(contests, now, (id) => id).length > 0 || rights.flowReports.length > 0) {
+    return 'needs_decision';
+  }
+  if (!row.claimed_at) return 'ready_to_claim';
+  if (rights.vetoes.length > 0) return 'waiting';
+  return 'up_to_date';
+}
+
+/** The name of the vendor whose removal keeps the row off the site, for the copy. */
+function vetoVendor(rights: OwnedRowRights): string {
+  return (
+    rights.vetoes[0]?.vendor_name ?? $localize`:@@vendor.im.owned.veto.unknownVendor:Another vendor`
+  );
+}
+
+/** The owned row's pill. Its `waiting` is an endpoint vendor's removal, so it names it. */
+export function ownedStatusLabel(
+  key: OwnedStatusKey,
+  contests: ListVendorContestsResponse,
+  rights: OwnedRowRights,
+): string {
+  if (key === 'waiting' && rights.vetoes.length > 0) {
+    const vendor = vetoVendor(rights);
+    return $localize`:@@vendor.im.owned.status.removedBy:Removed by ${vendor}:vendor:`;
+  }
+  return statusLabel(key, contests);
+}
+
+/** The status tooltip for the keys an owned row shares with the endpoint page. */
+export function ownedStatusExplain(
+  key: OwnedStatusKey,
+  retiredBy: VendorIntegration['retired_by'],
+  rights: OwnedRowRights = NO_OWNED_ROW_RIGHTS,
+): string {
+  switch (key) {
+    case 'retired':
+      return retiredBy === 'aeci'
+        ? $localize`:@@vendor.im.status.explain.retiredAeci:AEC Integrations retired it. It is hidden from the public page and from search.`
+        : $localize`:@@vendor.im.status.explain.retired:It is hidden from the public page and from search. Only its owner can restore it, from Settings.`;
+    case 'needs_answer':
+      return $localize`:@@vendor.im.status.explain.needsAnswer:At least one row of data needs a Yes or a No from you.`;
+    case 'needs_decision':
+      return $localize`:@@vendor.im.status.explain.needsDecision:Another company asked you to decide something. It is open in Change requests.`;
+    case 'ready_to_claim':
+      return $localize`:@@vendor.im.status.explain.readyToClaim:Your company is recorded as the owner. Claim it to edit its details yourself.`;
+    case 'waiting': {
+      const vendor = vetoVendor(rights);
+      return $localize`:@@vendor.im.owned.status.explain.removed.v2:${vendor}:vendor: removed this integration from its product, so it is off the public site. You cannot restore it. It returns if ${vendor}:vendor: withdraws the removal.`;
+    }
+    case 'up_to_date':
+      return $localize`:@@vendor.im.status.explain.upToDate:Nothing needs you right now.`;
+  }
+}
+
+/** The element id of one owner flow's row on "Data that's shared", for a jump. */
+export function ownedFlowRowId(flowId: string): string {
+  return `owned-flow-row-${flowId}`;
+}
+
+/**
+ * "Things that need you" on an owned row. A data flow waiting for an answer jumps to
+ * its row. A request or a data flow report jumps to the Change requests section; a
+ * claim jumps to the Overview's Claim button. An endpoint vendor's removal is waiting
+ * on that vendor, so it is listed under "Waiting on someone else", even on a retired row.
+ */
+export function ownedNeedsItems(
+  row: OwnedStatusRow,
+  contests: ListVendorContestsResponse,
+  now: string,
+  notOursStands: boolean,
+  rights: OwnedRowRights = NO_OWNED_ROW_RIGHTS,
+): NeedLists {
+  const waiting: NeedItem[] = rights.vetoes.map((veto) => {
+    const vendor =
+      veto.vendor_name ?? $localize`:@@vendor.im.owned.veto.unknownVendor:Another vendor`;
+    // The vendor's statement, not our finding (the legal agent's read of ruling 66).
+    const reason = removalReasonText(veto);
+    return {
+      key: `veto-${veto.id}`,
+      text: $localize`:@@vendor.im.needs.vetoed.v2:${vendor}:vendor: removed this integration from its product. ${vendor}:vendor: gave this reason: ${reason}:reason:`,
+      target: 'change-requests-heading',
+      inRequests: false,
+    };
+  });
+  if (row.retired_at) return { yours: [], waiting };
+  const yours: NeedItem[] = [];
+  const awaiting = ownerFlowsAwaitingAnswer(row);
+  if (awaiting.length > 0) {
+    const n = awaiting.length;
+    yours.push({
+      key: 'rows',
+      text:
+        n === 1
+          ? $localize`:@@vendor.im.needs.rows.one:1 row of data needs your answer`
+          : $localize`:@@vendor.im.needs.rows:${n}:count: rows of data need your answer`,
+      target: ownedFlowRowId(awaiting[0]!.id),
+      inRequests: false,
+    });
+  }
+  yours.push(...receivedNeeds(contests, now, () => 'change-requests-heading'));
+  for (const report of rights.flowReports) {
+    const who =
+      report.submitter_name ?? $localize`:@@vendor.im.owned.veto.unknownVendor:Another vendor`;
+    const data = report.flow?.data_object_name ?? '';
+    yours.push({
+      key: `flow-report-${report.id}`,
+      text: $localize`:@@vendor.im.needs.flowReport:${who}:company: reported a problem with the ${data}:data: data flow`,
+      target: 'change-requests-heading',
+      inRequests: false,
+    });
+  }
+  if (!row.claimed_at && !notOursStands) yours.push(claimNeed('owned-overview-status'));
+  return { yours, waiting };
 }

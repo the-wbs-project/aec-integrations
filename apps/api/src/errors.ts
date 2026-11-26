@@ -35,6 +35,12 @@ type ResourceKind =
   | 'dmca_notice'
   // A litigation hold (AECI-1638). Admin-only.
   | 'litigation_hold'
+  // An endpoint veto and a Sync Service pair report (AECI-2042). Another vendor's row
+  // answers this too, indistinguishable from an unknown id.
+  | 'veto'
+  // AECI-2192: a Sync Service's objection to a removal.
+  | 'veto_objection'
+  | 'pair_contest'
   | 'vendor_suspension'
   | 'abuse_cost_entry'
   | 'product'

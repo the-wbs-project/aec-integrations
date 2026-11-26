@@ -37,7 +37,19 @@
  * claim such a row on any plan. A non-owner still gets the ownership answers. On an evidenced pair "an endpoint vendor" means a vendor
  * of `product_a_id` or `product_b_id`. The connector product's vendor is neither.
  *
- * ── 5. ONE BATCH ────────────────────────────────────────────────────────────
+ * ── 5. NOT WHILE ITS CONNECTOR IS UNRECORDED (AECI-2047) ─────────────────────
+ * An `integrations` row typed `iPaaS` with no `powered_by_product_id` is the AECI-735
+ * marker: it is delivered through a connector AECi has not promoted yet. Once AECi
+ * promotes that connector and re-promotes the edge, promote moves the row to
+ * `connector_evidenced_pairs` (`REVIEW_APP_PROMOTE_API.md` §3.4a). A claimed row never
+ * moves (§4b), so a claim now would strand it in the wrong table. The owner gets
+ * `409 INTEGRATION_CONNECTOR_UNRESOLVED` after the ownership answers, so a non-owner
+ * learns nothing new. The guarded UPDATE carries the same predicate, so the answer
+ * holds under a race. This is the one form D1 can detect alone: a row typed
+ * `marketplace-app` whose connector was never promoted looks like a direct
+ * integration. The operator order in `docs/runbooks/catalog.md` covers that case.
+ *
+ * ── 6. ONE BATCH ────────────────────────────────────────────────────────────
  * The guarded `UPDATE … WHERE claimed_at IS NULL AND built_by_vendor_id = <caller>`
  * on whichever table holds the row, then `claimRaceSentinel` immediately after it,
  * then the `integration.claimed` audit row and one `notification.sent` row per other
@@ -55,7 +67,7 @@ import {
   type ClaimIntegrationResponse,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import { getDb, type Db } from '../db/client';
 import {
@@ -116,6 +128,20 @@ export interface ClaimTarget {
   /** Decision 9's predicate, unchanged: `isConnectorPoweredEdge`, or any row in
    *  `connector_evidenced_pairs`. */
   connectorPowered: boolean;
+  /** AECI-2047: an `integrations` row typed `iPaaS` with no connector on file (the
+   *  AECI-735 marker). Always `false` on a pair, whose connector is NOT NULL. */
+  connectorUnresolved: boolean;
+}
+
+/** The mechanism kind that marks an edge delivered through a connector (AECI-735). */
+const CONNECTOR_MARKER_KIND = 'iPaaS';
+
+/** AECI-2047: the row says a connector delivers it, but no connector is on file. */
+export function hasUnresolvedConnector(row: {
+  mechanismKind: string | null;
+  poweredByProductId: string | null;
+}): boolean {
+  return row.mechanismKind === CONNECTOR_MARKER_KIND && row.poweredByProductId === null;
 }
 
 /**
@@ -137,6 +163,7 @@ export async function locateClaimTarget(db: Db, id: string): Promise<ClaimTarget
       endpointIds: [row.sourceProductId, row.targetProductId],
       connectorProductId: null,
       connectorPowered: isConnectorPoweredEdge(row),
+      connectorUnresolved: hasUnresolvedConnector(row),
     };
   }
   const pair = await db.query.connectorEvidencedPairs.findFirst({
@@ -155,6 +182,7 @@ export async function locateClaimTarget(db: Db, id: string): Promise<ClaimTarget
     connectorProductId: pair.connectorProductId,
     // Every evidenced pair is connector-delivered by construction (decision 9).
     connectorPowered: true,
+    connectorUnresolved: false,
   };
 }
 
@@ -182,7 +210,8 @@ async function callerHoldsAnEndpoint(
  * pre-check and the lost-race re-read, so a race answers exactly what the pre-check
  * would have answered a moment later.
  *
- * Order: ownership (404, 403 NOT_OWNER, 409 OWNER_UNKNOWN), then already-claimed.
+ * Order: ownership (404, 403 NOT_OWNER, 409 OWNER_UNKNOWN), then already-claimed, then
+ * an unrecorded connector (409 CONNECTOR_UNRESOLVED, AECI-2047).
  */
 async function refusalFor(db: Db, vendorId: string, target: ClaimTarget): Promise<ApiError | null> {
   if (target.builtByVendorId !== vendorId) {
@@ -207,6 +236,13 @@ async function refusalFor(db: Db, vendorId: string, target: ClaimTarget): Promis
       409,
       ApiErrorCode.INTEGRATION_ALREADY_CLAIMED,
       'Your company has already claimed this integration.',
+    );
+  }
+  if (target.connectorUnresolved) {
+    return new ApiError(
+      409,
+      ApiErrorCode.INTEGRATION_CONNECTOR_UNRESOLVED,
+      'AEC Integrations has not finished recording the connector that delivers this integration, so it cannot be claimed yet. Try again once we have recorded it.',
     );
   }
   return null;
@@ -250,6 +286,9 @@ function guardedClaimUpdate(db: Db, target: ClaimTarget, vendorId: string, now: 
           eq(integrations.id, target.id),
           isNull(integrations.claimedAt),
           eq(integrations.builtByVendorId, vendorId),
+          // AECI-2047: never claim a row whose connector is still unrecorded. NULL-safe:
+          // a NULL `mechanism_kind` is not the marker.
+          sql`NOT (coalesce(${integrations.mechanismKind}, '') = ${CONNECTOR_MARKER_KIND} AND ${integrations.poweredByProductId} IS NULL)`,
         ),
       );
   }

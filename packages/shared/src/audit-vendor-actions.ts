@@ -62,6 +62,9 @@ export const AUDIT_VENDOR_ACTIONS = {
   'claim.created': { kind: 'vendor-edit', receipt: true },
   'attestation.created': { kind: 'vendor-edit', receipt: true },
   'attestation.retracted': { kind: 'vendor-edit', receipt: true },
+  // AECI-2039: the owner of a Sync Service pair answers a flow on it.
+  'claim_owner_answer.created': { kind: 'vendor-edit', receipt: true },
+  'claim_owner_answer.retracted': { kind: 'vendor-edit', receipt: true },
   'integration.created': { kind: 'vendor-edit', receipt: true },
   'integration.claimed': { kind: 'vendor-edit', receipt: true },
   'integration.updated': { kind: 'vendor-edit', receipt: true },
@@ -81,6 +84,28 @@ export const AUDIT_VENDOR_ACTIONS = {
   'integration.contest.protest_withdrawn': { kind: 'vendor-edit', receipt: true },
   'integration.contest.protest_upheld': { kind: 'aeci-override', receipt: true },
   'integration.contest.protest_rejected': { kind: 'aeci-override', receipt: true },
+  // AECI-2042: an endpoint vendor's rights on a Sync Service pair. `vendor_id` is the
+  // vendor that filed the veto or the report. The lift and AECi's decisions are AECi's.
+  // Five are not receipts: the history read binds every receipt action as a parameter
+  // and must stay under D1's cap (`vendor-history.spec.ts`). The portal's report list
+  // shows those five states.
+  'integration.vetoed': { kind: 'vendor-edit', receipt: true },
+  'integration.veto_withdrawn': { kind: 'vendor-edit', receipt: true },
+  'integration.veto_lifted': { kind: 'aeci-override', receipt: true },
+  'integration.pair_contest.submitted': { kind: 'vendor-edit', receipt: true },
+  'integration.pair_contest.withdrawn': { kind: 'vendor-edit', receipt: false },
+  'integration.pair_contest.accepted': { kind: 'vendor-edit', receipt: true },
+  'integration.pair_contest.declined': { kind: 'vendor-edit', receipt: true },
+  'integration.pair_contest.protested': { kind: 'vendor-edit', receipt: false },
+  'integration.pair_contest.protest_withdrawn': { kind: 'vendor-edit', receipt: false },
+  'integration.pair_contest.protest_upheld': { kind: 'aeci-override', receipt: false },
+  'integration.pair_contest.protest_rejected': { kind: 'aeci-override', receipt: false },
+  // AECI-2192 (ruling 66): the Sync Service's objection to a removal. `vendor_id` is the
+  // objecting vendor. Not receipts, for the same D1 parameter cap: the owner's removed
+  // list shows the objection and its outcome.
+  'integration.veto_objection.filed': { kind: 'vendor-edit', receipt: false },
+  'integration.veto_objection.accepted': { kind: 'aeci-override', receipt: false },
+  'integration.veto_objection.declined': { kind: 'aeci-override', receipt: false },
   'integration.contest.lapsed': { kind: 'system', receipt: true },
   'integration.contest.rerouted': { kind: 'system', receipt: true },
   'integration.contest.seat_stamp_cleared': { kind: 'system', receipt: true },

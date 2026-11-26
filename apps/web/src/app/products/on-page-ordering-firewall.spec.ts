@@ -89,7 +89,13 @@ import {
   rowsWithoutDataObjects,
 } from './integration-filter';
 import { filterPairMatches } from './pair-matches-filter';
-import { WHEEL_BANDS, layoutSlide, wheelModel } from './integration-wheel';
+import {
+  WHEEL_BANDS,
+  connectorWheelModel,
+  heroWheelSource,
+  layoutSlide,
+  wheelModel,
+} from './integration-wheel';
 import { groupPoweredIntegrations } from './powered-hub-grouping';
 
 // ─── The registry ─────────────────────────────────────────────────────────────
@@ -1115,6 +1121,83 @@ describe('on-page ordering firewall: connector page powered hubs', () => {
       row.target.slug === 'xero' ? { ...row, target: link('xero', 'Aardvark') } : row,
     );
     expect(hubOrder(renamed)).not.toEqual(baseline);
+  });
+});
+
+// ─── A connector's hero wheel (QA pass on AECI-2035) ──────────────────────────
+
+/** The connector wheel's decisions: who is on it, in what order, and how it is drawn. */
+function connectorWheelDecisions(items: PoweredIntegrationItem[]) {
+  const model = connectorWheelModel(items, 'agave-erp-sync', undefined);
+  return {
+    slides: model.slides.map((s) => ({
+      key: s.key,
+      products: s.products.map((p) => p.id),
+      integrations: s.integrations,
+    })),
+    layouts: [...WHEEL_BANDS, 640].map((d) =>
+      model.slides.map((_, i) => {
+        const layout = layoutSlide(model, i, d);
+        return { mode: layout.mode, tile: layout.tilePx, points: layout.points };
+      }),
+    ),
+  };
+}
+
+describe('on-page ordering firewall: a connector hero wheel', () => {
+  it('[surface:product-page-hero-wheel] shows every product the pairs reach, A to Z by name, id on a tie', () => {
+    const model = connectorWheelModel(poweredFixture(), 'agave-erp-sync', undefined);
+    expect(model.slides).toHaveLength(1);
+    const names = model.slides[0]!.products.map((p) => p.name);
+    expect(names).toEqual([...names].sort(compareText));
+    // Two "Bluebeam" products: the id breaks the tie, so both are on it.
+    expect(names.filter((n) => n === 'Bluebeam')).toHaveLength(2);
+    // One dot per product.
+    expect(model.slides[0]!.integrations).toBe(names.length);
+  });
+
+  const connectorBaseline = connectorWheelDecisions(poweredFixture());
+  const safe = POWERED_PAYLOAD_FIELDS.filter((f) => !FILTER_TEXT_FIELDS.has(f));
+
+  for (const dir of ['rising', 'falling'] as const) {
+    it.each(safe)(
+      `[surface:product-page-hero-wheel] a connector wheel does not move when %s changes (${dir})`,
+      (field) => {
+        expect(connectorWheelDecisions(flipRows(poweredFixture(), [field], dir))).toEqual(
+          connectorBaseline,
+        );
+      },
+    );
+  }
+
+  it('[surface:product-page-hero-wheel] the set a page shows reads the role and empty sets only', () => {
+    const rows = poweredFixture();
+    const page = (role: 'application' | 'connector' | 'hybrid', endpoint: boolean) => ({
+      product_role: role,
+      slug: 'agave-erp-sync',
+      integrations_as_source: endpoint ? (wheelFixture().asSource as ProductIntegrationItem[]) : [],
+      integrations_as_target: [],
+      integrations_as_connector: rows,
+    });
+    expect(heroWheelSource(page('connector', true))).toBe('connector');
+    expect(heroWheelSource(page('hybrid', true))).toBe('endpoint');
+    expect(heroWheelSource(page('application', false))).toBe('connector');
+    expect(heroWheelSource({ ...page('connector', true), integrations_as_connector: [] })).toBe(
+      'endpoint',
+    );
+    expect(heroWheelSource({ ...page('connector', false), integrations_as_connector: [] })).toBe(
+      'empty',
+    );
+    expect(heroWheelSource({ ...page('hybrid', false), integrations_as_connector: [] })).toBe(
+      'none',
+    );
+  });
+
+  it('sees a move when a product name changes (the comparison is not vacuous)', () => {
+    const renamed = poweredFixture().map((row) =>
+      row.target.slug === 'xero' ? { ...row, target: link('xero', 'Aardvark') } : row,
+    );
+    expect(connectorWheelDecisions(renamed)).not.toEqual(connectorBaseline);
   });
 });
 

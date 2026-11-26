@@ -279,6 +279,11 @@ export type ProductIntegrationItem = z.infer<typeof ProductIntegrationItemSchema
  * collapses several edges into one pair row and shows the union, which is why
  * the wire carries slugs rather than a count. `/api/integrations` does not carry
  * it and does not pay for the claims join.
+ *
+ * `direction` here is claims-aware (QA pass on AECI-2035, 2026-11-24), in the same
+ * source/target frame as the list item: the public flows' directions when the row has
+ * any, else the stored direction. It is the rule the endpoint rows' `context_direction`
+ * and the pair page use, so the connector's page states the same direction as they do.
  */
 export const PoweredIntegrationItemSchema = IntegrationListItemSchema.extend({
   data_object_slugs: z.array(z.string()).default([]),

@@ -1,3 +1,5 @@
+// `productNavItemsFor` reads the nav labels, which call `$localize` at module load.
+import '@angular/localize/init';
 import { signal } from '@angular/core';
 import { describe, expect, it } from 'vitest';
 
@@ -6,22 +8,57 @@ import type { VendorMeResponse } from '@aeci/shared';
 
 import {
   integrationCanAuthor,
+  isCatalogueProduct,
   isCatalogueSeat,
   productCan,
+  showsCatalogTab,
   vendorCan,
 } from './vendor-capabilities';
+import { productNavItemsFor } from './vendor-nav';
 import type { VendorPortalStore } from './vendor-portal-store';
 
-const connector = { product_role: 'connector' };
-const application = { product_role: 'application' };
+/** An Integration platform AECi holds a catalogue for: the §8.9 seat's product. */
+const connector = {
+  product_role: 'connector',
+  connector_kind: 'integration_platform',
+  has_connector_catalog: true,
+};
+const application = { product_role: 'application', has_connector_catalog: false };
 
 /**
- * The §8.9 catalogue-seat rule (`STAGE_2_SPEC.md` §8.9, AECI-724 / AECI-1082).
- * The plan panel and the read-only notices both read it, so it is pinned once here.
+ * The §8.9 catalogue-seat rule (`STAGE_2_SPEC.md` §8.9, AECI-724 / AECI-1082, narrowed
+ * by AECI-2044). The plan panel, the overview links and the read-only notices all read
+ * it, so it is pinned once here.
  */
 describe('isCatalogueSeat', () => {
-  it('is true with no entitlement row and a connector-role product', () => {
+  it('is true for a pure platform vendor with no license and a catalogue', () => {
+    expect(isCatalogueSeat(null, [connector])).toBe(true);
+    // A connector with no kind and a catalogue is still the seat's product.
+    expect(isCatalogueSeat(null, [{ ...connector, connector_kind: null }])).toBe(true);
+  });
+
+  it('is false for a pure platform vendor whose connector has no catalogue', () => {
+    expect(isCatalogueSeat(null, [{ ...connector, has_connector_catalog: false }])).toBe(false);
+    // A payload from before AECI-2044, with no catalogue field, reads closed.
+    expect(isCatalogueSeat(null, [{ product_role: 'connector' }])).toBe(false);
+  });
+
+  it('is false for a Sync Service, which may buy Managed (ruling 6)', () => {
+    const sync = { product_role: 'connector', connector_kind: 'sync_service' };
+    expect(isCatalogueSeat(null, [sync])).toBe(false);
+    // Even if a catalogue row exists for it, a Sync Service is not the seat's product.
+    expect(isCatalogueSeat(null, [{ ...sync, has_connector_catalog: true }])).toBe(false);
+  });
+
+  it('is false for a mixed Free vendor such as Rivets: applications and a Sync Service', () => {
+    const sync = { product_role: 'connector', connector_kind: 'sync_service' };
+    expect(isCatalogueSeat(null, [application, application, sync])).toBe(false);
+  });
+
+  it('is true for a mixed Free vendor that also has a catalogued platform', () => {
     expect(isCatalogueSeat(null, [application, connector])).toBe(true);
+    expect(isCatalogueProduct(application)).toBe(false);
+    expect(isCatalogueProduct(connector)).toBe(true);
   });
 
   it('is false for a never-arranged vendor with no connector product', () => {
@@ -82,7 +119,11 @@ describe('vendorCan', () => {
 
   it('lets a seat with no plan edit company details (§13.3)', () => {
     expect(vendorCan(storeWith(capabilitiesFor('unclaimed')), 'profile.edit')()).toBe(true);
-    expect(vendorCan(storeWith(capabilitiesFor('unclaimed')), 'attestation.author')()).toBe(false);
+    // AECI-2038: confirming data flows is on every plan; product versions stay Managed.
+    expect(vendorCan(storeWith(capabilitiesFor('unclaimed')), 'attestation.author')()).toBe(true);
+    expect(vendorCan(storeWith(capabilitiesFor('unclaimed')), 'product.versions.edit')()).toBe(
+      false,
+    );
   });
 
   it('is false before the store is seeded', () => {
@@ -104,18 +145,68 @@ describe('integrationCanAuthor', () => {
     slots,
   });
 
-  it('reads the context product’s plan for a one-slot integration', () => {
-    expect(integrationCanAuthor(row(['vendor_a']), products(managed, free))).toBe(true);
-    expect(integrationCanAuthor(row(['vendor_a']), products(free, managed))).toBe(false);
+  /** A plan block with no capabilities: a tier the build does not know. */
+  const none: readonly Capability[] = [];
+
+  it('passes a Free endpoint product (AECI-2038)', () => {
+    expect(integrationCanAuthor(row(['vendor_a']), products(free, free))).toBe(true);
+    expect(integrationCanAuthor(row(['vendor_a', 'vendor_b']), products(free, free))).toBe(true);
   });
 
-  it('passes an owns-both integration when either endpoint is Managed', () => {
-    expect(integrationCanAuthor(row(['vendor_a', 'vendor_b']), products(free, managed))).toBe(true);
-    expect(integrationCanAuthor(row(['vendor_a', 'vendor_b']), products(free, free))).toBe(false);
+  it('reads the context product’s plan for a one-slot integration', () => {
+    expect(integrationCanAuthor(row(['vendor_a']), products(managed, none))).toBe(true);
+    expect(integrationCanAuthor(row(['vendor_a']), products(none, managed))).toBe(false);
+  });
+
+  it('passes an owns-both integration when either endpoint holds the capability', () => {
+    expect(integrationCanAuthor(row(['vendor_a', 'vendor_b']), products(none, managed))).toBe(true);
+    expect(integrationCanAuthor(row(['vendor_a', 'vendor_b']), products(none, none))).toBe(false);
   });
 
   it('is closed with no integration or an unknown product', () => {
     expect(integrationCanAuthor(null, products(managed, managed))).toBe(false);
     expect(integrationCanAuthor(row(['vendor_a']), [])).toBe(false);
+  });
+});
+
+/** AECI-2045: the Catalog tab follows a catalogue on a Sync Service, and today's rule elsewhere. */
+describe('showsCatalogTab', () => {
+  const tab = (connector_kind: string | null, has_connector_catalog: boolean) =>
+    showsCatalogTab({ product_role: 'connector', connector_kind, has_connector_catalog });
+
+  it('hides it on a Sync Service with no catalogue', () => {
+    expect(tab('sync_service', false)).toBe(false);
+  });
+
+  it('shows it on a Sync Service that has a catalogue (Agave)', () => {
+    expect(tab('sync_service', true)).toBe(true);
+  });
+
+  it('keeps it on an Integration platform or a blank kind, catalogue or not', () => {
+    expect(tab('integration_platform', false)).toBe(true);
+    expect(tab('integration_platform', true)).toBe(true);
+    expect(tab(null, false)).toBe(true);
+  });
+
+  it('never shows it off a connector product', () => {
+    expect(showsCatalogTab({ product_role: 'application' })).toBe(false);
+    expect(showsCatalogTab({ product_role: 'hybrid', connector_kind: 'sync_service' })).toBe(false);
+  });
+
+  it('drives the product row', () => {
+    const paths = (fields: Parameters<typeof productNavItemsFor>[0]) =>
+      productNavItemsFor(fields).map((item) => item.path);
+    expect(paths({ product_role: 'connector', connector_kind: 'sync_service' })).not.toContain(
+      'catalogue',
+    );
+    expect(
+      paths({
+        product_role: 'connector',
+        connector_kind: 'sync_service',
+        has_connector_catalog: true,
+      }),
+    ).toContain('catalogue');
+    expect(paths('connector')).toContain('catalogue');
+    expect(paths('application')).not.toContain('catalogue');
   });
 });

@@ -9,7 +9,7 @@ import {
 import { NgTemplateOutlet, formatDate } from '@angular/common';
 import { RouterLink } from '@angular/router';
 
-import type { VendorEntitlementBlock } from '@aeci/shared';
+import { productTakesSubscription, type VendorEntitlementBlock } from '@aeci/shared';
 
 import { AecButton } from '../../shared/button/button';
 import { AecCard, type AecCardTone } from '../../shared/card/card';
@@ -58,11 +58,21 @@ import { VendorRemovalElection } from './vendor-removal-election';
  *  - `catalogue`: the connector catalogue seat (`STAGE_2_SPEC.md` §8.9). It is
  *    never sold Managed, so it gets no offer, no price and no call to action. It
  *    holds the Free edits like any seat with no plan (ruling 2026-10-02, §13.3).
+ *    Since AECI-2044 only a product that is an Integration platform (or has no
+ *    kind) AND has a catalogue shows it (`isCatalogueProduct`). A Sync Service is
+ *    an ordinary product here: it may buy Managed (ruling 6 on AECI-2035).
+ *  - `unavailable` (AECI-2044): a product with no plan that cannot hold a
+ *    subscription (an Integration platform, or a connector with no kind, and no
+ *    catalogue). What Free includes, a plain line that Managed is not offered for
+ *    it, and no price or call to action. The API refuses the assign
+ *    (`PRODUCT_NOT_SUBSCRIBABLE`), so the panel never offers it.
  *
  * ── Copy discipline ─────────────────────────────────────────────────────────
- * Every state carries decision 10's line word for word (§13.1). Every state but
- * `catalogue` shows Managed's price, and nothing beyond Managed is offered
- * (decision 9). No promise of search placement or instant search. The vendor's
+ * Every state carries decision 10's line word for word (§13.1). A product that can
+ * hold a subscription shows Managed's price in every state but `catalogue`, and
+ * nothing beyond Managed is offered (decision 9). A product that cannot (AECI-2044)
+ * shows no price and no "Go to Billing" in any state. Its renewal path stays, because
+ * a subscription already on it is never refused. No promise of search placement or instant search. The vendor's
  * own arrangement (amount paid, terms, PO) is never shown. An owner's button
  * goes to the Billing tab (`billingLink`), where owners pay by card: "Get
  * licenses" on `free`, `ended` and `overdue` (AECI-1408, AECI-1396), and
@@ -114,9 +124,19 @@ import { VendorRemovalElection } from './vendor-removal-election';
         <aec-vendor-plan-badge [plan]="plan()" />
       </div>
 
-      <p class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-primary)">{{ lede() }}</p>
+      <p class="mt-3 text-sm leading-relaxed text-(--text-primary)">{{ lede() }}</p>
 
       @switch (state()) {
+        @case ('unavailable') {
+          <p class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
+            <span i18n="@@vendor.plan.unavailable.scope"
+              >Managed is not offered for this kind of product. Everything on Free stays
+              available.</span
+            >
+          </p>
+          <h3 [class]="listHeadingClass" i18n="@@vendor.plan.free.includes">Free includes</h3>
+          <ng-container [ngTemplateOutlet]="freeList" />
+        }
         @case ('catalogue') {
           <p class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
             <span i18n="@@vendor.plan.catalogue.scope"
@@ -144,7 +164,7 @@ import { VendorRemovalElection } from './vendor-removal-election';
         }
       }
 
-      @if (state() !== 'catalogue') {
+      @if (offered()) {
         <p class="mt-5 max-w-prose text-sm text-(--text-primary)" data-testid="plan-price">
           {{ priceLine }}
         </p>
@@ -204,25 +224,28 @@ import { VendorRemovalElection } from './vendor-removal-election';
       AECI-1396: the free state uses it too, now that owners can pay by card.
     -->
     <ng-template #endedCta>
-      @if (billingLink(); as link) {
-        <a
-          aecButton
-          variant="secondary"
-          [routerLink]="link"
-          class="mt-5"
-          data-testid="plan-get-licenses"
-          i18n="@@vendor.plan.cta.getLicenses"
-          >Go to Billing</a
-        >
-      } @else {
-        <a
-          aecButton
-          variant="secondary"
-          routerLink="/contact"
-          class="mt-5"
-          i18n="@@vendor.plan.cta.askProduct"
-          >Ask about Managed for this product</a
-        >
+      <!-- AECI-2044: never on a product that cannot hold a subscription. -->
+      @if (offered()) {
+        @if (billingLink(); as link) {
+          <a
+            aecButton
+            variant="secondary"
+            [routerLink]="link"
+            class="mt-5"
+            data-testid="plan-get-licenses"
+            i18n="@@vendor.plan.cta.getLicenses"
+            >Go to Billing</a
+          >
+        } @else {
+          <a
+            aecButton
+            variant="secondary"
+            routerLink="/contact"
+            class="mt-5"
+            i18n="@@vendor.plan.cta.askProduct"
+            >Ask about Managed for this product</a
+          >
+        }
       }
     </ng-template>
 
@@ -246,6 +269,7 @@ import { VendorRemovalElection } from './vendor-removal-election';
           Claim its integrations, add links and request corrections
         </li>
         <li i18n="@@vendor.plan.free.create">Add a new integration</li>
+        <li i18n="@@vendor.plan.free.flows">Confirm or deny the data flows on its integrations</li>
       </ul>
     </ng-template>
 
@@ -255,9 +279,6 @@ import { VendorRemovalElection } from './vendor-removal-election';
           Edit "How teams use it", the integrations page URL and the API documentation URL
         </li>
         <li i18n="@@vendor.plan.managed.taxonomy">Edit trades, audiences and phases</li>
-        <li i18n="@@vendor.plan.managed.flows">
-          Confirm or deny the data flows on its integrations
-        </li>
       </ul>
     </ng-template>
   `,
@@ -268,8 +289,16 @@ export class VendorPlanPanel {
 
   /** THIS product's plan (`VendorProduct.plan`, §13.7). */
   readonly plan = input.required<VendorEntitlementBlock>();
-  /** The product's `product_role`: a `connector` with no plan row is the §8.9 seat. */
+  /**
+   * The product's `product_role`. With {@link connectorKind} it decides whether the
+   * product can hold a subscription (`productTakesSubscription`, AECI-2044). `null`
+   * (not passed) reads as an application, the ordinary panel.
+   */
   readonly productRole = input<string | null>(null);
+  /** The product's `connector_kind` (AECI-2036). Only a connector's kind matters here. */
+  readonly connectorKind = input<string | null>(null);
+  /** `VendorProduct.has_connector_catalog`: the §8.9 seat's product has a catalogue. */
+  readonly hasConnectorCatalog = input(false);
   /** Unique per page, so two panels never share a heading id. */
   readonly headingId = input('vendor-plan-panel-h');
   /**
@@ -297,10 +326,28 @@ export class VendorPlanPanel {
   /** Managed's two list prices. The same for every vendor. */
   protected readonly priceLine = planPriceSentence(this.locale);
 
-  protected readonly state = computed<PlanState | 'catalogue'>(() => {
+  /** Can this product hold a subscription? (AECI-2044, ruling 6.) */
+  private readonly subscribable = computed(() =>
+    productTakesSubscription(this.productRole() ?? 'application', this.connectorKind()),
+  );
+
+  protected readonly state = computed<PlanState | 'catalogue' | 'unavailable'>(() => {
     const plan = this.plan();
-    if (isCatalogueSeat(plan.status, [{ product_role: this.productRole() }])) return 'catalogue';
-    return planState(plan, this.now());
+    const product = {
+      product_role: this.productRole(),
+      connector_kind: this.connectorKind(),
+      has_connector_catalog: this.hasConnectorCatalog(),
+    };
+    if (isCatalogueSeat(plan.status, [product])) return 'catalogue';
+    const state = planState(plan, this.now());
+    return state === 'free' && !this.subscribable() ? 'unavailable' : state;
+  });
+
+  /** Show Managed's price and the purchase path: never on `catalogue` or
+   *  `unavailable`, and never on a product that cannot hold a subscription. */
+  protected readonly offered = computed(() => {
+    const state = this.state();
+    return state !== 'catalogue' && state !== 'unavailable' && this.subscribable();
   });
 
   /**

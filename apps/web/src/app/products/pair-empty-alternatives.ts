@@ -460,9 +460,9 @@ function objectIcon(slug: string): AecIconName | null {
               <dd class="m-0 mt-1 text-(--text-secondary)">
                 <span i18n="@@pair.empty.matches.orderNoPaidPosition"
                   >No vendor pays for a position in this list.</span
-                >&ngsp;<span i18n="@@pair.empty.matches.orderPlan"
+                >&ngsp;<span i18n="@@pair.empty.matches.orderPlanAnyPlan"
                   >The order never reads a vendor's plan. Who appears depends only on the
-                  integrations and data on record. A vendor on a paid plan can add data to its own
+                  integrations and data on record. A vendor on any plan can add data to its own
                   integrations, so its product can match a data filter it would not match
                   otherwise.</span
                 >

@@ -54,7 +54,7 @@ let nextId = 0;
           <h3 [id]="titleId" i18n="@@vendor.nudgeMute.title">Daily reminder email</h3>
           <p
             [id]="descriptionId"
-            class="mt-2 max-w-[30rem] text-sm leading-relaxed text-(--text-secondary)"
+            class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
             i18n="@@vendor.nudgeMute.description"
           >
             One email a day listing the integration records that need an answer. It affects your

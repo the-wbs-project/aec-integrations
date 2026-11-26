@@ -258,9 +258,18 @@ describe('VendorIntegrationsSection — the load ladder', () => {
   });
 
   it('explains the read-only state without access, and still lists everything', async () => {
-    TestBed.inject(VendorPortalStore).seed(VENDOR_ME_DOWNGRADED_FIXTURE);
+    // AECI-2038: a Free plan can answer, so "without access" is a plan block with no
+    // capabilities, a tier the build does not know.
+    TestBed.inject(VendorPortalStore).seed({
+      ...VENDOR_ME_DOWNGRADED_FIXTURE,
+      products: VENDOR_ME_DOWNGRADED_FIXTURE.products.map((p) => ({
+        ...p,
+        plan: { ...p.plan, capabilities: [] },
+      })),
+    });
     const fixture = await create({ canAuthor: false });
-    expect(text(fixture)).toContain('opens up with active vendor access');
+    expect(text(fixture)).toContain('Answering is not available for these integrations right now.');
+    expect(text(fixture)).not.toContain('active vendor access');
     expect(rows(fixture)).toHaveLength(ON_PRIMARY);
   });
 
@@ -276,7 +285,7 @@ describe('VendorIntegrationsSection — the load ladder', () => {
     expect(VENDOR_ME_FIXTURE.products.some((p) => p.id === both.other_product.id)).toBe(true);
     // The tab's own product is Free, as `VendorIntegrationsPage` computes it.
     const fixture = await create({ canAuthor: false, contextProductId: both.context_product.id });
-    expect(text(fixture)).not.toContain('opens up with active vendor access');
+    expect(text(fixture)).not.toContain('Answering is not available');
     expect(el(fixture).querySelector('[data-testid="integrations-summary"]')).not.toBeNull();
   });
 

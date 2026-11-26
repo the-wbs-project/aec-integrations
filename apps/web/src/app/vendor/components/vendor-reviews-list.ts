@@ -117,7 +117,7 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
   host: { class: 'block' },
   template: `
     <section aria-labelledby="vendor-reviews-heading" data-vendor-reviews>
-      <div class="max-w-[30rem] space-y-2">
+      <div class="space-y-2">
         <!-- AECI-1812: the h2 at the global size, as on every portal section. -->
         <h2 id="vendor-reviews-heading">
           <span i18n="@@vendor.reviews.heading">Reviews</span>

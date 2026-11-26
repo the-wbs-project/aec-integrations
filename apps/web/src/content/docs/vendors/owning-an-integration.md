@@ -3,7 +3,7 @@ title: Owning an integration
 description: How the company that offers an integration claims it, edits it, adds its links, retires it, and adds new ones.
 section: vendors
 order: 8
-last_updated: November 19, 2026
+last_updated: November 26, 2026
 ---
 
 An integration belongs to the company that offers it: whoever a customer buys it from or gets it from. The public integration page names that company on its "Offered by" line. AEC Integrations recorded most integrations from public sources to start the catalog. This page is for the company that owns one.
@@ -22,7 +22,7 @@ Open the vendor portal, choose one of your products, and open its Integrations t
 | The page says AEC Integrations retired it, with no Restore button | AEC Integrations retired it. It is off the public site, and only AEC Integrations can bring it back. |
 | Owner: another company's name | Another company owns it. You can request a change, but not edit it. |
 | Owner: not set, with **Ask to be recorded as the owner** | Nobody is recorded as the owner. |
-| Owner: your company, with a note that it runs through a connector | A connector product carries the data. You can claim it on any plan. See [For connector vendors](/docs/vendors/connector-vendors). |
+| Owner: your company, with a note that it runs through a connector | A connector product carries the data. You can claim it on any plan. When the connector is a Sync Service, you also confirm and maintain its data rows after the claim. See [For connector vendors](/docs/vendors/connector-vendors). |
 
 ## Claim an integration
 
@@ -37,6 +37,8 @@ Once you claim it:
 - The public page's "About this listing" panel marks it "Vendor maintained". Once you edit it, the same panel also reads "Maintained by" your company and the date of your last change.
 
 A claim cannot be undone from the portal. The only way an integration leaves its owner is an AEC Integrations decision on a request about who owns it.
+
+**If your Sync Service delivers an integration that is recorded under another company or under none,** it is listed under **Pairs recorded under another company** on your Sync Service's Integrations tab. Choose **Ask AEC Integrations to record us as the company that offers this** there. [For connector vendors](/docs/vendors/connector-vendors) has the details.
 
 **If your company offers an integration but is not recorded as the owner,** open the Owner row and choose **Ask to be recorded as the owner**. If someone else already holds that row, choose **Request a correction** and pick Owner. AEC Integrations reviews it. If it is accepted, your company is recorded as the owner and the integration is claimed for you in the same step. This works the same way on an integration delivered through a connector.
 
@@ -79,6 +81,8 @@ Choose **Restore integration** in Settings to put it back. It returns as it was.
 
 AEC Integrations can also retire an integration your company holds, to take a false or abusive listing off the public site. Your company and the company that makes the other product are told. The notice to your company includes the reason AEC Integrations gave, and you find it in **Messages**. Settings then says "Retired by AEC Integrations", with no Restore button, because only AEC Integrations can restore that retire. Nothing is deleted.
 
+On an integration a Sync Service delivers, the vendor of either product can also remove it from its product, even when the listing is accurate. That is not a retire, and **Restore** does not undo it. **Messages** says who removed it, the reason it gave from a fixed list, and when. It returns if that vendor withdraws the removal. You can object to AEC Integrations from **Messages** on three grounds only: the removal came from an account that should not have had access, it named the wrong product, or its reason is plainly false on its face. AEC Integrations answers an objection within five business days of receiving it. It can also end a removal where the vendor's claim ends or is suspended, or where the law requires it, as the [Listing Accuracy Policy](/legal/listing-accuracy) sets out. See [For connector vendors](/docs/vendors/connector-vendors).
+
 ## If AEC Integrations changes something you hold
 
 AEC Integrations can change a record your company holds. When it does, you are told in **Messages** and the notice gives the reason. Other companies' notices do not carry the reason.
@@ -105,7 +109,7 @@ When you choose the other product, we check for integrations already on record f
 
 You can still add yours. The list never stops you.
 
-The new integration is owned by your company and claimed from the moment you add it. It goes live without review, its public page says "Added by the vendor", and the company that makes the other product is told. Both products must already be listed. You cannot add one that is delivered through a connector.
+The new integration is owned by your company and claimed from the moment you add it. It goes live without review, its public page says "Added by the vendor", and the company that makes the other product is told. Both products must already be listed. You cannot add one that is delivered through a connector here. A Sync Service adds the integrations it delivers from its own product's tab. See [For connector vendors](/docs/vendors/connector-vendors).
 
 Once you add it, the confirmation links to your integration and to its public page. If another similar integration was added for the same two products while you filled in the form, the confirmation lists it too. If you added a copy anyway, retire the one you added from its page. Then claim the existing one if it is yours, or request a change on it if a detail is wrong. AEC Integrations' catalog updates will not add a second copy of an integration you hold.
 

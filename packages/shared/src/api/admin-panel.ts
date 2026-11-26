@@ -123,6 +123,14 @@ export type AdminWindow = z.infer<typeof AdminWindowSchema>;
  * | `classification_is_heuristic` | AECI-1345. An `info`, **unconditional** with the classification block: the four classes are a heuristic judgement about requests, and `browser_with_human_evidence` is not "humans". A standing caveat under §13 D15(d) |
  * | `collection_method_seam` | AECI-1346. An `info`, **gated** on a `POST_LAUNCH_MONITORING.md` §3d row for this tier falling inside the 30-day chart window (`COLLECTION_METHOD_CHANGES`). One note per row. `params`: `changed_at` (ISO timestamp), `tier`, `summary`, `comparable` (`'true'` or `'false'`). On a `'false'` row the class `delta_day` values that span it are null. On a `'true'` row the note is informational and the deltas stand |
  * | `tables_unclassified` | AECI-1460. An `info`, **gated**: the reported day has no `page_view_classifications` rows, so `top_products` and `top_sources` are NOT filtered by class. On a classified day they drop views classed `identified_automation` or `suspected_automation` on the day's latest classifier version |
+ * | `crawl_coverage_is_gateway_arrivals` | AECI-818. An `info`, unconditional on every search-console read that reports crawl coverage: the count is the SSR gateway's `page_views` arrival rows, so a change to where that row is written would read as a crawl collapse (§5.24.4) |
+ * | `crawler_label_unverified` | AECI-818. A `warn`, gated: the crawl window reaches before edge verification started (`params.since`), so rows before that date count on the user-agent label alone |
+ * | `crawl_window_clamped` | AECI-818. An `info`, gated: the crawl window was clamped to `CONCRETE_PATH_SINCE` (`params.from`), because older rows carry no concrete path |
+ * | `crawler_label_includes_inspection_tool` | AECI-818. An `info`, unconditional on every Google crawl figure: the `Googlebot` label also covers Google-InspectionTool, so an operator's live URL test reads as a crawl |
+ * | `public_site_url_unset` | AECI-818. A `warn`: `PUBLIC_SITE_URL` is unset or unparseable, so no public URL can be built and the queue lists no lanes |
+ * | `indexed_is_impression_lower_bound` | AECI-823. An `info`, gated on the Google `impressed` stage being present: it counts catalog pages with an impression in 28 days, a lower bound on indexed pages and not Google's index count |
+ * | `search_ingest_absent` | AECI-823. An `info`, gated: one engine has no ingested stage in the funnel, whatever the reason, so only its two D1 stages show (`params.engine`) |
+ * | `search_window_incomplete` | AECI-823. A `warn`, gated: an engine's 28-date click window holds both daily clicks and impressions rows for fewer dates than it spans, so its click and impression totals cover fewer days (`params.engine`, `days_recorded`, `days`, `from`, `to`) |
  * | `stub_actions_never_fetched` | `params.never_fetched` of `params.total` stubs on this page carry `actions IS NULL`, which means the per-listing inventory has never been fetched — **not** that the listing has no actions. The inventory is ~73k actions across MindCloud alone and is fetched lazily, so most stubs carry null indefinitely (§9a.3) |
  */
 export const AdminNoteCodeSchema = z.enum([
@@ -180,6 +188,16 @@ export const AdminNoteCodeSchema = z.enum([
   // AECI-1460 — the top products and top sources tables on a day with no stored
   // classes, which therefore print unfiltered.
   'tables_unclassified',
+  // AECI-818 — the search console (`admin-seo.ts`, `ADMIN_PANEL_SPEC.md` §5.24.4).
+  'crawl_coverage_is_gateway_arrivals',
+  'crawler_label_unverified',
+  'crawl_window_clamped',
+  'crawler_label_includes_inspection_tool',
+  'public_site_url_unset',
+  // AECI-823 — the search console funnel (`ADMIN_PANEL_SPEC.md` §5.24.7).
+  'indexed_is_impression_lower_bound',
+  'search_ingest_absent',
+  'search_window_incomplete',
 ]);
 export type AdminNoteCode = z.infer<typeof AdminNoteCodeSchema>;
 
@@ -968,6 +986,23 @@ export const ADMIN_SNAPSHOT_STOCK_METRIC_KEYS = [
   'audience.feedback_total',
   'queue.reviews_pending',
   'queue.requests_open',
+  // AECI-818 — the search console stocks (`ADMIN_PANEL_SPEC.md` §5.24.8). The crawl
+  // keys use a `SEO_CRAWL_LOOKBACK_DAYS` window ending at the end of the filed day.
+  'seo.catalog_urls',
+  'seo.crawled_urls_google',
+  'seo.crawled_urls_bing',
+  'seo.uncrawled_urls_google',
+  'seo.uncrawled_urls_bing',
+  'seo.pairs_without_reviews',
+  /** `gsc_recrawl_queue` rows: the same number as `pending_reindex` on `/summary`. */
+  'queue.reindex_pending',
+  /** `gsc_recrawl_queue` rows with `priority <= 2`. Written on every run, 0
+   *  included, so a reader can tell "no tier-1 or tier-2 row" from "the age was
+   *  not recorded" (AECI-816). Read with the age through `reindexAgeOnDay`. */
+  'queue.reindex_tier12_pending',
+  /** Days, REAL. NO row on a day with no tier-1 or tier-2 row, because 0 would
+   *  mean "a row queued just now". */
+  'queue.reindex_oldest_tier12_age_days',
 ] as const;
 
 /**
@@ -1038,6 +1073,130 @@ export const ADMIN_SNAPSHOT_METRIC_KEYS = [
 
 export const AdminSnapshotMetricKeySchema = z.enum(ADMIN_SNAPSHOT_METRIC_KEYS);
 export type AdminSnapshotMetricKey = (typeof ADMIN_SNAPSHOT_METRIC_KEYS)[number];
+
+/**
+ * The Google half of the search ingest vocabulary (AECI-820, `ADMIN_PANEL_SPEC.md`
+ * §5.24.8 and §5.24.10). Written weekly by `lib/search-ingest.ts`, never by the
+ * snapshot.
+ *
+ * ─── Why these are not snapshot keys ────────────────────────────────────────
+ *
+ * They live outside {@link ADMIN_SNAPSHOT_METRIC_KEYS} on purpose. The 00:15
+ * snapshot iterates that list, so a key in it would be produced or zero-filled
+ * every night from D1, which holds none of this data. The 03:00 prune counts only
+ * that list as proof a day was captured, so a row here can never clear a day for
+ * the `page_views` prune (`findSnapshotGap`).
+ *
+ * ─── Every key names its scope ──────────────────────────────────────────────
+ *
+ * The middle segment names the host filter and how Google aggregated the figure,
+ * because both change the number:
+ *
+ * - `www_page`: filtered to `https://www.aecintegrations.com/` by a `page`
+ *   filter. Google then aggregates by page, so two of our results on one results
+ *   page count as two impressions. This is what Panel 3 plots.
+ * - `property`: the whole `sc-domain:aecintegrations.com` property, unfiltered and
+ *   aggregated by property. It spans `www.`, the apex and `demo.`. It is the scope
+ *   the AECI-799 baseline used, so it exists for that comparison.
+ * - `www_sitemap`: the `https://www.aecintegrations.com/sitemap.xml` entry of the
+ *   Sitemaps API.
+ *
+ * ─── The `day` column holds a PACIFIC date for these keys ───────────────────
+ *
+ * Google reports Search Analytics by Pacific Time day, and Google's day boundary
+ * cannot be re-cut. So a row here is filed under Google's Pacific date, while
+ * `metrics_daily.day` is a UTC date for every other key. A reader comparing an
+ * ingest day with a snapshot day is up to eight hours out. The sitemap keys are
+ * the exception: they are a sample taken at the run, filed under the run's UTC day.
+ *
+ * ─── The indexed count is a proxy ───────────────────────────────────────────
+ *
+ * No Google API returns the Page indexing report's total. The Sitemaps API's
+ * `contents[].indexed` is deprecated, and URL Inspection is per URL with its daily
+ * quota already spent by `gsc-inspect`. So the indexed figure is a lower bound:
+ * pages with at least one impression in 28 days. The weekly manual read of the
+ * Page indexing report stays (`POST_LAUNCH_MONITORING.md` §2a).
+ *
+ * CTR is never stored. A reader divides summed clicks by summed impressions.
+ */
+export const SEARCH_INGEST_GOOGLE_METRIC_KEYS = [
+  /** Flow. Clicks on that Pacific day. */
+  'search.google.www_page.clicks',
+  /** Flow. Impressions on that Pacific day. */
+  'search.google.www_page.impressions',
+  /** Impression-weighted average position for that day. No row on a day with no
+   *  impressions. A window re-weights by each day's impressions. */
+  'search.google.www_page.position_avg',
+  'search.google.property.clicks',
+  'search.google.property.impressions',
+  'search.google.property.position_avg',
+  /** Distinct `www.` pages with at least one impression in the 28 Pacific days
+   *  ending on `day`. The indexed proxy, a lower bound. */
+  'search.google.www_page.pages_with_impressions_28d',
+  /** The same, restricted to the catalog sitemap URLs. Panel 3's stage 3
+   *  numerator. */
+  'search.google.www_page.catalog_pages_with_impressions_28d',
+  /** Distinct queries in the 28 days ending on `day`. A lower bound: Google drops
+   *  rare and anonymized queries. */
+  'search.google.www_page.queries_28d',
+  /** URLs Google counted in the sitemap at its last read, all content types. */
+  'search.google.www_sitemap.urls_submitted',
+  /** Errors Google reported for the sitemap at its last read. */
+  'search.google.www_sitemap.errors',
+  /** Warnings Google reported for the sitemap at its last read. */
+  'search.google.www_sitemap.warnings',
+  /** Days from Google's last download of the sitemap to the run, REAL. No row when
+   *  Google reports no download. The date itself is in the run's `job_runs.detail`. */
+  'search.google.www_sitemap.download_age_days',
+] as const;
+export type SearchIngestGoogleMetricKey = (typeof SEARCH_INGEST_GOOGLE_METRIC_KEYS)[number];
+
+/**
+ * The Bing half of the search ingest vocabulary (AECI-821, `ADMIN_PANEL_SPEC.md`
+ * §5.24.8 and §5.24.10). Written weekly by `lib/search-ingest-bing.ts`, never by the
+ * snapshot, for the reasons the Google list gives.
+ *
+ * `www` is the scope. Bing registers sites per host, and the lane runs only when
+ * the registered `BWT_SITE_URL` is the `www.aecintegrations.com` site, so every
+ * figure here is that host's. Bing reports no aggregation choice, so the scope has
+ * no second half.
+ *
+ * Every daily key is filed under the Pacific date of Bing's `Date` field, as the
+ * Google keys are. The two `sitemap_*` keys are a sample taken at the run, filed
+ * under the run's UTC day.
+ *
+ * Never sum a Bing key with a Google key. They are different indexes, and the
+ * Google indexed figure is a proxy.
+ */
+export const SEARCH_INGEST_BING_METRIC_KEYS = [
+  /** Flow. Clicks on that Pacific day, from `GetRankAndTrafficStats`. Every
+   *  vertical, including Chat, since 2023-03-24. */
+  'search.bing.www.clicks',
+  /** Flow. Impressions on that Pacific day, from `GetRankAndTrafficStats`. */
+  'search.bing.www.impressions',
+  /** Bing's own index figure for that day, `InIndex` from `GetCrawlStats`, as
+   *  reported by Bing. Microsoft does not define it, so it is never called a true
+   *  count, and it is never compared like for like with the Google proxy. */
+  'search.bing.www.in_index',
+  /** Pages Bing crawled that day, `CrawledPages` from `GetCrawlStats`. */
+  'search.bing.www.crawled_pages',
+  /** Crawl errors Bing recorded that day, `CrawlErrors` from `GetCrawlStats`. */
+  'search.bing.www.crawl_errors',
+  /** URLs Bing counted in `https://www.aecintegrations.com/sitemap.xml`, `UrlCount`
+   *  from `GetFeeds`. A sample at the run. */
+  'search.bing.www.sitemap_urls',
+  /** Days from Bing's last crawl of that sitemap to the run, REAL. No row when Bing
+   *  reports no crawl. The date itself is in the run's `job_runs.detail`. */
+  'search.bing.www.sitemap_crawl_age_days',
+] as const;
+export type SearchIngestBingMetricKey = (typeof SEARCH_INGEST_BING_METRIC_KEYS)[number];
+
+/** Every key the search ingest writes: Google's, then Bing's. Readers keep one list. */
+export const SEARCH_INGEST_METRIC_KEYS = [
+  ...SEARCH_INGEST_GOOGLE_METRIC_KEYS,
+  ...SEARCH_INGEST_BING_METRIC_KEYS,
+] as const;
+export type SearchIngestMetricKey = (typeof SEARCH_INGEST_METRIC_KEYS)[number];
 
 /**
  * Provenance of one `metrics_daily` row (§7.1, as shipped).
@@ -1439,6 +1598,11 @@ export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdown
  * 03:00 `retention-prune` tick enqueues it on the reconcile queue. It deletes `audit_log`
  * rows older than four years and acceptance and grant records past their retention, and
  * an open litigation hold stops it (ADR 0058).
+ *
+ * `search-ingest` is the thirtieth (AECI-820): weekly, Sundays at 22:00 UTC, it pulls
+ * Search Console's Search Analytics and Sitemaps figures into `metrics_daily` under the
+ * `SEARCH_INGEST_METRIC_KEYS`. It is queue-backed, on the reconcile queue, and is the
+ * second weekly cron after `asn-registry`.
  */
 export const AdminCronJobSchema = z.enum([
   'metrics-snapshot', // 15 0 * * *
@@ -1470,6 +1634,7 @@ export const AdminCronJobSchema = z.enum([
   'plan-snapshot', // 11-59/15 * * * *
   'acceptance-chain', // 0 18 * * *
   'legal-retention-prune', // 0 3 * * *  (enqueued by the retention-prune tick)
+  'search-ingest', // 0 22 * * 1  (weekly; CF day-of-week is 1=Sunday, so Sundays)
 ]);
 export type AdminCronJob = z.infer<typeof AdminCronJobSchema>;
 

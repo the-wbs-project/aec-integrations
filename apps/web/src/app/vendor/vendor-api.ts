@@ -21,6 +21,9 @@ import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
 import type {
+  AddOwnerFlowInput,
+  ChangeOwnerFlowInput,
+  OwnerFlowsResponse,
   AcceptLegalVersionRequest,
   AcceptLegalVersionResponse,
   VendorLegalAcceptanceResponse,
@@ -38,6 +41,8 @@ import type {
   ClaimIntegrationResponse,
   CreateVendorIntegrationInput,
   CreateVendorIntegrationResponse,
+  CreateSyncServicePairInput,
+  CreateSyncServicePairResponse,
   PossibleDuplicatesResponse,
   CreateVendorProductInput,
   CreateVendorProductResponse,
@@ -77,6 +82,7 @@ import type {
   VendorClaimResponse,
   VendorMeResponse,
   VendorProductConnectorsResponse,
+  ListVendorDeliveredPairsResponse,
   VendorUpdatesResponse,
   VendorConnectorStubMappingEditResponse,
   UpdateConnectorStubMappingInput,
@@ -110,6 +116,15 @@ import type {
   AddStripeLicensesResponse,
   AcceptLicenseGrantInput,
   AcceptLicenseGrantResponse,
+  VetoWriteResponse,
+  VendorVetoesResponse,
+  FileVetoObjectionInput,
+  RemovalReasonCode,
+  VetoObjectionResponse,
+  SubmitPairContestInput,
+  PairContestResponse,
+  VendorPairContestsResponse,
+  DecidePairContestInput,
 } from '@aeci/shared';
 
 /** The Reviews tab's filter set for {@link VendorApi.listReviews} (AECI-1179). */
@@ -569,6 +584,17 @@ export class VendorApi {
     );
   }
 
+  /** `GET /api/vendor/products/:id/delivered-pairs` (AECI-2045): on a Sync Service
+   *  product, the live pairs recorded as delivered through it whose owner is not the
+   *  caller. Read-only, outside the live cursor, fetched when the tab mounts. */
+  listDeliveredPairs(productId: string): Promise<ListVendorDeliveredPairsResponse> {
+    return firstValueFrom(
+      this.http.get<ListVendorDeliveredPairsResponse>(
+        `/api/vendor/products/${encodeURIComponent(productId)}/delivered-pairs`,
+      ),
+    );
+  }
+
   /** `GET /api/vendor/products/:id/connector-catalog` — the connector catalogue
    *  seat's own catalogue (AECI-1083): one page of listings with their mappings,
    *  plus the catalogue's summary. Inside the live cursor as the `catalogue` scope,
@@ -905,6 +931,46 @@ export class VendorApi {
 
   /** `POST /api/vendor/integrations/:id/claim` — the recorded owner takes the row
    *  (200). No body. From then on promote writes nothing to it. */
+  // ── AECI-2039: the owner maintains a Sync Service pair's flows ────────────
+  // `direction` is framed against the row's `product_a`, as `OwnedFlow` is.
+
+  /** `POST /api/vendor/owned-integrations/:id/flows` — add a flow, which confirms it. */
+  addOwnerFlow(integrationId: string, body: AddOwnerFlowInput): Promise<OwnerFlowsResponse> {
+    return firstValueFrom(
+      this.http.post<OwnerFlowsResponse>(
+        `/api/vendor/owned-integrations/${encodeURIComponent(integrationId)}/flows`,
+        body,
+      ),
+    );
+  }
+
+  /** `PUT /api/vendor/owned-flows/:claimId/answer` — Yes confirms, No removes it. */
+  setOwnerFlowAnswer(claimId: string, asserted: boolean): Promise<OwnerFlowsResponse> {
+    return firstValueFrom(
+      this.http.put<OwnerFlowsResponse>(
+        `/api/vendor/owned-flows/${encodeURIComponent(claimId)}/answer`,
+        { asserted },
+      ),
+    );
+  }
+
+  /** `DELETE /api/vendor/owned-flows/:claimId/answer` — clear the owner's answer. */
+  clearOwnerFlowAnswer(claimId: string): Promise<void> {
+    return firstValueFrom(
+      this.http.delete<void>(`/api/vendor/owned-flows/${encodeURIComponent(claimId)}/answer`),
+    );
+  }
+
+  /** `PATCH /api/vendor/owned-flows/:claimId` — change a flow's direction. */
+  changeOwnerFlow(claimId: string, body: ChangeOwnerFlowInput): Promise<OwnerFlowsResponse> {
+    return firstValueFrom(
+      this.http.patch<OwnerFlowsResponse>(
+        `/api/vendor/owned-flows/${encodeURIComponent(claimId)}`,
+        body,
+      ),
+    );
+  }
+
   claimIntegration(integrationId: string): Promise<ClaimIntegrationResponse> {
     return firstValueFrom(
       this.http.post<ClaimIntegrationResponse>(
@@ -962,6 +1028,100 @@ export class VendorApi {
   createIntegration(body: CreateVendorIntegrationInput): Promise<CreateVendorIntegrationResponse> {
     return firstValueFrom(
       this.http.post<CreateVendorIntegrationResponse>('/api/vendor/integrations', body),
+    );
+  }
+
+  /** `POST /api/vendor/sync-service-pairs` (AECI-2040): the caller's Sync Service adds
+   *  a pair it delivers between two listed products. A duplicate is a `409`. */
+  createSyncServicePair(body: CreateSyncServicePairInput): Promise<CreateSyncServicePairResponse> {
+    return firstValueFrom(
+      this.http.post<CreateSyncServicePairResponse>('/api/vendor/sync-service-pairs', body),
+    );
+  }
+
+  // ── AECI-2042: an endpoint vendor's rights on a Sync Service pair ─────────
+
+  /** `POST /api/vendor/integrations/:id/veto` — take the pair off our product (201).
+   *  Since AECI-2192 the reason is one code from the fixed list. */
+  fileVeto(integrationId: string, reasonCode: RemovalReasonCode): Promise<VetoWriteResponse> {
+    return firstValueFrom(
+      this.http.post<VetoWriteResponse>(
+        `/api/vendor/integrations/${encodeURIComponent(integrationId)}/veto`,
+        { reason_code: reasonCode },
+      ),
+    );
+  }
+
+  /** `POST /api/vendor/vetoes/:id/objections` — the Sync Service objects (AECI-2192). */
+  fileVetoObjection(vetoId: string, body: FileVetoObjectionInput): Promise<VetoObjectionResponse> {
+    return firstValueFrom(
+      this.http.post<VetoObjectionResponse>(
+        `/api/vendor/vetoes/${encodeURIComponent(vetoId)}/objections`,
+        body,
+      ),
+    );
+  }
+
+  /** `POST /api/vendor/vetoes/:id/withdraw` — the pair returns when no veto is left. */
+  withdrawVeto(vetoId: string): Promise<VetoWriteResponse> {
+    return firstValueFrom(
+      this.http.post<VetoWriteResponse>(
+        `/api/vendor/vetoes/${encodeURIComponent(vetoId)}/withdraw`,
+        {},
+      ),
+    );
+  }
+
+  /** `GET /api/vendor/vetoes` — vetoes filed, and vetoes on pairs this vendor owns. */
+  listVetoes(): Promise<VendorVetoesResponse> {
+    return firstValueFrom(this.http.get<VendorVetoesResponse>('/api/vendor/vetoes'));
+  }
+
+  /** `POST /api/vendor/integrations/:id/pair-contests` — an existence or data flow report. */
+  submitPairContest(
+    integrationId: string,
+    body: SubmitPairContestInput,
+  ): Promise<PairContestResponse> {
+    return firstValueFrom(
+      this.http.post<PairContestResponse>(
+        `/api/vendor/integrations/${encodeURIComponent(integrationId)}/pair-contests`,
+        body,
+      ),
+    );
+  }
+
+  /** `GET /api/vendor/pair-contests` — reports filed, and data flow reports received. */
+  listPairContests(): Promise<VendorPairContestsResponse> {
+    return firstValueFrom(this.http.get<VendorPairContestsResponse>('/api/vendor/pair-contests'));
+  }
+
+  /** `POST /api/vendor/pair-contests/:id/withdraw`. */
+  withdrawPairContest(id: string): Promise<PairContestResponse> {
+    return firstValueFrom(
+      this.http.post<PairContestResponse>(
+        `/api/vendor/pair-contests/${encodeURIComponent(id)}/withdraw`,
+        {},
+      ),
+    );
+  }
+
+  /** `POST /api/vendor/pair-contests/:id/decision` — the owner accepts or declines. */
+  decidePairContest(id: string, body: DecidePairContestInput): Promise<PairContestResponse> {
+    return firstValueFrom(
+      this.http.post<PairContestResponse>(
+        `/api/vendor/pair-contests/${encodeURIComponent(id)}/decision`,
+        body,
+      ),
+    );
+  }
+
+  /** `POST /api/vendor/pair-contests/:id/protest` — ask AECi to review a decline. */
+  protestPairContest(id: string, reason: string): Promise<PairContestResponse> {
+    return firstValueFrom(
+      this.http.post<PairContestResponse>(
+        `/api/vendor/pair-contests/${encodeURIComponent(id)}/protest`,
+        { reason },
+      ),
     );
   }
 

@@ -52,6 +52,7 @@ function buildProduct(overrides: Partial<ProductDetail> = {}): ProductDetail {
     logo_url: 'https://example.com/procore.png',
     vendor_facts: { company_size: null, ownership_type: null },
     product_role: 'application',
+    connector_kind: null,
     vendor: {
       id: '00000000-0000-4000-8000-000000010001',
       slug: 'procore',
@@ -331,6 +332,7 @@ const connector = (overrides: Partial<ProductDetail> = {}) =>
     slug: 'agave-erp-sync',
     name: 'Agave ERP Sync',
     product_role: 'connector',
+    connector_kind: null,
     ...overrides,
   });
 
@@ -414,6 +416,24 @@ describe('ProductDetailPage record line', () => {
 describe('ProductDetailPage powered-integrations hub', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
+  // AECI-2037: a Sync Service's section and its nav link both say "delivers".
+  it('heads a Sync Service section and its nav link "Integrations it delivers"', () => {
+    const { el } = setup(
+      connector({
+        connector_kind: 'sync_service',
+        integrations_as_connector: [
+          edge(procore, acumatica, 'a_to_b'),
+          edge(sage, procore, 'both'),
+        ],
+      }),
+    );
+    const section = el.querySelector('#powered-integrations')!;
+    expect(section.querySelector('h2')!.textContent).toContain('Integrations it delivers (2)');
+    const nav = el.querySelector('aec-section-nav')!.textContent!;
+    expect(nav).toContain('Integrations it delivers');
+    expect(nav).not.toContain('Integrations it powers');
+  });
+
   it('renders a hub card whose heading is the hub name, with pair-page partner rows', () => {
     const { el } = setup(
       connector({
@@ -460,13 +480,15 @@ describe('ProductDetailPage powered-integrations hub', () => {
     // Each row has a real accessible name naming BOTH endpoints, and (AECI-1117)
     // restating the direction and mechanism the aria-label would otherwise hide.
     expect(rows[0]!.getAttribute('aria-label')).toBe(
-      'View the Procore and Acumatica integration, direction Sends to Acumatica, iPaaS',
+      'View the Procore and Acumatica integration, direction Procore sends to Acumatica, iPaaS',
     );
-    expect(rows[1]!.getAttribute('aria-label')).toContain('direction Syncs both ways');
+    expect(rows[1]!.getAttribute('aria-label')).toContain(
+      'direction Procore and Sage Intacct sync both ways',
+    );
     // Direction is framed relative to the hub, and the mechanism is shown —
     // the same vocabulary the sibling endpoint table uses.
-    expect(rows[0]!.textContent).toContain('Sends to Acumatica');
-    expect(rows[1]!.textContent).toContain('Syncs both ways');
+    expect(rows[0]!.textContent).toContain('Procore sends to Acumatica');
+    expect(rows[1]!.textContent).toContain('Procore and Sage Intacct sync both ways');
     expect(rows[0]!.textContent).toContain('iPaaS');
   });
 
@@ -601,8 +623,10 @@ describe('ProductDetailPage powered-integrations hub', () => {
   it('omits the catalog-scope note where the list is empty', () => {
     // Endpoint table empty, powered list populated: only the populated section
     // carries the note. The empty endpoint section prints no sentence at all on
-    // this page (AECI-2050).
-    const { el } = setup(connector({ integrations_as_connector: [edge(procore, acumatica)] }));
+    // this page (AECI-2050). The reach line keeps that section on the page (AECI-2046).
+    const { el } = setup(
+      connector({ integrations_as_connector: [edge(procore, acumatica)], reachable_pair_count: 3 }),
+    );
 
     expect(el.querySelector('#integrations')!.textContent).not.toContain('Only partners listed');
     expect(el.querySelector('#powered-integrations')!.textContent).toContain(
@@ -1104,8 +1128,20 @@ describe('ProductDetailPage role-varied section order (§13.6)', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   it('leads with the powered section on a connector that has one', () => {
+    // An endpoint row of its own keeps #integrations on the page (AECI-2046).
     const { el } = setup(
       connector({
+        integrations_as_source: [
+          {
+            ...edge(procore, acumatica),
+            context_direction: null,
+            powered_by_product: null,
+            data_object_slugs: [],
+            data_objects: [],
+            partner_categories: [],
+            agreement: null,
+          },
+        ],
         integrations_as_connector: [edge(procore, acumatica), edge(sage, procore)],
       }),
     );
@@ -1131,6 +1167,18 @@ describe('ProductDetailPage role-varied section order (§13.6)', () => {
     const { el } = setup(
       connector({
         product_role: 'hybrid',
+        connector_kind: null,
+        integrations_as_source: [
+          {
+            ...edge(procore, acumatica),
+            context_direction: null,
+            powered_by_product: null,
+            data_object_slugs: [],
+            data_objects: [],
+            partner_categories: [],
+            agreement: null,
+          },
+        ],
         integrations_as_connector: [edge(procore, acumatica), edge(sage, procore)],
       }),
     );
@@ -1146,7 +1194,9 @@ describe('ProductDetailPage role-varied section order (§13.6)', () => {
 
   it('keeps today order for an application that powers edges', () => {
     // Third-party pair, for the same reason as the safety-net case above.
-    const { el } = setup(buildProduct({ integrations_as_connector: [edge(sage, acumatica)] }));
+    const { el } = setup(
+      buildProduct({ integrations_as_connector: [edge(sage, acumatica)], reachable_pair_count: 1 }),
+    );
 
     expect(bodySectionIds(el)).toEqual([
       'about',
@@ -2509,11 +2559,33 @@ describe('ProductDetailPage zero-integration state (AECI-1786)', () => {
   });
 
   it('is not the zero state on a connector that powers edges', () => {
-    const { el } = setup(connector({ integrations_as_connector: [edge(procore, acumatica)] }));
+    // A host keeps the section on the page (AECI-2046), with only its Built within line.
+    const { el } = setup(
+      connector({
+        integrations_as_connector: [edge(procore, acumatica)],
+        extension_of: [
+          {
+            id: '00000000-0000-4000-8000-000000000777',
+            slug: 'revit',
+            name: 'Revit',
+            logo_url: null,
+            product_role: 'application',
+            connector_kind: null,
+            vendor: null,
+            integration_count: 0,
+            review_count: 0,
+            rating_overall_avg: null,
+            rating_onboarding_avg: null,
+            created_at: '2024-06-01T00:00:00.000Z',
+            updated_at: '2024-06-01T00:00:00.000Z',
+          },
+        ],
+      }),
+    );
     expect(section(el).textContent).not.toContain('We have no integrations for');
     // AECI-2050: nor the plain empty sentence, which "Integrations it powers" makes false.
     expect(section(el).textContent).not.toContain('No integrations recorded yet');
-    expect(section(el).querySelector('[data-testid=integrations-empty]')).toBeNull();
+    expect(squash(section(el).textContent)).toContain('runs inside Revit');
     expect(el.querySelector('#powered-integrations')).toBeTruthy();
   });
 
@@ -2531,5 +2603,150 @@ describe('ProductDetailPage zero-integration state (AECI-1786)', () => {
     const { el } = setup(buildProduct({ integration_count: 3 }));
     expect(section(el).querySelector('[data-testid=integrations-zero-caveat]')).toBeNull();
     expect(section(el).textContent).toContain('No integrations recorded yet');
+  });
+});
+
+/** Collapse whitespace, for the AECI-2046 cases below. */
+const flat = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
+
+// AECI-2046 (ruled by Chris 2026-11-24): a page that only powers pairs has no bare
+// "Integrations" heading. The section and its nav link go together.
+describe('ProductDetailPage hides an empty Integrations section beside powered pairs (AECI-2046)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('hides the section and its nav link on a connector that only powers pairs', () => {
+    const { el } = setup(
+      connector({
+        connector_kind: 'sync_service',
+        integrations_as_connector: [edge(procore, acumatica), edge(sage, procore)],
+      }),
+    );
+    expect(el.querySelector('#integrations')).toBeNull();
+    expect(navIds(el)).not.toContain('integrations');
+    expect(el.querySelector('#powered-integrations')).toBeTruthy();
+    expect(navIds(el)).toContain('powered-integrations');
+  });
+
+  it('keeps it when the reach line has pairs to report', () => {
+    const { el } = setup(
+      connector({ integrations_as_connector: [edge(procore, acumatica)], reachable_pair_count: 2 }),
+    );
+    expect(el.querySelector('#integrations')).toBeTruthy();
+    expect(navIds(el)).toContain('integrations');
+  });
+
+  it('keeps the empty state on a product with no integrations of any kind', () => {
+    const { el } = setup(buildProduct());
+    expect(el.querySelector('#integrations')).toBeTruthy();
+    expect(navIds(el)).toContain('integrations');
+  });
+});
+
+// AECI-2046 (ruling 15 on AECI-2035): the "What it syncs" block on a Sync Service page.
+describe('ProductDetailPage "What it syncs" block (AECI-2046)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const FACTS = {
+    sync_frequency: 'Every 15 minutes',
+    sync_support: 'Rivets supports it',
+    sync_setup: 'A one-hour setup call',
+    source_url: 'https://example.com/rivets-sync',
+    recorded_at: '2026-11-20T00:00:00.000Z',
+  };
+  const SYNCS = {
+    pair_count: 8,
+    pairs_with_flows: 8,
+    objects: [
+      { slug: 'budgets', name: 'Budgets', pair_count: 8, both_ways: 8, one_way: 0 },
+      { slug: 'invoices', name: 'Invoices & Payments', pair_count: 3, both_ways: 0, one_way: 3 },
+      { slug: 'job-costs', name: 'Job Costs', pair_count: 8, both_ways: 5, one_way: 3 },
+    ],
+  };
+  const syncService = (overrides: Partial<ProductDetail> = {}) =>
+    connector({
+      name: 'Rivets Sync',
+      connector_kind: 'sync_service',
+      integrations_as_connector: [edge(procore, acumatica)],
+      ...overrides,
+    });
+  const block = (el: HTMLElement) => el.querySelector<HTMLElement>('#what-it-syncs');
+
+  it('renders the facts and the record types, with direction and coverage, before the pairs', () => {
+    const { el } = setup(syncService({ sync_facts: FACTS, what_it_syncs: SYNCS }));
+    const b = block(el)!;
+    expect(flat(b.querySelector('h2')!.textContent)).toBe('What Rivets Sync syncs');
+    expect(
+      flat(b.querySelector('[data-testid=what-it-syncs-fact-sync_frequency]')!.textContent),
+    ).toBe('How often it syncs Every 15 minutes');
+    // Marked as ours, with its source and date (the Terms' promise for our text).
+    expect(
+      flat(b.querySelector('[data-testid=what-it-syncs-facts-source]')!.textContent),
+    ).toContain('Recorded by AEC Integrations on November 20, 2026.');
+    const source = b.querySelector<HTMLAnchorElement>(
+      '[data-testid=what-it-syncs-facts-source-link]',
+    )!;
+    expect(source.getAttribute('href')).toBe('https://example.com/rivets-sync');
+    expect(source.getAttribute('rel')).toBe('noopener nofollow');
+    const lines = [...b.querySelectorAll('[data-testid=what-it-syncs-object]')].map((li) =>
+      flat(li.textContent),
+    );
+    expect(lines).toEqual([
+      'Budgets Both ways, on all 8 integrations',
+      'Invoices & Payments One way, on 3 of 8 integrations',
+      'Job Costs Both ways on 5 and one way on 3 of 8 integrations',
+    ]);
+    expect(flat(b.querySelector('[data-testid=what-it-syncs-intro]')!.textContent)).toContain(
+      'across the 8 integrations it delivers',
+    );
+    expect(b.querySelector('[data-testid=what-it-syncs-uncovered]')).toBeNull();
+    // It leads the pairs it describes, and the nav follows.
+    expect(bodySectionIds(el).indexOf('what-it-syncs')).toBeLessThan(
+      bodySectionIds(el).indexOf('powered-integrations'),
+    );
+    expect(navIds(el)).toContain('what-it-syncs');
+  });
+
+  it('says how many pairs list no record type yet (partial data)', () => {
+    const { el } = setup(
+      syncService({
+        what_it_syncs: { ...SYNCS, pairs_with_flows: 5, objects: [SYNCS.objects[1]!] },
+      }),
+    );
+    const b = block(el)!;
+    expect(flat(b.querySelector('[data-testid=what-it-syncs-uncovered]')!.textContent)).toBe(
+      'No types of data are listed yet for 3 of its 8 integrations.',
+    );
+    // No facts recorded: no facts row and no source line.
+    expect(b.querySelector('[data-testid=what-it-syncs-facts]')).toBeNull();
+    expect(b.querySelector('[data-testid=what-it-syncs-facts-source]')).toBeNull();
+  });
+
+  it('renders a blank fact as nothing, and fills the width with the rest', () => {
+    const { el } = setup(
+      syncService({ sync_facts: { ...FACTS, sync_support: '  ' }, what_it_syncs: null }),
+    );
+    const b = block(el)!;
+    expect(b.querySelector('[data-testid=what-it-syncs-fact-sync_support]')).toBeNull();
+    const dl = b.querySelector('[data-testid=what-it-syncs-facts]')!;
+    expect(dl.querySelectorAll('dt')).toHaveLength(2);
+    expect(dl.classList).toContain('md:grid-cols-2');
+    // No record types: no list, no order line.
+    expect(b.querySelector('[data-testid=what-it-syncs-objects]')).toBeNull();
+  });
+
+  it('renders nothing, and no nav link, with no record type and no fact', () => {
+    const { el } = setup(
+      syncService({
+        sync_facts: null,
+        what_it_syncs: { pair_count: 1, pairs_with_flows: 0, objects: [] },
+      }),
+    );
+    expect(block(el)).toBeNull();
+    expect(navIds(el)).not.toContain('what-it-syncs');
+  });
+
+  it('renders nothing on a product the API sent no block for', () => {
+    const { el } = setup(buildProduct());
+    expect(block(el)).toBeNull();
   });
 });

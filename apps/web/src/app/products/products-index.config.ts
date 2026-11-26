@@ -28,6 +28,8 @@ export const PRODUCTS_INDEX_REQUEST: PaginatedIndexRequestConfig = {
   defaultSort: PRODUCT_DEFAULT_SORT,
   // AECI-143 / AECI-544 — taxonomy cross-filters set by the facet sidebar ride
   // the URL. Must stay in step with `DIMENSIONS` in `facet-sidebar.ts` and
-  // `LISTING_CACHE_KEY_PARAMS` in `core/listing-cache-key-params.ts`.
-  passthroughParams: ['category_id', 'audience_id', 'phase_id', 'trade_id'],
+  // `LISTING_CACHE_KEY_PARAMS` in `core/listing-cache-key-params.ts`. AECI-1662
+  // adds the sidebar's "Connector type" list (`CONNECTOR_KIND_PARAM`). Every one is
+  // part of the request line, so the SSR TransferState key carries it too.
+  passthroughParams: ['category_id', 'audience_id', 'phase_id', 'trade_id', 'connector_kind'],
 };

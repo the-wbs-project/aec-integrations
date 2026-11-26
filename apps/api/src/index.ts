@@ -61,6 +61,12 @@ import {
   createSaveClaimNotesHandler,
 } from './routes/admin-claims';
 import { createSetConnectorCatalogManagementHandler } from './routes/admin-connector-catalogs';
+import { createAdminSetConnectorKindHandler } from './routes/admin-connector-kind';
+import { createAdminSetSyncFactsHandler } from './routes/admin-sync-facts';
+import {
+  createAdminDeliveredPairsHandler,
+  createAdminSetIntegrationOwnerHandler,
+} from './routes/admin-integration-owner';
 import { createAdminUpdateConnectorStubMappingHandler } from './routes/admin-connector-stub-mappings';
 import { createVendorUpdateConnectorStubMappingHandler } from './routes/vendor-connector-stub-mappings';
 import {
@@ -166,6 +172,11 @@ import {
   createAdminReindexSubmissionsHandler,
   createClearReindexRowHandler,
 } from './routes/admin-reindex';
+import {
+  createAdminSeoFunnelHandler,
+  createAdminSeoQueueHandler,
+  createAdminSeoTrendHandler,
+} from './routes/admin-seo';
 import { createAdminOverviewHandler } from './routes/admin-overview';
 import { createAdminTimeseriesHandler } from './routes/admin-metrics';
 import { createAdminPageViewsHandler } from './routes/admin-page-views';
@@ -283,6 +294,31 @@ import {
   createRetireIntegrationHandler,
 } from './routes/vendor-integration-retire';
 import { createCreateVendorIntegrationHandler } from './routes/vendor-integration-create';
+import { createCreateSyncServicePairHandler } from './routes/vendor-sync-service-pair-create';
+import {
+  createFileVetoHandler,
+  createFileVetoObjectionHandler,
+  createListVendorVetoesHandler,
+  createWithdrawVetoHandler,
+} from './routes/vendor-sync-service-vetoes';
+import {
+  createDecidePairContestHandler,
+  createFilePairProtestHandler,
+  createListVendorPairContestsHandler,
+  createSubmitPairContestHandler,
+  createWithdrawPairContestHandler,
+  createWithdrawPairProtestHandler,
+} from './routes/vendor-pair-contests';
+import {
+  createAdminDecideVetoObjectionHandler,
+  createAdminLiftVetoHandler,
+  createAdminListVetoesHandler,
+} from './routes/admin-sync-service-vetoes';
+import {
+  createAdminDecidePairContestHandler,
+  createAdminDecidePairProtestHandler,
+  createAdminListPairContestsHandler,
+} from './routes/admin-pair-contests';
 import { createPossibleDuplicatesHandler } from './routes/vendor-integration-duplicates';
 import {
   createDeleteIntegrationLinkHandler,
@@ -330,6 +366,12 @@ import {
   createVendorClaimHandler,
 } from './routes/vendor-attestations';
 import {
+  createAddOwnerFlowHandler,
+  createChangeOwnerFlowHandler,
+  createClearOwnerFlowAnswerHandler,
+  createSetOwnerFlowAnswerHandler,
+} from './routes/vendor-owner-flows';
+import {
   createDeleteThreadMessageHandler,
   createGetVendorThreadHandler,
   createListIntegrationThreadsHandler,
@@ -342,6 +384,7 @@ import {
 } from './routes/vendor-thread-by-id';
 import { createListDataObjectsHandler } from './routes/vendor-data-objects';
 import { createListVendorProductConnectorsHandler } from './routes/vendor-connectors';
+import { createListVendorDeliveredPairsHandler } from './routes/vendor-delivered-pairs';
 import { createVendorConnectorCatalogHandler } from './routes/vendor-connector-catalog';
 import {
   createRemoveSeatHandler,
@@ -1021,6 +1064,37 @@ authAdmin.patch(
   rateLimit('write'),
   createUpdateAdminLogoHandler('product'),
 );
+// AECI-2036: set or clear a connector's kind, Integration platform or Sync Service
+// (`STAGE_1_5_SPEC.md` §13.13). A write, so `rateLimit('write')` after the guard.
+authAdmin.patch(
+  '/api/admin/products/:id/connector-kind',
+  requireAdmin(),
+  rateLimit('write'),
+  createAdminSetConnectorKindHandler(),
+);
+// AECI-2046: a Sync Service's three curated facts (frequency, support, setup), for its
+// "What it syncs" block (`STAGE_1_5_SPEC.md` §13.13). A write: `rateLimit('write')`.
+authAdmin.patch(
+  '/api/admin/products/:id/sync-facts',
+  requireAdmin(),
+  rateLimit('write'),
+  createAdminSetSyncFactsHandler(),
+);
+// AECI-2045: every pair a connector product delivers, in both tables, without a
+// catalogue row. A read: no `rateLimit()`.
+authAdmin.get(
+  '/api/admin/products/:id/delivered-pairs',
+  requireAdmin(),
+  createAdminDeliveredPairsHandler(),
+);
+// AECI-2045: set or change the owner of a connector-delivered pair (the fortieth §2
+// exception, a MODERATION write). The `owner` contest accept's writer.
+authAdmin.put(
+  '/api/admin/integrations/:id/owner',
+  requireAdmin(),
+  rateLimit('write'),
+  createAdminSetIntegrationOwnerHandler(),
+);
 // Stage 2 / AECI-652: the admin vendor surface (§5.6). The literal sub-paths are
 // unambiguous against the bare `/:id`: Hono's trie separates them by segment count.
 authAdmin.get('/api/admin/vendors', requireAdmin(), createAdminVendorsListHandler());
@@ -1102,6 +1176,35 @@ authAdmin.post(
   requireAdmin(),
   rateLimit('write'),
   createAdminRetireIntegrationHandler(),
+);
+// AECI-2042: endpoint vetoes on Sync Service pairs (the lift, with a required note) and
+// the existence and data flow reports AECi decides. Reads are not rate-limited.
+authAdmin.get('/api/admin/vetoes', requireAdmin(), createAdminListVetoesHandler());
+authAdmin.post(
+  '/api/admin/vetoes/:id/lift',
+  requireAdmin(),
+  rateLimit('write'),
+  createAdminLiftVetoHandler(),
+);
+// AECI-2192 (ruling 66): AECi accepts or declines a Sync Service's objection to a removal.
+authAdmin.patch(
+  '/api/admin/veto-objections/:id',
+  requireAdmin(),
+  rateLimit('write'),
+  createAdminDecideVetoObjectionHandler(),
+);
+authAdmin.get('/api/admin/pair-contests', requireAdmin(), createAdminListPairContestsHandler());
+authAdmin.patch(
+  '/api/admin/pair-contests/:id',
+  requireAdmin(),
+  rateLimit('write'),
+  createAdminDecidePairContestHandler(),
+);
+authAdmin.patch(
+  '/api/admin/pair-contests/:id/protest',
+  requireAdmin(),
+  rateLimit('write'),
+  createAdminDecidePairProtestHandler(),
 );
 authAdmin.post(
   '/api/admin/integrations/:id/restore',
@@ -1318,6 +1421,11 @@ authAdmin.get(
   createAdminReindexSubmissionsHandler(),
 );
 authAdmin.delete('/api/admin/reindex/:id', requireAdmin(), createClearReindexRowHandler());
+// §5.24 / AECI-818, AECI-823 — the search console, Panels 1 to 3. Three READS: no
+// audit row, no `rateLimit()` (ADR 0026, reads are never limited).
+authAdmin.get('/api/admin/seo/queue', requireAdmin(), createAdminSeoQueueHandler());
+authAdmin.get('/api/admin/seo/trend', requireAdmin(), createAdminSeoTrendHandler());
+authAdmin.get('/api/admin/seo/funnel', requireAdmin(), createAdminSeoFunnelHandler());
 // §5.14 / AECI-1223 — the email screen. Three READS over `notification_sends` and
 // `notification_delivery_events`; no audit row, no `rateLimit()` (reads are never
 // limited). The address search is a POST so the address rides the body and never a
@@ -1524,6 +1632,13 @@ authVendor.get(
   requireVendor(),
   createListVendorProductConnectorsHandler(),
 );
+// AECI-2045: on a Sync Service product, the pairs delivered through it that another
+// company owns or nobody owns, for the "record us as the owner" request. A read.
+authVendor.get(
+  '/api/vendor/products/:id/delivered-pairs',
+  requireVendor(),
+  createListVendorDeliveredPairsHandler(),
+);
 // AECI-1083 / `STAGE_2_SPEC.md` §8.9(1): the connector seat's own catalogue, the read
 // behind the portal's Catalogue tab. Ownership (404) then `connector` role (404) in
 // the handler; no capability, no entitlement read, and no `rateLimit()` (a read).
@@ -1603,6 +1718,75 @@ authVendor.post(
   requireVendor(),
   rateLimit('write'),
   createCreateVendorIntegrationHandler(),
+);
+// AECI-2040 (rulings 7 and 11 on AECI-2035): a Sync Service adds a pair it delivers,
+// between any two listed products, owned or not. A sibling of the create above, which
+// stays closed on connector-delivered rows for every other connector (ruling 1 of
+// 2026-09-23). A SEAT IS THE WHOLE GATE. Gate order: `requireVendor()` →
+// `rateLimit('write')` → connector is the caller's Sync Service → endpoints listed →
+// not on record, the last three inside the handler (`lib/sync-service-pair-create.ts`).
+authVendor.post(
+  '/api/vendor/sync-service-pairs',
+  requireVendor(),
+  rateLimit('write'),
+  createCreateSyncServicePairHandler(),
+);
+// AECI-2042 (rulings 8 to 10 on AECI-2035, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11e): an
+// endpoint vendor's rights on a pair a Sync Service delivers. A SEAT IS THE WHOLE GATE.
+// Gate order on every write: `requireVendor()` → `rateLimit('write')` → in the handler,
+// an endpoint of the pair (else 404) → the connector is a Sync Service (else 403) → not
+// the owner (else 403). The two reads are never rate-limited.
+authVendor.post(
+  '/api/vendor/integrations/:id/veto',
+  requireVendor(),
+  rateLimit('write'),
+  createFileVetoHandler(),
+);
+authVendor.post(
+  '/api/vendor/vetoes/:id/withdraw',
+  requireVendor(),
+  rateLimit('write'),
+  createWithdrawVetoHandler(),
+);
+authVendor.get('/api/vendor/vetoes', requireVendor(), createListVendorVetoesHandler());
+// AECI-2192 (ruling 66): the Sync Service objects to a removal, on three grounds only.
+// The gate is the owner's list predicate (`vetoesOwnedByWhere`), not the endpoint gate.
+authVendor.post(
+  '/api/vendor/vetoes/:id/objections',
+  requireVendor(),
+  rateLimit('write'),
+  createFileVetoObjectionHandler(),
+);
+authVendor.post(
+  '/api/vendor/integrations/:id/pair-contests',
+  requireVendor(),
+  rateLimit('write'),
+  createSubmitPairContestHandler(),
+);
+authVendor.get('/api/vendor/pair-contests', requireVendor(), createListVendorPairContestsHandler());
+authVendor.post(
+  '/api/vendor/pair-contests/:id/withdraw',
+  requireVendor(),
+  rateLimit('write'),
+  createWithdrawPairContestHandler(),
+);
+authVendor.post(
+  '/api/vendor/pair-contests/:id/decision',
+  requireVendor(),
+  rateLimit('write'),
+  createDecidePairContestHandler(),
+);
+authVendor.post(
+  '/api/vendor/pair-contests/:id/protest',
+  requireVendor(),
+  rateLimit('write'),
+  createFilePairProtestHandler(),
+);
+authVendor.post(
+  '/api/vendor/pair-contests/:id/protest/withdraw',
+  requireVendor(),
+  rateLimit('write'),
+  createWithdrawPairProtestHandler(),
 );
 // AECI-1377 (§4.7.6): ask AECi to add the other product of an integration. A seat is
 // the whole gate, as for the create above. Under /api/vendor/*, not /api/requests/*:
@@ -1818,6 +2002,34 @@ authVendor.post(
   requireVendor(),
   rateLimit('write'),
   createRestoreIntegrationHandler(),
+);
+// AECI-2039: the owner of a claimed Sync Service pair maintains its data flows
+// (`routes/vendor-owner-flows.ts`). A SEAT IS THE WHOLE GATE, on any plan (AECI-2038).
+// Gate order: `requireVendor()` → `rateLimit('write')` → owner → Sync Service →
+// claimed → live, the last four inside the handler (`lib/owner-flows.ts`).
+authVendor.post(
+  '/api/vendor/owned-integrations/:id/flows',
+  requireVendor(),
+  rateLimit('write'),
+  createAddOwnerFlowHandler(),
+);
+authVendor.put(
+  '/api/vendor/owned-flows/:claimId/answer',
+  requireVendor(),
+  rateLimit('write'),
+  createSetOwnerFlowAnswerHandler(),
+);
+authVendor.delete(
+  '/api/vendor/owned-flows/:claimId/answer',
+  requireVendor(),
+  rateLimit('write'),
+  createClearOwnerFlowAnswerHandler(),
+);
+authVendor.patch(
+  '/api/vendor/owned-flows/:claimId',
+  requireVendor(),
+  rateLimit('write'),
+  createChangeOwnerFlowHandler(),
 );
 // AECI-1006 / ADR 0035: the claimed owner edits the integration's standard fields
 // (the eleven contestable content fields), on an `integrations` row or, since

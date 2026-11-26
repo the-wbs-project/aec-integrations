@@ -1,6 +1,6 @@
 ---
 title: How we research listings
-last_updated: November 17, 2026
+last_updated: November 26, 2026
 ---
 
 AEC Integrations is an independent directory of the software integrations that architecture, engineering, and construction teams depend on. This page sets out how the catalog is built: what we list, where the data comes from, what confirmation does and does not mean here, and how to challenge anything on the site. It describes how the site works today, and the standards we hold ourselves to.
@@ -19,7 +19,7 @@ Our catalog data is compiled from publicly available sources: vendor documentati
 
 Curation happens in a separate review application, not on the live site. A curator reviews a record there and publishes it deliberately. Nothing we research reaches the public catalog on its own. Each publication is written in one step together with an audit record, so the catalog is never left half-updated and the change is logged.
 
-Integrations are recorded in a set shape rather than as prose. Each one names the two products, the mechanism that connects them, and the direction data moves. The mechanism is one of seven: native, API, webhook, marketplace app, iPaaS (a third-party connector platform such as Zapier or Workato), partner, or integrator.
+Integrations are recorded in a set shape rather than as prose. Each one names the two products, the mechanism that connects them, and the direction data moves. The mechanism is one of seven: native, API, webhook, marketplace app, iPaaS (an integration platform such as Zapier or Workato, run by a third company), partner, or integrator.
 
 Underneath sits the smallest unit we work in, a claim: one kind of data, moving one direction, through one integration. Recording integrations this way is what makes them comparable across vendors, and it is what lets a vendor confirm or dispute one specific detail instead of a whole page.
 
@@ -29,13 +29,14 @@ We do not warrant that a listing is complete, current, or free of error. Public 
 
 Confirmation tells you who has confirmed a specific claim. It does not rate the quality of an integration.
 
-Every claim carries one of four states. The first column is the label the page shows. The first state has two labels.
+Every claim carries one of five states. The first column is the label the page shows. The first state has two labels.
 
 | What you see | What it means |
 | --- | --- |
 | Listed by AEC Integrations | AEC Integrations recorded this from public sources. Neither company has confirmed it yet. |
 | A company says no | The same state, but one of the companies has said it is not accurate. Nobody has confirmed it. The page does not name the company or give its reason. |
 | Confirmed by [company name] | One of the two companies has confirmed this claim. The other has not answered yet. |
+| Confirmed by [company name], which offers this integration | The integration runs through a Sync Service, and the company that offers it has confirmed this claim. It built and runs the integration, so it is the company that answers. |
 | Confirmed by both companies | Both companies have independently confirmed this claim. |
 | Companies disagree | The two companies disagree about this. We show both answers and do not take sides. |
 
@@ -47,6 +48,8 @@ Two rules govern that table.
 
 **"Confirmed by both companies" means two different companies.** One company sometimes owns the products at both ends of an integration. The state is computed from distinct vendor identities, so a vendor cannot confirm both sides of its own integration and have it read as independent agreement.
 
+**A Sync Service answers for its own integrations.** A Sync Service is a product that sells, runs and supports a fixed list of finished integrations between two other companies' products. On those integrations the two companies at the ends do not answer, because neither of them built or runs it. Once the company that offers the integration has claimed it, that company confirms, corrects and removes its claims. Its confirmation reads "Confirmed by [company name], which offers this integration". It never reads "Confirmed by both companies". Until it answers, a claim reads "Listed by AEC Integrations", and the full label says that the company offering the integration has not confirmed it yet. When it says a claim is wrong, it removes the claim from the page rather than marking it disputed, because it maintains the listing.
+
 **Where this stands today.** Confirming a claim needs an approved vendor account, and so does owning an integration. Vendor accounts opened in September 2026, so most claims and integrations are still recorded by AEC Integrations, and you will see "Listed by AEC Integrations" nearly everywhere. We would rather label that plainly than imply an endorsement nobody has given.
 
 **Who maintains a page** is a separate marker, and it is easy to confuse with confirmation. Every page has an "About this listing" panel, and its first line says who maintains the page. It reads "AEC Integrations maintained" until a vendor acts on the record through its own account. Then it reads "Vendor maintained". On a product or vendor page, the company edited it, so the words on the page are theirs rather than ours. On an integration page, a vendor at one end has claimed it, edited it, confirmed one of its claims, or added its own links. The marker does not say which vendor owns the integration. The "Offered by" line does that. A date appears with the marker on product and vendor pages only where a person actually touched the record, and the wording says which person: we write "Reviewed" when we re-checked it, and "Updated" when a vendor acted on it. On an integration page the date sits on each integration instead, as "Last checked". Most records carry no date at all, because nobody has been back to them yet. We will not manufacture one from a bulk update, and a routine catalog sync on our side never stamps a date onto a record a vendor maintains.
@@ -55,7 +58,7 @@ Two rules govern that table.
 
 ## Who owns an integration
 
-An integration belongs to the vendor that offers it: the company a customer buys it from or gets it from. The integration page names that vendor on its "Offered by" line. Usually it is the vendor of one of the two products. Sometimes it is a third company that sells a connector between them.
+An integration belongs to the vendor that offers it: the company a customer buys it from or gets it from. The integration page names that vendor on its "Offered by" line. Usually it is the vendor of one of the two products. Sometimes it is a third company that sells a connector between them. A connector is one of two kinds. On an integration platform, the customer builds the connection from a catalog of apps. A Sync Service sells, runs and supports a fixed list of finished pairs.
 
 We seeded the catalog. Most integrations here were first recorded by us from public sources, and until an owner claims one, we keep it up to date from our own research. Owning an integration and confirming its claims are separate things. The owner keeps the integration's details. The vendors at both ends still confirm or dispute its claims, as described above.
 
@@ -77,16 +80,17 @@ A contest stays with whoever was deciding when it was sent. A contest is a reque
 
 **Integrations a vendor adds.** A vendor can also add an integration it offers for one of its own products. It belongs to that vendor and is claimed from the moment it is added, and it goes live without review by us. We did not research it, and its page says "Added by the vendor" beside the "Offered by" line. If we already list an integration that looks the same, the vendor is told, but it is not stopped. Our catalog updates will not add a second copy of an integration a vendor holds.
 
-**Integrations delivered through a connector.** Where a third-party connector product carries the data, the vendor that offers the integration can claim it, edit its details, retire and restore it, and decide contests on it. It cannot change how the integration is delivered. No vendor can add one of these integrations or put its own links on one. We record them, and the links stay as we recorded them. If a vendor added its own links before we recorded the integration as connector-delivered, those links are no longer shown. A vendor that thinks one is wrong can tell us through the correction route below.
+**Integrations delivered through a connector.** Where a third-party connector product carries the data, the vendor that offers the integration can claim it, edit its details, retire and restore it, and decide contests on it. It cannot change how the integration is delivered. When the connector is a Sync Service, the vendor that offers the integration also maintains its data rows once it has claimed it: it confirms, adds, changes and removes them. When the connector is an integration platform, nobody confirms its data rows, and we keep the rows we recorded. A Sync Service can add the integrations it delivers, between any two products on the site, and the vendors of both products are told. No other vendor can add one of these integrations, and no vendor can put its own links on one. We record the rest, and the links stay as we recorded them. If a vendor added its own links before we recorded the integration as connector-delivered, those links are no longer shown. A vendor that thinks one is wrong can tell us through the correction route below.
+
+**When a product's vendor objects to a Sync Service integration.** On an integration a Sync Service delivers, the vendor of either product can remove it from its product, even when the listing is accurate. We do not guarantee that an integration a third company delivers stays listed. The vendor must choose its reason from a fixed list, and we record the reason and the time. The removal takes effect at once, and we do not check it first. The page shows nothing about it. The Sync Service is told at once, with the vendor's reason and how to object. It cannot restore the integration or add it again. The vendor that removed it can bring it back by withdrawing the removal. If both vendors remove it, both must withdraw. The Sync Service can object to us on three grounds only: the removal came from an account that should not have had access, it named the wrong product, or its reason is plainly false on its face. We answer an objection within five business days of receiving it. We may also end a removal where the vendor's claim ends or is suspended, or where the law requires it. We tell both vendors why. The [Listing Accuracy Policy](/legal/listing-accuracy) sets this out. Either vendor can also tell us the integration is not offered. It stays listed while we check, and if we confirm it, we take it off the site within five business days. And either vendor can report one wrong data row. The Sync Service decides that report once it has claimed the integration, and we decide it before then. Our review of a Sync Service's decision is advice, and the Sync Service decides the listing of that data row. A correction request with a public source still applies to a data row. Once the Sync Service has claimed the integration, it maintains the data rows and we cannot change one. So we act on it by taking the integration off the site. None of this applies to integrations through an integration platform, or to integrations a vendor builds itself.
 
 ## No pay-for-placement
 
 Position is never for sale. Not the order of search results, not the order of any listing, not a slot on the home page. There is no sponsored placement, no promoted tier, and no arrangement under which a payment moves a product up. [How ranking works](/docs/trust/how-ranking-works) names what does decide the order.
 
-Every claimed vendor can edit its company details and its products' description, website, logo and categories, on any plan. So a product's description may be in the vendor's own words. These are the details that feed search, so no payment is needed to improve them. A Managed plan affects two further things, and this is the complete list:
+Every claimed vendor can edit its company details and its products' description, website, logo and categories, on any plan. So a product's description may be in the vendor's own words. These are the details that feed search, so no payment is needed to improve them. Every claimed vendor can also confirm or dispute the data its integrations move, on any plan. A Managed plan affects one further thing, and this is the complete list:
 
-- which other product details a vendor may edit,
-- whether a vendor can confirm or dispute integration details.
+- which other product details a vendor may edit.
 
 Every claimed vendor, on any plan, can also post a public reply to a review of its product. A reply puts a vendor's own words in front of a reader, so it is worth being exact about the limits. A reply shows only after we approve it, sits under the review it answers, and is labeled as the vendor's. The current state of an integration is always shown in full, to everyone, including whether the two vendors agree or disagree. Readers are never asked to pay, to sign in, or to be identified.
 
@@ -116,7 +120,7 @@ When you send a correction, tell us what is wrong and what it should say, with a
 
 An integration its owner has claimed is kept by that owner, and our catalog updates no longer reach it. A vendor at either end can contest it, as described above. Anyone else can send us the correction. We will share it with the owner, who decides whether to change it.
 
-We correct factual errors, and we remove listings for companies and products that no longer exist. We will not remove an accurate listing because a vendor would prefer not to be listed. That independence is the point of the directory.
+We correct factual errors, and we remove listings for companies and products that no longer exist. We will not remove an accurate listing because a vendor would prefer not to be listed. The one exception is a Sync Service integration, which the vendor of either product can remove from its product, as described above. That independence is the point of the directory.
 
 When we remove a listing, we hide it. A hidden listing is off the public site and out of search, but its data is kept, so we can put it back exactly as it was. While we check a complaint about one detail on a listing a vendor holds, we can hide just that detail, and the page shows "Under review" in its place. Hiding is an interim step while we verify, not a finding that the listing or the value is false.
 

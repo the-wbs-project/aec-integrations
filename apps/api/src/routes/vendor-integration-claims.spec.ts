@@ -314,13 +314,16 @@ describe('POST /api/vendor/integrations/:id/claim — the owner claims', () => {
     expect(audit!.metadata).toMatchObject({ connectorPowered: true, anchor: 'integration' });
   });
 
-  it('lets a Free-plan owner claim an iPaaS row with no powered_by the same way', async () => {
+  it('refuses an iPaaS row with no powered_by on any plan, until its connector is recorded (AECI-2047)', async () => {
+    // Until AECI-2047 this claimed. The plan still plays no part: the refusal is about
+    // the row's unrecorded connector, which would strand a claimed row in this table.
     await t.db
       .update(integrations)
       .set({ poweredByProductId: null, mechanismKind: 'iPaaS' })
       .where(eq(integrations.id, I_MAIN));
-    const res = await claim(AUTH_B, I_MAIN);
-    expect(res.status).toBe(200);
+    const res = await claim(entitled(AUTH_B), I_MAIN);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('INTEGRATION_CONNECTOR_UNRESOLVED');
   });
 
   it('lets an owner whose plan lapsed claim it too', async () => {
@@ -439,6 +442,78 @@ describe('POST /api/vendor/integrations/:id/claim — refusals', () => {
     );
     expect(res.status).toBe(403);
     expect((await row(I_MAIN)).claimedAt).toBeNull();
+    expect(await claimAudits()).toHaveLength(0);
+  });
+});
+
+describe('AECI-2047: a row whose connector AECi has not recorded yet', () => {
+  const I_UNRESOLVED = uuid(24); // SOURCE (A) → TARGET (B), iPaaS, no connector, owned by T
+
+  const seedUnresolved = async (fields: Partial<typeof integrations.$inferInsert> = {}) => {
+    await t.db.insert(integrations).values({
+      id: I_UNRESOLVED,
+      name: 'Revit and MicroStation (Bridge)',
+      sourceProductId: P_SOURCE,
+      targetProductId: P_TARGET,
+      mechanismKind: 'iPaaS',
+      builtByVendorId: VENDOR_T,
+      ...fields,
+    });
+  };
+
+  it('refuses the owner with 409 INTEGRATION_CONNECTOR_UNRESOLVED and writes nothing', async () => {
+    await seedUnresolved();
+    const res = await claim(AUTH_T, I_UNRESOLVED);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('INTEGRATION_CONNECTOR_UNRESOLVED');
+    expect(res.body.error.message).toMatch(/not finished recording the connector/);
+    expect((await row(I_UNRESOLVED)).claimedAt).toBeNull();
+    expect(await auditRows()).toHaveLength(0);
+    expect(res.send).not.toHaveBeenCalled();
+  });
+
+  it('answers a non-owner with the ownership answers first, so it learns nothing new', async () => {
+    await seedUnresolved();
+    expect((await claim(AUTH_A, I_UNRESOLVED)).body.error.code).toBe('INTEGRATION_NOT_OWNER');
+    expect((await claim(AUTH_C, I_UNRESOLVED)).status).toBe(404);
+  });
+
+  it('claims once the connector is on file', async () => {
+    await seedUnresolved({ poweredByProductId: P_BRIDGE });
+    expect((await claim(AUTH_T, I_UNRESOLVED)).status).toBe(200);
+  });
+
+  it('is not triggered by another kind with no connector', async () => {
+    await seedUnresolved({ mechanismKind: 'marketplace-app' });
+    expect((await claim(AUTH_T, I_UNRESOLVED)).status).toBe(200);
+  });
+
+  it('holds under a race: a connector cleared between the read and the batch', async () => {
+    await seedUnresolved({ poweredByProductId: P_BRIDGE });
+    const racing = createClaimIntegrationHandler(
+      racingFactory(t.factory, (attempt) => {
+        if (attempt > 1) return;
+        t.raw
+          .prepare(`UPDATE integrations SET powered_by_product_id = NULL WHERE id = ?`)
+          .run(I_UNRESOLVED);
+      }),
+    );
+    const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+    a.onError(errorHandler());
+    a.use('*', async (c, next) => {
+      c.set('auth', AUTH_T);
+      await next();
+    });
+    a.post('/api/vendor/integrations/:id/claim', racing);
+    const res = await a.request(
+      `/api/vendor/integrations/${I_UNRESOLVED}/claim`,
+      { method: 'POST' },
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as JsonBody).error.code).toBe('INTEGRATION_CONNECTOR_UNRESOLVED');
+    expect((await row(I_UNRESOLVED)).claimedAt).toBeNull();
     expect(await claimAudits()).toHaveLength(0);
   });
 });

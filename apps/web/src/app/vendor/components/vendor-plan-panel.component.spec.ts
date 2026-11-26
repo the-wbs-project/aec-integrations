@@ -18,7 +18,10 @@
  *     override is retired (AECI-1357);
  *  5. fail closed: `active` over an unknown tier is not Managed;
  *  6. copy discipline: no arrangement detail, no ranking claim, no instant search,
- *     and no public account label (AECI-1264).
+ *     and no public account label (AECI-1264);
+ *  7. per kind (AECI-2044): a Sync Service and a hybrid get the ordinary panel with
+ *     the price and the purchase path; an Integration platform or a blank connector
+ *     gets `catalogue` only with a catalogue, else `unavailable`, never an offer.
  */
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
@@ -46,14 +49,33 @@ beforeEach(() => {
 
 const BILLING = '/vendor/summit-bim/billing';
 
+/**
+ * The product the panel sits on (AECI-2044). `catalogue` is an Integration platform
+ * AECi holds a catalogue for: the §8.9 seat's product. `platform` and `blank` are
+ * connectors with no catalogue, which cannot hold a subscription. `sync` is a Sync
+ * Service, which can.
+ */
+type Kind = 'application' | 'hybrid' | 'sync' | 'catalogue' | 'platform' | 'blank';
+const KINDS: Record<Kind, [string, string | null, boolean]> = {
+  application: ['application', null, false],
+  hybrid: ['hybrid', 'integration_platform', false],
+  sync: ['connector', 'sync_service', false],
+  catalogue: ['connector', 'integration_platform', true],
+  platform: ['connector', 'integration_platform', false],
+  blank: ['connector', null, false],
+};
+
 function create(
   plan: VendorEntitlementBlock,
-  productRole: string | null = 'product',
+  kind: Kind = 'application',
   billingLink: string | null = null,
 ): ComponentFixture<VendorPlanPanel> {
+  const [productRole, connectorKind, hasCatalog] = KINDS[kind];
   const fixture = TestBed.createComponent(VendorPlanPanel);
   fixture.componentRef.setInput('plan', plan);
   fixture.componentRef.setInput('productRole', productRole);
+  fixture.componentRef.setInput('connectorKind', connectorKind);
+  fixture.componentRef.setInput('hasConnectorCatalog', hasCatalog);
   fixture.componentRef.setInput('billingLink', billingLink);
   fixture.componentRef.setInput('now', NOW);
   fixture.detectChanges();
@@ -108,14 +130,15 @@ const PENDING: VendorEntitlementBlock = {
   capabilities: FREE_CAPS,
 };
 
-const ALL: ReadonlyArray<[string, VendorEntitlementBlock, string | null]> = [
-  ['managed', managedIn(300), 'product'],
-  ['expiring', managedIn(12), 'product'],
-  ['overdue', managedIn(-1), 'product'],
-  ['pending', PENDING, 'product'],
-  ['ended', ENDED, 'product'],
-  ['free', FREE, 'product'],
-  ['catalogue', FREE, 'connector'],
+const ALL: ReadonlyArray<[string, VendorEntitlementBlock, Kind]> = [
+  ['managed', managedIn(300), 'application'],
+  ['expiring', managedIn(12), 'application'],
+  ['overdue', managedIn(-1), 'application'],
+  ['pending', PENDING, 'application'],
+  ['ended', ENDED, 'application'],
+  ['free', FREE, 'application'],
+  ['catalogue', FREE, 'catalogue'],
+  ['unavailable', FREE, 'platform'],
 ];
 
 describe('VendorPlanPanel: the states', () => {
@@ -125,6 +148,11 @@ describe('VendorPlanPanel: the states', () => {
     expect(text(f)).toContain('This product is on Managed, through');
     expect(text(f)).toContain('Managed covers');
     expect(text(f)).toContain('Also included, as on Free');
+    // AECI-2038: confirming data flows is listed with Free, never with Managed.
+    const list = (id: string) =>
+      el(f).querySelector(`[data-testid="${id}"]`)?.textContent?.replace(/\s+/g, ' ') ?? '';
+    expect(list('plan-free-list')).toContain('Confirm or deny the data flows on its integrations');
+    expect(list('plan-managed-list')).not.toContain('data flows');
     expect(el(f).querySelector('aec-vendor-plan-badge')?.textContent?.trim()).toBe('Managed');
     expect(cta(f)).toBeNull();
   });
@@ -183,7 +211,7 @@ describe('VendorPlanPanel: the states', () => {
     expect(el(f).querySelector('aec-vendor-plan-badge')?.textContent?.trim()).toBe('Managed');
     expect(text(f)).toContain('Managed covers');
     expect(cta(f)?.textContent?.trim()).toBe('Ask about Managed for this product');
-    expect(getLicenses(create(managedIn(-1), 'product', BILLING))?.getAttribute('href')).toBe(
+    expect(getLicenses(create(managedIn(-1), 'application', BILLING))?.getAttribute('href')).toBe(
       BILLING,
     );
   });
@@ -207,7 +235,7 @@ describe('VendorPlanPanel: the states', () => {
 
   // AECI-1408 ruling 4: an owner gets licenses on the Billing tab.
   it('ended: an owner is sent to Billing to get licenses, in place of the contact path', () => {
-    const f = create(ENDED, 'product', BILLING);
+    const f = create(ENDED, 'application', BILLING);
     expect(getLicenses(f)?.textContent?.trim()).toBe('Go to Billing');
     expect(getLicenses(f)?.getAttribute('href')).toBe(BILLING);
     expect(cta(f)).toBeNull();
@@ -215,7 +243,7 @@ describe('VendorPlanPanel: the states', () => {
 
   // AECI-1396: owners pay by card on the Billing tab, so Free and expiring send them there too.
   it('Free: an owner is sent to Billing to get licenses, a member keeps the contact path', () => {
-    const owner = create(FREE, 'product', BILLING);
+    const owner = create(FREE, 'application', BILLING);
     expect(getLicenses(owner)?.textContent?.trim()).toBe('Go to Billing');
     expect(getLicenses(owner)?.getAttribute('href')).toBe(BILLING);
     expect(cta(owner)).toBeNull();
@@ -225,7 +253,7 @@ describe('VendorPlanPanel: the states', () => {
   });
 
   it('expiring: an owner manages renewal on Billing, a member keeps "Renew Managed"', () => {
-    const owner = create(managedIn(12), 'product', BILLING);
+    const owner = create(managedIn(12), 'application', BILLING);
     const renewal = el(owner).querySelector('[data-testid="plan-manage-renewal"]');
     expect(renewal?.textContent?.trim()).toBe('Manage renewal');
     expect(renewal?.getAttribute('href')).toBe(BILLING);
@@ -254,7 +282,7 @@ describe('VendorPlanPanel: the states', () => {
   });
 
   it('the connector catalogue seat gets no offer, no price and no call to action', () => {
-    const f = create(FREE, 'connector');
+    const f = create(FREE, 'catalogue');
     expect(state(f)).toBe('catalogue');
     expect(text(f)).toContain('This seat maintains your connector catalog');
     expect(text(f)).toContain('Its description, website, logo and categories are yours to edit');
@@ -276,7 +304,7 @@ describe('VendorPlanPanel: copy every panel carries', () => {
     expect(line?.textContent?.trim()).toBe(DECISION_10);
   });
 
-  it.each(ALL.filter(([name]) => name !== 'catalogue'))(
+  it.each(ALL.filter(([name]) => name !== 'catalogue' && name !== 'unavailable'))(
     "shows Managed's two list prices, with no draft label (%s)",
     (_name, plan, role) => {
       const f = create(plan, role);
@@ -322,7 +350,7 @@ describe('VendorPlanPanel: copy every panel carries', () => {
 // decision 8). Every vendor reads the same two list prices.
 describe('VendorPlanPanel: the price line', () => {
   it('catalogue: shows no price', () => {
-    const f = create(FREE, 'connector');
+    const f = create(FREE, 'catalogue');
     expect(state(f)).toBe('catalogue');
     expect(el(f).querySelector('[data-testid="plan-price"]')).toBeNull();
     expect(text(f)).not.toContain('$25');
@@ -339,5 +367,63 @@ describe('VendorPlanPanel: the price line', () => {
 describe('VendorPlanPanel: the guide link (AECI-1253)', () => {
   it('links the Plans page in a new tab', () => {
     expectVendorDocsLink(el(create(managedIn(300))), 'plans');
+  });
+});
+
+describe('VendorPlanPanel: per product kind (AECI-2044, ruling 6)', () => {
+  it.each<[Kind]>([['sync'], ['hybrid'], ['application']])(
+    'a %s product on Free shows the price and Go to Billing for an owner',
+    (kind) => {
+      const f = create(FREE, kind, BILLING);
+      expect(state(f)).toBe('free');
+      expect(el(f).querySelector('[data-testid="plan-price"]')?.textContent?.trim()).toBe(
+        PRICE_LINE,
+      );
+      expect(getLicenses(f)?.getAttribute('href')).toBe(BILLING);
+      expect(text(f)).not.toContain('This seat maintains your connector catalog');
+    },
+  );
+
+  it('a Sync Service with a catalogue row is still the ordinary panel, never the seat', () => {
+    const f = create(FREE, 'sync', BILLING);
+    f.componentRef.setInput('hasConnectorCatalog', true);
+    f.detectChanges();
+    expect(state(f)).toBe('free');
+    expect(getLicenses(f)).not.toBeNull();
+  });
+
+  it('an Integration platform with a catalogue is the catalogue seat', () => {
+    const f = create(FREE, 'catalogue', BILLING);
+    expect(state(f)).toBe('catalogue');
+    expect(getLicenses(f)).toBeNull();
+  });
+
+  it.each<[Kind]>([['platform'], ['blank']])(
+    'a %s connector with no catalogue says Managed is not offered, with no price or offer',
+    (kind) => {
+      const f = create(FREE, kind, BILLING);
+      expect(state(f)).toBe('unavailable');
+      expect(text(f)).toContain('This product is on Free.');
+      expect(text(f)).toContain('Managed is not offered for this kind of product.');
+      expect(text(f)).toContain('Free includes');
+      expect(text(f)).not.toContain('Managed adds');
+      expect(el(f).querySelector('[data-testid="plan-price"]')).toBeNull();
+      expect(getLicenses(f)).toBeNull();
+      expect(cta(f)).toBeNull();
+    },
+  );
+
+  it('an Integration platform whose legacy Managed ended offers no repurchase', () => {
+    const f = create(ENDED, 'platform', BILLING);
+    expect(state(f)).toBe('ended');
+    expect(el(f).querySelector('[data-testid="plan-price"]')).toBeNull();
+    expect(getLicenses(f)).toBeNull();
+  });
+
+  it('an Integration platform that still holds Managed keeps its renewal path', () => {
+    const f = create(managedIn(12), 'platform', BILLING);
+    expect(state(f)).toBe('expiring');
+    expect(el(f).querySelector('[data-testid="plan-manage-renewal"]')).not.toBeNull();
+    expect(el(f).querySelector('[data-testid="plan-price"]')).toBeNull();
   });
 });

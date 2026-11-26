@@ -89,6 +89,24 @@
  * pairs only: a vendor-held pair is refused with that flag, with `--force`, and with
  * both. Its count degrades to 0 on a database without 0049's columns.
  *
+ * WITHDRAWING A CONNECTOR (AECI-2047). The vendor-held pair refusal above leaves no
+ * supported way to withdraw a connector product whose own vendor has claimed the pairs
+ * it delivers, which is the normal state of a Sync Service. `--withdraw-connector`
+ * is that way, and it is narrow:
+ *   - It lifts the refusal for one class of pair only: a vendor-held pair whose
+ *     CONNECTOR is this product and whose `built_by_vendor_id` is one of this product's
+ *     own vendors. The connector's vendor is withdrawing its own delivered pairs.
+ *   - Every other vendor-held row still refuses: a pair held by another builder, a pair
+ *     where this product is an endpoint, and any vendor-held integration.
+ *   - It implies `--delete-evidenced-pairs`, and it does not imply `--force`.
+ *   - The catalogue refusal stands. A connector catalogue is retired upstream through
+ *     the connector-catalogue sync (`deleted`, `REVIEW_APP_PROMOTE_API.md` §3a) first.
+ *   - The dry run lists every pair the run would delete, one line each, with its hold
+ *     ({@link buildConnectorPairListingSql}). The write-time sentinel excludes only the
+ *     same class, so a pair another vendor claims after the dry run still aborts it.
+ *   - Each deleted pair's tombstone carries its hold (`claimed_at`, `origin`,
+ *     `built_by_vendor_id`, `retired_at`) and `metadata.withdraw_connector: true`.
+ *
  * Why the two refusals hold even under --force. A connector catalogue and its stub
  * mappings are a mirror the connector-catalogue sync owns (`POST
  * /api/promote/connector-catalog`, `docs/REVIEW_APP_PROMOTE_API.md` §3a). Deleting the
@@ -160,6 +178,8 @@ export function escapeSqlLiteral(value: string): string {
  *  - `detach`          log-class; the column is NULLed, the row is never deleted.
  *  - `cascade-child`   a child of a row this lane deletes; deleted explicitly and
  *                      counted on that parent's tombstone.
+ *  - `fk-action`       handled by the FK's own action and never named in the plan
+ *                      (AECI-2042): CASCADE or SET NULL. Not counted on a tombstone.
  */
 export type FkOutcome =
   | 'refuse'
@@ -168,7 +188,8 @@ export type FkOutcome =
   | 'force-detach'
   | 'facet'
   | 'detach'
-  | 'cascade-child';
+  | 'cascade-child'
+  | 'fk-action';
 
 /** Every FK into `products`, keyed `table.column`. Pinned to the latest migration
  *  snapshot by `retract-product-fk-coverage.spec.ts`. */
@@ -200,6 +221,10 @@ export const PRODUCT_FK_HANDLING: Readonly<Record<string, FkOutcome>> = {
   // `license.unassigned` row, never left to the FK's SET NULL; a live one needs
   // `--force`. The license stays on its billing account. See the header.
   'licenses.assigned_product_id': 'force-detach',
+  // AECI-2042 (0132): a veto's pair key. A veto on a deleted product ends with it.
+  'sync_service_pair_vetoes.connector_product_id': 'fk-action',
+  'sync_service_pair_vetoes.product_a_id': 'fk-action',
+  'sync_service_pair_vetoes.product_b_id': 'fk-action',
 };
 
 /** Every FK into a table this lane DELETEs from (other than `products` itself),
@@ -209,6 +234,17 @@ export const CASCADE_CHILD_HANDLING: Readonly<Record<string, FkOutcome>> = {
   'claims.integration_id': 'cascade-child',
   'claims.connector_evidenced_pair_id': 'cascade-child',
   'attestations.claim_id': 'cascade-child',
+  // AECI-2039 (0131): the owner's answers on a Sync Service pair's flows. Deleted
+  // explicitly with the attestations, before the claims.
+  'claim_owner_answers.claim_id': 'cascade-child',
+  // AECI-2042 (0132): Sync Service pair reports cascade with their edge or claim, and
+  // a veto's anchor is SET NULL, so the veto keeps blocking a re-create of the pair.
+  // Neither is counted on a tombstone. A follow-up may count the reports.
+  'sync_service_pair_contests.integration_id': 'fk-action',
+  'sync_service_pair_contests.evidenced_pair_id': 'fk-action',
+  'sync_service_pair_contests.claim_id': 'fk-action',
+  'sync_service_pair_vetoes.integration_id': 'fk-action',
+  'sync_service_pair_vetoes.evidenced_pair_id': 'fk-action',
   'integration_field_challenges.integration_id': 'cascade-child',
   // AECI-1092 (0050): a contest can sit on an evidenced pair. Deleted explicitly
   // before the pairs, and counted on the pair's tombstone, like the integrations arm.
@@ -341,6 +377,9 @@ export const REVIEW_UPDATES_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHER
  *  does, none when migration 0100 has not reached it. */
 export const CLAIM_THREADS_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'claim_threads';`;
 
+/** AECI-2039: does `claim_owner_answers` exist on the target tier (migration 0131)? */
+export const CLAIM_OWNER_ANSWERS_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'claim_owner_answers';`;
+
 /** AECI-1350: does the `licenses` table exist on this tier yet? One row when it does,
  *  none when migration 0073 has not reached it. */
 export const LICENSES_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'licenses';`;
@@ -374,6 +413,73 @@ export function ddlHasAuditVendorColumns(ddl: string | null | undefined): boolea
 /** Does this contest-table DDL carry 0050's evidenced-pair anchor? */
 export function ddlHasEvidencedContestAnchor(ddl: string | null): boolean {
   return ddl !== null && ddl.includes('evidenced_pair_id');
+}
+
+/**
+ * AECI-2047: a vendor-held pair this product delivers as its connector, held by one of
+ * this product's own vendors. The one class `--withdraw-connector` may delete. A bare
+ * predicate over `connector_evidenced_pairs`, unaliased, for a `WHERE`.
+ */
+function ownConnectorHeldPairSql(p: string): string {
+  return (
+    `"connector_product_id" = ${p} AND ("claimed_at" IS NOT NULL OR "origin" = 'vendor')` +
+    ` AND "built_by_vendor_id" IN (SELECT "vendor_id" FROM "product_vendors" WHERE "product_id" = ${p})`
+  );
+}
+
+/**
+ * AECI-2047: one row per pair this product touches, for the `--withdraw-connector` dry
+ * run, so the operator sees exactly what would go: its id, its two endpoints and its
+ * connector by slug, its role for this product, its builder, its hold and its claim
+ * count. Ordered by id, so two runs print the same list.
+ */
+export function buildConnectorPairListingSql(id: string): string {
+  const p = `'${escapeSqlLiteral(id)}'`;
+  return (
+    `SELECT e."id" AS id, pa."slug" AS a_slug, pb."slug" AS b_slug, pc."slug" AS connector_slug, ` +
+    `CASE WHEN e."connector_product_id" = ${p} THEN 'connector' WHEN e."product_a_id" = ${p} THEN 'endpoint A' ELSE 'endpoint B' END AS role, ` +
+    `e."built_by_vendor_id" AS built_by_vendor_id, e."claimed_at" AS claimed_at, e."origin" AS origin, e."retired_at" AS retired_at, ` +
+    `(SELECT count(*) FROM "claims" c WHERE c."connector_evidenced_pair_id" = e."id") AS claims ` +
+    `FROM "connector_evidenced_pairs" e ` +
+    `JOIN "products" pa ON pa."id" = e."product_a_id" ` +
+    `JOIN "products" pb ON pb."id" = e."product_b_id" ` +
+    `JOIN "products" pc ON pc."id" = e."connector_product_id" ` +
+    `WHERE e."connector_product_id" = ${p} OR e."product_a_id" = ${p} OR e."product_b_id" = ${p} ` +
+    `ORDER BY e."id";`
+  );
+}
+
+/** One row of {@link buildConnectorPairListingSql}. */
+export interface ConnectorPairListingRow {
+  id: string;
+  a_slug: string;
+  b_slug: string;
+  connector_slug: string;
+  role: 'connector' | 'endpoint A' | 'endpoint B';
+  built_by_vendor_id: string | null;
+  claimed_at: string | null;
+  origin: string;
+  retired_at: string | null;
+  claims: number;
+}
+
+/** The dry-run block that lists every pair a `--withdraw-connector` run would delete. */
+export function formatConnectorPairListing(rows: readonly ConnectorPairListingRow[]): string {
+  if (rows.length === 0) return 'Pairs this run would delete: none.';
+  const hold = (r: ConnectorPairListingRow) =>
+    r.origin === 'vendor'
+      ? 'vendor-created'
+      : r.claimed_at
+        ? `claimed ${r.claimed_at}`
+        : 'unclaimed';
+  return [
+    `Pairs this run would delete (${rows.length}):`,
+    ...rows.map(
+      (r) =>
+        `  • ${r.id}  ${r.a_slug} ↔ ${r.b_slug} via ${r.connector_slug}  [${r.role}; ${hold(r)}` +
+        `${r.retired_at ? `; retired ${r.retired_at}` : ''}; builder ${r.built_by_vendor_id ?? 'none'}; ${r.claims} claim(s)]`,
+    ),
+  ].join('\n');
 }
 
 export function buildFootprintSql(
@@ -433,9 +539,15 @@ export function buildFootprintSql(
   const vendorHeldPairs = opts.vendorHeldPairColumns
     ? `(SELECT count(*) FROM "connector_evidenced_pairs" WHERE "id" IN (${s.pairs}) AND ("claimed_at" IS NOT NULL OR "origin" = 'vendor'))`
     : '0';
+  // AECI-2047: the subset `--withdraw-connector` may delete. Held by the connector's own
+  // vendor, on a pair this product delivers.
+  const ownConnectorHeldPairs = opts.vendorHeldPairColumns
+    ? `(SELECT count(*) FROM "connector_evidenced_pairs" WHERE ${ownConnectorHeldPairSql(p)})`
+    : '0';
   return `SELECT
     ${vendorHeld} AS vendor_held_integrations,
     ${vendorHeldPairs} AS vendor_held_evidenced_pairs,
+    ${ownConnectorHeldPairs} AS vendor_held_own_connector_pairs,
     (SELECT count(*) FROM "connector_catalogs" WHERE "connector_product_id" = ${p}) AS connector_catalogs,
     (SELECT count(*) FROM "connector_stub_mappings" WHERE "product_id" = ${p}) AS stub_mappings,
     (SELECT count(*) FROM (${s.integrations})) AS integrations,
@@ -474,6 +586,8 @@ export interface RawFootprintRow {
   vendor_held_integrations?: number;
   /** AECI-1088. Optional so a row built before it still parses. */
   vendor_held_evidenced_pairs?: number;
+  /** AECI-2047. Optional so a row built before it still parses. */
+  vendor_held_own_connector_pairs?: number;
   connector_catalogs: number;
   stub_mappings: number;
   integrations: number;
@@ -517,6 +631,9 @@ export interface RetractFootprint {
   /** Claimed or vendor-created connector-evidenced pairs the product is part of
    *  (AECI-1088). A refusal whatever the flags say. */
   vendorHeldEvidencedPairs: number;
+  /** The subset of `vendorHeldEvidencedPairs` this product delivers as connector and
+   *  one of its own vendors holds (AECI-2047). `--withdraw-connector` may delete these. */
+  vendorHeldOwnConnectorPairs: number;
   connectorCatalogs: number;
   stubMappings: number;
   integrations: number;
@@ -567,6 +684,7 @@ export function parseFootprint(row: RawFootprintRow): RetractFootprint {
   return {
     vendorHeldIntegrations: row.vendor_held_integrations ?? 0,
     vendorHeldEvidencedPairs: row.vendor_held_evidenced_pairs ?? 0,
+    vendorHeldOwnConnectorPairs: row.vendor_held_own_connector_pairs ?? 0,
     connectorCatalogs: row.connector_catalogs,
     stubMappings: row.stub_mappings,
     integrations: row.integrations,
@@ -627,10 +745,15 @@ export interface RetractionClassification {
 export interface ClassifyOptions {
   /** `--delete-evidenced-pairs` was passed. */
   deleteEvidencedPairs?: boolean;
+  /** `--withdraw-connector` was passed (AECI-2047). Implies `deleteEvidencedPairs`. */
+  withdrawConnector?: boolean;
 }
 
 /** The flag that authorises deleting connector-evidenced pairs. */
 export const DELETE_EVIDENCED_PAIRS_FLAG = '--delete-evidenced-pairs';
+
+/** The flag that withdraws a connector with the pairs its own vendor holds (AECI-2047). */
+export const WITHDRAW_CONNECTOR_FLAG = '--withdraw-connector';
 
 export function describeEvidencedPairs(footprint: RetractFootprint): string {
   return (
@@ -645,14 +768,25 @@ export function classifyRetraction(
   opts: ClassifyOptions = {},
 ): RetractionClassification {
   const refusals: string[] = [];
+  const withdraw = opts.withdrawConnector ?? false;
+  const deletePairs = (opts.deleteEvidencedPairs ?? false) || withdraw;
+  // AECI-2047: under `--withdraw-connector` the connector's own held pairs are deleted,
+  // not refused. Every other vendor-held pair still refuses.
+  const heldPairsRefused =
+    footprint.vendorHeldEvidencedPairs - (withdraw ? footprint.vendorHeldOwnConnectorPairs : 0);
   if (footprint.vendorHeldIntegrations > 0)
     refusals.push(
       `${footprint.vendorHeldIntegrations} vendor-held integration(s) — claimed by the owner or created by a vendor (ADR 0035); the vendor retires them, this tool does not delete them`,
     );
-  if (footprint.vendorHeldEvidencedPairs > 0)
+  if (heldPairsRefused > 0) {
+    const own = withdraw ? 0 : footprint.vendorHeldOwnConnectorPairs;
     refusals.push(
-      `${footprint.vendorHeldEvidencedPairs} vendor-held connector-evidenced pair(s) — claimed by the owner or created by a vendor (ADR 0035); ${DELETE_EVIDENCED_PAIRS_FLAG} does not cover them, and neither does --force`,
+      `${heldPairsRefused} vendor-held connector-evidenced pair(s) — claimed by the owner or created by a vendor (ADR 0035); ${DELETE_EVIDENCED_PAIRS_FLAG} does not cover them, and neither does --force` +
+        (own > 0
+          ? `. ${own} of them this product delivers and its own vendor holds: ${WITHDRAW_CONNECTOR_FLAG} withdraws the connector with those`
+          : ''),
     );
+  }
   if (footprint.connectorCatalogs > 0)
     refusals.push(
       `${footprint.connectorCatalogs} connector catalogue(s) — deleting the product would cascade the whole catalogue`,
@@ -674,9 +808,7 @@ export function classifyRetraction(
       `${footprint.licensesLive} live Managed license(s) assigned to it — retracting frees the paid slot; tell the vendor or reassign it first`,
     );
   const evidencedPairRefusal =
-    footprint.evidencedPairs > 0 && !opts.deleteEvidencedPairs
-      ? describeEvidencedPairs(footprint)
-      : null;
+    footprint.evidencedPairs > 0 && !deletePairs ? describeEvidencedPairs(footprint) : null;
   return {
     safe: refusals.length === 0 && blockers.length === 0 && evidencedPairRefusal === null,
     blockers,
@@ -704,6 +836,9 @@ export interface ProductDeleteArgs {
   /** `--delete-evidenced-pairs`. Without it the plan carries no pair delete, and the
    *  product DELETE is guarded on no pair existing (AECI-904). */
   deleteEvidencedPairs?: boolean;
+  /** `--withdraw-connector` (AECI-2047). Implies `deleteEvidencedPairs`, and lets the
+   *  plan delete the pairs this product delivers that its own vendor holds. */
+  withdrawConnector?: boolean;
   /** AECI-1007: whether `integration_vendor_links` exists on the target tier. Defaults
    *  to true, the schema at HEAD; the CLI passes its {@link VENDOR_LINKS_TABLE_SQL}
    *  probe so a tier without migration 0045 gets a plan that never names the table. */
@@ -739,6 +874,11 @@ export interface ProductDeleteArgs {
    *  {@link CLAIM_THREADS_TABLE_SQL} probe so a tier without it gets a plan that never
    *  names the table. */
   claimThreadsTable?: boolean;
+  /** AECI-2039: whether `claim_owner_answers` exists on the target tier (migration
+   *  0131). Defaults to true, the schema at HEAD. The CLI passes its
+   *  {@link CLAIM_OWNER_ANSWERS_TABLE_SQL} probe, as for every table a later migration
+   *  added, so a tier without it gets a plan that never names the table. */
+  claimOwnerAnswersTable?: boolean;
 }
 
 /** The token the plan's first statement raises when a vendor-held row appeared in
@@ -806,7 +946,10 @@ function metadataJson(args: ProductDeleteArgs, table: string, reason: string): s
     retracted_product_id: args.product.id,
     retracted_product_slug: args.product.slug,
     force: args.force ?? false,
-    delete_evidenced_pairs: args.deleteEvidencedPairs ?? false,
+    delete_evidenced_pairs:
+      (args.deleteEvidencedPairs ?? false) || (args.withdrawConnector ?? false),
+    // AECI-2047: present only on a withdrawal, never as `false`.
+    ...(args.withdrawConnector ? { withdraw_connector: true } : {}),
   });
 }
 
@@ -1105,7 +1248,8 @@ function threadDetachUpdate(args: ProductDeleteArgs, claimScope: string): string
  */
 export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
   const p = sqlLiteral(args.product.id);
-  const withPairs = args.deleteEvidencedPairs ?? false;
+  const withdraw = args.withdrawConnector ?? false;
+  const withPairs = (args.deleteEvidencedPairs ?? false) || withdraw;
   const s = scopes(p, { includePairs: withPairs });
   const claimCount = (col: string) => `(SELECT count(*) FROM "claims" c WHERE c."${col}" = t."id")`;
   const attestationCount = (col: string) =>
@@ -1115,6 +1259,7 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
   const reviewUpdatesTable = args.reviewUpdatesTable ?? true;
   const licensesTable = args.licensesTable ?? true;
   const claimThreadsTable = args.claimThreadsTable ?? true;
+  const claimOwnerAnswersTable = args.claimOwnerAnswersTable ?? true;
   const pageViewPairColumns = args.pageViewPairColumns ?? true;
   // AECI-1088 review: the vendor-held refusal, re-checked at write time. The CLI
   // refused on the footprint, but a claim can land between that read and `--apply`.
@@ -1125,9 +1270,12 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
     (args.vendorHeldColumns ?? true)
       ? `SELECT 1 FROM "integrations" WHERE ("id" IN (${s.integrations}) OR ${s.poweredOnly}) AND ("claimed_at" IS NOT NULL OR "origin" = 'vendor')`
       : null;
+  // AECI-2047: a withdrawal deletes the pairs this product delivers that its own vendor
+  // holds, so those alone leave the check. Any other held pair still aborts the run.
   const heldPairs =
     (args.vendorHeldPairColumns ?? true)
-      ? `SELECT 1 FROM "connector_evidenced_pairs" WHERE "id" IN (${s.pairs}) AND ("claimed_at" IS NOT NULL OR "origin" = 'vendor')`
+      ? `SELECT 1 FROM "connector_evidenced_pairs" WHERE "id" IN (${s.pairs}) AND ("claimed_at" IS NOT NULL OR "origin" = 'vendor')` +
+        (withdraw ? ` AND NOT (${ownConnectorHeldPairSql(p)})` : '')
       : null;
   const heldChecks = [heldIntegrations, heldPairs].filter((q): q is string => q !== null);
   const evidencedContests = args.evidencedContestAnchor ?? true;
@@ -1147,14 +1295,28 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
       ]
     : [];
 
+  // AECI-2047: a withdrawal may delete a held pair, so its tombstone records the hold.
+  const pairRowCols = [
+    'id',
+    'name',
+    'connector_product_id',
+    'product_a_id',
+    'product_b_id',
+    'mechanism_name',
+    'direction',
+    'created_at',
+    ...(withdraw && (args.vendorHeldPairColumns ?? true)
+      ? ['built_by_vendor_id', 'claimed_at', 'origin', 'retired_at']
+      : []),
+  ];
   const pairTombstone = tombstoneSelect({
     args,
     action: 'integration.deleted',
     entityType: 'integration',
     table: 'connector_evidenced_pairs',
-    reason: 'connector or endpoint product retracted',
+    reason: withdraw ? 'connector product withdrawn' : 'connector or endpoint product retracted',
     beforeState:
-      `json_object('table', 'connector_evidenced_pairs', 'row', ${rowJson(['id', 'name', 'connector_product_id', 'product_a_id', 'product_b_id', 'mechanism_name', 'direction', 'created_at'])}, ` +
+      `json_object('table', 'connector_evidenced_pairs', 'row', ${rowJson(pairRowCols)}, ` +
       `'cascade', json_object('claims', ${claimCount('connector_evidenced_pair_id')}, 'attestations', ${attestationCount('connector_evidenced_pair_id')}` +
       (evidencedContests
         ? `, 'field_challenges', (SELECT count(*) FROM "integration_field_challenges" f WHERE f."evidenced_pair_id" = t."id")`
@@ -1252,6 +1414,10 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
     // 2. Children before parents, explicitly: attestations → claims → edges. Never
     //    left to the FK cascade, which is two levels deep here (ADR 0018).
     `DELETE FROM "attestations" WHERE "claim_id" IN (${s.claims});`,
+    // AECI-2039: the owner's answers, the other child of `claims`.
+    ...(claimOwnerAnswersTable
+      ? [`DELETE FROM "claim_owner_answers" WHERE "claim_id" IN (${s.claims});`]
+      : []),
     // AECI-1536: the thread survives its claim, detached and closed (§15.10).
     ...(claimThreadsTable ? [threadDetachUpdate(args, s.claims)] : []),
     `DELETE FROM "claims" WHERE "id" IN (${s.claims});`,
@@ -1360,6 +1526,7 @@ export function formatFootprintReport(product: ProductRow, footprint: RetractFoo
     ['  as endpoint A', footprint.evidencedPairsAsA],
     ['  as endpoint B', footprint.evidencedPairsAsB],
     ['  vendor-held (REFUSE)', footprint.vendorHeldEvidencedPairs],
+    ['    its own vendor holds (WITHDRAW)', footprint.vendorHeldOwnConnectorPairs],
     ['claims', footprint.claims],
     ['attestations', footprint.attestations],
     ['field contests', footprint.fieldChallenges],

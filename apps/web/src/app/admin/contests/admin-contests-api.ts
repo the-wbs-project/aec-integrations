@@ -21,6 +21,15 @@ import type {
   DecideContestProtestInput,
   ListAdminContestsQuery,
   ListAdminContestsResponse,
+  AdminPairContestsResponse,
+  AdminDecidePairContestInput,
+  AdminDecidePairProtestInput,
+  AdminVetoesResponse,
+  PairContestResponse,
+  VetoWriteResponse,
+  AdminDecideVetoObjectionInput,
+  RemovalEndReason,
+  VetoObjectionResponse,
 } from '@aeci/shared';
 
 @Injectable({ providedIn: 'root' })
@@ -54,6 +63,66 @@ export class AdminContestsApi {
   decideProtest(id: string, input: DecideContestProtestInput): Promise<AdminContest> {
     return firstValueFrom(
       this.http.patch<AdminContest>(`/api/admin/contests/${encodeURIComponent(id)}/protest`, input),
+    );
+  }
+
+  // ── AECI-2042: Sync Service pair reports and endpoint vetoes ──────────────
+
+  /** `GET /api/admin/pair-contests` — open reports, or open protests. */
+  listPairContests(query: { protests?: boolean } = {}): Promise<AdminPairContestsResponse> {
+    const params = query.protests ? new HttpParams().set('protests', 'true') : new HttpParams();
+    return firstValueFrom(
+      this.http.get<AdminPairContestsResponse>('/api/admin/pair-contests', { params }),
+    );
+  }
+
+  /** `PATCH /api/admin/pair-contests/:id`. An existence accept on a vendor-held pair
+   *  retires it; it needs a note and a proof link. */
+  decidePairContest(id: string, input: AdminDecidePairContestInput): Promise<PairContestResponse> {
+    return firstValueFrom(
+      this.http.patch<PairContestResponse>(
+        `/api/admin/pair-contests/${encodeURIComponent(id)}`,
+        input,
+      ),
+    );
+  }
+
+  /** `PATCH /api/admin/pair-contests/:id/protest`. Advice only. */
+  decidePairProtest(id: string, input: AdminDecidePairProtestInput): Promise<PairContestResponse> {
+    return firstValueFrom(
+      this.http.patch<PairContestResponse>(
+        `/api/admin/pair-contests/${encodeURIComponent(id)}/protest`,
+        input,
+      ),
+    );
+  }
+
+  /** `GET /api/admin/vetoes` — the vetoes in force. */
+  listVetoes(): Promise<AdminVetoesResponse> {
+    return firstValueFrom(this.http.get<AdminVetoesResponse>('/api/admin/vetoes'));
+  }
+
+  /** `POST /api/admin/vetoes/:id/lift` — end a veto, with a required end reason and
+   *  note (AECI-2192, ruling 66). */
+  liftVeto(id: string, endReason: RemovalEndReason, note: string): Promise<VetoWriteResponse> {
+    return firstValueFrom(
+      this.http.post<VetoWriteResponse>(`/api/admin/vetoes/${encodeURIComponent(id)}/lift`, {
+        end_reason: endReason,
+        note,
+      }),
+    );
+  }
+
+  /** `PATCH /api/admin/veto-objections/:id` — accept or decline an objection (AECI-2192). */
+  decideVetoObjection(
+    id: string,
+    body: AdminDecideVetoObjectionInput,
+  ): Promise<VetoObjectionResponse> {
+    return firstValueFrom(
+      this.http.patch<VetoObjectionResponse>(
+        `/api/admin/veto-objections/${encodeURIComponent(id)}`,
+        body,
+      ),
     );
   }
 }

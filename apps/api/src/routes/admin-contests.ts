@@ -120,6 +120,7 @@ import {
   contestAnchorWhere,
   hydratedTarget,
   loadContestTarget,
+  type ContestTarget,
   rerouteToAeciStatements,
   clearSeatStamp,
   type ContestAnchor,
@@ -158,7 +159,7 @@ import {
 } from '../lib/claim-thread-lifecycle';
 import { purgeTags } from './vendor-shared';
 import { vendorAuditStamp } from '../lib/audit-vendor';
-import { dispatchMirrorSync } from '../lib/ownership-sync';
+import { dispatchMirrorSync, mirrorVendorEntries } from '../lib/ownership-sync';
 import { contestWorkflowStmts } from '../lib/workflow-restore';
 
 type AdminContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
@@ -563,7 +564,15 @@ export function createModerateContestHandler(
       // AECI-1413: an accept that wrote the row here changed an owned record's content,
       // and this route does not run through `afterVendorWrite`. An upstream-only accept
       // wrote nothing here, so there is nothing to mirror.
-      if (accept.wroteHere) dispatchMirrorSync(c, audits, 'admin', db);
+      // AECI-2045: an owner change also re-sends the previous owner's record.
+      if (accept.wroteHere) {
+        dispatchMirrorSync(
+          c,
+          [...audits, ...mirrorVendorEntries([accept.previousOwnerVendorId])],
+          'admin',
+          db,
+        );
+      }
     }
 
     const body = toAdminContest(after, hydration);
@@ -623,7 +632,7 @@ async function fileContestIssue(
  */
 async function rerouteOwnerContests(
   db: Db,
-  deciding: ContestRow,
+  deciding: Pick<ContestRow, 'id'> | null,
   anchor: ContestAnchor,
   actor: { actorId: string; actorType: AuditLogEntry['actorType'] },
   now: string,
@@ -642,11 +651,11 @@ async function rerouteOwnerContests(
     );
   const reroute = rerouteToAeciStatements(
     db,
-    open.filter((contest) => contest.id !== deciding.id),
+    open.filter((contest) => contest.id !== deciding?.id),
     actor,
     now,
     'owner changed: re-routed to AECi',
-    { reroutedBy: deciding.id },
+    deciding ? { reroutedBy: deciding.id } : { reason: 'owner-set-by-admin' },
   );
   stmts.push(...reroute.stmts);
   audits.push(...reroute.audits);
@@ -803,6 +812,11 @@ export async function planAcceptWrites(
    * insert them again.
    */
   guardedAudits: AuditLogEntry[];
+  /**
+   * AECI-2045: the owner on file before an `owner` accept that changes it. Its
+   * ownership record loses the row, so it is re-sent beside the new owner's.
+   */
+  previousOwnerVendorId: string | null;
 }> {
   const anchor = contestAnchorOf(row);
   const integration = await loadContestTarget(db, anchor);
@@ -1072,29 +1086,20 @@ export async function planAcceptWrites(
     appliedMode = 'owner-recorded';
     wroteHere = false;
   } else if (claimed) {
-    // Reassigned away from the vendor that claimed it, or to "neither": the new owner
-    // has not acted, so `claimed_at` clears and the promote fence lifts (ADR 0035).
-    stmts.push(
-      anchorUpdate(db, anchor, {
-        builtByVendorId: row.proposedValue,
-        claimedAt: null,
-        // AECI-1614: promote can write the row again, and the caption goes with the claim.
-        vendorEditedAt: null,
-      }),
-    );
-    audits.push({
-      ...actor,
-      action: anchorUpdatedAction(anchor.kind),
-      ...entity,
-      beforeState: {
-        built_by_vendor_id: integration.builtByVendorId,
-        claimed_at: integration.claimedAt,
-      },
-      afterState: { built_by_vendor_id: row.proposedValue, claimed_at: null },
-      metadata: { ...base, reason: 'owner-reassigned' },
+    // Reassigned away from the vendor that claimed it, or to "neither". AECI-2045: the
+    // admin owner write (`admin-integration-owner.ts`) runs the same writer.
+    const reassign = await planOwnerReassign(db, {
+      anchor,
+      integration,
+      newOwnerVendorId: row.proposedValue,
+      decidingContestId: row.id,
+      actor,
+      now,
+      metadata: base,
     });
+    stmts.push(...reassign.stmts);
+    audits.push(...reassign.audits);
     appliedMode = 'owner-recorded';
-    await rerouteOwnerContests(db, row, anchor, actor, now, stmts, audits);
   }
 
   wroteHere &&= appliedMode !== 'upstream-only';
@@ -1129,7 +1134,71 @@ export async function planAcceptWrites(
     displacedOwner,
     lockRace,
     guardedAudits,
+    previousOwnerVendorId:
+      field === 'owner' && wroteHere && integration.builtByVendorId !== row.proposedValue
+        ? integration.builtByVendorId
+        : null,
   };
+}
+
+/**
+ * The owner reassignment (§11b.6, the `owner-reassigned` case), shared by the AECi
+ * accept of an `owner` contest and the admin owner write (AECI-2045,
+ * `PUT /api/admin/integrations/:id/owner`), so the two cannot drift.
+ *
+ * The new owner has not acted, so `claimed_at` clears and the promote fence lifts
+ * (ADR 0035). AECI-1614: the edit caption goes with the claim. One
+ * `integration.updated` audit row (`reason: 'owner-reassigned'`, `metadata` merged
+ * in), and every open owner-routed contest on the row moves to AECi, except the one
+ * being decided. The caller puts the statements in its own batch, after its state
+ * sentinel.
+ */
+export async function planOwnerReassign(
+  db: Db,
+  input: {
+    anchor: ContestAnchor;
+    integration: Pick<ContestTarget, 'id' | 'builtByVendorId' | 'claimedAt'>;
+    newOwnerVendorId: string | null;
+    /** The contest whose accept this is, or `null` for the admin owner write. */
+    decidingContestId: string | null;
+    actor: { actorId: string; actorType: AuditLogEntry['actorType'] };
+    now: string;
+    metadata: Record<string, unknown>;
+  },
+): Promise<{ stmts: BatchStmt[]; audits: AuditLogEntry[] }> {
+  const { anchor, integration, actor, now } = input;
+  const stmts: BatchStmt[] = [
+    anchorUpdate(db, anchor, {
+      builtByVendorId: input.newOwnerVendorId,
+      claimedAt: null,
+      // AECI-1614: promote can write the row again, and the caption goes with the claim.
+      vendorEditedAt: null,
+    }),
+  ];
+  const audits: AuditLogEntry[] = [
+    {
+      ...actor,
+      action: anchorUpdatedAction(anchor.kind),
+      entityType: anchorEntityType(anchor.kind),
+      entityId: integration.id,
+      beforeState: {
+        built_by_vendor_id: integration.builtByVendorId,
+        claimed_at: integration.claimedAt,
+      },
+      afterState: { built_by_vendor_id: input.newOwnerVendorId, claimed_at: null },
+      metadata: { ...input.metadata, reason: 'owner-reassigned' },
+    },
+  ];
+  await rerouteOwnerContests(
+    db,
+    input.decidingContestId ? { id: input.decidingContestId } : null,
+    anchor,
+    actor,
+    now,
+    stmts,
+    audits,
+  );
+  return { stmts, audits };
 }
 
 /** The owner an AECi accept displaces (AECI-1159), as its notice snapshots it. */

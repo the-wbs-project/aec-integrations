@@ -116,7 +116,7 @@ export function removalFieldLabel(field: RemovalElectionField): string {
         <h3 class="aec-overline text-(--text-secondary)" i18n="@@vendor.removalElection.heading">
           Remove the text you wrote
         </h3>
-        <p class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
+        <p class="mt-2 text-sm leading-relaxed text-(--text-secondary)">
           {{ windowLine() }}
         </p>
         <button
