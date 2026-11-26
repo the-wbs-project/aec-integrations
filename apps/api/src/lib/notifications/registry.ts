@@ -179,7 +179,7 @@ export const NOTIFICATIONS = {
     pausable: false,
     doc: CATALOGUE,
     summary: "Tells a reviewer their review was not published, with the moderator's reason.",
-    note: 'Always on: a review decision to its author, with the reason it was not published.',
+    note: 'Always on: a review decision to its author, with the reason it was not published. Not sent when a ban rejects the review (PATCH /api/admin/reviewers/:id reject_pending, AECI-1949).',
   },
   'review-update-submitted': {
     channel: 'email',
@@ -246,7 +246,7 @@ export const NOTIFICATIONS = {
     doc: CATALOGUE,
     summary:
       "Tells a reviewer their update to a published review was not published, with the moderator's reason.",
-    note: 'Always on: a moderation decision to its author, with the reason.',
+    note: 'Always on: a moderation decision to its author, with the reason. A ban with reject_pending (PATCH /api/admin/reviewers/:id, AECI-1949) also sends it for each update it rejects, after commit, with the fixed BAN_REJECTION_REASON and the same key.',
   },
   'vendor-review-published': {
     channel: 'email',
@@ -1516,7 +1516,7 @@ export const NOTIFICATIONS = {
     pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11c.12',
     summary: 'Tells a vendor that AECi approved, rejected or removed its reply to a review.',
-    note: 'metadata.event names the decision. Reject and remove carry the reason. No email, as for contests. Not pausable: a portal row, not email.',
+    note: 'metadata.event names the decision. Reject and remove carry the reason. A ban with reject_pending (PATCH /api/admin/reviewers/:id, AECI-1949) writes the reject row too, with the fixed BAN_REJECTION_REASON. No email, as for contests. Not pausable: a portal row, not email.',
   },
   'portal-review-update': {
     channel: 'portal',

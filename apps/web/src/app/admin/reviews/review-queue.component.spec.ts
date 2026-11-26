@@ -15,7 +15,7 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type {
@@ -28,6 +28,7 @@ import type {
 import { expectTitleFirstDialog } from '../../core/testing/title-first-dialog.harness';
 import { AdminSummaryStore } from '../admin-summary.store';
 import { ReviewerBansApi } from '../reviewers/reviewer-bans-api';
+import { AdminUsersApi } from '../users/admin-users-api';
 import { AdminReviewsApi } from './admin-reviews-api';
 import { ReviewQueue } from './review-queue';
 
@@ -122,7 +123,35 @@ function settle(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve));
 }
 
-async function setup(api: ApiMock = makeApiMock(), bansApi: BansApiMock = makeBansApiMock()) {
+/** AECI-1949: the ban dialog reads the reviewer's pending counts. The default read
+ *  fails, so the dialog offers no reject and bans as it always has. */
+function makeUsersApiMock(counts?: {
+  reviews: number;
+  review_updates: number;
+  review_responses: number;
+}) {
+  return {
+    getUser: vi.fn(async () => {
+      if (!counts) throw new HttpErrorResponse({ status: 500 });
+      return {
+        counts: {
+          reviews: { pending: counts.reviews, approved: 0, rejected: 3, archived: 0, removed: 0 },
+          pending_moderation: {
+            review_updates: counts.review_updates,
+            review_responses: counts.review_responses,
+          },
+        },
+      };
+    }),
+  };
+}
+
+async function setup(
+  api: ApiMock = makeApiMock(),
+  bansApi: BansApiMock = makeBansApiMock(),
+  usersApi: ReturnType<typeof makeUsersApiMock> = makeUsersApiMock(),
+  url = '/',
+) {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     providers: [
@@ -130,8 +159,10 @@ async function setup(api: ApiMock = makeApiMock(), bansApi: BansApiMock = makeBa
       provideRouter([]),
       { provide: AdminReviewsApi, useValue: api },
       { provide: ReviewerBansApi, useValue: bansApi },
+      { provide: AdminUsersApi, useValue: usersApi },
     ],
   });
+  if (url !== '/') await TestBed.inject(Router).navigateByUrl(url);
   const store = TestBed.inject(AdminSummaryStore);
   const fixture = TestBed.createComponent(ReviewQueue);
   fixture.detectChanges();
@@ -739,6 +770,76 @@ describe('ReviewQueue', () => {
       expect(findButton(el, 'Ban reviewer')).toBeUndefined();
     });
 
+    // AECI-1949: the dialog offers the same reject as /admin/users/:id.
+    it('reads the counts and sends reject_pending when the box stays checked', async () => {
+      const api = makeApiMock();
+      api.moderate.mockResolvedValueOnce(repeatOffenderEnvelope('a', PROMPT));
+      const users = makeUsersApiMock({ reviews: 2, review_updates: 1, review_responses: 0 });
+      const { el, fixture, bansApi } = await setup(api, makeBansApiMock(), users);
+
+      await rejectWithReason(el, fixture, 'Alpha', 'Coordinated spam.');
+      findButton(el, 'Ban reviewer')!.click();
+      fixture.detectChanges();
+      await settle();
+      fixture.detectChanges();
+      expect(users.getUser).toHaveBeenCalledWith('rev-1');
+      const choice = document.querySelector('[data-testid="ban-pending-choice"]');
+      expect(choice?.textContent).toContain('Also reject 3 pending items');
+      expect(
+        document.querySelector<HTMLInputElement>('[data-testid="ban-reject-pending"]')?.checked,
+      ).toBe(true);
+
+      const instance = fixture.componentInstance as unknown as {
+        banReasonModel: { set: (v: { reason: string }) => void };
+        confirmBan: () => Promise<void>;
+      };
+      instance.banReasonModel.set({ reason: 'Coordinated spam ring.' });
+      await settle();
+      await instance.confirmBan();
+      await settle();
+      expect(bansApi.ban).toHaveBeenCalledWith('rev-1', {
+        action: 'ban',
+        reason: 'Coordinated spam ring.',
+        reject_pending: true,
+      });
+      document.querySelectorAll('.cdk-overlay-container').forEach((n) => n.replaceChildren());
+    });
+
+    it('on BAN_PENDING_CHANGED keeps the dialog open and rereads the counts', async () => {
+      const api = makeApiMock();
+      api.moderate.mockResolvedValueOnce(repeatOffenderEnvelope('a', PROMPT));
+      const users = makeUsersApiMock({ reviews: 1, review_updates: 0, review_responses: 0 });
+      const bansApi = makeBansApiMock();
+      bansApi.ban.mockRejectedValueOnce(
+        new HttpErrorResponse({ status: 409, error: { error: { code: 'BAN_PENDING_CHANGED' } } }),
+      );
+      const { el, fixture } = await setup(api, bansApi, users);
+
+      await rejectWithReason(el, fixture, 'Alpha', 'Coordinated spam.');
+      findButton(el, 'Ban reviewer')!.click();
+      fixture.detectChanges();
+      await settle();
+      const instance = fixture.componentInstance as unknown as {
+        banTarget: () => RepeatOffenderPrompt | null;
+        banPendingProblem: () => string | null;
+        banReasonModel: { set: (v: { reason: string }) => void };
+        confirmBan: () => Promise<void>;
+      };
+      instance.banReasonModel.set({ reason: 'Coordinated spam ring.' });
+      await settle();
+      await instance.confirmBan();
+      await settle();
+      fixture.detectChanges();
+
+      expect(instance.banTarget()).toEqual(PROMPT);
+      expect(instance.banPendingProblem()).toBe('changed');
+      expect(users.getUser).toHaveBeenCalledTimes(2);
+      expect(document.querySelector('#ban-pending-problem')?.textContent).toContain(
+        'Their pending items changed',
+      );
+      document.querySelectorAll('.cdk-overlay-container').forEach((n) => n.replaceChildren());
+    });
+
     it('points at Suspend when the ban is refused as the last seat (AECI-1623)', async () => {
       const api = makeApiMock();
       api.moderate.mockResolvedValueOnce(repeatOffenderEnvelope('a', PROMPT));
@@ -1157,5 +1258,52 @@ describe('ReviewQueue', () => {
       const live = el.querySelector('[role="status"]');
       expect(live?.getAttribute('aria-live')).toBe('polite');
     });
+  });
+});
+
+// AECI-1949: the per-person filter and the link to the account page.
+describe('ReviewQueue per-person filter (AECI-1949)', () => {
+  it('sends ?account= as account_id and shows the filter bar', async () => {
+    const mine = makeReview({ id: 'm', reviewer_email: 'amy@example.test' });
+    const api = makeApiMock([{ ...mine, reviewer_id: 'rev-1' }]);
+    const { el } = await setup(api, makeBansApiMock(), makeUsersApiMock(), '/?account=rev-1');
+    expect(api.listPending).toHaveBeenCalledWith(expect.objectContaining({ account_id: 'rev-1' }));
+    const bar = el.querySelector('[data-testid="queue-account-filter"]');
+    expect(bar?.textContent).toContain('Showing items by amy@example.test.');
+    expect(bar?.querySelector('a')?.getAttribute('href')).toBe('/admin/users/rev-1');
+  });
+
+  it('sends no account_id and shows no bar without the param', async () => {
+    const { el, api } = await setup();
+    expect(api.listPending.mock.calls[0]![0]).not.toHaveProperty('account_id');
+    expect(el.querySelector('[data-testid="queue-account-filter"]')).toBeNull();
+  });
+
+  it('Clear filter drops the param and reloads every account', async () => {
+    const api = makeApiMock();
+    const { el, fixture } = await setup(
+      api,
+      makeBansApiMock(),
+      makeUsersApiMock(),
+      '/?account=rev-1',
+    );
+    el.querySelector<HTMLButtonElement>('[data-testid="queue-account-clear"]')!.click();
+    await settle();
+    await fixture.whenStable();
+    await settle();
+    fixture.detectChanges();
+    expect(TestBed.inject(Router).url).toBe('/');
+    expect(api.listPending).toHaveBeenCalledTimes(2);
+    expect(api.listPending.mock.calls[1]![0]).not.toHaveProperty('account_id');
+    expect(el.querySelector('[data-testid="queue-account-filter"]')).toBeNull();
+  });
+
+  it('links the reviewer address to /admin/users/:id', async () => {
+    const api = makeApiMock([{ ...ALPHA, reviewer_id: 'rev-9' }]);
+    const { el } = await setup(api);
+    const link = [...el.querySelectorAll('a')].find(
+      (a) => a.textContent?.trim() === 'amy@example.test',
+    );
+    expect(link?.getAttribute('href')).toBe('/admin/users/rev-9');
   });
 });

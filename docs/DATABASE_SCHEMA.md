@@ -1534,6 +1534,11 @@ create index review_responses_vendor_updated_idx on review_responses(vendor_id, 
   `ON DELETE SET NULL` and are also nulled explicitly in the erasure batch
   (`AUTH_AND_RLS.md` §8). The reply survives its author's erasure. It is the vendor's record, not
   the person's.
+- **`author_profile_id` has no index, on purpose (AECI-1949).** The per-person reads (the
+  `/admin/review-responses?account=` filter, the `GET /api/admin/users/:id` pending count and a
+  ban's `reject_pending`) filter on it together with `status`, which
+  `review_responses_status_updated_idx` serves. One seat's replies are a handful of rows, so the
+  extra predicate needs no index of its own.
 - **Nothing ranks on this table.** No count, aggregate, Algolia attribute, sort key or
   `listing_tier` input reads it (`STAGE_2_PAID_TIERS_SPEC.md` §3.2).
 

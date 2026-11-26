@@ -35,6 +35,8 @@ import {
   profileAudiences,
   profileDetails,
   profiles,
+  reviewResponses,
+  reviewUpdates,
   reviews,
   taxonomyAudiences,
   vendorRequests,
@@ -681,6 +683,43 @@ describe('GET /api/admin/users/:id — the detail', () => {
 
     expect(seat.counts.seat_invites_sent).toBe(1);
     expect(admin.counts.licenses_granted).toBe(1);
+  });
+
+  it('counts the pending updates and replies a ban would reject (AECI-1949)', async () => {
+    await seedPeople();
+    await seedProducts(3);
+    await t.db
+      .insert(reviews)
+      .values([review(0, 'approved'), review(1, 'approved'), review(2, 'pending')]);
+    const update = (n: number, reviewId: string, status: string) => ({
+      id: u(600 + n),
+      reviewId,
+      body: 'An update long enough to pass the minimum length rule for updates.',
+      status,
+    });
+    await t.db
+      .insert(reviewUpdates)
+      .values([update(0, u(500), 'pending'), update(1, u(501), 'rejected')]);
+    const reply = (n: number, reviewId: string, author: string, status: string) => ({
+      id: u(650 + n),
+      reviewId,
+      vendorId: VENDOR,
+      authorProfileId: author,
+      body: 'Thanks.',
+      status,
+    });
+    // SEAT wrote one pending reply and one published one.
+    await t.db
+      .insert(reviewResponses)
+      .values([reply(0, u(500), SEAT, 'pending'), reply(1, u(501), SEAT, 'published')]);
+    const app = await detailApp();
+
+    const reviewer = await readJson(await call(app, `/users/${REVIEWER}`));
+    const seat = await readJson(await call(app, `/users/${SEAT}`));
+
+    expect(reviewer.counts.reviews.pending).toBe(1);
+    expect(reviewer.counts.pending_moderation).toEqual({ review_updates: 1, review_responses: 0 });
+    expect(seat.counts.pending_moderation).toEqual({ review_updates: 0, review_responses: 1 });
   });
 
   it('counts copyright takedowns and counter-notices with the shared predicate (AECI-1665)', async () => {

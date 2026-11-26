@@ -10,6 +10,10 @@
     Reviews
   </h2>
 
+  <!-- AECI-1949: the per-person filter, as on /admin/dmca. -->
+  @if (account(); as accountId) {
+  <aec-queue-account-filter class="mb-4 block" [accountId]="accountId" [email]="accountEmail()" />
+  }
   <div [class]="f.toolbar">
     <!-- AECI-1643: the status tabs, as on /admin/review-updates. -->
     <div [class]="f.group">
@@ -201,11 +205,20 @@
             >
           </th>
           <td [class]="t.nowrap">
-            @if (r.reviewer_email) { {{ r.reviewer_email }} } @else {
+            <!-- AECI-1949: the address opens the person's account page. -->
+            @if (r.reviewer_id) {
+            <a [routerLink]="['/admin/users', r.reviewer_id]" [class]="t.link">
+              @if (r.reviewer_email) { {{ r.reviewer_email }} } @else {
+              <span class="text-(--text-secondary)" i18n="@@admin.reviews.meta.anonymized"
+                >Anonymized</span
+              >
+              }
+            </a>
+            } @else { @if (r.reviewer_email) { {{ r.reviewer_email }} } @else {
             <span class="text-(--text-secondary)" i18n="@@admin.reviews.meta.anonymized"
               >Anonymized</span
             >
-            }
+            } }
           </td>
           <td [class]="t.num">{{ r.rating_overall }}/5</td>
           <td [class]="t.num">{{ r.rating_onboarding }}/5</td>
@@ -446,10 +459,11 @@
           brnDialogDescription
           [class]="noticeClass"
           class="mt-4"
-          i18n="@@admin.reviews.ban.dialog.description"
+          i18n="@@admin.reviews.ban.dialog.description2"
         >
           {{ t.reviewer_email ?? fallbackReviewerName }} will be blocked from submitting new
-          reviews. Their existing approved reviews stay visible. You can unban them later.
+          reviews. Their approved reviews stay visible. You can also reject what they have waiting
+          in the review queues. You can unban them later.
         </p>
 
         <form method="dialog" novalidate (aecSubmit)="confirmBan()" class="mt-4 grid gap-2">
@@ -479,6 +493,29 @@
             i18n="@@admin.reviews.ban.dialog.error"
           >
             Enter a reason between 1 and 500 characters.
+          </p>
+          }
+          <aec-ban-pending-choice
+            [counts]="banCounts()"
+            [accountId]="t.reviewer_id"
+            hintId="ban-pending-hint"
+            [links]="false"
+            [disabled]="banSubmitting()"
+            [(checked)]="banRejectPending"
+          />
+          @if (banPendingProblem(); as problem) {
+          <p id="ban-pending-problem" tabindex="-1" [class]="failedClass" role="alert">
+            @if (problem === 'changed') {
+            <span i18n="@@admin.reviews.ban.dialog.pendingChanged"
+              >Their pending items changed while you were banning, so nothing was saved. The counts
+              are updated. Check them and confirm again.</span
+            >
+            } @else {
+            <span i18n="@@admin.reviews.ban.dialog.tooMany"
+              >This reviewer has more pending items than one ban can reject. Nothing was saved.
+              Reject some from the queues first, or untick the box to ban without rejecting.</span
+            >
+            }
           </p>
           } @if (banFailed()) {
           <p

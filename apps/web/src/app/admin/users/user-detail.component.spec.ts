@@ -63,6 +63,7 @@ function makeUser(over: Partial<AdminUserDetail> = {}): AdminUserDetail {
       requests_by_email: 2,
       dmca_takedowns: 0,
       dmca_counter_notices: 0,
+      pending_moderation: { review_updates: 0, review_responses: 0 },
     },
     repeat_offender: false,
     about: {
@@ -499,6 +500,112 @@ describe('UserDetail', () => {
       const alert = el.querySelector('[role="alert"]')?.textContent ?? '';
       expect(alert).toContain("Admin accounts can't be banned");
       expect(alert).toContain("you can't ban yourself");
+    });
+  });
+
+  // AECI-1949: the ban can reject the person's pending items.
+  describe('reject pending items on a ban (AECI-1949)', () => {
+    const withPending = () =>
+      makeUser({
+        counts: {
+          ...makeUser().counts,
+          reviews: { pending: 2, approved: 3, rejected: 1, archived: 0, removed: 0 },
+          pending_moderation: { review_updates: 1, review_responses: 0 },
+        },
+      });
+
+    async function openAndType(fixture: { detectChanges: () => void }, el: HTMLElement) {
+      await click(fixture, buttonByText(el, 'Ban this account')!);
+      const textarea = el.querySelector<HTMLTextAreaElement>('#admin-user-ban-reason')!;
+      textarea.value = 'Spam';
+      textarea.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+    }
+
+    it('links each pending count to its queue filtered to this person', async () => {
+      const { el } = await setup(makeApiMock(withPending()));
+      const href = (id: string) =>
+        el.querySelector(`[data-testid="${id}"] a`)?.getAttribute('href');
+      expect(href('user-pending-reviews')).toBe(`/admin/reviews?account=${USER_ID}`);
+      expect(href('user-pending-updates')).toBe(`/admin/review-updates?account=${USER_ID}`);
+      expect(href('user-pending-replies')).toBe(`/admin/review-responses?account=${USER_ID}`);
+      expect(el.querySelector('[data-testid="user-pending-updates"] a')?.textContent).toContain(
+        '1',
+      );
+    });
+
+    it('offers the checkbox, checked, with the total, and sends reject_pending', async () => {
+      const { el, fixture, bans } = await setup(makeApiMock(withPending()));
+      await openAndType(fixture, el);
+      const box = el.querySelector<HTMLInputElement>('[data-testid="ban-reject-pending"]')!;
+      expect(box.checked).toBe(true);
+      expect(el.querySelector('[data-testid="ban-pending-choice"]')?.textContent).toContain(
+        'Also reject 3 pending items',
+      );
+      await click(fixture, buttonByText(el, 'Confirm ban')!);
+      expect(bans.ban).toHaveBeenCalledWith(USER_ID, {
+        action: 'ban',
+        reason: 'Spam',
+        reject_pending: true,
+      });
+    });
+
+    it('an unticked box bans without rejecting', async () => {
+      const { el, fixture, bans } = await setup(makeApiMock(withPending()));
+      await openAndType(fixture, el);
+      const box = el.querySelector<HTMLInputElement>('[data-testid="ban-reject-pending"]')!;
+      box.click();
+      fixture.detectChanges();
+      await click(fixture, buttonByText(el, 'Confirm ban')!);
+      expect(bans.ban).toHaveBeenCalledWith(USER_ID, { action: 'ban', reason: 'Spam' });
+    });
+
+    it('shows no checkbox when nothing is pending', async () => {
+      const { el, fixture } = await setup();
+      await click(fixture, buttonByText(el, 'Ban this account')!);
+      expect(el.querySelector('[data-testid="ban-reject-pending"]')).toBeNull();
+    });
+
+    it('on BAN_PENDING_CHANGED refetches the counts and keeps the form open', async () => {
+      const api = makeApiMock(withPending());
+      const bans = makeBansMock();
+      bans.ban.mockRejectedValueOnce({
+        status: 409,
+        error: { error: { code: 'BAN_PENDING_CHANGED' } },
+      });
+      const { el, fixture } = await setup(api, bans);
+      await openAndType(fixture, el);
+      const fresh = withPending();
+      fresh.counts.reviews.pending = 5;
+      api.getUser.mockResolvedValueOnce(fresh);
+      await click(fixture, buttonByText(el, 'Confirm ban')!);
+      await settle();
+      fixture.detectChanges();
+
+      expect(api.getUser).toHaveBeenCalledTimes(2);
+      expect(el.querySelector('[role="alert"]')?.textContent).toContain(
+        'Their pending items changed',
+      );
+      expect(el.querySelector('#admin-user-ban-reason')).not.toBeNull();
+      expect(el.querySelector('[data-testid="ban-pending-choice"]')?.textContent).toContain(
+        'Also reject 6 pending items',
+      );
+    });
+
+    it('says how many were rejected', async () => {
+      const bans = makeBansMock();
+      bans.ban.mockResolvedValueOnce({
+        reviewer_id: USER_ID,
+        banned_at: '2026-08-28T00:00:00.000Z',
+        ban_reason: 'Spam',
+        rejected: { reviews: 2, review_updates: 1, review_responses: 0 },
+      });
+      const { el, fixture } = await setup(makeApiMock(withPending()), bans);
+      await openAndType(fixture, el);
+      await click(fixture, buttonByText(el, 'Confirm ban')!);
+      expect(el.querySelector('[role="status"]')?.textContent).toContain(
+        '3 pending items rejected',
+      );
     });
   });
 

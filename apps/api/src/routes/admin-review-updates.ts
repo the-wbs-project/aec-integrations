@@ -44,11 +44,9 @@ import {
   ListAdminReviewUpdatesResponseSchema,
   REVIEW_UPDATE_DECISIONS,
   type AdminReviewUpdate,
-  type DecideReviewUpdateInput,
   type ListAdminReviewUpdatesResponse,
   type ReviewUpdateStatus,
 } from '@aeci/shared';
-import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { and, asc, count, eq } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
@@ -58,19 +56,15 @@ import { products, reviewUpdates, reviews } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
-import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
+import type { BatchTuple } from '../lib/audit';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import { sendReviewUpdateApprovedEmail, sendReviewUpdateRejectedEmail } from '../lib/email';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { forwardAuditBatch } from '../lib/moderation-forward';
 import { recomputeProductCounts } from '../lib/recompute-counts';
 import { loadReviewOwners, reviewUpdatePublishedNotifications } from '../lib/review-notifications';
-import {
-  REVIEW_UPDATE_DECISION_ACTIONS,
-  REVIEW_UPDATE_ENTITY_TYPE,
-  isReviewUpdateRaceError,
-  reviewUpdateChangedSentinel,
-} from '../lib/review-updates';
+import { reviewUpdateDecisionStatements } from '../lib/review-moderation';
+import { isReviewUpdateRaceError } from '../lib/review-updates';
 import { fetchAuthUserEmails } from '../lib/supabase-admin';
 import { logToPosthog } from '../posthog';
 
@@ -152,6 +146,7 @@ function toAdminReviewUpdate(
     rating_onboarding: row.ratingOnboarding,
     rejection_reason: row.rejectionReason,
     toxicity_score: row.toxicityScore,
+    reviewer_id: row.reviewerId,
     reviewer_email: row.reviewerId ? (emails.get(row.reviewerId) ?? null) : null,
     product: {
       id: row.productId,
@@ -208,7 +203,11 @@ export function createAdminReviewUpdatesListHandler(
       Object.fromEntries(new URL(c.req.url).searchParams),
     );
     const { db } = dbFor(c.env);
-    const where = eq(reviewUpdates.status, query.status);
+    // AECI-1949: `account_id` narrows the queue to one reviewer, through the review.
+    const where = and(
+      eq(reviewUpdates.status, query.status),
+      query.account_id ? eq(reviews.reviewerId, query.account_id) : undefined,
+    );
 
     // Oldest first, so the longest wait is on top. Served by
     // `review_updates_status_created_idx (status, created_at)`. `id` breaks a tie.
@@ -218,7 +217,11 @@ export function createAdminReviewUpdatesListHandler(
         .orderBy(asc(reviewUpdates.createdAt), asc(reviewUpdates.id))
         .limit(query.perPage)
         .offset((query.page - 1) * query.perPage),
-      db.select({ value: count() }).from(reviewUpdates).where(where),
+      db
+        .select({ value: count() })
+        .from(reviewUpdates)
+        .innerJoin(reviews, eq(reviews.id, reviewUpdates.reviewId))
+        .where(where),
     ]);
     const emails = await reviewerEmails(c, fetchEmails, rows);
 
@@ -234,24 +237,6 @@ export function createAdminReviewUpdatesListHandler(
 }
 
 // ─── PATCH /api/admin/review-updates/:id ─────────────────────────────────────
-
-/** The columns one decision writes. */
-function decisionColumns(
-  decision: DecideReviewUpdateInput,
-  adminId: string,
-  now: string,
-): Partial<typeof reviewUpdates.$inferInsert> {
-  const to = REVIEW_UPDATE_DECISIONS[decision.action].to;
-  const base = { status: to, moderatedBy: adminId, moderatedAt: now, updatedAt: now };
-  switch (decision.action) {
-    case 'approve':
-      return { ...base, publishedAt: now };
-    case 'reject':
-      return { ...base, rejectionReason: decision.reason };
-    case 'remove':
-      return { ...base, rejectionReason: decision.reason, publishedAt: null };
-  }
-}
 
 function wrongStateError(status: string): ApiError {
   return new ApiError(
@@ -300,24 +285,8 @@ export function createDecideReviewUpdateHandler(
     if (row.status !== plan.from) throw wrongStateError(row.status);
 
     const now = new Date().toISOString();
-    const reason = payload.action === 'approve' ? null : payload.reason;
     const actor = { actorId: session.userId, actorType: auditActorType(session) };
     const product = { id: row.productId, slug: row.productSlug, name: row.productName };
-    const audit: AuditLogEntry = {
-      ...actor,
-      action: REVIEW_UPDATE_DECISION_ACTIONS[payload.action],
-      entityType: REVIEW_UPDATE_ENTITY_TYPE,
-      entityId: id,
-      productId: row.productId,
-      beforeState: { status: plan.from },
-      afterState: { status: plan.to, ...(reason ? { rejection_reason: reason } : {}) },
-      metadata: {
-        source: AUDIT_SOURCE,
-        reviewId: row.reviewId,
-        productId: row.productId,
-        ...(reason ? { reason } : {}),
-      },
-    };
 
     // Approve only: one feed row per owning vendor, primary or not, on every plan.
     // Owners are read before the batch because a batch statement cannot fan out.
@@ -335,17 +304,17 @@ export function createDecideReviewUpdateHandler(
       },
     );
 
-    const stmts: BatchStmt[] = [
-      db
-        .update(reviewUpdates)
-        .set(decisionColumns(payload, session.userId, now))
-        .where(and(eq(reviewUpdates.id, id), eq(reviewUpdates.status, plan.from))),
-      // Immediately after the guarded UPDATE: a lost race aborts here, before the
-      // audit row and the feed rows.
-      reviewUpdateChangedSentinel(db),
-      auditInsert(db, audit),
-      ...notifications.map((entry) => auditInsert(db, entry)),
-    ];
+    // The builder the ban's `reject_pending` also uses (AECI-1949).
+    const { stmts, audits } = reviewUpdateDecisionStatements(db, {
+      updateId: id,
+      decision: payload,
+      reviewId: row.reviewId,
+      productId: row.productId,
+      actor,
+      now,
+      source: AUDIT_SOURCE,
+      notifications,
+    });
     try {
       await db.batch(stmts as BatchTuple);
     } catch (error) {
@@ -364,7 +333,7 @@ export function createDecideReviewUpdateHandler(
       await recompute(db, [row.productId]);
       c.executionCtx.waitUntil(purgeProductTag(c, row.productSlug));
     }
-    forwardAuditBatch(c, [audit, ...notifications], []);
+    forwardAuditBatch(c, audits, []);
 
     const after = await loadAdminRow(db, id);
     if (!after) throw notFoundError('review_update', { id });

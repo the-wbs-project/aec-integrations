@@ -139,6 +139,9 @@ export const AdminReviewResponseReviewStatusSchema = z.enum([
  */
 export const ListAdminReviewResponsesQuerySchema = PageQuerySchema.extend({
   status: ReviewResponseStatusSchema.default('pending'),
+  /** AECI-1949: replies one seat last wrote (`author_profile_id`). The name matches
+   *  `/api/admin/dmca?account_id=`. */
+  account_id: z.string().uuid().optional(),
 });
 export type ListAdminReviewResponsesQuery = z.infer<typeof ListAdminReviewResponsesQuerySchema>;
 
@@ -153,6 +156,9 @@ export const AdminReviewResponseSchema = z.object({
   /** `false` when the vendor no longer owns the product: the reply will not
    *  render even if approved (§11c.11 rule 3). */
   vendor_owns_product: z.boolean(),
+  /** AECI-1949: the seat that last wrote the reply, for the link to
+   *  `/admin/users/:id`. `null` once the account is erased. Optional for deploy skew. */
+  author_profile_id: z.string().uuid().nullable().optional(),
   /** The seat that last wrote it. `null` when the account was erased or the
    *  GoTrue seam is unavailable. */
   author_email: z.string().nullable(),

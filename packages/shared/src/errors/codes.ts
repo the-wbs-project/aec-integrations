@@ -128,6 +128,14 @@ export const ApiErrorCode = {
   // AECI-1623: a ban of a vendor's last unbanned seat (409). Nothing was written. Ending
   // a vendor is Suspend then Terminate, from the vendor page.
   VENDOR_LAST_SEAT_USE_SUSPEND: 'VENDOR_LAST_SEAT_USE_SUSPEND',
+  // AECI-1949: a ban with `reject_pending: true` whose person has more pending items
+  // than one batch may reject (422). Nothing was written. Reject some from the
+  // filtered queues first.
+  BAN_REJECT_TOO_MANY: 'BAN_REJECT_TOO_MANY',
+  // AECI-1949: a ban with `reject_pending: true` lost a race: one of the person's
+  // pending items was decided, edited or added between the read and the batch (409).
+  // Nothing was written, the ban included. Reload the counts and confirm again.
+  BAN_PENDING_CHANGED: 'BAN_PENDING_CHANGED',
   // AECI-1623: a suspend of a vendor already suspended (409), or a lift, resend or
   // terminate with no open suspension (409).
   VENDOR_SUSPENSION_STATE: 'VENDOR_SUSPENSION_STATE',

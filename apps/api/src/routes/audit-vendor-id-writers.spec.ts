@@ -272,14 +272,15 @@ describe('every audit row about a vendor names the vendor (AECI-1192)', () => {
 
   it('resolves an action map built from another map (NAME: OTHER.key)', () => {
     // `REVIEW_RESPONSE_DECISION_ACTIONS` aliases `REVIEW_RESPONSE_ACTIONS.*`. If this
-    // fails, the admin reply-decision writer has dropped out of rule 2 again.
+    // fails, the admin reply-decision writer has dropped out of rule 2 again. The writer
+    // is the shared builder since AECI-1949 (manual reject and the ban both use it).
     expect(vendorActionsIn('REVIEW_RESPONSE_DECISION_ACTIONS[payload.decision]').sort()).toEqual([
       'review_response.approved',
       'review_response.rejected',
       'review_response.removed',
     ]);
     expect(
-      vendorActionWriters().some((w) => w.path === 'routes/admin-review-responses.ts' && w.stamped),
+      vendorActionWriters().some((w) => w.path === 'lib/review-moderation.ts' && w.stamped),
     ).toBe(true);
   });
 

@@ -115,6 +115,7 @@ import {
   type ListAllAuthRecords,
 } from '../lib/supabase-admin';
 import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
+import { pendingModerationCountStatements } from '../lib/ban-reject-pending';
 import { accountCountStatements } from '../lib/dmca-notices';
 
 type AdminUserContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
@@ -428,6 +429,8 @@ export function createAdminUserDetailHandler(
       audienceRows,
       dmcaTakedowns,
       dmcaCounterNotices,
+      pendingUpdates,
+      pendingResponses,
     ] = await db.batch([
       db
         .select({
@@ -486,6 +489,9 @@ export function createAdminUserDetailHandler(
         .orderBy(textAsc(taxonomyAudiences.name), asc(taxonomyAudiences.id)),
       // AECI-1665: the copyright counts, from the predicates `/admin/dmca?account=` uses.
       ...accountCountStatements(db, userId),
+      // AECI-1949: what a ban's `reject_pending` would reject besides the pending
+      // reviews, from the predicates the ban itself uses.
+      ...pendingModerationCountStatements(db, userId),
     ]);
 
     const profile = profileRows[0];
@@ -586,6 +592,10 @@ export function createAdminUserDetailHandler(
         requests_by_email: requestsByEmail,
         dmca_takedowns: dmcaTakedowns[0]?.value ?? 0,
         dmca_counter_notices: dmcaCounterNotices[0]?.value ?? 0,
+        pending_moderation: {
+          review_updates: pendingUpdates[0]?.value ?? 0,
+          review_responses: pendingResponses[0]?.value ?? 0,
+        },
       },
       // Server-computed from the same constant the moderation queue uses, so the
       // two surfaces cannot label the same person differently.

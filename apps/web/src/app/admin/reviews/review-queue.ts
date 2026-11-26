@@ -12,12 +12,16 @@ import {
   Injector,
   afterNextRender,
   computed,
+  effect,
   inject,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import { FormField, form, submit, validateStandardSchema } from '@angular/forms/signals';
 import { RouterLink } from '@angular/router';
+
+import { QueueAccountFilter, injectQueueAccount } from './queue-account-filter';
 
 import { lastSeatRefusalVendorId } from '../last-seat-refusal';
 import {
@@ -46,7 +50,16 @@ import { CONSOLE_LABEL_CLASS, CONSOLE_TABLE } from '../console/console-table';
 import { AdminDangerAction, type AdminDangerConfirmStep } from '../console/danger-action';
 import { AdminDisclosureButton } from '../console/disclosure-button';
 import { adminStatusTone, type AdminStatusKey } from '../console/status-tones';
+import {
+  BanPendingChoice,
+  banPendingCounts,
+  banPendingTotal,
+  isBanPendingChanged,
+  isBanRejectTooMany,
+  type BanPendingCounts,
+} from '../reviewers/ban-pending-choice';
 import { ReviewerBansApi } from '../reviewers/reviewer-bans-api';
+import { AdminUsersApi } from '../users/admin-users-api';
 import { AdminReviewsApi } from './admin-reviews-api';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
 import { AecEarlyInput } from '../../shared/form-field/early-input';
@@ -138,8 +151,10 @@ const BanReasonSchema = z.object({
     AecButton,
     AecFormSubmit,
     AecIcon,
+    BanPendingChoice,
     Chip,
     DatePipe,
+    QueueAccountFilter,
     OverlayModule,
     RouterLink,
     FormField,
@@ -170,6 +185,7 @@ export class ReviewQueue {
   private readonly document = inject(DOCUMENT);
   private readonly api = inject(AdminReviewsApi);
   private readonly bansApi = inject(ReviewerBansApi);
+  private readonly usersApi = inject(AdminUsersApi);
   private readonly summaryStore = inject(AdminSummaryStore);
 
   /** The loaded pending reviews (server order; the view applies the sort). */
@@ -297,6 +313,13 @@ export class ReviewQueue {
   /** `409 VENDOR_LAST_SEAT_USE_SUSPEND` (AECI-1623): a retry can never work, so the dialog
    *  points at Suspend on the vendor page instead of asking for one. */
   protected readonly banLastSeatVendorId = signal<string | null>(null);
+  /** AECI-1949: the reviewer's pending items, read from `GET /api/admin/users/:id`
+   *  when the dialog opens. `null` until it lands, or when the read failed: the
+   *  dialog then bans without rejecting, as before. */
+  protected readonly banCounts = signal<BanPendingCounts | null>(null);
+  protected readonly banRejectPending = signal(true);
+  /** `409 BAN_PENDING_CHANGED` or `422 BAN_REJECT_TOO_MANY`: the message to show. */
+  protected readonly banPendingProblem = signal<'changed' | 'too_many' | null>(null);
 
   /** Localized stand-in for the reviewer's name when their email is unknown
    *  (anonymized). Held here as a `$localize` string so the fallback stays
@@ -337,9 +360,29 @@ export class ReviewQueue {
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
 
+  /** AECI-1949: `?account=` narrows the queue to one person, as on `/admin/dmca`. */
+  protected readonly account = injectQueueAccount();
+  /** The filtered person's address, off a loaded row. */
+  protected readonly accountEmail = computed(() => {
+    const id = this.account();
+    return id ? (this.reviews().find((r) => r.reviewer_id === id)?.reviewer_email ?? null) : null;
+  });
+  /** The account the last load asked for, so the effect reloads only on a change. */
+  private loadedAccount: string | null | undefined = undefined;
+
   constructor() {
     afterNextRender(() => {
       void this.load();
+    });
+    // A changed `?account=` (the filter bar's Clear, Back) reloads the list.
+    effect(() => {
+      const account = this.account();
+      untracked(() => {
+        if (this.loadedAccount !== undefined && account !== this.loadedAccount) {
+          this.page.set(1);
+          void this.load();
+        }
+      });
     });
     this.destroyRef.onDestroy(() => {
       if (this.legendCloseTimer) clearTimeout(this.legendCloseTimer);
@@ -349,9 +392,12 @@ export class ReviewQueue {
   private async load(): Promise<void> {
     this.loadFailed.set(false);
     this.loading.set(true);
+    const account = this.account();
+    this.loadedAccount = account;
     try {
       const res = await this.api.listPending({
         status: this.statusFilter(),
+        ...(account ? { account_id: account } : {}),
         sort: 'queue_age',
         page: 1,
         perPage: QUEUE_PAGE_SIZE,
@@ -710,8 +756,24 @@ export class ReviewQueue {
     this.banLastSeatVendorId.set(null);
     this.banReasonModel.set({ reason: '' });
     this.banForm.reason().reset();
+    this.banCounts.set(null);
+    this.banRejectPending.set(true);
+    this.banPendingProblem.set(null);
     this.banTarget.set(prompt);
     this.banDialog()?.open();
+    void this.loadBanCounts(prompt.reviewer_id);
+  }
+
+  /** AECI-1949: the same counts `/admin/users/:id` shows. A failed read leaves them
+   *  `null`, so the dialog offers no reject. */
+  private async loadBanCounts(reviewerId: string): Promise<void> {
+    try {
+      const detail = await this.usersApi.getUser(reviewerId);
+      if (this.banTarget()?.reviewer_id === reviewerId)
+        this.banCounts.set(banPendingCounts(detail));
+    } catch {
+      if (this.banTarget()?.reviewer_id === reviewerId) this.banCounts.set(null);
+    }
   }
 
   /** Close the ban dialog (Cancel button, backdrop click, or Escape). */
@@ -728,23 +790,49 @@ export class ReviewQueue {
     if (!target) return;
     this.banFailed.set(false);
     this.banLastSeatVendorId.set(null);
+    this.banPendingProblem.set(null);
     await submit(this.banForm, async (f) => {
       const reason = f().value().reason.trim();
+      const rejectPending = banPendingTotal(this.banCounts()) > 0 && this.banRejectPending();
       this.banSubmitting.set(true);
       try {
-        await this.bansApi.ban(target.reviewer_id, { action: 'ban', reason });
+        const result = await this.bansApi.ban(target.reviewer_id, {
+          action: 'ban',
+          reason,
+          ...(rejectPending ? { reject_pending: true } : {}),
+        });
         this.closeBan();
         this.repeatOffenderPrompt.set(null);
-        this.liveMessage.set($localize`:@@admin.reviews.ban.announce.banned:Reviewer banned.`);
+        const rejected = banPendingTotal(result.rejected ?? null);
+        this.liveMessage.set(
+          rejected > 0
+            ? $localize`:@@admin.reviews.ban.announce.bannedRejected:Reviewer banned. ${rejected}:COUNT: pending items rejected.`
+            : $localize`:@@admin.reviews.ban.announce.banned:Reviewer banned.`,
+        );
+        // The rejected reviews leave the pending tab.
+        if (rejected > 0) void this.load();
         // The notice and its "Ban reviewer" button are gone, so focus the heading.
         this.focusAfterRender('admin-reviews-heading');
       } catch (err) {
         // Keep the dialog open so the admin can retry; surface an inline error.
         const lastSeatVendorId = lastSeatRefusalVendorId(err);
-        if (lastSeatVendorId) this.banLastSeatVendorId.set(lastSeatVendorId);
-        else this.banFailed.set(true);
+        let alertId = 'ban-failed';
+        if (lastSeatVendorId) {
+          this.banLastSeatVendorId.set(lastSeatVendorId);
+          alertId = 'ban-last-seat';
+        } else if (isBanPendingChanged(err) || isBanRejectTooMany(err)) {
+          // AECI-1949: nothing was saved. Show the new counts and ask again.
+          const changed = isBanPendingChanged(err);
+          this.banPendingProblem.set(changed ? 'changed' : 'too_many');
+          if (changed) {
+            this.banRejectPending.set(true);
+            await this.loadBanCounts(target.reviewer_id);
+          }
+          alertId = 'ban-pending-problem';
+        } else {
+          this.banFailed.set(true);
+        }
         // The dialog is in the CDK overlay, outside this host, so look it up on the document.
-        const alertId = lastSeatVendorId ? 'ban-last-seat' : 'ban-failed';
         afterNextRender(
           { write: () => this.document.getElementById(alertId)?.focus() },
           { injector: this.injector },

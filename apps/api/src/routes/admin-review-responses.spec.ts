@@ -227,6 +227,21 @@ const REASONED: Record<ReviewResponseDecision, Record<string, string>> = {
 // ─── GET ─────────────────────────────────────────────────────────────────────
 
 describe('GET /api/admin/review-responses', () => {
+  it('filters by account_id with status and paging, and names the author id (AECI-1949)', async () => {
+    const a = await seedReply(R1, 'pending', { updatedAt: T1 });
+    const b = await seedReply(R2, 'pending', { updatedAt: T2 });
+    await seedReply(R3, 'pending', { authorProfileId: SEAT_B });
+
+    const mine = await list(`?account_id=${SEAT_A}`);
+    expect(mine.body.total).toBe(2);
+    expect(mine.body.data.map((r: JsonBody) => r.id)).toEqual([a, b]);
+    expect(mine.body.data[0].author_profile_id).toBe(SEAT_A);
+    const page2 = await list(`?account_id=${SEAT_A}&perPage=1&page=2`);
+    expect(page2.body.data.map((r: JsonBody) => r.id)).toEqual([b]);
+    expect((await list(`?account_id=${SEAT_A}&status=published`)).body.total).toBe(0);
+    expect((await list('')).body.total).toBe(3);
+  });
+
   it('lists pending replies by default, oldest first, fully hydrated', async () => {
     const newer = await seedReply(R1, 'pending', { updatedAt: T2 });
     const older = await seedReply(R2, 'pending', { updatedAt: T1 });

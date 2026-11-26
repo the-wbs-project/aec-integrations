@@ -41,6 +41,13 @@ export const BanReviewerSchema = z
   .object({
     action: z.enum(['ban', 'unban']),
     reason: z.string().max(500).optional(),
+    /**
+     * AECI-1949: also reject the person's pending reviews, review updates and (for
+     * a vendor seat) replies they wrote, in the ban's own batch. Only valid with
+     * `action: 'ban'`; sent with `unban` it is a `VALIDATION_FAILED` on this field.
+     * Capped at {@link BAN_REJECT_MAX_ITEMS}.
+     */
+    reject_pending: z.boolean().optional(),
   })
   .superRefine((value, ctx) => {
     if (value.action === 'ban' && (value.reason ?? '').trim().length === 0) {
@@ -50,15 +57,48 @@ export const BanReviewerSchema = z
         message: 'reason is required when banning a reviewer',
       });
     }
+    if (value.action === 'unban' && value.reject_pending !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['reject_pending'],
+        message: 'reject_pending is only valid when banning',
+      });
+    }
   });
 export type BanReviewerInput = z.infer<typeof BanReviewerSchema>;
 
+/**
+ * AECI-1949: the most pending items one ban may reject. Each costs three to five
+ * statements plus its preload reads, which keeps the request under D1's 1,000
+ * queries per invocation. Above it the ban answers `422 BAN_REJECT_TOO_MANY`.
+ */
+export const BAN_REJECT_MAX_ITEMS = 100;
+
+/**
+ * AECI-1949: the `rejection_reason` stored on every item a ban rejects. The reviewer
+ * reads it in the update-declined email, and the vendor's other seats read it on the
+ * reply notice, so it must make sense to both. It never repeats the operator's ban
+ * reason, which stays internal (`lib/ban-message.ts`). Stored data, not UI copy.
+ */
+export const BAN_REJECTION_REASON =
+  'Declined because the account that submitted it can no longer post on AEC Integrations.';
+
+/** How many items of each kind a ban rejected. All zero without `reject_pending`. */
+export const BanRejectedCountsSchema = z.object({
+  reviews: z.number().int().min(0),
+  review_updates: z.number().int().min(0),
+  review_responses: z.number().int().min(0),
+});
+export type BanRejectedCounts = z.infer<typeof BanRejectedCountsSchema>;
+
 /** `PATCH /api/admin/reviewers/:id` returns the reviewer's post-action ban state.
- *  `banned_at`/`ban_reason` are null after an unban. */
+ *  `banned_at`/`ban_reason` are null after an unban. `rejected` (AECI-1949) counts
+ *  the pending items the ban rejected; optional for deploy skew. */
 export const BanReviewerResponseSchema = z.object({
   reviewer_id: z.string().uuid(),
   banned_at: z.string().datetime().nullable(),
   ban_reason: z.string().nullable(),
+  rejected: BanRejectedCountsSchema.optional(),
 });
 export type BanReviewerResponse = z.infer<typeof BanReviewerResponseSchema>;
 

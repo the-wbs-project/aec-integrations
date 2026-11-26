@@ -6,10 +6,14 @@ import {
   Injector,
   afterNextRender,
   computed,
+  effect,
   inject,
   signal,
+  untracked,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
+
+import { QueueAccountFilter, injectQueueAccount } from '../reviews/queue-account-filter';
 
 import {
   REVIEW_UPDATE_DECISIONS,
@@ -95,6 +99,7 @@ type ReasonedDecision = Exclude<ReviewUpdateDecision, 'approve'>;
     AecIcon,
     Chip,
     DatePipe,
+    QueueAccountFilter,
     RouterLink,
   ],
   templateUrl: './review-update-queue.html',
@@ -181,18 +186,40 @@ export class ReviewUpdateQueue {
   protected readonly loadedCount = computed(() => this.updates().length);
   protected readonly truncated = computed(() => this.total() > this.updates().length);
 
+  /** AECI-1949: `?account=` narrows the queue to one person, as on `/admin/dmca`. */
+  protected readonly account = injectQueueAccount();
+  /** The filtered person's address, off a loaded row. */
+  protected readonly accountEmail = computed(() => {
+    const id = this.account();
+    return id ? (this.updates().find((r) => r.reviewer_id === id)?.reviewer_email ?? null) : null;
+  });
+  /** The account the last load asked for, so the effect reloads only on a change. */
+  private loadedAccount: string | null | undefined = undefined;
+
   constructor() {
     afterNextRender(() => {
       void this.load();
+    });
+    // A changed `?account=` (the filter bar's Clear, Back) reloads the list.
+    effect(() => {
+      const account = this.account();
+      untracked(() => {
+        if (this.loadedAccount !== undefined && account !== this.loadedAccount) {
+          void this.load();
+        }
+      });
     });
   }
 
   private async load(): Promise<void> {
     this.loadFailed.set(false);
     this.loading.set(true);
+    const account = this.account();
+    this.loadedAccount = account;
     try {
       const res = await this.api.listUpdates({
         status: this.statusFilter(),
+        ...(account ? { account_id: account } : {}),
         page: 1,
         perPage: QUEUE_PAGE_SIZE,
       });

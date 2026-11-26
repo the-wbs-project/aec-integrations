@@ -309,9 +309,58 @@
           <dt [class]="c.label" i18n="@@admin.users.detail.reviewsApproved">Reviews approved</dt>
           <dd [class]="c.factValue" class="tabular-nums">{{ u.counts.reviews.approved }}</dd>
         </div>
-        <div>
+        <!-- AECI-1949: each pending count opens its queue filtered to this person. -->
+        <div data-testid="user-pending-reviews">
           <dt [class]="c.label" i18n="@@admin.users.detail.reviewsPending">Reviews pending</dt>
-          <dd [class]="c.factValue" class="tabular-nums">{{ u.counts.reviews.pending }}</dd>
+          <dd [class]="c.factValue" class="tabular-nums">
+            <a
+              [routerLink]="['/admin/reviews']"
+              [queryParams]="{ account: u.id }"
+              [class]="c.inlineLink"
+              >{{ u.counts.reviews.pending }}<span
+                class="sr-only"
+                i18n="@@admin.users.detail.reviewsPendingLink"
+              >
+                pending reviews. Open the review queue for this person.</span
+              ></a
+            >
+          </dd>
+        </div>
+        <div data-testid="user-pending-updates">
+          <dt [class]="c.label" i18n="@@admin.users.detail.updatesPending">
+            Review updates pending
+          </dt>
+          <dd [class]="c.factValue" class="tabular-nums">
+            <a
+              [routerLink]="['/admin/review-updates']"
+              [queryParams]="{ account: u.id }"
+              [class]="c.inlineLink"
+              >{{ u.counts.pending_moderation?.review_updates ?? 0 }}<span
+                class="sr-only"
+                i18n="@@admin.users.detail.updatesPendingLink"
+              >
+                pending review updates. Open the update queue for this person.</span
+              ></a
+            >
+          </dd>
+        </div>
+        <div data-testid="user-pending-replies">
+          <dt [class]="c.label" i18n="@@admin.users.detail.repliesPending">
+            Vendor replies pending
+          </dt>
+          <dd [class]="c.factValue" class="tabular-nums">
+            <a
+              [routerLink]="['/admin/review-responses']"
+              [queryParams]="{ account: u.id }"
+              [class]="c.inlineLink"
+              >{{ u.counts.pending_moderation?.review_responses ?? 0 }}<span
+                class="sr-only"
+                i18n="@@admin.users.detail.repliesPendingLink"
+              >
+                pending vendor replies. Open the reply queue for this person.</span
+              ></a
+            >
+          </dd>
         </div>
         <div>
           <dt [class]="c.label" i18n="@@admin.users.detail.reviewsRejected">Reviews rejected</dt>
@@ -429,9 +478,10 @@
         </div>
       </div>
       } @else {
-      <p [class]="c.caption" class="mt-4 max-w-[42rem]" i18n="@@admin.users.ban.notBanned">
-        This account is active. Banning blocks their writes everywhere on their next request; it
-        does not remove a vendor seat, and it does not delete anything they have written.
+      <p [class]="c.caption" class="mt-4 max-w-[42rem]" i18n="@@admin.users.ban.notBanned2">
+        This account is active. Banning blocks their writes everywhere on their next request. It
+        does not remove a vendor seat or anything already published. It can also reject what they
+        have waiting in the review queues.
       </p>
       @if (u.seat) {
       <p [class]="c.caption" class="mt-2 max-w-[42rem]" i18n="@@admin.users.ban.lastSeatRefused">
@@ -482,6 +532,13 @@
           (input)="onReasonInput($event)"
           [class]="inputClass"
         ></textarea>
+        <aec-ban-pending-choice
+          [counts]="pendingCounts()"
+          [accountId]="u.id"
+          hintId="admin-user-ban-pending-hint"
+          [disabled]="actionPending()"
+          [(checked)]="rejectPending"
+        />
         <div [class]="c.actions" class="mt-2">
           <button aecButton variant="danger" type="submit" [disabled]="actionPending()">
             @if (actionPending()) {

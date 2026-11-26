@@ -61,6 +61,7 @@ import {
   sendMailingListWelcomeEmail,
   sendReviewApprovedEmail,
   sendReviewRejectedEmail,
+  sendReviewUpdateRejectedEmail,
   sendProductRequestDecidedEmail,
   sendLicenseReleaseRequestAlert,
   sendLicensesGrantedEmail,
@@ -538,6 +539,38 @@ describe('sendReviewRejectedEmail', () => {
     expect(text).toContain('this stays as your review of A & B');
     expect(html).toContain('this stays as your review of <strong>A &amp; B</strong>');
     expect(text).not.toMatch(/submit an updated review|needs revision/i);
+  });
+});
+
+// AECI-1949: a ban-reject must not point a banned person at a page they cannot open.
+describe('sendReviewUpdateRejectedEmail', () => {
+  it('invites a new update from the account page on a normal reject', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendReviewUpdateRejectedEmail(fakeContext(), {
+      to: 'rev@example.com',
+      productName: 'Revit',
+      reason: 'Offers an incentive.',
+    });
+
+    const body = lastBody(fetchSpy);
+    expect(String(body.text)).toContain('Offers an incentive.');
+    expect(String(body.text)).toContain('You can add a new update from your account page.');
+  });
+
+  it('drops the account-page line when the update was rejected by a ban', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendReviewUpdateRejectedEmail(fakeContext(), {
+      to: 'rev@example.com',
+      productName: 'Revit',
+      reason: 'Declined.',
+      afterBan: true,
+    });
+
+    const body = lastBody(fetchSpy);
+    for (const part of [String(body.text), String(body.html)]) {
+      expect(part).toContain('Your original review is still published, unchanged.');
+      expect(part).not.toMatch(/account page|add a new update/i);
+    }
   });
 });
 

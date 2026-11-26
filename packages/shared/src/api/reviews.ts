@@ -203,6 +203,9 @@ export type ProductReviewsResponse = z.infer<typeof ProductReviewsResponseSchema
 export const ListPendingReviewsQuerySchema = PageQuerySchema.extend({
   status: ReviewStatusSchema.default('pending'),
   sort: z.enum(['queue_age', 'created_at']).default('queue_age'),
+  /** AECI-1949: one person's reviews (`reviews.reviewer_id`). The name matches
+   *  `/api/admin/dmca?account_id=`. */
+  account_id: z.string().uuid().optional(),
 });
 export type ListPendingReviewsQuery = z.infer<typeof ListPendingReviewsQuerySchema>;
 
@@ -216,6 +219,9 @@ export type ListPendingReviewsQuery = z.infer<typeof ListPendingReviewsQuerySche
 export const AdminReviewSchema = z.object({
   id: z.string().uuid(),
   product: LinkRefSchema,
+  /** AECI-1949: the author's profile id, for the link to `/admin/users/:id`. `null`
+   *  once the account is erased. Optional for deploy skew. */
+  reviewer_id: z.string().uuid().nullable().optional(),
   reviewer_email: z.string().nullable(),
   reviewer_firm: z.string().nullable(),
   rating_overall: z.number().int().min(1).max(5),
