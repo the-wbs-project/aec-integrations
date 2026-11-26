@@ -24,6 +24,7 @@
  * Every check reports problems as plain sentences. The spec asserts the list is empty.
  */
 import { expect, type Page } from '@playwright/test';
+import { sequentialKey } from './browser-expectations';
 import { focusFacts, popupFacts, triggerFacts, type FocusFacts, type PopupFacts } from './probe';
 import { describeFocused, type TabStop } from './tab-walk';
 
@@ -259,7 +260,7 @@ async function checkTrap(
     const seen = new Set<number>();
     let cycled = false;
     for (let i = 0; i < 50; i++) {
-      await page.keyboard.press(key);
+      await page.keyboard.press(sequentialKey(page, key));
       const facts = await focusFacts(page);
       const popups = await newPopups(page, trigger.key, baseline);
       if (popups.length === 0) return [`${key} closed the dialog`];
@@ -284,7 +285,7 @@ async function checkContainOrClose(
   baseline: ReadonlySet<number>,
 ): Promise<string[]> {
   for (let i = 0; i < 80; i++) {
-    await page.keyboard.press('Tab');
+    await page.keyboard.press(sequentialKey(page, 'Tab'));
     if (!(await isOpen(page, trigger.key, baseline))) return [];
     const popups = await newPopups(page, trigger.key, baseline);
     const trig = await triggerFacts(page, trigger.key);

@@ -17,6 +17,7 @@ AECI-1875 built this harness. The sub-issues of AECI-1874 add the checks. The fu
 | `interaction.spec.ts` | The interaction scripts (AECI-1882): hover content (1.4.13), pointer cancellation (2.5.2), on input (3.2.2), character shortcuts (2.1.4), motion and reduced motion (2.2.2), and axe and the focus ring under forced colours. Two loads per surface, each check its own test. Barriers are `KNOWN_INTERACTION_BARRIERS` in the spec. `docs/TESTING_STRATEGY.md` §8.4.7. |
 | `interaction-flows.spec.ts` | Error prevention (3.3.4, AECI-1882): the claim, checkout, account delete and moderation flows each stop on their confirm or review step. Nothing is confirmed against a real endpoint. `docs/TESTING_STRATEGY.md` §8.4.7. |
 | `__snapshots__/chromium/keyboard-*` | The committed tab-order snapshots, one per surface (AECI-1877). A change is a behaviour change: review it. |
+| `__snapshots__/firefox/keyboard-*`, `__snapshots__/webkit/keyboard-*` | The same tab orders in Playwright's Firefox and WebKit builds (AECI-1885). A change that alters a tab order updates all three folders in the same PR. |
 | `__snapshots__/chromium/aria-*` | The committed ARIA snapshots (AECI-1879): `main`, the state flips, the header and the footer, masked. Update with `playwright test -c playwright.a11y-nightly.config.ts aria- --update-snapshots`, and review the diff. |
 | `support/` | Helpers every spec shares. `surface-page.ts` mints the session, skips, and waits for hydration. `tab-walk.ts`, `probe.ts`, `tab-candidates.ts` and `overlay-check.ts` are the keyboard tools. `page-guards.ts` blocks writes. `aria-tree.ts` holds the ARIA rules and the snapshot masking, `state-snapshots.ts` flips each stateful control by keyboard and snapshots it, and `known-barriers.ts` marks known barriers, narrowed to the problems each one covers. `announcements.ts` is the announcement recorder: `recordAnnouncements(page)`, then `expectHeardOnce(await rec.settle(), text, via)`. `e2e/` specs import it too. `announcement-flows.ts` holds the announcement specs' write stubs and form-error check. `focus-check.ts`, `focus-probe.ts` and `focus-pixels.ts` are the focus ring checks: the walk, the in-page reads, and the pure colour and pixel maths. `magnify-probe.ts` and `magnify-geometry.ts` are the magnification checks: the in-page reads and overrides, and the pure clip, overlap, sideways-scroll and rotation rules. `voice-probe.ts`, `voice-names.ts` and `voice-summary.ts` are the voice-control checks: the read of each control's Chromium name and visible label, the pure rules, and the summary's `voice` block. `ibm-engine.ts` injects IBM's engine from `node_modules` (`accessibility-checker-engine`, pinned) and runs it and axe on one state. `ibm-overlap.ts` is pure: IBM's levels and lists, the axe overlap rule `matchAxe`, and the summary's `ibm` block. `interaction-checks.ts`, `interaction-probe.ts` and `interaction-rules.ts` are the interaction scripts: the checks, the in-page reads and init script, and the pure verdicts. `on-input-list.ts` is the ruled list of controls allowed to change the page on input (Chris, 2026-11-26). `keyboard-suite.ts` and `aria-suite.ts` define the keyboard and ARIA tests the per-persona specs run. `header-owner.ts` picks the one surface per persona that checks the site header. `overlay-scenarios.ts` holds the overlays a fresh Tab walk cannot reach, and `popup-roles.ts` the `aria-haspopup` rule. The pure helpers are pinned by the `*.unit.spec.ts` files here, which the plain Vitest runner runs in the PR unit job. Playwright skips them. |
 | `known-failure.ts` | `knownFailure('AECI-<n>', reason)`, the only allowed way to mark a test as failing. |
@@ -27,11 +28,21 @@ The nightly also runs the whole e2e suite with the axe sweep on (AECI-1876). Tha
 are `e2e/axe-known-failures.ts`. Run it with `pnpm test:e2e:axe`. `docs/TESTING_STRATEGY.md` §8.2
 describes it.
 
+**Three browsers (AECI-1885, ADR 0060).** The nightly config has three projects. `chromium` runs every
+suite. `firefox` and `webkit` run only the keyboard, focus ring and announcement suites. What differs
+between them by design is one entry in `support/browser-expectations.ts`, with its reason. WebKit walks
+press Option+Tab, because Playwright WebKit skips links on a plain Tab as Safari does. A barrier found in
+one browser is marked for that browser only, through the `browsers` field of the barrier tables.
+Playwright WebKit is not Safari. `docs/TESTING_STRATEGY.md` §8.4.10 is the full description.
+
 The PR e2e job never runs these specs. They run from `playwright.a11y-nightly.config.ts`:
 
 ```bash
 pnpm test:a11y:nightly
 ```
+
+With no `--project` that runs all three browsers. Install Firefox and WebKit once with
+`pnpm --filter @aeci/web exec playwright install firefox webkit`, or add `--project=chromium`.
 
 Against `pnpm dev:agent`, set `AECI_WEB_PORT` and `PLAYWRIGHT_BASE_URL` to the web port it printed.
 CI runs the suite in eight shards (`--shard=N/8`). Playwright splits by test, so a test must never rely
@@ -58,8 +69,12 @@ To add a check:
 5. Keep each test independent of the others, by the shard rule above.
 6. If you change `surfaces.ts`, change `docs/a11y-manual-testing-checklist.md` §1 with it.
 
-To update the tab-order snapshots after a deliberate change:
+To update the tab-order snapshots after a deliberate change, for all three browsers:
 
 ```bash
 pnpm --filter @aeci/web exec playwright test -c playwright.a11y-nightly.config.ts keyboard --update-snapshots
 ```
+
+Add `--project=firefox` or `--project=webkit` for one browser. A laptop writes the macOS WebKit port,
+and CI runs the Linux one. If CI's WebKit walk differs, write the WebKit snapshots on the runner with the
+`update_snapshots` dispatch. `docs/TESTING_STRATEGY.md` §8.4.10 has the commands.

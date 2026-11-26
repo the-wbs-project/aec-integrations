@@ -1,17 +1,21 @@
 /**
- * `.github/workflows/a11y-nightly.yml`, the two-lane accessibility nightly (AECI-1876).
+ * `.github/workflows/a11y-nightly.yml`, the three-lane accessibility nightly (AECI-1876,
+ * AECI-1885).
  * Runs under `node --test` from root `pnpm test:scripts`.
  *
  * What must hold, or a lane drops out of the result without anyone seeing:
- *   1. The `suite` and `e2e-axe` matrices list exactly 1..SUITE_SHARDS and
- *      1..E2E_AXE_SHARDS, and each job name says /N (AECI-1874 sharded `suite`).
+ *   1. The `suite`, `e2e-axe` and `cross-browser` matrices list exactly 1..SUITE_SHARDS,
+ *      1..E2E_AXE_SHARDS and 1..CROSS_BROWSER_SHARDS, and each job name says /N (AECI-1874
+ *      sharded `suite`). `suite` runs Chromium only. `cross-browser` runs the browsers in
+ *      CROSS_BROWSERS from its own browser cache (AECI-1885).
  *   2. Every summary `report` merges is one a job uploads, under that name and file.
  *      The merge step's own shell body runs here, so the part list is checked as built.
- *   3. `report` decides the outcome from BOTH lanes and from which summaries arrived. Green
+ *   3. `report` decides the outcome from ALL THREE lanes and from which summaries arrived. Green
  *      lanes with a missing summary are a failure (review round 2). The steps' own shell
  *      bodies run here.
  *   4. The alert and confirm-alert jobs read `report`'s outcome, not one lane's result.
- *   5. The PR e2e job never turns the sweep on.
+ *   5. The PR e2e job never turns the sweep on, and stays Chromium only.
+ *   6. A snapshot-only dispatch (ADR 0060 answer 5) runs no lane and posts no status.
  *
  * Child processes use execFileSync with fixed argument arrays (no shell string built from input).
  */
@@ -65,9 +69,29 @@ function shardTotal(name = 'E2E_AXE_SHARDS') {
   return Number(match[1]);
 }
 
+/** The browsers of the Firefox and WebKit lane (AECI-1885), from `CROSS_BROWSERS`. */
+function crossBrowsers() {
+  const match = WORKFLOW.match(/CROSS_BROWSERS: '([a-z ]+)'/);
+  assert.ok(match, 'a11y-nightly.yml sets CROSS_BROWSERS');
+  return match[1].split(' ');
+}
+
 const LANES = [
-  { job: 'e2e-axe', total: 'E2E_AXE_SHARDS', config: 'playwright.e2e-axe.config.ts' },
-  { job: 'suite', total: 'SUITE_SHARDS', config: 'playwright.a11y-nightly.config.ts' },
+  { job: 'e2e-axe', total: 'E2E_AXE_SHARDS', config: 'playwright.e2e-axe.config.ts', project: '' },
+  {
+    job: 'suite',
+    total: 'SUITE_SHARDS',
+    config: 'playwright.a11y-nightly.config.ts',
+    // AECI-1885: the nightly config also holds firefox and webkit. The suite
+    // shards run Chromium only, once (ADR 0060 decision 3).
+    project: '--project=chromium ',
+  },
+  {
+    job: 'cross-browser',
+    total: 'CROSS_BROWSER_SHARDS',
+    config: 'playwright.a11y-nightly.config.ts',
+    project: '--project="\\$BROWSER" ',
+  },
 ];
 
 for (const lane of LANES) {
@@ -83,11 +107,85 @@ for (const lane of LANES) {
     assert.match(body, new RegExp(`\\(shard \\$\\{\\{ matrix\\.shard \\}\\}/${total}\\)`));
     assert.match(body, /fail-fast: false/);
     const run = new RegExp(
-      `-c ${lane.config.replace(/\./g, '\\.')} --shard="\\$SHARD/\\$${lane.total}"`,
+      `-c ${lane.config.replace(/\./g, '\\.')} ${lane.project}--shard="\\$SHARD/\\$${lane.total}"`,
     );
     assert.match(body, run);
   });
 }
+
+test('the cross-browser lane runs each listed browser, from its own browser cache (AECI-1885)', () => {
+  const body = job('cross-browser');
+  const browsers = crossBrowsers();
+  assert.deepEqual(browsers, ['firefox', 'webkit']);
+  const match = body.match(/browser: \[([a-z,\s]+)\]/);
+  assert.ok(match, 'cross-browser has a browser matrix');
+  assert.deepEqual(
+    match[1].split(',').map((b) => b.trim()),
+    browsers,
+  );
+  assert.match(body, /BROWSER: \$\{\{ matrix\.browser \}\}/);
+  // ADR 0060: the shared `playwright-<os>-…` key holds Chromium alone. A job
+  // that restored it could not launch Firefox or WebKit, so this key differs.
+  assert.match(
+    body,
+    /key: playwright-a11y-\$\{\{ matrix\.browser \}\}-\$\{\{ runner\.os \}\}-\$\{\{ env\.ImageOS \}\}-\$\{\{ hashFiles\('pnpm-lock\.yaml'\) \}\}/,
+  );
+  assert.doesNotMatch(body, /key: playwright-\$\{\{ runner\.os \}\}/);
+  assert.match(body, /playwright install --with-deps "\$BROWSER"/);
+  assert.match(body, /playwright install-deps "\$BROWSER"/);
+  assert.doesNotMatch(body, /install --with-deps chromium|statuses: write|GH_TOKEN/);
+  assert.match(
+    body,
+    /name: a11y-nightly-summary-\$\{\{ matrix\.browser \}\}-\$\{\{ matrix\.shard \}\}\n\s+path: apps\/web\/a11y-nightly-summary\.json/,
+  );
+  // The other lanes keep the shared Chromium key, so the PR job's cache is untouched.
+  for (const name of ['suite', 'e2e-axe']) {
+    assert.match(job(name), /install --with-deps chromium/, name);
+  }
+});
+
+test('nothing here runs on a PR, and the PR e2e job stays Chromium only (AECI-1885)', () => {
+  assert.doesNotMatch(WORKFLOW, /^\s+pull_request/m);
+  assert.doesNotMatch(DEPLOY, /firefox|webkit/i);
+  assert.doesNotMatch(
+    DEFAULT_CONFIG,
+    /Desktop Firefox|Desktop Safari|name: 'firefox'|name: 'webkit'/,
+  );
+});
+
+test('a snapshot-only dispatch runs no lane, posts no status, and names its browser (AECI-1885)', () => {
+  const resolveStep = 'Resolve the SHA and check for an existing a11y-nightly status';
+  const base = { EVENT_SHA: 'abc', REPO: 'o/r', GH_TOKEN: '' };
+  assert.equal(
+    outputOf(resolveStep, { ...base, EVENT_NAME: 'workflow_dispatch', UPDATE_SNAPSHOTS: 'webkit' }),
+    'sha=abc\nmeasure=false\ntrigger=manual\nsnapshots=webkit',
+  );
+  assert.equal(
+    outputOf(resolveStep, { ...base, EVENT_NAME: 'workflow_dispatch', UPDATE_SNAPSHOTS: 'none' }),
+    'sha=abc\nmeasure=true\ntrigger=manual\nsnapshots=',
+  );
+  // An unlisted value is ignored, never run.
+  assert.equal(
+    outputOf(resolveStep, { ...base, EVENT_NAME: 'workflow_dispatch', UPDATE_SNAPSHOTS: 'x; rm' }),
+    'sha=abc\nmeasure=true\ntrigger=manual\nsnapshots=',
+  );
+  const body = job('snapshots');
+  assert.match(body, /if: needs\.resolve\.outputs\.snapshots != ''/);
+  assert.match(
+    body,
+    /keyboard- --grep "tab walk" --project="\$BROWSER" --update-snapshots=changed/,
+  );
+  assert.match(
+    body,
+    /name: a11y-keyboard-snapshots-\$\{\{ needs\.resolve\.outputs\.snapshots \}\}/,
+  );
+  assert.doesNotMatch(body, /statuses: write|GH_TOKEN/);
+  // The lanes and `report` all wait on `measure`, which the snapshot run sets false.
+  for (const name of ['suite', 'e2e-axe', 'cross-browser']) {
+    assert.match(job(name), /if: needs\.resolve\.outputs\.measure == 'true'/, name);
+  }
+  assert.match(WORKFLOW, /options:\n\s+- none\n\s+- firefox\n\s+- webkit\n/);
+});
 
 test('the suite posts pending once, from shard 1, and runs no unsharded copy', () => {
   const body = job('suite');
@@ -124,6 +222,8 @@ test('every summary report merges is one a lane uploads', () => {
     ...process.env,
     SUITE_SHARDS: String(shardTotal('SUITE_SHARDS')),
     E2E_AXE_SHARDS: String(shardTotal('E2E_AXE_SHARDS')),
+    CROSS_BROWSERS: crossBrowsers().join(' '),
+    CROSS_BROWSER_SHARDS: String(shardTotal('CROSS_BROWSER_SHARDS')),
     GITHUB_STEP_SUMMARY: stepSummary,
     GITHUB_OUTPUT: githubOutput,
   };
@@ -144,7 +244,15 @@ test('every summary report merges is one a lane uploads', () => {
       { length: shardTotal('E2E_AXE_SHARDS') },
       (_, i) => `a11y-parts/a11y-nightly-summary-e2e-axe-${i + 1}/a11y-e2e-axe-summary.json`,
     ),
+    // AECI-1885: three shards per browser, six parts.
+    ...crossBrowsers().flatMap((b) =>
+      Array.from(
+        { length: shardTotal('CROSS_BROWSER_SHARDS') },
+        (_, i) => `a11y-parts/a11y-nightly-summary-${b}-${i + 1}/a11y-nightly-summary.json`,
+      ),
+    ),
   ];
+  assert.equal(expected.length, 18, 'eight suite, four sweep and six browser parts');
   assert.equal(readFileSync(githubOutput, 'utf8').trim(), `missing=${expected.length}`);
   assert.match(readFileSync(stepSummary, 'utf8'), /### Missing summaries/);
   for (const part of expected) assert.ok(readFileSync(stepSummary, 'utf8').includes(part), part);
@@ -174,26 +282,38 @@ function outputOf(step, env, cwd) {
   return readFileSync(out, 'utf8').trim();
 }
 
-test('the lanes are success only when both pass, and a failure beats a cancel', () => {
+test('the lanes are success only when all three pass, and a failure beats a cancel', () => {
+  // [suite, e2e-axe, cross-browser, want]
   const cases = [
-    ['success', 'success', 'success'],
-    ['failure', 'success', 'failure'],
-    ['success', 'failure', 'failure'],
-    ['failure', 'failure', 'failure'],
-    ['cancelled', 'success', 'cancelled'],
-    ['success', 'cancelled', 'cancelled'],
-    // A red lane alerts even when the other lane was cancelled.
-    ['failure', 'cancelled', 'failure'],
-    ['cancelled', 'failure', 'failure'],
-    ['failure', 'skipped', 'failure'],
-    ['success', 'skipped', 'cancelled'],
-    ['skipped', 'success', 'cancelled'],
+    ['success', 'success', 'success', 'success'],
+    ['failure', 'success', 'success', 'failure'],
+    ['success', 'failure', 'success', 'failure'],
+    ['success', 'success', 'failure', 'failure'],
+    ['failure', 'failure', 'failure', 'failure'],
+    ['cancelled', 'success', 'success', 'cancelled'],
+    ['success', 'cancelled', 'success', 'cancelled'],
+    ['success', 'success', 'cancelled', 'cancelled'],
+    // A red lane alerts even when another lane was cancelled, in either order.
+    ['failure', 'cancelled', 'success', 'failure'],
+    ['cancelled', 'failure', 'success', 'failure'],
+    ['cancelled', 'success', 'failure', 'failure'],
+    ['success', 'cancelled', 'failure', 'failure'],
+    ['failure', 'skipped', 'success', 'failure'],
+    ['success', 'skipped', 'success', 'cancelled'],
+    ['skipped', 'success', 'success', 'cancelled'],
+    ['success', 'success', 'skipped', 'cancelled'],
+    // A lane whose result never arrived is not a pass.
+    ['success', 'success', '', 'cancelled'],
   ];
-  for (const [suite, e2eAxe, want] of cases) {
+  for (const [suite, e2eAxe, crossBrowser, want] of cases) {
     assert.equal(
-      outputOf("Decide the lanes' outcome", { SUITE_RESULT: suite, E2E_AXE_RESULT: e2eAxe }),
+      outputOf("Decide the lanes' outcome", {
+        SUITE_RESULT: suite,
+        E2E_AXE_RESULT: e2eAxe,
+        CROSS_BROWSER_RESULT: crossBrowser,
+      }),
       `lanes=${want}`,
-      `${suite}/${e2eAxe}`,
+      `${suite}/${e2eAxe}/${crossBrowser}`,
     );
   }
 });
@@ -213,9 +333,25 @@ test('the parts check finds a shard that uploaded no summary', () => {
   for (let n = 1; n <= axe; n++) {
     place(`a11y-parts/a11y-nightly-summary-e2e-axe-${n}/a11y-e2e-axe-summary.json`);
   }
-  const env = { SUITE_SHARDS: String(suite), E2E_AXE_SHARDS: String(axe) };
-  assert.equal(outputOf('Check every summary arrived', env, dir), 'missing=1');
+  const cross = shardTotal('CROSS_BROWSER_SHARDS');
+  for (const b of crossBrowsers()) {
+    for (let n = 1; n <= cross; n++) {
+      if (!(b === 'webkit' && n === 2)) {
+        place(`a11y-parts/a11y-nightly-summary-${b}-${n}/a11y-nightly-summary.json`);
+      }
+    }
+  }
+  const env = {
+    SUITE_SHARDS: String(suite),
+    E2E_AXE_SHARDS: String(axe),
+    CROSS_BROWSERS: crossBrowsers().join(' '),
+    CROSS_BROWSER_SHARDS: String(cross),
+  };
+  assert.equal(outputOf('Check every summary arrived', env, dir), 'missing=2');
   place('a11y-parts/a11y-nightly-summary-suite-3/a11y-nightly-summary.json');
+  assert.equal(outputOf('Check every summary arrived', env, dir), 'missing=1');
+  // A browser shard that uploaded nothing is missing too (AECI-1885).
+  place('a11y-parts/a11y-nightly-summary-webkit-2/a11y-nightly-summary.json');
   assert.equal(outputOf('Check every summary arrived', env, dir), 'missing=0');
 });
 
@@ -255,9 +391,9 @@ test('green lanes with a missing summary fail, and every other rule holds', () =
   assert.match(job('confirm-alert'), /description="Accessibility nightly failed \(nightly\)"/);
 });
 
-test('report waits for both lanes, always runs on a measured commit, and posts the status', () => {
+test('report waits for all three lanes, always runs on a measured commit, and posts the status', () => {
   const body = job('report');
-  assert.match(body, /needs: \[resolve, suite, e2e-axe\]/);
+  assert.match(body, /needs: \[resolve, suite, e2e-axe, cross-browser\]/);
   assert.match(body, /if: \$\{\{ always\(\) && needs\.resolve\.outputs\.measure == 'true' \}\}/);
   assert.match(body, /OUTCOME: \$\{\{ steps\.outcome\.outputs\.outcome \}\}/);
   assert.match(body, /statuses: write/);
@@ -270,6 +406,7 @@ test('report waits for both lanes, always runs on a measured commit, and posts t
   // The suite only posts `pending` now.
   assert.doesNotMatch(job('suite'), /Record the a11y-nightly status/);
   assert.doesNotMatch(job('e2e-axe'), /statuses: write|GH_TOKEN/);
+  assert.doesNotMatch(job('cross-browser'), /statuses: write|GH_TOKEN/);
 });
 
 test('the alert and confirm-alert jobs read the merged outcome', () => {

@@ -1453,11 +1453,11 @@ records its sha256 and size. The operator steps, in run order, are in
 
 ---
 
-## 11a-quater. The accessibility nightly (AECI-1875, AECI-1876, AECI-1874)
+## 11a-quater. The accessibility nightly (AECI-1875, AECI-1876, AECI-1874, AECI-1885)
 
 | Workflow | Trigger | What it does | Skips when | On red |
 |---|---|---|---|---|
-| [`a11y-nightly.yml`](../.github/workflows/a11y-nightly.yml) | `40 5 * * *` (05:40 UTC) + `workflow_dispatch` | Two Playwright lanes, each against its own `dev:bound`. `suite` runs the suite in `apps/web/e2e-a11y/` (`playwright.a11y-nightly.config.ts`), over every surface in `apps/web/e2e-a11y/surfaces.ts`, in `SUITE_SHARDS` (8) shards. `e2e-axe` runs the whole e2e suite with the axe sweep on (`playwright.e2e-axe.config.ts`), in `E2E_AXE_SHARDS` (4) shards. `report` merges the lanes' summaries into `a11y-nightly-summary.json`, writes the axe findings by rule, the voice-control effort, target size and input purpose report (`docs/TESTING_STRATEGY.md` §8.4.8) and the IBM Equal Access report, report only (`docs/TESTING_STRATEGY.md` §8.4.9), to the job summary, and keeps the merged file for 30 days. Each shard keeps its own HTML report. `suite` shard 1 posts commit status `a11y-nightly` as `pending`. `report` posts `success`, `failure` or `error` over both lanes, with `(nightly)` or `(manual)` at the end of the description. Concurrency group per SHA, no cancel-in-progress | A scheduled run skips when `main` HEAD already has a bot-posted `success`, or a `failure` whose description ends `(nightly)`. A nightly failure is first posted as `(nightly, alert pending)`. The `confirm-alert` job rewrites it to `(nightly)` only after the Linear alert succeeds, so a failed alert is retried the next night. The status lookup fails open. A dispatch never skips and runs the dispatched ref | A scheduled red files or comments on a Linear issue labelled `a11y-nightly-regression` (`scripts/a11y-nightly-alert.mjs`, `LINEAR_API_KEY`, §7.1). A green night comments "Recovered" on an open issue. No email. `docs/OBSERVABILITY.md` describes the alert |
+| [`a11y-nightly.yml`](../.github/workflows/a11y-nightly.yml) | `40 5 * * *` (05:40 UTC) + `workflow_dispatch` | Three Playwright lanes, each against its own `dev:bound`. `suite` runs the suite in `apps/web/e2e-a11y/` (`playwright.a11y-nightly.config.ts`) in Chromium (`--project=chromium`), over every surface in `apps/web/e2e-a11y/surfaces.ts`, in `SUITE_SHARDS` (8) shards. `e2e-axe` runs the whole e2e suite with the axe sweep on (`playwright.e2e-axe.config.ts`), in `E2E_AXE_SHARDS` (4) shards. `cross-browser` runs the keyboard, focus ring and announcement suites in Playwright's Firefox and WebKit builds, `CROSS_BROWSER_SHARDS` (3) shards per browser (ADR 0060, `docs/TESTING_STRATEGY.md` §8.4.10). `report` merges the lanes' summaries into `a11y-nightly-summary.json`, writes the axe findings by rule, the voice-control effort, target size and input purpose report (`docs/TESTING_STRATEGY.md` §8.4.8) and the IBM Equal Access report, report only (`docs/TESTING_STRATEGY.md` §8.4.9), to the job summary, and keeps the merged file for 30 days. Each shard keeps its own HTML report. `suite` shard 1 posts commit status `a11y-nightly` as `pending`. `report` posts `success`, `failure` or `error` over all three lanes, with `(nightly)` or `(manual)` at the end of the description. Concurrency group per SHA, no cancel-in-progress | A scheduled run skips when `main` HEAD already has a bot-posted `success`, or a `failure` whose description ends `(nightly)`. A nightly failure is first posted as `(nightly, alert pending)`. The `confirm-alert` job rewrites it to `(nightly)` only after the Linear alert succeeds, so a failed alert is retried the next night. The status lookup fails open. A dispatch never skips and runs the dispatched ref. A dispatch with `update_snapshots` set to `firefox` or `webkit` runs no lane and posts no status: it only rewrites that browser's tab-order snapshots (below) | A scheduled red files or comments on a Linear issue labelled `a11y-nightly-regression` (`scripts/a11y-nightly-alert.mjs`, `LINEAR_API_KEY`, §7.1). A green night comments "Recovered" on an open issue. No email. `docs/OBSERVABILITY.md` describes the alert |
 
 **Separate from the PR suite.** The lane has its own config, `apps/web/playwright.a11y-nightly.config.ts`.
 The PR e2e job in `deploy.yml` runs the default config, whose `testDir` is `./e2e`, so it never sees
@@ -1468,18 +1468,20 @@ place the flag is set, so the PR job's tests and timing do not change (`docs/TES
 **Token scope.** As in §11c: every checkout sets `persist-credentials: false`, and only the two status
 steps receive the `statuses: write` token, as `GH_TOKEN`. The pending step is in `suite`, and runs on shard 1
 only, so a run posts `pending` once. The result step
-is in `report`, which runs no `pnpm install`: the merge script has no dependencies. `e2e-axe` holds a
-read-only token. Every action in the `alert` job is pinned to a full commit SHA, the same ones
+is in `report`, which runs no `pnpm install`: the merge script has no dependencies. `e2e-axe`,
+`cross-browser` and `snapshots` hold a read-only token. Every action in the `alert` job is pinned to a full commit SHA, the same ones
 `lighthouse.yml` uses. `report` pins its checkout, setup-node and download to the same SHAs, and `actions/upload-artifact` to v6.0.0 (`b7c566a7`).
 
 **The jobs (AECI-1876).**
 
 | Job | Does |
 |---|---|
-| `resolve` | Picks the SHA and applies the nightly skip |
-| `suite` (×8) | Shard 1 posts `pending`. Each shard runs its eighth of `e2e-a11y/` (`--shard=N/8`). Uploads `a11y-nightly-summary-suite-N` and `playwright-report-a11y-N` |
+| `resolve` | Picks the SHA and applies the nightly skip. On a snapshot-only dispatch it sets `measure` false and names the browser |
+| `suite` (×8) | Shard 1 posts `pending`. Each shard runs its eighth of `e2e-a11y/` in Chromium (`--project=chromium --shard=N/8`). Uploads `a11y-nightly-summary-suite-N` and `playwright-report-a11y-N` |
+| `cross-browser` (×6) | AECI-1885. A `browser` × `shard` matrix, `firefox` and `webkit` by 1 to 3. Each runs its third of the browser's project (`--project=<browser> --shard=N/3`). Restores and saves Playwright's browsers under its own key, `playwright-a11y-<browser>-…`, never the shared `playwright-…` key the PR job saves Chromium under. Uploads `a11y-nightly-summary-<browser>-N` and `playwright-report-a11y-<browser>-N` |
+| `snapshots` | Dispatch only, with `update_snapshots`. Runs the browser's `tab walk` tests with `--update-snapshots=changed` and uploads `a11y-keyboard-snapshots-<browser>` for a human to review and commit. Posts no status |
 | `e2e-axe` (×4) | Runs its quarter of the e2e suite with `AECI_E2E_AXE=1` and no retries, so a violation cannot pass on a second try (`docs/TESTING_STRATEGY.md` §8.4.2). Uploads `a11y-nightly-summary-e2e-axe-N` and `playwright-report-e2e-axe-N` |
-| `report` | Always runs on a measured commit. Reads the lanes first: `success` only when both passed, `failure` when either failed, else `error` (a lane cancelled or skipped). A failure wins over a cancel, so a red lane alerts even when the other was cancelled. Then checks that all twelve summaries arrived (eight suite shards, four sweep shards). Green lanes with any summary missing are a `failure`: a shard that passed but uploaded nothing never posts success. The status description says how many are missing, and the job summary names them. A failed or cancelled lane keeps its outcome. Merges the summaries from the same list and uploads `a11y-nightly-summary`. The job summary also lists every known-failure ID in the run once, with the number of tests that carry it, from each test's `knownFailures` list. Posts the result status |
+| `report` | Always runs on a measured commit. Reads the lanes first: `success` only when all three passed, `failure` when any failed, else `error` (a lane cancelled or skipped). A failure wins over a cancel, so a red lane alerts even when another was cancelled. Then checks that all eighteen summaries arrived (eight suite shards, four sweep shards, three shards for each of two browsers). Green lanes with any summary missing are a `failure`: a shard that passed but uploaded nothing never posts success. The status description says how many are missing, and the job summary names them. A failed or cancelled lane keeps its outcome. Merges the summaries from the same list and uploads `a11y-nightly-summary`. The job summary also lists every known-failure ID in the run once, with the number of tests that carry it, from each test's `knownFailures` list, and a "By browser" table of each browser's outcomes. Posts the result status |
 | `alert`, `confirm-alert` | As before, but they read `report`'s outcome, not one lane's result |
 
 **Why shards.** The PR e2e job runs about 838 tests in four shards of 5 to 6 minutes each, on one worker
@@ -1522,8 +1524,28 @@ them in 1.2 to 2.0 minutes, and once in 3.3 minutes under load. Playwright gives
 sorted list, so all 22 land on one shard. At `61eeafe65` (2026-11-25) that is shard 3, with 21 focus
 ring tests, the 9 error-prevention flows and 24 interaction tests. It was shard 4 on 2026-11-24. The slice moves as
 tests are added. It needs no workflow step, because `pnpm install` installs the engine. Two tests in the eight-shard run timed out on a 5-second ARIA read
-while the machine's load average was about 50. Both passed on a rerun. The run uses 12 runners at once
-with `e2e-axe`, under the 20 concurrent jobs a public repository gets. Raise `SUITE_SHARDS` and the
+while the machine's load average was about 50. Both passed on a rerun. The run uses 18 runners at once
+with `e2e-axe` and `cross-browser` (AECI-1885). The organisation is on GitHub's Team plan, whose published
+limit is 60 concurrent jobs for the whole organisation, not 20 per repository. That is read from the plan,
+not measured. A job over the limit waits in the queue. It does not fail.
+
+**The Firefox and WebKit lane (AECI-1885, ADR 0060).** The `cross-browser` job runs each browser's
+project in `CROSS_BROWSER_SHARDS` (3) shards (`docs/TESTING_STRATEGY.md` §8.4.10). Measured locally on
+one worker, 2026-11-26, macOS, each run on a freshly seeded D1. The per-shard figure is the sum of that
+shard's test durations in a full run, split by `--list --shard=N/3`. It leaves out setup and hooks.
+
+| Browser | Tests | Full run, three runs | Per shard, tests and minutes of tests |
+|---|---|---|---|
+| Firefox | 176 | 9.8, 9.9, 14.3 min | 59, 4.9 · 71, 3.4 · 46, 1.4 |
+| WebKit | 199 | 11.1, 12.2, 10.9 min | 67, 4.5 · 86, 4.8 · 46, 1.7 |
+| Chromium, the same three suites, for comparison | 174 | 12.1 min | Not split: they run inside the eight `suite` shards |
+
+The 14.3-minute Firefox run was under load from another stack on the same laptop. Its shards took 4.5,
+6.3 and 3.3 minutes. A shard is well inside its 30-minute limit even at that. The first shard holds the
+announcements and most of the focus ring, the third only keyboard walks. No CI time exists yet: read
+each shard's wall clock and the cache save step's archive size off the first dispatch run. On macOS the
+two browsers took 35 seconds to install, 309 MB for Firefox and 299 MB for WebKit. `install-deps` was not
+measured, because macOS has no such step. Raise `SUITE_SHARDS` and the
 matrix together when a shard passes about 15 minutes in Actions.
 
 ---

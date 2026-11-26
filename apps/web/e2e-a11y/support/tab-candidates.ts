@@ -49,6 +49,12 @@ export interface CandidateOptions {
    * differ, so AECI-1885 sets this per browser. Default `true`, for Chromium.
    */
   readonly keyboardFocusableScrollers?: boolean;
+  /**
+   * Firefox makes every scroll container a Tab stop, even one that holds
+   * focusable content. Only read when `keyboardFocusableScrollers` is on.
+   * Default `false`, Chromium's rule (AECI-1885).
+   */
+  readonly scrollersWithFocusableContent?: boolean;
 }
 
 /** Parse a `tabindex` value the way HTML does: a leading integer, else invalid. */
@@ -62,7 +68,11 @@ export function parseTabindex(raw: string | null): number | null {
 function isFocusable(el: ElementFacts, opts: Required<CandidateOptions>): boolean {
   if (!el.rendered || !el.visible || el.inert || el.disabled) return false;
   if (el.nativelyFocusable || parseTabindex(el.tabindexAttr) !== null) return true;
-  return opts.keyboardFocusableScrollers && el.scroller && !el.hasFocusableDescendant;
+  return (
+    opts.keyboardFocusableScrollers &&
+    el.scroller &&
+    (opts.scrollersWithFocusableContent || !el.hasFocusableDescendant)
+  );
 }
 
 /**
@@ -79,6 +89,7 @@ export function candidateTabStops(
 ): ElementFacts[] {
   const opts: Required<CandidateOptions> = {
     keyboardFocusableScrollers: options.keyboardFocusableScrollers ?? true,
+    scrollersWithFocusableContent: options.scrollersWithFocusableContent ?? false,
   };
   const sequential = elements.filter((el) => {
     if (!isFocusable(el, opts)) return false;

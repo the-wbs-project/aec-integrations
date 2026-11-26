@@ -20,6 +20,10 @@
  * report only, each marked when axe also reported it. Zero counts and empty
  * lists for a run with no IBM test. Adding it kept `schemaVersion` 1.
  *
+ * AECI-1885: each test row names its `browser`, the Playwright project that ran
+ * it, so the Firefox and WebKit lane's rows can be told from Chromium's. Adding
+ * it kept `schemaVersion` 1.
+ *
  * Options: `outputFile`, the file name next to the config (default
  * `a11y-nightly-summary.json`). The e2e sweep lane writes its own file so a local
  * run of both lanes keeps both. `scripts/a11y-nightly-merge-summary.mjs` merges them.
@@ -73,6 +77,12 @@ export interface A11yNightlySummary {
     readonly route: string | null;
     /** The spec file, relative to `apps/web`. */
     readonly file: string;
+    /**
+     * AECI-1885: the Playwright project that ran the test, `chromium`, `firefox`
+     * or `webkit`. The same title appears once per browser. Adding it kept
+     * `schemaVersion` 1.
+     */
+    readonly browser: string | null;
     readonly outcome: TestOutcome;
     /** The first known-failure ID the test carries, or `null`. Kept as it was. */
     readonly knownFailure: string | null;
@@ -164,6 +174,8 @@ export function buildSummary(
       surfaceId: annotation(test, last, 'surface'),
       route: annotation(test, last, 'route') ?? pathOf(scan?.url),
       file: relative(rootDir, test.location.file).split(sep).join('/'),
+      // The title path is the root, the project, the file, then the describes.
+      browser: test.titlePath()[1] || null,
       outcome: outcomeOf(test),
       knownFailure: annotation(test, last, KNOWN_FAILURE_ANNOTATION),
       knownFailures: sortIssueIds(annotationsOf(test, last, KNOWN_FAILURE_ANNOTATION)),

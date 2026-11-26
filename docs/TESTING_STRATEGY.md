@@ -629,13 +629,19 @@ from `apps/web/.dev.vars`, and in CI they come from the Playwright step `env:` i
 `deploy.yml` (warn-and-skip when the secrets are absent). Remaining manual step to activate
 it in CI: set the `SUPABASE_TEST_USER_EMAIL` / `SUPABASE_TEST_USER_PASSWORD` GH secrets.
 
-### 7.7 Cross-browser & real-device — none
+### 7.7 Cross-browser & real-device — one nightly lane, in Playwright's own builds
 
-The `projects` list above is **chromium-only**, and there is no cross-browser or real-device lane. The BrowserStack lane from Phase 7.8 (AECI-154, ADR 0012) was removed on 2026-10-10 under AECI-1269. Its workflow had been disabled since 2026-06-26 and never gated a merge or a deploy. ADR 0012 is marked superseded. Adding a cross-browser lane again needs a new decision record.
+The `projects` list above is **chromium-only**, and the PR e2e job runs Chromium only. There is no
+real-device lane. The BrowserStack lane from Phase 7.8 (AECI-154, ADR 0012) was removed on 2026-10-10
+under AECI-1269. Its workflow had been disabled since 2026-06-26 and never gated a merge or a deploy.
+ADR 0012 is marked superseded.
 
-The accessibility nightly (§8.4) is Chromium only too. Chris ruled on 2026-11-19 that a nightly
-Firefox and WebKit keyboard lane is acceptable (AECI-1885, epic AECI-1874). It is not built yet, and it
-still needs its decision record.
+One cross-browser lane exists, under ADR 0060 (AECI-1885, accepted 2026-11-26). The accessibility
+nightly runs its keyboard, focus ring and announcement suites in Playwright's own Firefox and WebKit
+builds as well as Chromium. It runs once a night against `main`, never on a PR, with no BrowserStack.
+§8.4.10 describes it. Playwright WebKit is not Safari, and Playwright Firefox is not a Firefox release,
+so the manual pass keeps its full scope and cadence. Any other cross-browser lane needs a new decision
+record.
 
 ---
 
@@ -902,7 +908,13 @@ nightly also runs the e2e axe sweep lane (§8.4.2), the PR e2e suite's 838 tests
 | IBM Equal Access, report only | `ibm-equal-access.spec.ts` | 22 | §8.4.9 |
 
 The committed snapshots are in `e2e-a11y/__snapshots__/chromium/`: 22 tab orders (`keyboard-*.txt`)
-and 56 ARIA files (`aria-*.yml` and `aria-states-*.txt`). Every suite runs in Chromium only.
+and 56 ARIA files (`aria-*.yml` and `aria-states-*.txt`). Every suite runs in Chromium.
+
+**The projects (AECI-1885).** The nightly config has three Playwright projects. `chromium` runs every
+suite. `firefox` and `webkit` run only the keyboard, focus ring and announcement suites, picked by
+`testMatch`: 174 tests each, plus the barrier tests found only in that browser (§8.4.10). Their tab orders are in `__snapshots__/firefox/` and
+`__snapshots__/webkit/`. CI runs each browser in its own job (§8.4.10). With no `--project`, a local
+run takes all three browsers. Add `--project=chromium` to run Chromium alone, as the CI shards do.
 
 **The boundary.** The suite lives in `apps/web/e2e-a11y/` and runs from its own config,
 `apps/web/playwright.a11y-nightly.config.ts`. The default `playwright.config.ts` keeps `testDir: './e2e'`,
@@ -917,7 +929,8 @@ AECI_WEB_PORT=8790 PLAYWRIGHT_BASE_URL=http://localhost:8790 pnpm test:a11y:nigh
 Use the web port `dev:agent` printed in place of `8790`. With no `--shard`, the command runs the whole
 suite, as before.
 
-**Shards (AECI-1874).** CI runs the suite in eight shards, one runner each
+**Shards (AECI-1874).** CI runs the Chromium suite in eight shards, one runner each, with
+`--project=chromium`. The Firefox and WebKit lane runs three shards per browser (§8.4.10)
 (`docs/CICD_PLAN.md` §11a-quater has the measured times). Playwright splits by test, because the base
 config sets `fullyParallel`. So a spec's tests can land on different shards, and no test may depend on
 another test having run:
@@ -931,7 +944,8 @@ another test having run:
 - Known failures and the summary are per test. Each shard writes its own summary, and the workflow
   merges them (§8.4.2).
 
-To see where tests land: `playwright test -c playwright.a11y-nightly.config.ts --list --shard=3/8`.
+To see where tests land: `playwright test -c playwright.a11y-nightly.config.ts --list --project=chromium --shard=3/8`,
+or `--project=webkit --shard=2/3` for the browser lane.
 
 **The manifest.** `apps/web/e2e-a11y/surfaces.ts` is the one list of surfaces. It has the seven surfaces
 of `docs/a11y-manual-testing-checklist.md` §1, as nine routes, and the 14 URLs of `phase2-a11y.spec.ts`.
@@ -973,10 +987,12 @@ will read it for the dated record.
 | `generatedAt`, `commitSha`, `trigger`, `runUrl` | When, which commit, `nightly` or `manual`, and the Actions run |
 | `status` | Playwright's overall result |
 | `totals` | `passed`, `failed`, `skipped`, `expectedFailures` |
-| `tests[]` | `title`, `surfaceId`, `route`, `file`, `outcome`, `knownFailure`, `knownFailures`, and `axe` (the sweep's verdict or `null`) |
+| `tests[]` | `title`, `surfaceId`, `route`, `file`, `browser`, `outcome`, `knownFailure`, `knownFailures`, and `axe` (the sweep's verdict or `null`) |
+| `tests[].browser` | The Playwright project that ran the test: `chromium`, `firefox` or `webkit` (AECI-1885). The same title appears once per browser |
 | `tests[].knownFailure` | The first known-failure ID the test carries, or `null`. One ID only: kept for readers that use it |
 | `tests[].knownFailures` | Every known-failure ID the test carries, once each, in issue number order (AECI-1874). A test that judges several problems marks each known one, so it can carry two or three. Empty when there is none. Read this one |
 | `knownFailures` | Merged file only. Every known-failure ID in the run, once, with `tests`, the number of tests that carry it |
+| `browsers` | Merged file only. Per browser: `passed`, `failed`, `skipped`, `expectedFailures` and `flaky`, from each row's `browser` (AECI-1885). The job summary prints it as "By browser". Adding it kept `schemaVersion` 1 |
 | `parts` | Merged file only. Each shard's file, whether it was found, and the read error if any. See §8.4.2 |
 | `axe` | The e2e axe sweep's results. Always an object: zero counts and empty lists for a run with no sweep. See §8.4.2 |
 | `voice` | The voice-control checks' effort counts, target size report and the fields input purpose judged. Always an object: empty lists for a run with no voice-control test. See §8.4.8 |
@@ -1035,11 +1051,13 @@ surface that ran it.
 The vendor portal has no Products dropdown to check. `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.11 made Products a
 plain link, and checklist §2 dropped that step (AECI-2062).
 
-**The snapshot.** `e2e-a11y/__snapshots__/chromium/keyboard-<surface id>.txt` holds one line per stop:
-the innermost landmark, the role and the accessible name. Relative times and dates are masked. The path
-is keyed by browser project, not OS (`snapshotPathTemplate` in the nightly config), so a snapshot written
-on a Mac is the one the Linux runner reads. A changed order is a behaviour change. Update it on purpose,
-and review the diff:
+**The snapshot.** `e2e-a11y/__snapshots__/<browser>/keyboard-<surface id>.txt` holds one line per stop:
+the innermost landmark, the role and the accessible name. There is one folder per browser project:
+`chromium`, `firefox` and `webkit` (§8.4.10). Relative times and dates are masked. The path is keyed by
+browser project, not OS (`snapshotPathTemplate` in the nightly config). For Chromium, a snapshot written
+on a Mac is the one the Linux runner reads. WebKit on a Mac and on Linux are different ports, so §8.4.10
+says how to write WebKit's on the runner. A changed order is a behaviour change. A change that alters a
+tab order updates all three folders in the same PR. Update it on purpose, and review the diff:
 
 ```bash
 pnpm --filter @aeci/web exec playwright test -c playwright.a11y-nightly.config.ts keyboard --update-snapshots
@@ -1087,10 +1105,14 @@ exports from `e2e-a11y/support/`:
 | `prepareSurface(context, surface, fixturesPresent)`, `openSurface(page, surface, { settle? })`, `phase2FixturesPresent()`, `surfaceAnnotations(surface)` | `surface-page.ts` | Session mint and skip, the hydration gate, the summary annotations |
 | `guardWrites(page)`, `fakeHeaderSearch(page)` | `page-guards.ts` | The routes every keyboard test installs |
 
-Two places are Chromium-only. Chromium makes a scroll container with no focusable content a Tab stop of
-its own. `candidateTabStops` predicts that by default, and `keyboardFocusableScrollers: false` turns it off
-for another engine. Safari on macOS skips links on Tab unless "Press Tab to highlight each item" is on, so
-check how Playwright's WebKit build behaves before trusting a WebKit walk.
+**Other browsers (AECI-1885).** The same checks run in Playwright's Firefox and WebKit builds. Where an
+engine differs by design, the walk reads one entry of `support/browser-expectations.ts`: the key it
+presses (Option+Tab in WebKit, which skips links on a plain Tab as Safari does), whether Tab wraps at the
+ends of the page (not in Playwright Firefox), and which scroll containers are Tab stops (both
+`candidateTabStops` options). Chromium's values are the defaults the suite always had. §8.4.10 lists
+every entry and its reason. Measured on 2026-11-26, the three browsers give the same order, roles and
+names on all 22 surfaces. The one difference is the account page's review list, which Firefox makes a
+stop because it scrolls.
 
 #### 8.4.2 The e2e axe sweep lane (AECI-1876)
 
@@ -1343,6 +1365,15 @@ The signed-in flows ran with real test-user sessions, minted by `prepareSurface`
 alert on both queues, the approve, review sent, the delete dialog and both stubbed confirms, and the
 real vendor portal pass.
 
+**Browsers.** These flows also run in Playwright's Firefox and WebKit (§8.4.10). Every flow activates
+its control through `activate` (`support/announcement-flows.ts`), after the recorder starts. Chromium
+and Firefox click, as before. In WebKit a click does not focus a button: focus goes to `main`, and the
+record hears all of `main`, with or without the new message, by timing. So in WebKit the control is
+reached by real Tab presses and activated by Enter, as a keyboard or screen-reader user does. The Tab
+presses are in the record, because what a field announces when Tab leaves it is what that user hears. The login bad-email flow is a known failure in Firefox (AECI-2196): the click is lost because
+the error moves the button. The record still proves only that the DOM changed.
+No screen reader runs in any of the three.
+
 **Run it** with the rest of the nightly, or alone:
 
 ```bash
@@ -1462,7 +1493,10 @@ review" shows only its top 25px, partly under the consent banner. Part of it sta
 2.4.11 (AA). It fails the AAA version, 2.4.12, which the nightly does not check.
 
 **Limits.** `elementFromPoint` skips an element with `pointer-events: none`, so an overlay that ignores
-the pointer is not caught. The pictures are Chromium at 1280 by 720 only. The checks do not judge a ring's
+the pointer is not caught. The pictures are at 1280 by 720 only, in Chromium, Firefox and WebKit
+(§8.4.10). Every browser's screenshot decodes with `decodePng` at `scale: 'css'`, and the canvas reads
+`oklch()` colours in all three. A ring drawn by the browser itself, such as WebKit's `outline: auto`, is
+drawn differently on macOS and on Linux, so a WebKit finding about it may not reproduce on the runner. The checks do not judge a ring's
 shape or thickness beyond the pixel count, so WCAG 2.4.13 (AAA) is out of scope.
 
 **Run it** alone with one worker:
@@ -2214,6 +2248,121 @@ pnpm --filter @aeci/web exec playwright test -c playwright.a11y-nightly.config.t
 ```
 
 Set `AECI_WEB_PORT` and `PLAYWRIGHT_BASE_URL` as for §8.4.
+
+#### 8.4.10 The Firefox and WebKit lane (AECI-1885)
+
+ADR 0060 governs this lane. The nightly runs the keyboard walkthroughs (§8.4.1), the announcements
+(§8.4.4) and the focus ring (§8.4.5) in Playwright's own Firefox and WebKit builds, as well as Chromium.
+It runs once a night against `main`, in the `cross-browser` job of `a11y-nightly.yml`, three shards per
+browser. It never runs on a PR. The PR e2e job stays Chromium only. It feeds the one `a11y-nightly`
+status and alert (`docs/CICD_PLAN.md` §11a-quater).
+
+**What runs.** The nightly config's `firefox` and `webkit` projects. `testMatch` picks the three suites
+(`CROSS_BROWSER_SUITES` in `playwright.a11y-nightly.config.ts`), over every surface, signed in and out.
+The magnification, interaction, ARIA, voice-control and IBM suites stay Chromium only (ADR 0060 "Scope").
+Sessions are minted the same way as in Chromium, through `prepareSurface`, and every test keeps its write
+guard.
+
+| Browser | Tests | Snapshots |
+|---|---|---|
+| `chromium` | 600, every suite | `__snapshots__/chromium/` |
+| `firefox` | 176: the three suites, 174, and 2 barrier tests found only in Firefox | `__snapshots__/firefox/keyboard-*.txt`, 22 |
+| `webkit` | 199: the three suites, 174, and 25 barrier tests found only in WebKit | `__snapshots__/webkit/keyboard-*.txt`, 22 |
+
+**Per-browser expectations.** A difference by design is one entry in
+`e2e-a11y/support/browser-expectations.ts`, keyed by browser, with its reason and its source. The
+specs read the value for the browser they run in (`browserOf(page)`). `browser-expectations.unit.spec.ts`
+pins every Chromium value to what the suites did before this lane, so no entry changes a Chromium
+check. All were measured on 2026-11-26 on a bare page and on the site.
+
+| Entry | Chromium | Firefox | WebKit | Why |
+|---|---|---|---|---|
+| `sequentialKeys` | Tab | Tab | Option+Tab | WebKit follows Safari: Tab skips links and buttons unless "Press Tab to highlight each item" is on. A plain Tab walk of home reached only the two text fields. Option+Tab reaches every item, in the same order Firefox gives |
+| `sequentialFocusWraps` | yes | no | yes | Playwright Firefox leaves focus on the last stop when Tab is pressed there, and on the first on Shift+Tab. Real Firefox moves to its toolbar, which Playwright does not draw. The walk confirms the end with the opposite key, which must move focus, and then wraps by hand (below) |
+| `keyboardFocusableScrollers` | yes | yes | no | Whether an empty scroll container is a Tab stop |
+| `scrollersWithFocusableContent` | no | yes | no | Firefox also stops on a scroll container that holds a link. The account page's review list is one |
+| `pointerFocusesButtons` | yes | yes | no | A WebKit click does not focus a button. Focus goes to `main` (`tabindex="-1"`), and the record hears all of it. In WebKit the announcement flows reach the control by Tab and press Enter (`activate` in `support/announcement-flows.ts`) |
+
+**Wrapping by hand, in Firefox.** `tabWalk` and `tabTo` use real key presses only. When a press leaves
+focus where it was in a browser that does not wrap, the walk presses the opposite key. If focus does not
+move, the stop is a trap, as before. If it moves, the walk keeps pressing until focus stops at the other
+end of the document, and goes on from there. That is what the wrapping press does in Chromium. The way
+back judges nothing. Coming up from below, the page is still scrolled, so a sticky bar can show stops a
+top-down walk never meets. The focus ring walk does not wrap by hand (`atDocumentEnd: 'stop'`). It
+checks the opposite key moves focus, puts focus back on the last stop and ends there. A climb up the whole
+page before the last unfocused pictures moved the page under them, and five stops in one run could not
+be measured.
+
+**Barriers found in one browser.** The barrier tables have a `browsers` field (`KNOWN_BARRIERS` in
+`keyboard-suite.ts`, `KNOWN_FOCUS_BARRIERS` in `focus-ring.spec.ts`). A mark covers only its own browser
+and its own finding, so the same finding in another browser still fails. A focus ring barrier test is
+declared before its browser is known. So a barrier found in some browsers only is tagged
+`@not-<browser>` for the others (`notInTags`), and each project drops its own tag with `grepInvert`.
+No Chromium test was added or skipped. Known on landing:
+
+| Issue | Browsers | What the run shows |
+|---|---|---|
+| AECI-2195 | Firefox, WebKit | Focus under the consent banner. Firefox does not scroll a link or card that is already inside the viewport, so the banner's scroll margin (AECI-1818) never applies: not found, account. WebKit skips it for text fields: login, review submission, account, vendor portal integrations, categories index |
+| AECI-2196 | Firefox | Login with a bad email: the press blurs the field, its error pushes the button down, and the release misses it. Real in every browser for a person's press. Playwright's Chromium click is instant, and WebKit activates by keyboard, so only the Firefox run sees it |
+| AECI-2197 | WebKit | A control styled only by the global `:focus-visible` colour keeps `outline-style: auto`, which WebKit draws as the system ring at about 2.1:1 |
+| AECI-2097 | WebKit, one more link | The portal section nav clips "Seats" too |
+
+**What this lane does not prove.** Playwright WebKit is not Safari, and on the Linux runner it is not
+even the macOS port. Playwright Firefox is not a Firefox release, and no screen reader is attached.
+
+- The WebKit walks press Option+Tab. They show what a Safari user who presses Option+Tab, or who has
+  turned on "Press Tab to highlight each item", meets. Safari's default, where Tab skips links, is not
+  tested. Linux WebKit has no such setting. We do not know yet whether it treats Option+Tab as Tab.
+  The first CI run shows it: a walk that misses stops fails its snapshot.
+- What VoiceOver and NVDA speak. The record proves the DOM changed (§8.4.4).
+- The focus ring as each OS draws it at the user's own zoom and theme. WebKit's `outline: auto` ring is
+  the clearest case: macOS and Linux draw it differently.
+- iOS Safari and Android.
+
+The manual pass (`docs/a11y-manual-testing-checklist.md` §2, §6, §7) keeps its full scope and cadence.
+
+**WebKit on a Mac and on Linux.** The committed WebKit snapshots were written on macOS. Playwright's
+WebKit on Linux is a different port, and its walk may differ (ADR 0060, answer 5). If the first CI run
+fails a WebKit snapshot, rewrite them on the runner: dispatch the workflow with `update_snapshots` set to
+`webkit`. The `snapshots` job runs only the `tab walk` tests with `--update-snapshots=changed`, uploads
+`a11y-keyboard-snapshots-webkit`, and posts no status.
+
+```bash
+gh workflow run a11y-nightly.yml --ref main -f update_snapshots=webkit
+```
+
+Then download the artifact into the snapshot folder, review the diff, and commit it:
+
+```bash
+gh run download --name a11y-keyboard-snapshots-webkit --dir apps/web/e2e-a11y/__snapshots__/webkit
+```
+
+The same works for `firefox`. The focus ring marks above were measured on macOS too. A mark whose
+finding does not reproduce on Linux turns red, by the known-failure rule. Then remove it, or narrow it.
+
+**Update a browser's snapshots locally** after a deliberate change:
+
+```bash
+pnpm --filter @aeci/web exec playwright test -c playwright.a11y-nightly.config.ts keyboard --project=firefox --update-snapshots
+```
+
+**Run it locally.** Install the two browsers once, then run one browser:
+
+```bash
+pnpm --filter @aeci/web exec playwright install firefox webkit
+```
+
+```bash
+pnpm --filter @aeci/web exec playwright test -c playwright.a11y-nightly.config.ts --project=webkit --workers=1
+```
+
+Set `AECI_WEB_PORT` and `PLAYWRIGHT_BASE_URL` as for §8.4. Times are in `docs/CICD_PLAN.md`
+§11a-quater.
+
+**Exit.** ADR 0060 sets the exit test. The lane is removed, or set to dispatch only, after more than 3
+false red nights in any 14. A false red night is one where this lane is red for a flake, a browser build
+fault or a runner fault, not a site barrier. Each test row in the summary names its `browser`, so the
+count can be read from the kept summaries.
 
 ---
 

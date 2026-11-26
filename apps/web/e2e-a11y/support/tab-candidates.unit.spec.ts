@@ -102,6 +102,25 @@ describe('candidateTabStops', () => {
     expect(keys(candidateTabStops([r1, r2]))).toEqual([r2.key]);
   });
 
+  it('adds a scroller with focusable content too, as Firefox does (AECI-1885)', () => {
+    const withLinks = el({
+      tag: 'div',
+      nativelyFocusable: false,
+      scroller: true,
+      hasFocusableDescendant: true,
+    });
+    expect(keys(candidateTabStops([withLinks], { scrollersWithFocusableContent: true }))).toEqual([
+      withLinks.key,
+    ]);
+    // Only while scrollers are stops at all, as in WebKit they are not.
+    expect(
+      candidateTabStops([withLinks], {
+        keyboardFocusableScrollers: false,
+        scrollersWithFocusableContent: true,
+      }),
+    ).toEqual([]);
+  });
+
   it('adds a scroller with no focusable content, in Chromium only', () => {
     const scroller = el({ tag: 'div', nativelyFocusable: false, scroller: true });
     const withLinks = el({

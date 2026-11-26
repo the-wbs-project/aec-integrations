@@ -9,6 +9,12 @@
 > `browserstack-node-sdk` devDependency, and the `browserstack` MCP server entry. E2E stays
 > chromium-only. There is no cross-browser or real-device lane today. The record below is kept for
 > history; its file paths no longer exist.
+>
+> **Partly superseded 2026-11-26 by [ADR 0060](0060-nightly-firefox-and-webkit-lane-for-the-keyboard-focus-ring-and-announcement-suites.md)
+> (AECI-1885).** The accessibility nightly runs its keyboard, focus ring and announcement suites in
+> Playwright's own Firefox and WebKit builds, nightly only. That supersedes "There is no cross-browser
+> lane today" for that one lane. Everything else this note retired stays retired: BrowserStack, real
+> devices, and any cross-browser run on a PR or a merge. The PR e2e job stays Chromium only.
 
 **Context owner:** Chris Walton
 

@@ -20,11 +20,13 @@ import { expect, test, type Page } from '@playwright/test';
 import { routeFakeAlgolia } from '../e2e/fake-algolia';
 import { untilHydrated } from '../e2e/hydration';
 import { knownFailure } from './known-failure';
+import { browserOf, type A11yBrowser } from './support/browser-expectations';
 import {
   blockWrites,
   expectFieldErrorWired,
   flowAnnotations,
   openFlowPage,
+  activate,
   stubWrite,
 } from './support/announcement-flows';
 import {
@@ -126,10 +128,27 @@ async function loginBadEmail(page: Page): Promise<FieldErrorRun> {
   await email.fill('not-an-email');
 
   const rec = await recordAnnouncements(page);
-  await submit.click();
+  await activate(page, submit);
   await expect(email).toBeFocused();
   const error = await expectFieldErrorWired(email, /valid email/);
   return { record: await rec.settle(), error, stubCalls: otp.calls, aborted };
+}
+
+/**
+ * AECI-2196, found by the Firefox lane (AECI-1885). With a bad email typed, the
+ * press on submit blurs the field, its error renders and pushes the button down,
+ * and the release misses it: no submit, no focus move. Playwright's Chromium
+ * click is instant, so it lands first. A person's press is not, so the defect is
+ * real in every browser, but only the Firefox run sees it. WebKit activates by
+ * keyboard (`activate`), and Enter is not lost.
+ */
+const LOST_FIRST_CLICK: readonly A11yBrowser[] = ['firefox'];
+function markLostFirstClick(page: Page): void {
+  if (!LOST_FIRST_CLICK.includes(browserOf(page))) return;
+  knownFailure(
+    'AECI-2196',
+    'the error the press renders on blur moves the submit button, so the click is lost',
+  );
 }
 
 test.describe('Announcements: login', () => {
@@ -145,7 +164,7 @@ test.describe('Announcements: login', () => {
       await page.locator('#login-email').fill('pm@example.com');
 
       const rec = await recordAnnouncements(page);
-      await submit.click();
+      await activate(page, submit);
       await expect(page.getByRole('heading', { name: 'Check your email' })).toBeFocused();
       const record = await rec.settle();
       expectHeardOnce(record, 'Check your email', 'focus');
@@ -165,7 +184,7 @@ test.describe('Announcements: login', () => {
       await page.locator('#login-email').fill('pm@example.com');
 
       const rec = await recordAnnouncements(page);
-      await submit.click();
+      await activate(page, submit);
       await expect(page.getByText('Something went wrong. Please try again.')).toBeVisible();
       const record = await rec.settle();
       expectHeardOnce(record, 'Something went wrong. Please try again.', 'assertive');
@@ -177,6 +196,7 @@ test.describe('Announcements: login', () => {
     'a bad email is tied to the field, focuses it, and posts nothing',
     surfaceAnnotations(LOGIN),
     async ({ page }) => {
+      markLostFirstClick(page);
       const run = await loginBadEmail(page);
       expect(run.stubCalls, `an invalid email posts nothing. Aborted: ${run.aborted}`).toBe(0);
     },
@@ -187,6 +207,7 @@ test.describe('Announcements: login', () => {
       'AECI-2079',
       'the field error is role="alert" and the submit focuses the field it describes, so it is heard twice',
     );
+    markLostFirstClick(page);
     const run = await loginBadEmail(page);
     expectHeardOnce(run.record, run.error, 'focus');
   });
@@ -215,7 +236,7 @@ test.describe('Announcements: subscribe on /updates', () => {
     async ({ page }) => {
       const sub = await openUpdates(page, { status: 201, json: { created: true } });
       const rec = await recordAnnouncements(page);
-      await join(page).click();
+      await activate(page, join(page));
       await expect(page.getByRole('heading', { name: "You're on the list." })).toBeFocused();
       expectHeardOnce(await rec.settle(), "You're on the list.", 'focus');
       expect(sub.calls).toBe(1);
@@ -228,7 +249,7 @@ test.describe('Announcements: subscribe on /updates', () => {
     async ({ page }) => {
       const sub = await openUpdates(page, { status: 200, json: { created: false } });
       const rec = await recordAnnouncements(page);
-      await join(page).click();
+      await activate(page, join(page));
       await expect(page.getByText("You're already on the list.")).toBeVisible();
       expectHeardOnce(await rec.settle(), "You're already on the list.", 'polite');
       expect(sub.calls).toBe(1);
@@ -241,7 +262,7 @@ test.describe('Announcements: subscribe on /updates', () => {
     async ({ page }) => {
       const sub = await openUpdates(page, { status: 500, json: { error: 'stubbed' } });
       const rec = await recordAnnouncements(page);
-      await join(page).click();
+      await activate(page, join(page));
       await expect(page.getByText('Something went wrong. Please try again.')).toBeVisible();
       expectHeardOnce(await rec.settle(), 'Something went wrong. Please try again.', 'polite');
       expect(sub.calls).toBe(1);
@@ -269,7 +290,7 @@ test.describe('Announcements: the mailing-list band', () => {
     const { sub, email, aborted } = await openBand(page, { status: 201, json: { created: true } });
     await email.fill('not-an-email');
     const rec = await recordAnnouncements(page);
-    await subscribe(page).click();
+    await activate(page, subscribe(page));
     await expect(email).toBeFocused();
     const error = await expectFieldErrorWired(email, /valid email/);
     return { record: await rec.settle(), error, stubCalls: sub.calls, aborted };
@@ -282,7 +303,7 @@ test.describe('Announcements: the mailing-list band', () => {
       const { sub, email } = await openBand(page, { status: 201, json: { created: true } });
       await email.fill('pm@example.com');
       const rec = await recordAnnouncements(page);
-      await subscribe(page).click();
+      await activate(page, subscribe(page));
       await expect(
         page.getByText("You're on the list. We'll email when there's something new."),
       ).toBeVisible();
@@ -359,7 +380,7 @@ test.describe('Announcements: claim confirm', () => {
   async function failedConfirm(page: Page) {
     const call = await openConfirm(page, { status: 500, json: { error: 'stubbed' } });
     const rec = await recordAnnouncements(page);
-    await confirm(page).click();
+    await activate(page, confirm(page));
     await expect(page.getByText(CONFIRM_ERROR)).toBeFocused();
     expect(call.calls).toBe(1);
     return rec.settle();
@@ -380,7 +401,7 @@ test.describe('Announcements: claim confirm', () => {
         },
       });
       const rec = await recordAnnouncements(page);
-      await confirm(page).click();
+      await activate(page, confirm(page));
       await expect(page.getByRole('heading', { name: 'Claim sent' })).toBeFocused();
       expectHeardOnce(await rec.settle(), 'Claim sent', 'focus');
       expect(call.calls).toBe(1);
@@ -486,7 +507,7 @@ test.describe('Announcements: vendor portal preview', () => {
       const yes = page.getByTestId('yes-models');
       await untilHydrated(yes);
       const rec = await recordAnnouncements(page);
-      await yes.click();
+      await activate(page, yes);
       await expect(page.getByTestId('answer-models')).toContainText('Yes');
       const record = await rec.settle();
       expectHeardOnce(record, 'Models: you said this is right.', 'polite');
@@ -520,7 +541,7 @@ test.describe('Announcements: vendor portal preview', () => {
       const yes = page.getByTestId('yes-models');
       await untilHydrated(yes);
       const rec = await recordAnnouncements(page);
-      await yes.click();
+      await activate(page, yes);
       await expect(page.getByTestId('answer-models')).toContainText('Yes');
       const record = await rec.settle();
       expectHeardOnce(record, 'Models: you said this is right.', 'polite');
@@ -552,7 +573,7 @@ test.describe('Announcements: form errors on the claim form', () => {
     await untilHydrated(submit);
 
     const rec = await recordAnnouncements(page);
-    await submit.click();
+    await activate(page, submit);
     const name = page.locator('#claim-name');
     await expect(name).toBeFocused();
     const nameError = await expectFieldErrorWired(name, /\S/);

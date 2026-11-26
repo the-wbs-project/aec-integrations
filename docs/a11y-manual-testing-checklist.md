@@ -45,8 +45,14 @@ Run each surface with **(a) keyboard only**, then **(b) VoiceOver**, then **(c) 
 > hidden one; the skip link puts focus in `main` with no page load; no Tab stop navigates or opens a popup;
 > every dialog, menu and dropdown opens by keyboard, closes on `Esc` and returns focus to its trigger,
 > a modal dialog traps `Tab` and `Shift+Tab`, and any other popup closes or keeps focus inside it on `Tab`; and focus is not left on the page body after a client navigation. It does not judge
-> whether the order matches reading order, or run outside Chrome (AECI-1885). The manual pass above keeps
-> its full scope and cadence.
+> whether the order matches reading order. The manual pass above keeps its full scope and cadence.
+>
+> **The same keyboard, focus indicator and announcement checks in Firefox and WebKit (AECI-1885,
+> `TESTING_STRATEGY.md` §8.4.10).** They also run nightly in Playwright's own Firefox and WebKit builds.
+> Those are not Firefox and Safari as people use them. The WebKit walk presses Option+Tab, so it never
+> tests Safari's default, where Tab skips links. Real Safari is still needed for that, for everything
+> VoiceOver speaks, and for the focus ring as macOS draws it. Real Firefox with NVDA is still needed for
+> what NVDA speaks. The manual pass above keeps its full scope and cadence, in each browser.
 >
 > **Focus indicator, automated nightly in Chrome (AECI-1878, `TESTING_STRATEGY.md` §8.4.5).** On every
 > Tab stop of every surface in §1, the nightly checks that focus changes what is drawn, that the

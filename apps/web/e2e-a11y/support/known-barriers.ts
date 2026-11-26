@@ -9,21 +9,30 @@
  */
 import { expect } from '@playwright/test';
 import type { A11ySurface } from '../surfaces';
+import type { A11yBrowser } from './browser-expectations';
 
 export interface KnownBarrier<Check extends string> {
   readonly check: Check;
+  /**
+   * AECI-1885: the browsers the barrier is found in. A barrier found in one
+   * engine marks that engine's test only, so the others still fail on it.
+   */
+  readonly browsers: readonly A11yBrowser[];
   readonly applies: (surface: A11ySurface) => boolean;
   readonly mark: () => void;
 }
 
-/** Mark the running test for every barrier on this check and surface. */
+/** Mark the running test for every barrier on this check, surface and browser. */
 export function markKnownBarriers<Check extends string>(
   barriers: readonly KnownBarrier<Check>[],
   surface: A11ySurface,
   check: Check,
+  browser: A11yBrowser,
 ): void {
   for (const barrier of barriers) {
-    if (barrier.check === check && barrier.applies(surface)) barrier.mark();
+    if (barrier.check === check && barrier.browsers.includes(browser) && barrier.applies(surface)) {
+      barrier.mark();
+    }
   }
 }
 

@@ -19,7 +19,9 @@
  * target size report and its input purpose count. The `ibm` block (AECI-1884) matches `summarizeIbm()` in
  * `apps/web/e2e-a11y/support/ibm-overlap.ts`, and the job summary gets its unique violations (axe
  * did not fail them, review-only ones labelled), every violation, and the "needs review" and
- * recommendation lists collapsed. No dependencies, so the job needs no
+ * recommendation lists collapsed. AECI-1885 added the Firefox and WebKit lane: each test row
+ * names its `browser`, and `browsers` counts the outcomes per browser for the "By browser"
+ * table. No dependencies, so the job needs no
  * `pnpm install`.
  *
  * Exit codes: 0 merged, 2 a flag is wrong or no part was given.
@@ -228,6 +230,58 @@ export function readPart(path) {
   }
 }
 
+/** The browsers in the order the job summary lists them. Any other name sorts after, by name. */
+export const BROWSER_ORDER = ['chromium', 'firefox', 'webkit'];
+
+function browserRank(name) {
+  const i = BROWSER_ORDER.indexOf(name);
+  return i === -1 ? BROWSER_ORDER.length : i;
+}
+
+/**
+ * Per-browser test counts (AECI-1885), from each test row's `browser`. A row
+ * from a part written before the field existed counts under `unknown`. The
+ * counts use the same buckets as `totals`, plus `flaky`, which `totals` counts
+ * as passed.
+ */
+export function browserTotals(tests) {
+  const by = new Map();
+  for (const t of tests) {
+    const name = typeof t?.browser === 'string' && t.browser ? t.browser : 'unknown';
+    const row = by.get(name) ?? {
+      browser: name,
+      passed: 0,
+      failed: 0,
+      skipped: 0,
+      expectedFailures: 0,
+      flaky: 0,
+    };
+    switch (t?.outcome) {
+      case 'flaky':
+        row.flaky++;
+        row.passed++;
+        break;
+      case 'failed':
+        row.failed++;
+        break;
+      case 'skipped':
+        row.skipped++;
+        break;
+      case 'expected-failure':
+        row.expectedFailures++;
+        break;
+      case 'passed':
+        row.passed++;
+        break;
+      // An outcome this script does not know is counted nowhere.
+    }
+    by.set(name, row);
+  }
+  return [...by.values()].sort(
+    (a, b) => browserRank(a.browser) - browserRank(b.browser) || byText(a.browser, b.browser),
+  );
+}
+
 /** Merge parts read with `readPart()`. `now` is for tests. */
 export function mergeSummaries(parts, now = new Date()) {
   const found = parts.filter((p) => p.found).map((p) => p.summary);
@@ -252,6 +306,9 @@ export function mergeSummaries(parts, now = new Date()) {
     },
     parts: parts.map((p) => ({ file: p.path, found: p.found, error: p.error ?? null })),
     tests: found.flatMap((s) => s.tests),
+    // AECI-1885: the same counts per browser, from each test row's `browser`.
+    // Merged files only. Adding it kept `schemaVersion` 1.
+    browsers: browserTotals(found.flatMap((s) => s.tests)),
     // AECI-1874: every known-failure ID once, with its test count, from every
     // test's `knownFailures` list. Merged files only; a lane file has the rows.
     knownFailures: knownFailureCounts(found.flatMap((s) => s.tests)),
@@ -458,6 +515,22 @@ export function knownFailureCounts(tests) {
     .sort((a, b) => issueNumber(a.issue) - issueNumber(b.issue) || (a.issue < b.issue ? -1 : 1));
 }
 
+/** The per-browser table (AECI-1885). Empty when the run has no test rows. */
+function browserMarkdown(rows) {
+  if (rows.length === 0) return [];
+  return [
+    '',
+    '### By browser',
+    '',
+    '| Browser | Passed | Failed | Skipped | Known failures | Flaky |',
+    '|---|---|---|---|---|---|',
+    ...rows.map(
+      (r) =>
+        `| ${cell(r.browser)} | ${r.passed} | ${r.failed} | ${r.skipped} | ${r.expectedFailures} | ${r.flaky} |`,
+    ),
+  ];
+}
+
 function knownFailureMarkdown(counts) {
   if (counts.length === 0) return [];
   return [
@@ -482,6 +555,7 @@ export function summaryMarkdown(merged) {
   if (missing.length > 0) {
     lines.push('', `Missing summaries: ${missing.map((p) => `\`${p.file}\``).join(', ')}.`);
   }
+  lines.push(...browserMarkdown(merged.browsers ?? browserTotals(merged.tests ?? [])));
   lines.push(
     ...knownFailureMarkdown(merged.knownFailures ?? knownFailureCounts(merged.tests ?? [])),
   );
