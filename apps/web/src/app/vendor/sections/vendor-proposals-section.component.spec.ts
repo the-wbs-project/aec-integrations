@@ -138,6 +138,16 @@ describe('VendorProposalsSection', () => {
     ).toBe(true);
   });
 
+  // AECI-2198: an accept publishes the summary, so the owner sees it whole first.
+  it('shows the proposed summary whole, labelled, and nothing when none was sent', async () => {
+    const fixture = await create();
+    const [first, second] = Array.from(cards(fixture));
+    const summary = first!.querySelector('[data-testid="proposal-summary"]')!;
+    expect(summary.textContent?.trim()).toBe(READY!.product.summary);
+    expect(summary.previousElementSibling?.textContent?.trim()).toBe('Summary');
+    expect(second!.querySelector('[data-testid="proposal-summary"]')).toBeNull();
+  });
+
   it('accepts after the confirmation, then shows the dropped values and a link to the product', async () => {
     const announce = vi.spyOn(TestBed.inject(VendorPortalAnnouncer), 'announce');
     const fixture = await create();

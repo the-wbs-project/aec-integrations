@@ -221,6 +221,50 @@ describe('the form', () => {
   });
 });
 
+// AECI-2198: the summary, Free like the description.
+describe('the summary', () => {
+  const SHORT = '#vendor-product-create-summary';
+
+  it('is an optional one-line field with its hint and a count, tied by aria-describedby', async () => {
+    const fixture = await mount();
+    await open(fixture);
+    const input = q<HTMLInputElement>(fixture, SHORT)!;
+    expect(input.type).toBe('text');
+    expect(input.hasAttribute('maxlength')).toBe(false);
+    expect(input.getAttribute('aria-describedby')?.split(' ')).toEqual([
+      'vendor-product-create-summary-hint',
+      'vendor-product-create-summary-count',
+    ]);
+    expect(text(q(fixture, 'label[for="vendor-product-create-summary"]'))).toContain('Summary');
+    expect(text(q(fixture, '#vendor-product-create-summary-count'))).toBe('0 of 155 characters');
+  });
+
+  it('sends it as one line', async () => {
+    api.createProduct.mockResolvedValue(CREATED);
+    const fixture = await mount();
+    await open(fixture);
+    await type(fixture, '#vendor-product-create-name', 'Summit Field');
+    await type(fixture, SHORT, ' Field issues  \t that sync back. ');
+    await submit(fixture);
+    expect(api.createProduct).toHaveBeenCalledWith({
+      name: 'Summit Field',
+      summary: 'Field issues that sync back.',
+    });
+  });
+
+  it('refuses one over 155 characters and says so', async () => {
+    const fixture = await mount();
+    await open(fixture);
+    await type(fixture, '#vendor-product-create-name', 'Summit Field');
+    await type(fixture, SHORT, 'a'.repeat(156));
+    await submit(fixture);
+    expect(api.createProduct).not.toHaveBeenCalled();
+    expect(text(q(fixture, '#vendor-product-create-summary-error'))).toContain(
+      '155 characters or fewer',
+    );
+  });
+});
+
 describe('a good submit', () => {
   it('posts exactly the filled fields, revalidates products and shows the result', async () => {
     api.createProduct.mockResolvedValue(CREATED);

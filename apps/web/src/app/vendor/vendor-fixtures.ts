@@ -314,6 +314,7 @@ const PRIMARY_PRODUCT: VendorProduct = {
   slug: 'summit-model-coordination',
   name: 'Summit Model Coordination',
   is_primary: true,
+  summary: 'Clash detection and model coordination for multidiscipline BIM teams.',
   description:
     'Clash detection and model coordination for multidiscipline BIM teams, with issue tracking that syncs back to the authoring tools.',
   website: 'https://summitbim.example.com',
@@ -365,6 +366,7 @@ const SECONDARY_PRODUCT: VendorProduct = {
   slug: 'summit-field-issues',
   name: 'Summit Field Issues',
   is_primary: false,
+  summary: null,
   description: 'Punch-list and field-issue capture that rolls up into the coordination model.',
   website: null,
   tool_integrations_url: null,

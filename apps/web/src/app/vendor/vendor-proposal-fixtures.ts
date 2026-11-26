@@ -17,6 +17,7 @@ export const VENDOR_PROPOSALS_FIXTURE: readonly VendorProposal[] = [
       name: 'Summit Clash Review',
       description_excerpt:
         'Runs clash detection on federated models and routes each clash to the trade that owns it.',
+      summary: 'Clash detection on federated models, routed to the trade that owns each clash.',
       website: 'https://summitbim.example/clash-review',
       product_role: 'application',
     },
@@ -53,6 +54,7 @@ export const VENDOR_PROPOSALS_FIXTURE: readonly VendorProposal[] = [
     product: {
       name: 'Summit Field Capture',
       description_excerpt: null,
+      summary: null,
       website: null,
       product_role: 'application',
     },

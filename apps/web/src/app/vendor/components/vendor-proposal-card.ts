@@ -164,6 +164,15 @@ export function proposalDecisionIsStale(err: unknown): boolean {
       }
 
       <dl class="mt-6 grid gap-x-8 gap-y-6 text-t-14 sm:grid-cols-2">
+        <!-- AECI-2198: the summary an accept publishes, shown whole. -->
+        @if (proposal().product.summary; as summary) {
+          <div class="sm:col-span-2">
+            <dt [class]="dtClass" i18n="@@vendor.proposals.card.summary">Summary</dt>
+            <dd class="mt-2 break-words text-(--text-primary)" data-testid="proposal-summary">
+              {{ summary }}
+            </dd>
+          </div>
+        }
         @if (proposal().product.website; as website) {
           <div>
             <dt [class]="dtClass" i18n="@@vendor.proposals.card.website">Website</dt>

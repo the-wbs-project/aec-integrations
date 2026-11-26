@@ -45,6 +45,7 @@ function buildProduct(overrides: Partial<ProductDetail> = {}): ProductDetail {
     rating_onboarding_avg: null,
     created_at: '2024-06-01T00:00:00.000Z',
     updated_at: '2024-06-01T00:00:00.000Z',
+    summary: null,
     description: 'Construction management platform.',
     website: 'https://www.procore.com',
     tool_integrations_url: null,
@@ -711,6 +712,40 @@ describe('productDetailResolver — title and description (AECI-802)', () => {
     // edges. A sentence promising integrations it cannot name is worse than the
     // blurb it would replace.
     const meta = await metaFor(buildProduct({ integration_count: 3 }));
+    expect(meta.description).toBe('Construction management platform.');
+  });
+
+  // AECI-2198 (ruling 3): rung 3 is `summary ?? description`.
+  it('prefers the summary over the blurb when there are no integrations', async () => {
+    const meta = await metaFor(
+      buildProduct({
+        integration_count: 0,
+        summary: 'Run every jobsite on one platform.',
+      }),
+    );
+    expect(meta.description).toBe('Run every jobsite on one platform.');
+  });
+
+  it('keeps the composed sentence above the summary', async () => {
+    const meta = await metaFor(
+      buildProduct({
+        integration_count: 1,
+        summary: 'Run every jobsite on one platform.',
+        integrations_as_source: [partnerEdge('revit', 'Revit')],
+      }),
+    );
+    expect(meta.description).toContain('Procore has 1 integration in the AEC stack, with Revit');
+  });
+
+  it('falls back to the description when AECi hid the summary', async () => {
+    // The API masks a hidden value to null and names it in `under_review` (§11d.7).
+    const meta = await metaFor(
+      buildProduct({
+        integration_count: 0,
+        summary: null,
+        under_review: ['summary'],
+      }),
+    );
     expect(meta.description).toBe('Construction management platform.');
   });
 

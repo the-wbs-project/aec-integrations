@@ -81,7 +81,7 @@ describe('truncateAtWordBoundary', () => {
   });
 
   it('passes short strings through unchanged', () => {
-    expect(truncateAtWordBoundary('A short description.')).toBe('A short description.');
+    expect(truncateAtWordBoundary('A summary.')).toBe('A summary.');
   });
 
   it('collapses internal whitespace', () => {
@@ -534,6 +534,7 @@ describe('buildProductJsonLd', () => {
       rating_onboarding_avg: 3.9,
       created_at: '2024-01-01T00:00:00.000Z',
       updated_at: '2024-06-01T00:00:00.000Z',
+      summary: null,
       description: 'BIM authoring tool for architects and engineers.',
       website: 'https://www.autodesk.com/products/revit',
       tool_integrations_url: null,
@@ -1090,6 +1091,7 @@ function makeDescribedProduct(overrides: Partial<ProductDetail> = {}): ProductDe
     rating_onboarding_avg: null,
     created_at: '2024-01-01T00:00:00.000Z',
     updated_at: '2024-06-01T00:00:00.000Z',
+    summary: null,
     description: null,
     website: null,
     tool_integrations_url: null,
