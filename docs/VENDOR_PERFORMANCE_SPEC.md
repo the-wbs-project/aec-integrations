@@ -73,6 +73,8 @@ C is blocked by A. C may ship before B; the search-console section then renders 
 
 Comparative figures (decision 3), emailed reports (decision 6), enquiries or any outcome layer (§8), on-site listing impressions in browse and search results (§8), per-vendor history beyond the 400-day `page_views` retention (§3.7), and any capability that touches ranking. Since AECI-1228 that older history survives in the permanent R2 archive (ADR 0050), but the page never reads it. It is read ad hoc, by an operator, with DuckDB.
 
+Monthly usage totals drawn from readers' saved software lists will show on this page, behind the same `analytics.view`. Their contract is `docs/MY_STACK_SPEC.md` §10, not this spec.
+
 ---
 
 ## 2. Measurement contract
