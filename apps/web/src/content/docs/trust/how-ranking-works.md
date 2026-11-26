@@ -1,6 +1,6 @@
 ---
 title: How ranking works
-description: What decides the order of search results and lists on AEC Integrations, what never does, and why no plan can buy a better position.
+description: What decides the order of search results and lists on AEC Integrations, what never does, and what a paid plan changes.
 section: trust
 order: 1
 version: 1.2
@@ -101,7 +101,7 @@ None of these changes where a listing appears in search:
 
 ## What a plan does not buy
 
-No plan, at any price, changes a listing's position in search or in any list. There is no sponsored placement and no promoted tier. A paid plan lets a vendor edit more of its own listing. It changes what a page says, never where it appears. Completeness reads only what the listing says, never the vendor's plan. A vendor can fill in every detail that counts towards it on the free plan.
+Payment never changes the order in which products are listed or returned in search. A paid plan lets a vendor edit more of its own listing, such as the trades, audiences and phases tagged on its product, which can help it match more searches and appear on more category pages. There is no sponsored placement and no promoted tier. Completeness reads only what the listing says, never the vendor's plan. A vendor can fill in every detail that counts towards it on the free plan.
 
 We hold ourselves to this with automated checks, not only a promise. [How we research listings](/methodology) sets out the rule and how we test it.
 
@@ -113,7 +113,7 @@ Anyone can ask us to correct a listing, at no charge. A more complete, accurate 
 
 We record this page as a dated version, because the Terms of Service and the Vendor Terms link it. Each change to this page is a new version.
 
-- [Version 1.2](/docs/trust/how-ranking-works/v1.2) (this version): recorded November 27, 2026. Adds the Browse menu, the integrations wheel at the top of a product page, the order of the other lists the redesigned product page adds, the order of the integrations on a pair page, what a Sync Service's page lists and the closest matches on a pair page with no integration. Names the home page row Most viewed and its fallback Largest categories. Says "product" where earlier versions said "partner".
+- [Version 1.2](/docs/trust/how-ranking-works/v1.2) (this version): recorded November 27, 2026. Adds the Browse menu, the integrations wheel at the top of a product page, the order of the other lists the redesigned product page adds, the order of the integrations on a pair page, what a Sync Service's page lists and the closest matches on a pair page with no integration. Names the home page row Most viewed and its fallback Largest categories. Says "product" where earlier versions said "partner". Says payment never changes the order of listings or search results, and that a paid plan can put a product on more category pages.
 - [Version 1.1](/docs/trust/how-ranking-works/v1.1): recorded November 18, 2026. Says what a paid plan does change, and adds the order of each list on a product page.
 - [Version 1.0](/docs/trust/how-ranking-works/v1.0): recorded November 16, 2026. The first recorded version.
 

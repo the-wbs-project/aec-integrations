@@ -2,7 +2,7 @@
 title: Vendor Terms
 version: 1.3
 effective_date:
-last_updated: November 18, 2026
+last_updated: November 26, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-1359
@@ -68,9 +68,9 @@ If the portal lets you reply to a review, your reply is content you submit. We m
 
 A claimed company, and any badge or label that says a listing is claimed or confirmed by the vendor, means only that we checked a claim and approved it. It is not our endorsement of your company or products and does not mean we verified anything else you published. We remain an independent directory. We list your competitors, and we rank listings by algorithm. Nothing in these terms gives you exclusivity or stops us from listing anyone.
 
-## Plans never affect ranking or reviews
+## Plans, listing order and reviews
 
-No plan changes where you rank or appear, or whether a review is published. That holds on Free, on Managed, and for anything else you pay us for. [How ranking works](/docs/trust/how-ranking-works) explains how listings are ordered.
+Payment never changes the order in which products are listed or returned in search. A paid plan lets a vendor edit more of its own listing, such as the trades, audiences and phases tagged on its product, which can help it match more searches and appear on more category pages. No plan changes whether a review is published. [How ranking works](/docs/trust/how-ranking-works) explains how listings are ordered.
 
 ## When Managed ends on a product
 
@@ -144,7 +144,7 @@ Written notices to us go to The WBS Project, Inc., 315 SE Saint Lucie Blvd, Stua
 
 ## Change history
 
-- **Version 1.3** (this version): draft, not yet in force. After counsel's later answers: the acceptance record keeps your name, your title and the company's legal name after account deletion, the liability section says it limits only what we can owe you, the jury trial waiver is labelled, the Managed plan agreement's own refund, suspension, liability and disputes sections govern claims under it, and a change that reduces your rights in named sections applies to your company only after an owner seat accepts it in the portal. After counsel's batch 4 answers: you confirm you have every consent needed for third-party material you submit and remove what you may not share, the indemnity and its uncapped list name privacy, name and likeness, data-protection and confidentiality claims, your confidentiality duty covers a duty owed to anyone, and our service providers may act for us under the content license.
+- **Version 1.3** (this version): draft, not yet in force. After counsel's later answers: the acceptance record keeps your name, your title and the company's legal name after account deletion, the liability section says it limits only what we can owe you, the jury trial waiver is labelled, the Managed plan agreement's own refund, suspension, liability and disputes sections govern claims under it, and a change that reduces your rights in named sections applies to your company only after an owner seat accepts it in the portal. After counsel's batch 4 answers: you confirm you have every consent needed for third-party material you submit and remove what you may not share, the indemnity and its uncapped list name privacy, name and likeness, data-protection and confidentiality claims, your confidentiality duty covers a duty owed to anyone, and our service providers may act for us under the content license. After counsel's answer on the ranking promise: the section on plans is now "Plans, listing order and reviews", and says payment never changes the order in which products are listed or returned in search, and that a paid plan lets a vendor edit more of its own listing, which can put a product on more category pages.
 - [Version 1.2](/legal/vendor-terms/v1.2): draft, never in force. Two claims were accepted under it on November 11, 2026. Superseded November 12, 2026. After counsel's follow-up answers: cure and identity windows are 7 business days, uploaded logos and screenshots are removed as soon as we can and within 14 days, including from caches and copies, a logo we sourced comes down at once on objection, the liability section excludes lost profits and indirect or consequential loss and states that neither the cap nor that exclusion applies to the listed claims, the IP address and browser recorded with a claim are deleted 90 days after acceptance, the named Florida courts are exclusive, and each of us waives a jury trial. An owner seat may change the company's legal name, and the claim form no longer asks for your role. After a second drafting pass: written notices go to our postal address or support email, and the confidentiality carve-out names a written duty we owe you.
 - [Version 1.1](/legal/vendor-terms/v1.1): draft, never in force. One claim was accepted under it on November 5, 2026. Superseded November 7, 2026. When Managed ends, the fields stay the vendor's and we no longer update them. Names our legal entity. Covers private threads with another company. After counsel's read: the claim box states authority, an unauthorized claimant answers for the loss and not the whole contract, the content license is irrevocable and names what we do with content, the logo permission ends with the claim, the indemnity is capped with named exceptions, the liability limit and disclaimer are set in bold, a suspension precedes termination, and the two policies are incorporated by version.
 - [Version 1.0](/legal/vendor-terms/v1.0): draft, never in force. Superseded October 28, 2026.

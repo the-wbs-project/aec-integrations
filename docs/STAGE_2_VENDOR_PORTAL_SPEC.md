@@ -2848,9 +2848,11 @@ This is the vendor-wide "Managed ended" banner. The heading keeps its old name b
 
 Every plan panel carries decision 10's line, word for word:
 
-> "No plan changes where you rank or appear, or whether a review is published."
+> "Payment never changes the order in which products are listed or returned in search, or whether a review is published."
 
 _(Reworded 2026-10-09, AECI-1265, marketing review B2: it ended "whether a review is published, or what we verify". `STAGE_2_PAID_TIERS_SPEC.md` §13.1 has the amendment.)_
+
+_(Reworded 2026-11-26, AECI-2230, counsel ruling 65: it began "No plan changes where you rank or appear". `STAGE_2_PAID_TIERS_SPEC.md` §13.1 decision 10 has the amendment.)_
 
 #### What the portal offers
 
@@ -3239,7 +3241,7 @@ This supersedes the "Approved copy" bullet above, including its AECI-1215 Manage
 - **Three blocks.** Sign in: an invited claimant reads "We created an account for this email address. Sign in from the sign-in page with this address..." and a linked claimant reads "Sign in with your existing account...". What Free includes: company details, and each product's description, website, logo and categories, plus a prompt to check the integration list and confirm it looks right. How Managed works: subscriptions sit on the company's billing account, each is assigned to one product, and they are bought later from Billing in the vendor portal. It names no price.
 - **Where the portal lives (AECI-1437, 2026-10-21).** After the sign-in line, both variants say "Later, open your vendor portal from the account menu at the top right of any page. On a phone, it is in the menu at the top right. You can also go to {site}/vendor". The `/vendor` link is inline, so Sign in stays the one button. Without `PUBLIC_SITE_URL` the line names the menu only. AECI-1775 (2026-11-14) moved the phone menu from the top left to the top right, and this line with it.
 - **Gone.** The "attestations" line.
-- **Kept.** The account-status note (no plan changes where you rank or appear) and the inline `/vendor-program` link.
+- **Kept.** The account-status note and the inline `/vendor-program` link. Since 2026-11-26 (AECI-2230, counsel ruling 65) the note ends "payment never changes the order in which products are listed or returned in search". It used to say no plan changes where you rank or appear.
 
 ### As built — the claim email set (AECI-1366, AECI-1367, AECI-1368 — 2026-10-15)
 

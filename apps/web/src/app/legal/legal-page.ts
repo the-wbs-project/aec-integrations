@@ -133,7 +133,7 @@ function chromeForSlug(slug: LegalSlug): LegalChrome {
     case 'vendor-terms':
       return {
         title: $localize`:@@meta.legalVendorTermsTitle:Vendor Terms · AEC Integrations`,
-        description: $localize`:@@meta.legalVendorTermsDescription:The terms a vendor accepts when claiming a company on AEC Integrations: who may claim, truthfulness, content, seats, and why plans never affect ranking.`,
+        description: $localize`:@@meta.legalVendorTermsDescription:The terms a vendor accepts when claiming a company on AEC Integrations: who may claim, truthfulness, content, seats, plans, listing order and reviews.`,
       };
     case 'managed-plan-agreement':
       return {

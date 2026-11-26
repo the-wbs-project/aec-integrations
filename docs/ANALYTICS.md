@@ -946,8 +946,9 @@ archive failed" in `docs/runbooks/alerts.md`.
 
 **Answer first.** Every time a plan starts or ends on a product, AECi writes two JSON snapshots of that
 product's ranking to R2: one at the event and one 30 days later. They are kept at least four years under
-an R2 bucket lock, so nobody can delete or overwrite them. They are the records behind the Terms' "never
-influenced by payment" (`SEARCH_RANKING.md` §7a, counsel Q23). Decision: ADR 0056.
+an R2 bucket lock, so nobody can delete or overwrite them. They are the records behind the Terms'
+"Payment never changes the order in which products are listed or returned in search"
+(`SEARCH_RANKING.md` §7a, counsel Q23). Decision: ADR 0056.
 
 **What it is.** One JSON object per snapshot, written by the 15-minute `plan-snapshot` sweep
 (`apps/api/src/lib/plan-snapshot-sweep.ts`) into the existing `UPLOADS` bucket of each tier:

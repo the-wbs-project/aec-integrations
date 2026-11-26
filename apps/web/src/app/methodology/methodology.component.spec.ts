@@ -262,7 +262,11 @@ describe('MethodologyPage', () => {
   it('states the no-pay-for-placement rule without naming a ranking signal', () => {
     const { host } = setup();
     const text = host.textContent ?? '';
-    expect(text).toContain('Position is never for sale');
+    // AECI-2230 (ruling 65): the rule is about order, never "position".
+    expect(text).toContain(
+      'Payment never changes the order in which products are listed or returned in search.',
+    );
+    expect(text).not.toContain('Position is never for sale');
     // STAGE_2_5_SPEC.md §2 step 3 parks the plain-language ranking-signal copy on
     // the AECI-636 ranking-method page, because naming signals now would publish
     // `integration_count` — the signal that overhaul retires. Keep this page on
