@@ -353,6 +353,8 @@ describe('GET /api/admin/system — ?recompute=1 (§13 D8)', () => {
       'acceptance_without_retention_date',
       // AECI-1621 — a plan-change ranking snapshot unwritten 24 hours after it was due.
       'plan_snapshot_overdue',
+      // AECI-1944 — a counter-notice overdue, in its restore window, or not forwarded.
+      'dmca_restore_due',
       // AECI-1455 — the review app's mirror of an owned vendor differs from the live
       // record. Skipped here: the test env sets no ownership receiver.
       'review_mirror_drift',
