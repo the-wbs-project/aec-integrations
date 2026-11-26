@@ -2045,7 +2045,11 @@ is exempt on a condition (AECI-1914): while its vendor row is gone and an accept
 still names that vendor. It goes with the last of them (§8.6d). The `terms.*` rows go with their
 Terms acceptance (§8.6k, AECI-1718). An `account.deleted` row is exempt on a condition too: while
 a `terms_acceptances` row names its profile. It goes with the last of them (§8.6k). A deleted
-account that never accepted a Terms version leaves an ordinary four-year row.
+account that never accepted a Terms version leaves an ordinary four-year row. The `agreement.*`
+and `terms.*` exemption is from the four-year part only (AECI-1971, Chris's ruling 60). A row of
+those five actions that no acceptance record names is an orphan. The legal prune deletes it four
+years after the action, through `orphanAcceptanceAuditPredicate` (§8.6d). The run record counts
+it as `orphanRowsDeleted`.
 
 ```sql
 create table audit_log (
@@ -2780,7 +2784,19 @@ create unique index agreement_acceptances_stripe_session_key
   columns are JSON text. A `vendor.deleted` row of an arm-D vendor goes once no acceptance and no
   grant names that vendor, after the acceptance and grant deletes and before the four-year part.
   The four-year audit prune skips a `vendor.deleted` row while its vendor row is gone and an
-  acceptance or grant still names it. A malformed value, or one with no non-empty array, is kept. The 90-day
+  acceptance or grant still names it. *(Amended 2026-11-26, AECI-1971, Chris's ruling 60.)* A
+  companion delete now takes only a row that names at least one acceptance the run deletes. A
+  row whose acceptances were already gone, or whose value is malformed or holds no non-empty
+  array, is an orphan. It is no longer kept. The orphan part (`orphanAcceptanceAuditPredicate`)
+  deletes it at the audit cutoff, four years after the action. An `agreement.accepted` row is an
+  orphan when no acceptance row has its `entity_id`. An `agreement.linked` or
+  `agreement.evidence_removed` row is one when its list names no live row. An evidence-removed
+  row no longer waits for the six-year cutoff. The holds are the four-year part's
+  (`auditRowOfVendor`, ruling 55). An `agreement.accepted` orphan is also kept by a vendor hold on
+  the company its `after_state` names: `vendor_id`, the vendor of `billing_account_id`, or the
+  company `vendor_request_id` targets. An evidence-removed row names no company, so only a global
+  hold keeps it. The orphan sentinel and chunks run first in the batch, before any acceptance,
+  grant or Terms statement, chunked like the four-year part. No row is in both sets. The 90-day
   IP and user agent removal (AECI-1636, below) is an UPDATE, never a row delete. The same job
   prunes the reader twin, `terms_acceptances`, six years after the account's `account.deleted`
   audit row (§8.6k, AECI-1718).
@@ -3390,7 +3406,11 @@ create unique index terms_acceptances_profile_document_version_key
   check counts it. In the same batch, after the row delete, the prune deletes its
   `terms.accepted` row (`entity_id` = the acceptance id), every `terms.evidence_removed` row
   whose `metadata.acceptance_ids` are all gone, and the profile's `account.deleted` rows once no
-  Terms row names the profile. At most 200 rows a run, like the agreement table. The
+  Terms row names the profile. *(Amended 2026-11-26, AECI-1971, ruling 60: the
+  `terms.evidence_removed` companion takes only a row that names a Terms acceptance the run
+  deletes. A `terms.accepted` row whose acceptance is already gone, or a `terms.evidence_removed`
+  row whose list is empty, malformed or names no live row, is an orphan. It goes four years after
+  the action, under the holds of the orphan part in §8.6d.)* At most 200 rows a run, like the agreement table. The
   `retention.pruned` row reports the count with no ids, because the acceptance chain does not
   cover this table.
 - **No CHECK and no FK**, the house rule (§8.6d). The migration is two `CREATE TABLE`s and two

@@ -712,6 +712,9 @@ export interface LegalRetentionTableDetail extends RetentionPrunedTableDetail {
   paused?: boolean;
   /** `audit_log` only: `agreement.*` rows deleted with their acceptances. */
   companionRowsDeleted?: number;
+  /** `audit_log` only: acceptance audit rows no acceptance record names, deleted four years
+   *  after the action (AECI-1971). */
+  orphanRowsDeleted?: number;
 }
 
 /**

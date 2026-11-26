@@ -47,6 +47,9 @@ export const LITIGATION_HOLD_REMINDER_EVERY_DAYS = 30;
  * date bound by the acceptance chain verify (ADR 0057). The others prove an acceptance
  * record, so they follow it: an `agreement.*` row whose acceptance the legal prune deletes
  * goes in the same batch, and a `terms.*` row goes with its Terms acceptance (AECI-1718).
+ * An `agreement.*` or `terms.*` row that no acceptance record names is not kept forever: the
+ * legal prune's orphan part deletes it four years after the action (ruling 60, AECI-1971,
+ * `orphanAcceptanceAuditPredicate`). These lists exempt it from the four-year part only.
  * Two more actions are exempt on a condition, so they are not in these lists:
  * `vendor.deleted` (AECI-1914), while its vendor row is gone and an acceptance or grant still
  * names that vendor, and `account.deleted` (AECI-1718), while a `terms_acceptances` row still
