@@ -32,12 +32,20 @@ export const INTEGRATION_CREATED_ACTION = 'integration.created';
 /** `metadata.kind` on the `notification.sent` row a create writes. */
 export const CREATE_NOTIFICATION_KIND = 'integration_create';
 
+/** The registry entries a create notification may name. */
+export type CreateNotificationId = Extract<
+  PortalNotificationId,
+  'portal-integration-create' | 'portal-sync-service-pair-create'
+>;
+
 /** What a create `notification.sent` row records. `vendorId` is the RECIPIENT,
  *  which is what the feed's `json_extract(metadata, '$.vendorId')` filter matches. */
 export interface CreateNotificationMetadata {
   kind: typeof CREATE_NOTIFICATION_KIND;
-  /** The registry entry (AECI-1199). Absent on rows written before it. */
-  notificationId: Extract<PortalNotificationId, 'portal-integration-create'>;
+  /** The registry entry (AECI-1199). Absent on rows written before it. Since AECI-2040
+   *  a Sync Service's new pair writes its own entry with the same `kind`, so the feed
+   *  renders both alike. */
+  notificationId: CreateNotificationId;
   vendorId: string;
   integrationId: string;
   integrationName: string | null;
@@ -49,12 +57,15 @@ export interface CreateNotificationMetadata {
 /**
  * The `notification.sent` row telling one endpoint vendor that another vendor
  * created an integration on its product. Pushed into the SAME batch as the insert.
- * `entity_type` is `integration`, like the claim, retire and edit notifications.
+ * `entity_type` is `integration`, like the claim, retire and edit notifications, or
+ * `connector_evidenced_pair` for a Sync Service's new pair (AECI-2040), as the claim,
+ * edit and retire notifications write it on that table.
  */
 export function createNotificationAudit(
-  notification: Extract<PortalNotificationId, 'portal-integration-create'>,
+  notification: CreateNotificationId,
   actor: { actorId: string | null; actorType: AuditLogEntry['actorType'] },
   metadata: Omit<CreateNotificationMetadata, 'kind' | 'notificationId'>,
+  anchor: 'integration' | 'evidenced_pair' = 'integration',
 ): AuditLogEntry {
   const full: CreateNotificationMetadata = {
     kind: CREATE_NOTIFICATION_KIND,
@@ -66,7 +77,7 @@ export function createNotificationAudit(
     actorId: actor.actorId,
     actorType: actor.actorType,
     action: NOTIFICATION_SENT_ACTION,
-    entityType: 'integration',
+    entityType: anchor === 'evidenced_pair' ? 'connector_evidenced_pair' : 'integration',
     entityId: metadata.integrationId,
     // AECI-1192: `notification.sent` carries the RECIPIENT in `vendor_id`.
     vendorId: metadata.vendorId,

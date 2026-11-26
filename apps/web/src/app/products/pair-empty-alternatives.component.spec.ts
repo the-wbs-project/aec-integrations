@@ -19,6 +19,7 @@ const subject = (slug: string, name: string): ProductPairSubject =>
     name,
     logo_url: null,
     product_role: 'application',
+    connector_kind: null,
     vendor: null,
     integration_count: 3,
     listed_integration_count: 0,
@@ -433,7 +434,7 @@ describe('PairEmptyAlternatives (AECI-1829, AECI-1830)', () => {
     // AECI-1894: the ranking page's words, approved 2026-11-20 (STAGE_1_5_SPEC.md 11.3).
     expect(order).toContain('Searching narrows the list. It does not change the order.');
     expect(order).toContain(
-      "The order never reads a vendor's plan. Who appears depends only on the integrations and data on record. A vendor on a paid plan can add data to its own integrations, so its product can match a data filter it would not match otherwise.",
+      "The order never reads a vendor's plan. Who appears depends only on the integrations and data on record. A vendor on any plan can add data to its own integrations, so its product can match a data filter it would not match otherwise.",
     );
     expect(order).not.toContain('Plan or license status has no effect');
     // The legal agent's second pass of 2026-11-20.

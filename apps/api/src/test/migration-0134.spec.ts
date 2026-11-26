@@ -4,7 +4,7 @@ import { crawledPathsQuery } from '../lib/seo-queue';
 import { makeTestDb, statementsForMigration, type TestDb } from './d1';
 
 /**
- * AECI-818 — `0130_crawl_path_index.sql` adds the partial covering index
+ * AECI-818 — `0134_crawl_path_index.sql` adds the partial covering index
  * `page_views_crawl_path_idx` behind the search console's crawled-path read.
  *
  * Two tripwires. The body must stay ONE `CREATE INDEX`: `page_views` is the hottest
@@ -15,7 +15,7 @@ import { makeTestDb, statementsForMigration, type TestDb } from './d1';
  * drops `concrete_path IS NOT NULL` would silently fall back to a range scan of
  * every bot row on `page_views_bot_idx`.
  */
-const MIGRATION = '0130_crawl_path_index.sql';
+const MIGRATION = '0134_crawl_path_index.sql';
 
 const withoutComments = (s: string) =>
   s

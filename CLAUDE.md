@@ -62,7 +62,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Integration ownership: vendor-owned, AECi seeds; claim, retire/restore, vendor create, promote fence, twin guard | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5–§4.7, ADR 0035; `REVIEW_APP_PROMOTE_API.md` §4b–§4c |
 | Record ownership (`owned_at`, promote refuses them, product proposals, return to AECi); claim end, Unclaimed pages, logo removal | ADR 0042, ADR 0051; `REVIEW_APP_PROMOTE_API.md` §4a |
 | Ownership record and review-app mirror | ADR 0044; `REVIEW_APP_PROMOTE_API.md` §4d |
-| Integration field contests and the protest to AECi | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §11b (protest §11b.12); queue `docs/ADMIN_PANEL_SPEC.md` §5.12 |
+| Integration field contests and the protest to AECi | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §11b (protest §11b.12); Sync Service pair veto and reports §11e; queue `docs/ADMIN_PANEL_SPEC.md` §5.12 |
 | Free plan, product checklists, "Looks right" | `docs/STAGE_2_PAID_TIERS_SPEC.md` §13, `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18, ADR 0048 |
 | Company facts: size, ownership, funding, per-fact source, public display rule | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §6.23 |
 | Public field captions ("Maintained by", "Corrected by", edit stamps, plan-end mirrors) | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8, ADR 0051 |

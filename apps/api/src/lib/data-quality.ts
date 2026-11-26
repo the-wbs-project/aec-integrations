@@ -113,6 +113,7 @@ import {
   vendors,
   vendorSuspensions,
   vendorTerminationRefunds,
+  syncServicePairVetoes,
 } from '../db/schema';
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -1111,6 +1112,72 @@ export async function checkRetiredIntegrationsUnclaimed(db: Db): Promise<CheckFi
 }
 
 /**
+ * An edge row whose `vetoed_at` disagrees with `sync_service_pair_vetoes` (AECI-2042).
+ * The rule is key-wide: EVERY row on a veto's pair key (connector, A, B), in either
+ * table, carries the earliest open veto on that key's `filed_at`, or NULL when none is
+ * open. A pair row is on the key by its (connector, A, B); an `integrations` row by its
+ * `powered_by_product_id` and its two endpoints in either order. The veto, withdraw and
+ * lift batches keep every row on the key in step in the same batch, so any row here is
+ * a write that bypassed them: a row with `vetoed_at` set and no veto in force on its key
+ * is hidden for no reason, and a row with a veto in force on its key and `vetoed_at`
+ * NULL is on the public site against an endpoint vendor's veto. That includes a second
+ * row on a vetoed key beside the row the veto was filed on, and a row left on the key
+ * after the vetoed row was deleted. A veto does not need a vendor-held row (an endpoint
+ * vendor may veto an AECi-seeded pair), so this check, not
+ * `retired_integration_unclaimed`, is its invariant.
+ */
+export async function checkVetoedAtMismatch(db: Db): Promise<CheckFinding> {
+  const v = syncServicePairVetoes;
+  // The earliest open veto on the row's own key, correlated on the outer row. An
+  // `integrations` row with no connector matches no veto, so its expected value is NULL.
+  const intExpected = sql<
+    string | null
+  >`(SELECT min(${v.filedAt}) FROM ${v} WHERE ${v.endedAt} IS NULL AND ${v.connectorProductId} = ${integrations.poweredByProductId} AND ${v.productAId} = min(${integrations.sourceProductId}, ${integrations.targetProductId}) AND ${v.productBId} = max(${integrations.sourceProductId}, ${integrations.targetProductId}))`;
+  const pairExpected = sql<
+    string | null
+  >`(SELECT min(${v.filedAt}) FROM ${v} WHERE ${v.endedAt} IS NULL AND ${v.connectorProductId} = ${connectorEvidencedPairs.connectorProductId} AND ${v.productAId} = ${connectorEvidencedPairs.productAId} AND ${v.productBId} = ${connectorEvidencedPairs.productBId})`;
+  const rows = await db
+    .select({
+      id: integrations.id,
+      name: integrations.name,
+      vetoedAt: integrations.vetoedAt,
+      expected: intExpected,
+    })
+    .from(integrations)
+    .where(sql`ifnull(${integrations.vetoedAt}, '') <> ifnull(${intExpected}, '')`)
+    .orderBy(asc(integrations.id));
+  const pairs = await db
+    .select({
+      id: connectorEvidencedPairs.id,
+      name: connectorEvidencedPairs.name,
+      vetoedAt: connectorEvidencedPairs.vetoedAt,
+      expected: pairExpected,
+    })
+    .from(connectorEvidencedPairs)
+    .where(sql`ifnull(${connectorEvidencedPairs.vetoedAt}, '') <> ifnull(${pairExpected}, '')`)
+    .orderBy(asc(connectorEvidencedPairs.id));
+  const line = (
+    table: string,
+    r: { id: string; name: string | null; vetoedAt: string | null; expected: string | null },
+  ) => {
+    const label = `${r.name ?? '(unnamed)'} (${r.id}${table})`;
+    if (r.expected === null) {
+      return `${label} is hidden as vetoed, but no veto is in force on its pair`;
+    }
+    if (r.vetoedAt === null) {
+      return `${label} has a veto in force on its pair, but is on the public site`;
+    }
+    return `${label} carries vetoed_at ${r.vetoedAt}, but the earliest veto in force on its pair was filed ${r.expected}`;
+  };
+  return {
+    lines: [
+      ...rows.map((r) => line('', r)),
+      ...pairs.map((r) => line(', connector_evidenced_pairs', r)),
+    ],
+  };
+}
+
+/**
  * #15 — a vendor-created integration nobody holds a claim on (AECI-1011).
  *
  * A vendor create is born claimed. Two paths clear `claimed_at`: an AECi admin accept
@@ -1892,6 +1959,15 @@ export const CHECKS: CheckSpec[] = [
     label: 'Retired integrations that are not vendor-held',
     severity: 'error',
     run: ({ db }) => checkRetiredIntegrationsUnclaimed(db),
+  },
+  {
+    id: 'vetoed_at_mismatch',
+    label: 'Integrations whose veto marker disagrees with the vetoes in force',
+    // `error`: either a row on a pair key an endpoint vendor vetoed is public, or a row
+    // is hidden with no veto on its key behind it (AECI-2042; key-wide since the review
+    // fix). No seed vetoes a pair, so a seed is clean.
+    severity: 'error',
+    run: ({ db }) => checkVetoedAtMismatch(db),
   },
   {
     id: 'vendor_integration_unclaimed',

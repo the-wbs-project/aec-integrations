@@ -8,6 +8,7 @@ import {
   integrationAgreement,
   isClaimPubliclyBacked,
   isClaimRefuted,
+  OWNER_ANSWER_SOURCE,
   type AgreementAttestation,
   type AgreementState,
   type HistoricalAttestation,
@@ -458,5 +459,62 @@ describe('conflictSince (AECI-1153, the disagreement.raised_at rule)', () => {
       row(GLOBEX, false, '2026-09-28 10:05:00', null, 'vendor_b'),
     ];
     expect(conflictSince(rows)).toBe(T(5));
+  });
+});
+
+describe('the owner answer on a Sync Service pair (AECI-2039)', () => {
+  const owner = (asserted: boolean, retractedAt: string | null = null): AgreementAttestation => ({
+    source: OWNER_ANSWER_SOURCE,
+    asserted,
+    attestedByVendorId: 'vendor-rivets',
+    retractedAt,
+  });
+
+  it('an affirming owner answer is owner_confirmed, whatever else is on the claim', () => {
+    expect(computeAgreement([aeci(), owner(true)])).toBe('owner_confirmed');
+    expect(computeAgreement([owner(true)])).toBe('owner_confirmed');
+  });
+
+  it('a denying or retracted owner answer leaves the endpoint tally alone', () => {
+    expect(computeAgreement([aeci(), owner(false)])).toBe('unverified');
+    expect(computeAgreement([aeci(), owner(true, '2026-11-24T00:00:00.000Z')])).toBe('unverified');
+    expect(computeAgreement([vendorA(true), owner(false)])).toBe('single_source');
+  });
+
+  it('never votes in the endpoint tally, so it never refutes a claim', () => {
+    expect(isClaimRefuted([aeci(), owner(false)])).toBe(false);
+    expect(isClaimRefuted([owner(true)])).toBe(false);
+  });
+
+  it('decides visibility: a Yes stands behind a vendor claim, a No removes even an AECi seed', () => {
+    expect(isClaimPubliclyBacked({ origin: 'vendor', attestations: [owner(true)] })).toBe(true);
+    expect(isClaimPubliclyBacked({ origin: 'aeci', attestations: [aeci(), owner(false)] })).toBe(
+      false,
+    );
+    // A retracted answer decides nothing: the AECI-1314 rule applies again.
+    expect(
+      isClaimPubliclyBacked({
+        origin: 'vendor',
+        attestations: [owner(true, '2026-11-24T00:00:00.000Z')],
+      }),
+    ).toBe(false);
+  });
+
+  it('ranks between one endpoint vendor and two in the row roll-up', () => {
+    const rows = (...states: AgreementState[]) => states.map((agreement) => ({ agreement }));
+    expect(integrationAgreement(rows('owner_confirmed', 'owner_confirmed'))).toBe(
+      'owner_confirmed',
+    );
+    expect(integrationAgreement(rows('owner_confirmed', 'unverified'))).toBe('unverified');
+    expect(integrationAgreement(rows('owner_confirmed', 'confirmed'))).toBe('owner_confirmed');
+    expect(integrationAgreement(rows('owner_confirmed', 'single_source'))).toBe('single_source');
+  });
+
+  it('is left out of the conflict replay', () => {
+    const history: HistoricalAttestation[] = [
+      { ...vendorA(true), createdAt: '2026-11-01T00:00:00.000Z' },
+      { ...owner(false), createdAt: '2026-11-02T00:00:00.000Z' },
+    ];
+    expect(conflictSince(history)).toBeNull();
   });
 });

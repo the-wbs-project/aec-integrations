@@ -102,6 +102,10 @@
  * unknown proposal id, so it proves the guard passed with the `404` a proposal of
  * another vendor also gets (`vendor-proposals.spec.ts` covers the rest).
  *
+ * AECI-2040 adds `POST /api/vendor/sync-service-pairs`, a seat-only write. VENDOR_A
+ * holds no Sync Service, so the granted-seat cell proves the guard passed with the
+ * connector's `404` (`vendor-sync-service-pair-create.spec.ts` covers the rest).
+ *
  * AECI-1424 adds the owner's product create, `POST /api/vendor/products`. An owner-seat
  * route. VENDOR_A does not own its record, so the granted-seat cell proves the guard
  * passed with `409 VENDOR_NOT_OWNED` (`vendor-product-create.spec.ts` covers the rest).
@@ -151,6 +155,7 @@ import {
   createVendorSeatsHandler,
 } from './vendor';
 import { createListVendorProductConnectorsHandler } from './vendor-connectors';
+import { createListVendorDeliveredPairsHandler } from './vendor-delivered-pairs';
 import { createListVendorNotificationsHandler } from './vendor-notifications';
 import {
   createListVendorHistoryHandler,
@@ -173,8 +178,27 @@ import {
 } from './vendor-attestations';
 import { createListDataObjectsHandler } from './vendor-data-objects';
 import { createCreateVendorIntegrationHandler } from './vendor-integration-create';
+import { createCreateSyncServicePairHandler } from './vendor-sync-service-pair-create';
+import {
+  createFileVetoHandler,
+  createListVendorVetoesHandler,
+  createWithdrawVetoHandler,
+} from './vendor-sync-service-vetoes';
+import {
+  createDecidePairContestHandler,
+  createFilePairProtestHandler,
+  createListVendorPairContestsHandler,
+  createSubmitPairContestHandler,
+  createWithdrawPairContestHandler,
+} from './vendor-pair-contests';
 import { createPossibleDuplicatesHandler } from './vendor-integration-duplicates';
 import { createUpdateVendorIntegrationHandler } from './vendor-integration-edits';
+import {
+  createAddOwnerFlowHandler,
+  createChangeOwnerFlowHandler,
+  createClearOwnerFlowAnswerHandler,
+  createSetOwnerFlowAnswerHandler,
+} from './vendor-owner-flows';
 import {
   createListVendorProductRequestsHandler,
   createVendorProductRequestHandler,
@@ -472,6 +496,12 @@ function makeApp() {
     requireVendor(guard),
     createListVendorProductConnectorsHandler(t.factory),
   );
+  // AECI-2045, registered where `index.ts` registers it.
+  app.get(
+    '/api/vendor/products/:id/delivered-pairs',
+    requireVendor(guard),
+    createListVendorDeliveredPairsHandler(t.factory),
+  );
   // Version routes registered BEFORE `/products/:id`, matching `index.ts`.
   app.get(
     '/api/vendor/products/:id/versions',
@@ -522,6 +552,49 @@ function makeApp() {
     requireVendor(guard),
     createCreateVendorIntegrationHandler(t.factory),
   );
+  // AECI-2040 — seat only; the Sync Service, endpoint and duplicate checks are inside.
+  app.post(
+    '/api/vendor/sync-service-pairs',
+    requireVendor(guard),
+    createCreateSyncServicePairHandler(t.factory),
+  );
+  // AECI-2042 — seat only; the endpoint, Sync Service and owner checks are inside.
+  app.post(
+    '/api/vendor/integrations/:id/veto',
+    requireVendor(guard),
+    createFileVetoHandler(t.factory),
+  );
+  app.post(
+    '/api/vendor/vetoes/:id/withdraw',
+    requireVendor(guard),
+    createWithdrawVetoHandler(t.factory),
+  );
+  app.get('/api/vendor/vetoes', requireVendor(guard), createListVendorVetoesHandler(t.factory));
+  app.post(
+    '/api/vendor/integrations/:id/pair-contests',
+    requireVendor(guard),
+    createSubmitPairContestHandler(t.factory),
+  );
+  app.get(
+    '/api/vendor/pair-contests',
+    requireVendor(guard),
+    createListVendorPairContestsHandler(t.factory),
+  );
+  app.post(
+    '/api/vendor/pair-contests/:id/withdraw',
+    requireVendor(guard),
+    createWithdrawPairContestHandler(t.factory),
+  );
+  app.post(
+    '/api/vendor/pair-contests/:id/decision',
+    requireVendor(guard),
+    createDecidePairContestHandler(t.factory),
+  );
+  app.post(
+    '/api/vendor/pair-contests/:id/protest',
+    requireVendor(guard),
+    createFilePairProtestHandler(t.factory),
+  );
   // AECI-1377 — seat only; the context-product check is inside the handler.
   app.get(
     '/api/vendor/product-requests',
@@ -557,6 +630,27 @@ function makeApp() {
   );
   // AECI-627 — guard only; no authority resolution, no verified gate.
   app.get('/api/vendor/updates', requireVendor(guard), createVendorUpdatesHandler(t.factory));
+  // AECI-2039 — seat only; the owner flow gate is inside the handlers.
+  app.post(
+    '/api/vendor/owned-integrations/:id/flows',
+    requireVendor(guard),
+    createAddOwnerFlowHandler(t.factory),
+  );
+  app.put(
+    '/api/vendor/owned-flows/:claimId/answer',
+    requireVendor(guard),
+    createSetOwnerFlowAnswerHandler(t.factory),
+  );
+  app.delete(
+    '/api/vendor/owned-flows/:claimId/answer',
+    requireVendor(guard),
+    createClearOwnerFlowAnswerHandler(t.factory),
+  );
+  app.patch(
+    '/api/vendor/owned-flows/:claimId',
+    requireVendor(guard),
+    createChangeOwnerFlowHandler(t.factory),
+  );
   // AECI-1006 — seat only; the owner rule is inside the handler.
   app.patch(
     '/api/vendor/integrations/:id',
@@ -738,6 +832,57 @@ const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?:
   { path: '/api/vendor/proposals', method: 'GET' },
   { path: `/api/vendor/proposals/${uuid(990)}/accept`, method: 'POST', ok: 404 },
   { path: `/api/vendor/proposals/${uuid(990)}/decline`, method: 'POST', ok: 404 },
+  // AECI-2039 — seat only; owner, Sync Service and claimed are inside the handlers.
+  // An unknown row or claim is their 404.
+  {
+    path: `/api/vendor/owned-integrations/${uuid(991)}/flows`,
+    method: 'POST',
+    body: { data_object: 'rfis', direction: 'both' },
+    ok: 404,
+  },
+  {
+    path: `/api/vendor/owned-flows/${uuid(992)}/answer`,
+    method: 'PUT',
+    body: { asserted: true },
+    ok: 404,
+  },
+  { path: `/api/vendor/owned-flows/${uuid(992)}/answer`, method: 'DELETE', ok: 404 },
+  {
+    path: `/api/vendor/owned-flows/${uuid(992)}`,
+    method: 'PATCH',
+    body: { direction: 'both' },
+    ok: 404,
+  },
+  // AECI-2042 — seat only. An unknown row, veto or report is its 404, which proves the
+  // guard passed; the reads answer 200.
+  {
+    path: `/api/vendor/integrations/${uuid(994)}/veto`,
+    method: 'POST',
+    body: { reason: 'No.' },
+    ok: 404,
+  },
+  { path: `/api/vendor/vetoes/${uuid(995)}/withdraw`, method: 'POST', ok: 404 },
+  { path: '/api/vendor/vetoes', method: 'GET', ok: 200 },
+  {
+    path: `/api/vendor/integrations/${uuid(994)}/pair-contests`,
+    method: 'POST',
+    body: { kind: 'existence', reason: 'Gone.' },
+    ok: 404,
+  },
+  { path: '/api/vendor/pair-contests', method: 'GET', ok: 200 },
+  { path: `/api/vendor/pair-contests/${uuid(996)}/withdraw`, method: 'POST', ok: 404 },
+  {
+    path: `/api/vendor/pair-contests/${uuid(996)}/decision`,
+    method: 'POST',
+    body: { decision: 'decline' },
+    ok: 404,
+  },
+  {
+    path: `/api/vendor/pair-contests/${uuid(996)}/protest`,
+    method: 'POST',
+    body: { reason: 'Look again.' },
+    ok: 404,
+  },
   // AECI-1424 — owner seats only. VENDOR_A does not own its record: the 409.
   { path: '/api/vendor/products', method: 'POST', body: { name: 'New product' }, ok: 409 },
   // AECI-1389 — owner seats only; VENDOR_A has a billing account (LICENSE_A's).
@@ -793,6 +938,7 @@ const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?:
   },
   { path: `/api/vendor/products/${PRODUCT_A}/versions`, method: 'GET' },
   { path: `/api/vendor/products/${PRODUCT_A}/connectors`, method: 'GET' },
+  { path: `/api/vendor/products/${PRODUCT_A}/delivered-pairs`, method: 'GET' },
   {
     path: `/api/vendor/products/${PRODUCT_A}/versions`,
     method: 'POST',
@@ -833,6 +979,20 @@ const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?:
       direction: 'outbound',
     },
     ok: 201,
+  },
+  // AECI-2040 — seat only. VENDOR_A holds no Sync Service, so an unknown connector id
+  // proves the guard passed with the connector's 404.
+  {
+    path: '/api/vendor/sync-service-pairs',
+    method: 'POST',
+    body: {
+      connector_product_id: uuid(993),
+      product_id: PRODUCT_A,
+      counterpart_product_id: PRODUCT_B,
+      name: 'Revit and MicroStation',
+      direction: 'both',
+    },
+    ok: 404,
   },
   {
     path: '/api/vendor/claims',
@@ -1106,7 +1266,7 @@ describe('attestation.author writes — the capability gate (AECI-623)', () => {
   );
 });
 
-describe('/api/vendor/products/:id/versions — the attestation.author gate (AECI-607, AECI-623)', () => {
+describe('/api/vendor/products/:id/versions — the product.versions.edit gate (AECI-607, AECI-623, AECI-2038)', () => {
   it.each(VERSION_WRITE_ROUTES)(
     '$method rejects a seat with no entitlement on its own product with 403 ENTITLEMENT_REQUIRED',
     async ({ path, method, body }) => {
@@ -1123,7 +1283,7 @@ describe('/api/vendor/products/:id/versions — the attestation.author gate (AEC
       );
       expect(status).toBe(403);
       expect(res.error.code).toBe(ApiErrorCode.ENTITLEMENT_REQUIRED);
-      expect(res.error.details).toEqual({ capability: 'attestation.author', tier: 'unclaimed' });
+      expect(res.error.details).toEqual({ capability: 'product.versions.edit', tier: 'unclaimed' });
       // Nothing written, and the row is still there.
       expect(await t.db.select().from(auditLog)).toHaveLength(0);
       const [row] = await t.db
@@ -1211,19 +1371,32 @@ const ATTESTATION_WRITE_ROUTES: ReadonlyArray<{
   },
 ];
 
-describe('/api/vendor/claims* — the attestation.author gate (AECI-301, AECI-623)', () => {
+describe('/api/vendor/claims* — the attestation.author gate (AECI-301, AECI-623, AECI-2038)', () => {
+  // AECI-2038 (ruling 5 on epic AECI-2035): Free holds attestation.author, so a
+  // seat with no subscription passes the gate on its OWN integration. Each route
+  // then answers as it does for a Managed seat.
+  // Past the gate, the route's own rules answer (a duplicate claim is 400, an
+  // absent attestation 404, an AECi claim's retract 403 FORBIDDEN). None of them
+  // is the entitlement refusal.
   it.each(ATTESTATION_WRITE_ROUTES)(
-    '$label rejects a seat with no entitlement on its OWN integration with 403 ENTITLEMENT_REQUIRED',
+    '$label passes a Free seat on its OWN integration',
     async ({ method, own }) => {
       const { status, body } = await call(own.path, method, SEAT_UNVERIFIED, own.body);
-      expect(status).toBe(403);
-      expect(body.error.code).toBe(ApiErrorCode.ENTITLEMENT_REQUIRED);
-      expect(body.error.details).toEqual({ capability: 'attestation.author', tier: 'unclaimed' });
-      // Nothing written, and the claim set is untouched.
-      expect(await t.db.select().from(auditLog)).toHaveLength(0);
-      expect(await t.db.select().from(claims)).toHaveLength(4);
+      expect(status).toBeLessThan(500);
+      expect(body?.error?.code).not.toBe(ApiErrorCode.ENTITLEMENT_REQUIRED);
     },
   );
+
+  it('lets a Free seat confirm a data flow on its OWN integration, and audits it', async () => {
+    const { status } = await call(
+      `/api/vendor/claims/${CLAIM_UNVERIFIED}/attestation`,
+      'PUT',
+      SEAT_UNVERIFIED,
+      { asserted: true },
+    );
+    expect(status).toBe(200);
+    expect(await t.db.select().from(auditLog)).not.toHaveLength(0);
+  });
 
   it.each(ATTESTATION_WRITE_ROUTES)(
     '$label answers 404 — NOT 403 — when an unverified vendor targets another vendor’s integration',
@@ -1654,6 +1827,26 @@ describe('/api/vendor/* — cross-vendor isolation', () => {
     expect(unknown.status).toBe(404);
     expect(hidden.body.error.code).toBe(unknown.body.error.code);
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+
+  it('GET /delivered-pairs on another vendor’s product → 404 (AECI-2045)', async () => {
+    const { status, body } = await call(
+      `/api/vendor/products/${PRODUCT_B}/delivered-pairs`,
+      'GET',
+      SEAT_A,
+    );
+    expect(status).toBe(404);
+    expect(body.error.code).toBe(ApiErrorCode.NOT_FOUND);
+  });
+
+  it('lets an UNVERIFIED vendor READ its own delivered pairs (AECI-2045)', async () => {
+    const { status, body } = await call(
+      `/api/vendor/products/${PRODUCT_UNVERIFIED}/delivered-pairs`,
+      'GET',
+      SEAT_UNVERIFIED,
+    );
+    expect(status).toBe(200);
+    expect(body.pairs).toEqual([]);
   });
 
   it('GET /connectors on another vendor’s product → 404 (AECI-1013)', async () => {

@@ -428,7 +428,7 @@ describe('read-only rows', () => {
     await setup(api, connector);
     const fixture = await mount(IntegrationSharedData, connector);
     expect(text(fixture)).toContain('Not needed');
-    expect(text(fixture)).toContain('so neither company answers for them');
+    expect(text(fixture)).toContain('so neither product vendor answers for them');
     expect(el(fixture).querySelector(testid('add-row'))).toBeNull();
     expect(el(fixture).querySelector('[role="group"]')).toBeNull();
   });
@@ -449,11 +449,11 @@ describe('read-only rows', () => {
     it('unclaimed: AEC Integrations keeps the rows, in all three places', async () => {
       const fixture = await render({ ...connector, claimed_at: null });
       expect(el(fixture).querySelector(testid('connector-note'))!.textContent!.trim()).toBe(
-        'AEC Integrations keeps these up to date. They run through Agave ERP Sync, so neither company answers for them.',
+        'AEC Integrations keeps these up to date. They run through Agave ERP Sync, so neither product vendor answers for them.',
       );
       expect(text(fixture)).toContain('AEC Integrations keeps this list up to date.');
       expect(text(fixture)).toContain(
-        'AEC Integrations checks it. Neither company answers for it.',
+        'AEC Integrations checks it. Neither product vendor answers for it.',
       );
       expect(text(fixture)).not.toContain('stopped updating');
       expect(text(fixture)).not.toContain('no longer updates');
@@ -505,11 +505,66 @@ describe('read-only rows', () => {
     });
   });
 
+  // AECI-2039: the caller owns this Sync Service row and makes one of its endpoints,
+  // so the row is here and not on the owned card. It answers as the owner.
+  describe('the owner of a Sync Service row that also makes an endpoint', () => {
+    const connector = VENDOR_INTEGRATIONS_FIXTURE.integrations[4]!;
+    const flowId = '00000000-0000-4000-8000-0000000071a1';
+    const owned = {
+      ...connector,
+      is_owner: true,
+      claimed_at: '2026-09-23T00:00:00.000Z',
+      flows_maintained_by_owner: true,
+      owner_flows: {
+        product_a: connector.context_product,
+        product_b: connector.other_product,
+        editable: true,
+        flows: [
+          {
+            id: flowId,
+            data_object_slug: 'rfis',
+            data_object_name: 'RFIs',
+            direction: 'outbound' as const,
+            agreement: 'unverified' as const,
+            origin: 'aeci' as const,
+            answer: null,
+          },
+        ],
+      },
+    };
+
+    it('renders the owned card controls, not the endpoint answers', async () => {
+      const api = makeApi([owned]);
+      await setup(api, owned);
+      const fixture = await mount(IntegrationSharedData, owned);
+      expect(el(fixture).querySelector(testid(`owned-flow-yes-${flowId}`))).not.toBeNull();
+      expect(el(fixture).querySelector(testid('owned-flow-add-toggle'))).not.toBeNull();
+      expect(text(fixture)).not.toContain('Not needed');
+      expect(el(fixture).querySelector(testid('connector-note'))).toBeNull();
+      // One heading for the section: the embedded controls drop their own.
+      expect(el(fixture).querySelectorAll('h4')).toHaveLength(0);
+      const region = el(fixture).querySelector('[role="region"]');
+      expect(region?.getAttribute('aria-labelledby')).toBe('data-shared-heading');
+    });
+
+    it('answers through the owner route', async () => {
+      const api = makeApi([owned]);
+      await setup(api, owned);
+      const fixture = await mount(IntegrationSharedData, owned);
+      el(fixture)
+        .querySelector<HTMLButtonElement>(testid(`owned-flow-yes-${flowId}`))!
+        .click();
+      await settle(fixture);
+      expect(api.setOwnerFlowAnswer).toHaveBeenCalledWith(flowId, true);
+      expect(api.upsertAttestation).not.toHaveBeenCalled();
+    });
+  });
+
   it('without access, every answer is disabled and the access sentence shows', async () => {
     const api = makeApi([PROCORE]);
     await setup(api, PROCORE, VENDOR_ME_UNVERIFIED_FIXTURE);
     const fixture = await mount(IntegrationSharedData, PROCORE);
-    expect(text(fixture)).toContain('opens up with active vendor access');
+    expect(text(fixture)).toContain('Answering is not available for this integration right now.');
     for (const b of el(fixture).querySelectorAll<HTMLButtonElement>('[role="group"] button')) {
       expect(b.disabled).toBe(true);
     }
@@ -924,6 +979,9 @@ describe('a submitted change (AECI-1246)', () => {
  */
 describe('attestation.author comes from the endpoint product’s plan', () => {
   const FREE = VENDOR_ME_FREE_FIXTURE.products[0]!.plan;
+  /** A plan block without the capability: since AECI-2038 only a tier the build
+   *  does not know, because Free holds `attestation.author`. */
+  const CLOSED = { ...FREE, capabilities: [] };
   const [primary, secondary] = VENDOR_ME_FIXTURE.products;
   /** A Managed vendor whose context product is Free, its other product Managed. */
   const contextFree = {
@@ -933,9 +991,24 @@ describe('attestation.author comes from the endpoint product’s plan', () => {
     ),
   };
 
-  it('locks answering on a Free endpoint product though the vendor block is Managed', async () => {
-    expect(VENDOR_ME_FIXTURE.entitlement.capabilities).toContain('attestation.author');
+  it('opens answering on a Free endpoint product (AECI-2038)', async () => {
     const { state } = await setup(makeApi([PROCORE]), PROCORE, contextFree);
+    expect(state.canAuthor()).toBe(true);
+    const fixture = await mount(IntegrationSharedData, PROCORE);
+    expect(el(fixture).querySelector<HTMLButtonElement>(testid('yes-models'))!.disabled).toBe(
+      false,
+    );
+  });
+
+  it('locks answering on an endpoint plan without the capability though the vendor block has it', async () => {
+    expect(VENDOR_ME_FIXTURE.entitlement.capabilities).toContain('attestation.author');
+    const contextClosed = {
+      ...VENDOR_ME_FIXTURE,
+      products: VENDOR_ME_FIXTURE.products.map((p) =>
+        p.id === PROCORE.context_product.id ? { ...p, plan: CLOSED } : p,
+      ),
+    };
+    const { state } = await setup(makeApi([PROCORE]), PROCORE, contextClosed);
     expect(state.canAuthor()).toBe(false);
     const fixture = await mount(IntegrationSharedData, PROCORE);
     expect(el(fixture).querySelector<HTMLButtonElement>(testid('yes-models'))!.disabled).toBe(true);
@@ -962,7 +1035,7 @@ describe('attestation.author comes from the endpoint product’s plan', () => {
     expect(state.canAuthor()).toBe(true);
   });
 
-  it('an owns-both integration stays locked when NEITHER endpoint is Managed', async () => {
+  it('an owns-both integration stays locked when NEITHER endpoint holds the capability', async () => {
     const both = {
       ...PROCORE,
       slots: ['vendor_a', 'vendor_b'] as typeof PROCORE.slots,
@@ -975,7 +1048,7 @@ describe('attestation.author comes from the endpoint product’s plan', () => {
     };
     const { state } = await setup(makeApi([both]), both, {
       ...VENDOR_ME_FIXTURE,
-      products: VENDOR_ME_FIXTURE.products.map((p) => ({ ...p, plan: FREE })),
+      products: VENDOR_ME_FIXTURE.products.map((p) => ({ ...p, plan: CLOSED })),
     });
     expect(state.canAuthor()).toBe(false);
   });
@@ -1110,5 +1183,60 @@ describe('deleting a row the caller added (AECI-1245)', () => {
       retired_at: '2026-10-01T00:00:00.000Z',
     });
     expect(q(fixture, 'delete-drawings')).not.toBeNull();
+  });
+});
+
+describe('Escape is Cancel (AECI-2133)', () => {
+  const escape = () =>
+    new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+
+  it('closes the add-a-row form and focuses Add a row', async () => {
+    const api = makeApi([INTEGRATION_OWNED_CLAIMED]);
+    await setup(api, INTEGRATION_OWNED_CLAIMED);
+    const fixture = await mount(IntegrationSharedData, INTEGRATION_OWNED_CLAIMED);
+    el(fixture).querySelector<HTMLButtonElement>(testid('add-row'))!.click();
+    await settle(fixture);
+    const note = el(fixture).querySelector<HTMLTextAreaElement>('#data-shared-add-note')!;
+    note.value = 'A draft';
+    note.dispatchEvent(new Event('input'));
+    note.dispatchEvent(escape());
+    await settle(fixture);
+    expect(el(fixture).querySelector(testid('add-row-form'))).toBeNull();
+    expect(document.activeElement).toBe(el(fixture).querySelector(testid('add-row')));
+    expect(api.createClaim).not.toHaveBeenCalled();
+  });
+
+  it('closes the reason form and focuses the pressed No', async () => {
+    const api = makeApi([PROCORE]);
+    await setup(api, PROCORE);
+    const fixture = await mount(IntegrationSharedData, PROCORE);
+    el(fixture).querySelector<HTMLButtonElement>(testid('no-models'))!.click();
+    await settle(fixture);
+    el(fixture)
+      .querySelector<HTMLTextAreaElement>(`${testid('answer-form')} textarea`)!
+      .dispatchEvent(escape());
+    await settle(fixture);
+    expect(el(fixture).querySelector(testid('answer-form'))).toBeNull();
+    expect(document.activeElement).toBe(el(fixture).querySelector(testid('no-models')));
+    expect(api.upsertAttestation).not.toHaveBeenCalled();
+  });
+
+  it('closes only the reason form under Change, and the row keeps its toggles', async () => {
+    const api = makeApi([PROCORE]);
+    await setup(api, PROCORE);
+    const fixture = await mountLive();
+    el(fixture).querySelector<HTMLButtonElement>(testid('change-submittals'))!.click();
+    await settle(fixture);
+    el(fixture).querySelector<HTMLButtonElement>(testid('no-submittals'))!.click();
+    await settle(fixture);
+    el(fixture)
+      .querySelector<HTMLTextAreaElement>(`${testid('answer-form')} textarea`)!
+      .dispatchEvent(escape());
+    await settle(fixture);
+    expect(el(fixture).querySelector(testid('answer-form'))).toBeNull();
+    expect(el(fixture).querySelector(testid('yes-submittals'))).not.toBeNull();
+    expect(document.activeElement).toBe(el(fixture).querySelector(testid('no-submittals')));
+    expect(api.upsertAttestation).not.toHaveBeenCalled();
+    el(fixture).remove();
   });
 });

@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   attestations,
+  claimOwnerAnswers,
   claims,
   connectorEvidencedPairs,
   integrationFieldChallenges,
@@ -194,21 +195,22 @@ describe('a Free product and a Managed product', () => {
     });
   });
 
-  it('reads "3 of 3" and complete on Free, with data flows optional', async () => {
+  // AECI-2038: Free holds attestation.author, so the data-flows step counts there too.
+  it('reads "3 of 4" on Free, with data flows to do', async () => {
     const body = await productChecklist(FREE);
     expect(body).toMatchObject({
       product_id: P_ONE,
       product_slug: 'revit',
       done: 3,
-      total: 3,
-      complete: true,
+      total: 4,
+      complete: false,
       plan: { tier: 'unclaimed', status: null },
     });
     expect(body.steps).toEqual([
       { key: 'product_details', status: 'done', counts: true },
       { key: 'integration_list', status: 'done', counts: true },
       { key: 'claim_integrations', status: 'done', counts: true },
-      { key: 'confirm_data_flows', status: 'optional', counts: false },
+      { key: 'confirm_data_flows', status: 'todo', counts: true },
     ]);
   });
 
@@ -232,7 +234,7 @@ describe('a Free product and a Managed product', () => {
   it('carries the same plan block and score into the vendor read', async () => {
     const free = await vendorChecklist(FREE);
     const one = free.products.find((p: JsonBody) => p.product_id === P_ONE);
-    expect(one).toMatchObject({ product_slug: 'revit', done: 3, total: 3, complete: true });
+    expect(one).toMatchObject({ product_slug: 'revit', done: 3, total: 4, complete: false });
     expect(one.plan).toEqual((await productChecklist(FREE)).plan);
     expect(one).not.toHaveProperty('steps');
 
@@ -251,7 +253,8 @@ describe('a Free product and a Managed product', () => {
     expect(one.plan.tier).toBe('verified');
     expect(one.total).toBe(4);
     expect(two.plan.tier).toBe('unclaimed');
-    expect(two.total).toBe(3);
+    // Four steps on Free too since AECI-2038.
+    expect(two.total).toBe(4);
   });
 });
 
@@ -262,7 +265,7 @@ describe('the two "Looks right" product steps', () => {
     const body = await productChecklist(FREE);
     expect(stepStatus(body, 'product_details')).toBe('todo');
     expect(stepStatus(body, 'integration_list')).toBe('todo');
-    expect(body).toMatchObject({ done: 1, total: 3, complete: false });
+    expect(body).toMatchObject({ done: 2, total: 4, complete: false });
   });
 
   it('needs maintained_by = vendor as well as a review date for product details', async () => {
@@ -705,12 +708,74 @@ describe('batching', () => {
 
   // AECI-1357 dropped the plan price lookup from both reads: the plan block is
   // built from the session.
-  it('runs seven statements for the vendor read', async () => {
+  // AECI-2045 added the two owner-flow reads (pairs and integrations), in the same wave.
+  it('runs nine statements for the vendor read', async () => {
     await addProducts(4, 3000);
-    expect(await statementsFor('/api/vendor/checklist')).toBe(7);
+    expect(await statementsFor('/api/vendor/checklist')).toBe(9);
   });
 
-  it('runs the ownership wave plus three fact reads for the product read', async () => {
-    expect(await statementsFor(`/api/vendor/products/${P_ONE}/checklist`)).toBe(6);
+  it('runs the ownership wave plus five fact reads for the product read', async () => {
+    expect(await statementsFor(`/api/vendor/products/${P_ONE}/checklist`)).toBe(8);
+  });
+});
+
+// ─── AECI-2045: a connector product's data-flows step ────────────────────────
+
+describe('confirm data flows on a connector product (AECI-2045)', () => {
+  const P_SYNC = uuid(15);
+  const PAIR = uuid(60);
+
+  beforeEach(async () => {
+    await t.db.insert(products).values({
+      id: P_SYNC,
+      slug: 'sync',
+      name: 'Sync',
+      productRole: 'connector',
+      connectorKind: 'sync_service',
+    });
+    await t.db
+      .insert(productVendors)
+      .values({ productId: P_SYNC, vendorId: VENDOR, isPrimary: false });
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: PAIR,
+      connectorProductId: P_SYNC,
+      productAId: P_PARTNER,
+      productBId: P_FOREIGN,
+      direction: 'a_to_b',
+      builtByVendorId: VENDOR,
+      claimedAt: SEEN,
+    });
+    await t.db.insert(claims).values({
+      id: uuid(61),
+      connectorEvidencedPairId: PAIR,
+      dataObjectId: DO_RFIS,
+      direction: 'a_to_b',
+    });
+  });
+
+  it('counts the owner’s unanswered flow on a Sync Service, then done once answered', async () => {
+    expect(stepStatus(await productChecklist(FREE, P_SYNC), 'confirm_data_flows')).toBe('todo');
+    await t.db
+      .insert(claimOwnerAnswers)
+      .values({ id: uuid(62), claimId: uuid(61), vendorId: VENDOR, asserted: true });
+    expect(stepStatus(await productChecklist(FREE, P_SYNC), 'confirm_data_flows')).toBe('done');
+  });
+
+  it('does not count a flow on a pair the vendor has not claimed', async () => {
+    await t.db
+      .update(connectorEvidencedPairs)
+      .set({ claimedAt: null })
+      .where(eq(connectorEvidencedPairs.id, PAIR));
+    expect(stepStatus(await productChecklist(FREE, P_SYNC), 'confirm_data_flows')).toBe('done');
+  });
+
+  it('leaves the step out on an Integration platform', async () => {
+    await t.db
+      .update(products)
+      .set({ connectorKind: 'integration_platform' })
+      .where(eq(products.id, P_SYNC));
+    const body = await productChecklist(FREE, P_SYNC);
+    expect((body.steps as JsonBody[]).map((s) => s.key)).not.toContain('confirm_data_flows');
+    expect(body.total).toBe(3);
   });
 });

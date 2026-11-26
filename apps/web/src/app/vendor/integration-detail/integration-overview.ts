@@ -60,6 +60,7 @@ import { VendorTip } from './vendor-tip';
 import { VendorHiddenNote } from '../components/vendor-hidden-note';
 import { VendorLockedNote } from '../components/vendor-locked-note';
 import { isReplayedEvent } from '../../core/event-replay';
+import { CloseOnEscape } from '../shared/close-on-escape';
 
 type RowKey = IntegrationEditField | 'owner' | 'maintained' | 'added';
 type Control = 'text' | 'url' | 'textarea' | 'select';
@@ -106,7 +107,15 @@ type Seat = 'owner-claimed' | 'owner-unclaimed' | 'other';
  */
 @Component({
   selector: 'aec-integration-overview',
-  imports: [AecButton, AecIcon, VendorTip, VendorNotOurs, VendorHiddenNote, VendorLockedNote],
+  imports: [
+    CloseOnEscape,
+    AecButton,
+    AecIcon,
+    VendorTip,
+    VendorNotOurs,
+    VendorHiddenNote,
+    VendorLockedNote,
+  ],
   styles: [ID_STYLES],
   template: `
     <div class="space-y-6">
@@ -128,6 +137,9 @@ type Seat = 'owner-claimed' | 'owner-unclaimed' | 'other';
                 <dd class="flex min-h-11 min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                   @if (editing() === row.key && row.edit) {
                     <form
+                      aecCloseOnEscape
+                      [escapeBusy]="busy()"
+                      (escapeCancel)="cancelEdit(row)"
                       method="dialog"
                       class="flex min-w-0 flex-1 flex-wrap items-start gap-2 py-1"
                       [attr.aria-label]="editFormLabel(row.label)"
@@ -297,7 +309,7 @@ type Seat = 'owner-claimed' | 'owner-unclaimed' | 'other';
                                 aecButton
                                 variant="ghost"
                                 type="button"
-                                (click)="askToOwn()"
+                                (click)="askToOwn($event)"
                                 data-testid="ask-owner"
                                 i18n="@@vendor.im.owner.ask"
                               >
@@ -358,7 +370,7 @@ type Seat = 'owner-claimed' | 'owner-unclaimed' | 'other';
                                   type="button"
                                   [attr.aria-label]="requestLabel(row.label)"
                                   [attr.data-testid]="'request-' + row.key"
-                                  (click)="state.openRequestForm(row.field)"
+                                  (click)="state.openRequestForm(row.field, $event.currentTarget)"
                                   i18n="@@vendor.im.requestChange"
                                 >
                                   Request a change
@@ -530,10 +542,10 @@ export class IntegrationOverview {
             control: 'select',
             clamp: false,
             tip: [
-              $localize`:@@vendor.im.tip.how:How customers get it: built into a product, a marketplace app, a direct connection, or through a connector service.`,
+              $localize`:@@vendor.im.tip.how.v2:How customers get it: built into a product, a marketplace app, a direct connection, or through a connector product.`,
               $localize`:@@vendor.im.tip.how.public:Shows as a label on the integration's card on the public page.`,
               frozenKind
-                ? $localize`:@@vendor.im.tip.how.frozen:It runs through a connector service, so this cannot be changed here. Request a change if it is wrong.`
+                ? $localize`:@@vendor.im.tip.how.frozen.v2:It runs through a connector product, so this cannot be changed here. Request a change if it is wrong.`
                 : who,
             ],
           },
@@ -889,8 +901,8 @@ export class IntegrationOverview {
     }
   }
 
-  protected askToOwn(): void {
-    this.state.openRequestForm('owner');
+  protected askToOwn(event: Event): void {
+    this.state.openRequestForm('owner', event.currentTarget);
   }
 
   protected seeOwnerRequest(): void {

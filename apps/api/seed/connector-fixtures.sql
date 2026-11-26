@@ -90,6 +90,28 @@ INSERT INTO products (id, slug, name, description, website, product_role, resear
   ('00000000-0000-4000-8000-000000000791','fx-agave','Agave (fixture)','Connector-lane fixture: a second catalogue, handed over to its vendor so the frozen-lane state is renderable.','https://example.com/agave','connector','done','promoted','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 ON CONFLICT (slug) DO NOTHING;
 
+-- The connector kind (AECI-2036, STAGE_1_5_SPEC.md §13.13), one fixture per kind:
+-- MindCloud is an Integration platform, Agave a Sync Service. Every other fixture
+-- connector stays NULL, the unclassified "Connector" case. An UPDATE rather than a
+-- column in the INSERT above, because that INSERT is `DO NOTHING` on a re-seed and a
+-- database seeded before the column existed would never pick the kind up.
+UPDATE products SET connector_kind = 'integration_platform'
+  WHERE id = '00000000-0000-4000-8000-000000000790';
+UPDATE products SET connector_kind = 'sync_service'
+  WHERE id = '00000000-0000-4000-8000-000000000791';
+
+-- A second Sync Service (AECI-2043), so one pair page has two Sync Service cards and
+-- the A to Z order by the offering vendor is visible locally: Procore (fixture) and
+-- Viewpoint Vista, through Agave (offered by "Agave Inc. (fixture)") and through
+-- Aardvark Sync (offered by "aardvark Systems (fixture)"). The lowercase initial is on
+-- purpose: case-insensitive, aardvark sorts first; a byte order would put Agave first.
+-- Its own vendor, linked, so it adds nothing to `products_without_vendor`.
+INSERT INTO products (id, slug, name, description, website, product_role, research_status, promotion_status, created_at, updated_at) VALUES
+  ('00000000-0000-4000-8000-000000000792','fx-aardvark-sync','Aardvark Sync (fixture)','Connector-lane fixture: a second Sync Service, sharing a pair with Agave.','https://example.com/aardvark-sync','connector','done','promoted','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+ON CONFLICT (slug) DO NOTHING;
+UPDATE products SET connector_kind = 'sync_service'
+  WHERE id = '00000000-0000-4000-8000-000000000792';
+
 -- A vendor for the handover to name. AECI-720's `vendorId` is validated against
 -- `vendors` rather than trusted, so a fixture handover needs a real row.
 -- `promotion_status` is EXPLICIT (AECI-592): the column defaults to 'pending', and
@@ -113,6 +135,15 @@ ON CONFLICT (slug) DO UPDATE SET promotion_status = excluded.promotion_status;
 -- endpoint-role product would flip it to the ordinary case this exists to contrast.
 INSERT INTO product_vendors (product_id, vendor_id, is_primary, created_at) VALUES
   ('00000000-0000-4000-8000-000000000791','00000000-0000-4000-8000-000000000795',1, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+ON CONFLICT (product_id, vendor_id) DO NOTHING;
+
+-- The second Sync Service's vendor (AECI-2043). Like Agave Inc., it owns one connector
+-- product and nothing else.
+INSERT INTO vendors (id, slug, company_name, website, verified, promotion_status, created_at, updated_at) VALUES
+  ('00000000-0000-4000-8000-000000000798','fx-aardvark-systems','aardvark Systems (fixture)','https://example.com/aardvark-sync',0,'promoted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+ON CONFLICT (slug) DO UPDATE SET promotion_status = excluded.promotion_status;
+INSERT INTO product_vendors (product_id, vendor_id, is_primary, created_at) VALUES
+  ('00000000-0000-4000-8000-000000000792','00000000-0000-4000-8000-000000000798',1, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 ON CONFLICT (product_id, vendor_id) DO NOTHING;
 
 -- ---------------------------------------------------------------------------
@@ -276,7 +307,10 @@ INSERT INTO connector_evidenced_pairs (id, connector_product_id, product_a_id, p
   ('00000000-0000-4000-8000-0000000008a1','00000000-0000-4000-8000-000000000790','00000000-0000-4000-8000-000000000800','00000000-0000-4000-8000-000000000803','Procore ↔ Sage Intacct',NULL,'Prebuilt flow','both','Fixture evidenced pair: delivered via the mirrored catalogue.','https://example.com/mindcloud/procore-sage','aeci','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('00000000-0000-4000-8000-0000000008a2','00000000-0000-4000-8000-000000000790','00000000-0000-4000-8000-000000000800','00000000-0000-4000-8000-000000000804','Procore ↔ QuickBooks Online',NULL,NULL,'a_to_b','Fixture evidenced pair: second partner under the same connector.','https://example.com/mindcloud/procore-quickbooks','aeci','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('00000000-0000-4000-8000-0000000008a3','00000000-0000-4000-8000-000000000791','00000000-0000-4000-8000-000000000800','00000000-0000-4000-8000-000000000805','Procore ↔ Viewpoint Vista','00000000-0000-4000-8000-000000000795','Unified API','a_to_b','Fixture evidenced pair: a second connector, and the one with a named builder.','https://example.com/agave/procore-vista','aeci','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  ('00000000-0000-4000-8000-0000000008a4','00000000-0000-4000-8000-000000000791','00000000-0000-4000-8000-000000000800','00000000-0000-4000-8000-000000000808','Procore ↔ Fieldwire',NULL,NULL,'b_to_a','Fixture evidenced pair: the flow runs Fieldwire → Procore, so on Procore this row is INBOUND.','https://example.com/agave/procore-fieldwire','aeci','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  ('00000000-0000-4000-8000-0000000008a4','00000000-0000-4000-8000-000000000791','00000000-0000-4000-8000-000000000800','00000000-0000-4000-8000-000000000808','Procore ↔ Fieldwire',NULL,NULL,'b_to_a','Fixture evidenced pair: the flow runs Fieldwire → Procore, so on Procore this row is INBOUND.','https://example.com/agave/procore-fieldwire','aeci','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  -- AECI-2043: the second Sync Service on the Procore and Viewpoint Vista pair, so
+  -- /products/fx-procore/integrations/fx-viewpoint-vista shows two Sync Service cards.
+  ('00000000-0000-4000-8000-0000000008a5','00000000-0000-4000-8000-000000000792','00000000-0000-4000-8000-000000000800','00000000-0000-4000-8000-000000000805','Procore ↔ Viewpoint Vista','00000000-0000-4000-8000-000000000798','Job cost sync','a_to_b','Fixture evidenced pair: a second Sync Service on the same pair as fx-evp-3.','https://example.com/aardvark-sync/procore-vista','aeci','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 ON CONFLICT (id) DO NOTHING;
 
 -- ---------------------------------------------------------------------------
@@ -301,3 +335,35 @@ INSERT INTO integrations (id, source_product_id, target_product_id, name, mechan
   ('00000000-0000-4000-8000-0000000008b2','00000000-0000-4000-8000-000000000800','00000000-0000-4000-8000-000000000806','Procore ↔ PlanGrid','iPaaS','via a parked automation platform','a_to_b',NULL,'2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('00000000-0000-4000-8000-0000000008b3','00000000-0000-4000-8000-000000000800','00000000-0000-4000-8000-000000000791','Procore ↔ Agave','iPaaS','Ships a connector on Agave','a_to_b','00000000-0000-4000-8000-000000000791','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 ON CONFLICT (id) DO NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- The stored counts (QA pass on AECI-2035, 2026-11-24). Every product above is
+-- inserted with the column default, `integration_count = 0`, and the rows that
+-- count toward it arrive after it, so without this pass /products printed "Not yet
+-- connected" on Agave, Aardvark Sync and MindCloud while their pages listed pairs.
+-- The live write paths recompute after each write (`recompute-counts.ts`); a seed has
+-- to do it itself, as catalog.sql and connector-lists-fixtures.sql do by hand.
+--
+-- The rule is `integrationCountSql` in `src/lib/recompute-counts.ts` (§13.5 option B):
+-- live `integrations` rows where the product is source or target, plus live
+-- `connector_evidenced_pairs` where it is A, B or the connector. "Live" here is not
+-- retired and not vetoed. No fixture product is hidden, so the hidden-endpoint half of
+-- the live rule changes nothing. `src/test/seed-data-quality.spec.ts` checks these
+-- products against the rule itself, so a drift fails there.
+-- ---------------------------------------------------------------------------
+UPDATE products SET integration_count =
+    (SELECT COUNT(*) FROM integrations i
+      WHERE (i.source_product_id = products.id OR i.target_product_id = products.id)
+        AND i.retired_at IS NULL AND i.vetoed_at IS NULL)
+  + (SELECT COUNT(*) FROM connector_evidenced_pairs e
+      WHERE (e.product_a_id = products.id OR e.product_b_id = products.id
+             OR e.connector_product_id = products.id)
+        AND e.retired_at IS NULL AND e.vetoed_at IS NULL)
+  WHERE id IN (
+    '00000000-0000-4000-8000-000000000790','00000000-0000-4000-8000-000000000791',
+    '00000000-0000-4000-8000-000000000792','00000000-0000-4000-8000-000000000800',
+    '00000000-0000-4000-8000-000000000801','00000000-0000-4000-8000-000000000802',
+    '00000000-0000-4000-8000-000000000803','00000000-0000-4000-8000-000000000804',
+    '00000000-0000-4000-8000-000000000805','00000000-0000-4000-8000-000000000806',
+    '00000000-0000-4000-8000-000000000807','00000000-0000-4000-8000-000000000808',
+    '00000000-0000-4000-8000-000000000809');

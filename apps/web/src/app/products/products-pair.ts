@@ -42,6 +42,7 @@ import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 
 import { AgreementBadge } from './agreement-badge';
 import { ClaimProvenance } from './claim-provenance';
+import { syncServiceEndorsementLine, type EndorsementEndpoint } from './connector-kind-labels';
 import { DIRECTION_ORDER, directionGlyph, directionHeading } from './pair-direction-labels';
 import type { PairPageData } from '../core/api/product-pairs';
 import { PairEmptyAlternatives } from './pair-empty-alternatives';
@@ -70,9 +71,12 @@ interface PairVendorNames {
  *  reach back into the response. */
 interface ClaimRow {
   readonly claim: ProductPairClaim;
-  /** The vendor named on a `single_source` badge; `null` for every other state
-   *  (and when the affirming side has no vendor record). */
+  /** The vendor named on a `single_source` badge, or on an `owner_confirmed` or
+   *  Sync Service `unverified` one (AECI-2039, the company that offers it); `null`
+   *  otherwise (and when the side has no vendor record). */
   readonly attributedTo: string | null;
+  /** AECI-2039. The mechanism is a Sync Service pair. */
+  readonly syncService: boolean;
   /**
    * AECI-303 (§9.1) diff presentation, all resolved here so the template holds no
    * conditionals. `diffLabel` is `null` for `unchanged` — the overwhelming majority
@@ -130,12 +134,28 @@ interface ClaimGroup {
  * (§4.3). Only meaningful for `single_source` — `confirmed` needs no name (both
  * vendors agree) and `conflict` names both in the provenance popover instead.
  */
-function attributedVendorName(claim: ProductPairClaim, vendors: PairVendorNames): string | null {
+function attributedVendorName(
+  claim: ProductPairClaim,
+  vendors: PairVendorNames,
+  offer: SyncServiceOffer,
+): string | null {
+  // AECI-2039: on a Sync Service pair the company that offers it answers.
+  if (claim.agreement === 'owner_confirmed') return offer.offeredBy;
+  if (offer.syncService && claim.agreement === 'unverified') return offer.offeredBy;
   if (claim.agreement !== 'single_source') return null;
   const affirming = claim.attestations.find((a) => a.attestor !== 'aeci' && a.asserted);
   if (!affirming) return null;
   return affirming.attestor === 'context' ? vendors.context : vendors.other;
 }
+
+/** AECI-2039. Whether a mechanism is a Sync Service pair, and who offers it. */
+interface SyncServiceOffer {
+  readonly syncService: boolean;
+  /** The mechanism's `built_by_vendor` name: the owner, which answers for the flows. */
+  readonly offeredBy: string | null;
+}
+
+const NO_OFFER: SyncServiceOffer = { syncService: false, offeredBy: null };
 
 /** Group a mechanism's claims by context-relative direction, in canonical order,
  *  dropping empty lanes. Reuses the file's direction copy helpers so the Layer-A
@@ -145,6 +165,7 @@ function buildClaimGroups(
   otherName: string,
   vendors: PairVendorNames,
   selectedVersions: { context: string | null; other: string | null } | null,
+  offer: SyncServiceOffer = NO_OFFER,
 ): ClaimGroup[] {
   return DIRECTION_ORDER.map((direction) => ({
     direction,
@@ -152,7 +173,7 @@ function buildClaimGroups(
     glyph: directionGlyph(direction),
     rows: claims
       .filter((c) => c.direction === direction)
-      .map((claim) => buildClaimRow(claim, vendors, selectedVersions)),
+      .map((claim) => buildClaimRow(claim, vendors, selectedVersions, offer)),
   })).filter((g) => g.rows.length > 0);
 }
 
@@ -161,8 +182,13 @@ function buildClaimRow(
   claim: ProductPairClaim,
   vendors: PairVendorNames,
   selectedVersions: { context: string | null; other: string | null } | null,
+  offer: SyncServiceOffer = NO_OFFER,
 ): ClaimRow {
-  const base = { claim, attributedTo: attributedVendorName(claim, vendors) };
+  const base = {
+    claim,
+    attributedTo: attributedVendorName(claim, vendors, offer),
+    syncService: offer.syncService,
+  };
   // The version the marker names: whichever side's release the reader is looking at.
   // Both selectors move independently, so name the pair rather than guessing a side.
   const at = selectedVersions
@@ -474,6 +500,21 @@ interface MechanismView {
   readonly hasClaims: boolean;
   /** AECI-1142 "At a glance" facts, or `null` when every fact is empty. */
   readonly glance: GlanceFacts | null;
+  /**
+   * AECI-2043 (ruling 12): "Offered by {vendor}. Not offered or endorsed by {A} or {B}."
+   * on a Sync Service card only, else `null` (`syncServiceEndorsementLine`).
+   */
+  readonly endorsementLine: string | null;
+  /**
+   * AECI-2046: the Sync Service's own rating on its card, in the shape the two endpoint
+   * cards read, or `null`. Only on a Sync Service card, and only with a shown average
+   * (the §5.5 five-review floor), exactly as an endpoint card shows its rating.
+   */
+  readonly connectorRating: {
+    readonly name: string;
+    readonly rating_overall_avg: number;
+    readonly review_count: number;
+  } | null;
   /** The mechanism's corrections that point at something the card renders (§4.5.8). */
   readonly corrections: readonly FieldCorrection[];
   /** AECI-1238 (§11d.7): AECi hid the description while it checks it. */
@@ -1009,7 +1050,8 @@ function writePairViewCookie(mode: PairViewMode): void {
               }
             </div>
             <!-- Per-mechanism cards with the context-relative direction arrow, in the
-               API's order: integrations first, then evidenced pairs (ruling R1). Each is
+               API's order: integrations first, then evidenced pairs (ruling R1), then
+               Sync Service cards A to Z by the offering vendor (AECI-2043). Each is
                the shared card (ruling A7). Headings nest h2, h3, h4 (ruling 10). -->
             <div class="grid gap-8">
               @for (m of v.mechanisms; track m.id) {
@@ -1076,6 +1118,32 @@ function writePairViewCookie(mode: PairViewMode): void {
                       }}</aec-chip>
                     }
                   </header>
+
+                  <!-- AECI-2043 (ruling 12): a Sync Service card says who offers it and
+                     that the two endpoint vendors do not. Plain text, no link: the
+                     byline in At a glance already links the vendor. -->
+                  @if (m.endorsementLine) {
+                    <p class="text-sm text-(--text-secondary)" data-testid="pair-not-endorsed">
+                      {{ m.endorsementLine }}
+                    </p>
+                  }
+                  <!-- AECI-2046: the Sync Service's own rating, the same span and
+                     accessible name as the two endpoint cards' ratings. -->
+                  @if (m.connectorRating; as r) {
+                    <span
+                      class="flex w-fit items-center gap-1 text-xs text-(--text-secondary)"
+                      data-testid="pair-connector-rating"
+                      [attr.aria-label]="ratingAria(r)"
+                    >
+                      <span class="font-semibold text-(--text-primary)">{{ r.name }}</span>
+                      <span aria-hidden="true" class="text-(--accent-rating)">★</span>
+                      <span class="tabular-nums">{{ r.rating_overall_avg.toFixed(1) }}</span>
+                      <span
+                        >· {{ r.review_count }}
+                        <ng-container i18n="@@pair.reviews.count">reviews</ng-container></span
+                      >
+                    </span>
+                  }
 
                   <!-- The Stage 1 §4.4 "Offered by" / "Powered by" byline lives in the
                      At a glance strip's "How you get it" since AECI-1142, so the
@@ -1317,11 +1385,14 @@ function writePairViewCookie(mode: PairViewMode): void {
                                     [agreement]="r.claim.agreement"
                                     [attributedTo]="r.attributedTo"
                                     [refuted]="r.claim.refuted ?? false"
+                                    [syncService]="r.syncService"
                                   />
                                   <aec-claim-provenance
                                     [claim]="r.claim"
                                     [contextVendorName]="v.vendorNames.context"
                                     [otherVendorName]="v.vendorNames.other"
+                                    [syncService]="r.syncService"
+                                    [offeredByName]="r.syncService ? r.attributedTo : null"
                                   />
                                 </span>
                               </li>
@@ -1608,8 +1679,18 @@ export class ProductsPairPage {
       otherName: pair.other_product.vendor?.name ?? null,
       pairKey: canonicalPairIds(pair.context_product.id, pair.other_product.id).join(':'),
     };
+    // AECI-2043: the two endpoints, for the Sync Service card's endorsement line.
+    const endpoint = (p: ProductPairResponse['context_product']): EndorsementEndpoint => ({
+      productId: p.id,
+      productName: p.name,
+      vendor: p.vendor ? { id: p.vendor.id, name: p.vendor.name } : null,
+    });
+    const endpoints = {
+      context: endpoint(pair.context_product),
+      other: endpoint(pair.other_product),
+    };
     const mechanisms = pair.mechanisms.map((m) =>
-      this.toMechanismView(m, otherName, vendorNames, sideNames, owners),
+      this.toMechanismView(m, otherName, vendorNames, sideNames, owners, endpoints),
     );
     return {
       pair,
@@ -1645,7 +1726,9 @@ export class ProductsPairPage {
     vendorNames: PairVendorNames,
     sideNames: PairSideNames,
     owners: PairLinkOwners,
+    endpoints: { context: EndorsementEndpoint; other: EndorsementEndpoint },
   ): MechanismView {
+    const connector = m.via ?? m.powered_by_product;
     return {
       id: m.id,
       kindLabel: mechanismKindLabel(m.mechanism_kind),
@@ -1674,9 +1757,36 @@ export class ProductsPairPage {
         otherName,
         vendorNames,
         this.pair()?.version_diff?.selected ?? null,
+        // AECI-2039: on a Sync Service pair its owner answers for the flows.
+        {
+          syncService: m.connector_kind === 'sync_service',
+          offeredBy: m.built_by_vendor?.name ?? null,
+        },
       ),
       hasClaims: m.claims.length > 0,
       glance: this.glanceFacts(m, owners),
+      // `?? null`: the web never Zod-parses the pair response, so an older API Worker
+      // leaves `connector_kind` and `connector_vendor_id` absent.
+      endorsementLine: syncServiceEndorsementLine({
+        connectorKind: m.connector_kind ?? null,
+        connectorProductId: connector?.id ?? null,
+        connectorVendorId: m.connector_vendor_id ?? null,
+        offeredBy: m.built_by_vendor
+          ? { id: m.built_by_vendor.id, name: m.built_by_vendor.name }
+          : null,
+        context: endpoints.context,
+        other: endpoints.other,
+      }),
+      connectorRating:
+        m.connector_kind === 'sync_service' &&
+        connector &&
+        m.connector_rating?.rating_overall_avg != null
+          ? {
+              name: connector.name,
+              rating_overall_avg: m.connector_rating.rating_overall_avg,
+              review_count: m.connector_rating.review_count,
+            }
+          : null,
       corrections: correctionsInSlots(m.corrections, this.correctionSlots(m)),
       descriptionUnderReview: isUnderReview(m.under_review, 'description'),
       underReview: (m.under_review ?? [])
@@ -1754,7 +1864,11 @@ export class ProductsPairPage {
     return formatDate(parsed, 'MMMM d, y', this.locale, 'UTC');
   }
 
-  protected ratingAria(product: ProductPairResponse['context_product']): string {
+  protected ratingAria(product: {
+    readonly name: string;
+    readonly rating_overall_avg: number | null;
+    readonly review_count: number;
+  }): string {
     const avg = product.rating_overall_avg?.toFixed(1) ?? '';
     return $localize`:@@pair.rating.aria:${product.name}:name: rated ${avg}:rating: out of 5 from ${product.review_count}:count: reviews`;
   }

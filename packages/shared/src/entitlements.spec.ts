@@ -63,7 +63,7 @@ import {
 // ---------------------------------------------------------------------------
 
 describe('the entitlement vocabulary is frozen (§3.1) [invariant]', () => {
-  it('declares exactly the eleven capability ids, in spec order', () => {
+  it('declares exactly the twelve capability ids, in spec order', () => {
     expect(CAPABILITIES).toEqual([
       'profile.edit',
       'profile.rich_fields',
@@ -76,7 +76,18 @@ describe('the entitlement vocabulary is frozen (§3.1) [invariant]', () => {
       'analytics.view',
       'integration.version_diff',
       'review.reply',
+      'product.versions.edit',
     ]);
+  });
+
+  it('holds attestation.author on every claimed tier and keeps product versions on Managed (AECI-2038)', () => {
+    // Ruled 2026-11-24 (ruling 5 on epic AECI-2035): confirming which data an
+    // integration moves is accuracy, not promotion. The same one-line move as
+    // review.reply. Product versions split off onto their own id and stay Managed.
+    expect(TIER_CAPABILITIES.unclaimed).toContain('attestation.author');
+    expect(TIER_CAPABILITIES.verified).toContain('attestation.author');
+    expect(TIER_CAPABILITIES.unclaimed).not.toContain('product.versions.edit');
+    expect(TIER_CAPABILITIES.verified).toContain('product.versions.edit');
   });
 
   it('holds review.reply on every claimed tier (AECI-1590, STAGE_2_VENDOR_PORTAL_SPEC.md §11c.9)', () => {
@@ -101,6 +112,7 @@ describe('the entitlement vocabulary is frozen (§3.1) [invariant]', () => {
       'profile.edit',
       'product.listing.edit',
       'product.categories.edit',
+      'attestation.author',
       'review.reply',
     ]);
     expect(TIER_CAPABILITIES.verified).toEqual([...CAPABILITIES]);
@@ -529,6 +541,17 @@ describe('no listing_tier input needs a plan to edit (§13.4) [invariant]', () =
     },
   );
 
+  // AECI-1662 — `connector_kind` is a facet in INDEX_SETTINGS. It is admin-set
+  // (ruling 3 on AECI-2035): no vendor edit route writes it, so no plan can reach
+  // it. It is also outside `customRanking` (`algolia.spec.ts`), so it orders nothing.
+  it('connector_kind, a search facet, is not vendor-editable on any plan', () => {
+    expect(rankingVocabulary.has('connector_kind')).toBe(true);
+    expect(PRODUCT_FIELD_CAPABILITIES).not.toHaveProperty('connector_kind');
+    for (const field of Object.keys(PRODUCT_FIELD_CAPABILITIES)) {
+      expect(field).not.toMatch(/connector_kind|kind/);
+    }
+  });
+
   it('names the capabilities the spec table names', () => {
     // §13.4's table, verbatim. A change here is a spec change.
     expect(PRODUCT_FIELD_CAPABILITIES.description).toBe('product.listing.edit');
@@ -792,6 +815,85 @@ describe('a company fact never reaches a ranking input (§3.2) [invariant]', () 
 });
 
 // ---------------------------------------------------------------------------
+// Block 8: confirmation state is display only (AECI-2038, §3.2).
+// ---------------------------------------------------------------------------
+
+/**
+ * Since AECI-2038 every claimed vendor confirms, denies and adds data flows on any
+ * plan. A confirmation is still something a vendor chooses to write, so a ranking
+ * input that read one would let a vendor confirm its way up. "Confirmed by both
+ * companies" stays a row label only (§3.2 block 8, ruling R1). So no Algolia
+ * attribute, record field, public sort key or `listing_tier` input may name an
+ * attestation, an agreement state or a denial, and `listing_tier` reads none that
+ * rides along. The on-page half is the ordering firewall's pair page cases.
+ */
+const CONFIRMATION_NAME = /attest|agreement|confirm|denial|denied|dispute|vendor_a|vendor_b/;
+
+describe('confirmation state never reaches a ranking input (AECI-2038) [invariant]', () => {
+  it('the matcher is not vacuous, and spares the fields that legitimately rank', () => {
+    for (const candidate of [
+      'attestations',
+      'agreement',
+      'agreement_state',
+      'confirmed_by_both',
+      'denied_count',
+      'vendor_a_attested',
+    ]) {
+      expect(candidate).toMatch(CONFIRMATION_NAME);
+    }
+    for (const legit of ['review_count', 'listing_tier', 'name_sort', 'integration_count']) {
+      expect(legit).not.toMatch(CONFIRMATION_NAME);
+    }
+  });
+
+  it('no Algolia searchable, facet or customRanking attribute names one', () => {
+    for (const attribute of rankingVocabulary) {
+      expect(attribute, `INDEX_SETTINGS attribute "${attribute}"`).not.toMatch(CONFIRMATION_NAME);
+    }
+  });
+
+  it('no Algolia record field names one', () => {
+    for (const [entity, schema] of Object.entries(RECORD_SCHEMAS)) {
+      for (const field of Object.keys(schema.shape)) {
+        expect(field, `${entity} record field "${field}"`).not.toMatch(CONFIRMATION_NAME);
+      }
+    }
+  });
+
+  it('no public sort key names one', () => {
+    for (const candidate of ['agreement', 'confirmed', 'attestations', 'agreement_state']) {
+      expect(ProductSortSchema.safeParse(candidate).success, `?sort=${candidate}`).toBe(false);
+      expect(VendorSortSchema.safeParse(candidate).success, `?sort=${candidate}`).toBe(false);
+      expect(IntegrationSortSchema.safeParse(candidate).success, `?sort=${candidate}`).toBe(false);
+    }
+  });
+
+  it('no listing_tier input names one, and none is read when one rides along', () => {
+    for (const field of [...PRODUCT_LISTING_TIER_INPUTS, ...VENDOR_LISTING_TIER_INPUTS]) {
+      expect(field, `listing_tier input "${field}"`).not.toMatch(CONFIRMATION_NAME);
+    }
+    const confirmationFields = {
+      attestations: [{ source: 'vendor_a', asserts: true }],
+      agreement: 'agreed',
+      confirmed_count: 9,
+      denied_count: 0,
+    };
+    expect(productListingTier({ ...fullProduct, ...confirmationFields })).toBe(
+      productListingTier(fullProduct),
+    );
+    expect(vendorListingTier({ ...fullVendor, ...confirmationFields })).toBe(
+      vendorListingTier(fullVendor),
+    );
+    for (const read of [
+      ...propertiesRead(productListingTier, { ...fullProduct, ...confirmationFields }),
+      ...propertiesRead(vendorListingTier, { ...fullVendor, ...confirmationFields }),
+    ]) {
+      expect(read, `listing_tier read "${read}"`).not.toMatch(CONFIRMATION_NAME);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Fail-closed resolution (§3.1). Ordinary behaviour coverage.
 // ---------------------------------------------------------------------------
 
@@ -845,6 +947,7 @@ describe('capabilitiesFor / hasCapability', () => {
       'profile.edit',
       'product.listing.edit',
       'product.categories.edit',
+      'attestation.author',
       'review.reply',
     ];
     expect(capabilitiesFor('unclaimed')).toEqual(free);

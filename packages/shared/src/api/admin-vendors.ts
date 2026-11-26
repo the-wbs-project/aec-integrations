@@ -7,9 +7,11 @@ import {
   type SortOrder,
 } from './common';
 import { AdminOverrideReasonSchema } from './admin-reason';
+import { ConnectorKindSchema } from './connector-kind-schema';
 import { IntegrationRetiredBySchema } from './integration-retire';
 import { AdminListingHideProductSchema, AdminListingHideSchema } from './listing-hides';
 import { ProductRoleSchema } from './products';
+import { SyncFactsSchema } from './sync-service';
 import { VendorSeatInviteSchema, VendorSeatSchema } from './vendor';
 
 /**
@@ -393,6 +395,14 @@ export const AdminVendorProductRowSchema = z.object({
   slug: z.string().min(1),
   name: z.string().min(1),
   product_role: ProductRoleSchema,
+  /** AECI-2036: the stored connector kind, `null` when unclassified or on an
+   *  `application`. The roster's kind control edits it. */
+  connector_kind: ConnectorKindSchema.nullable(),
+  /** AECI-2046: the three curated Sync Service facts as stored, each `null` when unset.
+   *  Read whatever the kind, so the form shows what a kind change kept. The roster's
+   *  facts form edits them, on a Sync Service row only. Optional: absent reads as all
+   *  three unset. */
+  sync_facts: SyncFactsSchema.optional(),
   /** `true` when this vendor is the product's primary owner. */
   is_primary: z.boolean(),
   promotion_status: z.string(),

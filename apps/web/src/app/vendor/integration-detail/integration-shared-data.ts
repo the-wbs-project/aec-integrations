@@ -21,6 +21,7 @@ import { compareText } from '@aeci/shared/text-sort';
 
 import { claimOutcomeLine } from '../components/vendor-claim-outcome';
 import { VendorDocsLink } from '../components/vendor-docs-link';
+import { VendorOwnedFlows, type OwnedFlowsRow } from '../components/vendor-owned-flows';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 
@@ -63,6 +64,7 @@ import { isReplayedEvent } from '../../core/event-replay';
 import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
 import { PORTAL_NESTED_SAVE_BAR_CLASS } from '../shared/portal-form';
 import { SEGMENTED_CLASS, segmentClass } from '../shared/portal-segmented';
+import { CloseOnEscape } from '../shared/close-on-escape';
 
 /**
  * "Data that's shared" (AECI-1151, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.4).
@@ -90,16 +92,25 @@ import { SEGMENTED_CLASS, segmentClass } from '../shared/portal-segmented';
  * read-only with the portal's access sentence. A connector-powered row is read-only
  * and says why. A retired row is read-only, except that a pressed answer can still
  * be cleared (§4.6.2).
+ *
+ * ── THE OWNER OF A SYNC SERVICE ROW (AECI-2039) ─────────────────────────────
+ * When the caller owns a claimed Sync Service row and also makes one of its endpoint
+ * products, the row is listed here, not under "Integrations your company offers". The
+ * caller then answers as the owner: the section renders the owned card's own flow
+ * controls (`aec-vendor-owned-flows`) on `VendorIntegration.owner_flows`, through the
+ * owner routes. The endpoint Yes and No stay closed on the row (AECI-705).
  */
 @Component({
   selector: 'aec-integration-shared-data',
   imports: [
+    CloseOnEscape,
     KeepClearOfSaveBar,
     AecButton,
     AecIcon,
     VendorTip,
     VendorDocsLink,
     IntegrationAnswerForm,
+    VendorOwnedFlows,
   ],
   styles: [ID_STYLES],
   template: `
@@ -132,6 +143,9 @@ import { SEGMENTED_CLASS, segmentClass } from '../shared/portal-segmented';
     <div id="data-shared-add">
       @if (state.addingRow() && canAdd()) {
         <form
+          aecCloseOnEscape
+          [escapeBusy]="adding()"
+          (escapeCancel)="closeAdd()"
           aecKeepClearOfSaveBar
           method="dialog"
           [class]="panel"
@@ -232,19 +246,26 @@ import { SEGMENTED_CLASS, segmentClass } from '../shared/portal-segmented';
       }
     </div>
 
-    @if (!i.attestable) {
+    @if (ownerRow(); as owned) {
+      <!-- AECI-2039: the caller owns this Sync Service row, so it answers as the owner. -->
+      <aec-vendor-owned-flows [row]="owned" labelledBy="data-shared-heading" />
+    } @else if (!i.attestable) {
       <p class="mt-3 max-w-prose text-sm text-(--text-secondary)" data-testid="connector-note">
         {{ connectorNote() }}
       </p>
     } @else if (!state.canAuthor()) {
-      <p class="mt-3 max-w-prose text-sm text-(--text-secondary)" i18n="@@vendor.attest.readOnly">
-        You can review everything on record here. Confirming data flows and adding new ones opens up
-        with active vendor access. That access is arranged with AEC Integrations, not something you
-        switch on from this portal.
+      <p
+        class="mt-3 max-w-prose text-sm text-(--text-secondary)"
+        i18n="@@vendor.attest.readOnly.unavailable"
+      >
+        You can review everything on record here. Answering is not available for this integration
+        right now. Contact AEC Integrations if this does not change.
       </p>
     }
 
-    @if (i.claims.length === 0) {
+    @if (ownerRow()) {
+      <!-- The owner's controls above stand for the table. -->
+    } @else if (i.claims.length === 0) {
       <p class="mt-3 text-sm text-(--text-secondary)" i18n="@@vendor.im.data.empty">
         No data is listed as shared yet.
       </p>
@@ -615,6 +636,25 @@ export class IntegrationSharedData {
 
   protected readonly live = computed(() => !this.integration().retired_at);
 
+  /**
+   * The owner's flow controls' row, when the caller owns this Sync Service row and
+   * maintains its flows (AECI-2039). `null` on every other row.
+   */
+  protected readonly ownerRow = computed<OwnedFlowsRow | null>(() => {
+    const i = this.integration();
+    const owned = i.owner_flows;
+    if (!owned) return null;
+    return {
+      id: i.id,
+      flows: owned.flows,
+      flows_editable: owned.editable,
+      retired_at: i.retired_at,
+      claimed_at: i.claimed_at,
+      product_a: owned.product_a,
+      product_b: owned.product_b,
+    };
+  });
+
   protected readonly canAdd = computed(
     () => this.integration().attestable && this.live() && this.state.canAuthor(),
   );
@@ -648,6 +688,13 @@ export class IntegrationSharedData {
     if (i.attestable) {
       return $localize`:@@vendor.im.data.tip:The types of data that move between ${a}:a: and ${b}:b:. Say whether each row is right. Only the badge your answer produces is public.`;
     }
+    // AECI-2039: on a claimed Sync Service row the owner keeps the list.
+    if (i.flows_maintained_by_owner) {
+      const owner = i.owner?.name;
+      return owner
+        ? $localize`:@@vendor.im.data.tipSyncService:The types of data that move between ${a}:a: and ${b}:b:. ${owner}:owner: offers this integration and keeps this list up to date.`
+        : $localize`:@@vendor.im.data.tipSyncService.unnamed:The types of data that move between ${a}:a: and ${b}:b:. The company that offers this integration keeps this list up to date.`;
+    }
     // A claim ends promote's upkeep of the rows (§4.5.3), so the sentence changes.
     return isClaimed(i)
       ? $localize`:@@vendor.im.data.tipConnectorClaimed:The types of data that move between ${a}:a: and ${b}:b:. AEC Integrations stopped updating this list when the integration was claimed.`
@@ -666,9 +713,19 @@ export class IntegrationSharedData {
     const connector =
       i.powered_by?.name ??
       i.mechanism_name ??
-      $localize`:@@vendor.im.connector.fallback:a connector service`;
+      $localize`:@@vendor.im.connector.fallback.v2:a connector product`;
     if (!isClaimed(i)) {
-      return $localize`:@@vendor.im.data.connectorNote:AEC Integrations keeps these up to date. They run through ${connector}:connector:, so neither company answers for them.`;
+      return $localize`:@@vendor.im.data.connectorNote.v2:AEC Integrations keeps these up to date. They run through ${connector}:connector:, so neither product vendor answers for them.`;
+    }
+    // AECI-2039: a claimed Sync Service row. Its owner maintains the data rows.
+    if (i.flows_maintained_by_owner) {
+      if (i.is_owner) {
+        return $localize`:@@vendor.im.data.connectorNoteSyncService.mine:Your company maintains these, because it offers this integration through ${connector}:connector:. Neither product vendor can confirm them.`;
+      }
+      const owner = i.owner?.name;
+      return owner
+        ? $localize`:@@vendor.im.data.connectorNoteSyncService.other:${owner}:owner: maintains these, because it offers this integration through ${connector}:connector:. Neither product vendor can confirm them.`
+        : $localize`:@@vendor.im.data.connectorNoteSyncService.unnamed:The company that offers this integration through ${connector}:connector: maintains these. Neither product vendor can confirm them.`;
     }
     // Claimed: promote writes nothing to the row, its data rows included (§4.5.3).
     if (i.is_owner) {
@@ -887,9 +944,11 @@ export class IntegrationSharedData {
       lines.push(claimOutcomeLine(claim, this.integration().other_product.name));
     } else {
       lines.push(
-        isClaimed(this.integration())
-          ? $localize`:@@vendor.im.data.status.connectorClaimed:AEC Integrations no longer updates it. Neither product vendor can confirm it.`
-          : $localize`:@@vendor.im.data.status.connector:AEC Integrations checks it. Neither company answers for it.`,
+        this.integration().flows_maintained_by_owner
+          ? $localize`:@@vendor.im.data.status.syncService:The company that offers this integration maintains it. Neither product vendor can confirm it.`
+          : isClaimed(this.integration())
+            ? $localize`:@@vendor.im.data.status.connectorClaimed:AEC Integrations no longer updates it. Neither product vendor can confirm it.`
+            : $localize`:@@vendor.im.data.status.connector.v2:AEC Integrations checks it. Neither product vendor answers for it.`,
       );
     }
     return lines;

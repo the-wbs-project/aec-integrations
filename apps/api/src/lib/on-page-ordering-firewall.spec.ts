@@ -12,7 +12,9 @@
  *
  *  1. Every NEW on-page list is A to Z by name, with id as the tie-break.
  *  2. The via-lane groups and the powered-hub groups keep their count order.
- *  3. The pair page keeps integrations first, then evidenced pairs.
+ *  3. The pair page keeps integrations first, then evidenced pairs. Since AECI-2043
+ *     (ruling 14 on AECI-2035) a Sync Service's cards come after both, A to Z by the
+ *     offering vendor, id on a tie.
  *  4. "Confirmed by both companies" is a row label only, never a filter or a sort.
  *
  * Six blocks:
@@ -100,7 +102,14 @@ interface CountSite {
     | 'publish-floor'
     | 'algolia-facet';
   /** The facet, or `*` when one comparator or cut serves every facet. */
-  readonly facet: 'categories' | 'audiences' | 'phases' | 'trades' | 'vendor_name' | '*';
+  readonly facet:
+    | 'categories'
+    | 'audiences'
+    | 'phases'
+    | 'trades'
+    | 'vendor_name'
+    | 'connector_kind'
+    | '*';
   /** For a sort or a cut, the expression as written, whitespace collapsed. */
   readonly detail?: string;
 }
@@ -168,7 +177,8 @@ const SURFACES: readonly Surface[] = [
     key: 'pair-page-mechanisms',
     status: 'covered',
     spec: 'api',
-    order: 'Integrations A to Z by name then id, then evidenced pairs A to Z by name then id',
+    order:
+      'Integrations A to Z by name then id, then evidenced pairs A to Z by name then id; Sync Service cards from either table last, A to Z by the offering vendor case folded, an unknown vendor last, then id (AECI-2043, ruling 14)',
   },
   {
     key: 'pair-page-claims',
@@ -216,13 +226,20 @@ const SURFACES: readonly Surface[] = [
     status: 'covered',
     spec: 'web',
     order:
-      'Integrations wheel (AECI-2018, replaced the AECI-1787 category hub): "All integrations" first, then one slide per partner category A to Z by name, slug tie-break; every product with an integration on record, A to Z by name with compareText, id tie-break, clockwise from 12 o\'clock; one tile size per product and the ring count or dots per slide from the product count and the stage width only; logo and claim state (ruling 64) decide the tile image and the card label, never inclusion, order or size',
+      "Integrations wheel (AECI-2018, replaced the AECI-1787 category hub): \"All integrations\" first, then one slide per partner category A to Z by name, slug tie-break; every product with an integration on record, A to Z by name with compareText, id tie-break, clockwise from 12 o'clock; one tile size per product and the ring count or dots per slide from the product count and the stage width only; logo and claim state (ruling 64) decide the tile image and the card label, never inclusion, order or size. A connector's wheel (QA pass on AECI-2035): one slide of the products its pairs reach (the hero reach line's set), A to Z by name, id tie-break; which set a page shows reads the role and whether each set is empty, never a plan",
   },
   {
     key: 'product-page-similar-products',
     status: 'covered',
     spec: 'web',
     order: 'Renders related_products in the API order (A to Z, R1); adds no sort, filter or cut',
+  },
+  {
+    key: 'product-page-what-it-syncs',
+    status: 'covered',
+    spec: 'api',
+    order:
+      'New list (R1, AECI-2046): a Sync Service page lists the record types across the pairs it delivers, A to Z by the vocabulary name with compareText, slug breaking a tie, none cut; the pair counts describe and never order',
   },
   {
     key: 'taxonomy-term-product-count',
@@ -314,6 +331,26 @@ const FREE_COUNT_SITES: readonly CountSite[] = [
   { file: 'search/search-controller.ts', kind: 'algolia-facet', facet: 'vendor_name' },
 ];
 
+/**
+ * The "Connector type" filter (AECI-1662). `connector_kind` is admin-set: no plan
+ * capability writes it (`entitlements.spec.ts`). Its two options read in vocabulary
+ * order, Integration platform then Sync Service, whatever the counts: `/search`
+ * re-sorts them (`orderFacetItems`), and `/products` and browse take the order of
+ * `GET /api/products/facets`, which maps `CONNECTOR_KINDS`. The only count use is the
+ * hide-at-zero-unless-checked cut, over the same Free product counts.
+ */
+const CONNECTOR_KIND_COUNT_SITES: readonly CountSite[] = [
+  { file: 'search/search-controller.ts', kind: 'algolia-facet', facet: 'connector_kind' },
+  // The facet sidebar's kind group, beside the taxonomy cut of the same text in the
+  // exception. The scan cannot tell the two apart, so the key repeats.
+  {
+    file: 'shared/facets/facet-sidebar.ts',
+    kind: 'count-cut',
+    facet: '*',
+    detail: 'item.count > 0',
+  },
+];
+
 /** Count comparisons that only choose what to print, never an order or a cut. */
 const DISPLAY_COUNT_SITES: readonly CountSite[] = [
   // The browse chip prints a count only when there is one.
@@ -383,15 +420,12 @@ const fieldsWrittenBy = (cap: Capability): string[] =>
  * it too.
  */
 const ROUTE_CAPABILITY_INPUTS: Readonly<Partial<Record<Capability, readonly string[]>>> = {
-  // The attestation and product-version writes (`STAGE_2_PAID_TIERS_SPEC.md` §3.3(a)).
-  'attestation.author': [
-    'claim agreement ("confirmed by both companies")',
-    'a denial, which can refute a claim and so lower the data-flow count',
-    'vendor-added data objects, so a higher data-flow count',
-    'the deletion or withdrawal of a vendor-added data object, so a lower count',
-    'product versions and the version stamps on a claim',
-    'the integration maintenance stamps an attestation write moves',
-  ],
+  // The three product-version writes (`STAGE_2_PAID_TIERS_SPEC.md` §3.3(a)). Since
+  // AECI-2038 `attestation.author` is in the Free set, so claim agreement, denials,
+  // vendor-added data objects, version stamps on a claim and the maintenance stamps an
+  // attestation write moves are no longer Managed-only inputs. The pair page cases
+  // still hold them out of every order.
+  'product.versions.edit': ['product versions, which a claim can stamp'],
   // A read gate on the pair page, keyed on the pair's vendors (AECI-304).
   'integration.version_diff': ['the depth of the pair page version diff'],
   // Declared with no consumer, and a vendor-only read when it has one.
@@ -407,9 +441,9 @@ describe('on-page ordering firewall: the Managed-only inputs', () => {
       'product.edit',
       'product.taxonomy.edit',
       'product.usefulness.edit',
-      'attestation.author',
       'analytics.view',
       'integration.version_diff',
+      'product.versions.edit',
     ]);
   });
 
@@ -485,8 +519,10 @@ const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 function rowWrites(src: string): { count: boolean; opaque: boolean } {
   const table = `(?:${rowTableNames(src).map(escapeRegExp).join('|')})`;
   const insertOrDelete = new RegExp(`\\.(?:insert|delete)\\(\\s*${table}\\s*\\)`);
+  // AECI-2042: an endpoint veto writes `vetoedAt`, which takes a row out of every count
+  // the way `retiredAt` does, so it is a count write too.
   const literalRetire = new RegExp(
-    `\\.update\\(\\s*${table}\\s*\\)\\s*\\.set\\(\\s*\\{[^}]*\\bretiredAt\\b`,
+    `\\.update\\(\\s*${table}\\s*\\)\\s*\\.set\\(\\s*\\{[^}]*\\b(?:retiredAt|vetoedAt)\\b`,
   );
   // A `.set(` whose argument is not an object literal: the scan cannot see its columns.
   const opaque = new RegExp(`\\.update\\(\\s*${table}\\s*\\)\\s*\\.set\\(\\s*[^\\s{]`);
@@ -505,9 +541,13 @@ const planChecks = (src: string) => [...src.matchAll(PLAN_CHECK)].map((m) => m[1
 
 /** Every file that adds, removes, retires or restores an integration row. */
 const COUNT_WRITERS = [
+  // AECI-2042: the endpoint veto's `vetoed_at` recompute. A seat is the gate, never a plan.
+  'lib/sync-service-pair-rights.ts',
   'routes/integration-retire-write.ts',
   'routes/promote.ts',
   'routes/vendor-integration-create.ts',
+  // AECI-2040: a Sync Service adds its own pair. A seat is the gate, never a plan.
+  'routes/vendor-sync-service-pair-create.ts',
 ];
 
 /**
@@ -559,6 +599,7 @@ describe('on-page ordering firewall: the via-group and powered-hub counts', () =
     ).toBe(true);
     expect(rowWrites('db.update(integrations).set(patch)').opaque).toBe(true);
     expect(rowWrites('db.update(integrations).set({ retiredAt: now })').count).toBe(true);
+    expect(rowWrites('db.update(integrations).set({ vetoedAt: earliest })').count).toBe(true);
     expect(rowWrites(stripComments('// db.insert(integrations)')).count).toBe(false);
   });
 
@@ -726,15 +767,29 @@ const PAIR_EVIDENCED: ReadonlyArray<[n: number, name: string, connector: number]
   [61, 'bravo', 4],
   [62, 'Bravo', 5],
 ];
-/** Today's order, written out: integrations A to Z then id, then evidenced pairs. */
-const PAIR_ORDER = [11, 12, 13, 10, 61, 62, 60].map(u);
+/**
+ * Two Sync Service cards (AECI-2043, ruling 14): connectors 6 and 7 are `sync_service`.
+ * Their names would put 65 first. The offering vendors put 66 first: Acme Software
+ * before Globex.
+ */
+const PAIR_SYNC_SERVICE: ReadonlyArray<
+  [n: number, name: string, connector: number, vendor: string]
+> = [
+  [65, 'Alpha sync', 6, GLOBEX],
+  [66, 'Zed sync', 7, ACME],
+];
+/**
+ * Today's order, written out: integrations A to Z then id, then evidenced pairs, then
+ * the Sync Service cards A to Z by the offering vendor.
+ */
+const PAIR_ORDER = [11, 12, 13, 10, 61, 62, 60, 66, 65].map(u);
 /**
  * What each paid world loads. `rows` sort last (or first) in their table. `claims`
  * sort last (or first) inside their mechanism. Of the two tied "Logs" claims only 103
  * is listed, so in either world it carries more votes than 102.
  */
-const PAIR_LAST = { rows: [10, 13, 60, 62], claims: [100, 103, 105, 106, 107, 109] };
-const PAIR_FIRST = { rows: [11, 12, 61], claims: [101, 104, 108] };
+const PAIR_LAST = { rows: [10, 13, 60, 62, 65], claims: [100, 103, 105, 106, 107, 109, 110] };
+const PAIR_FIRST = { rows: [11, 12, 61, 66], claims: [101, 104, 108, 111] };
 
 /** The AECi seed: claim id, row, data object. */
 const PAIR_CLAIMS: ReadonlyArray<[id: number, row: number, object: number]> = [
@@ -748,6 +803,8 @@ const PAIR_CLAIMS: ReadonlyArray<[id: number, row: number, object: number]> = [
   [107, 60, 71],
   [108, 61, 72],
   [109, 62, 72],
+  [110, 65, 71],
+  [111, 66, 72],
 ];
 
 async function seedPair(db: Db, world: World, renameLast = false) {
@@ -761,8 +818,20 @@ async function seedPair(db: Db, world: World, renameLast = false) {
       productRole: 'connector' as const,
       promotionStatus: 'promoted' as const,
     })),
+    ...[6, 7].map((n) => ({
+      id: u(n),
+      slug: `sync-service-${n}`,
+      name: `Sync Service ${n}`,
+      productRole: 'connector' as const,
+      connectorKind: 'sync_service',
+      promotionStatus: 'promoted' as const,
+    })),
   ]);
   await seedTwoVendors(db);
+  // The Sync Service order input (AECI-2043): renamed, Acme's card sorts after Globex's.
+  if (renameLast) {
+    await db.update(vendors).set({ companyName: 'Zebra Software' }).where(eq(vendors.id, ACME));
+  }
   await db.insert(productVendors).values([
     { productId: u(1), vendorId: ACME, isPrimary: true },
     { productId: u(2), vendorId: GLOBEX, isPrimary: true },
@@ -794,6 +863,17 @@ async function seedPair(db: Db, world: World, renameLast = false) {
       connectorProductId: u(connector),
       productAId: a!,
       productBId: b!,
+      direction: 'a_to_b',
+    })),
+  );
+  await db.insert(connectorEvidencedPairs).values(
+    PAIR_SYNC_SERVICE.map(([n, name, connector, vendor]) => ({
+      id: u(n),
+      name,
+      connectorProductId: u(connector),
+      productAId: a!,
+      productBId: b!,
+      builtByVendorId: vendor,
       direction: 'a_to_b',
     })),
   );
@@ -1005,6 +1085,8 @@ describe('on-page ordering firewall: the pair page', () => {
     async () => {
       const renamed = await pairWorld('free', true);
       expect(renamed.mechanisms[0]).toBe(u(10));
+      // The offering vendor's name is the Sync Service order input (AECI-2043).
+      expect(renamed.mechanisms.slice(-2)).toEqual([u(65), u(66)]);
     },
     DB_TIMEOUT,
   );
@@ -1112,6 +1194,140 @@ async function relatedOrder(world: World, renameLast = false) {
   );
   return body.related_products.map((p) => p.id);
 }
+
+// ─── The Sync Service "What it syncs" block (AECI-2046) ───────────────────────
+
+/** Record types named so case and input order cannot decide the order. */
+const SYNC_OBJECT_NAME: Readonly<Record<number, string>> = {
+  61: 'Timesheets',
+  62: 'budgets',
+  63: 'Change Orders',
+  64: 'Budgets & Forecasts',
+  65: 'RFIs',
+};
+const SYNC_OBJECT_ORDER = Object.entries(SYNC_OBJECT_NAME)
+  .sort(([an, a], [bn, b]) => compareText(a, b) || Number(an) - Number(bn))
+  .map(([n]) => `o${n}`);
+
+/**
+ * A Sync Service (the page product) delivering three evidenced pairs over four endpoint
+ * products, every record type on every pair. The paid worlds load the Managed profile
+ * and both companies' confirmations onto the endpoints of the objects that sort last
+ * (or first), so an order that rewarded a plan or an agreement state would move.
+ */
+async function seedWhatItSyncs(db: Db, world: World, renameLast = false) {
+  await db.insert(products).values([
+    {
+      id: u(1),
+      slug: 'page',
+      name: 'Page',
+      promotionStatus: 'promoted',
+      productRole: 'connector',
+      connectorKind: 'sync_service',
+    },
+    ...[2, 3, 4, 5].map((n) => ({
+      id: u(n),
+      slug: `p${n}`,
+      name: `P${n}`,
+      promotionStatus: 'promoted' as const,
+    })),
+  ]);
+  await db.insert(taxonomyDataObjects).values(
+    Object.entries(SYNC_OBJECT_NAME).map(([n, name]) => ({
+      id: u(Number(n)),
+      slug: `o${n}`,
+      name: renameLast && n === '65' ? 'Aardvark records' : name,
+    })),
+  );
+  const pairs: [number, number][] = [
+    [2, 3],
+    [2, 4],
+    [3, 5],
+  ];
+  for (const [i, [a, b]] of pairs.entries()) {
+    await db.insert(connectorEvidencedPairs).values({
+      id: u(200 + i),
+      productAId: u(a),
+      productBId: u(b),
+      connectorProductId: u(1),
+      direction: 'both',
+    });
+    // Inserted in reverse vocabulary order, so a stored order would differ too.
+    for (const n of Object.keys(SYNC_OBJECT_NAME).map(Number).reverse()) {
+      await db.insert(claims).values({
+        id: u(1000 + i * 100 + n),
+        connectorEvidencedPairId: u(200 + i),
+        dataObjectId: u(n),
+        direction: 'both',
+      });
+    }
+  }
+  if (world === 'free') return;
+
+  await seedTwoVendors(db);
+  await seedFacetTerms(db);
+  const loaded = world === 'last' ? [61, 65] : [62, 64];
+  for (const [n, vendorId] of [
+    [2, ACME],
+    [3, GLOBEX],
+  ] as const) {
+    await db.insert(productVendors).values({ productId: u(n), vendorId, isPrimary: true });
+    await giveManagedProfile(db, u(n), vendorId, n);
+  }
+  for (const object of loaded) {
+    await db.insert(attestations).values([
+      {
+        id: u(5000 + object),
+        claimId: u(1000 + object),
+        source: 'vendor_a',
+        asserted: true,
+        attestedByVendorId: ACME,
+      },
+      {
+        id: u(6000 + object),
+        claimId: u(1000 + object),
+        source: 'vendor_b',
+        asserted: true,
+        attestedByVendorId: GLOBEX,
+      },
+    ]);
+  }
+}
+
+async function whatItSyncsOrder(world: World, renameLast = false) {
+  const body = ProductDetailSchema.parse(
+    await readWorld((db) => seedWhatItSyncs(db, world, renameLast), detailRoute),
+  );
+  return (body.what_it_syncs?.objects ?? []).map((o) => o.slug);
+}
+
+describe('on-page ordering firewall: the "What it syncs" block', () => {
+  it(
+    '[surface:product-page-what-it-syncs] A to Z by name with compareText, slug on a tie, none cut',
+    async () => {
+      expect(await whatItSyncsOrder('free')).toEqual(SYNC_OBJECT_ORDER);
+    },
+    DB_TIMEOUT,
+  );
+
+  for (const world of ['last', 'first'] as const) {
+    it(
+      `[surface:product-page-what-it-syncs] does not move when the paid inputs load the ${world} record types`,
+      async () => {
+        expect(await whatItSyncsOrder(world)).toEqual(SYNC_OBJECT_ORDER);
+      },
+      DB_TIMEOUT,
+    );
+  }
+
+  it(
+    'sees a move when an order input changes (the comparison is not vacuous)',
+    async () => {
+      expect((await whatItSyncsOrder('free', true))[0]).toBe('o65');
+    },
+    DB_TIMEOUT,
+  );
+});
 
 describe('on-page ordering firewall: related_products', () => {
   it(
@@ -1375,6 +1591,7 @@ describe('on-page ordering firewall: the taxonomy term-count exception', () => {
       ...exception.sites,
       ...exception.indexing,
       ...FREE_COUNT_SITES,
+      ...CONNECTOR_KIND_COUNT_SITES,
       ...DISPLAY_COUNT_SITES,
     ]
       .map(siteKey)
@@ -1400,7 +1617,9 @@ describe('on-page ordering firewall: the taxonomy term-count exception', () => {
 
   it('every tolerated site orders by the one capability the entry names, which is still Managed-only', () => {
     for (const site of [...exception.sites, ...exception.indexing]) {
-      if (site.facet === '*' || site.facet === 'vendor_name') continue;
+      // `connector_kind` sites live in their own list (AECI-1662), never in this exception.
+      if (site.facet === '*' || site.facet === 'vendor_name' || site.facet === 'connector_kind')
+        continue;
       expect(PRODUCT_FIELD_CAPABILITIES[FACET_FIELD[site.facet]], siteKey(site)).toBe(
         exception.capability,
       );
@@ -1424,6 +1643,22 @@ describe('on-page ordering firewall: the taxonomy term-count exception', () => {
         expect(site.facet).toBe('vendor_name');
       }
     }
+  });
+
+  it('the connector type filter reads an admin-set input in a fixed order', () => {
+    expect(PRODUCT_FIELD_CAPABILITIES).not.toHaveProperty('connector_kind');
+    // /search: the kinds re-sorted into vocabulary order before any count is read.
+    expect(webSource('search/search-facet-order.ts')).toMatch(
+      /attribute === 'connector_kind'[\s\S]*?kinds\.indexOf\(a\.value\) - kinds\.indexOf\(b\.value\)/,
+    );
+    // /products and browse: the API emits the kinds in vocabulary order, and the
+    // sidebar maps them without a sort.
+    expect(readFileSync(join(API_SRC, 'routes', 'product-facets.ts'), 'utf8')).toMatch(
+      /connector_kinds: CONNECTOR_KINDS\.map\(/,
+    );
+    expect(webSource('shared/facets/facet-sidebar.ts')).toMatch(
+      /\(facets\.connector_kinds \?\? \[\]\)\s*\.map\([\s\S]*?\}\)\)\s*\.filter\(\(item\) => item\.count > 0 \|\| item\.isRefined\);/,
+    );
   });
 });
 
@@ -1487,6 +1722,8 @@ const PUBLIC_READ_LIB = [
   'product-extensions',
   'field-hides',
   'listing-hide',
+  'pair-mechanism-order',
+  'what-it-syncs',
 ];
 
 interface OrderSite {
@@ -1537,6 +1774,7 @@ const ORDER_SITES: readonly OrderSite[] = [
     allowed: `taxonomy term lists, display_order or A to Z by name; ${NEVER_PLAN}`,
   },
   {
+    // QA pass on AECI-2035: 18 to 17, the powered rows' endpoint categories are gone.
     file: 'apps/api/src/lib/drizzle-helpers.ts',
     count: 17,
     registered: ['pair-page-claims', 'pair-page-closest-matches'],
@@ -1575,6 +1813,16 @@ const ORDER_SITES: readonly OrderSite[] = [
     file: 'apps/api/src/lib/catalog-urls.ts',
     count: 4,
     allowed: `sitemap URL order by id, pair slugs or facet; a crawl feed, not an on-page list, and ${NEVER_PLAN}`,
+  },
+  {
+    file: 'apps/api/src/lib/pair-mechanism-order.ts',
+    count: 1,
+    registered: ['pair-page-mechanisms'],
+  },
+  {
+    file: 'apps/api/src/lib/what-it-syncs.ts',
+    count: 1,
+    registered: ['product-page-what-it-syncs'],
   },
   {
     file: 'apps/api/src/lib/pair-redirect.ts',
@@ -1649,9 +1897,10 @@ const ORDER_SITES: readonly OrderSite[] = [
     registered: ['product-page-integrations-redesign'],
   },
   {
-    // AECI-2018: the wheel's products A to Z, and its category slides A to Z.
+    // AECI-2018: the wheel's products A to Z, and its category slides A to Z. QA pass on
+    // AECI-2035: a connector's wheel, the products its pairs reach A to Z (the third).
     file: 'apps/web/src/app/products/integration-wheel.ts',
-    count: 2,
+    count: 3,
     registered: ['product-page-hero-wheel'],
   },
   {
@@ -1666,10 +1915,10 @@ const ORDER_SITES: readonly OrderSite[] = [
   },
   {
     file: 'apps/web/src/app/search/search-facet-order.ts',
-    count: 2,
+    count: 3,
     registered: ['taxonomy-term-product-count'],
     allowed:
-      'lifecycle order for phases on /search; a checked value Algolia left out, placed by the same compareFacetValues (AECI-1899)',
+      'lifecycle order for phases on /search; a checked value Algolia left out, placed by the same compareFacetValues (AECI-1899); the connector type options in vocabulary order whatever the counts, an admin-set input no plan writes (AECI-1662)',
   },
   {
     file: 'apps/web/src/app/search/search-url-state.ts',

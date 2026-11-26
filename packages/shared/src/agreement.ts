@@ -22,12 +22,26 @@
  */
 
 /**
- * Enumerated agreement states, in ascending order of verification. Only
+ * Enumerated agreement states, in ascending order of verification.
+ *
+ * `owner_confirmed` (AECI-2039, ruling 4 on AECI-2035): the OWNER of a Sync Service
+ * pair confirmed the flow. A Sync Service runs both sides of its pairs, so the two
+ * endpoint vendors do not vote there (§14). It is one company's word, so it ranks
+ * below `confirmed` and never borrows its "both companies" wording. It is reachable
+ * only through an {@link OWNER_ANSWER_SOURCE} entry, which no stored attestation has.
+ *
+ * Only
  * `unverified` is reachable until the Stage 2 portal (AECI-301) lets vendors
  * attest; `single_source`/`confirmed`/`conflict` are unit-tested against
  * synthetic attestations so they ship proven.
  */
-export const AGREEMENT_STATES = ['unverified', 'single_source', 'confirmed', 'conflict'] as const;
+export const AGREEMENT_STATES = [
+  'unverified',
+  'single_source',
+  'owner_confirmed',
+  'confirmed',
+  'conflict',
+] as const;
 
 export type AgreementState = (typeof AGREEMENT_STATES)[number];
 
@@ -53,6 +67,31 @@ export interface AgreementAttestation {
   readonly attestedByVendorId: string | null;
   /** Non-null once the vendor withdrew or replaced this assertion. */
   readonly retractedAt: string | null;
+}
+
+/**
+ * The `source` of the OWNER's answer on a Sync Service pair's flow (AECI-2039).
+ *
+ * **Never a stored `attestations.source`.** That column's CHECK holds `aeci`,
+ * `vendor_a` and `vendor_b`, and the answer lives in `claim_owner_answers`. The API
+ * read paths append one entry with this source to a claim's attestation list, and
+ * only while the answer counts (`apps/api/src/lib/owner-flows.ts`). So every reader
+ * that does not append it computes exactly what it computed before.
+ *
+ * The rules it brings:
+ *
+ * - It never votes in the endpoint tally ({@link tallyVoters} skips it).
+ * - An affirming owner answer makes the claim `owner_confirmed`.
+ * - A denying owner answer REMOVES the flow: {@link isClaimPubliclyBacked} is false.
+ *   The owner maintains the listing, so a "No" is a correction, not a public dispute.
+ */
+export const OWNER_ANSWER_SOURCE = 'owner';
+
+/** The live owner answer in a set, or `undefined`. */
+function liveOwnerAnswer(
+  attestations: readonly AgreementAttestation[],
+): AgreementAttestation | undefined {
+  return attestations.find((a) => a.source === OWNER_ANSWER_SOURCE && a.retractedAt === null);
 }
 
 /**
@@ -82,7 +121,7 @@ const UNATTRIBUTED: unique symbol = Symbol('unattributed');
 function tallyVoters(attestations: readonly AgreementAttestation[]): Map<string | symbol, boolean> {
   const voters = new Map<string | symbol, boolean>();
   for (const a of attestations) {
-    if (a.source === 'aeci') continue;
+    if (a.source === 'aeci' || a.source === OWNER_ANSWER_SOURCE) continue;
     if (a.retractedAt !== null) continue;
     const identity = a.attestedByVendorId ?? UNATTRIBUTED;
     voters.set(identity, (voters.get(identity) ?? true) && a.asserted);
@@ -101,8 +140,15 @@ function tallyVoters(attestations: readonly AgreementAttestation[]): Map<string 
  * | ≥1, denying only | `unverified` — denied-but-unconfirmed is not a conflict; {@link isClaimRefuted} tells it apart |
  * | ≥2 distinct, all affirming | `confirmed` — bilateral only |
  * | ≥2 distinct, affirm **and** deny | `conflict` |
+ *
+ * First, before the table: a live affirming {@link OWNER_ANSWER_SOURCE} entry gives
+ * `owner_confirmed` (AECI-2039).
  */
 export function computeAgreement(attestations: readonly AgreementAttestation[]): AgreementState {
+  // AECI-2039: the owner of a Sync Service pair answers for the flow. A removed flow
+  // (a denying owner answer) never reaches a public reader, so it reads as the
+  // endpoint tally would.
+  if (liveOwnerAnswer(attestations)?.asserted) return 'owner_confirmed';
   let affirming = 0;
   let denying = 0;
   for (const affirms of tallyVoters(attestations).values()) {
@@ -162,7 +208,10 @@ function instantMs(value: string): number {
  */
 export function conflictSince(rows: readonly HistoricalAttestation[]): string | null {
   const vendorRows = rows.filter(
-    (row) => row.source !== 'aeci' && !Number.isNaN(instantMs(row.createdAt)),
+    (row) =>
+      row.source !== 'aeci' &&
+      row.source !== OWNER_ANSWER_SOURCE &&
+      !Number.isNaN(instantMs(row.createdAt)),
   );
   const instants = new Set<number>();
   for (const row of vendorRows) {
@@ -237,7 +286,8 @@ export interface PublicVisibilityClaim {
  * `unverified`, and the pair page would label it "Listed by AEC Integrations".
  * AECi never listed it, so the claim is withheld instead.
  *
- * Returns `true` when any one holds:
+ * A live {@link OWNER_ANSWER_SOURCE} entry decides first (AECI-2039): `true` when it
+ * affirms, `false` when it denies. Otherwise `true` when any one holds:
  *
  * - `origin` is not `'vendor'`. AECi-seeded claims stay public exactly as before,
  *   including a legacy claim with no attestation rows.
@@ -248,6 +298,10 @@ export interface PublicVisibilityClaim {
  * visibility, never a label (`STAGE_2_ATTESTATIONS_SPEC.md` §2.2).
  */
 export function isClaimPubliclyBacked(claim: PublicVisibilityClaim): boolean {
+  // AECI-2039: the owner of a Sync Service pair decides for its own flows. A "No"
+  // removes the flow, AECi-seeded or not. A "Yes" stands behind it.
+  const owner = liveOwnerAnswer(claim.attestations);
+  if (owner) return owner.asserted;
   if (claim.origin !== 'vendor') return true;
   if (claim.attestations.some((a) => a.source === 'aeci' && a.retractedAt === null)) return true;
   for (const affirms of tallyVoters(claim.attestations).values()) {
@@ -261,8 +315,11 @@ export function isClaimPubliclyBacked(claim: PublicVisibilityClaim): boolean {
 const VERIFICATION_RANK: Record<AgreementState, number> = {
   unverified: 0,
   single_source: 1,
-  confirmed: 2,
-  conflict: 3,
+  // AECI-2039: one company's word, the company that runs both sides. Above a lone
+  // endpoint vendor, below two distinct endpoint vendors.
+  owner_confirmed: 2,
+  confirmed: 3,
+  conflict: 4,
 };
 
 /**
@@ -280,7 +337,7 @@ const VERIFICATION_RANK: Record<AgreementState, number> = {
  * |---|---|
  * | none | `null`: there is no flow to agree on |
  * | any `conflict` | `conflict` |
- * | otherwise | the lowest state among them, in `unverified < single_source < confirmed` |
+ * | otherwise | the lowest state among them, in `unverified < single_source < owner_confirmed < confirmed` |
  *
  * So a row reads `confirmed` only when every flow it lists is confirmed by two
  * distinct vendors. Any other rule would let one confirmed flow lend its standing to

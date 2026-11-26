@@ -32,6 +32,7 @@ import {
 } from '@aeci/shared/seed-reviews';
 
 import { runDataQualityChecks, type DataQualityCheckResult } from '../lib/data-quality';
+import { findProductCountDrift } from '../lib/recompute-counts';
 
 import { makeTestDb, type TestDb } from './d1';
 
@@ -44,6 +45,7 @@ const CHAIN = [
   'phase2-fixtures.sql',
   'auth-fixtures.sql',
   'connector-fixtures.sql',
+  'sync-service-owner-fixtures.sql',
   'extension-fixtures.sql',
   'review-response-fixtures.sql',
   'review-update-fixtures.sql',
@@ -192,6 +194,40 @@ describe('review seeder: its rows raise no error-severity finding (AECI-1936)', 
       expect(results.filter((r) => r.error).map((r) => `${r.id}: ${r.error}`)).toEqual([]);
       const errors = results.filter((r) => r.severity === 'error' && r.count > 0);
       expect(errors.map((r) => `${r.id}: ${r.sample.join('; ')}`)).toEqual([]);
+    } finally {
+      t.dispose();
+    }
+  });
+});
+
+/**
+ * The stored `integration_count` on a fresh seed (QA pass on AECI-2035, 2026-11-24).
+ * connector-fixtures.sql inserted its products at the column default, 0, and never
+ * recomputed, so /products printed "Not yet connected" on three connectors whose pages
+ * list pairs. Every seeded product's stored count must equal the canonical rule
+ * (`findProductCountDrift`, the reconcile job's own comparison).
+ */
+describe('seed chain: stored integration counts follow the rule', () => {
+  it('leaves no product with a drifted integration_count', async () => {
+    const t = await makeTestDb();
+    try {
+      for (const file of [...CHAIN, FIXTURE]) apply(t, file);
+      const drift = (await findProductCountDrift(t.db)).filter(
+        (d) => d.field === 'integrationCount',
+      );
+      expect(drift).toEqual([]);
+      // The three connectors the QA pass caught at zero (option B: pairs they deliver
+      // or power count for them, and Agave's Convention-A row counts too).
+      const counts = t.raw
+        .prepare(
+          "SELECT slug, integration_count AS n FROM products WHERE slug IN ('fx-agave','fx-aardvark-sync','fx-mindcloud') ORDER BY slug",
+        )
+        .all();
+      expect(counts).toEqual([
+        { slug: 'fx-aardvark-sync', n: 1 },
+        { slug: 'fx-agave', n: 3 },
+        { slug: 'fx-mindcloud', n: 2 },
+      ]);
     } finally {
       t.dispose();
     }

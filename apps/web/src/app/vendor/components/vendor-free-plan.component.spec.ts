@@ -139,18 +139,19 @@ describe('VendorChecklist with product rows', () => {
     expectVendorDocsLink(render(PRIMARY).nativeElement as HTMLElement, 'checklists');
   });
 
-  it('a finished Free product reads 3 of 3, with data flows optional (decision 6)', () => {
+  // AECI-2038: confirming data flows is on every plan, so the step counts on Free
+  // and its row names no plan.
+  it('a Free product reads x of 4, and data flows count', () => {
     const done: ChecklistFixtureState = {
       ...NOTHING_CHECKED,
       products: { [PRIMARY.id]: { details: true, list: true, claims: true, flows: false } },
     };
     const f = render(onPlan(PRIMARY, FREE), done);
-    expect(score(f)).toBe('3 of 3 done');
+    expect(score(f)).toBe('3 of 4 done');
     const flows = step(f, 'confirm_data_flows');
-    expect(flows.textContent).toContain('Optional');
-    expect(flows.textContent).toContain('Available on Managed');
-    // The lock replaces the number, and the step is said to be optional.
-    expect(flows.textContent).toContain('Not done, optional');
+    expect(flows.textContent).not.toContain('Optional');
+    expect(flows.textContent).not.toContain('Managed');
+    expect(flows.querySelector('a')?.textContent?.trim()).toBe('Confirm data flows');
   });
 
   it('a Managed product reads x of 4, and data flows count', () => {
@@ -187,9 +188,11 @@ describe('VendorChecklist with product rows', () => {
   // Angular drops the whitespace-only node before the pill and the sr-only status, so the
   // template carries `&ngsp;`. Without it the row reads "Confirm data flowsOptional…" (AECI-1471).
   it('keeps a space between the title, the Optional pill and the sr-only status', () => {
-    const f = render(onPlan(PRIMARY, FREE));
+    const f = render(onPlan(PRIMARY, { ...FREE, capabilities: [] }));
     const title = (key: string) =>
       step(f, key).querySelector('p')?.textContent?.replace(/\s+/g, ' ').trim();
+    // Only a plan without attestation.author (a tier the build does not know) makes
+    // the step optional since AECI-2038.
     expect(title('confirm_data_flows')).toBe('Confirm data flows Optional Not done, optional');
     expect(title('product_details')).toBe('Check product details Not done');
   });
@@ -218,10 +221,10 @@ describe('VendorChecklist with vendor rows', () => {
     );
   });
 
-  it('scores a mixed catalog per product plan: Free out of 3, Managed out of 4', () => {
+  it('scores a mixed catalog per product plan: out of 4 on Free and Managed (AECI-2038)', () => {
     const checklist = vendorChecklistFixture(VENDOR_ME_MIXED_FIXTURE, CHECKLIST_MIXED_STATE);
     const totals = new Set(checklist.products.map((p) => `${p.plan.tier}:${p.total}`));
-    expect(totals).toEqual(new Set(['verified:4', 'unclaimed:3']));
+    expect(totals).toEqual(new Set(['verified:4', 'unclaimed:4']));
   });
 });
 
@@ -322,6 +325,9 @@ describe('VendorPlanEndedBanner', () => {
     expect(textOf(f)).toContain('Ending a plan removes nothing you entered.');
     expect(textOf(f)).toContain('Still works');
     expect(textOf(f)).toContain('Read-only now');
+    // AECI-2038: confirming data flows keeps working on Free.
+    expect(textOf(f)).toContain('Confirming or denying data flows');
+    expect(textOf(f)).not.toContain('Your data flow answers');
   });
 
   it('never shows for a vendor with no plan row (status null)', () => {

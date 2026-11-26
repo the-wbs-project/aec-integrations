@@ -29,6 +29,8 @@ export const MULTI_VALUE_CACHE_KEY_PARAMS: ReadonlySet<string> = new Set([
   'audience_id',
   'phase_id',
   'trade_id',
+  // AECI-1662 — the "Connector type" kind list, sorted like the ids.
+  'connector_kind',
 ]);
 
 /** `/products/:contextSlug/integrations/:otherSlug` (locale prefix already stripped). */

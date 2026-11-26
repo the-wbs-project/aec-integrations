@@ -3,7 +3,7 @@ title: Reading an integration page
 description: What each part of an integration page tells you, from the two products at the top to the agreement label on each type of data.
 section: getting-started
 order: 2
-last_updated: November 18, 2026
+last_updated: November 24, 2026
 ---
 
 Every pair of products that work together has one integration page. Its heading reads "How (one product) and (the other) exchange data". You reach it from the Integrations section of either product's page.
@@ -37,6 +37,8 @@ A card is one way the two products connect.
 - **Syncs both ways**: data moves both ways.
 
 When a page has more than one card, a chip such as "3 types of data" says how many each card covers.
+
+**A Sync Service card.** A Sync Service is a product that runs a finished sync between two other products. Its card says who offers it, and that the two products' vendors do not offer or endorse it. Once the Sync Service has five reviews, its card also shows its own rating and review count, as the two products show theirs.
 
 **At a glance** collects the facts we have about this integration. A fact we do not have is left out.
 

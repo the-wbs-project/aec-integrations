@@ -32,6 +32,7 @@ import { ALERT, FORM_PANEL, HELP, ID_STYLES, INPUT } from './integration-detail-
 import { VendorTip } from './vendor-tip';
 import { isReplayedEvent } from '../../core/event-replay';
 import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
+import { CloseOnEscape } from '../shared/close-on-escape';
 
 let nextId = 0;
 
@@ -62,10 +63,13 @@ type WrongKind = 'not-shared' | 'direction' | 'other';
  */
 @Component({
   selector: 'aec-integration-answer-form',
-  imports: [KeepClearOfSaveBar, AecButton, VendorTip],
+  imports: [CloseOnEscape, KeepClearOfSaveBar, AecButton, VendorTip],
   styles: [ID_STYLES],
   template: `
     <form
+      aecCloseOnEscape
+      [escapeBusy]="busy()"
+      (escapeCancel)="closed.emit()"
       aecKeepClearOfSaveBar
       method="dialog"
       [class]="panel"

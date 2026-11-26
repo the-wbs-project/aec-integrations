@@ -46,6 +46,7 @@ import type {
   ListDataObjectsResponse,
   ListProductVersionsResponse,
   ListVendorIntegrationsResponse,
+  ListVendorDeliveredPairsResponse,
   ListVendorNotificationsResponse,
   NotificationPreferencesResponse,
   ListVendorSeatsResponse,
@@ -95,6 +96,23 @@ import type {
   VendorProposal,
   PossibleDuplicateIntegration,
   PossibleDuplicatesResponse,
+  AddOwnerFlowInput,
+  ChangeOwnerFlowInput,
+  ContextDirection as OwnerFlowDirection,
+  CreateSyncServicePairInput,
+  CreateSyncServicePairResponse,
+  DecidePairContestInput,
+  OwnedFlow,
+  OwnedIntegration,
+  OwnerFlowsResponse,
+  PairContest,
+  PairContestResponse,
+  PairFlowDirection,
+  SubmitPairContestInput,
+  SyncServicePairVeto,
+  VendorPairContestsResponse,
+  VendorVetoesResponse,
+  VetoWriteResponse,
 } from '@aeci/shared';
 import { capabilitiesFor } from '@aeci/shared/entitlements';
 import { compareText } from '@aeci/shared/text-sort';
@@ -117,6 +135,8 @@ import {
   integrationEditValueProblem,
   isAwaitingCounterpartAnswer,
   unusedAfterPurchase,
+  countOwnerFlowsAwaitingAnswer,
+  isSyncService,
   type ContestableFields,
   type ContextDirection,
   type IntegrationEditField,
@@ -157,6 +177,9 @@ import {
   INTEGRATION_RETIRED_BY_OTHER,
   VENDOR_INTEGRATIONS_FIXTURE,
   VENDOR_OWNED_INTEGRATIONS_FIXTURE,
+  VENDOR_DELIVERED_PAIRS_FIXTURE,
+  VENDOR_SYNC_OWNED_FIXTURE,
+  SYNC_SERVICE_PRODUCT,
   VENDOR_NOTIFICATIONS_FIXTURE,
   VENDOR_OVERRIDE_NOTIFICATIONS_FIXTURE,
   VENDOR_PRODUCT_CONNECTORS_FIXTURE,
@@ -176,6 +199,13 @@ import {
   type ChecklistFixtureState,
   type ProductChecklistFixtureState,
 } from '../../vendor/vendor-fixtures';
+import {
+  PREVIEW_HYBRID_ENDPOINT_INTEGRATION,
+  PREVIEW_RECEIVED_FLOW_REPORT,
+  PREVIEW_RECEIVED_VETO,
+  PREVIEW_SYNC_EXTRA_OWNED,
+  previewSyncConnectors,
+} from './preview-sync-fixtures';
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -610,6 +640,43 @@ const PREVIEW_INTEGRATIONS: ListVendorIntegrationsResponse = {
   counterpart_added_unanswered: 0,
 };
 
+/** AECI-2045: the `sync-service` preset's surface: the same list, plus the two pairs
+ *  Summit Sync delivers that Summit owns. */
+export const PREVIEW_SYNC_INTEGRATIONS: ListVendorIntegrationsResponse = {
+  ...PREVIEW_INTEGRATIONS,
+  // AECI-2045 QA: the hybrid Sync Service's own endpoint integration.
+  integrations: [...PREVIEW_INTEGRATIONS.integrations, PREVIEW_HYBRID_ENDPOINT_INTEGRATION],
+  owned: [
+    ...VENDOR_OWNED_INTEGRATIONS_FIXTURE,
+    ...VENDOR_SYNC_OWNED_FIXTURE,
+    // AECI-2045 QA: a pair Trimble removed, and a pair the hybrid product delivers.
+    ...PREVIEW_SYNC_EXTRA_OWNED,
+  ],
+};
+
+/** The data object names the owner flow fakes use, by slug. */
+function dataObjectName(slug: string): string | null {
+  return VENDOR_DATA_OBJECTS_FIXTURE.find((d) => d.slug === slug)?.name ?? null;
+}
+
+/** A stored pair direction (§11e) as an owner flow's direction against `product_a`. */
+function ownerDirectionOf(direction: PairFlowDirection): OwnerFlowDirection {
+  return direction === 'a_to_b' ? 'outbound' : direction === 'b_to_a' ? 'inbound' : 'both';
+}
+
+/** The vetoes and the pair reports the `sync-service` preset starts from. */
+function previewSyncRights(sync: boolean): {
+  vetoes: VendorVetoesResponse;
+  reports: VendorPairContestsResponse;
+} {
+  return sync
+    ? {
+        vetoes: { filed: [], received: [clone(PREVIEW_RECEIVED_VETO)] },
+        reports: { submitted: [], received: [clone(PREVIEW_RECEIVED_FLOW_REPORT)] },
+      }
+    : { vetoes: { filed: [], received: [] }, reports: { submitted: [], received: [] } };
+}
+
 /** The contests the preview starts from: the shared fixture plus the owned,
  *  claimed row's received requests (AECI-1153). */
 const PREVIEW_CONTESTS: ListVendorContestsResponse = {
@@ -674,6 +741,7 @@ const PREVIEW_CATALOGUE: readonly ProductListItem[] = [
   name: name!,
   logo_url: null,
   product_role: 'application' as const,
+  connector_kind: null,
   vendor: {
     id: `00000000-0000-4000-8000-00000000560${index}`,
     slug: slug!,
@@ -709,6 +777,14 @@ export class PreviewVendorApi extends VendorApi {
   private nextRequestSeq = 0;
   private checklistState: ChecklistFixtureState = NOTHING_CHECKED;
 
+  // ── AECI-2045 QA: the Sync Service writes, against in-memory state ─────────
+  private vetoes: VendorVetoesResponse = { filed: [], received: [] };
+  private pairReports: VendorPairContestsResponse = { submitted: [], received: [] };
+  private connectors: Record<string, VendorProductConnectorsResponse> = clone(
+    VENDOR_PRODUCT_CONNECTORS_FIXTURE,
+  );
+  private nextSyncSeq = 0;
+
   /** Point the fake at the fixture the preview is currently showing, so writes
    *  merge onto the matching vendor/products. Clones so the shared fixture
    *  constants are never mutated across preview sessions. */
@@ -719,8 +795,14 @@ export class PreviewVendorApi extends VendorApi {
     seats: readonly VendorSeat[],
     integrations: ListVendorIntegrationsResponse = PREVIEW_INTEGRATIONS,
     checklist: ChecklistFixtureState = NOTHING_CHECKED,
+    sync = false,
   ): void {
     this.me = clone(me);
+    const rights = previewSyncRights(sync);
+    this.vetoes = rights.vetoes;
+    this.pairReports = rights.reports;
+    this.connectors = clone(sync ? previewSyncConnectors() : VENDOR_PRODUCT_CONNECTORS_FIXTURE);
+    this.nextSyncSeq = 0;
     this.checklistState = clone(checklist);
     this.seats = clone([...seats]);
     this.revokedInvites = new Set();
@@ -1272,7 +1354,21 @@ export class PreviewVendorApi extends VendorApi {
   override async getProductChecklist(productId: string): Promise<VendorProductChecklistResponse> {
     const product = this.me?.products.find((p) => p.id === productId);
     if (!product) throw apiError(404, 'NOT_FOUND', 'Product not found');
-    return productChecklistFixture(product, this.checklistState);
+    const checklist = productChecklistFixture(product, this.checklistState);
+    if (!isSyncService(product.product_role, product.connector_kind)) return checklist;
+    // AECI-2045: on a Sync Service, "Confirm data flows" counts the flows its owner has
+    // not answered, by the rule the server's step and the Integrations tab both use.
+    const awaiting = (this.integrations.owned ?? [])
+      .filter((row) => row.connector?.id === product.id)
+      .reduce((n, row) => n + countOwnerFlowsAwaitingAnswer(row), 0);
+    const steps = checklist.steps.map((step) =>
+      step.key === 'confirm_data_flows' && step.counts
+        ? { ...step, status: awaiting === 0 ? ('done' as const) : ('todo' as const) }
+        : step,
+    );
+    const counted = steps.filter((step) => step.counts);
+    const done = counted.filter((step) => step.status === 'done').length;
+    return { ...checklist, steps, done, complete: done === counted.length };
   }
 
   // AECI-1618: the removal election. The window runs from the fixture's own `ended_at`, so
@@ -1383,9 +1479,22 @@ export class PreviewVendorApi extends VendorApi {
   override async listProductConnectors(
     productId: string,
   ): Promise<VendorProductConnectorsResponse> {
-    return clone(
-      VENDOR_PRODUCT_CONNECTORS_FIXTURE[productId] ?? { product_id: productId, connectors: [] },
-    );
+    return clone(this.connectors[productId] ?? { product_id: productId, connectors: [] });
+  }
+
+  /** AECI-2045: the pairs Summit Sync delivers under another owner. A row with an open
+   *  `owner` request from the caller carries its id, as the server's read does. */
+  override async listDeliveredPairs(productId: string): Promise<ListVendorDeliveredPairsResponse> {
+    if (productId !== SYNC_SERVICE_PRODUCT.id) return { pairs: [] };
+    return clone({
+      pairs: VENDOR_DELIVERED_PAIRS_FIXTURE.pairs.map((pair) => ({
+        ...pair,
+        open_request_id:
+          this.contests.submitted.find(
+            (c) => c.integration_id === pair.id && c.field === 'owner' && c.status === 'open',
+          )?.id ?? null,
+      })),
+    });
   }
 
   override async createClaim(input: CreateVendorClaimInput): Promise<VendorClaimResponse> {
@@ -1421,6 +1530,7 @@ export class PreviewVendorApi extends VendorApi {
     const now = new Date('2026-08-18T12:00:00.000Z').toISOString();
     const claim: VendorClaim = {
       id: `preview-claim-${++this.nextClaimSeq}`,
+      owner_answer: null,
       integration_id: integration.id,
       data_object_slug: term.slug,
       data_object_name: term.name,
@@ -1788,6 +1898,9 @@ export class PreviewVendorApi extends VendorApi {
     // AECI-1225: the vendor named as owner says a row is not its own.
     const notOurs = this.notOurs(integrationId, body, anchor);
     if (notOurs) return notOurs;
+    // AECI-2045: the connector product's vendor asks to be recorded as the owner.
+    const delivered = this.askForDeliveredPair(integrationId, body);
+    if (delivered) return delivered;
     // AECI-1092: an evidenced pair is looked up among the connectors fixture's
     // contest targets, which carry the same fields an integration entry does.
     const pairTargets = Object.values(VENDOR_PRODUCT_CONNECTORS_FIXTURE).flatMap((r) =>
@@ -1854,6 +1967,56 @@ export class PreviewVendorApi extends VendorApi {
       status: 'open',
       submitter_vendor: { id: self?.id ?? '', name: self?.company_name ?? '' },
       owner_vendor: integration.owner,
+      decision_note: null,
+      decided_at: null,
+      created_at: now,
+      updated_at: now,
+      protest: null,
+      protest_opens_at: null,
+      protest_closes_at: null,
+      protest_basis: null,
+      cooldown_until: null,
+    };
+    this.contests.submitted.unshift(contest);
+    return { contest: clone(contest) };
+  }
+
+  /** AECI-2045 (§11b.2): an `owner` contest naming the caller on a pair its Sync Service
+   *  delivers. Any other field is `403 CONTEST_CONNECTOR_OWNER_ONLY`, as on the server. */
+  private askForDeliveredPair(
+    integrationId: string,
+    body: SubmitIntegrationContestInput,
+  ): VendorContestResponse | null {
+    const pair = VENDOR_DELIVERED_PAIRS_FIXTURE.pairs.find((p) => p.id === integrationId);
+    const self = this.me?.vendor;
+    if (!pair || !self) return null;
+    if (body.field !== 'owner' || body.proposed_value !== self.id) {
+      throw apiError(403, 'CONTEST_CONNECTOR_OWNER_ONLY', 'Only an owner request naming you');
+    }
+    const standing = this.contests.submitted.some(
+      (c) => c.integration_id === integrationId && c.field === 'owner' && c.status === 'open',
+    );
+    if (standing) {
+      throw apiError(409, 'CONTEST_DUPLICATE', 'You already have an open contest on this field');
+    }
+    const now = '2026-11-24T12:00:00.000Z';
+    const contest: VendorContest = {
+      id: `00000000-0000-4000-8000-${String(0xc100 + ++this.nextContestSeq).padStart(12, '0')}`,
+      integration_id: integrationId,
+      anchor: pair.anchor,
+      integration_name: pair.name,
+      context_product: pair.product_a,
+      other_product: pair.product_b,
+      field: 'owner',
+      current_value: pair.owner?.id ?? null,
+      proposed_value: self.id,
+      current_label: pair.owner?.name ?? null,
+      proposed_label: self.company_name,
+      reason: body.reason,
+      routed_to: 'aeci',
+      status: 'open',
+      submitter_vendor: { id: self.id, name: self.company_name },
+      owner_vendor: pair.owner,
       decision_note: null,
       decided_at: null,
       created_at: now,
@@ -2586,6 +2749,8 @@ export class PreviewVendorApi extends VendorApi {
     }
     const entry: VendorIntegration = {
       id,
+      flows_maintained_by_owner: false,
+      owner_flows: null,
       name: parsed.data.name ?? null,
       mechanism_kind: (parsed.data.mechanism_kind ?? null) as VendorIntegration['mechanism_kind'],
       mechanism_name: parsed.data.mechanism_name ?? null,
@@ -2704,9 +2869,15 @@ export class PreviewVendorApi extends VendorApi {
     if (mode === 'restore' && owned.retired_by === 'aeci') {
       throw apiError(403, 'INTEGRATION_RETIRED_BY_AECI', 'Retired by AEC Integrations');
     }
+    // AECI-2042: an endpoint vendor's removal in force refuses the owner's restore.
+    if (mode === 'restore' && this.vetoInForceOn(owned.id)) {
+      throw apiError(409, 'INTEGRATION_VETOED', 'An endpoint vendor removed this integration');
+    }
     const now = '2026-09-23T12:00:00.000Z';
     owned.retired_at = mode === 'retire' ? now : null;
     owned.retired_by = mode === 'retire' ? 'owner' : null;
+    // AECI-2039: the owner keeps a Sync Service pair's flows while it is live.
+    owned.flows_editable = owned.sync_service && owned.claimed_at !== null && !owned.retired_at;
     return {
       integration: {
         id: owned.id,
@@ -2787,6 +2958,510 @@ export class PreviewVendorApi extends VendorApi {
       }
     }
     return clone({ integration_id: integrationId, product_id: productId, links });
+  }
+
+  // ─── AECI-2045 QA: the Sync Service writes (AECI-2039, AECI-2040, AECI-2042) ──
+  // Every `VendorApi` method has a fake here (`preview-vendor-api.spec.ts` holds the
+  // preview to that), so pressing Yes, No, Change, Add a row, the pair create, a removal
+  // or a report succeeds against the in-memory fixture instead of a 401.
+
+  private syncId(): string {
+    this.nextSyncSeq += 1;
+    return `00000000-0000-4000-8000-${(0x5800 + this.nextSyncSeq).toString(16).padStart(12, '0')}`;
+  }
+
+  /** Every place an owner flow lives: the owned rows, and the endpoint entries whose
+   *  owner keeps their flows (`owner_flows`). One row can be two entries. */
+  private ownerFlowHolders(): { id: string; editable: boolean; flows: OwnedFlow[] }[] {
+    const owned = (this.integrations.owned ?? []).map((row) => ({
+      id: row.id,
+      editable: row.flows_editable,
+      flows: row.flows,
+    }));
+    const endpoint = this.integrations.integrations.flatMap((entry) =>
+      entry.owner_flows
+        ? [{ id: entry.id, editable: entry.owner_flows.editable, flows: entry.owner_flows.flows }]
+        : [],
+    );
+    return [...owned, ...endpoint];
+  }
+
+  /** The holders of one flow, refused as the server refuses a flow the caller cannot answer. */
+  private holdersOfFlow(claimId: string) {
+    const holders = this.ownerFlowHolders().filter((h) => h.flows.some((f) => f.id === claimId));
+    if (holders.length === 0) throw apiError(404, 'NOT_FOUND', 'Flow not found');
+    if (!holders[0]!.editable) {
+      throw apiError(409, 'INTEGRATION_NOT_CLAIMED', 'Claim this integration first');
+    }
+    return holders;
+  }
+
+  private ownerFlowsResponse(integrationId: string): OwnerFlowsResponse {
+    const holder = this.ownerFlowHolders().find((h) => h.id === integrationId);
+    return { integration_id: integrationId, flows: clone(holder?.flows ?? []) };
+  }
+
+  /** Confirm (Yes) or remove (No) one flow, on every entry that carries it. */
+  private answerFlow(claimId: string, answer: OwnedFlow['answer']): string {
+    let integrationId = '';
+    for (const holder of this.holdersOfFlow(claimId)) {
+      integrationId = holder.id;
+      for (const flow of holder.flows) {
+        if (flow.id !== claimId) continue;
+        flow.answer = answer;
+        flow.agreement =
+          answer === 'yes'
+            ? 'owner_confirmed'
+            : flow.agreement === 'owner_confirmed'
+              ? 'unverified'
+              : flow.agreement;
+      }
+    }
+    return integrationId;
+  }
+
+  /** Confirm the flow of `slug` in `direction` on a row, adding it when it is not listed. */
+  private confirmFlowOn(
+    integrationId: string,
+    slug: string,
+    name: string,
+    direction: OwnerFlowDirection,
+  ): void {
+    const id = this.syncId();
+    for (const holder of this.ownerFlowHolders().filter((h) => h.id === integrationId)) {
+      const existing = holder.flows.find(
+        (f) => f.data_object_slug === slug && f.direction === direction,
+      );
+      if (existing) {
+        existing.answer = 'yes';
+        existing.agreement = 'owner_confirmed';
+      } else {
+        holder.flows.push({
+          id,
+          data_object_slug: slug,
+          data_object_name: name,
+          direction,
+          agreement: 'owner_confirmed',
+          origin: 'vendor',
+          answer: 'yes',
+        });
+      }
+    }
+  }
+
+  override async setOwnerFlowAnswer(
+    claimId: string,
+    asserted: boolean,
+  ): Promise<OwnerFlowsResponse> {
+    return this.ownerFlowsResponse(this.answerFlow(claimId, asserted ? 'yes' : 'no'));
+  }
+
+  override async clearOwnerFlowAnswer(claimId: string): Promise<void> {
+    this.answerFlow(claimId, null);
+  }
+
+  /** The old flow is answered No and the flow in the new direction confirmed (§6.15.3). */
+  override async changeOwnerFlow(
+    claimId: string,
+    body: ChangeOwnerFlowInput,
+  ): Promise<OwnerFlowsResponse> {
+    const holders = this.holdersOfFlow(claimId);
+    const flow = holders[0]!.flows.find((f) => f.id === claimId)!;
+    if (flow.direction === body.direction) {
+      throw apiError(422, 'CONTEST_NO_CHANGE', 'That is the direction on record now');
+    }
+    const integrationId = this.answerFlow(claimId, 'no');
+    this.confirmFlowOn(integrationId, flow.data_object_slug, flow.data_object_name, body.direction);
+    return this.ownerFlowsResponse(integrationId);
+  }
+
+  override async addOwnerFlow(
+    integrationId: string,
+    body: AddOwnerFlowInput,
+  ): Promise<OwnerFlowsResponse> {
+    const holder = this.ownerFlowHolders().find((h) => h.id === integrationId);
+    if (!holder) throw apiError(404, 'NOT_FOUND', 'Integration not found');
+    if (!holder.editable) {
+      throw apiError(409, 'INTEGRATION_NOT_CLAIMED', 'Claim this integration first');
+    }
+    const slug = body.data_object;
+    const name = dataObjectName(slug);
+    if (!name) {
+      throw apiError(400, 'VALIDATION_FAILED', `Unknown data object "${slug}"`, {
+        field: 'data_object',
+      });
+    }
+    this.confirmFlowOn(integrationId, slug, name, body.direction);
+    return this.ownerFlowsResponse(integrationId);
+  }
+
+  /** AECI-2040: the Sync Service adds a pair it delivers, born claimed. */
+  override async createSyncServicePair(
+    body: CreateSyncServicePairInput,
+  ): Promise<CreateSyncServicePairResponse> {
+    const connector = this.me?.products.find((p) => p.id === body.connector_product_id);
+    if (!connector) throw apiError(404, 'NOT_FOUND', 'Product not found');
+    if (!isSyncService(connector.product_role, connector.connector_kind)) {
+      throw apiError(422, 'CONNECTOR_NOT_SYNC_SERVICE', 'Not a Sync Service');
+    }
+    const first = PREVIEW_CATALOGUE.find((p) => p.id === body.product_id);
+    const second = PREVIEW_CATALOGUE.find((p) => p.id === body.counterpart_product_id);
+    if (!first || !second) throw apiError(404, 'NOT_FOUND', 'Product not found');
+    if (first.id === second.id) {
+      throw apiError(400, 'VALIDATION_FAILED', 'An integration needs two different products', {
+        field: 'counterpart_product_id',
+      });
+    }
+    const [a, b] = first.id < second.id ? [first, second] : [second, first];
+    const sameKey = (x: string | undefined, y: string | undefined) =>
+      (x === a.id && y === b.id) || (x === b.id && y === a.id);
+    const vetoed = this.vetoes.received.some(
+      (v) =>
+        v.in_force &&
+        v.pair.connector?.id === connector.id &&
+        sameKey(v.pair.product_a?.id, v.pair.product_b?.id),
+    );
+    if (vetoed) {
+      throw apiError(409, 'INTEGRATION_VETOED', 'An endpoint vendor removed this integration');
+    }
+    const existing = (this.integrations.owned ?? []).find(
+      (row) => row.connector?.id === connector.id && sameKey(row.product_a.id, row.product_b.id),
+    );
+    if (existing) {
+      throw apiError(409, 'INTEGRATION_ALREADY_ON_RECORD', 'Already on record', {
+        details: {
+          existing_id: existing.id,
+          anchor: existing.anchor,
+          retired: existing.retired_at !== null,
+          owned_by_caller: true,
+          claimed: existing.claimed_at !== null,
+        },
+      });
+    }
+    const id = this.syncId();
+    const now = new Date().toISOString();
+    const rawDirection = (body.direction ?? 'both') as OwnerFlowDirection;
+    const direction = a.id === first.id ? rawDirection : mirrorDirection(rawDirection);
+    const link = (p: ProductListItem) => ({
+      id: p.id,
+      slug: p.slug,
+      name: p.name,
+      logo_url: p.logo_url,
+    });
+    const row: OwnedIntegration = {
+      id,
+      anchor: 'evidenced_pair',
+      name: body.name ?? null,
+      mechanism_kind: null,
+      mechanism_name: body.mechanism_name ?? connector.name,
+      product_a: link(a),
+      product_b: link(b),
+      connector: { id: connector.id, slug: connector.slug, name: connector.name, logo_url: null },
+      connector_powered: true,
+      claimed_at: now,
+      retired_at: null,
+      retired_by: null,
+      contestable_fields: {
+        ...EMPTY_CONTESTABLE_FIELDS,
+        name: body.name ?? null,
+        mechanism_name: body.mechanism_name ?? null,
+        direction,
+        description: body.description ?? null,
+        listing_url: body.listing_url ?? null,
+        docs_url: body.docs_url ?? null,
+        pricing_model: body.pricing_model ?? null,
+        maturity: body.maturity ?? null,
+        owner: this.me!.vendor.id,
+      },
+      pricing_url: body.pricing_url ?? null,
+      locked_fields: [],
+      hidden_fields: [],
+      sync_service: true,
+      flows_editable: true,
+      flows: [],
+    };
+    this.integrations = { ...this.integrations, owned: [...(this.integrations.owned ?? []), row] };
+    return {
+      pair: {
+        id,
+        connector_product_id: connector.id,
+        product_a_id: a.id,
+        product_b_id: b.id,
+        origin: 'vendor',
+        owner_vendor_id: this.me!.vendor.id,
+        claimed_at: now,
+        maintained_by: 'vendor',
+        last_reviewed_at: now,
+        created_at: now,
+        updated_at: now,
+      },
+    };
+  }
+
+  private vetoInForceOn(integrationId: string): boolean {
+    return this.vetoes.received.some((v) => v.in_force && v.pair.integration_id === integrationId);
+  }
+
+  /** The endpoint vendor's contest target for one delivered pair, with its group. */
+  private rightsTarget(integrationId: string) {
+    for (const [productId, response] of Object.entries(this.connectors)) {
+      for (const group of response.connectors) {
+        const target = group.delivered_contest_targets.find((t) => t.id === integrationId);
+        if (target?.sync_service_rights) return { productId, group, target };
+      }
+    }
+    throw apiError(404, 'NOT_FOUND', 'Integration not found');
+  }
+
+  /** Delivered pairs taken off a product by a veto, so a withdraw puts them back. */
+  private readonly removedByVeto = new Map<
+    string,
+    {
+      productId: string;
+      connectorId: string;
+      delivered: VendorProductConnectorsResponse['connectors'][number]['delivered'];
+      targets: VendorProductConnectorsResponse['connectors'][number]['delivered_contest_targets'];
+    }
+  >();
+
+  override async fileVeto(integrationId: string, reason: string): Promise<VetoWriteResponse> {
+    const { productId, group, target } = this.rightsTarget(integrationId);
+    if (target.sync_service_rights!.veto_id) {
+      throw apiError(409, 'VETO_DUPLICATE', 'Your company already removed this integration');
+    }
+    const now = new Date().toISOString();
+    const [a, b] =
+      target.context_product.id < target.other_product.id
+        ? [target.context_product, target.other_product]
+        : [target.other_product, target.context_product];
+    const product = (p: { id: string; slug: string; name: string }) => ({
+      id: p.id,
+      slug: p.slug,
+      name: p.name,
+    });
+    const veto: SyncServicePairVeto = {
+      id: this.syncId(),
+      pair: {
+        integration_id: integrationId,
+        anchor: 'evidenced_pair',
+        name: target.name,
+        connector: product(target.connector),
+        product_a: product(a),
+        product_b: product(b),
+      },
+      vendor_id: this.me!.vendor.id,
+      vendor_name: this.me!.vendor.company_name,
+      reason,
+      filed_at: now,
+      in_force: true,
+      ended_at: null,
+      ended_how: null,
+      end_note: null,
+      other_vetoes_in_force: 0,
+      updated_at: now,
+    };
+    this.vetoes.filed.unshift(veto);
+    // The pair leaves the product at once, so the Connectors section drops it.
+    this.removedByVeto.set(veto.id, {
+      productId,
+      connectorId: group.connector.id,
+      delivered: group.delivered.filter((d) => d.id === integrationId),
+      targets: [
+        { ...target, sync_service_rights: { ...target.sync_service_rights!, veto_id: null } },
+      ],
+    });
+    group.delivered = group.delivered.filter((d) => d.id !== integrationId);
+    group.delivered_contest_targets = group.delivered_contest_targets.filter(
+      (t) => t.id !== integrationId,
+    );
+    return { veto: clone(veto), pair_public: false };
+  }
+
+  override async withdrawVeto(vetoId: string): Promise<VetoWriteResponse> {
+    const veto = this.vetoes.filed.find((v) => v.id === vetoId);
+    if (!veto) throw apiError(404, 'NOT_FOUND', 'Removal not found');
+    if (!veto.in_force) throw apiError(409, 'VETO_NOT_IN_FORCE', 'This removal has ended');
+    const now = new Date().toISOString();
+    veto.in_force = false;
+    veto.ended_at = now;
+    veto.ended_how = 'withdrawn';
+    veto.updated_at = now;
+    const removed = this.removedByVeto.get(vetoId);
+    const group = removed
+      ? this.connectors[removed.productId]?.connectors.find(
+          (g) => g.connector.id === removed.connectorId,
+        )
+      : undefined;
+    if (removed && group) {
+      group.delivered = [...removed.delivered, ...group.delivered];
+      group.delivered_contest_targets = [...removed.targets, ...group.delivered_contest_targets];
+      this.removedByVeto.delete(vetoId);
+    }
+    return { veto: clone(veto), pair_public: true };
+  }
+
+  override async listVetoes(): Promise<VendorVetoesResponse> {
+    return clone(this.vetoes);
+  }
+
+  override async submitPairContest(
+    integrationId: string,
+    body: SubmitPairContestInput,
+  ): Promise<PairContestResponse> {
+    const { target } = this.rightsTarget(integrationId);
+    const rights = target.sync_service_rights!;
+    const now = new Date().toISOString();
+    let flow: PairContest['flow'] = null;
+    if (body.kind === 'existence') {
+      if (rights.open_reports.includes('existence')) {
+        throw apiError(409, 'PAIR_CONTEST_DUPLICATE', 'You already have this report open');
+      }
+    } else {
+      const named = rights.flows.find((f) => f.claim_id === body.claim_id);
+      if (!named) throw apiError(404, 'NOT_FOUND', 'Flow not found');
+      if (rights.open_flow_claim_ids.includes(body.claim_id)) {
+        throw apiError(409, 'PAIR_CONTEST_DUPLICATE', 'You already have this report open');
+      }
+      if ((body.proposed_direction ?? null) === named.direction) {
+        throw apiError(422, 'CONTEST_NO_CHANGE', 'That is the direction on record now');
+      }
+      flow = {
+        claim_id: named.claim_id,
+        data_object_slug: named.data_object_name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+        data_object_name: named.data_object_name,
+        current_direction: named.direction,
+        proposed_direction: body.proposed_direction ?? null,
+      };
+    }
+    const routedTo = body.kind === 'data_flow' && rights.flows_decided_by_owner ? 'owner' : 'aeci';
+    const product = (p: { id: string; slug: string; name: string }) => ({
+      id: p.id,
+      slug: p.slug,
+      name: p.name,
+    });
+    const [a, b] =
+      target.context_product.id < target.other_product.id
+        ? [target.context_product, target.other_product]
+        : [target.other_product, target.context_product];
+    const contest: PairContest = {
+      id: this.syncId(),
+      kind: body.kind,
+      pair: {
+        integration_id: integrationId,
+        anchor: 'evidenced_pair',
+        name: target.name,
+        connector: product(target.connector),
+        product_a: product(a),
+        product_b: product(b),
+      },
+      flow,
+      reason: body.reason,
+      submitter_vendor_id: this.me!.vendor.id,
+      submitter_name: this.me!.vendor.company_name,
+      routed_to: routedTo,
+      owner_vendor_id: routedTo === 'owner' ? (target.owner?.id ?? null) : null,
+      owner_name: target.owner?.name ?? null,
+      status: 'open',
+      decision_note: null,
+      decided_at: null,
+      accept_mode: null,
+      protest: null,
+      protest_closes_at: null,
+      created_at: now,
+      updated_at: now,
+    };
+    this.pairReports.submitted.unshift(contest);
+    target.sync_service_rights =
+      body.kind === 'existence'
+        ? { ...rights, open_reports: [...rights.open_reports, 'existence'] }
+        : {
+            ...rights,
+            open_reports: rights.open_reports.includes('data_flow')
+              ? rights.open_reports
+              : [...rights.open_reports, 'data_flow'],
+            open_flow_claim_ids: [...rights.open_flow_claim_ids, body.claim_id],
+          };
+    return { contest: clone(contest) };
+  }
+
+  override async listPairContests(): Promise<VendorPairContestsResponse> {
+    return clone(this.pairReports);
+  }
+
+  override async withdrawPairContest(id: string): Promise<PairContestResponse> {
+    const contest = this.pairReports.submitted.find((c) => c.id === id);
+    if (!contest) throw apiError(404, 'NOT_FOUND', 'Report not found');
+    if (contest.status !== 'open') throw apiError(409, 'CONTEST_NOT_OPEN', 'No longer open');
+    contest.status = 'withdrawn';
+    contest.updated_at = new Date().toISOString();
+    const integrationId = contest.pair.integration_id;
+    if (integrationId) {
+      try {
+        const { target } = this.rightsTarget(integrationId);
+        const rights = target.sync_service_rights!;
+        const claimId = contest.flow?.claim_id;
+        const flowIds = rights.open_flow_claim_ids.filter((c) => c !== claimId);
+        target.sync_service_rights = {
+          ...rights,
+          open_flow_claim_ids: flowIds,
+          open_reports: rights.open_reports.filter((kind) =>
+            kind === contest.kind ? kind === 'data_flow' && flowIds.length > 0 : true,
+          ),
+        };
+      } catch {
+        // The pair has left the product since. Nothing to update on it.
+      }
+    }
+    return { contest: clone(contest) };
+  }
+
+  /** The owner's accept writes its answer, as `planOwnerFlowChange` does (§11e.4). */
+  override async decidePairContest(
+    id: string,
+    body: DecidePairContestInput,
+  ): Promise<PairContestResponse> {
+    const contest = this.pairReports.received.find((c) => c.id === id);
+    if (!contest) throw apiError(404, 'NOT_FOUND', 'Report not found');
+    if (contest.status !== 'open') throw apiError(409, 'CONTEST_NOT_OPEN', 'No longer open');
+    const now = new Date().toISOString();
+    if (body.decision === 'accept' && contest.flow) {
+      const { claim_id: claimId, proposed_direction: proposed } = contest.flow;
+      const integrationId = this.answerFlow(claimId, 'no');
+      if (proposed) {
+        this.confirmFlowOn(
+          integrationId,
+          contest.flow.data_object_slug,
+          contest.flow.data_object_name,
+          ownerDirectionOf(proposed),
+        );
+      }
+      contest.accept_mode = proposed ? 'flow-redirected' : 'flow-removed';
+    }
+    contest.status = body.decision === 'accept' ? 'accepted' : 'declined';
+    contest.decision_note = body.note ?? null;
+    contest.decided_at = now;
+    contest.updated_at = now;
+    return { contest: clone(contest) };
+  }
+
+  override async protestPairContest(id: string, reason: string): Promise<PairContestResponse> {
+    const contest = this.pairReports.submitted.find((c) => c.id === id);
+    if (!contest) throw apiError(404, 'NOT_FOUND', 'Report not found');
+    if (!contest.protest_closes_at || contest.protest) {
+      throw apiError(409, 'PROTEST_NOT_ALLOWED', 'This report cannot be protested now');
+    }
+    const now = new Date().toISOString();
+    contest.protest = {
+      status: 'open',
+      basis: contest.status === 'declined' ? 'declined' : 'silence',
+      reason,
+      protested_at: now,
+      decision_note: null,
+      decided_at: null,
+    };
+    contest.protest_closes_at = null;
+    contest.updated_at = now;
+    return { contest: clone(contest) };
   }
 }
 

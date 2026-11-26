@@ -134,4 +134,18 @@ describe('VendorBillingLegalNameForm', () => {
     expect(el(fixture).querySelector('form')).not.toBeNull();
     expect(getBilling).not.toHaveBeenCalled();
   });
+
+  it('closes on Escape, as Cancel does, and returns focus to the Change button (AECI-2133)', async () => {
+    const fixture = render(null);
+    const input = openForm(fixture);
+    input.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    );
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(el(fixture).querySelector('form')).toBeNull();
+    expect(document.activeElement).toBe(el(fixture).querySelector('button'));
+    expect(setLegalName).not.toHaveBeenCalled();
+  });
 });

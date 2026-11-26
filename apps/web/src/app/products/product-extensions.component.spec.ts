@@ -22,6 +22,7 @@ function item(slug: string, name: string, vendorName: string | null = null): Pro
     name,
     logo_url: null,
     product_role: 'application',
+    connector_kind: null,
     vendor: vendorName
       ? { id: 'v-' + slug, slug: 'v-' + slug, name: vendorName, logo_url: null }
       : null,

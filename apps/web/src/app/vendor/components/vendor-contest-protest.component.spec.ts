@@ -123,6 +123,44 @@ describe('VendorContestProtest — the submitter', () => {
     expect(api.getContests).toHaveBeenCalledTimes(2);
   });
 
+  it('closes on Escape as Cancel does: the draft goes and focus returns to the opener (AECI-2133)', async () => {
+    const fixture = await create();
+    const r = row(fixture, PROTESTABLE.id);
+    button(r, 'Ask AEC Integrations to review').click();
+    await settle(fixture);
+    const reason = r.querySelector('textarea')!;
+    type(reason, 'A long draft.');
+    reason.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    );
+    await settle(fixture);
+    expect(r.querySelector('form')).toBeNull();
+    expect(api.fileContestProtest).not.toHaveBeenCalled();
+    const start = button(r, 'Ask AEC Integrations to review');
+    expect(document.activeElement).toBe(start);
+    start.click();
+    await settle(fixture);
+    expect(r.querySelector('textarea')!.value).toBe('');
+  });
+
+  it('ignores Escape while the request sends (AECI-2133)', async () => {
+    api.fileContestProtest.mockReturnValue(new Promise(() => undefined));
+    const fixture = await create();
+    const r = row(fixture, PROTESTABLE.id);
+    button(r, 'Ask AEC Integrations to review').click();
+    await settle(fixture);
+    const reason = r.querySelector('textarea')!;
+    type(reason, 'The guide moved.');
+    submit(r);
+    await settle(fixture);
+    expect(api.fileContestProtest).toHaveBeenCalled();
+    reason.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    );
+    await settle(fixture);
+    expect(r.querySelector('form')).not.toBeNull();
+  });
+
   it('refuses a link that is not a web address before sending', async () => {
     const fixture = await create();
     const r = row(fixture, PROTESTABLE.id);

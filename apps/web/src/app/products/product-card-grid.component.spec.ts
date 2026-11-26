@@ -14,6 +14,7 @@ function makeProduct(n: number): ProductListItem {
     name: `Product ${n}`,
     logo_url: null,
     product_role: 'application',
+    connector_kind: null,
     vendor: null,
     integration_count: n,
     review_count: 0,
@@ -80,6 +81,35 @@ describe('ProductCardGrid role chip row', () => {
     expect(tiles[0]!.querySelector('aec-role-badge')).toBeNull();
     expect(tiles[1]!.querySelector('aec-role-badge')?.textContent).toContain('Connector');
     expect(root.querySelector('a[href^="/categories/"]')).toBeNull();
+  });
+});
+
+// AECI-2037: the browse tile reads the kind, featured and standard alike.
+@Component({
+  imports: [ProductCardGrid],
+  template: `<aec-product-card-grid [products]="products" />`,
+})
+class KindHost {
+  products = [
+    {
+      ...makeProduct(1),
+      product_role: 'connector' as const,
+      connector_kind: 'sync_service' as const,
+    },
+    {
+      ...makeProduct(2),
+      product_role: 'connector' as const,
+      connector_kind: 'integration_platform' as const,
+    },
+    { ...makeProduct(3), product_role: 'connector' as const },
+  ];
+}
+
+describe('ProductCardGrid connector kind chip (AECI-2037)', () => {
+  it('names each kind on its tile, and a blank kind keeps Connector', () => {
+    const root = render(KindHost);
+    const chips = [...root.querySelectorAll('aec-role-badge')].map((c) => c.textContent?.trim());
+    expect(chips).toEqual(['Sync Service', 'Integration platform', 'Connector']);
   });
 });
 

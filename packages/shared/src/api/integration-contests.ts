@@ -5,6 +5,7 @@ import { PageQuerySchema, ProductLinkSchema, paginatedResponseSchema } from './c
 import { HttpsUrlSchema } from './https-url';
 import { isHttpUrl } from './https-url-rule';
 import { ContextDirectionSchema, IntegrationMechanismKindSchema } from './integrations';
+import { SyncServiceRightsSchema } from './sync-service-pair-rights';
 
 /**
  * Integration field contests (AECI-1008 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b).
@@ -539,6 +540,9 @@ export const EvidencedPairContestTargetSchema = z.object({
   owner: ContestVendorRefSchema.nullable(),
   is_owner: z.boolean(),
   retired: z.boolean(),
+  /** AECI-2042: the endpoint vendor's veto and reports on a pair a Sync Service delivers.
+   *  `null` on any other connector, and for the owner. Defaulted for deploy skew. */
+  sync_service_rights: SyncServiceRightsSchema.nullable().default(null),
 });
 export type EvidencedPairContestTarget = z.infer<typeof EvidencedPairContestTargetSchema>;
 

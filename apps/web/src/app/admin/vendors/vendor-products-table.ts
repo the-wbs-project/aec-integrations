@@ -13,7 +13,8 @@ import {
   signal,
 } from '@angular/core';
 
-import type { AdminVendorProductRow } from '@aeci/shared';
+import type { AdminVendorProductRow, SyncFacts } from '@aeci/shared';
+import { roleTakesConnectorKind } from '@aeci/shared/api/connector-kind';
 
 import { AecButton } from '../../shared/button/button';
 import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
@@ -21,6 +22,9 @@ import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { AdminPaginator } from '../admin-paginator';
 import { CONSOLE_CAPTION_CLASS, CONSOLE_TABLE } from '../console/console-table';
 import { adminStatusTone, type AdminStatusKey } from '../console/status-tones';
+import { ConnectorKindControl } from './connector-kind-control';
+import { SyncFactsControl } from './sync-facts-control';
+import { DeliveredPairsPanel } from './delivered-pairs-panel';
 import { ListingHideForm, type ListingHideMode } from './listing-hide-form';
 import { STANDALONE_LINK_CLASS } from '../../vendor/components/vendor-docs-link';
 import {
@@ -64,6 +68,10 @@ import {
  * restore, so its Restore is disabled with a note saying so. The write is the form's;
  * the table emits {@link listingChanged} and the page refetches.
  *
+ * AECI-2036 adds the connector kind control under the role, on `connector` and
+ * `hybrid` rows only ({@link takesConnectorKind}). A save emits {@link retry} so the
+ * page refetches, the same way a logo save does.
+ *
  * Light theme only (Stage 1 / AECI-226).
  */
 @Component({
@@ -74,7 +82,10 @@ import {
     AdminPaginator,
     AecButton,
     Chip,
+    ConnectorKindControl,
     DatePipe,
+    DeliveredPairsPanel,
+    SyncFactsControl,
     DecimalPipe,
     ListingHideForm,
     NewTabIcon,
@@ -204,6 +215,27 @@ export class VendorProductsTable {
   }
 
   protected readonly isEmpty = computed(() => this.rows().length === 0);
+
+  /** AECI-2046: what the facts form starts from when a row carries none. */
+  protected readonly noSyncFacts: SyncFacts = {
+    sync_frequency: null,
+    sync_support: null,
+    sync_setup: null,
+    source_url: null,
+    recorded_at: null,
+  };
+
+  /** AECI-2036: only a connector or hybrid product carries a kind. */
+  /** AECI-2045: the connector row whose delivered pairs are open, or `null`. One at a time. */
+  protected readonly deliveredOpenId = signal<string | null>(null);
+
+  protected toggleDelivered(row: AdminVendorProductRow): void {
+    this.deliveredOpenId.update((open) => (open === row.id ? null : row.id));
+  }
+
+  protected takesConnectorKind(row: AdminVendorProductRow): boolean {
+    return roleTakesConnectorKind(row.product_role);
+  }
 
   /**
    * The role, in the operator's words rather than the column's.

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { ConnectorKindSchema } from './connector-kind-schema';
 import { ProductsListQuerySchema } from './products';
 import { TaxonomyTermWithCountSchema } from './taxonomy';
 
@@ -41,6 +42,16 @@ export const ProductFacetsResponseSchema = z.object({
   // trade term is listed with its scoped count, sub-floor terms included — the
   // sidebar decides what to render (`TRADES_VOCABULARY.md` §6).
   trades: z.array(TaxonomyTermWithCountSchema),
+  // AECI-1662 — the "Connector type" group. One entry per stored kind, always both,
+  // in vocabulary order (Integration platform, then Sync Service), each with its
+  // scoped count under the OTHER active filters. Unclassified connectors and
+  // applications have no entry: the filter offers only what a product is.
+  connector_kinds: z.array(
+    z.object({
+      kind: ConnectorKindSchema,
+      product_count: z.number().int().min(0),
+    }),
+  ),
 });
 
 export type ProductFacetsResponse = z.infer<typeof ProductFacetsResponseSchema>;

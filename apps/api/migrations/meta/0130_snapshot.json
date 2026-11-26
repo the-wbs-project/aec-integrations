@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "5be48732-e234-4115-b4b7-50fc40be4e41",
+  "id": "61a44138-ce8b-49da-9f01-2b42295bc427",
   "prevId": "07c35aff-2064-4d5c-b5f2-8dc3fede8f19",
   "tables": {
     "acceptance_chain_exports": {
@@ -6816,17 +6816,6 @@
           "isUnique": false,
           "where": "\"is_operator\" = 1"
         },
-        "page_views_crawl_path_idx": {
-          "name": "page_views_crawl_path_idx",
-          "columns": [
-            "bot_name",
-            "concrete_path",
-            "created_at",
-            "cf_verified_bot_category"
-          ],
-          "isUnique": false,
-          "where": "\"is_bot\" = 1 AND \"concrete_path\" IS NOT NULL"
-        },
         "page_views_dedupe_key_idx": {
           "name": "page_views_dedupe_key_idx",
           "columns": [
@@ -7948,6 +7937,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": "'application'"
+        },
+        "connector_kind": {
+          "name": "connector_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "logo_url": {
           "name": "logo_url",

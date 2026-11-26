@@ -52,6 +52,9 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'claim.created': $localize`:@@vendor.history.action.claimCreated:Integration claim made`,
   'attestation.created': $localize`:@@vendor.history.action.attestationCreated:Integration confirmed`,
   'attestation.retracted': $localize`:@@vendor.history.action.attestationRetracted:Integration confirmation withdrawn`,
+  // AECI-2039: the owner of a Sync Service pair answers one of its data flows.
+  'claim_owner_answer.created': $localize`:@@vendor.history.action.ownerFlowAnswered:Data flow answered`,
+  'claim_owner_answer.retracted': $localize`:@@vendor.history.action.ownerFlowAnswerCleared:Data flow answer cleared`,
   'integration.created': $localize`:@@vendor.history.action.integrationCreated:Integration added`,
   'integration.claimed': $localize`:@@vendor.history.action.integrationClaimed:Integration taken over`,
   'integration.updated': $localize`:@@vendor.history.action.integrationUpdated:Integration updated`,
@@ -79,6 +82,13 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'integration.contest.protest_withdrawn': $localize`:@@vendor.history.action.contestProtestWithdrawn:Appeal withdrawn`,
   'integration.contest.protest_upheld': $localize`:@@vendor.history.action.contestProtestUpheld:AEC Integrations upheld an appeal`,
   'integration.contest.protest_rejected': $localize`:@@vendor.history.action.contestProtestRejected:AEC Integrations turned down an appeal`,
+  // AECI-2042: removals and reports on a Sync Service integration.
+  'integration.vetoed': $localize`:@@vendor.history.action.vetoed:Integration removed from your product`,
+  'integration.veto_withdrawn': $localize`:@@vendor.history.action.vetoWithdrawn:Removal withdrawn`,
+  'integration.veto_lifted': $localize`:@@vendor.history.action.vetoLifted:AEC Integrations ended a removal`,
+  'integration.pair_contest.submitted': $localize`:@@vendor.history.action.pairReportSubmitted:Report sent on a Sync Service integration`,
+  'integration.pair_contest.accepted': $localize`:@@vendor.history.action.pairReportAccepted:Report accepted`,
+  'integration.pair_contest.declined': $localize`:@@vendor.history.action.pairReportDeclined:Report declined`,
   'integration.contest.lapsed': $localize`:@@vendor.history.action.contestLapsed:Change request closed with no answer`,
   'integration.contest.rerouted': $localize`:@@vendor.history.action.contestRerouted:Change request passed to the new owner`,
   'integration.contest.seat_stamp_cleared': $localize`:@@vendor.history.action.contestSeatStampCleared:Change request sender cleared after a seat left`,

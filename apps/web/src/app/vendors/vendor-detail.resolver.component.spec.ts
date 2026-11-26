@@ -30,6 +30,7 @@ function buildProduct(slug: string, id: string): ProductListItem {
     name: slug,
     logo_url: null,
     product_role: 'application',
+    connector_kind: null,
     vendor: {
       id: '00000000-0000-4000-8000-000000010001',
       slug: 'procore',

@@ -1452,6 +1452,121 @@ describe('GET /api/products/:slug/integrations/:otherSlug: connector_vendor_id (
   });
 });
 
+describe('GET /api/products/:slug/integrations/:otherSlug: connector_kind and card order (AECI-2043)', () => {
+  // The pair page's "Not offered or endorsed by" line reads the connector's kind on
+  // both delivered-tier tables, and Sync Service cards order last, A to Z by the
+  // offering vendor (ruling 14 on AECI-2035).
+  async function connector(
+    n: number,
+    name: string,
+    connectorKind: 'sync_service' | 'integration_platform' | null,
+    productRole: 'connector' | 'hybrid' | 'application' = 'connector',
+  ) {
+    await t.db.insert(products).values({
+      id: u(n),
+      slug: `connector-${n}`,
+      name,
+      productRole,
+      connectorKind,
+      promotionStatus: 'promoted',
+    });
+  }
+  async function evidenced(n: number, connectorProductId: string, builtByVendorId?: string) {
+    const [a, b] = [u(1), u(2)].sort();
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(n),
+      connectorProductId,
+      productAId: a!,
+      productBId: b!,
+      ...(builtByVendorId ? { builtByVendorId } : {}),
+    });
+  }
+  async function pair(url = '/api/products/procore/integrations/revit') {
+    return ProductPairResponseSchema.parse(await (await get(url)).json());
+  }
+
+  it('carries the powered_by connector kind on an integrations row', async () => {
+    await seedProducts();
+    await connector(3, 'Rivets Sync', 'sync_service');
+    await integration(u(10), u(1), u(2), { mechanismKind: 'iPaaS', poweredByProductId: u(3) });
+    const m = (await pair()).mechanisms.find((x) => x.id === u(10));
+    expect(m?.connector_kind).toBe('sync_service');
+    // The byline's ProductLink stays the bare shape: no role or kind leaks into it.
+    expect(m?.powered_by_product).toEqual({
+      id: u(3),
+      name: 'Rivets Sync',
+      slug: 'connector-3',
+      logo_url: null,
+    });
+  });
+
+  it('carries the via connector kind on a connector-evidenced pair, from either side', async () => {
+    await seedProducts();
+    await connector(3, 'Zapier', 'integration_platform');
+    await evidenced(60, u(3));
+    for (const url of [
+      '/api/products/procore/integrations/revit',
+      '/api/products/revit/integrations/procore',
+    ]) {
+      const m = (await pair(url)).mechanisms.find((x) => x.id === u(60));
+      expect(m?.connector_kind, url).toBe('integration_platform');
+      expect(m?.via).toEqual({ id: u(3), name: 'Zapier', slug: 'connector-3', logo_url: null });
+    }
+  });
+
+  it('is null on a native row, an unclassified connector and an application that kept a stale kind', async () => {
+    await seedProducts();
+    await connector(3, 'Unclassified', null);
+    await connector(4, 'Was a connector', 'sync_service', 'application');
+    await integration(u(10), u(1), u(2));
+    await evidenced(60, u(3));
+    await evidenced(61, u(4));
+    const body = await pair();
+    for (const id of [u(10), u(60), u(61)]) {
+      expect(body.mechanisms.find((m) => m.id === id)?.connector_kind, id).toBeNull();
+    }
+  });
+
+  it('reads a hybrid Sync Service as a Sync Service', async () => {
+    await seedProducts();
+    await connector(3, 'Hybrid Sync', 'sync_service', 'hybrid');
+    await evidenced(60, u(3));
+    expect((await pair()).mechanisms[0]?.connector_kind).toBe('sync_service');
+  });
+
+  it('orders Sync Service cards last, A to Z by the offering vendor, case folded, id on a tie', async () => {
+    await seedProducts();
+    await t.db.insert(vendors).values([
+      { id: u(901), companyName: 'Rivets', slug: 'rivets' },
+      { id: u(902), companyName: 'agave', slug: 'agave' },
+      { id: u(903), companyName: 'rivets', slug: 'rivets-2' },
+    ]);
+    await connector(3, 'Rivets Sync', 'sync_service');
+    await connector(4, 'Agave Sync', 'sync_service');
+    await connector(5, 'Second Rivets', 'sync_service');
+    await connector(6, 'Unowned Sync', 'sync_service');
+    await connector(7, 'Zapier', 'integration_platform');
+    // A native row and a Sync Service row on the integrations arm.
+    await integration(u(10), u(1), u(2), { name: 'Native link' });
+    await integration(u(11), u(1), u(2), {
+      name: 'AAA first by name',
+      mechanismKind: 'iPaaS',
+      poweredByProductId: u(4),
+      builtByVendorId: u(902),
+    });
+    // The evidenced arm: an Integration platform, and three Sync Services, two of whose
+    // vendors differ only in case, and one with no offering vendor on record.
+    await evidenced(64, u(5), u(903));
+    await evidenced(63, u(3), u(901));
+    await evidenced(62, u(6));
+    await evidenced(61, u(7));
+    const ids = (await pair()).mechanisms.map((m) => m.id);
+    // Native, then the platform card, then agave, Rivets (u63) and rivets (u64), then
+    // the Sync Service with no offering vendor.
+    expect(ids).toEqual([u(10), u(61), u(11), u(63), u(64), u(62)]);
+  });
+});
+
 // ─── The page-header maintenance marker (AECI-616 / §13) ─────────────────────
 //
 // A pair has N mechanisms but ONE header marker, so `computePairMaintenance` folds

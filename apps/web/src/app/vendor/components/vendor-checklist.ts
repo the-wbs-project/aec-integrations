@@ -50,8 +50,8 @@ export interface ChecklistRow {
  * one on Vendor Overview and the product one on each product's overview.
  *
  * Presentational. The score is the server's (`done` of `total`, counted steps
- * only), never re-derived here, so a Free product reads "3 of 3" exactly when
- * the API says it does.
+ * only), never re-derived here, so a product reads "x of 4" exactly when the API
+ * says it does (on every plan since AECI-2038).
  *
  * Anchor: the in-repo mockup (`docs/design/mockups/free-plan-portal/`) and the
  * DoorDash Merchant "Get ready to go live" setup list on Mobbin: numbered steps,

@@ -126,6 +126,7 @@ class PreviewAdminVendorsApi extends AdminVendorsApi {
           slug: 'agave-erp-sync',
           name: 'Agave ERP Sync',
           product_role: 'connector',
+          connector_kind: null,
           is_primary: true,
           promotion_status: 'promoted',
           integration_count: 3,

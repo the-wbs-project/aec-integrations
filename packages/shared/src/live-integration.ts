@@ -40,6 +40,12 @@
  *    {@link notRetiredIntegrationSql}, because the portal keeps working while a
  *    listing is hidden.
  *
+ * 5. **Liveness includes the endpoint veto (AECI-2042).** Both tables carry
+ *    `vetoed_at` (migration `0132`). A row an endpoint vendor vetoed is not live, on
+ *    every count, id set and public read, through the same two functions. It is not
+ *    part of the retire test either. Rule 3 still holds: `vetoed_at` is the only veto
+ *    column a membership predicate reads.
+ *
  * `scripts/ops/**` is plain `.mjs` and cannot import this. Those sites carry the
  * literal `retired_at IS NULL`, and the lockstep spec's source scan checks them.
  */
@@ -69,10 +75,20 @@ export function notRetiredIntegrationSql(alias: string): string {
   return `${alias}."${INTEGRATION_RETIRED_COLUMN}" IS NULL`;
 }
 
-/** The row is live: not retired, and no endpoint or connector is hidden. Pass the
- *  table alias the surrounding query uses (`i`, `bi`, `integrations`). */
+/** The veto column (AECI-2042). Exported so a source scan can name it. */
+export const INTEGRATION_VETOED_COLUMN = 'vetoed_at';
+
+/** `<alias>."vetoed_at" IS NULL`: no endpoint vendor's veto is in force on the row
+ *  (AECI-2042, ruling 8). Part of liveness on both tables, never of the retire test. */
+export function notVetoedSql(alias: string): string {
+  return `${alias}."${INTEGRATION_VETOED_COLUMN}" IS NULL`;
+}
+
+/** The row is live: not retired, not vetoed (AECI-2042), and no endpoint or connector
+ *  is hidden. Pass the table alias the surrounding query uses (`i`, `bi`,
+ *  `integrations`). */
 export function liveIntegrationSql(alias: string): string {
-  return `(${notRetiredIntegrationSql(alias)} AND ${endpointsVisibleSql(integrationEndpointColumns(alias))})`;
+  return `(${notRetiredIntegrationSql(alias)} AND ${notVetoedSql(alias)} AND ${endpointsVisibleSql(integrationEndpointColumns(alias))})`;
 }
 
 /** The exact complement of {@link liveIntegrationSql}: retired, or touching a
@@ -101,9 +117,19 @@ export const INTEGRATIONS_DDL_QUERY = `SELECT sql FROM sqlite_master WHERE type 
  * Columns added by `ALTER TABLE … ADD` are rewritten into this text by SQLite.
  */
 export function ddlHasRetiredColumn(ddl: string | null | undefined): boolean {
+  return ddlDeclaresColumn(ddl, INTEGRATION_RETIRED_COLUMN);
+}
+
+/** Does this `CREATE TABLE` text declare `vetoed_at` (migration `0132`, AECI-2042)?
+ *  The same rule as {@link ddlHasRetiredColumn}, for the deployed-database tools. */
+export function ddlHasVetoedColumn(ddl: string | null | undefined): boolean {
+  return ddlDeclaresColumn(ddl, INTEGRATION_VETOED_COLUMN);
+}
+
+function ddlDeclaresColumn(ddl: string | null | undefined, column: string): boolean {
   if (typeof ddl !== 'string') return false;
   return new RegExp(
-    `[(,]\\s*[\`"\\[]?${INTEGRATION_RETIRED_COLUMN}[\`"\\]]?\\s+(text|integer|int|real|blob|numeric)\\b`,
+    `[(,]\\s*[\`"\\[]?${column}[\`"\\]]?\\s+(text|integer|int|real|blob|numeric)\\b`,
     'i',
   ).test(ddl);
 }
@@ -126,16 +152,20 @@ export function integrationsDdlOrThrow(sql: unknown): string {
  * {@link liveIntegrationSql}, degraded per column for a database whose migrations
  * lag: the retire clause needs `integrations.retired_at` (migration `0044`), the
  * endpoint clause needs `products.hidden_at` (migration `0113`). Each absent column
- * degrades its own clause to always-true. Both flags are required, so a tool cannot
- * forget to probe one.
+ * degrades its own clause to always-true. Since AECI-2042 the veto clause needs
+ * `vetoed_at` (migration `0132`) and degrades the same way: a database without the
+ * column cannot hold a vetoed row. Every flag is required, so a tool cannot forget to
+ * probe one.
  */
 export function liveIntegrationSqlIf(
   alias: string,
   hasRetiredColumn: boolean,
   hasHiddenColumn: boolean,
+  hasVetoedColumn: boolean,
 ): string {
   const retired = hasRetiredColumn ? notRetiredIntegrationSql(alias) : '1 = 1';
-  return `(${retired} AND ${endpointsVisibleSqlIf(integrationEndpointColumns(alias), hasHiddenColumn)})`;
+  const vetoed = hasVetoedColumn ? notVetoedSql(alias) : '1 = 1';
+  return `(${retired} AND ${vetoed} AND ${endpointsVisibleSqlIf(integrationEndpointColumns(alias), hasHiddenColumn)})`;
 }
 
 // ─── The evidenced arm (AECI-1091) ───────────────────────────────────────────
@@ -150,7 +180,7 @@ export function liveIntegrationSqlIf(
 /** The pair is live over `connector_evidenced_pairs`: not retired, and neither
  *  endpoint nor the connector is hidden. */
 export function liveEvidencedPairSql(alias: string): string {
-  return `(${alias}."${INTEGRATION_RETIRED_COLUMN}" IS NULL AND ${endpointsVisibleSql(evidencedPairEndpointColumns(alias))})`;
+  return `(${alias}."${INTEGRATION_RETIRED_COLUMN}" IS NULL AND ${notVetoedSql(alias)} AND ${endpointsVisibleSql(evidencedPairEndpointColumns(alias))})`;
 }
 
 /** The exact complement of {@link liveEvidencedPairSql}. */
@@ -178,7 +208,9 @@ export function liveEvidencedPairSqlIf(
   alias: string,
   hasRetiredColumn: boolean,
   hasHiddenColumn: boolean,
+  hasVetoedColumn: boolean,
 ): string {
   const retired = hasRetiredColumn ? `${alias}."${INTEGRATION_RETIRED_COLUMN}" IS NULL` : '1 = 1';
-  return `(${retired} AND ${endpointsVisibleSqlIf(evidencedPairEndpointColumns(alias), hasHiddenColumn)})`;
+  const vetoed = hasVetoedColumn ? notVetoedSql(alias) : '1 = 1';
+  return `(${retired} AND ${vetoed} AND ${endpointsVisibleSqlIf(evidencedPairEndpointColumns(alias), hasHiddenColumn)})`;
 }

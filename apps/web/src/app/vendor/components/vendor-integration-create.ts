@@ -78,6 +78,7 @@ import {
 } from '../../shared/form-field/form-field-classes';
 import { AecIcon } from '../../shared/icon/icon';
 import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
+import { CloseOnEscape } from '../shared/close-on-escape';
 
 /**
  * Render the form open on first paint. Provided ONLY by the dev preview
@@ -197,6 +198,7 @@ function emptyDraft(): Draft {
 @Component({
   selector: 'aec-vendor-integration-create',
   imports: [
+    CloseOnEscape,
     AecButton,
     AecCard,
     AecIcon,
@@ -212,6 +214,8 @@ function emptyDraft(): Draft {
   template: `
     <div class="space-y-4" data-testid="integration-create">
       <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <!-- AECI-2045 QA: the shared button recipe, the same size as the Sync Service
+             create's trigger. On a hybrid Sync Service the label says what it adds. -->
         <button
           #trigger
           aecButton
@@ -221,9 +225,8 @@ function emptyDraft(): Draft {
           [attr.aria-controls]="formId"
           (click)="toggle()"
           data-testid="add-integration"
-          i18n="@@vendor.integrationCreate.trigger"
         >
-          Add an integration
+          {{ triggerLabel() }}
         </button>
         @if (!open()) {
           <p class="text-sm text-(--text-secondary)" i18n="@@vendor.integrationCreate.teaser">
@@ -478,6 +481,9 @@ function emptyDraft(): Draft {
             </form>
           } @else if (counterpart(); as chosen) {
             <form
+              aecCloseOnEscape
+              [escapeBusy]="saving()"
+              (escapeCancel)="close()"
               aecKeepClearOfSaveBar
               method="dialog"
               [class]="formClass"
@@ -721,7 +727,12 @@ function emptyDraft(): Draft {
             </form>
           } @else {
             <!-- Step 1 of 2: the locked product and the search. Nothing else shows. -->
-            <div class="space-y-6" data-testid="create-step-find">
+            <div
+              aecCloseOnEscape
+              (escapeCancel)="close()"
+              class="space-y-6"
+              data-testid="create-step-find"
+            >
               <p
                 #focusTarget
                 id="vendor-create-step"
@@ -1000,6 +1011,20 @@ export class VendorIntegrationCreate implements OnInit {
 
   /** The product the tab is filed under, preselected as "your product". */
   readonly contextProductId = input<string | null>(null);
+
+  /**
+   * AECI-2045 QA. Set on a `hybrid` Sync Service's tab, which also offers the Sync
+   * Service create: the trigger then says what it adds, "Add an integration with
+   * {product}". Elsewhere it reads "Add an integration".
+   */
+  readonly withProductName = input<string | null>(null);
+
+  protected readonly triggerLabel = computed(() => {
+    const name = this.withProductName();
+    return name
+      ? $localize`:@@vendor.integrationCreate.trigger.with:Add an integration with ${name}:name:`
+      : $localize`:@@vendor.integrationCreate.trigger:Add an integration`;
+  });
   /**
    * Read `?create=open&counterpart={slug}` (AECI-1377). Only the routed
    * Integrations tab turns this on. The single-page concept has no route of its own.

@@ -68,6 +68,7 @@ const product = (id: string, name: string): ProductListItem => ({
   name,
   logo_url: null,
   product_role: 'application',
+  connector_kind: null,
   vendor: {
     id: '00000000-0000-4000-8000-000000009999',
     slug: 'v',
@@ -955,5 +956,43 @@ describe('a likely duplicate, before the create (AECI-1953)', () => {
     expect(href(q(fixture, '[data-testid="create-result-open"]'))).toBe(
       `/products/${OWN.slug}/integrations/${CLAIMABLE.id}`,
     );
+  });
+});
+
+describe('Escape is Cancel (AECI-2133)', () => {
+  const escape = () =>
+    new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+  const trigger = (fixture: ComponentFixture<unknown>) =>
+    q<HTMLButtonElement>(fixture, '[data-testid="add-integration"]');
+
+  it('closes step 1 and returns focus to the trigger', async () => {
+    const fixture = await mount();
+    await open(fixture);
+    q<HTMLInputElement>(fixture, '#vendor-create-search')!.dispatchEvent(escape());
+    await settle(fixture);
+    expect(panel(fixture)).toBeNull();
+    expect(document.activeElement).toBe(trigger(fixture));
+  });
+
+  it('first closes an open result list on step 1, and keeps the form', async () => {
+    const fixture = await mount();
+    await open(fixture);
+    await searchFor(fixture, 'pro');
+    expect(options().length).toBeGreaterThan(0);
+    q<HTMLInputElement>(fixture, '#vendor-create-search')!.dispatchEvent(escape());
+    await settle(fixture);
+    expect(panel(fixture)).not.toBeNull();
+  });
+
+  it('closes step 2 and returns focus to the trigger', async () => {
+    const fixture = await mount();
+    await open(fixture);
+    await pickProcore(fixture);
+    await type(fixture, '#vendor-create-name', 'Summit to Procore');
+    q<HTMLInputElement>(fixture, '#vendor-create-name')!.dispatchEvent(escape());
+    await settle(fixture);
+    expect(panel(fixture)).toBeNull();
+    expect(document.activeElement).toBe(trigger(fixture));
+    expect(api.createIntegration).not.toHaveBeenCalled();
   });
 });

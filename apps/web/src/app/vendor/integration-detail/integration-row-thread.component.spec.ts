@@ -366,7 +366,7 @@ describe('a closed thread', () => {
     ['retired', 'closed when the integration was retired'],
     ['withdrawn', 'closed when the company that added this row withdrew it'],
     ['claim_removed', 'closed when this row was removed from the directory'],
-    ['not_attestable', 'closed when the integration moved to a connector service'],
+    ['not_attestable', 'closed when the integration moved to a connector product'],
   ] as const)('keeps its messages, drops the composer, and says why: %s', async (reason, why) => {
     const closed = thread({ closed_at: '2026-10-04T00:00:00.000Z', closed_reason: reason });
     const { fixture } = await mount(makeApi(closed));

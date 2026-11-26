@@ -45,6 +45,7 @@ function makeRow(over: Partial<AdminVendorProductRow> = {}): AdminVendorProductR
     slug: 'revit',
     name: 'Revit',
     product_role: 'application',
+    connector_kind: null,
     is_primary: true,
     promotion_status: 'promoted',
     integration_count: 12,
@@ -62,7 +63,11 @@ function makeRow(over: Partial<AdminVendorProductRow> = {}): AdminVendorProductR
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve));
 
-let api: { hideProduct: ReturnType<typeof vi.fn>; restoreProduct: ReturnType<typeof vi.fn> };
+let api: {
+  hideProduct: ReturnType<typeof vi.fn>;
+  restoreProduct: ReturnType<typeof vi.fn>;
+  getDeliveredPairs?: ReturnType<typeof vi.fn>;
+};
 
 beforeEach(() => {
   TestBed.resetTestingModule();
@@ -175,6 +180,86 @@ describe('VendorProductsTable listing hide', () => {
     fixture.detectChanges();
     expect(document.activeElement).toBe(trigger(el));
     expect(trigger(el).textContent?.trim()).toBe('Restore');
+  });
+});
+
+describe('VendorProductsTable connector kind (AECI-2036)', () => {
+  it('shows the kind control on connector and hybrid rows only', async () => {
+    const { el } = await setup([
+      makeRow(),
+      makeRow({
+        id: '00000000-0000-4000-8000-000000000031',
+        slug: 'sync',
+        product_role: 'connector',
+      }),
+      makeRow({ id: '00000000-0000-4000-8000-000000000032', slug: 'hy', product_role: 'hybrid' }),
+    ]);
+    const controls = el.querySelectorAll('aec-connector-kind-control');
+    expect(controls).toHaveLength(2);
+    expect(el.querySelector(`#connector-kind-${PRODUCT_ID}-trigger`)).toBeNull();
+  });
+
+  // AECI-2046: the curated facts form sits under the kind control on a Sync Service only.
+  it('shows the Sync Service facts form on a Sync Service row only', async () => {
+    const { el } = await setup([
+      makeRow({
+        id: '00000000-0000-4000-8000-000000000031',
+        slug: 'sync',
+        product_role: 'connector',
+        connector_kind: 'sync_service',
+        sync_facts: {
+          sync_frequency: 'Hourly',
+          sync_support: null,
+          sync_setup: null,
+          source_url: 'https://example.com/sync',
+          recorded_at: '2026-11-20T00:00:00.000Z',
+        },
+      }),
+      makeRow({
+        id: '00000000-0000-4000-8000-000000000033',
+        slug: 'platform',
+        product_role: 'connector',
+        connector_kind: 'integration_platform',
+      }),
+      makeRow({ id: '00000000-0000-4000-8000-000000000032', slug: 'hy', product_role: 'hybrid' }),
+    ]);
+    const forms = el.querySelectorAll('aec-sync-facts-control');
+    expect(forms).toHaveLength(1);
+    expect(
+      el.querySelector<HTMLInputElement>(
+        '#sync-facts-sync_frequency-00000000-0000-4000-8000-000000000031',
+      )!.value,
+    ).toBe('Hourly');
+  });
+});
+
+describe('VendorProductsTable delivered pairs (AECI-2045)', () => {
+  it('opens one connector row’s delivered pairs under it, as a disclosure', async () => {
+    api.getDeliveredPairs = vi.fn(async () => ({
+      connector: { id: PRODUCT_ID, name: 'Sync', slug: 'sync', connector_kind: 'sync_service' },
+      connector_vendors: [],
+      pairs: [],
+    }));
+    const { fixture, el } = await setup([
+      makeRow({ product_role: 'connector', connector_kind: 'sync_service', name: 'Sync' }),
+    ]);
+    const toggle = el.querySelector('[data-testid="delivered-pairs-toggle"]') as HTMLButtonElement;
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(toggle.getAttribute('aria-controls')).toBe(`delivered-pairs-${PRODUCT_ID}`);
+    toggle.click();
+    fixture.detectChanges();
+    await flush();
+    fixture.detectChanges();
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(
+      el.querySelector(`#delivered-pairs-${PRODUCT_ID} aec-delivered-pairs-panel`),
+    ).not.toBeNull();
+    expect(api.getDeliveredPairs).toHaveBeenCalledWith(PRODUCT_ID);
+  });
+
+  it('offers no delivered pairs on an application row', async () => {
+    const { el } = await setup([makeRow()]);
+    expect(el.querySelector('[data-testid="delivered-pairs-toggle"]')).toBeNull();
   });
 });
 

@@ -4,11 +4,11 @@ description: What the Free and Managed plans give your company on AEC Integratio
 section: vendors
 order: 11
 cta: managed
-version: 1.1
-last_updated: November 17, 2026
+version: 1.4
+last_updated: November 25, 2026
 ---
 
-Your products may already be listed on AEC Integrations. Free lets you keep that listing accurate. Managed lets you tell the full story: how teams use each product, which trades and phases it serves, and which data flows you confirm.
+Your products may already be listed on AEC Integrations. Free lets you keep that listing accurate, including which data each of your integrations moves. Managed lets you tell the full story: how teams use each product and which trades and phases it serves.
 
 <!-- docs:plans-actions -->
 
@@ -23,6 +23,7 @@ On Free and on Managed, anyone with a seat can:
 - keep your company details current: the description, website, headquarters, logo and contact links,
 - keep each product's description, website, logo and categories current,
 - claim and maintain the integrations your company builds, add your own links, and request a change to a detail on one you do not own,
+- confirm which data moves in each of your integrations. Your answer counts toward the integration's agreement label, the same as your partner's. See [Confirming integration data](/docs/vendors/confirming-integration-data),
 - answer reviews of your products in public, so buyers see your side. We check each reply before it goes live. See [Replying to reviews](/docs/vendors/replying-to-reviews),
 - invite colleagues and manage seats. See [Your seat](/docs/vendors/your-seat),
 - work through the company and product checklists. See [Your checklists](/docs/vendors/checklists).
@@ -38,7 +39,6 @@ The product details on this list are the ones that feed search ranking. They are
 - **How teams use it.** Show buyers, in your own words, what your product does on a real project.
 - **Trades, audiences and phases.** Set the trades, audiences and project phases each product serves, so its listing describes it accurately.
 - **Integrations page and API docs links.** Send evaluators straight from your listing to your docs. They show under **Resources** on your product page.
-- **Confirmed data flows.** Say which data moves in each of your integrations. Your answer counts toward the integration's agreement label, the same as your partner's. See [Confirming integration data](/docs/vendors/confirming-integration-data).
 - **Search engine notice.** We tell search engines each time you update a public page.
 
 On Free, your edits still go live straight away, and search engines find them on their own schedule through our sitemap. Telling a search engine about a page does not decide whether it crawls, indexes or ranks that page. The search engine decides that.
@@ -68,13 +68,20 @@ Each plan panel in your portal says the same: "No plan changes where you rank or
 - Everything in "What Managed adds" becomes read-only and stays as it is, unless an owner removes the text as above. You can edit it again once the product holds a subscription.
 - We stop telling search engines about changes to that product. Your edits still go live.
 - Integrations delivered through a connector are not affected. You can still claim, edit, retire and restore them, and decide change requests on them.
-- Each product's checklist counts three steps again, as on Free. See [Your checklists](/docs/vendors/checklists).
 
 ## Getting Managed
 
 Managed is sold per product. One subscription covers one product, and an owner puts it on the product on the Billing tab. When a subscription ends, its product moves to Free. Its Managed fields become read-only. To change them in the future, you will need to purchase a subscription.
 
 <!-- docs:plans-cta -->
+
+### Which products can hold a subscription
+
+A subscription can go on an application, on a product that is both an application and a connector, or on a Sync Service. A Sync Service is a connector product whose company sells, runs and supports a fixed list of finished integrations between two other companies' products.
+
+A subscription cannot go on an integration platform, where the customer builds the connection from a catalogue of apps. It cannot go on a connector product we have not classified either. A subscription already assigned to a product stays on it, and renews there as before, until you release it at renewal or it ends.
+
+A Sync Service is not one of the two products in the integrations it delivers. On Managed, it gets everything in "What Managed adds". The Managed fields are on its own product listing. Claiming and editing the integrations it delivers works the same on every plan. See [For connector vendors](/docs/vendors/connector-vendors).
 
 To start, claim your listing. The claim form does not ask about a plan. When we approve a claim, every product is on Free, and nothing is billed. An owner can then pay for subscriptions by card on the Billing tab, through Stripe, billed yearly or monthly, with tax added where it applies. Then the owner puts a subscription on each product you want on Managed. See [Billing](/docs/vendors/billing#paying-by-card). If your company already holds subscriptions, a new seat does not change them. See [Claiming your vendor listing](/docs/vendors/claiming-your-listing).
 
@@ -92,7 +99,10 @@ Cancel monthly billing in **Manage billing in Stripe** on the Billing tab, or by
 
 We record this page as a dated version. A checkout or a granted subscription records the version current when you accepted.
 
-- [Version 1.1](/docs/vendors/plans/v1.1) (this version): recorded November 17, 2026. The line about a plan's end now names the page's "About this listing" panel.
+- [Version 1.4](/docs/vendors/plans/v1.4) (this version): recorded November 25, 2026. Says that a subscription already on a product that can no longer hold one keeps renewing there until it is released or ends.
+- [Version 1.3](/docs/vendors/plans/v1.3): recorded November 24, 2026. Says which products can hold a subscription: a Sync Service can, an integration platform cannot.
+- [Version 1.2](/docs/vendors/plans/v1.2): recorded November 24, 2026. Confirming data flows moves from Managed to every plan.
+- [Version 1.1](/docs/vendors/plans/v1.1): recorded November 17, 2026. The line about a plan's end now names the page's "About this listing" panel.
 - [Version 1.0](/docs/vendors/plans/v1.0): recorded November 11, 2026.
 
 ## Related

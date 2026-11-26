@@ -18,6 +18,7 @@ import {
   type VendorAeciOverrideNotification,
   type VendorNotification,
   type VendorProductRequestNotification,
+  type VendorPairRightNotification,
   type ThreadClosedReason,
 } from '@aeci/shared';
 
@@ -506,6 +507,12 @@ export class VendorNotificationsList {
         (part): part is string => !!part,
       );
     }
+    // AECI-2042: a veto or a report names the integration and who acted.
+    if (notification.kind === 'pair_right') {
+      return [notification.by_vendor_name, notification.integration_name].filter(
+        (part): part is string => !!part,
+      );
+    }
     return [contestFieldLabelLoose(notification.field), notification.integration_name].filter(
       (part): part is string => !!part,
     );
@@ -650,7 +657,36 @@ function titleOf(notification: VendorNotification): string {
     }
   }
   if (notification.kind === 'product_request') return productRequestTitle(notification);
+  if (notification.kind === 'pair_right') return pairRightTitle(notification);
   return contestNotificationTitle(notification);
+}
+
+/**
+ * The title of a veto or Sync Service pair report event (AECI-2042, §11e.7), written
+ * from the recipient's seat.
+ */
+function pairRightTitle(notification: VendorPairRightNotification): string {
+  const by = notification.by_vendor_name ?? $localize`:@@vendor.pairRights.notify.someone:A vendor`;
+  switch (notification.event) {
+    case 'vetoed':
+      return $localize`:@@vendor.pairRights.notify.vetoed:${by}:vendor: removed an integration from its product. It is off the public site.`;
+    case 'veto_withdrawn':
+      return $localize`:@@vendor.pairRights.notify.vetoWithdrawn:${by}:vendor: withdrew its removal of an integration`;
+    case 'veto_lifted':
+      return $localize`:@@vendor.pairRights.notify.vetoLifted:AEC Integrations ended a removal of an integration`;
+    case 'report_submitted':
+      return $localize`:@@vendor.pairRights.notify.reportSubmitted:${by}:vendor: reported a wrong data flow on your integration`;
+    case 'report_withdrawn':
+      return $localize`:@@vendor.pairRights.notify.reportWithdrawn:A data flow report on your integration was withdrawn`;
+    case 'report_accepted':
+      return $localize`:@@vendor.pairRights.notify.reportAccepted:Your report on an integration was accepted`;
+    case 'report_declined':
+      return $localize`:@@vendor.pairRights.notify.reportDeclined:Your report on an integration was declined`;
+    case 'protest_filed':
+      return $localize`:@@vendor.pairRights.notify.protestFiled:AEC Integrations was asked to review your answer on a data flow`;
+    case 'protest_decided':
+      return $localize`:@@vendor.pairRights.notify.protestDecided:AEC Integrations answered a review of a data flow. Its answer is advice.`;
+  }
 }
 
 /** The vendor-facing sentence for a product request decision (AECI-1377, §4.7.6
@@ -735,6 +771,9 @@ function noteOf(
     case 'thread_closed':
       // AECI-1548 (§15.10): why it closed. The messages stay readable by its link.
       return threadClosedNote(notification.closed_reason);
+    case 'pair_right':
+      // AECI-2042: the veto reason to the owner, or the lift note. Nothing else carries text.
+      return notification.reason ? reasonSentence(notification.reason) : null;
   }
 }
 
@@ -748,7 +787,7 @@ function threadClosedNote(reason: ThreadClosedReason): string {
     case 'claim_removed':
       return $localize`:@@vendor.thread.closedNotify.note.removed:The row was removed from the directory. The conversation is read-only, and its messages are kept.`;
     case 'not_attestable':
-      return $localize`:@@vendor.thread.closedNotify.note.notAttestable:The integration moved to a connector service, which neither company builds. The conversation is read-only, and its messages are kept.`;
+      return $localize`:@@vendor.thread.closedNotify.note.notAttestable.v3:The integration moved to a connector product, so neither product vendor can answer its data. The conversation is read-only, and its messages are kept.`;
   }
 }
 

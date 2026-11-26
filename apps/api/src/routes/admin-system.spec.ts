@@ -336,6 +336,7 @@ describe('GET /api/admin/system — ?recompute=1 (§13 D8)', () => {
       // (`mailing_list`).
       'arrival_cf_coverage',
       'retired_integration_unclaimed',
+      'vetoed_at_mismatch',
       'vendor_integration_unclaimed',
       'landing_cf_coverage',
       // AECI-1418 — the review app does not know a vendor we sent.

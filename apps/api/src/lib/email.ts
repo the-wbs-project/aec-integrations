@@ -1072,7 +1072,8 @@ export function sendVendorReviewPublishedEmail(
  *     product, bought later from Billing. It names no price.
  *
  * It names the vendor (the company the seat belongs to, even when the claim named a
- * product) and has no "attestations" line: authoring attestations is Managed-only.
+ * product). It has no "attestations" line. Confirming data flows is on every plan
+ * since AECI-2038, and the portal's checklist introduces it.
  * Without `PUBLIC_SITE_URL` there is no button, and the sign-in line names the page
  * instead.
  */
@@ -3758,6 +3759,70 @@ export function sendContestSubmittedNotification(
       : {}),
   });
 
+  return sendTransactionalEmail(c, {
+    to: c.env.SUPPORT_EMAIL ?? '',
+    template: 'contest-submitted-alert',
+    subject,
+    render: (link) => houseBody(shared(link), [intro], [introHtml]),
+  });
+}
+
+/**
+ * Operator alert: a vendor filed a Sync Service pair report that AECi decides
+ * (AECI-2042, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11e): an existence report, which always
+ * routes to AECi, or a data flow report on an unclaimed pair, or a protest of an owner's
+ * decline. Same template id, inbox and timing as {@link sendContestSubmittedNotification}
+ * (§11b.8): after the batch commits, through `ctx.waitUntil`, never changing the `201`.
+ */
+export function sendPairContestSubmittedNotification(
+  c: EmailContext,
+  opts: {
+    contestId: string;
+    kind: 'existence' | 'data_flow' | 'protest';
+    integrationName: string;
+    /** The data flow's name, on a data flow report or its protest. */
+    flowName: string | null;
+    reason: string;
+    submitterVendorName: string;
+    pairSlugs: readonly [string, string] | null;
+  },
+): Promise<EmailOutcome> {
+  const base = siteUrl(c.env);
+  const host = environmentHost(c.env);
+  const what =
+    opts.kind === 'existence'
+      ? 'says this integration does not exist or is no longer offered'
+      : opts.kind === 'data_flow'
+        ? `says the data flow ${opts.flowName ?? ''} is wrong`.replace('  ', ' ')
+        : `asks AECi to review the owner's answer on the data flow ${opts.flowName ?? ''}`.replace(
+            '  ',
+            ' ',
+          );
+  const subject =
+    opts.kind === 'existence'
+      ? `[AECi] Existence report: ${opts.integrationName}`
+      : opts.kind === 'data_flow'
+        ? `[AECi] Data flow report: ${opts.integrationName}`
+        : `[AECi] Data flow protest: ${opts.integrationName}`;
+  const intro = `${opts.submitterVendorName} ${what}. AECi decides it.`;
+  const introHtml = `${escapeHtml(opts.submitterVendorName)} ${escapeHtml(what)} on <strong>${escapeHtml(opts.integrationName)}</strong>. AECi decides it.`;
+  const rows: Array<[string, string]> = [
+    ['Integration', opts.integrationName],
+    ...(opts.flowName ? ([['Data flow', opts.flowName]] as Array<[string, string]>) : []),
+    ['Submitted by', opts.submitterVendorName],
+    ['Reason given', opts.reason],
+    ['Report id', opts.contestId],
+  ];
+  if (host) rows.push(['Environment', host]);
+  const pair = opts.pairSlugs ? pairUrl(c.env, opts.pairSlugs[0], opts.pairSlugs[1]) : null;
+  const shared = (link: LinkTagger) => ({
+    preheader: intro,
+    heading: subject.replace('[AECi] ', ''),
+    table: pair ? [...rows, ['Pair page', link(pair)] as const] : rows,
+    ...(base
+      ? { cta: { label: 'Open the contest queue', url: link(`${base}/admin/contests`) } }
+      : {}),
+  });
   return sendTransactionalEmail(c, {
     to: c.env.SUPPORT_EMAIL ?? '',
     template: 'contest-submitted-alert',

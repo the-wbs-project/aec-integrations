@@ -1620,7 +1620,7 @@ Worker; it does not apply when the whole Worker goes.
 #### 10.6 Seeding, if you build one again
 
 `pnpm db:seed:<tier>` chaining `catalog` → `phase2-fixtures` → `auth-fixtures` →
-`version-diff-fixtures` → `connector-fixtures` → `extension-fixtures` → `review-response-fixtures` → `long-list-fixtures` → `connector-lists-fixtures` is the pattern. `seed/catalog.sql` and
+`version-diff-fixtures` → `connector-fixtures` → `sync-service-owner-fixtures` → `extension-fixtures` → `review-response-fixtures` → `long-list-fixtures` → `connector-lists-fixtures` is the pattern. `seed/catalog.sql` and
 `seed/phase2-fixtures.sql` carry a "dev / CI only — never staging/production" warning;
 applying them to a throwaway tier is a deliberate exception. Four things they give you
 that a bare catalog does not:
@@ -1631,6 +1631,7 @@ that a bare catalog does not:
 | `phase2-fixtures.sql` claim + `aeci` attestation | The pair page's "Layer B" and the vendor dashboard's Integrations tab have a real lane. |
 | `auth-fixtures.sql` `vendor_admin` profile | `requireVendor()` authorizes the `/vendor` portal. Pair with `SUPABASE_VENDOR_TEST_USER_*`. |
 | `version-diff-fixtures.sql` | Product versions + version-stamped attestations, so the version-diff selectors render. |
+| `sync-service-owner-fixtures.sql` | `fx-evp-3` (Procore and Viewpoint Vista through Agave) claimed by Agave Inc. with three flows: one confirmed by the owner, one the owner removed, one the owner added (AECI-2039). So `/products/fx-procore/integrations/fx-viewpoint-vista` shows "Confirmed by Agave Inc. (fixture), which offers this integration", and the removed flow is absent. Its own file, because specs apply `connector-fixtures.sql` without the vocabulary. Idempotent. Ids `00000000-…-0000000008c*` to `8e*`. |
 | `extension-fixtures.sql` | Two Revit extensions in `product_extensions` (AECI-710), so "Built within" and "Extensions built within Revit" render (`STAGE_1_5_SPEC.md` §13.3b). Idempotent (`INSERT OR IGNORE`). |
 | `review-response-fixtures.sql` | Nine reviews on Dynamo for Revit (eight approved, one pending) and seven Autodesk replies: one per status, plus two pending for the admin queue e2e (AECI-1175, AECI-1177, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c). Recomputes Dynamo's `review_count` and averages. The reviews have no reviewer and carry an `anonymized_at` stamp, the state an account deletion leaves, so `reviews_missing_anonymized_at` stays at zero (AECI-1920). Idempotent (`INSERT OR IGNORE`). Ids `d0000000-…-0000000011xx`, outside the review seeder's `aeceed00-` prefix. |
 | `long-list-fixtures.sql` | `fixture-long-list` with 14 integrations, its 14 partners and three fixture-only categories (AECI-1868), so the grouped integration list renders. Idempotent. Ids `00000000-…-0000000018xx`. |

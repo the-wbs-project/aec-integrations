@@ -319,6 +319,38 @@ describe('VendorConnectorCatalogue — edit and save', () => {
     expect(updateConnectorMapping).not.toHaveBeenCalled();
   });
 
+  it('closes on Escape, as Cancel does, and returns focus to Edit (AECI-2133)', async () => {
+    const fixture = await create();
+    const opener = editButtons(fixture)[0]!;
+    const form = await openFirstEdit(fixture);
+    form
+      .querySelector<HTMLInputElement>('input[type="url"]')!
+      .dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+    await settle(fixture);
+    expect(el(fixture).querySelector('form[aria-label^="Edit the match"]')).toBeNull();
+    expect(document.activeElement?.id).toBe(opener.id);
+    expect(updateConnectorMapping).not.toHaveBeenCalled();
+  });
+
+  it('spends the first Escape on an open select, and keeps the form (AECI-2133)', async () => {
+    const fixture = await create();
+    const form = await openFirstEdit(fixture);
+    const select = form.querySelector<HTMLButtonElement>('aec-select [ngcombobox]')!;
+    select.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }),
+    );
+    await settle(fixture);
+    expect(select.getAttribute('aria-expanded')).toBe('true');
+    select.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    );
+    await settle(fixture);
+    expect(select.getAttribute('aria-expanded')).toBe('false');
+    expect(el(fixture).querySelector('form[aria-label^="Edit the match"]')).not.toBeNull();
+  });
+
   it('refuses an evidence link that is not https, beside the field, without a request', async () => {
     const fixture = await create();
     const form = await openFirstEdit(fixture);

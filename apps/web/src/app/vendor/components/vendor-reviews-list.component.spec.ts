@@ -289,6 +289,23 @@ describe('VendorReviewsList — writing', () => {
     expect(TestBed.inject(VendorPortalAnnouncer).message()).toContain('for approval');
   });
 
+  it('closes the reply form on Escape, as Cancel does, and focuses Reply (AECI-2133)', async () => {
+    const item = byState('none');
+    const fixture = await create();
+    button(row(fixture, item), 'Reply')!.click();
+    await settle(fixture);
+    type(row(fixture, item), 'A draft');
+    row(fixture, item)
+      .querySelector('textarea')!
+      .dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+    await settle(fixture);
+    expect(row(fixture, item).querySelector('[data-reply-form]')).toBeNull();
+    expect(document.activeElement).toBe(button(row(fixture, item), 'Reply'));
+    expect(api.submitReviewResponse).not.toHaveBeenCalled();
+  });
+
   it('refuses a body over the limit without a request', async () => {
     const item = byState('none');
     const fixture = await create();

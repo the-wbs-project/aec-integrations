@@ -1,13 +1,12 @@
 import { Component, ElementRef, computed, input, signal, viewChild } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import { defaultIntegrationContext } from '@aeci/shared';
+import { defaultIntegrationContext, type ConnectorKind } from '@aeci/shared';
 
 import { RequestTrigger } from '../requests/request-trigger';
 import type { ListingView } from '../shared/listing-toolbar/listing-toolbar';
 import { ListingViewToggle } from '../shared/listing-toolbar/listing-view-toggle';
 import {
-  contextDirectionLabel,
   dataObjectCountLabel,
   mechanismDisplay,
   mechanismKindLabel,
@@ -33,7 +32,8 @@ import {
   MATCH_CHIP_ROW_CLASS,
 } from './match-card-recipe';
 import { IntegrationGroupCard } from './integration-group-card';
-import { directionGlyph } from './pair-direction-labels';
+import { poweredEmptyLead, poweredHeading } from './connector-kind-labels';
+import { directionGlyph, pairFlowSentence } from './pair-direction-labels';
 import { ProductPoweredTable, type PoweredTableRow } from './product-powered-table';
 
 import type { PoweredConnection, PoweredHubPartner, PoweredHubView } from './powered-hub-grouping';
@@ -108,8 +108,9 @@ import { AecIcon } from '../shared/icon/icon';
  * heading and no partner link were added. Below `md` the row folded the mechanism and
  * the data-object count into its meta line. A card has room for its chips at every
  * width, so the chips show at every width and the fold went. Every card's direction
- * comes from the shared helper ("Sends to", "Receives from", "Syncs both ways"): a hub
- * card reads from its hub, a hubless card from the endpoint it prints first.
+ * names both products (`pairFlowSentence`, QA pass on AECI-2035): "{A} sends to {B}" or
+ * "{A} and {B} sync both ways", the hub first on a hub card, and on a hubless card the
+ * endpoint it prints first.
  *
  * **Since AECI-1924 each group can be a table.** One Cards and Table toggle in the panel
  * sets every group, as the Integrations section's one toggle sets every Via lane. The
@@ -217,19 +218,21 @@ import { AecIcon } from '../shared/icon/icon';
       <p
         class="rounded-panel border border-dashed border-(--border-default)
             bg-(--surface-sunken) p-6 text-sm text-(--text-secondary)"
-        i18n="@@products.detail.body.powers.empty"
       >
-        No integrations are recorded as running on this connector yet. Vendor data is curated; if
-        you know of one,
-        <a
-          aecRequestTrigger
-          [entity]="'product'"
-          [kind]="'correction'"
-          [slug]="slug()"
-          [href]="'/products/' + slug() + '/correction'"
-          class="text-(--accent-primary) underline underline-offset-2"
-          >suggest a correction</a
-        >.
+        <!-- AECI-2037: the first sentence names the kind (connector-kind-labels.ts). -->
+        {{ emptyLead() }}
+        <ng-container i18n="@@products.detail.body.powers.empty.correction"
+          >Vendor data is curated; if you know of one,
+          <a
+            aecRequestTrigger
+            [entity]="'product'"
+            [kind]="'correction'"
+            [slug]="slug()"
+            [href]="'/products/' + slug() + '/correction'"
+            class="text-(--accent-primary) underline underline-offset-2"
+            >suggest a correction</a
+          >.</ng-container
+        >
       </p>
     } @else {
       @for (group of filteredView().groups; track group.hub.slug) {
@@ -293,15 +296,15 @@ import { AecIcon } from '../shared/icon/icon';
                         ><aec-icon name="chevron-right" decorative [size]="4" [mirrorRtl]="true"
                       /></span>
                     </span>
-                    <!-- Flow relative to the HUB (this card's frame), matching how the
-                       endpoint cards frame direction relative to their page product. -->
+                    <!-- The flow with both products named, the hub first: this page is
+                       the connector's, read from neither product (QA pass on AECI-2035). -->
                     <span
                       class="flex flex-wrap items-center gap-x-2 text-sm text-(--text-secondary)"
                     >
                       <span class="sr-only" i18n="@@products.detail.body.powers.direction.srLabel"
                         >Direction:</span
                       >
-                      @if (hubDirection(partner); as d) {
+                      @if (hubDirection(group.hub.name, partner); as d) {
                         <span
                           class="inline-block leading-none text-(--accent-primary) rtl:-scale-x-100"
                           aria-hidden="true"
@@ -482,6 +485,12 @@ export class ProductPoweredHub {
 
   /** This page's product slug, for the two suggest-a-correction links. */
   readonly slug = input.required<string>();
+  /**
+   * The page product's connector kind, already resolved by `connectorKindFor`
+   * (AECI-2037). It varies the heading and the empty state. `null` keeps the
+   * "Connector" wording.
+   */
+  readonly kind = input<ConnectorKind | null>(null);
 
   /**
    * The reader's filter text (AECI-841). Deliberately component-local and
@@ -557,7 +566,8 @@ export class ProductPoweredHub {
   protected readonly filteredView = computed(() => filterPoweredHubView(this.view(), this.query()));
 
   /**
-   * "Integrations it powers (N)".
+   * "Integrations it powers (N)", or "Integrations it delivers (N)" on a Sync Service
+   * (AECI-2037, `connector-kind-labels.ts`).
    *
    * The copy is a noun phrase, parallel to the endpoint "Integrations (N)"
    * heading on the same page, because on a connector page **both sections can
@@ -579,10 +589,10 @@ export class ProductPoweredHub {
    * A filter never moves it — the heading is a fact about the product, and the
    * filter's own "Showing 3 of 12" line reports the view.
    */
-  protected readonly heading = computed(() => {
-    const count = this.view().pairCount;
-    return $localize`:@@products.detail.body.powers.heading:Integrations it powers (${count}:count:)`;
-  });
+  protected readonly heading = computed(() => poweredHeading(this.kind(), this.view().pairCount));
+
+  /** The empty state's first sentence, by kind (AECI-2037). */
+  protected readonly emptyLead = computed(() => poweredEmptyLead(this.kind()));
 
   /**
    * The filter renders whenever the section renders rows — there is no row
@@ -696,12 +706,22 @@ export class ProductPoweredHub {
     return dataObjectCountLabel(pair.dataObjectSlugs.length);
   }
 
-  /** Hub-relative direction presentation (arrow glyph + label), or null when unknown. */
+  /**
+   * A partner row's direction (arrow glyph + words), or null when unknown. The words
+   * name both products, the hub and the partner ("Procore sends to Viewpoint Vista"),
+   * because this page is the connector's, which is neither of them (QA pass on
+   * AECI-2035). The glyph stays hub-relative, beside the hub's card.
+   */
   protected hubDirection(
+    hubName: string,
     partner: Pick<PoweredHubPartner, 'hubDirection' | 'partner'>,
   ): { label: string; glyph: string } | null {
-    const framed = contextDirectionLabel(partner.hubDirection, partner.partner.name);
-    return framed.token === null ? null : framed;
+    const direction = partner.hubDirection;
+    if (direction === null) return null;
+    return {
+      label: pairFlowSentence(direction, hubName, partner.partner.name),
+      glyph: directionGlyph(direction),
+    };
   }
 
   /**
@@ -711,14 +731,15 @@ export class ProductPoweredHub {
   protected readonly directionGlyph = directionGlyph;
 
   /**
-   * A hubless pair card's direction words (AECI-1720 restore C): the shared helper
-   * every other row uses, "Sends to {B}", "Receives from {B}" or "Syncs both ways".
+   * A hubless pair card's direction words: both products named, "{A} sends to {B}" or
+   * "{A} and {B} sync both ways" (`pairFlowSentence`, QA pass on AECI-2035), because
+   * the connector's page is read from neither of them.
    * The card has no page product to frame against, so it frames on endpoint A, the
    * name it prints first, which is the frame `pair.direction` is already in. `''`
    * when unknown, which the template's `@if`-as-binding treats as absent.
    */
   protected pairDirectionLabel(pair: PoweredConnection): string {
-    return contextDirectionLabel(pair.direction, pair.b.name).label;
+    return pair.direction ? pairFlowSentence(pair.direction, pair.a.name, pair.b.name) : '';
   }
 
   /**
@@ -731,13 +752,12 @@ export class ProductPoweredHub {
    * link. Before AECI-1117 only the object count (AECI-1080) made it in, and a
    * reader heard "View the Procore and Sage integration" with no direction.
    *
-   * Direction is the hub-relative words the row shows ("Sends to Procore"), so the name
-   * contains the visible text (WCAG 2.5.3). The name opens with the hub, which is
-   * what that word is relative to. An unknown direction is said in words, since
+   * Direction is the words the row shows ("Procore sends to Sage"), so the name
+   * contains the visible text (WCAG 2.5.3). The name opens with the hub. An unknown direction is said in words, since
    * the row shows a dash for it.
    */
   protected hubRowAriaLabel(hubName: string, partner: PoweredHubPartner): string {
-    const direction = this.hubDirection(partner);
+    const direction = this.hubDirection(hubName, partner);
     const directionPhrase = direction
       ? $localize`:@@products.detail.body.powers.row.aria.direction:direction ${direction.label}:DIRECTION:`
       : $localize`:@@products.detail.body.powers.row.aria.direction.none:direction not listed`;
@@ -747,8 +767,8 @@ export class ProductPoweredHub {
   /**
    * Accessible name for a flat "Other connections" card (AECI-1117). The card
    * draws `A → B` with an `aria-hidden` arrow, so the name says which way in the
-   * card's own words since AECI-1788: "Sends to B" or "Receives from B" from A,
-   * which the name opens with. "One-way" alone dropped the half the arrow carries.
+   * card's own words: "A sends to B" or "B sends to A" (QA pass on AECI-2035). "One-way"
+   * alone dropped the half the arrow carries.
    */
   protected flatRowAriaLabel(pair: PoweredConnection): string {
     // The visible words, framed on A, which the name opens with (WCAG 2.5.3), the same
@@ -813,7 +833,7 @@ export class ProductPoweredHub {
       ariaLabel: this.hubRowAriaLabel(hubName, partner),
       products: [partner.partner],
       pairGlyph: null,
-      direction: this.hubDirection(partner),
+      direction: this.hubDirection(hubName, partner),
       ...this.mechanismColumns(partner),
       dataObjects: this.dataObjectLabel(partner),
     }));

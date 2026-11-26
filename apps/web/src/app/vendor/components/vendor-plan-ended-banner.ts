@@ -83,6 +83,7 @@ import { parseDate, planHasEnded } from '../vendor-plan';
                 Claiming integrations, adding links and requesting corrections
               </li>
               <li i18n="@@vendor.planEnded.works.create">Adding a new integration</li>
+              <li i18n="@@vendor.planEnded.works.flows">Confirming or denying data flows</li>
             </ul>
           </div>
           <div>
@@ -97,9 +98,6 @@ import { parseDate, planHasEnded } from '../vendor-plan';
                 "How teams use it", the integrations page URL and the API documentation URL
               </li>
               <li i18n="@@vendor.planEnded.readOnly.taxonomy">Trades, audiences and phases</li>
-              <li i18n="@@vendor.planEnded.readOnly.flows">
-                Your data flow answers. They stay as you left them, and readers still see them.
-              </li>
             </ul>
           </div>
         </div>

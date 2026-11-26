@@ -595,6 +595,7 @@ describe('docs manifest', () => {
       'the-home-page',
       'the-browse-menu',
       'a-product-page',
+      'a-pair-page',
       'a-pair-page-with-no-integration',
       'what-does-not-count',
       'what-a-plan-does-not-buy',

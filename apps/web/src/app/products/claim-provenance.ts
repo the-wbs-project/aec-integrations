@@ -102,6 +102,21 @@ export class ClaimProvenance {
   /** The other product's vendor name, for attributing an `other` attestor. */
   readonly otherVendorName = input<string | null>(null);
 
+  /**
+   * AECI-2039. The claim sits on a Sync Service pair: the company that offers it
+   * answers for its flows, and the two endpoint companies do not.
+   */
+  readonly syncService = input(false);
+  /** AECI-2039. The company that offers the Sync Service pair (its owner), or `null`. */
+  readonly offeredByName = input<string | null>(null);
+
+  private offeredBy(): string {
+    return (
+      this.offeredByName() ??
+      $localize`:@@pair.claim.provenance.who.offeredBy:The company that offers this integration`
+    );
+  }
+
   /** Resolve a vendor attestation's attributor into display copy. */
   private who(attestor: 'context' | 'other'): string {
     return attestor === 'context'
@@ -115,8 +130,8 @@ export class ClaimProvenance {
    * reads "Listed by AEC Integrations": AECi never votes (§3.4), so its line says
    * who listed the item rather than taking a side.
    */
-  protected readonly entries = computed<ProvenanceEntry[]>(() =>
-    this.claim().attestations.map((a) => {
+  protected readonly entries = computed<ProvenanceEntry[]>(() => [
+    ...this.claim().attestations.map((a) => {
       const denies = $localize`:@@pair.claim.provenance.stance.denies:says this is not accurate`;
       if (a.attestor === 'aeci') {
         return a.asserted
@@ -142,7 +157,19 @@ export class ClaimProvenance {
         affirms: a.asserted,
       };
     }),
-  );
+    // AECI-2039: the owner's answer is not an attestation row on the wire. The
+    // agreement carries it, so the line is drawn from that.
+    ...(this.claim().agreement === 'owner_confirmed'
+      ? [
+          {
+            key: 'owner',
+            who: this.offeredBy(),
+            stance: $localize`:@@pair.claim.provenance.stance.affirms:confirms this`,
+            affirms: true,
+          },
+        ]
+      : []),
+  ]);
 
   /** The closing line carries the honest part: what nobody has said yet. */
   protected readonly closing = computed<string>(() => {
@@ -165,8 +192,22 @@ export class ClaimProvenance {
           ? $localize`:@@pair.claim.provenance.closing.conflict.named:${a}:contextVendor: and ${b}:otherVendor: disagree about this. We show both answers and do not take sides.`
           : $localize`:@@pair.claim.provenance.closing.conflict:The two companies disagree about this. We show both answers and do not take sides.`;
       }
-      default:
+      case 'owner_confirmed': {
+        const name = this.offeredByName();
+        return name
+          ? $localize`:@@pair.claim.provenance.closing.ownerConfirmed.runs:${name}:vendor: offers and runs this integration, so it confirms what moves.`
+          : $localize`:@@pair.claim.provenance.closing.ownerConfirmed.runs.unattributed:The company that offers and runs this integration confirms what moves.`;
+      }
+      default: {
+        if (this.syncService()) {
+          // AECI-2039: the endpoint companies cannot answer on a Sync Service pair.
+          const name = this.offeredByName();
+          return name
+            ? $localize`:@@pair.claim.provenance.closing.unverified.syncService:${name}:vendor:, which offers this integration, has not confirmed this yet.`
+            : $localize`:@@pair.claim.provenance.closing.unverified.syncService.unattributed:The company that offers this integration has not confirmed this yet.`;
+        }
         return $localize`:@@pair.claim.provenance.closing.unverified:Neither company has confirmed this yet.`;
+      }
     }
   });
 
