@@ -35,6 +35,12 @@
  *   above the bar: 96px, and 192px below `sm`, where the status line and a full-width
  *   button stack.
  *
+ * - **Escape is Cancel in a nested form** (AECI-2133). A form nested in a row, a section
+ *   or a card, with a Cancel button, takes `aecCloseOnEscape` (`close-on-escape.ts`):
+ *   `[escapeBusy]` is what disables Cancel, and `(escapeCancel)` calls Cancel's own
+ *   handler, so both close the same way and return focus to the opener. Not on a form
+ *   inside a dialog: the dialog owns Escape.
+ *
  * - **Two columns from `md`** (768px), one below. A field that needs the width (a
  *   description, a logo, an option row) spans both with {@link PORTAL_FORM_SPAN_CLASS}.
  * - **Fieldsets** stack 32px apart with a hairline between them. Each `legend` is the

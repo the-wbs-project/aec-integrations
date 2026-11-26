@@ -186,6 +186,17 @@ describe('the form', () => {
     expect(document.activeElement).toBe(q(fixture, '[data-testid="add-product"]'));
   });
 
+  it('closes on Escape, as Cancel does, and returns focus to the trigger (AECI-2133)', async () => {
+    const fixture = await mount();
+    await open(fixture);
+    q<HTMLFormElement>(fixture, 'form input')!.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    );
+    await settle(fixture);
+    expect(panel(fixture)).toBeNull();
+    expect(document.activeElement).toBe(q(fixture, '[data-testid="add-product"]'));
+  });
+
   it('sends nothing without a name, and marks the field', async () => {
     const fixture = await mount();
     await open(fixture);

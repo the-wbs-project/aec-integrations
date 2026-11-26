@@ -140,6 +140,36 @@ describe('VendorOwnedFlows', () => {
     });
   });
 
+  it('closes the add form on Escape as Cancel does (AECI-2133)', async () => {
+    const fixture = await render(SYNCED);
+    q(fixture, 'owned-flow-add-toggle')!.click();
+    await settle(fixture);
+    q(fixture, 'owned-flow-add-form')!
+      .querySelector('select')!
+      .dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+    await settle(fixture);
+    expect(q(fixture, 'owned-flow-add-form')).toBeNull();
+    expect(api['addOwnerFlow']).not.toHaveBeenCalled();
+  });
+
+  it('closes the direction change on Escape from any of its controls (AECI-2133)', async () => {
+    const fixture = await render(SYNCED);
+    const host = fixture.nativeElement as HTMLElement;
+    q(fixture, `owned-flow-change-${CONFIRMED.id}`)!.click();
+    await settle(fixture);
+    const save = [...host.querySelectorAll('button')].find(
+      (b) => b.textContent?.trim() === 'Save',
+    )!;
+    save.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    );
+    await settle(fixture);
+    expect(q(fixture, `owned-flow-change-${CONFIRMED.id}`)).not.toBeNull();
+    expect(api['changeOwnerFlow']).not.toHaveBeenCalled();
+  });
+
   it('shows an unclaimed row read-only and says to claim first', async () => {
     const fixture = await render({ ...SYNCED, claimed_at: null, flows_editable: false });
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';

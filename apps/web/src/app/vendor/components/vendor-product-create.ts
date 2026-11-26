@@ -47,6 +47,7 @@ import {
   PORTAL_SAVE_STATUS_CLASS,
 } from '../shared/portal-form';
 import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
+import { CloseOnEscape } from '../shared/close-on-escape';
 
 /** The text fields, in form order. The logo and categories have their own controls. */
 const TEXT_FIELDS = ['name', 'description', 'website'] as const;
@@ -93,7 +94,7 @@ export type ProductCreateNotice = { kind: 'notOwned' } | { kind: 'text'; text: s
  */
 @Component({
   selector: 'aec-vendor-product-create',
-  imports: [RouterLink, AecButton, AecCard, KeepClearOfSaveBar, VendorLogoField],
+  imports: [CloseOnEscape, RouterLink, AecButton, AecCard, KeepClearOfSaveBar, VendorLogoField],
   styles: [':host { display: block; }'],
   template: `
     <div class="space-y-4" data-testid="product-create">
@@ -166,6 +167,9 @@ export type ProductCreateNotice = { kind: 'notOwned' } | { kind: 'text'; text: s
           <!-- AECI-1810: the portal form card (vendor/shared/portal-form.ts), its
                actions in the save bar at the card's foot. -->
           <form
+            aecCloseOnEscape
+            [escapeBusy]="saving()"
+            (escapeCancel)="close()"
             aecCard
             phoneFlush
             aecKeepClearOfSaveBar

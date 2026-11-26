@@ -114,6 +114,42 @@ describe('VendorDeliveredPairs', () => {
     expect(el(f).textContent).toContain('Say why your company offers this pair.');
   });
 
+  it('closes on Escape as Cancel does and returns focus to the opener (AECI-2133)', async () => {
+    const f = await create();
+    (row(f, OTHER!.id).querySelector('[data-testid="delivered-ask"]') as HTMLElement).click();
+    await settle(f);
+    typeReason(f, 'A draft.');
+    el(f)
+      .querySelector('textarea')!
+      .dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+    await settle(f);
+    expect(el(f).querySelector('form')).toBeNull();
+    expect(api.submitContest).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(
+      row(f, OTHER!.id).querySelector('[data-testid="delivered-ask"]'),
+    );
+  });
+
+  it('ignores Escape while the request sends (AECI-2133)', async () => {
+    api.submitContest.mockReturnValue(new Promise(() => undefined));
+    const f = await create();
+    (row(f, OTHER!.id).querySelector('[data-testid="delivered-ask"]') as HTMLElement).click();
+    await settle(f);
+    typeReason(f, 'We sell and run this sync.');
+    (el(f).querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit'));
+    await settle(f);
+    expect(api.submitContest).toHaveBeenCalled();
+    el(f)
+      .querySelector('textarea')!
+      .dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+    await settle(f);
+    expect(el(f).querySelector('form')).not.toBeNull();
+  });
+
   it('sends an owner contest naming the caller, announces and re-reads the list', async () => {
     const announce = vi.spyOn(TestBed.inject(VendorPortalAnnouncer), 'announce');
     const f = await create();

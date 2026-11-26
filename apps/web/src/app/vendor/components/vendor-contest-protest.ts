@@ -32,6 +32,7 @@ import {
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
 import { FORM_PANEL, IN_TEXT_LINK } from '../integration-detail/integration-detail-styles';
 import { PORTAL_NESTED_SAVE_BAR_CLASS, PORTAL_SAVE_BUTTON_CLASS } from '../shared/portal-form';
+import { CloseOnEscape } from '../shared/close-on-escape';
 import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
 
 type Side = 'submitted' | 'received';
@@ -42,7 +43,9 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
  * (AECI-1009 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.12.12).
  *
  *  - **Submitted side.** While the contest can be protested, a disclosure opens an
- *    inline form: a required reason and up to three evidence links. Before day 30
+ *    inline form: a required reason and up to three evidence links. Cancel, or
+ *    Escape (`aecCloseOnEscape`, ignored while it sends), closes it and returns focus
+ *    to "Ask AEC Integrations to review". Before day 30
  *    on an unanswered contest it says from when. An open protest can be withdrawn,
  *    with an inline confirmation, never `confirm()`.
  *  - **Received side.** The owner sees the whole protest and replies once, before
@@ -65,6 +68,7 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
   selector: 'aec-vendor-contest-protest',
   imports: [
     KeepClearOfSaveBar,
+    CloseOnEscape,
     AecButton,
     AecFormSubmit,
     Chip,
@@ -268,6 +272,9 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
         } @else {
           <form
             aecKeepClearOfSaveBar
+            aecCloseOnEscape
+            [escapeBusy]="busy() !== null"
+            (escapeCancel)="closeForm()"
             method="dialog"
             [id]="ids.form"
             class="mt-2 max-w-prose space-y-2"

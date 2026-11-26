@@ -64,6 +64,7 @@ import { isReplayedEvent } from '../../core/event-replay';
 import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
 import { PORTAL_NESTED_SAVE_BAR_CLASS } from '../shared/portal-form';
 import { SEGMENTED_CLASS, segmentClass } from '../shared/portal-segmented';
+import { CloseOnEscape } from '../shared/close-on-escape';
 
 /**
  * "Data that's shared" (AECI-1151, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.4).
@@ -102,6 +103,7 @@ import { SEGMENTED_CLASS, segmentClass } from '../shared/portal-segmented';
 @Component({
   selector: 'aec-integration-shared-data',
   imports: [
+    CloseOnEscape,
     KeepClearOfSaveBar,
     AecButton,
     AecIcon,
@@ -141,6 +143,9 @@ import { SEGMENTED_CLASS, segmentClass } from '../shared/portal-segmented';
     <div id="data-shared-add">
       @if (state.addingRow() && canAdd()) {
         <form
+          aecCloseOnEscape
+          [escapeBusy]="adding()"
+          (escapeCancel)="closeAdd()"
           aecKeepClearOfSaveBar
           method="dialog"
           [class]="panel"

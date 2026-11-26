@@ -16,6 +16,7 @@ import {
   INPUT,
 } from '../integration-detail/integration-detail-styles';
 import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
+import { CloseOnEscape } from '../shared/close-on-escape';
 import {
   PORTAL_FORM_GRID_CLASS,
   PORTAL_NESTED_SAVE_BAR_CLASS,
@@ -88,7 +89,7 @@ export type OwnedFlowsRow = Pick<
  */
 @Component({
   selector: 'aec-vendor-owned-flows',
-  imports: [AecButton, AecIcon, KeepClearOfSaveBar],
+  imports: [AecButton, AecIcon, CloseOnEscape, KeepClearOfSaveBar],
   styles: [ID_STYLES],
   host: { class: 'block' },
   template: `
@@ -123,6 +124,9 @@ export type OwnedFlowsRow = Pick<
         @if (adding() && r.flows_editable) {
           <form
             aecKeepClearOfSaveBar
+            aecCloseOnEscape
+            [escapeBusy]="busy() !== null"
+            (escapeCancel)="adding.set(false)"
             method="dialog"
             [class]="panel"
             class="mt-4 space-y-6 text-sm"
@@ -262,7 +266,11 @@ export type OwnedFlowsRow = Pick<
                   </th>
                   <td class="py-2 pe-4 text-(--text-primary)">
                     @if (changing() === flow.id) {
-                      <span class="inline-flex flex-wrap items-center gap-2">
+                      <span
+                        aecCloseOnEscape
+                        (escapeCancel)="changing.set(null)"
+                        class="inline-flex flex-wrap items-center gap-2"
+                      >
                         <label class="sr-only" [for]="prefix() + '-dir-' + flow.id">{{
                           directionLabel(flow)
                         }}</label>
@@ -270,7 +278,6 @@ export type OwnedFlowsRow = Pick<
                           [id]="prefix() + '-dir-' + flow.id"
                           [class]="input"
                           (change)="draftChange.set(asDirection($event))"
-                          (keydown.escape)="changing.set(null)"
                         >
                           @for (d of directions; track d) {
                             <option

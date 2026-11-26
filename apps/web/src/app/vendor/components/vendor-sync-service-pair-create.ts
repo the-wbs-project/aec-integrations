@@ -38,6 +38,7 @@ import {
   type ProductComboboxItem,
   type ProductComboboxSearch,
 } from '../../shared/product-combobox/product-combobox';
+import { CloseOnEscape } from '../shared/close-on-escape';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { readVendorApiError } from '../vendor-api-error';
@@ -110,7 +111,7 @@ export function offersSyncServicePairCreate(product: SyncServiceTabProduct | nul
  */
 @Component({
   selector: 'aec-vendor-sync-service-pair-create',
-  imports: [AecButton, AecCard, AecIcon, LogoOrInitial, NewTabIcon, ProductCombobox],
+  imports: [AecButton, AecCard, AecIcon, CloseOnEscape, LogoOrInitial, NewTabIcon, ProductCombobox],
   host: { class: 'block' },
   template: `
     <section class="space-y-4" aria-labelledby="vendor-sync-create-heading" data-sync-create>
@@ -186,6 +187,9 @@ export function offersSyncServicePairCreate(product: SyncServiceTabProduct | nul
              recipe, and the save bar with the primary action and Cancel. -->
         <div aecCard phoneFlush class="max-w-4xl p-6 md:p-8">
           <form
+            aecCloseOnEscape
+            [escapeBusy]="saving()"
+            (escapeCancel)="close()"
             id="vendor-sync-create-form"
             method="dialog"
             [class]="formClass"

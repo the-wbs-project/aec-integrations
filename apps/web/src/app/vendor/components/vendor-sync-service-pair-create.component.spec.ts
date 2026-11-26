@@ -183,6 +183,17 @@ describe('the form', () => {
     expect(q(f, '#vendor-sync-create-name')).not.toBeNull();
   });
 
+  it('closes on Escape as Cancel does and returns focus to the opener (AECI-2133)', async () => {
+    const f = await mount();
+    await open(f);
+    q<HTMLInputElement>(f, '#vendor-sync-create-name')!.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    );
+    await settle(f);
+    expect(q(f, '[data-testid="sync-create-form"]')).toBeNull();
+    expect(document.activeElement).toBe(q(f, '[data-testid="sync-create-open"]'));
+  });
+
   it('never offers the Sync Service itself, or the product already picked', async () => {
     const f = await mount();
     await open(f);

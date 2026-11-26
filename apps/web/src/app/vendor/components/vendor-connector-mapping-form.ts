@@ -56,6 +56,7 @@ import {
   PORTAL_SAVE_STATUS_CLASS,
 } from '../shared/portal-form';
 import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
+import { CloseOnEscape } from '../shared/close-on-escape';
 
 /** What a save told the host. `changed: false` is the server's 200 no-op. */
 export interface CatalogueMappingSaved {
@@ -117,10 +118,20 @@ export function catalogueSaveErrorMessage(err: unknown): string {
  */
 @Component({
   selector: 'aec-vendor-connector-mapping-form',
-  imports: [AecButton, AecFormSubmit, AecSelect, KeepClearOfSaveBar, ProductCombobox],
+  imports: [
+    CloseOnEscape,
+    AecButton,
+    AecFormSubmit,
+    AecSelect,
+    KeepClearOfSaveBar,
+    ProductCombobox,
+  ],
   host: { class: 'block' },
   template: `
     <form
+      aecCloseOnEscape
+      [escapeBusy]="pending()"
+      (escapeCancel)="cancelled.emit()"
       aecKeepClearOfSaveBar
       method="dialog"
       novalidate

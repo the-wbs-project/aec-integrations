@@ -214,7 +214,7 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
           compact
           type="button"
           [class]="'ms-auto'"
-          (click)="state.openRequestForm(null)"
+          (click)="state.openRequestForm(null, $event.currentTarget)"
           data-testid="request-correction"
           i18n="@@vendor.im.requests.requestCorrection"
         >
@@ -393,6 +393,7 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                           [integration]="i"
                           [claim]="claim"
                           [mode]="formMode()"
+                          (saved)="answerSaved = true"
                           (closed)="closeAnswer(item.id)"
                         />
                       </div>
@@ -416,7 +417,7 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                           compact
                           type="button"
                           [disabled]="busy() !== null"
-                          (click)="openAnswer(item.id, 'no')"
+                          (click)="openAnswer(item.id, 'no', $event)"
                           [attr.data-testid]="'added-no-' + claim.id"
                           i18n="@@vendor.im.answer.no.aria"
                         >
@@ -484,6 +485,7 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                           [integration]="i"
                           [claim]="claim"
                           [mode]="formMode()"
+                          (saved)="answerSaved = true"
                           (closed)="closeAnswer(item.id)"
                         />
                       </div>
@@ -494,7 +496,7 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                           variant="secondary"
                           compact
                           type="button"
-                          (click)="openAnswer(item.id, flipTo(claim))"
+                          (click)="openAnswer(item.id, flipTo(claim), $event)"
                           [attr.data-testid]="'change-answer-' + claim.id"
                         >
                           {{ changeAnswerLabel(claim) }}
@@ -504,7 +506,7 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                           variant="secondary"
                           compact
                           type="button"
-                          (click)="openAnswer(item.id, currentMode(claim))"
+                          (click)="openAnswer(item.id, currentMode(claim), $event)"
                           [attr.data-testid]="'edit-reason-' + claim.id"
                         >
                           @if (hasMyNote(claim)) {
@@ -1154,15 +1156,41 @@ export class IntegrationChangeRequests {
     });
   }
 
-  protected openAnswer(itemId: string, mode: 'yes' | 'no'): void {
+  /** The `data-testid` of the button that opened the answer form. The button is
+   *  re-created when the form closes, so it is found again by this. */
+  private answerOpener: string | null = null;
+  /** Set by the open form's `saved`, read when it closes: a save, not a Cancel. */
+  protected answerSaved = false;
+
+  protected openAnswer(itemId: string, mode: 'yes' | 'no', event?: Event): void {
     this.itemError.set(null);
     this.formMode.set(mode);
+    const opener = event?.currentTarget as HTMLElement | null | undefined;
+    this.answerOpener = opener?.getAttribute?.('data-testid') ?? null;
+    this.answerSaved = false;
     this.formFor.set(itemId);
   }
 
+  /** A save focuses the item. Cancel or Escape returns focus to the button that opened
+   *  the form (§6.17.9), or the item when that button is gone. */
   protected closeAnswer(itemId: string): void {
+    const opener = this.answerOpener;
+    const saved = this.answerSaved;
+    this.answerOpener = null;
+    this.answerSaved = false;
     this.formFor.set(null);
-    this.focus(itemId);
+    if (saved || opener === null) {
+      this.focus(itemId);
+      return;
+    }
+    afterNextRender(
+      () => {
+        const button = this.document.querySelector<HTMLElement>(`[data-testid="${opener}"]`);
+        if (button) button.focus();
+        else this.document.getElementById(itemId)?.focus();
+      },
+      { injector: this.injector },
+    );
   }
 
   protected async yes(itemId: string, claim: VendorClaim): Promise<void> {
@@ -1276,9 +1304,22 @@ export class IntegrationChangeRequests {
     this.focus(contestItemId(contest.id));
   }
 
+  /** Cancel or Escape: focus returns to the button that opened the form (§6.17.9),
+   *  found again by its `data-testid` (`request-<field>`, `ask-owner`,
+   *  `request-correction`) once the page re-renders, as the answer form does. Then the
+   *  toolbar button, and the section heading as the last resort. */
   protected closeForm(): void {
-    this.state.closeRequestForm();
-    this.focusId('change-requests-heading');
+    const opener = this.state.closeRequestForm();
+    afterNextRender(
+      () => {
+        const target =
+          (opener ? this.document.querySelector<HTMLElement>(`[data-testid="${opener}"]`) : null) ??
+          this.document.querySelector<HTMLElement>('[data-testid="request-correction"]') ??
+          this.document.getElementById('change-requests-heading');
+        target?.focus();
+      },
+      { injector: this.injector },
+    );
   }
 
   protected retry(): void {

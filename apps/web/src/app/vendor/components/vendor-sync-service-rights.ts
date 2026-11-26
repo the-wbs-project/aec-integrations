@@ -5,6 +5,7 @@ import type { EvidencedPairContestTarget, PairFlowDirection } from '@aeci/shared
 import { AecButton } from '../../shared/button/button';
 import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
 import { VendorApi } from '../vendor-api';
+import { CloseOnEscape } from '../shared/close-on-escape';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 
 type Panel = 'none' | 'veto' | 'existence' | 'flow';
@@ -29,7 +30,7 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
  */
 @Component({
   selector: 'aec-vendor-sync-service-rights',
-  imports: [AecButton],
+  imports: [AecButton, CloseOnEscape],
   host: { class: 'block' },
   template: `
     @let rights = target().sync_service_rights;
@@ -82,6 +83,9 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
         @switch (panel()) {
           @case ('veto') {
             <form
+              aecCloseOnEscape
+              [escapeBusy]="busy()"
+              (escapeCancel)="close()"
               method="dialog"
               class="space-y-2"
               (submit)="$event.preventDefault(); submitVeto()"
@@ -135,6 +139,9 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
           }
           @case ('existence') {
             <form
+              aecCloseOnEscape
+              [escapeBusy]="busy()"
+              (escapeCancel)="close()"
               method="dialog"
               class="space-y-2"
               (submit)="$event.preventDefault(); submitExistence()"
@@ -186,6 +193,9 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
           }
           @case ('flow') {
             <form
+              aecCloseOnEscape
+              [escapeBusy]="busy()"
+              (escapeCancel)="close()"
               method="dialog"
               class="space-y-2"
               (submit)="$event.preventDefault(); submitFlow()"

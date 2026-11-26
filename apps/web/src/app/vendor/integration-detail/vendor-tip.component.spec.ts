@@ -59,6 +59,30 @@ describe('VendorTip', () => {
     expect(panel()).not.toBeNull();
   });
 
+  it('spends an Escape that closes an open panel, and leaves one alone when closed (AECI-2133)', async () => {
+    const fixture = await create({});
+    const outside = document.createElement('input');
+    document.body.appendChild(outside);
+    const escape = () =>
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+
+    const idle = escape();
+    outside.dispatchEvent(idle);
+    expect(idle.defaultPrevented).toBe(false);
+
+    button(fixture).dispatchEvent(new Event('focus'));
+    fixture.detectChanges();
+    await flush();
+    expect(panel()).not.toBeNull();
+    const spent = escape();
+    outside.dispatchEvent(spent);
+    fixture.detectChanges();
+    await flush();
+    expect(spent.defaultPrevented).toBe(true);
+    expect(panel()).toBeNull();
+    outside.remove();
+  });
+
   it('gives a pill its visible text as its name, not an aria-label', async () => {
     const fixture = await create({ variant: 'pill', label: 'Disputed' });
     expect(button(fixture).getAttribute('aria-label')).toBeNull();

@@ -18,6 +18,7 @@ import {
   FIELD_INPUT_CLASS,
   FIELD_LABEL_CLASS,
 } from '../../shared/form-field/form-field-classes';
+import { CloseOnEscape } from '../shared/close-on-escape';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { readVendorApiError } from '../vendor-api-error';
@@ -45,7 +46,7 @@ const REASON_MAX = 2000;
  */
 @Component({
   selector: 'aec-vendor-delivered-pairs',
-  imports: [AecButton],
+  imports: [AecButton, CloseOnEscape],
   host: { class: 'block' },
   template: `
     @if (state() === 'failed') {
@@ -113,6 +114,9 @@ const REASON_MAX = 2000;
                 </p>
               } @else if (askingId() === pair.id) {
                 <form
+                  aecCloseOnEscape
+                  [escapeBusy]="sending()"
+                  (escapeCancel)="cancel(pair)"
                   method="dialog"
                   class="mt-3 max-w-2xl space-y-3"
                   (submit)="send($event, pair)"

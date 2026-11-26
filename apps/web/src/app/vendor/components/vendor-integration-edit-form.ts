@@ -56,6 +56,7 @@ import {
   PORTAL_SAVE_STATUS_CLASS,
 } from '../shared/portal-form';
 import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
+import { CloseOnEscape } from '../shared/close-on-escape';
 
 /** How each field is edited. Same split as the contest form. */
 type ControlKind = 'url' | 'text' | 'textarea' | 'mechanism' | 'direction';
@@ -130,10 +131,20 @@ export type EditFormOutcome = 'saved' | 'cancelled';
  */
 @Component({
   selector: 'aec-vendor-integration-edit-form',
-  imports: [AecButton, AecIcon, KeepClearOfSaveBar, VendorHiddenNote, VendorLockedNote],
+  imports: [
+    CloseOnEscape,
+    AecButton,
+    AecIcon,
+    KeepClearOfSaveBar,
+    VendorHiddenNote,
+    VendorLockedNote,
+  ],
   styles: [':host { display: block; margin-top: 1.5rem; }'],
   template: `
     <form
+      aecCloseOnEscape
+      [escapeBusy]="saving()"
+      (escapeCancel)="closed.emit('cancelled')"
       aecKeepClearOfSaveBar
       method="dialog"
       [id]="fieldId('form')"

@@ -22,6 +22,7 @@ import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 import { isReplayedEvent } from '../../core/event-replay';
+import { CloseOnEscape } from '../shared/close-on-escape';
 
 /**
  * The company legal name block on the vendor Billing tab (AECI-1625), under the section's
@@ -36,7 +37,7 @@ import { isReplayedEvent } from '../../core/event-replay';
  */
 @Component({
   selector: 'aec-vendor-billing-legal-name-form',
-  imports: [AecButton],
+  imports: [CloseOnEscape, AecButton],
   template: `
     <div class="space-y-2">
       @if (!editing()) {
@@ -78,6 +79,9 @@ import { isReplayedEvent } from '../../core/event-replay';
 
     @if (editing()) {
       <form
+        aecCloseOnEscape
+        [escapeBusy]="busy()"
+        (escapeCancel)="cancel()"
         method="dialog"
         class="mt-4 max-w-[32rem] space-y-4"
         (submit)="submit($event)"

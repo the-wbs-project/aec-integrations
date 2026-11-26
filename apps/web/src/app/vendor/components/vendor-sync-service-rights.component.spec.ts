@@ -125,6 +125,45 @@ describe('VendorSyncServiceRights', () => {
     expect(changed).toHaveBeenCalled();
   });
 
+  it('closes each form on Escape as Cancel does (AECI-2133)', async () => {
+    const { fixture } = await mount();
+    for (const opener of [
+      'Remove this integration from our product',
+      'Report that it is not offered',
+      'Report a wrong data flow',
+    ]) {
+      buttonByText(fixture, opener).click();
+      await settle(fixture);
+      el(fixture)
+        .querySelector('textarea')!
+        .dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+        );
+      await settle(fixture);
+      expect(el(fixture).querySelector('form')).toBeNull();
+    }
+    expect(api['fileVeto']).not.toHaveBeenCalled();
+    expect(api['submitPairContest']).not.toHaveBeenCalled();
+  });
+
+  it('ignores Escape while the removal sends (AECI-2133)', async () => {
+    api['fileVeto']!.mockReturnValue(new Promise(() => undefined));
+    const { fixture } = await mount();
+    buttonByText(fixture, 'Remove this integration from our product').click();
+    await settle(fixture);
+    typeInto(el(fixture).querySelector('textarea')!, 'We never authorised it.', 'input');
+    buttonByText(fixture, 'Remove it from our product').click();
+    await settle(fixture);
+    expect(api['fileVeto']).toHaveBeenCalled();
+    el(fixture)
+      .querySelector('textarea')!
+      .dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+    await settle(fixture);
+    expect(el(fixture).querySelector('form')).not.toBeNull();
+  });
+
   it('the existence report says the pair stays listed', async () => {
     const { fixture } = await mount();
     buttonByText(fixture, 'Report that it is not offered').click();

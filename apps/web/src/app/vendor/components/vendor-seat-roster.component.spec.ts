@@ -141,6 +141,12 @@ describe('VendorSeatRoster — seat management (§11a)', () => {
     });
   }
 
+  /** The first button whose text starts with `label`. */
+  const buttonStartingWith = (fixture: ComponentFixture<VendorSeatRoster>, label: string) =>
+    ([...fixture.nativeElement.querySelectorAll('button')] as HTMLButtonElement[]).find((b) =>
+      b.textContent?.trim().startsWith(label),
+    )!;
+
   /** Every Resend button on screen, in fixture order. */
   const resendButtons = (fixture: ComponentFixture<VendorSeatRoster>) =>
     ([...fixture.nativeElement.querySelectorAll('button')] as HTMLButtonElement[]).filter((b) =>
@@ -238,6 +244,10 @@ describe('VendorSeatRoster — seat management (§11a)', () => {
     ) as HTMLButtonElement;
 
     revoke.click();
+    fixture.detectChanges();
+    // AECI-2129: the row button only opens the confirm.
+    expect(revokeInvite).not.toHaveBeenCalled();
+    buttonStartingWith(fixture, 'Revoke invite').click();
     await flush();
     fixture.detectChanges();
 
@@ -255,6 +265,8 @@ describe('VendorSeatRoster — seat management (§11a)', () => {
       (b as HTMLElement).textContent?.includes('Remove'),
     ) as HTMLButtonElement;
     remove.click();
+    fixture.detectChanges();
+    buttonStartingWith(fixture, 'Remove seat').click();
     await flush();
     fixture.detectChanges();
 
@@ -348,9 +360,12 @@ describe('VendorSeatRoster — seat management (§11a)', () => {
 
     revokeBtn!.click();
     fixture.detectChanges();
+    buttonStartingWith(fixture, 'Revoke invite').click();
+    fixture.detectChanges();
 
     expect(resendBtn!.textContent).toContain('Resend');
     expect(resendBtn!.textContent).not.toContain('Sending');
+    expect(fixture.nativeElement.textContent).not.toContain('Sending');
 
     release();
     await flush();
@@ -375,6 +390,8 @@ describe('VendorSeatRoster — seat management (§11a)', () => {
       .filter((b) => b.textContent?.includes('Remove'))
       .at(0)!
       .click();
+    fixture.detectChanges();
+    buttonStartingWith(fixture, 'Remove seat').click();
     await flush();
     fixture.detectChanges();
 
@@ -437,6 +454,379 @@ describe('VendorSeatRoster — seat management (§11a)', () => {
     const text = fixture.nativeElement.textContent as string;
     expect(text).toContain('Revoke it and invite them again');
     expect(text).not.toContain('Give it a few minutes');
+  });
+
+  // ─── AECI-2129: Remove and Revoke ask first ────────────────────────────────
+
+  const PRIYA = VENDOR_SEATS_FIXTURE[1]!;
+  const BANNED = VENDOR_SEATS_FIXTURE[2]!;
+  const SECOND_OWNER = {
+    ...PRIYA,
+    user_id: '00000000-0000-4000-8000-0000000052b9',
+    display_name: 'Sam Okafor',
+    email: 'sam@summitbim.example.com',
+    owner: true,
+  };
+
+  const q = (fixture: ComponentFixture<VendorSeatRoster>, selector: string) =>
+    fixture.nativeElement.querySelector(selector) as HTMLElement | null;
+
+  /** Let the write settle, the re-read render and `afterNextRender` run. */
+  async function settle(fixture: ComponentFixture<VendorSeatRoster>): Promise<void> {
+    await flush();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
+
+  /** The Seats page heading the roster falls back to. The page owns it. */
+  function mountHeading(): HTMLElement {
+    const h = document.createElement('h2');
+    h.id = 'vendor-seats-heading';
+    h.tabIndex = -1;
+    document.body.appendChild(h);
+    return h;
+  }
+
+  it('opens a danger confirm from the secondary Remove and focuses its question', async () => {
+    setup({ seats: VENDOR_SEATS_FIXTURE, pending_invites: [], can_manage_seats: true });
+    const fixture = await render();
+    const opener = q(fixture, `#vendor-seat-remove-start-${PRIYA.user_id}`)!;
+    expect(opener.getAttribute('data-variant')).toBe('secondary');
+
+    opener.click();
+    await settle(fixture);
+
+    expect(removeSeat).not.toHaveBeenCalled();
+    const confirm = q(fixture, `[data-seat-confirm="${PRIYA.user_id}"]`)!;
+    const question = q(fixture, `#vendor-seat-remove-confirm-${PRIYA.user_id}`)!;
+    expect(question.textContent?.trim()).toBe(
+      "Remove Priya Natarajan's seat? They lose access to the vendor portal straight away. Inviting them again gives them a new seat.",
+    );
+    expect(document.activeElement).toBe(question);
+    const [yes, cancel] = [...confirm.querySelectorAll('button')] as HTMLButtonElement[];
+    expect(yes!.textContent?.trim()).toBe('Remove seat Priya Natarajan');
+    expect(yes!.getAttribute('data-variant')).toBe('danger');
+    expect(cancel!.textContent?.trim()).toBe('Cancel');
+    expect(cancel!.getAttribute('data-variant')).toBe('secondary');
+    // The row button gives way to the confirm.
+    expect(q(fixture, `#vendor-seat-remove-start-${PRIYA.user_id}`)).toBeNull();
+  });
+
+  it('adds the owner sentence on an owner’s row only', async () => {
+    setup({
+      seats: [...VENDOR_SEATS_FIXTURE, SECOND_OWNER],
+      pending_invites: [],
+      can_manage_seats: true,
+    });
+    const fixture = await render();
+
+    q(fixture, `#vendor-seat-remove-start-${PRIYA.user_id}`)!.click();
+    await settle(fixture);
+    expect(fixture.nativeElement.textContent).not.toContain('owner status');
+
+    q(fixture, `#vendor-seat-remove-start-${SECOND_OWNER.user_id}`)!.click();
+    await settle(fixture);
+    const question = q(fixture, `#vendor-seat-remove-confirm-${SECOND_OWNER.user_id}`)!;
+    expect(question.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      "Remove Sam Okafor's seat? They lose access to the vendor portal straight away. Inviting them again gives them a new seat. Their owner status does not come back with a new invite.",
+    );
+    // One confirm at a time: opening the second closed the first.
+    expect(fixture.nativeElement.querySelectorAll('[data-seat-confirm]')).toHaveLength(1);
+  });
+
+  it('Cancel closes the confirm, writes nothing and returns focus to Remove', async () => {
+    setup({ seats: VENDOR_SEATS_FIXTURE, pending_invites: [], can_manage_seats: true });
+    const fixture = await render();
+    q(fixture, `#vendor-seat-remove-start-${PRIYA.user_id}`)!.click();
+    await settle(fixture);
+
+    buttonStartingWith(fixture, 'Cancel').click();
+    await settle(fixture);
+
+    expect(q(fixture, '[data-seat-confirm]')).toBeNull();
+    expect(removeSeat).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(q(fixture, `#vendor-seat-remove-start-${PRIYA.user_id}`));
+  });
+
+  it('Cancel on a Revoke confirm returns focus to Revoke', async () => {
+    setup({
+      seats: VENDOR_SEATS_FIXTURE,
+      pending_invites: VENDOR_SEAT_INVITES_FIXTURE,
+      can_manage_seats: true,
+    });
+    const fixture = await render();
+    const invite = VENDOR_SEAT_INVITES_FIXTURE[1]!;
+    const opener = q(fixture, `#vendor-invite-revoke-start-${invite.id}`)!;
+    expect(opener.getAttribute('data-variant')).toBe('secondary');
+    opener.click();
+    await settle(fixture);
+
+    const question = q(fixture, `#vendor-invite-revoke-confirm-${invite.id}`)!;
+    expect(question.textContent?.trim()).toBe(
+      'Revoke the invite to agency@example.com? The link stops working. A new invite sends a new email and counts toward your daily invite limit.',
+    );
+    expect(document.activeElement).toBe(question);
+    expect(buttonStartingWith(fixture, 'Revoke invite').getAttribute('data-variant')).toBe(
+      'danger',
+    );
+
+    buttonStartingWith(fixture, 'Cancel').click();
+    await settle(fixture);
+
+    expect(revokeInvite).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(q(fixture, `#vendor-invite-revoke-start-${invite.id}`));
+  });
+
+  it('after a removal, focuses the next row’s control and announces once', async () => {
+    setup({ seats: VENDOR_SEATS_FIXTURE, pending_invites: [], can_manage_seats: true });
+    const fixture = await render();
+    const announce = vi.spyOn(TestBed.inject(VendorPortalAnnouncer), 'announce');
+    getSeats.mockResolvedValue({
+      seats: VENDOR_SEATS_FIXTURE.filter((s) => s.user_id !== PRIYA.user_id),
+      pending_invites: [],
+      can_manage_seats: true,
+    });
+
+    q(fixture, `#vendor-seat-remove-start-${PRIYA.user_id}`)!.click();
+    await settle(fixture);
+    buttonStartingWith(fixture, 'Remove seat').click();
+    await settle(fixture);
+
+    expect(removeSeat).toHaveBeenCalledTimes(1);
+    expect(removeSeat).toHaveBeenCalledWith(PRIYA.user_id);
+    expect(q(fixture, `[data-seat-row="${PRIYA.user_id}"]`)).toBeNull();
+    expect(q(fixture, '[data-seat-confirm]')).toBeNull();
+    expect(document.activeElement).toBe(q(fixture, `#vendor-seat-remove-start-${BANNED.user_id}`));
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledWith('Seat removed for Priya Natarajan.');
+    expect(q(fixture, '[data-seats-status]')?.textContent?.trim()).toBe(
+      'Seat removed for Priya Natarajan.',
+    );
+    expect(fixture.nativeElement.querySelector('[role="status"], [aria-live]')).toBeNull();
+  });
+
+  it('after removing the last row, focuses the previous row’s control', async () => {
+    setup({ seats: VENDOR_SEATS_FIXTURE, pending_invites: [], can_manage_seats: true });
+    const fixture = await render();
+    getSeats.mockResolvedValue({
+      seats: VENDOR_SEATS_FIXTURE.filter((s) => s.user_id !== BANNED.user_id),
+      pending_invites: [],
+      can_manage_seats: true,
+    });
+
+    q(fixture, `#vendor-seat-remove-start-${BANNED.user_id}`)!.click();
+    await settle(fixture);
+    buttonStartingWith(fixture, 'Remove seat').click();
+    await settle(fixture);
+
+    expect(document.activeElement).toBe(q(fixture, `#vendor-seat-remove-start-${PRIYA.user_id}`));
+  });
+
+  it('after a removal leaves no row with a control, focuses the section heading', async () => {
+    const heading = mountHeading();
+    try {
+      const seats = VENDOR_SEATS_FIXTURE.slice(0, 2);
+      setup({ seats, pending_invites: [], can_manage_seats: true });
+      const fixture = await render();
+      getSeats.mockResolvedValue({
+        seats: seats.slice(0, 1),
+        pending_invites: [],
+        can_manage_seats: true,
+      });
+
+      q(fixture, `#vendor-seat-remove-start-${PRIYA.user_id}`)!.click();
+      await settle(fixture);
+      buttonStartingWith(fixture, 'Remove seat').click();
+      await settle(fixture);
+
+      expect(document.activeElement).toBe(heading);
+    } finally {
+      heading.remove();
+    }
+  });
+
+  it('revokes from the confirm, announces once and focuses the next invite', async () => {
+    setup({
+      seats: VENDOR_SEATS_FIXTURE,
+      pending_invites: VENDOR_SEAT_INVITES_FIXTURE,
+      can_manage_seats: true,
+    });
+    const fixture = await render();
+    const announce = vi.spyOn(TestBed.inject(VendorPortalAnnouncer), 'announce');
+    const [first, second] = VENDOR_SEAT_INVITES_FIXTURE;
+    getSeats.mockResolvedValue({
+      seats: VENDOR_SEATS_FIXTURE,
+      pending_invites: VENDOR_SEAT_INVITES_FIXTURE.slice(1),
+      can_manage_seats: true,
+    });
+
+    q(fixture, `#vendor-invite-revoke-start-${first!.id}`)!.click();
+    await settle(fixture);
+    buttonStartingWith(fixture, 'Revoke invite').click();
+    await settle(fixture);
+
+    expect(revokeInvite).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledWith('Invite to jordan@summitbim.example.com revoked.');
+    // The next invite's Resend is disabled (cooling down), so its Revoke takes focus.
+    expect(document.activeElement).toBe(q(fixture, `#vendor-invite-revoke-start-${second!.id}`));
+  });
+
+  it('after revoking the only invite, focuses the section heading', async () => {
+    const heading = mountHeading();
+    try {
+      const only = VENDOR_SEAT_INVITES_FIXTURE[0]!;
+      setup({ seats: VENDOR_SEATS_FIXTURE, pending_invites: [only], can_manage_seats: true });
+      const fixture = await render();
+      getSeats.mockResolvedValue({
+        seats: VENDOR_SEATS_FIXTURE,
+        pending_invites: [],
+        can_manage_seats: true,
+      });
+
+      q(fixture, `#vendor-invite-revoke-start-${only.id}`)!.click();
+      await settle(fixture);
+      buttonStartingWith(fixture, 'Revoke invite').click();
+      await settle(fixture);
+
+      expect(fixture.nativeElement.textContent).not.toContain('Pending invites');
+      expect(document.activeElement).toBe(heading);
+    } finally {
+      heading.remove();
+    }
+  });
+
+  it('a refused removal closes the confirm, shows an alert and moves focus to it', async () => {
+    setup({ seats: VENDOR_SEATS_FIXTURE, pending_invites: [], can_manage_seats: true });
+    const fixture = await render();
+    const announce = vi.spyOn(TestBed.inject(VendorPortalAnnouncer), 'announce');
+    removeSeat.mockRejectedValueOnce(new Error('nope'));
+
+    q(fixture, `#vendor-seat-remove-start-${PRIYA.user_id}`)!.click();
+    await settle(fixture);
+    buttonStartingWith(fixture, 'Remove seat').click();
+    await settle(fixture);
+
+    const alert = q(fixture, '[role="alert"]')!;
+    expect(alert.textContent?.trim()).toBe('Could not remove that seat. Try again.');
+    // Focus goes back to the row's Remove, never to the alert (read twice).
+    expect(document.activeElement).toBe(q(fixture, `#vendor-seat-remove-start-${PRIYA.user_id}`));
+    expect(q(fixture, '[data-seat-confirm]')).toBeNull();
+    expect(announce).not.toHaveBeenCalled();
+    // Not re-read: nothing changed on the server.
+    expect(getSeats).toHaveBeenCalledTimes(1);
+  });
+
+  it('a refused revoke shows an alert and moves focus to it', async () => {
+    setup({
+      seats: VENDOR_SEATS_FIXTURE,
+      pending_invites: VENDOR_SEAT_INVITES_FIXTURE,
+      can_manage_seats: true,
+    });
+    const fixture = await render();
+    revokeInvite.mockRejectedValueOnce(new Error('nope'));
+    const invite = VENDOR_SEAT_INVITES_FIXTURE[0]!;
+
+    q(fixture, `#vendor-invite-revoke-start-${invite.id}`)!.click();
+    await settle(fixture);
+    buttonStartingWith(fixture, 'Revoke invite').click();
+    await settle(fixture);
+
+    const alert = q(fixture, '[role="alert"]')!;
+    expect(alert.textContent?.trim()).toBe('Could not revoke that invite. Try again.');
+    expect(document.activeElement).toBe(q(fixture, `#vendor-invite-revoke-start-${invite.id}`));
+    expect(q(fixture, '[data-invite-confirm]')).toBeNull();
+  });
+
+  it('marks the Remove confirm busy and blocks a second submit while it runs', async () => {
+    setup({ seats: VENDOR_SEATS_FIXTURE, pending_invites: [], can_manage_seats: true });
+    const fixture = await render();
+    let release: () => void = () => {};
+    removeSeat.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    );
+
+    q(fixture, `#vendor-seat-remove-start-${PRIYA.user_id}`)!.click();
+    await settle(fixture);
+    buttonStartingWith(fixture, 'Remove seat').click();
+    fixture.detectChanges();
+
+    const group = q(fixture, `[data-seat-confirm="${PRIYA.user_id}"] [aria-busy]`)!;
+    expect(group.getAttribute('aria-busy')).toBe('true');
+    const [yes, cancel] = [...group.querySelectorAll('button')] as HTMLButtonElement[];
+    expect(yes!.disabled).toBe(true);
+    expect(yes!.textContent).toContain('Removing…');
+    expect(cancel!.disabled).toBe(true);
+    yes!.click();
+    expect(removeSeat).toHaveBeenCalledTimes(1);
+
+    release();
+    await settle(fixture);
+  });
+
+  it('marks the Revoke confirm busy and blocks a second submit while it runs', async () => {
+    setup({
+      seats: VENDOR_SEATS_FIXTURE,
+      pending_invites: VENDOR_SEAT_INVITES_FIXTURE,
+      can_manage_seats: true,
+    });
+    const fixture = await render();
+    let release: () => void = () => {};
+    revokeInvite.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    );
+    const invite = VENDOR_SEAT_INVITES_FIXTURE[0]!;
+
+    q(fixture, `#vendor-invite-revoke-start-${invite.id}`)!.click();
+    await settle(fixture);
+    buttonStartingWith(fixture, 'Revoke invite').click();
+    fixture.detectChanges();
+
+    const group = q(fixture, `[data-invite-confirm="${invite.id}"]`)!;
+    expect(group.getAttribute('aria-busy')).toBe('true');
+    const [yes, cancel] = [...group.querySelectorAll('button')] as HTMLButtonElement[];
+    expect(yes!.disabled).toBe(true);
+    expect(yes!.textContent).toContain('Revoking…');
+    expect(cancel!.disabled).toBe(true);
+    yes!.click();
+    expect(revokeInvite).toHaveBeenCalledTimes(1);
+
+    release();
+    await settle(fixture);
+  });
+
+  it('a finished removal leaves a confirm opened on another row in the meantime', async () => {
+    setup({ seats: VENDOR_SEATS_FIXTURE, pending_invites: [], can_manage_seats: true });
+    const fixture = await render();
+    let release: () => void = () => {};
+    removeSeat.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    );
+
+    q(fixture, `#vendor-seat-remove-start-${PRIYA.user_id}`)!.click();
+    await settle(fixture);
+    buttonStartingWith(fixture, 'Remove seat').click();
+    fixture.detectChanges();
+    q(fixture, `#vendor-seat-remove-start-${BANNED.user_id}`)!.click();
+    await settle(fixture);
+    const second = q(fixture, `#vendor-seat-remove-confirm-${BANNED.user_id}`)!;
+    expect(document.activeElement).toBe(second);
+
+    release();
+    await settle(fixture);
+
+    expect(q(fixture, `[data-seat-confirm="${BANNED.user_id}"]`)).not.toBeNull();
+    // Finishing the first removal does not pull focus out of the second confirm.
+    expect(document.activeElement).toBe(
+      q(fixture, `#vendor-seat-remove-confirm-${BANNED.user_id}`),
+    );
   });
 });
 
