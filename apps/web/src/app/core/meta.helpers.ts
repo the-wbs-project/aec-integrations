@@ -345,7 +345,7 @@ export const META_DESCRIPTION_MAX_NAMES = 3;
  * `orderBy`), so the sort is what makes a rendered description deterministic
  * across requests — which matters because this string lands in a URL-keyed edge
  * cache entry. `compareText` (`@aeci/shared/text-sort`, AECI-825) is what makes
- * that hold: it pins the collation to `'en'` and is a total order. An unpinned
+ * that hold: it pins the collation to `'en'`, and the slug breaks a case-only tie. An unpinned
  * `localeCompare` would resolve against the ambient locale, and `applyMeta` runs
  * under the SSR Worker AND again in the browser on every client navigation.
  */
@@ -359,7 +359,13 @@ export function integrationPartnerNames(product: ProductDetail): string[] {
     add(row.source);
     add(row.target);
   }
-  return [...bySlug.values()].sort(compareText);
+  // A case-only name tie is a tie in `compareText` (AECI-1840), so the slug, which
+  // is unique, settles it: the string alone would leave arrival order in charge.
+  return [...bySlug.entries()]
+    .sort(
+      ([slugA, nameA], [slugB, nameB]) => compareText(nameA, nameB) || compareText(slugA, slugB),
+    )
+    .map(([, name]) => name);
 }
 
 /**

@@ -1222,10 +1222,9 @@ describe('integrationPartnerNames', () => {
   });
 
   it('breaks a case-only tie on a stable key rather than on arrival order', () => {
-    // `compareText` is full-strength, so case still settles a tie it never lets
-    // outrank a letter difference. A weaker comparator would call these two
-    // equal, leave the pair in the API's unordered relation order, and let a
-    // cached description differ between two identical requests.
+    // `compareText` calls a case-only pair a tie (AECI-1840), so the slug has to
+    // settle it. Without that term the pair keeps the API's unordered relation
+    // order, and a cached description could differ between two identical requests.
     const forward = makeDescribedProduct({
       integrations_as_source: [
         makeEdge(SELF, makeLink('revu', 'Revu')),

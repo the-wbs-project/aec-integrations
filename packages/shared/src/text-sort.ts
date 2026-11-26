@@ -30,12 +30,15 @@
  * no numeric collation, so turning it on here would make page 1 and page 2 of one
  * list disagree about where a product belongs. One rule, both runtimes.
  *
- * The two collations are not byte-identical — ICU orders a case-insensitive tie
- * (`ADP` vs `adp`) lowercase-first, while `COLLATE NOCASE` calls it a tie and
- * leaves the tiebreaker column to settle it. Every SQL ordering therefore keeps a
- * unique trailing tiebreaker (AECI-99). Below that, the orders agree across the
- * ASCII catalog: both put digits and punctuation ahead of letters, and neither
- * lets case decide.
+ * A case-only tie is a TIE in both runtimes (AECI-1840). `sensitivity: 'accent'`
+ * makes `ADP` vs `adp` return 0, exactly as `COLLATE NOCASE` calls it a tie. The
+ * CALLER then breaks it on `id`, as every SQL ordering does with its unique
+ * trailing `id ASC` (AECI-99): `compareText(a.name, b.name) || compareId(a, b)`.
+ * Before AECI-1840 this used `'variant'`, which ranked the pair lowercase-first,
+ * so the same two names could appear in opposite orders in memory and in SQL.
+ * Below that, the orders agree across the ASCII catalog: both put digits and
+ * punctuation ahead of letters, and neither lets case decide. An in-memory sort
+ * with no id term leaves a case-only pair in input order (`Array.sort` is stable).
  *
  * No zod, no `./api/*` import, and deliberately **not** re-exported from the root
  * `src/index.ts` barrel (the rule `version-sort.ts` and `algolia.ts` follow).
@@ -53,10 +56,9 @@ let collator: Intl.Collator | undefined;
 
 function textCollator(): Intl.Collator {
   collator ??= new Intl.Collator(TEXT_SORT_LOCALE, {
-    // Full strength: case still breaks a tie, it just never outranks a letter
-    // difference. Anything weaker would report `ADP` and `adp` as equal and make
-    // the comparator a non-total order.
-    sensitivity: 'variant',
+    // Case-blind: `ADP` and `adp` compare equal, as in SQL `COLLATE NOCASE`, and
+    // the caller's `id` term decides (AECI-1840). Accents still count.
+    sensitivity: 'accent',
     // See the docblock — SQLite cannot match this, so it stays off.
     numeric: false,
   });
@@ -64,7 +66,8 @@ function textCollator(): Intl.Collator {
 }
 
 /**
- * Compare two display strings A→Z, case-insensitively at the primary level.
+ * Compare two display strings A→Z, ignoring case. Returns 0 for a case-only pair;
+ * break that tie on `id` at the call site, as SQL does.
  *
  * Use this anywhere an in-memory list is put in alphabetical order for a reader:
  * component-side sorts, API mappers ordering an embedded array, grouping helpers.

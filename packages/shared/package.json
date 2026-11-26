@@ -145,6 +145,10 @@
       "types": "./src/text-sort.ts",
       "default": "./src/text-sort.ts"
     },
+    "./text-sort-fixture": {
+      "types": "./src/text-sort-fixture.ts",
+      "default": "./src/text-sort-fixture.ts"
+    },
     "./version-sort": {
       "types": "./src/version-sort.ts",
       "default": "./src/version-sort.ts"

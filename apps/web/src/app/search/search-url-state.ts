@@ -136,7 +136,7 @@ function acceptsValue(attribute: string, value: string): boolean {
 }
 
 function sortedUnique(values: readonly string[]): string[] {
-  return [...new Set(values)].sort(compareText);
+  return [...new Set(values)].sort((a, b) => compareText(a, b) || (a < b ? -1 : a > b ? 1 : 0));
 }
 
 function compact(record: Record<string, string | undefined> | undefined): Record<string, string> {

@@ -711,7 +711,9 @@ export function findBurstRows(
 function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
   if (value && typeof value === 'object') {
-    const keys = Object.keys(value).sort(compareText);
+    const keys = Object.keys(value).sort(
+      (a, b) => compareText(a, b) || (a < b ? -1 : a > b ? 1 : 0),
+    );
     const body = keys.map(
       (k) => `${JSON.stringify(k)}:${canonicalJson((value as Record<string, unknown>)[k])}`,
     );

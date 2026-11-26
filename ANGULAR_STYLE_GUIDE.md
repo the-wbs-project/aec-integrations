@@ -413,7 +413,10 @@ Still fine on `BINARY`/code-unit comparison, because they are not display text: 
 construction), ids, enum tokens, and ISO-8601 timestamps.
 
 The SQL twin of this rule is `COLLATE NOCASE` in `apps/api/src/lib/collation.ts`; the two produce the
-same order, which `apps/api/src/lib/collation.spec.ts` asserts against real SQLite.
+same order, which `apps/api/src/lib/collation.spec.ts` asserts against real SQLite. Both call two names
+that differ only in case a tie (`compareText` returns 0), so the caller breaks it on `id`:
+`compareText(a.name, b.name) || compareId(a, b)` (AECI-1840). A sort with no id term
+keeps a case-only pair in input order.
 
 Lint: 🟡 review-only.
 

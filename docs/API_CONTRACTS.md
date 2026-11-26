@@ -150,6 +150,8 @@ Two consequences worth knowing before touching a sort:
 - **The AECI-99 `id ASC` tiebreaker became load-bearing.** `BINARY` distinguished `ADP` from `adp`; `NOCASE` reports them EQUAL, so a paginated list without a unique trailing term can drop or duplicate the row on a page boundary. Every resolver in `apps/api/src/lib/sort.ts` ends in `asc(<table>.id)`; the `GROUP BY` readouts in `admin-analytics.ts` / `admin-audience.ts` follow `textAsc(column)` with the raw `asc(column)` for the same reason.
 - **`slug` stays on `BINARY`, on purpose.** Slugs are lowercase by construction (`@aeci/shared/slug`), so the two collations agree on every row and `BINARY` can read the order straight off `vendors_slug_key`. The same holds for ids, enum tokens, ISO timestamps and `sqlite_master` names.
 
+**A case-only tie is a tie in both runtimes (AECI-1840).** `compareText` returns 0 for `Mid bridge` against `mid bridge`, as `NOCASE` does, and the caller breaks it on `id` (`compareText(a.name, b.name) || compareId(a, b)`). `packages/shared/src/text-sort-fixture.ts` is the one fixture the shared, API and web specs sort and compare. A sort with no id term leaves a case-only pair in input order.
+
 `COLLATE NOCASE` and `compareText` produce the identical order across the ASCII catalog; `apps/api/src/lib/collation.spec.ts` asserts that agreement against real SQLite rather than asserting it in prose.
 
 ##### Operating notes (moved from CLAUDE.md, 2026-09-23)
