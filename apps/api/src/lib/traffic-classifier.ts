@@ -74,7 +74,7 @@ import {
  * `swarm-detection.ts`, a `DATACENTER_ASNS` entry or a `NAMED_BOTS` pattern. The
  * spec's pin tells you when. Update `docs/BOT_TRAFFIC_CLASSIFICATION.md` in the same PR.
  */
-export const TRAFFIC_CLASSIFIER_VERSION = 'tc-2026.11.2';
+export const TRAFFIC_CLASSIFIER_VERSION = 'tc-2026.11.3';
 
 /** The four D19(b) reporting classes, in precedence order. Stable: stored later. */
 export const TRAFFIC_CLASSES = [
@@ -155,6 +155,8 @@ export type CrawlerPurpose =
  */
 export const BOT_PURPOSE_BY_LABEL: Readonly<Record<string, CrawlerPurpose>> = {
   Googlebot: 'purpose_indexing',
+  // AECI-2061. An on-demand test a site owner runs, not an index crawl.
+  'Google-InspectionTool': 'purpose_monitoring',
   Bingbot: 'purpose_indexing',
   Applebot: 'purpose_indexing',
   DuckDuckBot: 'purpose_indexing',

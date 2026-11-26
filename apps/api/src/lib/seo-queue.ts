@@ -80,6 +80,56 @@ export const CONCRETE_PATH_SINCE = '2026-08-18T03:49:00.000Z';
  */
 export const EDGE_VERIFIED_SINCE = '2026-10-13T08:02:33.500Z';
 
+/**
+ * When Google-InspectionTool got its own `bot_name` in production (AECI-2061).
+ * Rows before it file a URL Inspection live test under `Googlebot`, and the raw
+ * user agent is gone, so they cannot be split. A window that reaches before it
+ * carries `crawler_label_includes_inspection_tool`.
+ *
+ * A fact, not a tunable. `null` until the operator records the production date (AECI-2222)
+ * (`POST_LAUNCH_MONITORING.md` §3, "Search console tunables"). While it is null,
+ * every window counts as reaching before it. Never move it once set.
+ */
+export const INSPECTION_TOOL_SPLIT_SINCE: string | null = null;
+
+/** Whether a row or window starting at `fromIso` is from before the split. */
+export function reachesUnsplitLabel(
+  fromIso: string,
+  since: string | null = INSPECTION_TOOL_SPLIT_SINCE,
+): boolean {
+  return since === null || fromIso < since;
+}
+
+/**
+ * Whether the queue needs the split caveat. Its window can start after the split
+ * while a Google lane entry's `lastFetchAt`, read from all history, is a
+ * pre-split `Googlebot` row that may be a URL Inspection test.
+ */
+export function queueReachesUnsplit(
+  lanes: { window: CrawlWindow; uncrawled: Record<SeoEngine, SeoLaneEntry[]> },
+  since: string | null = INSPECTION_TOOL_SPLIT_SINCE,
+): boolean {
+  return (
+    reachesUnsplitLabel(lanes.window.from, since) ||
+    lanes.uncrawled.google.some(
+      (e) => e.lastFetchAt !== null && reachesUnsplitLabel(e.lastFetchAt, since),
+    )
+  );
+}
+
+/**
+ * Whether the trend needs the split caveat. The oldest week's lane snapshots
+ * count fetches over `SEO_CRAWL_LOOKBACK_DAYS` before it, so the reach starts
+ * that far before `fromIso`.
+ */
+export function trendReachesUnsplit(
+  fromIso: string,
+  since: string | null = INSPECTION_TOOL_SPLIT_SINCE,
+): boolean {
+  const lookbackFrom = new Date(Date.parse(fromIso) - SEO_CRAWL_LOOKBACK_DAYS * DAY_MS);
+  return reachesUnsplitLabel(lookbackFrom.toISOString(), since);
+}
+
 /** The ingest-time `NAMED_BOTS` label per engine (`lib/bot-classification.ts`). No
  *  other crawler counts, including the `Datacenter (Google)` ASN verdict. */
 export const ENGINE_BOT_NAME: Record<SeoEngine, string> = {
@@ -101,6 +151,8 @@ export interface CrawlWindow {
   clamped: boolean;
   /** The window reaches before {@link EDGE_VERIFIED_SINCE}. */
   reachesUnverified: boolean;
+  /** The window reaches before {@link INSPECTION_TOOL_SPLIT_SINCE}. */
+  reachesUnsplit: boolean;
 }
 
 /** `SEO_CRAWL_LOOKBACK_DAYS` ending at `to`, clamped to `CONCRETE_PATH_SINCE`. */
@@ -110,7 +162,13 @@ export function crawlWindow(to: Date, days = SEO_CRAWL_LOOKBACK_DAYS): CrawlWind
   const clamped = raw < CONCRETE_PATH_SINCE;
   // A window ending before `CONCRETE_PATH_SINCE` is empty, never inverted.
   const from = clamped ? (toIso < CONCRETE_PATH_SINCE ? toIso : CONCRETE_PATH_SINCE) : raw;
-  return { from, to: toIso, clamped, reachesUnverified: from < EDGE_VERIFIED_SINCE };
+  return {
+    from,
+    to: toIso,
+    clamped,
+    reachesUnverified: from < EDGE_VERIFIED_SINCE,
+    reachesUnsplit: reachesUnsplitLabel(from),
+  };
 }
 
 /** The window as the console envelope reports it. */
@@ -364,24 +422,35 @@ export function wholeDaysSince(iso: string | null, now: Date): number | null {
 // ─── Notes ───────────────────────────────────────────────────────────────────
 
 /**
- * The notes on any read that reports crawl coverage. The two standing caveats are
- * unconditional. The two date caveats fire only when the window reaches back
+ * The notes on any read that reports crawl coverage. The gateway caveat is
+ * unconditional. The three date caveats fire only when the window reaches back
  * past their date.
  */
 export function crawlNotes(opts: {
   clampedFrom?: string;
   reachesUnverified: boolean;
+  reachesUnsplit: boolean;
 }): AdminNote[] {
   const notes: AdminNote[] = [
     note(
       'crawl_coverage_is_gateway_arrivals',
       'Crawl coverage counts the page views the SSR gateway records. A crawl that got a 404, a 5xx or a redirect is not counted.',
     ),
-    note(
-      'crawler_label_includes_inspection_tool',
-      'The Googlebot label also covers Google-InspectionTool, so a live test in URL Inspection reads as a crawl.',
-    ),
   ];
+  if (opts.reachesUnsplit) {
+    notes.push(
+      INSPECTION_TOOL_SPLIT_SINCE === null
+        ? note(
+            'crawler_label_includes_inspection_tool',
+            'Rows written before Google-InspectionTool got its own label count it as Googlebot, so a live test in URL Inspection reads as a crawl.',
+          )
+        : note(
+            'crawler_label_includes_inspection_tool',
+            `Rows before ${INSPECTION_TOOL_SPLIT_SINCE} count Google-InspectionTool as Googlebot, so a live test in URL Inspection reads as a crawl.`,
+            { since: INSPECTION_TOOL_SPLIT_SINCE },
+          ),
+    );
+  }
   if (opts.clampedFrom !== undefined) {
     notes.push(
       note(

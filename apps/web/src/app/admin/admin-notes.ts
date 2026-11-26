@@ -298,8 +298,11 @@ const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
     $localize`:@@admin.notes.crawlerLabelUnverified:Rows before ${str(p, 'since')}:SINCE: carry no Cloudflare bot verification, so they count on the user agent alone.`,
   crawl_window_clamped: (p) =>
     $localize`:@@admin.notes.crawlWindowClamped:The crawl window starts at ${str(p, 'from')}:FROM:, the first row that records the page's real path.`,
-  crawler_label_includes_inspection_tool: () =>
-    $localize`:@@admin.notes.crawlerLabelIncludesInspectionTool:The Googlebot label also covers Google's URL Inspection tool, so a live test in Search Console reads as a crawl.`,
+  // AECI-2061. `since` is absent until the production date of the split is recorded.
+  crawler_label_includes_inspection_tool: (p) =>
+    p['since'] === undefined
+      ? $localize`:@@admin.notes.crawlerLabelIncludesInspectionToolUndated:Rows written before Google's URL Inspection tool got its own label count it as Googlebot, so a live test in Search Console reads as a crawl.`
+      : $localize`:@@admin.notes.crawlerLabelIncludesInspectionToolSince:Rows before ${str(p, 'since')}:SINCE: count Google's URL Inspection tool as Googlebot, so a live test in Search Console reads as a crawl.`,
   public_site_url_unset: () =>
     $localize`:@@admin.notes.publicSiteUrlUnset:This tier has no public site address configured, so no page URLs can be built here.`,
   // AECI-823 — the funnel (§5.24.7).

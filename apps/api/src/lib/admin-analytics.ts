@@ -1270,8 +1270,8 @@ const SEVERITY: Record<AdminNoteCode, 'info' | 'warn'> = {
   // AECI-1460. `info`, gated on the reported day having no classes: the tables are
   // correct for what they say they count, and the note says they are unfiltered.
   tables_unclassified: 'info',
-  // AECI-818 — the search console (§5.24.4, `API_CONTRACTS.md` §6.10). The two
-  // standing caveats and the clamp are `info`: a reader who misses them still reads
+  // AECI-818 — the search console (§5.24.4, `API_CONTRACTS.md` §6.10). The gateway
+  // caveat, the Inspection Tool caveat and the clamp are `info`: a reader who misses them still reads
   // the figures correctly. `crawler_label_unverified` is a `warn`, because the
   // older rows in the window may be spoofed user agents counted as crawls. An unset
   // public URL is a `warn`, because the empty lane list is not "nothing to do".

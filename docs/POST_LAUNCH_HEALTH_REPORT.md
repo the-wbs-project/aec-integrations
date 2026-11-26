@@ -61,6 +61,38 @@ nil-to-negligible. The value is a known zero to accrue against.
 
 ## Entries
 
+## 2026-11-26 — AECI-2061: classifier `tc-2026.11.3`, a `Google-InspectionTool` label
+
+**Version change, not a snapshot.** `NAMED_BOTS` gains `Google-InspectionTool`, above the `Googlebot`
+rule, mapped to `purpose_monitoring`. The `Googlebot` rule loses the `google-inspectiontool` token. It
+applies to rows captured from the deploy forward. No class or family rule changes.
+
+**The shadow run moves nothing, by construction.** The classifier reads the stored `bot_name`, and no
+stored row has the new label. Both labels are `ua_self_declared` named crawlers, so a row that moves
+from one to the other stays Identified. Only its purpose changes, and only when Cloudflare did not
+verify it. A production shadow run was not made for this entry.
+
+**The three §3c metrics.**
+
+| Metric | Result |
+|---|---|
+| False exclusions | None possible. The rule only renames rows that already had `is_bot = 1` from the `Googlebot` rule. |
+| Missed automation | None added. No row changes `is_bot`. |
+| Unresolved share | Unchanged. The class stays Identified. |
+
+**Side effects from the deploy forward.**
+
+- The 05:00 digest's crawler table gains a `Google-InspectionTool` line on days it fetched, and the
+  `Googlebot` line loses those rows. The bot total is unchanged.
+- The search console's Google crawl predicate (`ADMIN_PANEL_SPEC.md` §5.24.4) no longer counts a live
+  test as a crawl. Rows written before the deploy keep `Googlebot` and cannot be split.
+- Backfill surviving page-view days at the new classifier version after each tier deploy, following
+  `runbooks/alerts.md`, "Backfill traffic classifications". Until the trailing 30 days are backfilled,
+  the home page's "Most viewed" row falls back to categories and refills one day at a time.
+- `INSPECTION_TOOL_SPLIT_SINCE` in `lib/seo-queue.ts` is `null` until the production date is recorded
+  (`POST_LAUNCH_MONITORING.md` §3, "Search console tunables"). Until then every crawl read carries
+  `crawler_label_includes_inspection_tool`.
+
 ## 2026-11-05 — AECI-1626: classifier `tc-2026.11.2`, a `Claude-User` label
 
 **Version change, not a snapshot.** `NAMED_BOTS` gains `Claude-User (Anthropic)`, mapped to

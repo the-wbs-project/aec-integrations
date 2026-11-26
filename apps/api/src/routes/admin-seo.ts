@@ -50,10 +50,12 @@ import {
   computeSeoLanes,
   crawlNotes,
   crawlWindow,
+  queueReachesUnsplit,
   readCohortFetches,
   readReindexLane,
   readSelfReportedRequestsByDay,
   toCrawlAdminWindow,
+  trendReachesUnsplit,
   wholeDaysSince,
   type SeoLaneEntry,
 } from '../lib/seo-queue';
@@ -139,6 +141,7 @@ export function createAdminSeoQueueHandler(
         notes: crawlNotes({
           ...(lanes.window.clamped ? { clampedFrom: lanes.window.from } : {}),
           reachesUnverified: lanes.window.reachesUnverified,
+          reachesUnsplit: queueReachesUnsplit(lanes),
         }),
       };
     }
@@ -301,7 +304,10 @@ export function createAdminSeoTrendHandler(
       weeks: out,
       // The cohort is matched on entity id, not `concrete_path`, so the
       // `CONCRETE_PATH_SINCE` clamp does not apply to it.
-      notes: crawlNotes({ reachesUnverified: fromIso < EDGE_VERIFIED_SINCE }),
+      notes: crawlNotes({
+        reachesUnverified: fromIso < EDGE_VERIFIED_SINCE,
+        reachesUnsplit: trendReachesUnsplit(fromIso),
+      }),
     };
 
     validateResponseInDev(c.env, () => {

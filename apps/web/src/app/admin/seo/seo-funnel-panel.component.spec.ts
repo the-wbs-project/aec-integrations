@@ -485,7 +485,7 @@ describe('SeoFunnelPanel', () => {
     expect(reading).toContain('The stages will not reconcile exactly.');
     const all = text(el);
     expect(all).toContain('Crawl coverage counts the page views');
-    expect(all).toContain('The Googlebot label also covers');
+    expect(all).toContain('URL Inspection tool got its own label');
     expect(all).toContain("Google's indexed figure counts catalog pages");
     expect(all).toContain('The crawl window starts at');
     expect(all).toContain('carry no Cloudflare bot verification');

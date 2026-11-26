@@ -617,6 +617,7 @@ written with, so note the date of the change.
 | `SEO_QUEUE_PAGE_SIZE` | `packages/shared/src/api/admin-seo.ts` | `25` | The default `perPage` of the queue. The server caps `perPage` at 100 |
 | `CONCRETE_PATH_SINCE` | `lib/seo-queue.ts` | `2026-08-18T03:49:00.000Z` | A fact, not a tunable: the first production row with a `concrete_path`. Never move it |
 | `EDGE_VERIFIED_SINCE` | `lib/seo-queue.ts` | `2026-10-13T08:02:33.500Z` | A fact, not a tunable: the first production row with `cf_verified_bot_category`. Read from production on 2026-11-24 with `SELECT min(created_at) FROM page_views WHERE cf_verified_bot_category IS NOT NULL`. Never move it |
+| `INSPECTION_TOOL_SPLIT_SINCE` | `lib/seo-queue.ts` | `null` (not yet recorded) | A fact, not a tunable: when the production API Worker began storing `Google-InspectionTool` as its own `bot_name` (AECI-2061, classifier `tc-2026.11.3`). Set it once, to the `deployed_at` that `GET /api/version` reports on production after the promote that carries AECI-2061 (AECI-2222). While it is `null`, every crawl read carries `crawler_label_includes_inspection_tool`. AECI-824's clean data starts here. Never move it |
 | `SEO_FUNNEL_WINDOW_DAYS` | `lib/seo-funnel.ts` | `28` | The Panel 3 funnel window. Keep it equal to `SEO_CRAWL_LOOKBACK_DAYS` and to the ingest's 28-day counts, or stages 1 and 3 stop describing the same length of time |
 
 ### Trade publication floor (AECI-539 / AECI-546)
